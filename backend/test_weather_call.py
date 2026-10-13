@@ -67,7 +67,7 @@ class CallTests(unittest.TestCase):
         for m in (models.NexusRole, models.NexusEmployee, models.ShiftGroup, models.ShiftGroupMember, models.HrWorkSite,
                   models.HrEntity, models.ScheduledShift, models.NexusNotification, models.ScheduleDayNote,
                   models.WeatherOutlook, models.WeatherAdvisory, models.WeatherDecision, models.NexusPersonPref,
-                  models.NexusSetting, models.ShiftRequest):
+                  models.NexusSetting, models.ShiftRequest, models.Shift, models.ShiftAssignment):
             self.db.query(m).delete()
         for em, first, phone in ((BOSS, "Boss", ""), (MGR, "Mia", ""), (OTHER, "Otto", ""), (ANN, "Ann", "(949) 555-0101"),
                                  (BOB, "Bob", "(949) 555-0102"), (CAL, "Cal", "")):
@@ -130,7 +130,15 @@ class CallTests(unittest.TestCase):
     def _cancel(self, emails=(ANN, CAL), **extra):
         r = self._call({"kind": "cancel", "emails": list(emails), "reason": "Flooded access road", **extra})
         self.assertEqual(r.status_code, 200, r.text)
-        return r.json()
+        return self._fresh(r.json())
+
+    def _fresh(self, j):
+        """The response says what was QUEUED (Oct 12: the texts, email and
+        Teams go in a background task after it); TestClient has run that
+        task by the time it returns, so the roster's results are read back."""
+        self.db.expire_all()
+        d = self.db.query(models.WeatherDecision).filter(models.WeatherDecision.id == j["id"]).first()
+        return {**weather_call.decision_dict(self.db, d), "queued": j.get("queued")}
 
     def test_the_screen(self):
         r = self.client.get(f"/weather-call/{GROUP}/{DAY}")
@@ -380,6 +388,118 @@ class CallTests(unittest.TestCase):
         self.assertTrue(ann["ackAt"], "Ann's acknowledgment survived the send")
         self.assertEqual(ann["channels"]["sms"], "ok", "...and her channel results were still recorded")
         self.assertEqual((j["ackedCount"], j["pendingCount"]), (1, 1))
+
+    def test_the_sends_leave_the_request(self):
+        # Oct 12: the request changes the shifts, records the call and rings
+        # the bells, and answers with what was QUEUED; texts, email and Teams
+        # go in a background task after the response.
+        r = self._call({"kind": "cancel", "emails": [ANN, CAL], "reason": "Flooded access road"})
+        self.assertEqual(r.status_code, 200, r.text)
+        j = r.json()
+        self.assertEqual(j["queued"], {"people": 2, "texts": 1, "emails": 2, "teams": 2})
+        by = {p["email"]: p for p in j["people"]}
+        self.assertEqual(by[ANN]["channels"], {"bell": "ok"}, "the response did not wait for the sends")
+        # ...which then landed in the roster.
+        by = {p["email"]: p for p in self._fresh(j)["people"]}
+        self.assertEqual(by[ANN]["channels"], {"bell": "ok", "sms": "ok", "email": "ok", "teams": "ok", "groupChat": "ok"})
+        self.assertEqual(weather_call._send_sms.call_count, 1)
+        # Remind and Reinstate answer the same way.
+        r = self.client.post(f"/weather-call/{j['id']}/remind")
+        self.assertEqual((r.status_code, r.json()["reminded"]), (200, 2))
+        cal = {p["email"]: p for p in self._fresh(j)["people"]}[CAL]
+        self.assertEqual(cal["channels"]["reminder"], "no phone on file")
+        r = self.client.post(f"/weather-call/{j['id']}/reinstate")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["queued"]["people"], 2)
+        ann = {p["email"]: p for p in self._fresh(j)["people"]}[ANN]
+        self.assertEqual(ann["reinstateChannels"], {"bell": "ok", "sms": "ok", "email": "ok"})
+
+    def test_a_delay_never_moves_a_later_start_earlier(self):
+        # Staggered starts: Cal starts at 11:00. "Delay to 10:00" delays Ann
+        # (7:00) and leaves Cal alone - it must not move her EARLIER.
+        row = self._shift(f"s-{CAL}")
+        row.start_hhmm = "11:00"
+        self.db.commit()
+        j = self._fresh(self._call({"kind": "delay", "emails": [ANN, CAL], "new_start": "10:00", "reason": "Morning rain"}).json())
+        self.assertEqual((self._shift(f"s-{ANN}").start_hhmm, self._shift(f"s-{ANN}").weather_status), ("10:00", "delayed"))
+        self.assertEqual((self._shift(f"s-{CAL}").start_hhmm, self._shift(f"s-{CAL}").weather_status), ("11:00", "kept"))
+        by = {p["email"]: p for p in j["people"]}
+        self.assertEqual((by[ANN]["outcome"], by[CAL]["outcome"]), ("delayed", "kept"))
+        self.assertEqual([b.title for b in self._bells(CAL)], ["Weather call: your shift goes ahead"])
+        # End early after a shift's own end leaves it alone too.
+        row = self._shift(f"s-{BOB}")
+        row.end_hhmm = "11:30"
+        self.db.commit()
+        self._call({"kind": "end_early", "emails": [BOB, ANN], "new_end": "12:00", "reason": "Storm at noon"})
+        self.assertEqual((self._shift(f"s-{BOB}").end_hhmm, self._shift(f"s-{BOB}").weather_status), ("11:30", "kept"))
+        self.assertEqual((self._shift(f"s-{ANN}").end_hhmm, self._shift(f"s-{ANN}").weather_status), ("12:00", "shortened"))
+
+    def test_an_overnight_shift_delayed_past_midnight_moves_to_the_next_day(self):
+        nxt = (datetime.strptime(DAY, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+        row = self._shift(f"s-{ANN}")
+        row.start_hhmm, row.end_hhmm = "22:00", "04:00"
+        self.db.commit()
+        j = self._fresh(self._call({"kind": "delay", "emails": [ANN], "new_start": "01:00", "reason": "Storm until 1"}).json())
+        s = self._shift(f"s-{ANN}")
+        self.assertEqual((s.work_date, s.start_hhmm, s.end_hhmm, s.weather_status, s.original_work_date, s.original_start_hhmm),
+                         (nxt, "01:00", "04:00", "delayed", DAY, "22:00"))
+        self.assertIn("starts at 1:00 AM on", weather_call._send_sms.call_args[0][1])
+        self.assertEqual({p["email"]: p for p in j["people"]}[ANN]["outcome"], "delayed")
+        # A later call on the day still finds her shift, and starts from the original.
+        self._call({"kind": "delay", "emails": [ANN], "new_start": "23:00", "reason": "Storm until 11"})
+        s = self._shift(f"s-{ANN}")
+        self.assertEqual((s.work_date, s.start_hhmm, s.original_work_date), (DAY, "23:00", ""))
+        # Reinstate puts it back on its own day.
+        self._call({"kind": "delay", "emails": [ANN], "new_start": "02:00", "reason": "Later still"})
+        self.assertEqual(self._shift(f"s-{ANN}").work_date, nxt)
+        self.client.post(f"/weather-call/{self._decision().id}/reinstate")
+        s = self._shift(f"s-{ANN}")
+        self.assertEqual((s.work_date, s.start_hhmm, s.end_hhmm, s.weather_status, s.original_work_date), (DAY, "22:00", "04:00", "", ""))
+
+    def test_overnight_times_count_toward_the_nearer_edge(self):
+        def outcome(kind, field, value):
+            row = self._shift(f"s-{ANN}")
+            row.work_date, row.start_hhmm, row.end_hhmm = DAY, "22:00", "04:00"
+            row.weather_status = row.weather_decision_id = row.original_start_hhmm = row.original_end_hhmm = row.original_work_date = ""
+            self.db.query(models.WeatherDecision).delete()
+            self.db.commit()
+            r = self._call({"kind": kind, "emails": [ANN], field: value, "reason": "x", "sms": False})
+            self.assertEqual(r.status_code, 200, r.text)
+            s = self._shift(f"s-{ANN}")
+            return s.weather_status, s.start_hhmm, s.end_hhmm
+        self.assertEqual(outcome("delay", "new_start", "21:00"), ("kept", "22:00", "04:00"))       # before the start
+        self.assertEqual(outcome("delay", "new_start", "05:00"), ("cancelled", "22:00", "04:00"))  # past the end
+        self.assertEqual(outcome("delay", "new_start", "23:30"), ("delayed", "23:30", "04:00"))
+        self.assertEqual(outcome("end_early", "new_end", "05:00"), ("kept", "22:00", "04:00"))     # after the end
+        self.assertEqual(outcome("end_early", "new_end", "21:00"), ("cancelled", "22:00", "04:00"))  # before the start
+        self.assertEqual(outcome("end_early", "new_end", "23:00"), ("shortened", "22:00", "23:00"))
+        self.assertEqual(outcome("end_early", "new_end", "02:00"), ("shortened", "22:00", "02:00"))
+
+    def test_a_replaced_calls_link_says_so(self):
+        j = self._cancel(emails=(ANN,))
+        token = weather_call.ack_url(j["id"], ANN).split("t=", 1)[1]
+        self._call({"kind": "delay", "emails": [ANN], "new_start": "10:00", "reason": "Only the morning"})
+        r = self.client.get("/weather-call/ack", params={"t": token})
+        self.assertEqual(r.status_code, 410)
+        self.assertIn("A later weather call replaced this one", r.text)
+        self.assertNotIn("<form", r.text)
+        self.assertEqual(self.client.post("/weather-call/ack", data={"t": token}).status_code, 410)
+
+    def test_a_cancelled_day_is_never_late(self):
+        from routers import my_team, timeclock
+        day = datetime.strptime(DAY, "%Y-%m-%d").date()
+        # A preset that works that weekday too - it must not stand in.
+        self.db.add(models.Shift(id="p-day", name="Day", start_hhmm="07:00", end_hhmm="15:30", days=str(day.isoweekday())))
+        self.db.add(models.ShiftAssignment(id="a-ann", employee_email=ANN, shift_id="p-day"))
+        self.db.commit()
+        self.assertIsNotNone(timeclock._shift_start_for(self.db, ANN, day))
+        self._cancel(emails=(ANN,))
+        self.db.expire_all()
+        self.assertIsNone(timeclock._shift_start_for(self.db, ANN, day))
+        self.assertIsNotNone(timeclock._shift_start_for(self.db, BOB, day), "Bob still works")
+        starts = my_team._shift_starts(self.db, [ANN, BOB], DAY, "America/Los_Angeles")["starts"]
+        self.assertNotIn(ANN, starts)
+        self.assertIn(BOB, starts)
 
     def test_my_prefs(self):
         self._as(ANN)

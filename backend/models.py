@@ -2421,6 +2421,9 @@ class ScheduledShift(Base):
     original_start_hhmm = Column(String, default="")
     original_end_hhmm   = Column(String, default="")
     original_label      = Column(String, default="")
+    # A delay that moves an overnight shift's start past midnight puts the
+    # row on the next calendar day; this is the day it was on (Oct 12).
+    original_work_date  = Column(String, default="")
     # The grid and the reminder scan read one person's days (Oct 2).
     __table_args__ = (Index("ix_scheduled_shifts_email_date", "employee_email", "work_date"),)
 

@@ -253,6 +253,8 @@ def _availability(db: Session, people: list) -> None:
                 .filter(ScheduledShift.work_date.in_(window), ScheduledShift.published == 1)
                 .filter(func.lower(ScheduledShift.employee_email).in_(emails)).all())
     for s in shifts:
+        if (getattr(s, "weather_status", "") or "") == "cancelled":
+            continue   # a day a weather call cancelled (Weather Call, Oct 12)
         p = by_email.get((s.employee_email or "").lower())
         if p and s.work_date == p["today"] and p["availability"] is None:
             p["availability"] = {"state": "scheduled", "label": "Scheduled",

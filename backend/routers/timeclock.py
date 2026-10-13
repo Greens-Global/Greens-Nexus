@@ -7233,7 +7233,7 @@ def publish_schedule(body: PublishScheduleIn, bt: BackgroundTasks, user: dict = 
                 # has set it by hand: the weather status and the saved
                 # originals no longer describe it (Weather Call, Oct 2026).
                 r.weather_status, r.weather_decision_id = "", ""
-                r.original_start_hhmm = r.original_end_hhmm = r.original_label = ""
+                r.original_start_hhmm = r.original_end_hhmm = r.original_label = r.original_work_date = ""
             changes.append(shift_notify.change("changed", r, start=r.start_hhmm, end=r.end_hhmm, label=r.label, was=was))
             touched.append(r.id)
             updated += 1
@@ -7383,10 +7383,15 @@ def _shift_start_for(db: Session, email: str, dd: date):
     per-team trigger time - the timezone tags which team's own local clock the
     HH:MM is wall-clock-local to (e.g. a GG India shift stays on IST regardless
     of where the employee last punched from)."""
-    sched = (db.query(ScheduledShift)
-             .filter(ScheduledShift.employee_email == email,
-                     ScheduledShift.work_date == dd.isoformat(),
-                     ScheduledShift.published == 1).first())   # unpublished drafts don't drive Late
+    placed = (db.query(ScheduledShift)
+              .filter(ScheduledShift.employee_email == email,
+                      ScheduledShift.work_date == dd.isoformat(),
+                      ScheduledShift.published == 1).all())   # unpublished drafts don't drive Late
+    # A day a weather call cancelled is not a shift: never Late, and no
+    # falling back to the preset either (Weather Call, Oct 12).
+    sched = next((r for r in placed if (getattr(r, "weather_status", "") or "") != "cancelled"), None)
+    if placed and sched is None:
+        return None
     if sched:
         grace, tz = 10, "America/Los_Angeles"
         if sched.shift_id:

@@ -945,6 +945,7 @@ def _run_migrations():
             "ALTER TABLE scheduled_shifts ADD COLUMN original_start_hhmm VARCHAR DEFAULT ''",
             "ALTER TABLE scheduled_shifts ADD COLUMN original_end_hhmm VARCHAR DEFAULT ''",
             "ALTER TABLE scheduled_shifts ADD COLUMN original_label VARCHAR DEFAULT ''",
+            "ALTER TABLE scheduled_shifts ADD COLUMN original_work_date VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2112,6 +2113,7 @@ def _run_migrations():
         "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS original_start_hhmm VARCHAR DEFAULT ''",
         "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS original_end_hhmm VARCHAR DEFAULT ''",
         "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS original_label VARCHAR DEFAULT ''",
+        "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS original_work_date VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

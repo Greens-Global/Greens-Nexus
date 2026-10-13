@@ -140,8 +140,10 @@ def day_shifts(db: Session, g, day: str, member_emails: list, lock: bool = False
     """The group's published shifts that day: rows on the group, plus older
     rows with no group on its members. Open slots (no person) included."""
     S = models.ScheduledShift
+    # A row a delay moved past midnight lives on the next day now but still
+    # belongs to this day's call (original_work_date).
     q = (db.query(S)
-         .filter(S.work_date == day, S.published == 1, S.pending_delete == 0,
+         .filter(or_(S.work_date == day, S.original_work_date == day), S.published == 1, S.pending_delete == 0,
                  or_(S.group_id == g.id,
                      and_(or_(S.group_id == "", S.group_id == None),   # noqa: E711 - older rows with no group
                           func.lower(S.employee_email).in_(list(member_emails) or ["-"])))))
@@ -178,7 +180,8 @@ def _day_label(day: str) -> str:
 
 
 def _shift_dict(r) -> dict:
-    return {"id": r.id, "email": (r.employee_email or "").lower(), "start": (r.start_hhmm or "")[:5], "end": (r.end_hhmm or "")[:5],
+    return {"id": r.id, "email": (r.employee_email or "").lower(), "date": r.work_date or "",
+            "start": (r.start_hhmm or "")[:5], "end": (r.end_hhmm or "")[:5],
             "label": r.label or "", "weatherStatus": getattr(r, "weather_status", "") or "",
             "originalStart": getattr(r, "original_start_hhmm", "") or "", "originalEnd": getattr(r, "original_end_hhmm", "") or "",
             "openSlots": int(getattr(r, "open_slots", 0) or 0)}
@@ -296,37 +299,71 @@ def _check_hhmm(v: str, what: str) -> str:
     return f"{h:02d}:{m:02d}"
 
 
+def _mins(hhmm: str) -> int:
+    h, m = (int(x) for x in (hhmm or "00:00")[:5].split(":"))
+    return h * 60 + m
+
+
+def _next_day(day: str) -> str:
+    return (datetime.strptime(day, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+
+
 def _apply_to_shift(r, kind: str, new_start: str, new_end: str, move_to: str, decision_id: str) -> str:
-    """Change one shift row for the call. Returns the person's outcome for
-    this shift (a delay past the end, or an end before the start, cancels)."""
+    """Change one shift row for the call. Returns this shift's outcome.
+
+    Times are read relative to the shift's own start, so an overnight shift
+    (10:00 PM - 4:00 AM) works the same as a day shift (Oct 12):
+      - delay: a new start inside the shift delays it - past midnight on an
+        overnight shift, the row moves to the next calendar day (its day is
+        kept in original_work_date for Reinstate); a new start at or before
+        the shift's own start leaves it unchanged ("kept" - a crew with
+        staggered starts is never moved EARLIER by a delay); a start past
+        the end cancels it.
+      - end_early: a new end inside the shift shortens it; one at or after
+        its own end leaves it unchanged; one at or before its start cancels.
+      A time in the gap between a shift's end and its next start counts
+      toward whichever edge it is nearer: 8:00 AM on a 9:00 AM - 5:00 PM
+      shift is "before the start", 6:00 PM is "after the end"."""
     if not (getattr(r, "original_start_hhmm", "") or ""):
         r.original_start_hhmm, r.original_end_hhmm = (r.start_hhmm or "")[:5], (r.end_hhmm or "")[:5]
         r.original_label = r.label or ""
     r.weather_decision_id = decision_id
-    start, end = (r.start_hhmm or "")[:5], (r.end_hhmm or "")[:5]
-    overnight = end <= start   # 10:00 PM - 4:00 AM: the end is the next morning
     if kind == "proceed":
         r.weather_status = "kept"
         return "kept"
     if kind == "cancel":
         r.weather_status = "cancelled"
         return "cancelled"
+    if kind == "move":
+        r.label, r.weather_status = move_to[:80], "moved"
+        return "moved"
+    s0 = _mins(r.start_hhmm)
+    length = (_mins(r.end_hhmm) - s0) % 1440 or 1440   # end == start: a 24-hour shift
+    rel = ((_mins(new_start if kind == "delay" else new_end)) - s0) % 1440
+    in_gap = rel > length or (rel == length and kind == "delay")
+    nearer_end = in_gap and (rel - length) <= (1440 - rel)
     if kind == "delay":
-        # A start at or past the end is no shift at all; on an overnight
-        # shift that means a start in the daytime gap between end and start.
-        if (not overnight and new_start >= end) or (overnight and end <= new_start < start):
-            r.weather_status = "cancelled"
+        if rel == 0 or (in_gap and not nearer_end):
+            r.weather_status = "kept"     # starts at or after the new time already
+            return "kept"
+        if in_gap:
+            r.weather_status = "cancelled"   # a start at or past the end is no shift
             return "cancelled"
+        if s0 + rel >= 1440 and not (getattr(r, "original_work_date", "") or ""):
+            # Past midnight: the shift now starts on the next calendar day.
+            r.original_work_date = r.work_date
+            r.work_date = _next_day(r.work_date)
         r.start_hhmm, r.weather_status = new_start, "delayed"
         return "delayed"
-    if kind == "end_early":
-        if (not overnight and new_end <= start) or (overnight and end < new_end <= start):
-            r.weather_status = "cancelled"
-            return "cancelled"
-        r.end_hhmm, r.weather_status = new_end, "shortened"
-        return "shortened"
-    r.label, r.weather_status = move_to[:80], "moved"
-    return "moved"
+    # end_early
+    if rel == length or (in_gap and nearer_end):
+        r.weather_status = "kept"         # ends at or before the new time already
+        return "kept"
+    if rel == 0 or in_gap:
+        r.weather_status = "cancelled"    # an end at or before the start is no shift
+        return "cancelled"
+    r.end_hhmm, r.weather_status = new_end, "shortened"
+    return "shortened"
 
 
 def headline(kind: str, new_start: str = "", new_end: str = "", move_to: str = "") -> str:
@@ -337,10 +374,12 @@ def headline(kind: str, new_start: str = "", new_end: str = "", move_to: str = "
             "proceed": "Going ahead as planned despite the forecast"}.get(kind, kind)
 
 
-def decide(db: Session, user: dict, g, day: str, body: dict) -> dict:
+def decide(db: Session, user: dict, g, day: str, body: dict, defer=None) -> dict:
     """Make (or remake) the call for one group-day. `body`: kind, emails
     (who it applies to), new_start / new_end / move_to as the kind needs,
-    reason (required), sms (text the crew; default from settings)."""
+    reason (required), sms (text the crew; default from settings).
+    `defer` - see _run: the route hands the texts, email and Teams to a
+    background task and answers at once with what was queued."""
     kind = (body.get("kind") or "").strip()
     if kind not in KINDS:
         raise ValueError("Pick what to do: cancel, delay, end early, move, or proceed.")
@@ -393,11 +432,13 @@ def decide(db: Session, user: dict, g, day: str, body: dict) -> dict:
         outcomes = []
         if selected:
             for r in mine:
-                before = ((r.start_hhmm or "")[:5], (r.end_hhmm or "")[:5], r.label or "")
+                before = (r.work_date, (r.start_hhmm or "")[:5], (r.end_hhmm or "")[:5], r.label or "")
                 outcomes.append(_apply_to_shift(r, kind, new_start, new_end, move_to, d.id))
-                if (r.start_hhmm[:5], r.end_hhmm[:5], r.label or "") != before or r.weather_status == "cancelled":
+                if (r.work_date, r.start_hhmm[:5], r.end_hhmm[:5], r.label or "") != before or r.weather_status == "cancelled":
                     touched.append(r.id)
-        outcome = "kept" if not selected else ("cancelled" if "cancelled" in outcomes else (outcomes[0] if outcomes else OUTCOME[kind]))
+        changed = [o for o in outcomes if o != "kept"]
+        outcome = "kept" if not selected else ("cancelled" if "cancelled" in outcomes else (changed[0] if changed
+                                                else "kept" if outcomes else OUTCOME[kind]))
         ppl.append({"email": em, "name": _name(e) or em, "selected": selected, "outcome": outcome,
                     "shiftIds": [r.id for r in mine], "shifts": [_shift_dict(r) for r in mine],
                     "phone": bool(e is not None and (e.phone or "").strip()), "smsOn": prefs.get(em, True),
@@ -421,8 +462,8 @@ def decide(db: Session, user: dict, g, day: str, body: dict) -> dict:
     note.note = f"Weather call: {headline(kind, new_start, new_end, move_to)} for {who} - {decider_name}. {reason}"[:200]
     note.updated_by, note.updated_at = actor, now
     db.commit()
-    notify_decision(db, d, g, people, actor, cid)
-    return decision_dict(db, d, people)
+    queued = notify_decision(db, d, g, people, actor, cid, defer=defer)
+    return {**decision_dict(db, d, people), "queued": queued}
 
 
 # ── Telling the crew ──────────────────────────────────────────────────────
@@ -439,11 +480,15 @@ def sms_text(company_name: str, g, site_name: str, day: str, p: dict, d, url: st
     if p["outcome"] == "cancelled":
         line = f"Your shift ({start}) is CANCELLED for weather (unpaid)."
     elif p["outcome"] == "delayed":
-        line = f"Your shift starts at {_t12(d.new_start)} instead of {start} for weather."
+        moved = first.get("date") and first.get("date") != day
+        on = f" on {_day_label(first['date'])}" if moved else ""
+        line = f"Your shift starts at {_t12(d.new_start)}{on} instead of {start} for weather."
     elif p["outcome"] == "shortened":
         line = f"Your shift ({start}) ends at {_t12(d.new_end)} for weather."
     elif p["outcome"] == "moved":
         line = f"Report to {d.move_to} instead ({start}) for weather."
+    elif d.kind != "proceed":
+        line = f"Your shift ({start}) is unchanged by this call and goes ahead as scheduled."
     else:
         line = f"Your shift ({start}) goes ahead as planned despite the forecast."
     reason = f" Reason: {d.reason}." if d.reason else ""
@@ -460,10 +505,11 @@ def _email(company_name: str, g, site_name: str, day: str, p: dict, d, url: str,
             "shortened": f"Your {_day_label(day)} shift ends early", "moved": f"Your {_day_label(day)} shift moves",
             "kept": f"Your {_day_label(day)} shift goes ahead"}[p["outcome"]]
     detail = {"cancelled": f"The {start} shift at {site_name or 'the site'} is cancelled for weather. The day is unpaid.",
-              "delayed": f"Start at {_t12(d.new_start)} instead of {start} at {site_name or 'the site'}.",
+              "delayed": f"Start at {_t12(d.new_start)}{' on ' + _day_label(first['date']) if first.get('date') and first.get('date') != day else ''} instead of {start} at {site_name or 'the site'}.",
               "shortened": f"The {start} shift ends at {_t12(d.new_end)} instead.",
               "moved": f"Report to {d.move_to} instead of {site_name or 'the usual site'} at {start}.",
-              "kept": f"The forecast was reviewed and the {start} shift at {site_name or 'the site'} goes ahead as planned."}[p["outcome"]]
+              "kept": (f"The forecast was reviewed and the {start} shift at {site_name or 'the site'} goes ahead as planned." if d.kind == "proceed"
+                       else f"This call does not change your {start} shift at {site_name or 'the site'}; it goes ahead as scheduled.")}[p["outcome"]]
     html = f"""<div style="background:#f3f4f6;padding:28px 12px;font-family:'Segoe UI',Arial,Helvetica,sans-serif">
   <table align="center" width="620" cellpadding="0" cellspacing="0" style="max-width:620px;width:100%;background:#ffffff;border:1px solid #e5e7eb;border-collapse:collapse">
     <tr><td style="background:{band};padding:16px 28px">{theme.logo_block()}</td></tr>
@@ -533,25 +579,47 @@ def _company_name(db: Session, cid: str) -> str:
     return (ent.name or "") if ent else ""
 
 
-def notify_person(db: Session, d, g, p: dict, *, site_name: str, company_name: str, actor: str, decider_name: str,
-                  reminder: bool = False) -> dict:
-    """Every channel at once for one affected person; returns the results."""
-    url = ack_url(d.id, p["email"])
-    text = sms_text(company_name, g, site_name, d.work_date, p, d, url)
-    out = {}
+def _bell_person(db: Session, d, g, p: dict, decider_name: str) -> str:
+    """The priority bell for one affected person (in the request - it is a
+    row, not a send). Returns the bell's title, which the Teams DM reuses."""
     title = f"Weather call: {headline(d.kind, d.new_start, d.new_end, d.move_to)}" if p["outcome"] != "kept" else "Weather call: your shift goes ahead"
     if p["outcome"] == "cancelled" and d.kind != "cancel":
         title = "Weather call: your shift is cancelled (unpaid)"
     body = f"{g.name}, {_day_label(d.work_date)}. {d.reason} Tap Acknowledge in My Shifts so {decider_name} knows you saw this."
     _bell(db, p["email"], f"weather-call:{d.id}", title, body, action=MY_SHIFTS, company=d.company, priority=1)
-    out["bell"] = "ok"
-    if d.sms and p.get("phone") and p.get("smsOn", True):
-        emp = db.query(models.NexusEmployee).filter(func.lower(models.NexusEmployee.work_email) == p["email"]).first()
-        ok, err = _send_sms(emp.phone if emp else "", text)
+    return title
+
+
+def _texts(d, p: dict) -> bool:
+    return bool(d.sms and p.get("phone") and p.get("smsOn", True))
+
+
+def _sms_skip(d, p: dict) -> str:
+    return "no phone on file" if not p.get("phone") else ("turned off by the person" if not p.get("smsOn", True) else "off for this call")
+
+
+def _phone(db: Session, email: str) -> str:
+    emp = db.query(models.NexusEmployee).filter(func.lower(models.NexusEmployee.work_email) == email).first()
+    return (emp.phone or "") if emp else ""
+
+
+def notify_person(db: Session, d, g, p: dict, *, site_name: str, company_name: str, actor: str, decider_name: str,
+                  reminder: bool = False) -> dict:
+    """The SENDS for one affected person - text, and (not on a reminder)
+    email and an urgent Teams message. The bell is _bell_person's, made in
+    the request. Runs in a delivery job (_run). Returns the results."""
+    url = ack_url(d.id, p["email"])
+    text = sms_text(company_name, g, site_name, d.work_date, p, d, url)
+    out = {}
+    if _texts(d, p):
+        ok, err = _send_sms(_phone(db, p["email"]), text)
         out["sms"] = "ok" if ok else (err or "failed")
     else:
-        out["sms"] = "no phone on file" if not p.get("phone") else ("turned off by the person" if not p.get("smsOn", True) else "off for this call")
+        out["sms"] = _sms_skip(d, p)
     if not reminder:
+        title = f"Weather call: {headline(d.kind, d.new_start, d.new_end, d.move_to)}" if p["outcome"] != "kept" else "Weather call: your shift goes ahead"
+        if p["outcome"] == "cancelled" and d.kind != "cancel":
+            title = "Weather call: your shift is cancelled (unpaid)"
         subject, html = _email(company_name, g, site_name, d.work_date, p, d, url, decider_name)
         out["email"] = _send_email(p["email"], subject, html)
         out["teams"] = _teams_dm(db, actor, p["email"], f"<p><b>{escape(title)}</b><br>{escape(text)}</p>")
@@ -563,8 +631,8 @@ def _merge_people(db: Session, decision_id: str, fn) -> list:
     mutate it, save, commit. Sending to a crew takes seconds per person
     (texts, email, Teams), and an acknowledgment that lands meanwhile must
     not be written over by a stale copy."""
-    # populate_existing: the session already holds this row from decide();
-    # without it the lock re-reads the row but keeps the stale attributes.
+    # populate_existing: the session may already hold this row; without it
+    # the lock re-reads the row but keeps the stale attributes.
     d = (db.query(models.WeatherDecision).filter(models.WeatherDecision.id == decision_id)
          .populate_existing().with_for_update().first())
     ppl = json.loads(d.people_json or "[]")
@@ -574,21 +642,54 @@ def _merge_people(db: Session, decision_id: str, fn) -> list:
     return ppl
 
 
-def notify_decision(db: Session, d, g, people: dict, actor: str, cid: str) -> None:
+# ── Delivery jobs (Oct 12): the sends leave the request ───────────────────
+#
+# Texts, email and Teams take seconds per person; a crew of thirty inside
+# the request could run into the gateway timeout. The request now does the
+# DB work (shifts, record, bells, day note) and answers with what was
+# QUEUED; a job with its own session sends and records each result in the
+# decision's roster (under _merge_people's lock, so acknowledgments that
+# land meanwhile survive). The route passes FastAPI BackgroundTasks.add_task
+# as `defer` - a plain-`def` task runs in the threadpool after the
+# response, never on the event loop. The follow-up loop, already in a
+# thread, runs its jobs inline (defer=None).
+
+def _run(defer, fn, *args) -> None:
+    if defer is None:
+        fn(*args)
+    else:
+        defer(fn, *args)
+
+
+def _job(fn, *args) -> None:
+    db = SessionLocal()
+    try:
+        fn(db, *args)
+    except Exception as e:   # noqa: BLE001 - a failed send must not take down the worker thread
+        db.rollback()
+        print(f"[weather-call] delivery failed: {e}")
+    finally:
+        db.close()
+
+
+def _context(db: Session, d, actor: str) -> tuple:
+    g = _group(db, d.group_id)
+    people = weather_watch._people(db)
     site = db.query(models.HrWorkSite).filter(models.HrWorkSite.id == (getattr(g, "work_site_id", "") or "")).first()
-    site_name = site.name if site else ""
-    company_name = _company_name(db, cid)
-    decider_name = _name(people.get(actor)) or actor
+    return g, people, (site.name if site else ""), _company_name(db, d.company), _name(people.get(actor)) or actor
+
+
+def _deliver_decision(db: Session, decision_id: str, actor: str) -> None:
+    d = db.query(models.WeatherDecision).filter(models.WeatherDecision.id == decision_id).first()
+    if d is None:
+        return
+    g, people, site_name, company_name, decider_name = _context(db, d, actor)
     results = {}
     for p in json.loads(d.people_json or "[]"):
         if p["selected"]:
-            results[p["email"]] = notify_person(db, d, g, p, site_name=site_name, company_name=company_name, actor=actor, decider_name=decider_name)
-        else:
-            _bell(db, p["email"], f"weather-call:{d.id}", "Weather call: your shift stands",
-                  f"{g.name}, {_day_label(d.work_date)}: a weather call was made for others on the day. Your shift goes ahead as scheduled.",
-                  action=MY_SHIFTS, company=d.company, priority=0)
-            results[p["email"]] = {"bell": "ok"}
-    n = sum(1 for p in results.values() if "sms" in p)
+            results[p["email"]] = notify_person(db, d, g, p, site_name=site_name, company_name=company_name,
+                                                actor=actor, decider_name=decider_name)
+    n = len(results)
     summary = (f"<p><b>Weather call for {escape(g.name)} - {escape(_day_label(d.work_date))}:</b> "
                f"{escape(headline(d.kind, d.new_start, d.new_end, d.move_to))} for {n} {'person' if n == 1 else 'people'}. "
                f"{escape(d.reason)} - {escape(decider_name)}</p>")
@@ -596,9 +697,40 @@ def notify_decision(db: Session, d, g, people: dict, actor: str, cid: str) -> No
 
     def apply(ppl):
         for p in ppl:
-            p["channels"] = {**results.get(p["email"], {}), "groupChat": result}
+            p["channels"] = {**(p.get("channels") or {}), **results.get(p["email"], {}), "groupChat": result}
+    _merge_people(db, d.id, apply)
+
+
+def deliver_decision(decision_id: str, actor: str) -> None:
+    _job(_deliver_decision, decision_id, actor)
+
+
+def _queued(d, ppl: list) -> dict:
+    sel = [p for p in ppl if p.get("selected")]
+    return {"people": len(sel), "texts": sum(1 for p in sel if _texts(d, p)), "emails": len(sel), "teams": len(sel)}
+
+
+def notify_decision(db: Session, d, g, people: dict, actor: str, cid: str, defer=None) -> dict:
+    """The bells now (priority for the picked, quiet for the rest), the
+    sends in a delivery job. Returns what was queued."""
+    decider_name = _name(people.get(actor)) or actor
+    ppl = json.loads(d.people_json or "[]")
+    for p in ppl:
+        if p["selected"]:
+            _bell_person(db, d, g, p, decider_name)
+        else:
+            _bell(db, p["email"], f"weather-call:{d.id}", "Weather call: your shift stands",
+                  f"{g.name}, {_day_label(d.work_date)}: a weather call was made for others on the day. Your shift goes ahead as scheduled.",
+                  action=MY_SHIFTS, company=d.company, priority=0)
+
+    def apply(rows):
+        for p in rows:
+            p["channels"] = {**(p.get("channels") or {}), "bell": "ok"}
     _merge_people(db, d.id, apply)
     db.refresh(d)
+    _run(defer, deliver_decision, d.id, actor)
+    db.refresh(d)
+    return _queued(d, ppl)
 
 
 # ── Acknowledging ─────────────────────────────────────────────────────────
@@ -638,6 +770,10 @@ def ack_page(db: Session, token: str, *, do: bool = False) -> tuple:
     d = db.query(models.WeatherDecision).filter(models.WeatherDecision.id == info["decision_id"]).first()
     if not d:
         return 404, "Not found", "This weather call is no longer on record.", False
+    if d.status == "superseded":
+        # A later call on the same day replaced this one: its instruction is
+        # stale, and the later call sent its own link (Oct 12).
+        return 410, "This weather call was replaced", "A later weather call replaced this one. Open Nexus > Shifts > My Shifts to see your shift as it stands.", False
     if do:
         hit = acknowledge(db, d.id, info["email"], "link")
     else:
@@ -661,32 +797,52 @@ def ack_page(db: Session, token: str, *, do: bool = False) -> tuple:
 
 # ── Follow-up: remind, escalate, reinstate ────────────────────────────────
 
-def remind_silent(db: Session, d, actor: str = "") -> int:
-    """A second text (and a refreshed bell) to everyone still silent."""
+def remind_silent(db: Session, d, actor: str = "", defer=None) -> int:
+    """A second text (and a refreshed bell) to everyone still silent. The
+    bells and the reminded stamp now; the texts in a delivery job."""
     g = _group(db, d.group_id)
     people = weather_watch._people(db)
-    site = db.query(models.HrWorkSite).filter(models.HrWorkSite.id == (getattr(g, "work_site_id", "") or "")).first()
-    company_name = _company_name(db, d.company)
     decider_name = _name(people.get(d.decided_by)) or d.decided_by
-    reminded = {}
-    for p in json.loads(d.people_json or "[]"):
-        if not p["selected"] or p.get("ackAt"):
-            continue
-        res = notify_person(db, d, g, p, site_name=site.name if site else "", company_name=company_name,
-                            actor=actor or d.decided_by, decider_name=decider_name, reminder=True)
-        reminded[p["email"]] = res.get("sms", "")
-    if not reminded:
+    silent = [p for p in json.loads(d.people_json or "[]") if p["selected"] and not p.get("ackAt")]
+    if not silent:
         return 0
+    for p in silent:
+        _bell_person(db, d, g, p, decider_name)
     stamp = _iso()
+    emails = [p["email"] for p in silent]
 
     def apply(ppl):
         for p in ppl:
-            if p["email"] in reminded:
+            if p["email"] in emails:
                 p["remindedAt"] = stamp
-                p.setdefault("channels", {})["reminder"] = reminded[p["email"]]
     _merge_people(db, d.id, apply)
     db.refresh(d)
-    return len(reminded)
+    _run(defer, deliver_reminders, d.id, actor or d.decided_by, emails)
+    db.refresh(d)
+    return len(emails)
+
+
+def _deliver_reminders(db: Session, decision_id: str, actor: str, emails: list) -> None:
+    d = db.query(models.WeatherDecision).filter(models.WeatherDecision.id == decision_id).first()
+    if d is None:
+        return
+    g, people, site_name, company_name, _ = _context(db, d, actor)
+    decider_name = _name(people.get(d.decided_by)) or d.decided_by
+    out = {}
+    for p in json.loads(d.people_json or "[]"):
+        if p["email"] in emails and not p.get("ackAt"):   # acknowledged since: no text
+            out[p["email"]] = notify_person(db, d, g, p, site_name=site_name, company_name=company_name, actor=actor,
+                                            decider_name=decider_name, reminder=True).get("sms", "")
+
+    def apply(ppl):
+        for p in ppl:
+            if p["email"] in out:
+                p.setdefault("channels", {})["reminder"] = out[p["email"]]
+    _merge_people(db, d.id, apply)
+
+
+def deliver_reminders(decision_id: str, actor: str, emails: list) -> None:
+    _job(_deliver_reminders, decision_id, actor, emails)
 
 
 def _escalate(db: Session, d) -> int:
@@ -742,14 +898,17 @@ def _restore_rows(db: Session, decision_id: str) -> list:
         if getattr(r, "original_start_hhmm", ""):
             r.start_hhmm, r.end_hhmm = r.original_start_hhmm, r.original_end_hhmm
             r.label = r.original_label or ""
+        if getattr(r, "original_work_date", ""):
+            r.work_date = r.original_work_date
         r.weather_status, r.weather_decision_id = "", ""
-        r.original_start_hhmm = r.original_end_hhmm = r.original_label = ""
+        r.original_start_hhmm = r.original_end_hhmm = r.original_label = r.original_work_date = ""
     return rows
 
 
-def reinstate(db: Session, user: dict, d) -> dict:
-    """Undo the call: every touched shift back to its original times, label
-    and status; the same people told on the same channels."""
+def reinstate(db: Session, user: dict, d, defer=None) -> dict:
+    """Undo the call: every touched shift back to its original times, label,
+    day and status; the same people told on the same channels - the bells
+    now, the texts, email and Teams line in a delivery job."""
     if d.status != "active":
         raise ValueError("This weather call is no longer active.")
     actor = (user.get("email") or "").lower()
@@ -763,10 +922,37 @@ def reinstate(db: Session, user: dict, d) -> dict:
     if note is not None:
         note.note = f"Weather call reversed by {decider_name}: shifts are back on as scheduled."[:200]
         note.updated_by, note.updated_at = actor, _iso()
+    told = []
+    for p in json.loads(d.people_json or "[]"):
+        if not p["selected"]:
+            continue
+        first = (p.get("shifts") or [{}])[0]
+        start = _t12(first.get("originalStart") or first.get("start") or "")
+        _bell(db, p["email"], f"weather-call:{d.id}", "Weather call reversed: your shift is back on",
+              f"{g.name}, {_day_label(d.work_date)}: your {start} shift goes ahead as scheduled after all.", action=MY_SHIFTS,
+              company=d.company, priority=1)
+        told.append(p)
     db.commit()
-    site = db.query(models.HrWorkSite).filter(models.HrWorkSite.id == (getattr(g, "work_site_id", "") or "")).first()
-    company_name = _company_name(db, d.company)
-    told = {}
+    emails = [p["email"] for p in told]
+
+    def apply(ppl):
+        for p in ppl:
+            if p["email"] in emails:   # the reversal wants its own acknowledgment
+                p["ackAt"], p["ackVia"], p["reinstateChannels"] = "", "", {"bell": "ok"}
+    _merge_people(db, d.id, apply)
+    db.refresh(d)
+    _run(defer, deliver_reinstatement, d.id, actor)
+    db.refresh(d)
+    return {**decision_dict(db, d, people), "queued": {"people": len(told), "texts": sum(1 for p in told if _texts(d, p)),
+                                                       "emails": len(told), "teams": 1}}
+
+
+def _deliver_reinstatement(db: Session, decision_id: str, actor: str) -> None:
+    d = db.query(models.WeatherDecision).filter(models.WeatherDecision.id == decision_id).first()
+    if d is None:
+        return
+    g, people, site_name, company_name, decider_name = _context(db, d, actor)
+    out = {}
     for p in json.loads(d.people_json or "[]"):
         if not p["selected"]:
             continue
@@ -775,27 +961,25 @@ def reinstate(db: Session, user: dict, d) -> dict:
         url = ack_url(d.id, p["email"])
         text = (f"{company_name or 'Nexus'}: {g.name} - {_day_label(d.work_date)}: the weather call is REVERSED. "
                 f"Your shift ({start}) is back on as scheduled. Acknowledge: {url}")
-        _bell(db, p["email"], f"weather-call:{d.id}", "Weather call reversed: your shift is back on",
-              f"{g.name}, {_day_label(d.work_date)}: your {start} shift goes ahead as scheduled after all.", action=MY_SHIFTS,
-              company=d.company, priority=1)
-        res = {"bell": "ok"}
-        if d.sms and p.get("phone") and p.get("smsOn", True):
-            emp = db.query(models.NexusEmployee).filter(func.lower(models.NexusEmployee.work_email) == p["email"]).first()
-            ok, err = _send_sms(emp.phone if emp else "", text)
+        res = {}
+        if _texts(d, p):
+            ok, err = _send_sms(_phone(db, p["email"]), text)
             res["sms"] = "ok" if ok else (err or "failed")
         res["email"] = _send_email(p["email"], "Weather call reversed: your shift is back on",
                                    f"<p>{escape(text)}</p><p><a href=\"{escape(url)}\">Acknowledge</a></p>")
-        told[p["email"]] = res
+        out[p["email"]] = res
 
     def apply(ppl):
         for p in ppl:
-            if p["email"] in told:   # the reversal wants its own acknowledgment
-                p["ackAt"], p["ackVia"], p["reinstateChannels"] = "", "", told[p["email"]]
+            if p["email"] in out:
+                p["reinstateChannels"] = {**(p.get("reinstateChannels") or {}), **out[p["email"]]}
     _merge_people(db, d.id, apply)
-    db.refresh(d)
     _teams_group(db, g, actor, f"<p><b>Weather call reversed for {escape(g.name)} - {escape(_day_label(d.work_date))}:</b> "
                                f"shifts are back on as scheduled. - {escape(decider_name)}</p>")
-    return decision_dict(db, d, people)
+
+
+def deliver_reinstatement(decision_id: str, actor: str) -> None:
+    _job(_deliver_reinstatement, decision_id, actor)
 
 
 def _tick() -> dict:

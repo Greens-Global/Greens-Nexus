@@ -17,7 +17,7 @@ from datetime import date, timedelta
 from html import escape
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy import func
@@ -172,24 +172,25 @@ def read_screen(group_id: str, day: str, user: dict = Depends(require_shift_mana
 
 
 @router.post("/{decision_id}/reinstate")
-def reinstate_call(decision_id: str, user: dict = Depends(require_shift_manage), db: Session = Depends(get_db)):
+def reinstate_call(decision_id: str, bt: BackgroundTasks, user: dict = Depends(require_shift_manage), db: Session = Depends(get_db)):
     d = _decision_or_404(db, decision_id)
     g = _group_or_404(db, d.group_id)
     _require_decider(db, user, g, d.company)
     try:
-        return weather_call.reinstate(db, user, d)
+        return weather_call.reinstate(db, user, d, defer=bt.add_task)
     except ValueError as e:
         raise HTTPException(409, str(e))
 
 
 @router.post("/{decision_id}/remind")
-def remind_call(decision_id: str, user: dict = Depends(require_shift_manage), db: Session = Depends(get_db)):
+def remind_call(decision_id: str, bt: BackgroundTasks, user: dict = Depends(require_shift_manage), db: Session = Depends(get_db)):
     d = _decision_or_404(db, decision_id)
     g = _group_or_404(db, d.group_id)
     _require_decider(db, user, g, d.company)
     if d.status != "active":
         raise HTTPException(409, "This weather call is no longer active.")
-    n = weather_call.remind_silent(db, d, user["email"])
+    # The texts go after the response (a background task); the bells now.
+    n = weather_call.remind_silent(db, d, user["email"], defer=bt.add_task)
     return {"reminded": n, "decision": weather_call.decision_dict(db, d)}
 
 
@@ -205,15 +206,18 @@ class DecideIn(BaseModel):
 
 
 @router.post("/{group_id}/{day}")
-def make_call(group_id: str, day: str, body: DecideIn, user: dict = Depends(require_shift_manage),
+def make_call(group_id: str, day: str, body: DecideIn, bt: BackgroundTasks, user: dict = Depends(require_shift_manage),
               db: Session = Depends(get_db)):
+    """The shifts, the record and the bells now; the texts, email and Teams
+    messages in a background task after the response (Oct 12) - the answer
+    says what was queued, and the roster fills in each result as it lands."""
     g = _group_or_404(db, group_id)
     day = _parse_day(day, "date").isoformat()
     import weather_watch
     cid = weather_watch.group_company(db, g, weather_call._members(db, g.id))
     _require_decider(db, user, g, cid)
     try:
-        return weather_call.decide(db, user, g, day, body.model_dump())
+        return weather_call.decide(db, user, g, day, body.model_dump(), defer=bt.add_task)
     except ValueError as e:
         db.rollback()
         raise HTTPException(400, str(e))
