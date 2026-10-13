@@ -1738,7 +1738,16 @@ def reschedule_task(task_id: str, body: RescheduleBody, background_tasks: Backgr
     t = _get_task(db, task_id)
     moved, skipped = [], []
     if body.cascade:
+        import auth
+        scope = auth.company_scope(user, db)
+
         def _can_edit(d: models.Task) -> bool:
+            # The company wall first (Oct 12 review): a manager clears every
+            # role check, so without it a link to another company's task
+            # would let this drag move that task. Reported as skipped.
+            if scope is not None and not auth.company_ok(
+                    getattr(d, "company_id", "") or auth.company_of(d.created_by or d.owner_email or "", db), scope):
+                return False
             try:
                 require_task_role(db, user, d, "editor")
                 return True

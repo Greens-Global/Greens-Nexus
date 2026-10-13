@@ -166,6 +166,21 @@ class RescheduleTests(unittest.TestCase):
         self.assertEqual([s["title"] for s in out["skipped"]], ["B"])
         self.assertEqual(self._fresh(b).start_on, "2026-10-03")
 
+    def test_a_dependent_in_another_company_is_reported_not_moved(self):
+        import auth
+        a, b = self._chain(("A", "2026-10-01", "2026-10-03", None), ("B", "2026-10-03", "2026-10-04", "FS"))
+        a.company_id, b.company_id = "co-a", "co-b"
+        self.db.commit()
+        real = auth.company_scope
+        auth.company_scope = lambda user, db: {"co-a"}   # walls armed, the manager is in co-a only
+        try:
+            out = reschedule_task(a.id, RescheduleBody(due_on="2026-10-10"), self.bg, user=MANAGER, db=self.db)
+        finally:
+            auth.company_scope = real
+        self.assertEqual(out["moved"], [])
+        self.assertEqual([s["title"] for s in out["skipped"]], ["B"])
+        self.assertEqual(self._fresh(b).start_on, "2026-10-03")
+
     def test_a_task_two_blockers_push_gets_one_history_line(self):
         # A blocks B and C; B blocks C. C is relaxed against A, then again
         # against B - one drag, one line, one extension counted.
