@@ -3954,6 +3954,47 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 }
 [data-theme="dark"] .dk-stat--hero { background: linear-gradient(135deg, #3a4cd9, #2436b8); }
 
+/* Action Tile (Oct 11) - one action per tile, an app-icon face: the colored
+   chip large and centered with the name under it, the whole tile the button.
+   .dk-stat gives it the card chrome and hover lift; this centers it, grows the
+   chip to icon size and adds the press (scale down under the finger, the way
+   a home-screen icon answers a tap). One row tall (.dk-action--row) it is a
+   pill: chip beside the name, caption on one line. */
+.dk-action {
+  align-items: center; justify-content: center; text-align: center;
+  gap: 10px; padding: 12px 14px;
+  transition: box-shadow .15s ease, border-color .15s ease, transform .12s ease;
+}
+.dk-action:active { transform: scale(.97); box-shadow: var(--wk-shadow); }
+.dk-action:disabled { cursor: default; opacity: .72; }
+.dk-action:disabled:hover { transform: none; box-shadow: var(--wk-shadow); border-color: var(--wk-line2); }
+.dk-action .dk-action-chip { width: 46px; height: 46px; border-radius: 14px; flex-shrink: 0; }
+.dk-action .dk-action-chip svg { width: 22px; height: 22px; }
+.dk-action-text { display: flex; flex-direction: column; align-items: center; min-width: 0; max-width: 100%; gap: 2px; }
+.dk-action-label { font-size: 13px; font-weight: 700; color: var(--wk-ink); line-height: 1.2; overflow-wrap: anywhere; }
+.dk-action-sub {
+  font-size: 11.5px; color: var(--wk-faint); line-height: 1.3; font-weight: 500;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.dk-action-sub--on  { color: var(--wk-green); }
+.dk-action-sub--ok  { color: var(--wk-green); font-weight: 600; }
+.dk-action-sub--bad { color: var(--wk-red); font-weight: 600; }
+.dk-action--row { flex-direction: row; justify-content: flex-start; text-align: left; padding: 8px 14px; gap: 12px; }
+.dk-action--row .dk-action-chip { width: 34px; height: 34px; border-radius: 10px; }
+.dk-action--row .dk-action-chip svg { width: 17px; height: 17px; }
+.dk-action--row .dk-action-text { align-items: flex-start; }
+.dk-action--row .dk-action-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.dk-action--row .dk-action-sub { -webkit-line-clamp: 1; }
+[data-theme="dark"] .dk-action-label { color: var(--ink); }
+[data-theme="dark"] .dk-action-sub { color: var(--text-muted); }
+[data-theme="dark"] .dk-action-sub--on, [data-theme="dark"] .dk-action-sub--ok { color: #4ade80; }
+[data-theme="dark"] .dk-action-sub--bad { color: #f87171; }
+.dk-action[aria-disabled="true"] { cursor: default; opacity: .72; }
+.dk-action[aria-disabled="true"]:hover, .dk-action[aria-disabled="true"]:active { transform: none; box-shadow: var(--wk-shadow); border-color: var(--wk-line2); }
+/* The Action Tile's announcer: read by screen readers, never drawn. */
+.dk-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+@media (prefers-reduced-motion: reduce) { .dk-action:active { transform: none; } }
+
 /* main: queue + rail */
 .dk-main { display: grid; grid-template-columns: 1fr 330px; gap: 18px; align-items: start; }
 .dk-queue { min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
