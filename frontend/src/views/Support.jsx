@@ -416,11 +416,16 @@ export default function Support({ activeSub, onSubChange }) {
     return code.toLowerCase().includes(q) || normalizeCode(t.code).includes(q)
       || (t.subject || '').toLowerCase().includes(q);
   });
-  const sortCol = SUPPORT_TABLE_COLUMNS.find((c) => c.key === sort.key);
+  // The saved sort applies while its column is on screen. On a laptop or an
+  // iPad the Created column is gone, so the default "newest first" would be
+  // an order no header owns; the list sorts by Last Updated instead - the
+  // date column that is always there - and its header shows it.
+  const effSort = colKeys.has(sort.key) ? sort : { key: 'updated', dir: 'desc' };
+  const sortCol = SUPPORT_TABLE_COLUMNS.find((c) => c.key === effSort.key);
   const sortCtx = { nameOf };
   const sorted = sortCol ? [...visible].sort((a, b) => {
     const av = sortCol.sort(a, sortCtx); const bv = sortCol.sort(b, sortCtx);
-    const dir = sort.dir === 'asc' ? 1 : -1;
+    const dir = effSort.dir === 'asc' ? 1 : -1;
     if (av < bv) return -1 * dir;
     if (av > bv) return 1 * dir;
     return 0;
@@ -428,8 +433,10 @@ export default function Support({ activeSub, onSubChange }) {
   const pageCount = Math.max(1, Math.ceil(sorted.length / SUPPORT_PAGE_SIZE));
   const pageSafe = Math.min(page, pageCount);
   const paged = sorted.slice((pageSafe - 1) * SUPPORT_PAGE_SIZE, pageSafe * SUPPORT_PAGE_SIZE);
+  // From what is SHOWN: clicking the header that reads as sorted flips it,
+  // even when that sort was the fallback above rather than the saved one.
   const onSort = (key) => {
-    setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }));
+    setSort(effSort.key === key ? { key, dir: effSort.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' });
     setPage(1);
   };
 
@@ -555,8 +562,8 @@ export default function Support({ activeSub, onSubChange }) {
                 <div />
                 <div ref={wrapRef} style={{ '--nx-grid': gridTemplate, display: 'grid', gridTemplateColumns: 'var(--nx-grid)', minWidth: 0, background: NX.surface2, border: `1px solid ${NX.border}`, borderRadius: '10px 10px 0 0' }}>
                   {cols.map((col) => {
-                    const active = sort.key === col.key;
-                    const SortIcon = active ? (sort.dir === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown;
+                    const active = effSort.key === col.key;
+                    const SortIcon = active ? (effSort.dir === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown;
                     return (
                       <div key={col.key} onClick={() => onSort(col.key)} title={`Sort by ${col.label}`}
                         style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 4, minHeight: 34, padding: '0 10px', cursor: 'pointer', userSelect: 'none', borderRight: `1px solid ${NX.border2}`, boxSizing: 'border-box' }}>

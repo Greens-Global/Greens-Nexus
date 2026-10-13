@@ -199,7 +199,7 @@ const GLOBAL_SECTIONS = [
     keywords: 'time clock punch rounding nearest minutes swipeclock auto lunch deduction meal break paid rest break california timecard payroll' },
   { id: 'shift-settings', category: 'shifts', icon: CalendarClock, title: 'Shift Settings',
     sub: 'What staff may request (open shifts, swaps, offers, time off) and see of their teammates, the team time zone, which day the week starts on, and the time-off reasons.',
-    keywords: 'shifts schedule requests swap offer open shift time off reasons reminders time zone week start sunday monday visibility' },
+    keywords: 'shifts schedule requests swap offer open shift time off reasons time zone week start sunday monday visibility' },
   { id: 'shift-types', category: 'shifts', icon: Clock, title: 'Shift Types',
     sub: 'The reusable shifts managers place with one click - name, code, color, times, time zone and days. A person\'s usual hours are one of these.',
     keywords: 'shifts presets shift type code color times usual hours grace break time zone days' },

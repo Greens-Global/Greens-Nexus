@@ -107,6 +107,20 @@ describe('Support - the ticket table fits the card', () => {
     } finally { restore(); }
   });
 
+  it('sorts by Last Updated, and shows it, when Created is not on screen', async () => {
+    const restore = stubCardWidth(700);
+    try {
+      render(<Support activeSub={null} onSubChange={() => {}} />);
+      await screen.findByText('Printer jam');
+      expect(screen.queryByTitle('Sort by Created')).toBeNull();
+      const updated = screen.getByTitle('Sort by Last Updated');
+      expect(updated.querySelector('.lucide-arrow-down')).not.toBeNull();   // the active header
+      // One click flips the order that is showing, not a hidden one.
+      await act(async () => { fireEvent.click(updated); });
+      expect(screen.getByTitle('Sort by Last Updated').querySelector('.lucide-arrow-up')).not.toBeNull();
+    } finally { restore(); }
+  });
+
   it('leaves Enter on a button inside a row to that button', async () => {
     const restore = stubCardWidth(700);
     try {

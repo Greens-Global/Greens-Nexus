@@ -546,6 +546,11 @@ function AddFieldMenu({ createCustomField, allCustomFields, updateCustomField, l
   // pick panel carries one row that opens it, and only when there is
   // something to add.
   const [fieldQuery, setFieldQuery] = useState('');
+  // The field being added, and why the last add failed. The menu waits for
+  // the save: closing at once made a refused or dropped save look like it
+  // worked, with no column and nothing said.
+  const [adding, setAdding] = useState('');
+  const [addError, setAddError] = useState('');
   const addable = useMemo(() => addableFields(allCustomFields, lockedProjectId), [allCustomFields, lockedProjectId]);
   const fq = fieldQuery.trim().toLowerCase();
   const addableShown = fq ? addable.filter((f) => `${f.name} ${f.description || ''}`.toLowerCase().includes(fq)) : addable;
@@ -558,12 +563,20 @@ function AddFieldMenu({ createCustomField, allCustomFields, updateCustomField, l
   const close = () => setOpen(false);
   useClickOutside([ref, panelRef], close, open);
 
-  const reset = () => { setStep('pick'); setPicked(null); setName(''); setDescription(''); setOptions(['']); setFieldQuery(''); };
-  const addExisting = (f) => {
-    if (!updateCustomField) return;
+  const reset = () => { setStep('pick'); setPicked(null); setName(''); setDescription(''); setOptions(['']); setFieldQuery(''); setAdding(''); setAddError(''); };
+  const addExisting = async (f) => {
+    if (!updateCustomField || adding) return;
     const ids = (f.projectIds || []).filter(Boolean);
-    updateCustomField(f.id, { projectIds: [...ids, lockedProjectId] }).catch(() => {});
-    reset(); close();
+    setAdding(f.id); setAddError('');
+    try {
+      await updateCustomField(f.id, { projectIds: [...ids, lockedProjectId] });
+      reset(); close();
+    } catch (e) {
+      setAdding('');
+      setAddError(e?.status === 403
+        ? `You can't add ${f.name} to this project.`
+        : `${f.name} could not be added. Try again.`);
+    }
   };
   const pickType = (t) => { setPicked(t); setName(t.label); setStep('config'); };
   const create = () => {
@@ -624,18 +637,23 @@ function AddFieldMenu({ createCustomField, allCustomFields, updateCustomField, l
                   style={{ ...inputStyle, fontSize: 13, padding: '6px 8px' }} />
               )}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {addError && (
+                  <div role="alert" style={{ padding: '6px 8px', marginBottom: 4, borderRadius: 8, fontSize: 12.5, color: NX.red, background: 'rgba(220,38,38,0.08)' }}>{addError}</div>
+                )}
                 {addableShown.map((f) => {
                   const Icon = STORAGE_ICON[f.type] || Hash;
                   const n = (f.projectIds || []).filter(Boolean).length;
+                  const busy = adding === f.id;
                   return (
-                    <button key={f.id} onClick={() => addExisting(f)} title={f.description || f.name} style={{
+                    <button key={f.id} onClick={() => addExisting(f)} title={f.description || f.name} disabled={!!adding} aria-busy={busy || undefined} style={{
                       display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 8, border: 'none',
-                      background: 'transparent', cursor: 'pointer', fontSize: 13, color: NX.ink, textAlign: 'left', fontFamily: FONT, width: '100%',
+                      background: 'transparent', cursor: adding ? 'default' : 'pointer', fontSize: 13, color: NX.ink, textAlign: 'left', fontFamily: FONT, width: '100%',
+                      opacity: adding && !busy ? 0.5 : 1,
                     }}
                       onMouseEnter={(e) => { e.currentTarget.style.background = NX.hover; }} onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
                       <Icon size={15} style={{ color: NX.dim, flexShrink: 0 }} />
                       <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
-                      <span style={{ fontSize: 11, color: NX.faint, flexShrink: 0 }}>{n} project{n !== 1 ? 's' : ''}</span>
+                      <span style={{ fontSize: 11, color: NX.faint, flexShrink: 0 }}>{busy ? 'Adding…' : `${n} project${n !== 1 ? 's' : ''}`}</span>
                     </button>
                   );
                 })}

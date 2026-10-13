@@ -533,5 +533,17 @@ describe('+ Column > Existing Fields', () => {
     fireEvent.click(screen.getByText('Budget'));
     expect(update).toHaveBeenCalledWith('f2', { projectIds: ['p2', 'p3', 'p1'] });
   });
+
+  it('says so and stays open when the add fails', async () => {
+    const update = vi.fn(() => Promise.reject(Object.assign(new Error('API error 500'), { status: 500 })));
+    render(<ListColumnControls hidden={new Set()} setHidden={() => {}} customFields={[]}
+      createCustomField={() => {}} lockedProjectId="p1" allCustomFields={fields} updateCustomField={update} />);
+    fireEvent.click(screen.getByText('Column'));
+    fireEvent.click(screen.getByText('Existing Fields'));
+    fireEvent.click(screen.getByText('Budget'));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Budget could not be added. Try again.');
+    expect(screen.getByText('Vendor')).toBeInTheDocument();          // still open, so it can be retried
+    expect(screen.getByText('Budget').closest('button')).not.toBeDisabled();
+  });
 });
 
