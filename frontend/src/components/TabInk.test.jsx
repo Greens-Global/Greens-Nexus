@@ -46,6 +46,27 @@ describe('TabInk', () => {
     expect(ink().className).toContain('tab-ink--glide');
   });
 
+  it('stays hidden in a strip with no layout (display:none)', () => {
+    const Hidden = ({ w }) => (
+      <nav className="module-tabs-inline">
+        <TabInk active="a" variant="line" />
+        <button className="module-tab-inline-btn active" data-x="10" data-w={w} data-h={w}>A</button>
+      </nav>
+    );
+    render(<Hidden w="0" />);
+    expect(ink().hidden).toBe(true);
+  });
+
+  it('watches every tab as well as the strip for size changes', () => {
+    const observed = [];
+    const RO = globalThis.ResizeObserver;
+    globalThis.ResizeObserver = class { observe(el) { observed.push(el); } disconnect() {} };
+    try {
+      render(<Strip active="a" />);
+      expect(observed.map((el) => el.tagName)).toEqual(['NAV', 'BUTTON', 'BUTTON']);
+    } finally { globalThis.ResizeObserver = RO; }
+  });
+
   it('takes the underline variant for the phone strip', () => {
     render(<Strip active="a" variant="line" />);
     expect(ink().className).toContain('tab-ink--line');

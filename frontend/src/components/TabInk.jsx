@@ -26,7 +26,10 @@ export default function TabInk({ active, variant = 'pill' }) {
     if (!strip) return undefined;
     const measure = () => {
       const el = strip.querySelector(':scope > .active');
-      if (!el) { settled.current = false; setBox(null); return; }
+      // No active tab, or a strip with no layout (the phone strip is
+      // display:none on desktop): nothing to draw, and nothing to glide FROM
+      // once it does show - it jumps into place then.
+      if (!el || (!el.offsetWidth && !el.offsetHeight)) { settled.current = false; setBox(null); return; }
       setBox({ x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight, glide: settled.current });
       settled.current = true;
     };
@@ -34,6 +37,10 @@ export default function TabInk({ active, variant = 'pill' }) {
     if (typeof ResizeObserver === 'undefined') return undefined;
     const ro = new ResizeObserver(measure);
     ro.observe(strip);
+    // The tabs too: a badge or label changing width inside a long strip that
+    // scrolls (max-width + overflow) moves the active tab without resizing
+    // the strip itself.
+    for (const c of strip.children) if (c !== self.current) ro.observe(c);
     return () => ro.disconnect();
   }, [active]);
 

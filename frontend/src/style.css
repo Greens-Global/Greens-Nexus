@@ -766,8 +766,10 @@ h1,h2,h3,h4,h5,h6,
 .viewport { padding: 32px 36px; overflow-y: auto; background: transparent; }
 /* Keyed per screen in App.jsx (Oct 11): a new screen fades in instead of
    snapping. Opacity only - a transform here would re-anchor every fixed
-   overlay a screen opens while the animation runs. */
-.viewport { animation: nx-fade-in var(--dur-sm) ease-out both; }
+   overlay a screen opens while the animation runs. No fill mode either: a
+   fill keeps the screen a stacking context, and its inline modals would sit
+   under the header and sidebar (review, Oct 12). */
+.viewport { animation: nx-fade-in var(--dur-sm) ease-out; }
 
 /* Task module manages its own full-height flex layout + internal scrolling
    (fixed header/tabs, scrolling body per sub-view) - the default .viewport
