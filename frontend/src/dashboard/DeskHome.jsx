@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
+import { useTimeStatus } from '../lib/useTimeStatus';
 import { useWorldClockPicks, headerClocks } from '../lib/worldClockZones';
 import { formatTimeIn, greetingFor } from '../lib/datetime';
 import { ModalLoading } from '../components/AsyncState';
@@ -118,8 +119,7 @@ export function DeskGreeting({ summary = null, right = null, menu = null }) {
   // While acting as someone, the greeting greets THEM - this whole screen is
   // their day, and "Good Evening, Visesh" on Pranshu's dashboard read wrong.
   const firstName = ((actingAs?.targetName || accounts[0]?.name) ?? 'there').split(' ')[0];
-  const [status, setStatus] = useState(null);
-  useEffect(() => { api.timeStatus().then(setStatus).catch(() => {}); }, []);
+  const { status } = useTimeStatus();   // the shared read (lib/useTimeStatus)
 
   const last = status?.lastPunch;
   // Stale open shift (clock-in >16h, server treats it as closed) reads as clocked out here too.
@@ -202,16 +202,15 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
 
   // Live extras: session state (the My-hours strip), pending signatures, team
   // KPIs (managers). All read-only, all existing endpoints, all safe to fail
-  // quietly. DeskGreeting fetches timeStatus for its own chip - the endpoint is
-  // a cheap single-row read, so the duplicate call beats threading state through.
-  const [status, setStatus] = useState(null);
+  // quietly. DeskGreeting reads the same shared time status for its own chip
+  // (lib/useTimeStatus - one request for both, and for the floating timer).
+  const { status } = useTimeStatus();
   const [sigs, setSigs] = useState([]);
   const [teamKpis, setTeamKpis] = useState(null);
   // Which quick-action composer is open, if any. Null renders nothing and the
   // chunk is never fetched.
   const [composing, setComposing] = useState(null);
   useEffect(() => {
-    api.timeStatus().then(setStatus).catch(() => {});
     api.mySignatures().then(r => setSigs(Array.isArray(r) ? r : (r?.requests || r?.items || []))).catch(() => {});
     if (can('supervisor')) api.dashKpis('team').then(r => setTeamKpis(r?.kpis || null)).catch(() => {});
   }, [can]);

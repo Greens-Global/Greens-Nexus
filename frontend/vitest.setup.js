@@ -40,3 +40,11 @@ if (!globalThis.requestAnimationFrame) {
 
 // Quiet the expected React error-boundary console noise in crash tests.
 vi.spyOn(console, 'error').mockImplementation(() => {});
+
+// The TanStack query cache is one module-level client (lib/queryClient), and
+// hooks such as lib/useTimeStatus read it without a provider. Empty it after
+// every test so one test's cached answer (or a request it left hanging) can
+// never be what the next test renders.
+import { afterEach } from 'vitest';
+import { queryClient } from './src/lib/queryClient';
+afterEach(() => { queryClient.clear(); });

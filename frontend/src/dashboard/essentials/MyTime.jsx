@@ -22,14 +22,14 @@
 // geofence budget and the shared-PC agent pairing. The one thing it cannot
 // do is the disclosed-monitoring consent notice - that stays on the Time
 // Clock screen, and the tile says so and points there.
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Clock, LogOut, Coffee, Play, ArrowRight, AlertTriangle, CheckCircle2 } from 'lucide-react';
 
 import { api } from '../../api';
 import { LoadingState } from '../../components/AsyncState';
 import BodModal from '../../components/BodModal';
-import { pollWhileVisible } from '../../lib/pollWhileVisible';
+import { useTimeStatus } from '../../lib/useTimeStatus';
 import { punchDurable, replayPending, readPending } from '../../lib/punchQueue';
 import { punchPosition } from '../../lib/geoPosition';
 import { pairLocalAgent } from '../../lib/agentPair';
@@ -112,7 +112,11 @@ const stop = (e) => e.stopPropagation();
 
 export default function MyTime() {
   const isMobile = useIsMobile();
-  const [status, setStatus] = useState(null);         // null = pending; { error: true } = failed with nothing to show
+  // The shared read (lib/useTimeStatus): polled once for everything on screen,
+  // and re-read on nexus:timeclock-changed (a punch made on the Workday page
+  // or from the floating pill).
+  const { status: shared, loaded, failed, reload: loadStatus } = useTimeStatus({ pollMs: STATUS_POLL_MS });
+  const status = shared ?? (loaded ? {} : failed ? { error: true } : null);   // null = pending; { error: true } = failed with nothing to show
   const [now, setNow] = useState(() => new Date());
   const [busy, setBusy] = useState('');
   const [note, setNote] = useState(null);             // { ok, text } - what the last punch did, or why it did not
@@ -122,18 +126,10 @@ export default function MyTime() {
   const clickedAt = useRef('');                       // when Punch In was pressed, carried through the gate
   const noteTimer = useRef(null);
 
-  const loadStatus = useCallback(() => api.timeStatus()
-    .then(s => { if (alive.current) setStatus(s || {}); })
-    .catch(() => { if (alive.current) setStatus(s => s || { error: true }); }), []);
-
   useEffect(() => {
     alive.current = true;
-    loadStatus();
-    const stopPoll = pollWhileVisible(loadStatus, STATUS_POLL_MS);
-    // A punch made on the Workday page or from the floating pill.
-    window.addEventListener('nexus:timeclock-changed', loadStatus);
-    return () => { alive.current = false; stopPoll(); clearTimeout(noteTimer.current); window.removeEventListener('nexus:timeclock-changed', loadStatus); };
-  }, [loadStatus]);
+    return () => { alive.current = false; clearTimeout(noteTimer.current); };
+  }, []);
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 30000); return () => clearInterval(t); }, []);
 
   const vm = deriveMyTime({ status: status?.error ? null : status, now });

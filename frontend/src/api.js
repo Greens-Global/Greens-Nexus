@@ -220,6 +220,21 @@ function dimsQuery(dims) {
     .join("");
 }
 
+// fetch() itself failed - no answer from the server at all. The raw error says
+// "Failed to fetch" (or "signal is aborted..." for our own timeout), which is
+// what hundreds of `toast(e.message)` call sites then showed people. Same
+// failure, readable words. What callers rely on is kept: still no `.status`
+// (lib/punchQueue and bodQueue read that as "outcome unknown"), the original
+// `name` ('TypeError', or 'AbortError' for the timeout), and the raw error as
+// `cause` for whoever is debugging.
+const UNREACHABLE_MESSAGE = "Can't reach Nexus right now. Check your connection and try again.";
+function _networkError(err) {
+  const out = new Error(UNREACHABLE_MESSAGE, { cause: err });
+  if (err?.name) out.name = err.name;
+  out.isNetworkError = true;
+  return out;
+}
+
 async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
   const authHeader = await getAuthHeader(tokenRefreshed);
   const timeoutMs = options.timeoutMs ?? FETCH_TIMEOUT_MS;
@@ -257,7 +272,7 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
       return req(path, options, attempt + 1, tokenRefreshed);
     }
     _setBackendDown(true);
-    throw err;
+    throw _networkError(err);
   }
 
   // BFF mode: a 401 means the session cookie is dead/absent -> server-side login
@@ -356,7 +371,7 @@ async function reqBlob(path, options = {}, attempt = 1, tokenRefreshed = false) 
       await new Promise(r => setTimeout(r, 800 * attempt));
       return reqBlob(path, options, attempt + 1, tokenRefreshed);
     }
-    throw err;
+    throw _networkError(err);
   }
   if (res.status === 401 && BFF_MODE) {
     // Same as req(): absorb a transient 401 with one retry before a full-page re-login.
