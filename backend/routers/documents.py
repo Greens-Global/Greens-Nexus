@@ -1826,6 +1826,15 @@ def _egnyte_configured() -> bool:
 # folders included. They now take the same access as the Documents screen they
 # serve (administrator+, or an Access Group grant on "documents" - App.jsx
 # ProtectedView), and only reach paths under the configured import roots.
+#
+# Oct 13 review asked for the template-manager rule here instead. Not applied:
+# the picker (EgnyteBrowser.jsx) is not a template tool. Every Documents user
+# reaches it from New Document ("Browse Egnyte"), from the builder's Import on
+# their own document, and from Nexus Sign ("Choose from Egnyte") - none of
+# which a department head's role gates - so that rule would take all three
+# away from the people they were built for. What bounds the service token is
+# the import roots: keep documents.import-roots to folders any Documents user
+# may read.
 _require_documents_access = require_module_grant("documents", "viewer")
 
 

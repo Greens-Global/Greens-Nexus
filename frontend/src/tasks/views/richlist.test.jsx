@@ -577,6 +577,28 @@ describe('+ Column > Existing Fields', () => {
     expect(update).toHaveBeenCalledWith('f2', { projectIds: ['p2', 'p3', 'p1'] });
   });
 
+  // A new field made from a project's list is scoped to that project: the
+  // server refuses an unscoped (every-project) field from anyone below manager.
+  it('creates a new field on this project only', () => {
+    const create = vi.fn(() => Promise.resolve({}));
+    render(<ListColumnControls hidden={new Set()} setHidden={() => {}} customFields={[]}
+      createCustomField={create} lockedProjectId="p1" allCustomFields={[]} />);
+    fireEvent.click(screen.getByText('Column'));
+    fireEvent.click(screen.getAllByText('Checkbox')[0]);
+    fireEvent.click(screen.getByText('Add Column'));
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ type: 'checkbox', projectIds: ['p1'] }));
+  });
+
+  it('is not offered outside a project to someone who cannot add a field everywhere', () => {
+    const { unmount } = render(<ListColumnControls hidden={new Set()} setHidden={() => {}} customFields={[]}
+      createCustomField={() => {}} lockedProjectId="" canManageFields={false} />);
+    expect(screen.queryByText('Column')).not.toBeInTheDocument();
+    unmount();
+    render(<ListColumnControls hidden={new Set()} setHidden={() => {}} customFields={[]}
+      createCustomField={() => {}} lockedProjectId="p1" canManageFields={false} />);
+    expect(screen.getByText('Column')).toBeInTheDocument();
+  });
+
   it('says so and stays open when the add fails', async () => {
     const update = vi.fn(() => Promise.reject(Object.assign(new Error('API error 500'), { status: 500 })));
     render(<ListColumnControls hidden={new Set()} setHidden={() => {}} customFields={[]}
