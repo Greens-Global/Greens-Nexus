@@ -11,7 +11,10 @@ import { useTasks } from './TasksContext';
 import { Modal, PersonSelect, usePeople, useIsMobile, DateField } from './components';
 import { NX, FONT, btn, CONTROL_H, CONTROL_FS, CONTROL_ICON, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER } from './theme';
 import { emailToName, rootZoom } from '../lib/utils';
-import { matchPeople, onEnterPickFirst } from '../lib/peopleSearch';
+import { matchPeople } from '../lib/peopleSearch';
+import { useListNav } from '../lib/listNav';
+import { requiredFieldsFor, isBlankValue } from './lib';
+import { CustomFieldInput } from './TaskDetailDrawer';
 
 const SORT_OPTIONS = [
   { key: 'manual', label: 'Manual' }, { key: 'dueOn', label: 'Due Date' },
@@ -114,6 +117,14 @@ function FiltersBody({ filters, setFilters, people, projects, teams = [], locked
   const shownCollabs = matchPeople(people, collabQuery);
   const collaboratorIds = filters.collaboratorIds || [];
   const shownProjects = projects.filter((p) => p.name.toLowerCase().includes(projectQuery.toLowerCase()));
+  // Up / Down / Enter in each search box (lib/listNav.js). These lists are
+  // always on screen, so the highlight shows only while something is typed.
+  const peopleNav = useListNav(shownPeople, { open: !!assigneeQuery.trim(), query: assigneeQuery,
+    onPick: (u) => setFilters({ ...filters, assigneeIds: toggle(filters.assigneeIds, u.email) }) });
+  const collabNav = useListNav(shownCollabs, { open: !!collabQuery.trim(), query: collabQuery,
+    onPick: (u) => setFilters({ ...filters, collaboratorIds: toggle(collaboratorIds, u.email) }) });
+  const projectNav = useListNav(shownProjects, { open: !!projectQuery.trim(), query: projectQuery,
+    onPick: (p) => setFilters({ ...filters, projectIds: toggle(filters.projectIds, p.id) }) });
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div>
@@ -136,11 +147,11 @@ function FiltersBody({ filters, setFilters, people, projects, teams = [], locked
             onRemove={(id) => setFilters({ ...filters, assigneeIds: toggle(filters.assigneeIds, id) })}
           />
           <input value={assigneeQuery} onChange={(e) => setAssigneeQuery(e.target.value)} placeholder="Search people…"
-            onKeyDown={onEnterPickFirst(shownPeople, (u) => setFilters({ ...filters, assigneeIds: toggle(filters.assigneeIds, u.email) }))}
+            {...peopleNav.inputProps} onKeyDown={peopleNav.onKeyDown}
             style={searchInput} />
           <div style={{ maxHeight: 108, overflowY: 'auto', border: `1px solid ${NX.border2}`, borderRadius: 8 }}>
-            {shownPeople.map((u) => (
-              <label key={u.email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 9px', fontSize: 13, cursor: 'pointer' }}>
+            {shownPeople.map((u, i) => (
+              <label key={u.email} {...peopleNav.optionProps(i)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 9px', fontSize: 13, cursor: 'pointer' }}>
                 <input type="checkbox" checked={filters.assigneeIds.includes(u.email)} onChange={() => setFilters({ ...filters, assigneeIds: toggle(filters.assigneeIds, u.email) })} />
                 {u.name}
               </label>
@@ -159,11 +170,11 @@ function FiltersBody({ filters, setFilters, people, projects, teams = [], locked
           onRemove={(id) => setFilters({ ...filters, collaboratorIds: toggle(collaboratorIds, id) })}
         />
         <input value={collabQuery} onChange={(e) => setCollabQuery(e.target.value)} placeholder="Search people…"
-          onKeyDown={onEnterPickFirst(shownCollabs, (u) => setFilters({ ...filters, collaboratorIds: toggle(collaboratorIds, u.email) }))}
+          {...collabNav.inputProps} onKeyDown={collabNav.onKeyDown}
           style={searchInput} />
         <div style={{ maxHeight: 108, overflowY: 'auto', border: `1px solid ${NX.border2}`, borderRadius: 8 }}>
-          {shownCollabs.map((u) => (
-            <label key={u.email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 9px', fontSize: 13, cursor: 'pointer' }}>
+          {shownCollabs.map((u, i) => (
+            <label key={u.email} {...collabNav.optionProps(i)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 9px', fontSize: 13, cursor: 'pointer' }}>
               <input type="checkbox" checked={collaboratorIds.includes(u.email)} onChange={() => setFilters({ ...filters, collaboratorIds: toggle(collaboratorIds, u.email) })} />
               {u.name}
             </label>
@@ -178,10 +189,11 @@ function FiltersBody({ filters, setFilters, people, projects, teams = [], locked
             items={filters.projectIds.map((id) => ({ id, label: projects.find((p) => p.id === id)?.name || id }))}
             onRemove={(id) => setFilters({ ...filters, projectIds: toggle(filters.projectIds, id) })}
           />
-          <input value={projectQuery} onChange={(e) => setProjectQuery(e.target.value)} placeholder="Search projects…" style={searchInput} />
+          <input value={projectQuery} onChange={(e) => setProjectQuery(e.target.value)} placeholder="Search projects…"
+            {...projectNav.inputProps} onKeyDown={projectNav.onKeyDown} style={searchInput} />
           <div style={{ maxHeight: 108, overflowY: 'auto', border: `1px solid ${NX.border2}`, borderRadius: 8 }}>
-            {shownProjects.map((p) => (
-              <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 9px', fontSize: 13, cursor: 'pointer' }}>
+            {shownProjects.map((p, i) => (
+              <label key={p.id} {...projectNav.optionProps(i)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 9px', fontSize: 13, cursor: 'pointer' }}>
                 <input type="checkbox" checked={filters.projectIds.includes(p.id)} onChange={() => setFilters({ ...filters, projectIds: toggle(filters.projectIds, p.id) })} />
                 {p.name}
               </label>
@@ -498,21 +510,32 @@ function IntakeModal({ forms, projectName, createTask, myEmail, onOpenTask, onCl
   const [priority, setPriority] = useState('medium');
   const [neededBy, setNeededBy] = useState('');
   const [busy, setBusy] = useState(false);
-  const dirty = !!(summary.trim() || neededBy || priority !== 'medium');
+  // The target project's required custom fields (Oct 13 2026): asked for
+  // here, since the server will not create the task without them.
+  const { customFields } = useTasks();
+  const [cfValues, setCfValues] = useState({});
+  const [error, setError] = useState('');
+  const reqFields = form ? requiredFieldsFor(customFields, form.targetProjectId || '') : [];
+  const reqMissing = reqFields.some((f) => isBlankValue(cfValues[f.id]));
+  const dirty = !!(summary.trim() || neededBy || priority !== 'medium' || Object.keys(cfValues).length);
   if (!form) return null;
+  const canSubmit = !!summary.trim() && !reqMissing && !busy;
   const submit = async () => {
-    if (!summary.trim() || busy) return; setBusy(true);
+    if (!canSubmit) return; setBusy(true); setError('');
     try {
-      const t = await createTask({ title: summary.trim(), priority, projectId: form.targetProjectId || '', dueOn: neededBy || '', status: 'not_started', type: 'task', assigneeId: '' });
+      const t = await createTask({ title: summary.trim(), priority, projectId: form.targetProjectId || '', dueOn: neededBy || '', status: 'not_started', type: 'task', assigneeId: '', customFieldValues: cfValues });
       onClose(); onOpenTask?.(t.id);
-    } catch { /* surfaced by refetch */ } finally { setBusy(false); }
+    } catch (e) {
+      // Said here: a refused request used to close nothing and say nothing.
+      setError(e?.message || 'Could not submit the request.');
+    } finally { setBusy(false); }
   };
   return (
     <Modal title={form.title || 'Submit a request'} onClose={onClose}
-      isDirty={dirty} onSave={summary.trim() ? submit : undefined}
+      isDirty={dirty} onSave={canSubmit ? submit : undefined}
       footer={<>
         <button onClick={onClose} style={btn('outline')}>Cancel</button>
-        <button onClick={submit} disabled={!summary.trim() || busy} style={{ ...btn('primary'), opacity: !summary.trim() || busy ? 0.6 : 1 }}>Submit Request</button>
+        <button onClick={submit} disabled={!canSubmit} style={{ ...btn('primary'), opacity: canSubmit ? 1 : 0.6 }}>Submit Request</button>
       </>}>
       <p style={{ margin: '0 0 16px', fontSize: 13, color: NX.dim }}>Submit a structured request. On submit, a task is created{form.targetProjectId ? ` in ${projectName(form.targetProjectId)}` : ''}.</p>
       <div style={{ marginBottom: 12 }}>
@@ -530,7 +553,14 @@ function IntakeModal({ forms, projectName, createTask, myEmail, onOpenTask, onCl
           <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 5 }}>Needed By</label>
           <DateField value={neededBy} onChange={(v) => setNeededBy(v || '')} placeholder="Pick a date" style={inputStyle} />
         </div>
+        {reqFields.map((f) => (
+          <div key={f.id}>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 5 }}>{f.name} <span style={{ color: NX.red }}>*</span></label>
+            <CustomFieldInput field={f} value={cfValues[f.id]} onChange={(v) => setCfValues((cur) => ({ ...cur, [f.id]: v }))} />
+          </div>
+        ))}
       </div>
+      {error && <div role="alert" style={{ marginTop: 12, fontSize: 12.5, color: NX.red }}>{error}</div>}
     </Modal>
   );
 }

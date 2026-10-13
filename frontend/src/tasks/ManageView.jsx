@@ -469,7 +469,14 @@ function FieldsTab({ store }) {
           </div>
           {(f.appliesTo || []).includes('task') && <span style={chip(NX.purple, 'rgba(124,58,237,0.12)')}>Task field</span>}
           {(f.appliesTo || []).includes('project') && <span style={chip(NX.purple, 'rgba(124,58,237,0.12)')}>Project field</span>}
-          {f.required && <span style={chip(NX.red, 'rgba(220,38,38,0.12)')}>Required</span>}
+          {f.required
+            ? <span style={chip(NX.red, 'rgba(220,38,38,0.12)')}>Required</span>
+            : (f.requiredProjectIds || []).length > 0 && (
+              <span title={`Required in ${(f.requiredProjectIds || []).map(projectName).filter(Boolean).join(', ')}`}
+                style={chip(NX.red, 'rgba(220,38,38,0.12)')}>
+                Required in {(f.requiredProjectIds || []).length} {(f.requiredProjectIds || []).length === 1 ? 'Project' : 'Projects'}
+              </span>
+            )}
           {f.readOnly && <span title="Calculated in Asana - imported but never pushed back" style={chip(NX.dim, NX.border2)}>Read-only</span>}
           <span style={chip(NX.dim, NX.border2)}>{FIELD_TYPES.find((t) => t.value === f.type)?.label || f.type}</span>
           <IconButton icon={Pencil} title="Edit Field" onClick={() => setEditing(f)} />
@@ -496,7 +503,7 @@ const APPLIES_TO_OPTS = [
   { value: 'project', label: 'Projects' },
 ];
 
-function FieldModal({ projects = [], field = null, onClose, onSave }) {
+export function FieldModal({ projects = [], field = null, onClose, onSave }) {
   const [name, setName] = useState(field?.name || '');
   const [description, setDescription] = useState(field?.description || '');
   const [type, setType] = useState(field?.type || 'text');
@@ -512,7 +519,21 @@ function FieldModal({ projects = [], field = null, onClose, onSave }) {
   // behaved before scoping existed. Meaningless when the field doesn't apply
   // to tasks at all (there is no per-task column to scope).
   const [projectIds, setProjectIds] = useState(field?.projectIds || []);
-  const [required, setRequired] = useState(!!field?.required);
+  // Required per project (Neil, Oct 13 2026). With projects picked, each one
+  // has its own Required tick (requiredProjectIds); with none picked (every
+  // project), `required` means every project, or requiredProjectIds names
+  // the few it is required in. A field that was "required" while scoped
+  // opens with all of its projects ticked - the same thing, said per project.
+  const initialReq = useMemo(() => {
+    const scoped = (field?.projectIds || []).length > 0;
+    return {
+      required: !!field?.required && !scoped,
+      requiredProjectIds: field?.required && scoped ? [...field.projectIds] : (field?.requiredProjectIds || []),
+    };
+  }, [field]);
+  const [required, setRequired] = useState(initialReq.required);
+  const [requiredProjectIds, setRequiredProjectIds] = useState(initialReq.requiredProjectIds);
+  const toggleRequiredIn = (pid) => setRequiredProjectIds((cur) => (cur.includes(pid) ? cur.filter((x) => x !== pid) : [...cur, pid]));
   const initial = useMemo(() => ({
     name: field?.name || '', description: field?.description || '', type: field?.type || 'text',
     appliesTo: field?.appliesTo?.length ? field.appliesTo : ['task'],
@@ -522,10 +543,12 @@ function FieldModal({ projects = [], field = null, onClose, onSave }) {
         : { label: o.label || o.id || '', color: o.color || FIELD_OPTION_COLORS[0] }));
       return existing.length ? existing : [{ label: '', color: FIELD_OPTION_COLORS[0] }];
     })(),
-    projectIds: field?.projectIds || [], required: !!field?.required,
-  }), [field]);
+    projectIds: field?.projectIds || [], required: initialReq.required,
+    requiredProjectIds: initialReq.requiredProjectIds,
+  }), [field, initialReq]);
   const dirty = name !== initial.name || description !== initial.description || type !== initial.type
     || required !== initial.required
+    || JSON.stringify(requiredProjectIds) !== JSON.stringify(initial.requiredProjectIds)
     || JSON.stringify(appliesTo) !== JSON.stringify(initial.appliesTo)
     || JSON.stringify(options) !== JSON.stringify(initial.options)
     || JSON.stringify(projectIds) !== JSON.stringify(initial.projectIds);
@@ -541,8 +564,17 @@ function FieldModal({ projects = [], field = null, onClose, onSave }) {
     const opts = OPTION_TYPES.includes(type)
       ? options.filter((o) => o.label.trim()).map((o) => ({ id: o.label.trim(), label: o.label.trim(), color: o.color }))
       : [];
+    const taskSide = appliesTo.includes('task');
+    const scoped = taskSide && projectIds.length > 0;
     onSave({ name: name.trim(), description: description.trim(), type, options: opts,
-             project_ids: appliesTo.includes('task') ? projectIds : [], required, applies_to: appliesTo });
+             project_ids: taskSide ? projectIds : [],
+             // Scoped: only the per-project ticks, and only for projects
+             // still on the field. Every project: the switch, or the list.
+             required: scoped ? false : required,
+             required_project_ids: !taskSide ? []
+               : scoped ? requiredProjectIds.filter((pid) => projectIds.includes(pid))
+               : required ? [] : requiredProjectIds,
+             applies_to: appliesTo });
   };
 
   return (
@@ -605,15 +637,75 @@ function FieldModal({ projects = [], field = null, onClose, onSave }) {
           </div>
           <ChipMultiSelect value={projectIds} onChange={setProjectIds} options={projectPickerOptions(projects)}
             placeholder="Every project" searchPlaceholder="Search projects…" emptyText="No projects yet." />
+          {projectIds.length > 0 ? (
+            <RequiredPerProject projectIds={projectIds} projects={projects}
+              requiredIds={requiredProjectIds} onToggle={toggleRequiredIn}
+              onAll={(on) => setRequiredProjectIds(on ? [...projectIds] : [])} />
+          ) : (
+            <div style={{ marginTop: 12 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, cursor: 'pointer' }}>
+                <input type="checkbox" className="nx-check" checked={required} onChange={(e) => setRequired(e.target.checked)} style={{ width: 16, height: 16 }} />
+                Required in every project
+              </label>
+              {!required && (
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ fontSize: 11.5, color: NX.faint, marginBottom: 6 }}>Or required only in these projects:</div>
+                  <ChipMultiSelect value={requiredProjectIds} onChange={setRequiredProjectIds} options={projectPickerOptions(projects)}
+                    placeholder="Not required" searchPlaceholder="Search projects…" emptyText="No projects yet." />
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
-      <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14, fontSize: 13, cursor: 'pointer' }}>
-        <input type="checkbox" className="nx-check" checked={required} onChange={(e) => setRequired(e.target.checked)} style={{ width: 16, height: 16 }} />
-        {appliesTo.includes('task') && appliesTo.includes('project')
-          ? 'Required when creating a task or project'
-          : appliesTo.includes('project') ? 'Required when creating a project' : 'Required when creating a task'}
-      </label>
+      {/* A field only on projects keeps its single switch. */}
+      {!appliesTo.includes('task') && (
+        <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14, fontSize: 13, cursor: 'pointer' }}>
+          <input type="checkbox" className="nx-check" checked={required} onChange={(e) => setRequired(e.target.checked)} style={{ width: 16, height: 16 }} />
+          Required when creating a project
+        </label>
+      )}
     </Modal>
+  );
+}
+
+// The picked projects as a table with a Required tick each (Neil, Oct 13
+// 2026): ticked = no task can be created in that project without this field.
+function RequiredPerProject({ projectIds, projects, requiredIds, onToggle, onAll }) {
+  const nameOf = (id) => projects.find((p) => p.id === id)?.name || id;
+  const rows = [...projectIds].sort((a, b) => nameOf(a).localeCompare(nameOf(b), 'en', { sensitivity: 'base', numeric: true }));
+  const allOn = rows.every((id) => requiredIds.includes(id));
+  const cell = { padding: '8px 12px', fontSize: 13, borderTop: `1px solid ${NX.border2}` };
+  return (
+    <div style={{ marginTop: 12, border: `1px solid ${NX.border}`, borderRadius: 10, overflow: 'hidden' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <thead>
+          <tr style={{ background: NX.surface2 }}>
+            <th style={{ ...cell, borderTop: 'none', textAlign: 'left', fontSize: 11.5, fontWeight: 700, color: NX.dim }}>Project</th>
+            <th style={{ ...cell, borderTop: 'none', width: 110, textAlign: 'center', fontSize: 11.5, fontWeight: 700, color: NX.dim }}>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }} title={allOn ? 'Not required in any' : 'Required in all'}>
+                <input type="checkbox" className="nx-check" checked={allOn} onChange={(e) => onAll(e.target.checked)} aria-label="Required in every project listed" style={{ width: 15, height: 15 }} />
+                Required
+              </label>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((id) => (
+            <tr key={id}>
+              <td style={cell}>{nameOf(id)}</td>
+              <td style={{ ...cell, textAlign: 'center' }}>
+                <input type="checkbox" className="nx-check" checked={requiredIds.includes(id)} onChange={() => onToggle(id)}
+                  aria-label={`Required in ${nameOf(id)}`} style={{ width: 16, height: 16, cursor: 'pointer' }} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div style={{ padding: '7px 12px', fontSize: 11.5, color: NX.faint, borderTop: `1px solid ${NX.border2}` }}>
+        A task cannot be created in a ticked project until this field is filled in.
+      </div>
+    </div>
   );
 }
 

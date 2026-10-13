@@ -18,7 +18,7 @@ os.environ["DATABASE_URL"] = f"sqlite:///{_tmp_db.name}"
 import database
 import models
 from routers.task_config import (
-    normalize_field_options, coerce_custom_field_values, field_applies_to,
+    normalize_field_options, coerce_custom_field_values, field_applies_to, field_required_in,
 )
 
 
@@ -124,6 +124,47 @@ class CoerceValuesTests(unittest.TestCase):
         })
         self.assertEqual(got, {"f-num": 3, "f-date": "2026-09-30", "f-check": True,
                                "f-sel": "s1", "f-text": "42"})
+
+    # Batch edit (Oct 13 2026): setting Property on a dozen selected tasks.
+    def test_a_bulk_value_is_merged_into_what_the_task_already_has(self):
+        from routers.tasks import _merge_custom_field_values
+        got = _merge_custom_field_values(self.db, {"f-num": 3, "f-text": "keep"}, {"f-sel": "Build"})
+        self.assertEqual(got, {"f-num": 3, "f-text": "keep", "f-sel": "s2"})
+
+    def test_a_bulk_blank_clears_just_that_field(self):
+        from routers.tasks import _merge_custom_field_values
+        got = _merge_custom_field_values(self.db, {"f-num": 3, "f-sel": "s1"}, {"f-sel": ""})
+        self.assertEqual(got, {"f-num": 3})
+
+    def test_a_bulk_value_that_cannot_be_stored_leaves_the_task_alone(self):
+        from routers.tasks import _merge_custom_field_values
+        current = {"f-sel": "s1"}
+        self.assertEqual(_merge_custom_field_values(self.db, current, {"f-sel": "No such option"}), {"f-sel": "s1"})
+        self.assertEqual(_merge_custom_field_values(self.db, None, "not a dict"), {})
+
+
+class RequiredPerProjectTests(unittest.TestCase):
+    """Required in some projects, not all (Neil, Oct 13 2026)."""
+    def _f(self, **kw):
+        base = dict(id="f-prop", name="Property", type="select", project_ids=["p1", "p2", "p3"],
+                    required=False, required_project_ids=[], read_only=False, applies_to='["task"]')
+        base.update(kw)
+        return models.TaskCustomField(**base)
+
+    def test_required_only_in_the_projects_ticked(self):
+        f = self._f(required_project_ids=["p2"])
+        self.assertTrue(field_required_in(f, "p2"))
+        self.assertFalse(field_required_in(f, "p1"))
+        self.assertFalse(field_required_in(f, ""))
+
+    def test_the_old_everywhere_switch_still_means_everywhere_it_applies(self):
+        f = self._f(required=True)
+        self.assertTrue(field_required_in(f, "p1"))
+        self.assertFalse(field_required_in(f, "p-elsewhere"))    # the field is not on that project
+
+    def test_never_for_a_field_that_cannot_be_filled_in(self):
+        self.assertFalse(field_required_in(self._f(required_project_ids=["p2"], read_only=True), "p2"))
+        self.assertFalse(field_required_in(self._f(required_project_ids=["p2"], applies_to='["project"]'), "p2"))
 
 
 class ScopingTests(unittest.TestCase):

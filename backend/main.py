@@ -935,6 +935,14 @@ def _run_migrations():
             "ALTER TABLE punch_requests ADD COLUMN category VARCHAR DEFAULT ''",
             # The weekly New Feature bar's dismissal (Oct 12). models.ChangelogSeen.banner_seen_at.
             "ALTER TABLE changelog_seen ADD COLUMN banner_seen_at VARCHAR DEFAULT ''",
+            # A custom field required per project (Oct 13). models.TaskCustomField.required_project_ids.
+            "ALTER TABLE task_custom_fields ADD COLUMN required_project_ids JSON DEFAULT '[]'",
+            # Hand-ordered subtasks (Oct 13). models.Task.subtask_order.
+            "ALTER TABLE tasks ADD COLUMN subtask_order VARCHAR DEFAULT ''",
+            # A project's time tracking on/off (Oct 13). models.TaskProject.time_tracking.
+            "ALTER TABLE task_projects ADD COLUMN time_tracking VARCHAR DEFAULT ''",
+            # Sections made for the Custom grouping (Oct 13). models.TaskSection.custom.
+            "ALTER TABLE task_sections ADD COLUMN custom BOOLEAN DEFAULT 0",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2092,6 +2100,10 @@ def _run_migrations():
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS backup_manager_email VARCHAR DEFAULT ''",
         "ALTER TABLE punch_requests ADD COLUMN IF NOT EXISTS category VARCHAR DEFAULT ''",
         "ALTER TABLE changelog_seen ADD COLUMN IF NOT EXISTS banner_seen_at VARCHAR DEFAULT ''",
+        "ALTER TABLE task_custom_fields ADD COLUMN IF NOT EXISTS required_project_ids JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS subtask_order VARCHAR DEFAULT ''",
+        "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS time_tracking VARCHAR DEFAULT ''",
+        "ALTER TABLE task_sections ADD COLUMN IF NOT EXISTS custom BOOLEAN DEFAULT FALSE",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

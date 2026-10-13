@@ -13,13 +13,15 @@ import {
   Hash, List, Calendar, CheckSquare, ListOrdered, CircleDot, BarChart3, TrendingUp, Star, CalendarPlus, CalendarClock, Timer, ArrowLeft, EyeOff,
   Lock, Users, ListChecks, CornerDownRight, ArrowUp, ArrowDown, ChevronRight, Search,
 } from 'lucide-react';
-import { groupTasks, matchesFilter, sortTasks, topLevel, groupAddDefaults, fieldsForProject, teamInProject, teamColumnApplies, rootParent, effectiveProjectId, cfKey, taskAssignees } from '../lib';
+import { groupTasks, matchesFilter, sortTasks, topLevel, groupAddDefaults, fieldsForProject, teamInProject, teamColumnApplies, rootParent, effectiveProjectId, cfKey, taskAssignees, requiredFieldsFor, projectTracksTime, taskTracksTime } from '../lib';
 import { NX, FONT, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER, colorForKey, isMissed, MISSED_TITLE } from '../theme';
 import { useTableColumns, useTableSetting, ColResizer, nextSort, ResetColumnsButton } from '../tableCols';
 import { selectionAfterClick, selectionAfterArrow } from '../rowSelection';
 import { Avatar, useClickOutside, DateField, TaskCountBadges, SearchSelect, UnassignedAvatar, localTodayISO } from '../components';
 import { emailToName, rootZoom } from '../../lib/utils';
-import { matchPeople, onEnterPickFirst } from '../../lib/peopleSearch';
+import { matchPeople } from '../../lib/peopleSearch';
+import { useListNav } from '../../lib/listNav';
+import { AddSectionButton, SectionMenu } from '../SectionControls';
 import DueBadge from '../DueBadge';
 
 const BASE_COLS = [
@@ -228,6 +230,14 @@ function AssigneeCell({ value, people, onSelect, compact }) {
   const name = value ? (people.find((p) => p.email === value)?.name || emailToName(value)) : null;
   const pick = (em) => { onSelect(em); setOpen(false); setQ(''); };
   const filtered = matchPeople(people, q);
+  // Up / Down / Enter (lib/listNav.js). "Unassigned" is reachable only while
+  // nothing is typed, so a search that matches nobody never clears the cell.
+  const typed = q.trim() !== '';
+  const navItems = typed ? filtered : [null, ...filtered];
+  const nav = useListNav(navItems, {
+    open, query: q, onPick: (p) => pick(p ? p.email : null),
+    startAt: navItems.findIndex((p) => (p ? p.email === value : !value)),
+  });
   return (
     <div ref={ref} style={{ position: 'relative', ...(compact ? { width: '100%' } : {}) }}>
       {/* The cell value itself is the dropdown trigger - clicking it opens the
@@ -242,11 +252,11 @@ function AssigneeCell({ value, people, onSelect, compact }) {
         <PortalDropdown anchorRef={ref} panelRef={panelRef} width={240}>
           <div className="nx-scroll" style={{ maxHeight: 280, overflowY: 'auto' }}>
             <input className="nx-inline-edit" autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
-              onKeyDown={onEnterPickFirst(filtered, (p) => pick(p.email))}
+              {...nav.inputProps} onKeyDown={nav.onKeyDown}
               style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: 13, fontFamily: FONT, boxSizing: 'border-box', color: NX.ink }} />
-            <div onClick={() => pick(null)} style={{ padding: '8px 12px', fontSize: 13, color: NX.dim, cursor: 'pointer' }}>Unassigned</div>
-            {filtered.map((p) => (
-              <div key={p.email} onClick={() => pick(p.email)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, background: p.email === value ? NX.hover : 'transparent' }}>
+            <div className="nx-menu-row" {...(typed ? null : nav.optionProps(0))} onClick={() => pick(null)} style={{ padding: '8px 12px', fontSize: 13, color: NX.dim, cursor: 'pointer' }}>Unassigned</div>
+            {filtered.map((p, i) => (
+              <div key={p.email} className="nx-menu-row" {...nav.optionProps(typed ? i : i + 1)} onClick={() => pick(p.email)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink }}>
                 <Avatar email={p.email} name={p.name} size={22} card={false} />
                 <span style={{ flex: 1 }}>{p.name}</span>
                 {p.email === value && <Check size={14} style={{ color: NX.blue }} />}
@@ -496,7 +506,27 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
       // split Excel and every file manager make. A bare click still opens.
       if (e.shiftKey || e.ctrlKey || e.metaKey) { e.preventDefault(); onPick(t.id, e); return; }
       onOpen(t.id);
-    }} data-task-row data-row-id={t.id} draggable className="nx-row-hover" data-selected={selected ? 'true' : undefined}
+    }}
+      // Capture, so a modified click picks the row from ANY cell (Sagar, Oct
+      // 13 2026: Ctrl+click did nothing). Every editable cell - Person, Due
+      // Date, Priority, a custom field - stops its own click to open its
+      // editor, so the row's handler above only ever heard clicks on the
+      // title. A click inside one of those cells' portaled menus is not on
+      // the row (DOM check), and the checkbox picks for itself.
+      onClickCapture={(e) => {
+        if (!(e.shiftKey || e.ctrlKey || e.metaKey)) return;
+        if (!e.currentTarget.contains(e.target) || e.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+        e.stopPropagation(); e.preventDefault();
+        onPick(t.id, e);
+      }}
+      // A Mac turns Ctrl+click into a right-click: no click event comes at
+      // all, only contextmenu. Treat it as the Ctrl+click it was meant as.
+      onContextMenu={(e) => {
+        if (!e.ctrlKey || !e.currentTarget.contains(e.target)) return;
+        e.preventDefault();
+        onPick(t.id, e);
+      }}
+      data-task-row data-row-id={t.id} draggable className="nx-row-hover" data-selected={selected ? 'true' : undefined}
       onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; onDragStartRow?.(t.id); }}
       onDragEnd={() => onDragEndRow?.()}
       onDragOver={onRowDragOver} onDrop={onRowDrop} onDragLeave={onRowDragLeave}
@@ -903,7 +933,7 @@ export function peopleStackLayout(width, count) {
 }
 
 // Eye menu - hide/show columns, persisted per person (monday's "Hide" toolbar).
-function HideColsMenu({ customFields, hidden, setHidden, lockedProjectId, teams }) {
+function HideColsMenu({ customFields, hidden, setHidden, lockedProjectId, teams, tracksTime = true }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   const panelRef = useRef(null);
@@ -919,7 +949,9 @@ function HideColsMenu({ customFields, hidden, setHidden, lockedProjectId, teams 
     // in a project with fewer than two teams (teamColumnApplies).
     ...BASE_COLS.filter((c) => HIDEABLE.includes(c.key)
       && !(c.key === 'project' && lockedProjectId)
-      && !(c.key === 'team' && !teamColumnApplies(teams, lockedProjectId)))
+      && !(c.key === 'team' && !teamColumnApplies(teams, lockedProjectId))
+      // Not offered where the project does not track time - they are not shown.
+      && !((c.key === 'estimate' || c.key === 'actual') && !tracksTime))
       .map((c) => ({ key: c.key, label: c.label })),
     ...customFields.map((f) => ({ key: f.id, label: f.name })),
   ];
@@ -959,17 +991,23 @@ const soleTeamId = (store, projectId) => {
   return own.length === 1 ? own[0].id : '';
 };
 
-function AddTaskInline({ store, defaults, lockedProjectId }) {
+function AddTaskInline({ store, defaults, lockedProjectId, onFullCreate }) {
   const [title, setTitle] = useState('');
   const add = () => {
     const t = title.trim(); if (!t) return;
-    store.createTask({
+    const projectId = defaults.projectId || lockedProjectId || '';
+    const task = {
       title: t, type: 'task',
       status: defaults.status || 'not_started', priority: defaults.priority || 'medium',
-      projectId: defaults.projectId || lockedProjectId || '',
-      teamId: defaults.teamId || soleTeamId(store, defaults.projectId || lockedProjectId || ''),
+      projectId,
+      teamId: defaults.teamId || soleTeamId(store, projectId),
       dueOn: defaults.dueOn || '', assigneeIds: defaults.assigneeIds || (defaults.assigneeId ? [defaults.assigneeId] : []),
-    }).catch(() => {});
+    };
+    // A project with required custom fields (Oct 13 2026) cannot take a
+    // title-only task - the server refuses it - so the full Create form
+    // opens with the title already in, to fill in the rest.
+    if (onFullCreate && requiredFieldsFor(store.customFields, projectId).length) onFullCreate(task);
+    else store.createTask(task).catch((e) => alert(e?.message || 'Could not add the task.'));
     setTitle('');
   };
   return (
@@ -1011,16 +1049,16 @@ export function useHiddenCols() {
 // `customFields` is what is ON this list (scoped to the project); `allCustomFields`
 // is the whole workspace's, which the + Column menu's Existing Fields step
 // draws from.
-export function ListColumnControls({ hidden, setHidden, customFields, createCustomField, lockedProjectId, teams, allCustomFields, updateCustomField }) {
+export function ListColumnControls({ hidden, setHidden, customFields, createCustomField, lockedProjectId, teams, allCustomFields, updateCustomField, tracksTime = true }) {
   return (
     <>
-      <HideColsMenu customFields={customFields} hidden={hidden} setHidden={setHidden} lockedProjectId={lockedProjectId} teams={teams} />
+      <HideColsMenu customFields={customFields} hidden={hidden} setHidden={setHidden} lockedProjectId={lockedProjectId} teams={teams} tracksTime={tracksTime} />
       <AddFieldMenu createCustomField={createCustomField} allCustomFields={allCustomFields} updateCustomField={updateCustomField} lockedProjectId={lockedProjectId} />
     </>
   );
 }
 
-export default function RichListView({ visible, group, sort, setSort, ctx, store, people, selected, setSelected, toggleSel, onOpen, onSelectAll, lockedProjectId = '', hidden, setHidden }) {
+export default function RichListView({ visible, group, sort, setSort, ctx, store, people, selected, setSelected, toggleSel, onOpen, lockedProjectId = '', hidden, setHidden, onFullCreate, customSections = null }) {
   // Which groups the person folded away - remembered in their profile, as the
   // other table settings are.
   const [collapsedList, setCollapsedList] = useTableSetting('richlist', 'collapsed', EMPTY_LIST);
@@ -1056,12 +1094,21 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
   // grid template come from `cols`, so filtering one alone misaligns every row.
   // Neither is written to the stored hidden list: this is what the data currently
   // makes pointless, not what the user chose to hide.
+  // Time / Actual only where time is tracked (Oct 13 2026): the project's
+  // own setting inside a project (projectTracksTime), otherwise whether any
+  // task on screen is time tracked. Hidden the same data-driven way.
+  const tracksTime = useMemo(() => (lockedProjectId
+    ? projectTracksTime((store.projects || []).find((p) => p.id === lockedProjectId), store.tasks)
+    : (visible || []).some((t) => taskTracksTime(t, store.projects, store.tasks))),
+  [lockedProjectId, store.projects, store.tasks, visible]);
   const hiddenEff = useMemo(() => {
-    if (!lockedProjectId) return hidden;
-    const n = new Set([...hidden, 'project']);
+    const n = new Set(hidden);
+    if (!tracksTime) { n.add('estimate'); n.add('actual'); }
+    if (!lockedProjectId) return n;
+    n.add('project');
     if (!teamColumnApplies(store.teams, lockedProjectId)) n.add('team');
     return n;
-  }, [hidden, lockedProjectId, store.teams]);
+  }, [hidden, lockedProjectId, store.teams, tracksTime]);
   const visibleCols = useMemo(() => BASE_COLS.filter((c) => !hiddenEff.has(c.key)), [hiddenEff]);
   // Built once for the whole table, not once per row: every row's project cell
   // reads the same list, and a fresh array per row would be thousands of
@@ -1078,6 +1125,7 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
   const dropPatch = (key) => {
     // Creating inside an assignee group assigns to that one person.
     if (effGroup === 'assignee') return { assigneeIds: key === '-' ? [] : [key] };
+    if (effGroup === 'section') return customSections ? { section: key } : null;
     const d = groupAddDefaults(effGroup, key);
     return Object.keys(d).length ? d : null;
   };
@@ -1153,8 +1201,12 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
   // purpose: a task carries its status id wherever it is rendered (My Tasks,
   // search, a portfolio rollup) and a missed meta lookup would draw a raw uuid.
   const scopedStatusOrder = store.statusOrderFor ? store.statusOrderFor(lockedProjectId) : store.statusOrder;
-  const groupCtx = { ...ctx, statusMeta: store.statusMeta, statusOrder: scopedStatusOrder, customFields: allCustomFields };
-  const groups = useMemo(() => groupTasks(visible, effGroup, groupCtx).filter((g) => g.tasks.length > 0), [visible, effGroup, ctx, store.statusMeta, scopedStatusOrder]);
+  const groupCtx = { ...ctx, statusMeta: store.statusMeta, statusOrder: scopedStatusOrder, customFields: allCustomFields,
+    sections: customSections?.sections, sectionOf: customSections?.sectionOf };
+  // Empty groups are dropped - except a Custom section, which someone made on
+  // purpose and has to stay on screen to have tasks dragged into it.
+  const groups = useMemo(() => groupTasks(visible, effGroup, groupCtx).filter((g) => g.tasks.length > 0 || g.section),
+    [visible, effGroup, ctx, store.statusMeta, scopedStatusOrder, customSections?.sections, customSections?.sectionOf]);
   // Incremental rendering. Every task used to mount a full row on first paint -
   // ~80 DOM nodes each, so the real workspace (2,400 tasks) built ~190k nodes
   // synchronously and the tab went "page isn't responding". Rows are handed out
@@ -1258,8 +1310,6 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
       document.body.style.userSelect = '';
     };
   }, []);
-  const allSel = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
-  const someSel = !allSel && visibleIds.some((id) => selected.has(id));
   const toggleGroup = (k) => {
     if (completedGroup && k === COMPLETED_KEY) { setCompletedOpen((o) => !o); return; }
     const n = new Set(collapsedList);
@@ -1346,10 +1396,26 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
   // along with it - the right trade there, where a frozen header would eat a
   // third of a short screen.
   // z-index clears the rows: the Person stack layers its avatars up to ~8.
-  const groupHeader = (
+  // Each section's header checkbox covers THAT section's tasks only (Oct 13
+  // 2026: ticking it in Recurring also ticked every Missed row - one header
+  // shared by every section, checking every visible task). Toggled against
+  // the rest of the selection, which it leaves alone.
+  const groupSelect = (ids) => {
+    const all = ids.length > 0 && ids.every((id) => selected.has(id));
+    setSelected((cur) => {
+      const next = new Set(cur);
+      for (const id of ids) { if (all) next.delete(id); else next.add(id); }
+      return next;
+    });
+  };
+  const groupHeader = (g) => {
+    const ids = g.tasks.map((t) => t.id);
+    const allSel = ids.length > 0 && ids.every((id) => selected.has(id));
+    const someSel = !allSel && ids.some((id) => selected.has(id));
+    return (
     <div style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'stretch', borderBottom: `1px solid ${NX.border2}`, background: NX.surface, fontSize: 13, fontWeight: 400, color: NX.dim, position: 'sticky', top: 0, zIndex: 20, borderTopLeftRadius: 12, borderTopRightRadius: 12 }}>
       <div style={{ ...headCell, justifyContent: 'center', padding: '2px 4px' }}>
-        <button onClick={onSelectAll} title={allSel ? 'Deselect all' : 'Select all'} style={{ width: 16, height: 16, borderRadius: 3, border: `1.5px solid ${allSel || someSel ? NX.primary : NX.border}`, background: allSel || someSel ? NX.primary : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, flexShrink: 0 }}>
+        <button onClick={() => groupSelect(ids)} title={allSel ? `Deselect all in ${g.label}` : `Select all in ${g.label}`} aria-label={allSel ? `Deselect all in ${g.label}` : `Select all in ${g.label}`} style={{ width: 16, height: 16, borderRadius: 3, border: `1.5px solid ${allSel || someSel ? NX.primary : NX.border}`, background: allSel || someSel ? NX.primary : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, flexShrink: 0 }}>
           {allSel ? <Check size={11} strokeWidth={3} color="#fff" /> : someSel ? <Minus size={11} strokeWidth={3} color="#fff" /> : null}
         </button>
       </div>
@@ -1363,7 +1429,8 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
           table (see below). */}
       <div />
     </div>
-  );
+    );
+  };
 
   return (
     <div className="nx-list-scroll" style={{ margin: 16, minHeight: 'calc(100% - 32px)' }}>
@@ -1391,7 +1458,14 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
             <div key={g.key} style={{ marginTop: 22 }}
               onDragOver={(e) => { if (dragId && dropPatch(g.key)) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dropKey !== g.key) setDropKey(g.key); } }}
               onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDropKey((k) => (k === g.key ? null : k)); }}
-              onDrop={(e) => { e.preventDefault(); const patch = dropPatch(g.key); if (dragId && patch) store.updateTask(dragId, patch).catch(() => {}); setDragId(null); setDropKey(null); }}>
+              onDrop={(e) => {
+                e.preventDefault();
+                const patch = dropPatch(g.key);
+                if (dragId && patch?.section !== undefined) customSections.move([dragId], patch.section).catch(() => {});
+                else if (dragId && patch) store.updateTask(dragId, patch).catch(() => {});
+                setDragId(null); setDropKey(null);
+              }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               <button onClick={() => toggleGroup(g.key)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '2px 2px 8px', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left', fontFamily: FONT }}>
                 <ChevronDown size={17} style={{ color: NX.faint, transform: isCol ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s' }} />
                 <span style={{ width: 10, height: 10, borderRadius: 3, background: gc, flexShrink: 0 }} />
@@ -1400,13 +1474,15 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
                 {/* collapsed: the status mix stays visible on the header line */}
                 {isCol && total > 0 && <span style={{ display: 'inline-flex', width: 130, marginLeft: 10 }}>{statusBar(12)}</span>}
               </button>
+              {g.section && customSections && <span style={{ marginBottom: 8 }}><SectionMenu sec={customSections} group={g} /></span>}
+              </div>
               {!isCol && (
                 /* No `overflow: hidden` here: it would clip the sticky column
                    header out of existence (a sticky element cannot escape a
                    clipping ancestor). The corners are rounded on the header and
                    on the block itself instead. */
                 <div style={{ border: `1px solid ${isDropTarget ? gc : NX.border}`, borderRadius: 12, background: NX.surface, boxShadow: isDropTarget ? `0 0 0 2px ${gc}55` : 'none', transition: 'box-shadow 0.12s' }}>
-                  {groupHeader}
+                  {groupHeader(g)}
                   {g.tasks.slice(0, groupBudgets[gi] ?? g.tasks.length).map((t, ri) => (
                     <TaskRow key={t.id} t={t} band={ri % 2 === 1} cols={cols} customFields={customFields} template={template} store={store} people={people} selected={selected.has(t.id)} toggleSel={toggleSel} onPick={pickRow} onOpen={onOpen}
                       personWidth={personWidth} groupColor={gc} projectOptions={projectOptions} onDragStartRow={setDragId} onDragEndRow={() => { setDragId(null); setDropKey(null); setDropRow(null); }}
@@ -1415,7 +1491,7 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
                       onRowDragLeave={manualSort ? rowDragLeave(t) : undefined}
                       dropEdge={manualSort && dropRow?.taskId === t.id ? dropRow.edge : null} />
                   ))}
-                  <AddTaskInline store={store} lockedProjectId={lockedProjectId} defaults={groupAddDefaults(effGroup, g.key)} />
+                  <AddTaskInline store={store} lockedProjectId={lockedProjectId} defaults={effGroup === 'section' && customSections?.personal ? {} : groupAddDefaults(effGroup, g.key)} onFullCreate={onFullCreate} />
                 </div>
               )}
             </div>
@@ -1424,6 +1500,9 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
         {/* Grows the render budget as it comes into view - see ROW_BATCH. Kept
             in the flow (not fixed) so it only fires while the user is actually
             near the end of the list. */}
+        {effGroup === 'section' && customSections && (
+          <div style={{ marginTop: 16 }}><AddSectionButton sec={customSections} /></div>
+        )}
         {renderBudget < totalRows && (
           <div ref={moreRef} style={{ padding: '18px 2px', textAlign: 'center', fontSize: 12.5, color: NX.faint }}>
             Showing {renderBudget} of {totalRows}

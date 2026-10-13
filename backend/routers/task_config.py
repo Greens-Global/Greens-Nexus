@@ -331,6 +331,36 @@ def field_applies_to(f: models.TaskCustomField, project_id: str) -> bool:
     return not ids or (project_id or "") in ids
 
 
+def field_required_in(f: models.TaskCustomField, project_id: str) -> bool:
+    """Must a new task in `project_id` carry a value for this field?
+
+    Yes when the field is a task field that applies to the project and is
+    required either everywhere (`required`) or in this project specifically
+    (`required_project_ids`, Oct 13 2026). A read-only field never is - it
+    can't be filled in."""
+    if f.read_only or "task" not in _parse_applies_to(f.applies_to):
+        return False
+    if not field_applies_to(f, project_id):
+        return False
+    if f.required:
+        return True
+    return bool(project_id) and project_id in [p for p in (f.required_project_ids or []) if p]
+
+
+def missing_required_fields(db: Session, project_id: str, values) -> list:
+    """The fields a new task in `project_id` still needs, given its (already
+    coerced) custom-field values. Empty = it can be created."""
+    have = values if isinstance(values, dict) else {}
+    out = []
+    for f in db.query(models.TaskCustomField).all():
+        if not field_required_in(f, project_id):
+            continue
+        v = have.get(f.id)
+        if v is None or v == "" or v == []:
+            out.append(f)
+    return out
+
+
 _APPLIES_TO_KINDS = ("task", "project")
 
 
@@ -364,6 +394,7 @@ def custom_field_to_dict(f: models.TaskCustomField) -> dict:
             "options": normalize_field_options(f.options if isinstance(f.options, list) else []),
             "projectIds": [p for p in (f.project_ids or []) if p],
             "required": bool(f.required), "readOnly": bool(f.read_only),
+            "requiredProjectIds": [p for p in (f.required_project_ids or []) if p],
             "appliesTo": _parse_applies_to(f.applies_to)}
 
 
@@ -375,6 +406,7 @@ class CustomFieldBody(BaseModel):
     options: Optional[list] = None
     project_ids: Optional[list] = None
     required: Optional[bool] = None
+    required_project_ids: Optional[list] = None
     read_only: Optional[bool] = None
     applies_to: Optional[list] = None
 
@@ -391,6 +423,7 @@ def create_custom_field(body: CustomFieldBody, db: Session = Depends(get_db)):
                                options=normalize_field_options(body.options or []),
                                project_ids=[p for p in (body.project_ids or []) if p],
                                required=bool(body.required), read_only=bool(body.read_only),
+                               required_project_ids=[p for p in (body.required_project_ids or []) if p],
                                applies_to=_dump_applies_to(body.applies_to))
     db.add(f)
     db.commit()
@@ -408,6 +441,8 @@ def update_custom_field(field_id: str, body: CustomFieldBody, db: Session = Depe
         data["options"] = normalize_field_options(data["options"] or [])
     if "project_ids" in data:
         data["project_ids"] = [p for p in (data["project_ids"] or []) if p]
+    if "required_project_ids" in data:
+        data["required_project_ids"] = [p for p in (data["required_project_ids"] or []) if p]
     if "applies_to" in data:
         data["applies_to"] = _dump_applies_to(data["applies_to"])
     for k, v in data.items():
@@ -960,9 +995,15 @@ def generate_changelog_from_commits(db: Session, author_email: str = "") -> dict
 
     state = changelog_auto._read_state(db)
     skipped_before = [str(k) for k in (state.get("skipped_keys") or [])]
+    cursor = state.get("pr_cursor", "")
+    # When the skip rules change, look at the last few days once more with the
+    # new rules: forget the old skips and the cursor. Nothing is published
+    # twice - every published entry is known by its sourceKey.
+    if state.get("skip_rules") != changelog_prs.SKIP_RULES_VERSION:
+        skipped_before, cursor = [], ""
     try:
         prs, head = changelog_prs.fetch_merged_prs(
-            tracked_branch(), state.get("pr_cursor", ""), _known_changes(db) | set(skipped_before))
+            tracked_branch(), cursor, _known_changes(db) | set(skipped_before))
     except changelog_prs.GitHubError as e:
         print(f"[changelog] could not read merged PRs: {e}")
         return {"error": f"Could not read merged pull requests: {e}"}
@@ -1019,6 +1060,7 @@ def generate_changelog_from_commits(db: Session, author_email: str = "") -> dict
     changelog_auto._write_state(db, {
         "pr_cursor": head,
         "skipped_keys": (skipped_before + [pr["key"] for pr in skipped])[-300:],
+        "skip_rules": changelog_prs.SKIP_RULES_VERSION,
         "last_polish_error": polish_note,
     })
     out = {"created": len(created), "scanned": len(prs), "skipped": len(skipped),

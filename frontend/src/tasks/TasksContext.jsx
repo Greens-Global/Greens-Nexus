@@ -46,7 +46,7 @@ const CAMEL_TO_SNAKE = {
   assigneeId: 'assignee_email', assigneeIds: 'assignee_emails',
   followerIds: 'follower_emails', likedByIds: 'liked_by_emails',
   accessLevel: 'access_level', projectId: 'project_id', sectionId: 'section_id',
-  teamId: 'team_id', parentTaskId: 'parent_task_id', subtaskIds: 'subtask_ids',
+  teamId: 'team_id', parentTaskId: 'parent_task_id', subtaskIds: 'subtask_ids', subtaskOrder: 'subtask_order', timeTracking: 'time_tracking',
   blockedByIds: 'blocked_by_ids', blockingIds: 'blocking_ids', dependencyTypes: 'dependency_types',
   customFieldValues: 'custom_field_values', startOn: 'start_on', dueOn: 'due_on',
   estimateHours: 'estimate_hours', actualHours: 'actual_hours', isMilestone: 'is_milestone',
@@ -186,7 +186,16 @@ export function TasksProvider({ children }) {
     setBookmarks(new Set(rows.map((b) => b.projectId)));
   }, []);
 
-  useEffect(() => { loadCore(); loadNotifications(); loadBookmarks(); }, [loadCore, loadNotifications, loadBookmarks]);
+  // A project's own sections - the Custom grouping (Oct 13 2026). Small and
+  // only read under that grouping, so like bookmarks it is its own fetch and
+  // never holds up first paint.
+  const [sections, setSections] = useState([]);
+  const loadSections = useCallback(async () => {
+    const rows = await api.getTaskSections().catch(() => null);
+    if (Array.isArray(rows)) setSections(rows);
+  }, []);
+
+  useEffect(() => { loadCore(); loadNotifications(); loadBookmarks(); loadSections(); }, [loadCore, loadNotifications, loadBookmarks, loadSections]);
 
   // Keep the module-scope cache in step with what's on screen, so the next
   // mount (Tasks -> Tickets, or a return trip from another module) starts from
@@ -578,6 +587,15 @@ export function TasksProvider({ children }) {
     // A merge deletes rows and rewrites the survivor's scope, so the list is
     // re-read rather than patched in place.
     dedupeCustomStatuses: async () => { const r = await api.dedupeTaskCustomStatuses(); await loadCore(); return r; },
+    createSection: mk(api.createTaskSection, setSections),
+    updateSection: mkUpd(api.updateTaskSection, setSections),
+    // The server releases the section's tasks; mirror that here so they drop
+    // into "No Section" without waiting for the next refresh.
+    deleteSection: async (id) => {
+      await api.deleteTaskSection(id);
+      setSections((p) => p.filter((x) => x.id !== id));
+      setTasks((prev) => prev.map((t) => (t.sectionId === id ? { ...t, sectionId: '' } : t)));
+    },
     createCustomStatus: mk(api.createTaskCustomStatus, setCustomStatuses),
     updateCustomStatus: mkUpd(api.updateTaskCustomStatus, setCustomStatuses),
     deleteCustomStatus: mkDel(api.deleteTaskCustomStatus, setCustomStatuses),
@@ -622,6 +640,7 @@ export function TasksProvider({ children }) {
     tasks, projects, portfolios, teams, tickets, ticketComponents, savedViews, ticketViews, rules, templates,
     projectTemplates,
     customFields, customStatuses, statusMeta, statusOrder, statusOrderFor, notifications, memberRequests, intakeForms, changelog,
+    sections,
     taskById, projectById, portfolioById, teamById, projectName, teamName,
     getComments, addComment, commentCache: commentCache.current,
     createTask, updateTask, deleteTask, bulkUpdate, toggleComplete, setStatus,

@@ -54,7 +54,7 @@ describe('ProjectPicker', () => {
     setup();
     openPanel();
     expect(screen.getByText('Your Projects')).toBeTruthy();
-    const labels = screen.getAllByRole('button')
+    const labels = screen.getAllByRole('option')
       .map((b) => b.textContent.trim())
       .filter((t) => projects.some((p) => p.name === t));
     // GS Mammoth, GSE Development, GSVC Maintenance are mine and sort together
@@ -65,7 +65,7 @@ describe('ProjectPicker', () => {
   it('alphabetizes within each group', () => {
     setup();
     openPanel();
-    const all = screen.getAllByRole('button').map((b) => b.textContent.trim());
+    const all = screen.getAllByRole('option').map((b) => b.textContent.trim());
     const others = all.filter((t) => ['#General', 'Menifee'].includes(t));
     expect(others).toEqual(['#General', 'Menifee']);
   });
@@ -74,7 +74,7 @@ describe('ProjectPicker', () => {
     setup();
     openPanel();
     fireEvent.change(screen.getByPlaceholderText('Search projects'), { target: { value: 'gs' } });
-    const shown = screen.getAllByRole('button').map((b) => b.textContent.trim());
+    const shown = screen.getAllByRole('option').map((b) => b.textContent.trim());
     expect(shown).toContain('GS Mammoth');
     expect(shown).toContain('GSVC Maintenance');
     expect(shown).not.toContain('Menifee');

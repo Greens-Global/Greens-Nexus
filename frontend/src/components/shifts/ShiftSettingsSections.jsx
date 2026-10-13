@@ -15,6 +15,7 @@ import { dialog } from '../../ui/dialog';
 import { ZONE_GROUPS, zoneOptionLabel } from '../../lib/worldClockZones';
 import { useNameResolver } from '../../lib/useNameResolver';
 import { formatHHMM } from '../../lib/datetime';
+import { useListNav } from '../../lib/listNav';
 import AsyncSection, { Spinner, SkeletonBlocks } from '../AsyncState';
 import { Avatar } from '../ShiftScheduleExtras';
 import { SHIFT_COLORS, orderGroups, alpha, DEFAULT_SHIFT_COLOR } from './shiftLib';
@@ -315,6 +316,8 @@ export function ShiftGroupsPanel({ toastOk, toastErr }) {
   };
   const toggleMember = (em) => setForm((f) => ({ ...f, members: f.members.includes(em) ? f.members.filter((x) => x !== em) : [...f.members, em] }));
   const listed = directory.filter((p) => !q.trim() || p.name.toLowerCase().includes(q.trim().toLowerCase()));
+  // Up / Down / Enter in the member search (lib/listNav.js), once typed.
+  const memberNav = useListNav(listed, { open: !!q.trim(), query: q, onPick: (p) => toggleMember(p.email) });
 
   return (
     <AsyncSection loading={!groups && !error} error={!!error} onRetry={reload} errorMessage="The groups could not be loaded right now." skeleton={<SkeletonBlocks count={2} height={64} borderRadius={10} />}>
@@ -367,12 +370,13 @@ export function ShiftGroupsPanel({ toastOk, toastErr }) {
               </div>
               <label style={{ display: 'flex', alignItems: 'center', gap: 6, border: '1px solid var(--line)', borderRadius: 8, padding: '4px 10px', marginBottom: 6 }}>
                 <Search size={13} color="var(--muted)" />
-                <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people" aria-label="Search people to add" className="nx-inline-edit" style={{ border: 'none', fontSize: 13, flex: 1, fontFamily: 'inherit', color: 'var(--ink)' }} />
+                <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people" aria-label="Search people to add" className="nx-inline-edit"
+                  {...memberNav.inputProps} onKeyDown={memberNav.onKeyDown} style={{ border: 'none', fontSize: 13, flex: 1, fontFamily: 'inherit', color: 'var(--ink)' }} />
               </label>
               <div style={{ flex: 1, minHeight: 120, maxHeight: 220, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 10 }}>
                 {directory.length === 0 && <div style={{ padding: 12, fontSize: 12, color: 'var(--muted)' }}>No people available.</div>}
-                {listed.map((p) => (
-                  <label key={p.email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px', cursor: 'pointer', borderBottom: '1px solid var(--line)' }}>
+                {listed.map((p, i) => (
+                  <label key={p.email} {...memberNav.optionProps(i)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px', cursor: 'pointer', borderBottom: '1px solid var(--line)' }}>
                     <input type="checkbox" checked={form.members.includes(p.email)} onChange={() => toggleMember(p.email)} aria-label={`Add ${p.name}`} />
                     <Avatar name={p.name} photoUrl={p.photoUrl} size={22} />
                     <span style={{ fontSize: 12.5, fontWeight: 600 }}>{p.name}</span>

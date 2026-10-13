@@ -17,7 +17,7 @@ const FOCUSABLE = [
   '[tabindex]:not([tabindex="-1"])',
 ].join(',');
 
-function focusables(panel) {
+export function focusables(panel) {
   return [...panel.querySelectorAll(FOCUSABLE)].filter((el) => (
     el.tabIndex >= 0 && !el.closest('[hidden], [inert], [aria-hidden="true"]')
     && el.style.display !== 'none' && el.style.visibility !== 'hidden'

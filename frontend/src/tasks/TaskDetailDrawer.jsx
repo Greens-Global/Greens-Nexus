@@ -6,20 +6,21 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  ArrowLeft, ArrowRightToLine, CheckCircle2, Circle, XCircle, ChevronDown, ChevronRight,
+  ArrowLeft, ArrowRightToLine, CornerDownRight, GripVertical, CheckCircle2, Circle, XCircle, ChevronDown, ChevronRight,
   ChevronLeft, Diamond, Repeat, ThumbsUp, Trash2, Link2, X, Clock, ShieldCheck,
   Paperclip, Download, Pin, Pencil, Plus, CalendarDays, Maximize2, Minimize2,
   RotateCcw, ThumbsDown, Share2, MoreHorizontal, UserPlus, Globe, Lock, Check, Ban, Ticket,
 } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
-import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, parseImportedAuthor, fmtHours, teamInProject, fieldsForProject, fieldOption, richBodyHtml, uploadTaskAttachment, taskAssignees } from './lib';
+import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, parseImportedAuthor, fmtHours, teamInProject, fieldOption, richBodyHtml, uploadTaskAttachment, taskAssignees, fieldsForTask, requiredByProjectsOf, isBlankValue, orderSubtasks, reorderedPositions, taskTracksTime } from './lib';
 
 // Drawer shows an em-dash for an unset date rather than an empty cell.
 const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '-');
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER, isMissed, MISSED_TITLE } from './theme';
 import { Avatar, PersonSelect, PersonMultiSelect, usePeople, useIsMobile, DateField, AttachmentViewer, ExternalTag, useImageZoom, localTodayISO, notPast, MenuCaption } from './components';
-import { matchPeople, onEnterPickFirst } from '../lib/peopleSearch';
+import { matchPeople } from '../lib/peopleSearch';
+import { useListNav } from '../lib/listNav';
 import { useFrequentCollaborators, frequentRows } from './frequentPeople';
 import TeamPicks, { pickableTeams, firstTeamPick, toggleRoster } from './teamPicks';
 import RichDescription, { isEmptyDoc } from './RichDescription';
@@ -29,40 +30,11 @@ import DueNegotiation from './DueNegotiation';
 import { toDownloadUrl } from '../lib/storageView';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { Spinner, LoadingState } from '../components/AsyncState';
+import { DAYS, DAY_ABBR, recurrenceLabel, monthRuleOf, yearRuleOf, PERIODIC_PRESETS, clampDays, MAX_PERIODIC_DAYS, ruleFromDate } from './recurrence';
+import { MonthDayControls, YearDayControls } from './RecurrenceParts';
+import { useCustomSections } from './customSections';
 
 const DEP_TYPES = { FS: 'Finish → Start', SS: 'Start → Start', FF: 'Finish → Finish', SF: 'Start → Finish' };
-const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
-const DAY_ABBR = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-function recurrenceLabel(r) {
-  if (!r || !r.freq) return 'Does not repeat';
-  let base;
-  if (r.freq === 'daily') base = 'Every day';
-  else if (r.freq === 'weekly') {
-    // daysOfWeek is the real field; dayOfWeek (singular) is a one-item
-    // fallback for a series created before multi-day weekly existed.
-    const days = r.daysOfWeek ?? (r.dayOfWeek != null ? [r.dayOfWeek] : [1]);
-    base = `Every week on ${days.map((d) => DAY_ABBR[d]).join(', ')}`;
-  }
-  else if (r.freq === 'monthly') base = `Every month on day ${r.dayOfMonth ?? 1}`;
-  else if (r.freq === 'yearly') base = 'Every year';
-  else if (r.freq === 'periodic') {
-    const n = r.daysAfterCompletion ?? 1;
-    base = `${n} day${n === 1 ? '' : 's'} after completion`;
-  }
-  else if (r.freq === 'custom') {
-    const n = r.interval ?? 1;
-    const unit = { day: 'day', week: 'week', month: 'month', year: 'year' }[r.unit] || 'week';
-    base = `Every ${n} ${unit}${n === 1 ? '' : 's'}`;
-    if (r.unit === 'week' && r.daysOfWeek?.length) base += ` on ${r.daysOfWeek.map((d) => DAY_ABBR[d]).join(', ')}`;
-  }
-  else return 'Does not repeat';
-  if (r.until) base += ` until ${r.until}`;
-  else if (r.count) base += ` × ${r.count}`;
-  return base;
-}
-
 /** "On these days" - the S M T W T F S row Weekly and Custom(week) share
  *  inside the Recurrence popover. Multi-toggle, stays open (no close-on-pick)
  *  since more than one day is usually wanted. */
@@ -196,13 +168,34 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
   const people = usePeople(true);
 
   const [activeId, setActiveId] = useState(taskId);
-  useEffect(() => setActiveId(taskId), [taskId]);
+  // The tasks stepped through to get here - opening a subtask from its parent
+  // pushes the parent - so Close, Delete and Mark Complete on a subtask land
+  // back on the task you came from instead of shutting the drawer and losing
+  // your place (Sagar, Oct 13 2026).
+  const [trail, setTrail] = useState([]);
+  useEffect(() => { setActiveId(taskId); setTrail([]); }, [taskId]);
+  const openSub = (id) => { setTrail((t) => [...t, activeId]); setActiveId(id); };
   const [tab, setTab] = useState(initialTab);
   useEffect(() => setTab(initialTab), [activeId, initialTab]);
   const [shareOpen, setShareOpen] = useState(false);
   const [converting, setConverting] = useState(false);
 
   const task = taskById[activeId];
+  const parent = task?.parentTaskId ? taskById[task.parentTaskId] : null;
+  // Where leaving this task goes: the task stepped in from, else (a subtask
+  // opened straight from a list) its parent, else nowhere - the drawer closes.
+  const backTarget = (fromId = activeId) => {
+    const prior = [...trail].reverse().find((id) => id !== fromId && taskById[id]);
+    if (prior) return prior;
+    const p = taskById[fromId]?.parentTaskId;
+    return p && taskById[p] ? p : null;
+  };
+  const goBack = (fromId = activeId) => {
+    const to = backTarget(fromId);
+    if (!to) { onClose(); return; }
+    setTrail((t) => t.slice(0, Math.max(0, t.lastIndexOf(to))));
+    setActiveId(to);
+  };
 
   // Mark Complete from the header closes the drawer once the completion has
   // played out - the task is done, so there is nothing left to do in it. The
@@ -222,8 +215,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
     Promise.resolve(done).then(() => setTimeout(() => {
       const now = latest.current;
       if (now.activeId !== doneId || !now.taskById[doneId]?.completed) return;
-      if (doneId !== taskId) setActiveId(taskId);
-      else onClose();
+      goBack(doneId);
     }, 650));
   };
 
@@ -251,7 +243,10 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
   const isMobile = useIsMobile();
 
   // Derive relations from the live task list (robust against optimistic updates).
-  const subtasks = useMemo(() => tasks.filter((t) => t.parentTaskId === activeId), [tasks, activeId]);
+  // In display order: due date then priority, or the order they were dragged
+  // into (orderSubtasks).
+  const subtasks = useMemo(() => orderSubtasks(tasks.filter((t) => t.parentTaskId === activeId), taskById[activeId]),
+    [tasks, activeId, taskById]);
   const blockedBy = useMemo(() => (task?.blockedByIds || []).map((id) => taskById[id]).filter(Boolean), [task, taskById]);
   const blocking = useMemo(() => (task?.blockingIds || []).map((id) => taskById[id]).filter(Boolean), [task, taskById]);
   const depCandidates = useMemo(
@@ -339,7 +334,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
           task={task} patch={patch} people={people} projectName={projectName} teamName={teamName} teams={teams} projects={projects}
           blockedBy={blockedBy} depCandidates={depCandidates} addDependency={addDependency} removeDependency={removeDependency}
           setDependencyType={setDependencyType}
-          subtasks={subtasks} createTask={createTask} updateTask={updateTask} onOpenSub={setActiveId}
+          subtasks={subtasks} createTask={createTask} updateTask={updateTask} onOpenSub={openSub}
           nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} refresh={store.refresh}
           onViewAllComments={() => setTab('comments')}
         />
@@ -347,7 +342,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
       case 'comments':     return <CommentsTab task={task} nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} />;
       case 'activity':     return <ActivityTab taskId={activeId} nameOf={nameOf} />;
       case 'attachments':  return <AttachmentsTab task={task} refresh={store.refresh} />;
-      case 'subtasks':     return <SubtasksTab task={task} subtasks={subtasks} createTask={createTask} updateTask={updateTask} people={people} onOpenSub={setActiveId} />;
+      case 'subtasks':     return <SubtasksTab task={task} subtasks={subtasks} createTask={createTask} updateTask={updateTask} people={people} onOpenSub={openSub} />;
       case 'dependencies': return <DependenciesTab blockedBy={blockedBy} blocking={blocking} task={task} removeDependency={removeDependency} />;
       case 'properties':   return <PropertiesTab task={task} nameOf={nameOf} projectName={projectName} teamName={teamName} customFields={customFields} patch={patch} />;
       default:             return null;
@@ -403,24 +398,47 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
                   <MenuItem icon={<Diamond size={14} style={{ color: task.isMilestone ? NX.purple : undefined }} />} onClick={() => { patch({ isMilestone: !task.isMilestone }); close(); }}>
                     {task.isMilestone ? 'Unmark milestone' : 'Mark as milestone'}
                   </MenuItem>
-                  <MenuItem danger icon={<Trash2 size={14} />} onClick={() => { close(); if (window.confirm(`Delete "${task.title}" and its subtasks?`)) { deleteTask(activeId); onClose(); } }}>
-                    Delete task
+                  <MenuItem danger icon={<Trash2 size={14} />} onClick={() => {
+                    close();
+                    const sub = !!task.parentTaskId;
+                    if (!window.confirm(sub ? `Delete subtask "${task.title}"?` : `Delete "${task.title}" and its subtasks?`)) return;
+                    const gone = activeId;
+                    deleteTask(gone);
+                    goBack(gone);
+                  }}>
+                    {task.parentTaskId ? 'Delete Subtask' : 'Delete Task'}
                   </MenuItem>
                 </>
               )}
             </Pop>
-            <button onClick={onClose} title="Close" style={{ ...btn('ghost'), padding: 7, color: NX.faint }}><ArrowRightToLine size={18} /></button>
+            <button onClick={() => (trail.length ? goBack() : onClose())}
+              title={trail.length && taskById[trail[trail.length - 1]] ? `Back to ${taskById[trail[trail.length - 1]].title}` : 'Close'}
+              style={{ ...btn('ghost'), padding: 7, color: NX.faint }}><ArrowRightToLine size={18} /></button>
           </div>
         </div>
 
         {/* title + tabs */}
         <div style={{ padding: '14px 18px 0', flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
-            {task.parentTaskId && (
-              <button onClick={() => setActiveId(task.parentTaskId)} title="Back to main task" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><ArrowLeft size={18} /></button>
+            {parent && (
+              <button onClick={() => goBack()} title={`Back to ${parent.title}`} aria-label="Back to main task" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><ArrowLeft size={18} /></button>
             )}
             <TitleInput key={activeId} value={task.title} completed={task.completed} onCommit={(v) => v.trim() && v !== task.title && patch({ title: v.trim() })} />
           </div>
+          {/* Whose subtask this is, under the title (Sagar, Oct 13 2026) -
+              and the way back to it. */}
+          {task.parentTaskId && (
+            <div data-testid="subtask-of" style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '-6px 0 12px', fontSize: 12.5, color: NX.dim }}>
+              <CornerDownRight size={14} style={{ color: NX.faint, flexShrink: 0 }} />
+              <span>Subtask of</span>
+              {parent ? (
+                <button type="button" onClick={() => goBack()} title="Open the main task"
+                  style={{ border: 'none', background: 'transparent', padding: 0, cursor: 'pointer', fontFamily: FONT, fontSize: 12.5, fontWeight: 600, color: NX.blue, textAlign: 'left', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {parent.title}
+                </button>
+              ) : <span style={{ fontWeight: 600 }}>a task you cannot open</span>}
+            </div>
+          )}
           {/* Tabs are desktop-only. A phone has no room for seven of them, so
               the body stacks every section instead (see below). */}
           {!isMobile && (
@@ -510,8 +528,11 @@ function CollaboratorMenuBody({ people, selected, onChange }) {
     onChange(adding ? [...selected, email] : selected.filter((e) => e !== email), adding);
     if (adding) { setQ(''); queryRef.current?.focus(); }
   };
-  const row = (u, keyPrefix) => (
-    <label key={keyPrefix + u.email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 13, cursor: 'pointer' }}>
+  // Up / Down move the highlight, Enter takes it (lib/listNav.js).
+  const navItems = [...top, ...filtered];
+  const nav = useListNav(navItems, { query: q, onPick: (u) => pick(u.email) });
+  const row = (u, keyPrefix, navIndex) => (
+    <label key={keyPrefix + u.email} {...nav.optionProps(navIndex)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 13, cursor: 'pointer' }}>
       <input type="checkbox" checked={selected.includes(u.email)} onChange={() => pick(u.email)} />
       <Avatar email={u.email} name={u.name} size={20} card={false} />
       <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.name}</span>
@@ -522,20 +543,21 @@ function CollaboratorMenuBody({ people, selected, onChange }) {
     <div>
       <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, padding: '4px 6px' }}>Collaborators</div>
       <input className="nx-inline-edit" ref={queryRef} autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
+        {...nav.inputProps}
         onKeyDown={(e) => {
-          // Enter takes the first person; a search that matches a team and
-          // nobody takes that team instead of doing nothing.
-          const team = (e.key === 'Enter' && !top.length && !filtered.length) ? firstTeamPick(teams, people, q) : null;
+          // Enter takes the highlighted person; a search that matches a team
+          // and nobody takes that team instead of doing nothing.
+          const team = (e.key === 'Enter' && !navItems.length) ? firstTeamPick(teams, people, q) : null;
           if (team) { e.preventDefault(); const r = toggleRoster(selected, team.roster); pickTeam(r.next, r.adding); return; }
-          onEnterPickFirst(top.length ? top : filtered, (u) => pick(u.email))(e);
+          nav.onKeyDown(e);
         }}
         style={{ width: '100%', boxSizing: 'border-box', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '6px 8px', fontSize: 13, fontFamily: FONT, color: NX.ink }} />
       <div className="nx-scroll" style={{ maxHeight: 260, overflowY: 'auto' }}>
         <TeamPicks teams={teams} people={people} selected={selected} query={q} onSaveTeam={saveTeam} onChange={pickTeam} />
         {top.length > 0 && <MenuCaption inset={8}>Frequent</MenuCaption>}
-        {top.map((u) => row(u, 'f:'))}
+        {top.map((u, i) => row(u, 'f:', i))}
         {top.length > 0 ? <MenuCaption inset={8}>All</MenuCaption> : (teamRows > 0 && filtered.length > 0 && <MenuCaption inset={8}>People</MenuCaption>)}
-        {filtered.map((u) => row(u, ''))}
+        {filtered.map((u, i) => row(u, '', top.length + i))}
         {filtered.length === 0 && teamRows === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>{people.length === 0 ? 'No people' : 'No match'}</div>}
       </div>
     </div>
@@ -551,14 +573,16 @@ function ProjectMenuBody({ projects, exclude, onPick }) {
   const filtered = (projects || [])
     .filter((p) => !p.archived && !exclude.includes(p.id) && (!needle || (p.name || '').toLowerCase().includes(needle)))
     .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base', numeric: true }));
+  const nav = useListNav(filtered, { query: q, onPick: (p) => onPick(p.id) });
   return (
     <div>
       <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, padding: '4px 6px' }}>Also in Project</div>
       <input className="nx-inline-edit" autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search projects…"
+        {...nav.inputProps} onKeyDown={nav.onKeyDown}
         style={{ width: '100%', boxSizing: 'border-box', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '6px 8px', fontSize: 13, fontFamily: FONT, color: NX.ink }} />
       <div className="nx-scroll" style={{ maxHeight: 220, overflowY: 'auto' }}>
-        {filtered.map((p) => (
-          <button key={p.id} type="button" onClick={() => onPick(p.id)} style={{ display: 'flex', width: '100%', textAlign: 'left', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 13, border: 'none', background: 'transparent', cursor: 'pointer', color: NX.ink, fontFamily: FONT }}>
+        {filtered.map((p, i) => (
+          <button key={p.id} type="button" tabIndex={-1} className="nx-menu-row" {...nav.optionProps(i)} onClick={() => onPick(p.id)} style={{ display: 'flex', width: '100%', textAlign: 'left', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 13, border: 'none', background: 'transparent', cursor: 'pointer', color: NX.ink, fontFamily: FONT }}>
             {p.name}
           </button>
         ))}
@@ -655,7 +679,7 @@ function TitleInput({ value, completed, onCommit }) {
 // ── Overview ────────────────────────────────────────────────────────────────
 function OverviewTab({ task, patch, people, projectName, teamName, teams, projects, blockedBy, depCandidates, addDependency, removeDependency, setDependencyType, subtasks, createTask, updateTask, onOpenSub, nameOf, myEmail, getComments, addComment, refresh, onViewAllComments }) {
   const isMobile = useIsMobile();
-  const { statusMeta, statusOrder, statusOrderFor } = useTasks();
+  const { statusMeta, statusOrder, statusOrderFor, customFields = [], tasks: allTasks = [] } = useTasks();
   // The task's own project, not the view's: this drawer opens from My Tasks and
   // from search, where no project is locked.
   const taskStatusOrder = statusOrderFor ? statusOrderFor(task.projectId) : statusOrder;
@@ -783,7 +807,7 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
           </span>
         ))}
         {task.projectId ? (
-          <Pop width={220} trigger={(t) => (
+          <Pop width={360} trigger={(t) => (
             <button onClick={t} title="Add another project" style={{
               width: 26, height: 26, borderRadius: '50%', border: `1.5px dashed ${NX.border}`,
               background: 'transparent', color: NX.faint, cursor: 'pointer', padding: 0,
@@ -821,6 +845,14 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
         )}
       </Row>
 
+      {/* Which of the project's Custom sections it is filed under. */}
+      <TaskSectionRow task={task} patch={patch} />
+
+      {/* The project's custom columns, right here on the task (Oct 13 2026) -
+          they used to live only on the Properties tab, which most people
+          never opened and phones do not show. */}
+      <TaskCustomFieldRows task={task} customFields={customFields} projectName={projectName} patch={patch} />
+
       <Row label="Blocked By">
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}>
           {blockedBy.map((b) => {
@@ -854,7 +886,7 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
 
       <Row label="Recurrence">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
-          <Pop width={220} trigger={(t) => <button onClick={() => { setRecStep('root'); t(); }} style={{ ...btn('ghost'), padding: '5px 8px', fontSize: 12 }}><Repeat size={13} /> {recurrenceLabel(task.recurrence)}</button>}>
+          <Pop width={300} trigger={(t) => <button onClick={() => { setRecStep('root'); t(); }} style={{ ...btn('ghost'), padding: '5px 8px', fontSize: 12 }}><Repeat size={13} /> {recurrenceLabel(task.recurrence)}</button>}>
             {(close) => {
               if (recStep === 'weekly') {
                 const cur = task.recurrence?.freq === 'weekly' ? task.recurrence : {};
@@ -868,18 +900,54 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
                   </div>
                 </>);
               }
-              if (recStep === 'monthly') return (<>
-                <MenuItem icon={<ChevronLeft size={14} />} onClick={() => setRecStep('root')}>Back</MenuItem>
-                {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => <MenuItem key={d} onClick={() => { pickFreq({ freq: 'monthly', dayOfMonth: d }); close(); }}>Day {d}</MenuItem>)}
-              </>);
-              if (recStep === 'periodic') return (<>
-                <MenuItem icon={<ChevronLeft size={14} />} onClick={() => setRecStep('root')}>Back</MenuItem>
-                {[1, 2, 3, 4, 5, 6, 7, 10, 14, 21, 30, 45, 60, 90].map((d) => (
-                  <MenuItem key={d} onClick={() => { pickFreq({ freq: 'periodic', daysAfterCompletion: d }); close(); }}>
-                    {d} day{d === 1 ? '' : 's'} after completion
-                  </MenuItem>
-                ))}
-              </>);
+              // Monthly and Yearly name their day with the shared controls
+              // (recurrence.js): "Day 15" / "Last Day", or "the Fourth
+              // Friday" - applied as each one changes, like the rest of the
+              // drawer.
+              if (recStep === 'monthly') {
+                const cur = task.recurrence?.freq === 'monthly' ? monthRuleOf(task.recurrence) : { dayOfMonth: 1 };
+                return (<>
+                  <MenuItem icon={<ChevronLeft size={14} />} onClick={() => setRecStep('root')}>Back</MenuItem>
+                  <div style={{ padding: '4px 10px 10px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div style={{ fontSize: 11, color: NX.faint }}>Every month on</div>
+                    <MonthDayControls value={cur} seedDate={task.dueOn} selectStyle={recSel}
+                      onChange={(v) => pickFreq({ freq: 'monthly', ...v })} />
+                  </div>
+                </>);
+              }
+              if (recStep === 'yearly') {
+                const cur = task.recurrence?.freq === 'yearly' ? yearRuleOf(task.recurrence) : {};
+                return (<>
+                  <MenuItem icon={<ChevronLeft size={14} />} onClick={() => setRecStep('root')}>Back</MenuItem>
+                  <div style={{ padding: '4px 10px 10px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div style={{ fontSize: 11, color: NX.faint }}>Every year on</div>
+                    <YearDayControls value={cur} seedDate={task.dueOn} selectStyle={recSel}
+                      onChange={(v) => pickFreq({ freq: 'yearly', ...v })} />
+                  </div>
+                </>);
+              }
+              if (recStep === 'periodic') {
+                const cur = task.recurrence?.freq === 'periodic' ? Number(task.recurrence.daysAfterCompletion) || 1 : null;
+                return (<>
+                  <MenuItem icon={<ChevronLeft size={14} />} onClick={() => setRecStep('root')}>Back</MenuItem>
+                  {/* Any number of days: type one, Enter or Set. */}
+                  <form onSubmit={(e) => { e.preventDefault(); const n = clampDays(e.currentTarget.days.value); pickFreq({ freq: 'periodic', daysAfterCompletion: n }); close(); }}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px 8px', fontSize: 12 }}>
+                    <input name="days" type="number" min="1" max={MAX_PERIODIC_DAYS} step="1" defaultValue={cur ?? ''} placeholder="Other"
+                      aria-label="Days after completion" style={{ ...inputStyle, width: 72, padding: '4px 6px', fontSize: 12 }} />
+                    <span style={{ color: NX.faint, flex: 1 }}>days after completion</span>
+                    <button type="submit" style={{ ...btn('outline'), padding: '3px 9px', fontSize: 12 }}>Set</button>
+                  </form>
+                  <div className="nx-scroll" style={{ maxHeight: 260, overflowY: 'auto' }}>
+                    {PERIODIC_PRESETS.map((d) => (
+                      <MenuItem key={d} icon={cur === d ? <Check size={13} /> : <span style={{ width: 13, display: 'inline-block' }} />}
+                        onClick={() => { pickFreq({ freq: 'periodic', daysAfterCompletion: d }); close(); }}>
+                        {d} day{d === 1 ? '' : 's'} after completion
+                      </MenuItem>
+                    ))}
+                  </div>
+                </>);
+              }
               if (recStep === 'custom') {
                 const cur = task.recurrence?.freq === 'custom' ? task.recurrence : {};
                 const unit = cur.unit || 'week';
@@ -889,6 +957,11 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
                   const next = { unit, interval, ...partial };
                   const rec = { freq: 'custom', unit: next.unit, interval: next.interval };
                   if (next.unit === 'week') rec.daysOfWeek = next.daysOfWeek ?? days;
+                  // The day a month / year unit names - kept across an
+                  // interval change, dropped when the unit changes.
+                  const sameUnit = next.unit === unit;
+                  if (next.unit === 'month') Object.assign(rec, next.monthRule ?? (sameUnit ? monthRuleOf(cur) : { dayOfMonth: ruleFromDate(task.dueOn).dayOfMonth }));
+                  if (next.unit === 'year') Object.assign(rec, next.yearRule ?? (sameUnit ? yearRuleOf({ ...cur, unit: 'year' }) : {}));
                   pickFreq(rec);
                 };
                 return (<>
@@ -910,6 +983,16 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
                       <div style={{ fontSize: 11, color: NX.faint }}>On these days</div>
                       <RecurDayPicker value={days} onToggle={(i) => applyCustom({ unit: 'week', daysOfWeek: days.includes(i) ? days.filter((x) => x !== i) : [...days, i].sort() })} />
                     </>)}
+                    {unit === 'month' && (<>
+                      <div style={{ fontSize: 11, color: NX.faint }}>On</div>
+                      <MonthDayControls value={monthRuleOf(cur)} seedDate={task.dueOn} selectStyle={recSel}
+                        onChange={(v) => applyCustom({ monthRule: v })} />
+                    </>)}
+                    {unit === 'year' && (<>
+                      <div style={{ fontSize: 11, color: NX.faint }}>On</div>
+                      <YearDayControls value={yearRuleOf({ ...cur, unit: 'year' })} seedDate={task.dueOn} selectStyle={recSel}
+                        onChange={(v) => applyCustom({ yearRule: v })} />
+                    </>)}
                   </div>
                 </>);
               }
@@ -918,7 +1001,7 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
                 <MenuItem onClick={() => { pickFreq({ freq: 'daily' }); close(); }}>Daily</MenuItem>
                 <MenuItem onClick={() => setRecStep('weekly')}>Weekly</MenuItem>
                 <MenuItem onClick={() => setRecStep('monthly')}>Monthly</MenuItem>
-                <MenuItem onClick={() => { pickFreq({ freq: 'yearly' }); close(); }}>Yearly</MenuItem>
+                <MenuItem onClick={() => setRecStep('yearly')}>Yearly</MenuItem>
                 <MenuItem onClick={() => setRecStep('periodic')}>Periodically</MenuItem>
                 <MenuItem onClick={() => setRecStep('custom')}>Custom</MenuItem>
               </>);
@@ -956,14 +1039,20 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
       </Section>
 
       {/* Subtasks (inline) */}
-      <Section defaultOpen={false} title={subtasks?.length ? `Subtasks ${subtasks.filter((s) => s.completed).length}/${subtasks.length}` : 'Subtasks'}>
+      {/* Open whenever the task has subtasks (Oct 13 2026) - folded, they
+          were easy to miss. */}
+      <Section key={`${task.id}:${subtasks?.length > 0}`} defaultOpen={subtasks?.length > 0}
+        title={subtasks?.length ? `Subtasks ${subtasks.filter((s) => s.completed).length}/${subtasks.length}` : 'Subtasks'}>
         <SubtasksTab task={task} subtasks={subtasks || []} createTask={createTask} updateTask={updateTask} people={people} onOpenSub={onOpenSub} hideHeading />
       </Section>
 
-      {/* Time tracking */}
-      <Section defaultOpen={false} title="Time Tracking">
-        <TimeTracking task={task} patch={patch} />
-      </Section>
+      {/* Time tracking - only where the task's project tracks time, or the
+          task already has time on it (Oct 13 2026; see taskTracksTime). */}
+      {taskTracksTime(task, projects, allTasks) && (
+        <Section defaultOpen={false} title="Time Tracking">
+          <TimeTracking task={task} patch={patch} />
+        </Section>
+      )}
 
       {/* Approval */}
       <Section defaultOpen={false} title="Approval">
@@ -1554,18 +1643,89 @@ function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub
   const dateRef = useRef(null);
   const done = subtasks.filter((s) => s.completed).length;
 
+  // A new subtask starts with the main task's collaborators, project and team
+  // (Oct 13 2026) - take anyone off on the subtask itself. No due date unless
+  // one is picked here.
   const add = async () => {
     const t = title.trim(); if (!t) return;
-    await createTask({ title: t, parentTaskId: task.id, projectId: task.projectId, teamId: task.teamId, assigneeId, dueOn, status: 'not_started', priority: 'medium', type: 'task' }).catch(() => {});
+    await createTask({
+      title: t, parentTaskId: task.id, projectId: task.projectId, teamId: task.teamId,
+      followerIds: [...(task.followerIds || [])],
+      assigneeId, dueOn, status: 'not_started', priority: 'medium', type: 'task',
+    }).catch((e) => alert(e?.message || 'Could not add the subtask.'));
     setTitle(''); setDueOn(''); setAssigneeId('');
+  };
+
+  // Manual order: drag a row by its handle (or focus the handle and press Up /
+  // Down). The first move numbers every subtask in the order it shows and
+  // marks the main task "manual", so the dragged order then holds for everyone
+  // until Sort by Due Date puts it back.
+  const [dragId, setDragId] = useState(null);
+  const [dropAt, setDropAt] = useState(null);           // index the dragged row would land at
+  const armed = useRef(null);                           // the handle the drag started on
+  const moveTo = (id, toIndex) => {
+    const changes = reorderedPositions(subtasks, id, toIndex);
+    if (!changes.length) return;
+    for (const c of changes) updateTask(c.id, { position: c.position });
+    if (task.subtaskOrder !== 'manual') updateTask(task.id, { subtaskOrder: 'manual' });
+  };
+  const rowDragOver = (i) => (e) => {
+    if (!dragId) return;
+    e.preventDefault();
+    const r = e.currentTarget.getBoundingClientRect();
+    setDropAt(e.clientY < r.top + r.height / 2 ? i : i + 1);
+  };
+  const drop = (e) => {
+    e.preventDefault();
+    if (dragId != null && dropAt != null) {
+      const from = subtasks.findIndex((x) => x.id === dragId);
+      moveTo(dragId, dropAt > from ? dropAt - 1 : dropAt);
+    }
+    setDragId(null); setDropAt(null);
   };
 
   return (
     <div style={{ marginTop: hideHeading ? 0 : 14 }}>
       {!hideHeading && <div style={{ fontSize: 13, fontWeight: 700, color: NX.ink, marginBottom: 10 }}>{subtasks.length ? `Subtasks ${done}/${subtasks.length}` : 'Subtasks'}</div>}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 10 }}>
-        {subtasks.map((s) => (
-          <div key={s.id} onClick={() => onOpenSub(s.id)} className="nx-row-hover" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 6px', borderRadius: 8, cursor: 'pointer' }}>
+      {task.subtaskOrder === 'manual' && subtasks.length > 1 && (
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
+          <button type="button" onClick={() => updateTask(task.id, { subtaskOrder: '' })}
+            title="Order the subtasks by due date, then priority, again"
+            style={{ ...btn('ghost'), padding: '2px 6px', fontSize: 11.5, color: NX.faint }}>Sort by Due Date</button>
+        </div>
+      )}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 10 }} onDrop={drop}
+        onDragOver={(e) => { if (dragId) e.preventDefault(); }}>
+        {subtasks.map((s, i) => (
+          <div key={s.id} data-subtask-row={s.id} onClick={() => onOpenSub(s.id)} className="nx-row-hover"
+            draggable={subtasks.length > 1}
+            onDragStart={(e) => {
+              // Only from the handle - the rest of the row is for clicking.
+              if (armed.current !== s.id) { e.preventDefault(); return; }
+              e.dataTransfer.effectAllowed = 'move';
+              try { e.dataTransfer.setData('text/plain', s.id); } catch { /* jsdom */ }
+              setDragId(s.id);
+            }}
+            onDragEnd={() => { armed.current = null; setDragId(null); setDropAt(null); }}
+            onDragOver={rowDragOver(i)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 8, padding: '7px 6px', borderRadius: 8, cursor: 'pointer',
+              opacity: dragId === s.id ? 0.45 : 1,
+              boxShadow: dropAt === i ? `inset 0 2px 0 ${NX.blue}` : dropAt === i + 1 && i === subtasks.length - 1 ? `inset 0 -2px 0 ${NX.blue}` : 'none',
+            }}>
+            {subtasks.length > 1 && (
+              <button type="button" aria-label={`Move ${s.title} (drag, or Up / Down)`} title="Drag to reorder"
+                onMouseDown={() => { armed.current = s.id; }} onMouseUp={() => { armed.current = null; }}
+                onClick={(e) => e.stopPropagation()}
+                onKeyDown={(e) => {
+                  if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+                  e.preventDefault(); e.stopPropagation();
+                  moveTo(s.id, i + (e.key === 'ArrowUp' ? -1 : 1));
+                }}
+                style={{ border: 'none', background: 'transparent', padding: 0, display: 'flex', color: NX.faint, cursor: 'grab', flexShrink: 0 }}>
+                <GripVertical size={14} />
+              </button>
+            )}
             <button onClick={(e) => { e.stopPropagation(); updateTask(s.id, { completed: !s.completed }); }} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, display: 'flex', padding: 0 }}>
               {s.completed ? <CheckCircle2 size={15} style={{ color: NX.green }} /> : <Circle size={15} />}
             </button>
@@ -1618,11 +1778,58 @@ function DependenciesTab({ blockedBy, blocking, task, removeDependency }) {
 }
 
 // ── Properties ──────────────────────────────────────────────────────────────
+/** "Section" - file the task under one of its project's Custom sections
+ *  from the task itself (Oct 13 2026), the per-task way to do what the batch
+ *  bar's Move to Section does for many. Shown only when the project has
+ *  sections; a section the project no longer offers reads as No Section. */
+function TaskSectionRow({ task, patch }) {
+  const sec = useCustomSections(task.projectId || '__none__');
+  if (!task.projectId || !sec.sections.length) return null;
+  const current = sec.sections.some((x) => x.id === task.sectionId) ? task.sectionId : '';
+  return (
+    <Row label="Section">
+      <select value={current} aria-label="Section" onChange={(e) => patch({ sectionId: e.target.value })}
+        style={{ ...inputStyle, width: 'auto', minWidth: 180, padding: '5px 8px', fontSize: 13, cursor: 'pointer' }}>
+        <option value="">No Section</option>
+        {sec.sections.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+      </select>
+    </Row>
+  );
+}
+
+/** One row per custom field the task carries (fieldsForTask): a column in
+ *  any project it is in, or one used everywhere. A field one of those
+ *  projects requires is starred, and flagged while it is still empty -
+ *  worked out from the projects the task is in NOW, so moving it out of
+ *  the project drops the requirement (Oct 13 2026). */
+export function TaskCustomFieldRows({ task, customFields, projectName, patch }) {
+  const fields = fieldsForTask(customFields, task);
+  if (!fields.length) return null;
+  const values = task.customFieldValues || {};
+  return fields.map((f) => {
+    const by = requiredByProjectsOf(f, task);
+    const missing = by.length > 0 && isBlankValue(values[f.id]);
+    const where = by.filter(Boolean).map((pid) => projectName(pid)).filter(Boolean).join(', ');
+    return (
+      <Row key={f.id} label={<>{f.name}{by.length > 0 && <span style={{ color: NX.red }}> *</span>}</>}>
+        <CustomFieldInput field={f} value={values[f.id]}
+          onChange={(v) => patch({ customFieldValues: { ...values, [f.id]: v } })} />
+        {missing && (
+          <span role="status" style={{ fontSize: 11.5, color: NX.red, flexBasis: '100%' }}>
+            Required{where ? ` in ${where}` : ''} - pick one.
+          </span>
+        )}
+      </Row>
+    );
+  });
+}
+
 function PropertiesTab({ task, nameOf, projectName, teamName, customFields, patch }) {
-  // Fields scoped to this task's project (plus global ones) - not every field
+  // The same fields the Overview shows (fieldsForTask) - not every field
   // defined anywhere in the workspace.
-  const activeFields = fieldsForProject(customFields, task.projectId);
-  const { statusMeta } = useTasks();
+  const activeFields = fieldsForTask(customFields, task);
+  const { statusMeta, projects = [], tasks: allTasks = [] } = useTasks();
+  const tracksTime = taskTracksTime(task, projects, allTasks);
   const sm = statusMeta[task.status] || {};
   const pm = PRIORITY_META[task.priority] || {};
   const rows = [
@@ -1642,8 +1849,10 @@ function PropertiesTab({ task, nameOf, projectName, teamName, customFields, patc
     ['Team', task.teamId ? teamName(task.teamId) : '-'],
     ['Start Date', fmtDate(task.startOn)],
     ['Due Date', fmtDate(task.dueOn)],
-    ['Estimate', task.estimateHours != null ? fmtHours(task.estimateHours) : '-'],
-    ['Actual', task.actualHours != null ? fmtHours(task.actualHours) : '-'],
+    ...(tracksTime ? [
+      ['Estimate', task.estimateHours != null ? fmtHours(task.estimateHours) : '-'],
+      ['Actual', task.actualHours != null ? fmtHours(task.actualHours) : '-'],
+    ] : []),
     ['Milestone', task.isMilestone ? 'Yes' : 'No'],
     ['Approval', !task.approvalStatus || task.approvalStatus === 'none' ? '-' : task.approvalStatus.replace('_', ' ')],
     ['Recurrence', recurrenceLabel(task.recurrence)],
@@ -1669,11 +1878,7 @@ function PropertiesTab({ task, nameOf, projectName, teamName, customFields, patc
         <div style={{ marginTop: 16 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: NX.ink, marginBottom: 8 }}>Custom Fields</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {activeFields.map((f) => (
-              <Row key={f.id} label={f.name}>
-                <CustomFieldInput field={f} value={(task.customFieldValues || {})[f.id]} onChange={(v) => patch({ customFieldValues: { ...(task.customFieldValues || {}), [f.id]: v } })} />
-              </Row>
-            ))}
+            <TaskCustomFieldRows task={task} customFields={customFields} projectName={projectName} patch={patch} />
           </div>
         </div>
       )}

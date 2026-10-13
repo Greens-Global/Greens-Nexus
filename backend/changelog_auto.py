@@ -11,7 +11,8 @@ button and the GitHub webhook call, so there is one generation path and a
 field added to it shows up everywhere (asana_sync's rule; a second inbound
 path silently drifts).
 
-TWO TRIGGERS, ONE SWEEP. The timer below is the backstop; the fast path is
+TWO TRIGGERS, ONE SWEEP. The timer below checks GitHub every 15 minutes (Oct
+2026; it was a 24h backstop); the fast path is
 GitHub's webhook (routers/github_webhook.py), which fires on every merge to
 the branch this deployment tracks - the PR event, and the push for merges that
 never opened one. Neither runs a generation itself - both
@@ -38,7 +39,7 @@ Gating, three layers, each answering a different question:
 
 Env:
   NEXUS_CHANGELOG_AUTO=false             turn the loop off (default on)
-  NEXUS_CHANGELOG_INTERVAL_HOURS=24      backstop sweep interval (default 24)
+  NEXUS_CHANGELOG_POLL_MINUTES=15        how often to check GitHub (default 15)
   NEXUS_CHANGELOG_AUTHOR=...             authorId stamped on published entries
   NEXUS_CHANGELOG_MERGE_DELAY_MINUTES=5  wait after a merge before publishing
   NEXUS_CHANGELOG_MAX_DEFER_MINUTES=30   cap on how far a merge burst defers
@@ -72,11 +73,17 @@ def _enabled() -> bool:
 
 
 def _interval_hours() -> float:
+    """How often the sweep checks GitHub without being told to. Every 15
+    minutes since Oct 2026: publishing no longer calls Claude, and a check
+    with nothing new is one GitHub request. It was 24h, which made the
+    webhook the only fast path - and the webhook was not reaching dev, so a
+    merge waited up to a day. A new name (NEXUS_CHANGELOG_POLL_MINUTES) so an
+    old NEXUS_CHANGELOG_INTERVAL_HOURS=24 left on a server can't undo it."""
     try:
-        h = float(os.getenv("NEXUS_CHANGELOG_INTERVAL_HOURS", "24"))
+        m = float(os.getenv("NEXUS_CHANGELOG_POLL_MINUTES", "15"))
     except ValueError:
-        return 24.0
-    return h if h > 0 else 24.0
+        m = 15.0
+    return (m if m > 0 else 15.0) / 60.0
 
 
 def _merge_delay_minutes() -> float:
