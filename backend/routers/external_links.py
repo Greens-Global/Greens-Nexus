@@ -19,11 +19,9 @@ editor+ (full+ to delete), mirroring items.py's require_items_admin pattern.
 import asyncio
 import html as html_lib
 import io
-import ipaddress
 import json
 import os
 import re
-import socket
 import uuid
 from datetime import datetime, timezone
 from urllib.parse import urlparse
@@ -37,6 +35,7 @@ from typing import Optional
 import models
 from database import get_db
 from auth import get_current_user, require_level_or_module
+from safe_fetch import resolves_to_public_ip as _resolves_to_public_ip  # the SSRF guard, shared
 
 router = APIRouter(prefix="/external-links", tags=["External Links"], dependencies=[Depends(get_current_user)])
 
@@ -297,25 +296,6 @@ _META_DESC_RE_REV = re.compile(
     r'<meta[^>]+content=["\']([^"\']*)["\'][^>]+(?:name|property)=["\'](?:description|og:description)["\']', re.I
 )
 _TITLE_RE = re.compile(r"<title[^>]*>([^<]*)</title>", re.I)
-
-
-def _resolves_to_public_ip(hostname: str) -> bool:
-    """SSRF guard for /preview below - an admin-supplied URL must not be able
-    to make the backend fetch internal/private infrastructure (RFC1918,
-    loopback, link-local incl. the 169.254.169.254 cloud metadata endpoint).
-    ip.is_global is False for all of those."""
-    try:
-        infos = socket.getaddrinfo(hostname, None)
-    except socket.gaierror:
-        return False
-    for info in infos:
-        try:
-            ip = ipaddress.ip_address(info[4][0])
-        except ValueError:
-            return False
-        if not ip.is_global:
-            return False
-    return True
 
 
 _CATEGORY_MODEL = "claude-haiku-4-5-20251001"  # cheap: one tiny classification call per Add Link

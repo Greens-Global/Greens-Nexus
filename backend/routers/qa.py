@@ -23,6 +23,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+import safe_fetch
 from database import get_db
 from auth import get_current_user, require_module_grant
 from models import (QaTestCase, QaRun, QaResult, QaBugReport, QaAssignment,
@@ -714,9 +715,11 @@ class _ThumbCache:
         try:
             from io import BytesIO
             from PIL import Image as PILImage
-            r = httpx.get(url, timeout=8, follow_redirects=True)
-            if r.is_success and r.headers.get("content-type", "").startswith("image"):
-                im = PILImage.open(BytesIO(r.content)).convert("RGB")
+            # Evidence lives in the app's own storage - nothing else is fetched
+            # (the URL is whatever a tester saved on the result). See safe_fetch.
+            raw = safe_fetch.own_image(url, timeout=8)
+            if raw:
+                im = PILImage.open(BytesIO(raw)).convert("RGB")
                 im.thumbnail((150, 110))
                 buf = BytesIO(); im.save(buf, format="PNG")
                 data = buf.getvalue()
