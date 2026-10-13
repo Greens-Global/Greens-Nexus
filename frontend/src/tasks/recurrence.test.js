@@ -25,6 +25,13 @@ describe('nextDue matches the server', () => {
     ['2026-02-28', { freq: 'monthly', dayOfMonth: -1 }, '2026-03-31'],
     ['2026-03-01', { freq: 'yearly', weekOfMonth: 4, weekday: 4, monthOfYear: 11 }, '2026-11-26'],
     ['2026-11-26', { freq: 'yearly', weekOfMonth: 4, weekday: 4, monthOfYear: 11 }, '2027-11-25'],
+    // Every 2 weeks on Monday and Thursday (Oct 13 2026) - same cases as the
+    // server's test_every_2_weeks_on_monday_and_thursday.
+    ['2026-10-19', { freq: 'custom', unit: 'week', interval: 2, daysOfWeek: [1, 4] }, '2026-10-22'],
+    ['2026-10-22', { freq: 'custom', unit: 'week', interval: 2, daysOfWeek: [1, 4] }, '2026-11-02'],
+    ['2026-11-05', { freq: 'custom', unit: 'week', interval: 2, daysOfWeek: [1, 4] }, '2026-11-16'],
+    ['2026-10-14', { freq: 'custom', unit: 'week', interval: 2, daysOfWeek: [1] }, '2026-10-26'],
+    ['2026-10-23', { freq: 'weekly', daysOfWeek: [1, 3, 5] }, '2026-10-26'],
   ];
   it.each(cases)('after %s, %j -> %s', (from, rule, want) => {
     expect(nextDue(from, rule)).toBe(want);

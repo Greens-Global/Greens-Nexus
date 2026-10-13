@@ -111,9 +111,14 @@ export function nextDue(iso, r) {
   if (cadence === 'weekly' || cadence === 'week') {
     const days = r.daysOfWeek ?? (r.dayOfWeek != null ? [r.dayOfWeek] : null);
     if (!days?.length) { const d = new Date(base); d.setDate(d.getDate() + 7 * interval); return toIso(d); }
-    const d = new Date(base);
-    do { d.setDate(d.getDate() + 1); } while (!days.map(Number).includes(d.getDay()));
-    d.setDate(d.getDate() + 7 * (interval - 1));
+    // The rest of this week's days first, then jump `interval` weeks to the
+    // first chosen day of that week (Sunday-Saturday weeks) - see the
+    // server's _next_weekly_due.
+    const picked = [...new Set(days.map((x) => ((Number(x) % 7) + 7) % 7))].sort((a, b) => a - b);
+    const weekStart = new Date(base); weekStart.setDate(base.getDate() - base.getDay());
+    const later = picked.find((x) => x > base.getDay());
+    const d = new Date(weekStart);
+    d.setDate(weekStart.getDate() + (later !== undefined ? later : 7 * interval + picked[0]));
     return toIso(d);
   }
   if (cadence === 'monthly' || cadence === 'month') {

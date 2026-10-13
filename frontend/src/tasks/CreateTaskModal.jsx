@@ -26,7 +26,11 @@ const field = { marginBottom: 0 };
 
 /** "On these days" - the S M T W T F S row Weekly and Custom(week) share. */
 function DaysOfWeekPicker({ value, onChange }) {
-  const toggle = (i) => onChange(value.includes(i) ? value.filter((d) => d !== i) : [...value, i].sort());
+  // Never down to no days - the rule would have nothing to land on (it used
+  // to fall back to Monday without saying so).
+  const toggle = (i) => onChange(value.includes(i)
+    ? (value.length > 1 ? value.filter((d) => d !== i) : value)
+    : [...value, i].sort((a, b) => a - b));
   return (
     <div style={{ display: 'flex', gap: 4 }}>
       {DAY_LETTERS.map((l, i) => {

@@ -1981,7 +1981,10 @@ html { overflow-x: hidden; }
 .mobile-menu {
   position: fixed;
   inset: 0;
-  z-index: 400;
+  /* Above the module floats (Tasks' MobileTaskBar / MobileFab at 2500, the
+     create "+" menu at 2600) - at 400 the task "+" sat on top of the open
+     menu. Below the gates (3000) and modals (3200+). */
+  z-index: 2700;
   background: var(--card);
   display: flex;
   flex-direction: column;

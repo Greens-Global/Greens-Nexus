@@ -549,7 +549,8 @@ export default function MyTasksView({ onNavigate }) {
         <BulkActionBar selected={selected} clearSel={clearSel} store={store} people={directory} isMobile={isMobile} sections={sec} />
       )}
 
-      {isMobile && (
+      {/* While tasks are selected the bulk bar takes this bar's place. */}
+      {isMobile && !(view === 'list' && selected.size > 0) && (
         <MobileTaskBar
           views={VIEW_TABS} view={view} setView={switchView}
           onCreate={() => openCreate({ assigneeId: myEmail })}
