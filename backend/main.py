@@ -943,6 +943,12 @@ def _run_migrations():
             "ALTER TABLE task_projects ADD COLUMN time_tracking VARCHAR DEFAULT ''",
             # Sections made for the Custom grouping (Oct 13). models.TaskSection.custom.
             "ALTER TABLE task_sections ADD COLUMN custom BOOLEAN DEFAULT 0",
+            # Indexes the hot reads were missing (Oct 13) - see the Postgres list.
+            'CREATE INDEX IF NOT EXISTS ix_audit_logs_timestamp ON audit_logs ("timestamp")',
+            "CREATE INDEX IF NOT EXISTS ix_audit_logs_resource_type ON audit_logs (resource_type)",
+            "CREATE INDEX IF NOT EXISTS ix_nexus_employees_work_email ON nexus_employees (work_email)",
+            "CREATE INDEX IF NOT EXISTS ix_hr_sign_parties_token ON hr_sign_parties (token)",
+            "CREATE INDEX IF NOT EXISTS ix_time_punches_local_date ON time_punches (local_date)",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2104,6 +2110,21 @@ def _run_migrations():
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS subtask_order VARCHAR DEFAULT ''",
         "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS time_tracking VARCHAR DEFAULT ''",
         "ALTER TABLE task_sections ADD COLUMN IF NOT EXISTS custom BOOLEAN DEFAULT FALSE",
+        # Indexes the hot reads were missing (Oct 13). create_all never adds an
+        # index to a table that already exists, so these lines are what reach
+        # dev and prod; the names are the ones index=True gives the model
+        # columns. audit_logs: the items activity feed sorts by timestamp and
+        # every reader filters resource_type. work_email is NOT unique yet -
+        # rows differing by case or spaces would fail the build at startup.
+        # Plain CREATE INDEX, not CONCURRENTLY: every worker runs this list at
+        # boot through the pooler under a 25 s statement_timeout, and a
+        # CONCURRENTLY build cut short leaves an INVALID index that IF NOT
+        # EXISTS then skips forever.
+        'CREATE INDEX IF NOT EXISTS ix_audit_logs_timestamp ON audit_logs ("timestamp")',
+        "CREATE INDEX IF NOT EXISTS ix_audit_logs_resource_type ON audit_logs (resource_type)",
+        "CREATE INDEX IF NOT EXISTS ix_nexus_employees_work_email ON nexus_employees (work_email)",
+        "CREATE INDEX IF NOT EXISTS ix_hr_sign_parties_token ON hr_sign_parties (token)",
+        "CREATE INDEX IF NOT EXISTS ix_time_punches_local_date ON time_punches (local_date)",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

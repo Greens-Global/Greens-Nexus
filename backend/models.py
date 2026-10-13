@@ -773,11 +773,11 @@ class ApprovalHistory(Base):
 class AuditLog(Base):
     __tablename__ = "audit_logs"
     id            = Column(Integer, primary_key=True, autoincrement=True)
-    timestamp     = Column(String, nullable=False)
+    timestamp     = Column(String, nullable=False, index=True)
     user_email    = Column(String, nullable=False)
     user_role     = Column(String, default="")
     action        = Column(String, nullable=False)
-    resource_type = Column(String, default="")
+    resource_type = Column(String, default="", index=True)
     resource_id   = Column(String, default="")
     details       = Column(String, default="")   # JSON string
     ip_address    = Column(String, default="")
@@ -794,7 +794,7 @@ class NexusEmployee(Base):
     employee_code   = Column(String, default="")               # GG-001 style, auto-assigned
     first_name      = Column(String, nullable=False)
     last_name       = Column(String, default="")
-    work_email      = Column(String, default="")               # empty until provisioned (Phase 4)
+    work_email      = Column(String, default="", index=True)   # empty until provisioned (Phase 4)
     personal_email  = Column(String, default="")
     phone           = Column(String, default="")
     job_title       = Column(String, default="")
@@ -1743,7 +1743,7 @@ class HrSignParty(Base):
     kind                 = Column(String, default="internal") # internal|external
     ordinal              = Column(Integer, default=1)         # signing order (matches request.current_order)
     status               = Column(String, default="waiting")  # waiting|notified|viewed|signed|approved|acknowledged|declined
-    token                = Column(String, default="")         # secrets.token_urlsafe(32) - the public-link credential
+    token                = Column(String, default="", index=True)  # secrets.token_urlsafe(32) - the public-link credential
     token_expires_at     = Column(String, default="")
     signature_kind       = Column(String, default="")         # drawn|typed
     signature_data       = Column(String, default="")         # PNG data-URL (drawn) or the typed name
@@ -2105,7 +2105,7 @@ class TimePunch(Base):
     kind           = Column(String, nullable=False)     # in|out|break_start|break_end
     at             = Column(String, nullable=False)     # UTC ISO - effective time (adjustments edit this)
     original_at    = Column(String, default="")         # frozen first value once adjusted
-    local_date     = Column(String, default="")         # YYYY-MM-DD in the puncher's timezone (grouping key)
+    local_date     = Column(String, default="", index=True)  # YYYY-MM-DD in the puncher's timezone (grouping key)
     tz_offset_min  = Column(Integer, default=0)         # JS getTimezoneOffset() at punch
     lat            = Column(String, default="")
     lng            = Column(String, default="")

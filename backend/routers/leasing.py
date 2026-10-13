@@ -566,9 +566,16 @@ async def get_rent_roll(year: Optional[int] = None, entities: Optional[str] = No
 
 
 @router.get("/customers")
-async def customers():
-    """Intacct customers, for picking the tenant (with the status when known)."""
+async def customers(scope: dict = Depends(entity_scope)):
+    """Intacct customers, for picking the tenant (with the status when known).
+    A person limited to certain entities gets only the customers of the
+    leases they may read - the same rule as one customer's record below."""
     data = await accounting._acct_get("/api/internal/reports/dimensions", {"kind": "customer"})
+    reach = await _reach(scope)
+    if reach is not None:
+        leases, _, _ = await asyncio.to_thread(_load_all)
+        mine = {l.customer_id for l in _visible(leases, reach) if l.customer_id}
+        data = {"values": [v for v in data.get("values") or [] if v.get("code") in mine]}
     return {"customers": [{"code": v["code"], "name": v.get("name") or "", "status": v.get("status") or "", "active": customer_active(v.get("status"))} for v in data.get("values") or []]}
 
 

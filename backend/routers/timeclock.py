@@ -8828,9 +8828,15 @@ def _sign_shot_rows(rows: list) -> dict:
 def list_screenshots(date: str = "", email: str = "",
                      user: dict = Depends(require_tracking), db: Session = Depends(get_db)):
     """Admin gallery. Without an email: per-person counts for the day. With one:
-    the frames themselves, each with a fresh signed URL."""
+    the frames themselves, each with a fresh signed URL. Limited to the people
+    the caller may see, exactly as /team-screenshots is."""
+    visible = _visible_emails(db, user)   # None = whole company (admin/HR grant)
     day = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
     q = db.query(TimeScreenshot).filter(TimeScreenshot.local_date == day)
+    if visible is not None:
+        if not visible:
+            return {"date": day, "people": []}
+        q = q.filter(TimeScreenshot.employee_email.in_(visible))
     if not email:
         counts = {}
         for s in q.all():
@@ -8840,6 +8846,8 @@ def list_screenshots(date: str = "", email: str = "",
         return {"date": day, "people": [
             {"email": em, "name": names.get(em) or em.split("@")[0].replace(".", " ").title(), "count": n}
             for em, n in sorted(counts.items())]}
+    if visible is not None and email.strip().lower() not in visible:
+        raise HTTPException(403, "That employee isn't on your team.")
     rows = q.filter(TimeScreenshot.employee_email == email.strip().lower()) \
             .order_by(TimeScreenshot.at).all()
     urls = _sign_shot_rows(rows)   # per-bucket signing (handles the migration in flight)
