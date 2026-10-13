@@ -7,6 +7,9 @@
 // task from the last six months that you were both on (owner, assignee or
 // collaborator); the last 30 days count double, so the list follows who you
 // work with now. Two shared tasks is the floor, so a one-off never shows.
+// A task and its subtasks are one piece of work: they count once, at their
+// most recent, so a parent with ten subtasks does not outrank a colleague
+// you have shared ten separate tasks with.
 import { useMemo } from 'react';
 import { useTasks } from './TasksContext';
 import { taskAssignees, isSection } from './lib';
@@ -36,8 +39,8 @@ export function frequentCollaborators(tasks, me, { now = Date.now(), limit = FRE
   if (!self || !Array.isArray(tasks)) return [];
   const since = now - FREQUENT_WINDOW_DAYS * DAY_MS;
   const recent = now - FREQUENT_RECENT_DAYS * DAY_MS;
-  const score = new Map();
-  const shared = new Map();
+  // root task id -> person -> best weight seen on that piece of work
+  const work = new Map();
   for (const task of tasks) {
     if (!task || isSection(task)) continue;
     const at = whenOf(task);
@@ -45,8 +48,17 @@ export function frequentCollaborators(tasks, me, { now = Date.now(), limit = FRE
     const on = peopleOn(task);
     if (!on.has(self)) continue;
     const weight = at >= recent ? 2 : 1;
+    const root = task.parentTaskId || task.id;
+    if (!work.has(root)) work.set(root, new Map());
+    const people = work.get(root);
     for (const em of on) {
-      if (em === self) continue;
+      if (em !== self && (people.get(em) || 0) < weight) people.set(em, weight);
+    }
+  }
+  const score = new Map();
+  const shared = new Map();
+  for (const people of work.values()) {
+    for (const [em, weight] of people) {
       score.set(em, (score.get(em) || 0) + weight);
       shared.set(em, (shared.get(em) || 0) + 1);
     }

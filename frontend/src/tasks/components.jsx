@@ -1179,7 +1179,7 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
       {open && (
         <SelectMenu anchorRef={ref} onClose={() => setOpen(false)}>
           <input ref={queryRef} autoFocus={!touch} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
-            onKeyDown={onEnterPickFirst(filtered, (p) => pick(p.email))}
+            onKeyDown={onEnterPickFirst(top.length ? top : filtered, (p) => pick(p.email))}
             style={menuSearchStyle(touch)} />
           {top.length > 0 && <MenuCaption>Frequent</MenuCaption>}
           {top.map((p) => personRow(p, 'f:'))}

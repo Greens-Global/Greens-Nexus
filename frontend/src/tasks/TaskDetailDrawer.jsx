@@ -512,7 +512,7 @@ function CollaboratorMenuBody({ people, selected, onToggle }) {
     <div>
       <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, padding: '4px 6px' }}>Collaborators</div>
       <input ref={queryRef} autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
-        onKeyDown={onEnterPickFirst(filtered, (u) => pick(u.email))}
+        onKeyDown={onEnterPickFirst(top.length ? top : filtered, (u) => pick(u.email))}
         style={{ width: '100%', boxSizing: 'border-box', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '6px 8px', fontSize: 13, outline: 'none', fontFamily: FONT, background: 'transparent', color: NX.ink }} />
       <div className="nx-scroll" style={{ maxHeight: 220, overflowY: 'auto' }}>
         {top.length > 0 && <MenuCaption inset={8}>Frequent</MenuCaption>}

@@ -50,6 +50,22 @@ describe('frequentCollaborators', () => {
     expect(frequentCollaborators(tasks, ME, { now: NOW })).toEqual(['cara@x.com']);
   });
 
+  it('counts a task and its subtasks as one piece of work', () => {
+    const parent = task(['sub@x.com'], 2, { id: 'p1' });
+    const subs = [1, 2, 3].map((i) => task(['sub@x.com'], 1, { id: `s${i}`, parentTaskId: 'p1' }));
+    // One piece of work is a one-off, however many subtasks it has.
+    expect(frequentCollaborators([parent, ...subs], ME, { now: NOW })).toEqual([]);
+    expect(frequentCollaborators([parent, ...subs, task(['sub@x.com'], 4)], ME, { now: NOW })).toEqual(['sub@x.com']);
+  });
+
+  it('falls back to createdAt when modifiedAt is empty', () => {
+    const tasks = [task(['c@x.com'], 2, { modifiedAt: '', createdAt: daysAgo(3) }), task(['c@x.com'], 2, { modifiedAt: '', createdAt: daysAgo(300) })];
+    // The second is outside six months by createdAt, so only one shared task.
+    expect(frequentCollaborators(tasks, ME, { now: NOW })).toEqual([]);
+    tasks[1].createdAt = daysAgo(50);
+    expect(frequentCollaborators(tasks, ME, { now: NOW })).toEqual(['c@x.com']);
+  });
+
   it('keeps the top five, ties alphabetical', () => {
     const names = ['f', 'e', 'd', 'c', 'b', 'a'].map((n) => `${n}@x.com`);
     const tasks = names.flatMap((em) => [task([em], 2), task([em], 3)]);
@@ -108,6 +124,14 @@ describe('PersonMultiSelect with a Frequent group', () => {
     fireEvent.click(screen.getByText('Add collaborators…'));
     fireEvent.click(screen.getAllByText('Zoe Zhang')[0]);
     expect(screen.getByTitle('Remove Zoe Zhang')).toBeInTheDocument();
+  });
+
+  it('Enter with nothing typed picks the top row, the first Frequent person', () => {
+    render(<Harness frequent={['zoe@x.com']} />);
+    fireEvent.click(screen.getByText('Add collaborators…'));
+    fireEvent.keyDown(screen.getByPlaceholderText('Search people…'), { key: 'Enter' });
+    expect(screen.getByTitle('Remove Zoe Zhang')).toBeInTheDocument();
+    expect(screen.queryByTitle('Remove Amy Adams')).toBeNull();
   });
 
   it('no frequent list means no captions, as before', () => {
