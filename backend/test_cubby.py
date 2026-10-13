@@ -99,6 +99,12 @@ def test_moves_history_counts_who_was_in_at_month_end():
 def test_leads_tasks_payments():
     f = cubby.summarize_facility(FAC, _raw())
     assert (f["leads"]["total"], f["leads"]["open"], f["leads"]["converted"]) == (2, 1, 1)
+    assert f["leads"]["rows"][0]["tenant"] == ""              # no customer list given: blank, not a crash
+    raw = _raw(customers=[{"customerId": "cust_l1", "name": "", "firstName": "Robin", "lastName": "Lead",
+                           "contact": {"phone": "+15555550199"}}])
+    named = cubby.summarize_facility(FAC, raw)
+    assert named["leads"]["rows"][0]["tenant"] == "Robin Lead"
+    assert "5555550199" not in repr(named)                    # only the name is taken from the customer list
     assert (f["tasks"]["open"], f["tasks"]["overdue"]) == (2, 1)
     assert f["tasks"]["rows"][0]["title"] == "Sweep aisle B"
     assert f["payments"]["collectedMtd"] == 18000            # September's payment is not this month's

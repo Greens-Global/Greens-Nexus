@@ -94,6 +94,10 @@ def _facility_calls(fac: dict, today: date) -> dict:
         "units": ("units/search", scope, "units"),
         "leases": ("leases/search", scope, "leases"),
         "leads": ("leads/search", scope, "leads"),
+        # A lead is a person who is not a tenant yet, so the rent roll cannot
+        # name them and leads/search returns only their id. Names are read from
+        # here and nothing else is kept.
+        "customers": ("customers/search", scope, "customers"),
         "tasks": ("tasks/search", {**scope, "status": "OPEN"}, "tasks"),
         # Both bounds, always: with either one missing Cubby quietly answers
         # with the last month only.
@@ -265,10 +269,13 @@ def summarize_facility(fac: dict, raw: dict) -> dict:
         except ValueError:
             return 0
     leads = raw["leads"]
+    lead_names = {c.get("customerId"): (c.get("name") or f"{c.get('firstName') or ''} {c.get('lastName') or ''}").strip()
+                  for c in raw.get("customers", [])}
     lead_status = defaultdict(int)
     for ld in leads:
         lead_status[ld.get("status") or "UNKNOWN"] += 1
     open_leads = sorted(({
+        "tenant": lead_names.get(ld.get("customerId"), ""),
         "status": ld.get("status") or "", "source": (ld.get("customSource") or ld.get("source") or "").strip(),
         "createdAt": ld.get("createdAt") or "", "ageDays": age_days(ld.get("createdAt")),
         "targetMoveIn": ld.get("targetMoveInDate") or "", "url": _tenant_url(ld.get("customerId")),

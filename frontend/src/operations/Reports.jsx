@@ -57,7 +57,7 @@ function localReports(data, facilities, scope, range) {
         ...data.locks.toPlace.map((r) => [r.facility, 'Overlock to Place', r.unit, r.tenant, formatDate(r.paidThrough), 'Paid through']),
         ...data.locks.toRemove.map((r) => [r.facility, 'Lock to Remove', r.unit, r.tenant, formatDate(r.paidThrough), 'Paid through']),
         ...data.tasks.rows.map((r) => [r.facility, 'Task', r.unit, r.title, formatDate(r.dueDate), r.overdue ? 'Overdue' : 'Open']),
-        ...data.leads.rows.map((r) => [r.facility, 'Lead', '', tidy(r.source), formatDate(r.targetMoveIn), `${LEAD_STATUS[r.status] || 'Open'}, waiting ${r.ageDays} days`]),
+        ...data.leads.rows.map((r) => [r.facility, 'Lead', '', r.tenant || tidy(r.source), formatDate(r.targetMoveIn), `${LEAD_STATUS[r.status] || 'Open'}, waiting ${r.ageDays} days`]),
         ...data.moves.movingOut.map((r) => [r.facility, 'Move-Out', r.unit, r.tenant, formatDate(r.date), 'Scheduled']),
         ...data.moves.movingIn.map((r) => [r.facility, 'Move-In', r.unit, r.tenant, formatDate(r.date), 'Booked']),
       ],
