@@ -141,6 +141,16 @@ def _month_end(ym: str, today: date) -> date:
     return min(nxt - timedelta(days=1), today)
 
 
+def _coord(value, limit: float):
+    """A map coordinate as a float, or None. Cubby sends latitude and longitude
+    as text ("33.4936"); a blank, a word or an out-of-range number is no pin."""
+    try:
+        n = float(value)
+    except (TypeError, ValueError):
+        return None
+    return n if -limit <= n <= limit else None
+
+
 def _tenant_url(customer_id: str) -> str:
     return f"{APP_URL}/tenants/{customer_id}" if customer_id else ""
 
@@ -318,7 +328,7 @@ def summarize_facility(fac: dict, raw: dict) -> dict:
         "shortName": (fac.get("name") or "").replace("Greens Storage", "").strip() or (fac.get("name") or ""),
         "asOf": today_s,
         # Where the facility is, for Market Rates' nearby search. None when Cubby has no map pin.
-        "lat": fac.get("latitude"), "lng": fac.get("longitude"),
+        "lat": _coord(fac.get("latitude"), 90), "lng": _coord(fac.get("longitude"), 180),
         "units": {"total": len(rr), "rented": len(rented), "vacant": len(vacant), "unavailable": len(held)},
         "area": {"total": area(rr), "rented": area(rented)},
         "rent": {"rentRoll": rent_roll, "streetRented": street_rented, "vacantPotential": vacant_potential,
