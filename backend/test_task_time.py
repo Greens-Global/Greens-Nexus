@@ -146,6 +146,23 @@ class TimeEntryTests(unittest.TestCase):
         out = delete_time_entry(e["id"], user=SAM, db=self.db)
         self.assertEqual(out["task"]["timeEntryCount"], 0)
 
+    def test_another_companys_entry_is_not_found(self):
+        import auth
+        e = add_time_entry(self.a["id"], TimeEntryCreate(minutes=60), user=SAM, db=self.db)["entry"]
+        row = self._task(self.a["id"])
+        row.company_id = "co-a"
+        self.db.commit()
+        real = auth.company_scope
+        auth.company_scope = lambda user, db: {"co-b"}   # walls armed; Priya is in the other company
+        try:
+            for call in (lambda: update_time_entry(e["id"], TimeEntryUpdate(minutes=30), user=PRIYA, db=self.db),
+                         lambda: delete_time_entry(e["id"], user=PRIYA, db=self.db)):
+                with self.assertRaises(HTTPException) as cm:
+                    call()
+                self.assertEqual(cm.exception.status_code, 404, "a 403 would confirm the entry exists")
+        finally:
+            auth.company_scope = real
+
     def test_deleting_the_last_entry_frees_the_rollup(self):
         e = add_time_entry(self.a["id"], TimeEntryCreate(minutes=60), user=SAM, db=self.db)["entry"]
         out = delete_time_entry(e["id"], user=SAM, db=self.db)

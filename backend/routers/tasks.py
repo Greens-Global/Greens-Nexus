@@ -2662,12 +2662,14 @@ def update_time_entry(entry_id: str, upd: TimeEntryUpdate, user: dict = Depends(
     e = db.query(models.TaskTimeEntry).filter(models.TaskTimeEntry.id == entry_id).first()
     if not e:
         raise HTTPException(404, "Time entry not found")
+    # The wall before the owner check (Oct 12 review): another company's entry
+    # is 404, never a 403 that confirms it exists.
+    t = _wall_task(db, user, e.task_id)
     me = user["email"].lower()
     if e.person_email != me and not _is_manager_user(user):
         raise HTTPException(403, "Only the person who logged this time, or a manager, can change it.")
     if not e.ended_at:
         raise HTTPException(409, "Stop the timer before editing this entry.")
-    t = _wall_task(db, user, e.task_id)
     data = upd.model_dump(exclude_unset=True)
     if "minutes" in data:
         if not (1 <= int(data["minutes"]) <= MAX_ENTRY_MINUTES):
@@ -2690,10 +2692,12 @@ def delete_time_entry(entry_id: str, user: dict = Depends(get_current_user), db:
     e = db.query(models.TaskTimeEntry).filter(models.TaskTimeEntry.id == entry_id).first()
     if not e:
         raise HTTPException(404, "Time entry not found")
+    # The wall before the owner check (Oct 12 review): another company's entry
+    # is 404, never a 403 that confirms it exists.
+    t = _wall_task(db, user, e.task_id)
     me = user["email"].lower()
     if e.person_email != me and not _is_manager_user(user):
         raise HTTPException(403, "Only the person who logged this time, or a manager, can remove it.")
-    t = _wall_task(db, user, e.task_id)
     db.delete(e)
     _recount_time(db, t)
     db.commit()
