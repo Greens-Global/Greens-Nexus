@@ -1,11 +1,20 @@
 """Operations -> Market Rates: our street rate against what nearby facilities
 charge for the same size, and a suggested rate.
 
-Where the competitor numbers come from: people. Somebody looks a competitor's
-rate up (their website, a phone call, a drive-by) and records it here with the
-date; nothing in this module scrapes another company's site. Every observation
-is kept, so a competitor's rate has a history. A feed from a rate-data
-provider can write the same rows later with a different `source`.
+Where the competitor numbers come from - two sources, told apart by `source`:
+
+  manual   a person looked the rate up (the competitor's website, a phone
+           call, a drive-by) and recorded it here with the date.
+  web      `ops_market_engine.py` read it from the competitor's own public
+           pricing page: once a day, as an identified reader that obeys the
+           site's robots.txt, with every rate checked against the page text
+           before it is kept. A site that blocks automated readers, or loads
+           its prices with scripts, is not read - it stays a manual entry.
+
+Which facilities are nearby comes from OpenStreetMap (same module); a person
+still chooses which of them to track. Nothing in THIS module does any of that
+I/O. Every observation is kept, so a competitor's rate has a history. A feed
+from a rate-data provider can write the same rows later with another `source`.
 
 The suggestion is a rule a manager can check by hand, not a model's opinion:
 

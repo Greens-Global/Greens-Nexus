@@ -1,13 +1,16 @@
 // Operations -> Market Rates: our street rate against nearby facilities, size
 // by size, and a suggested rate.
 //
-// Competitor rates are recorded by people (a website, a call, a drive-by) with
-// the date they were seen - nothing here reads another company's site. The
+// Competitor rates come from two places: each competitor's own public pricing
+// page, read once a day by the server (ops_market_engine.py - an identified
+// reader that obeys robots.txt), and what people record by hand (a call, a
+// drive-by, a site that cannot be read). Who is nearby comes from
+// OpenStreetMap, which must be credited wherever that list is shown. The
 // suggested rate is a rule printed on the screen, not an opinion: the median
 // competitor rate, moved by how full we are, held to a 10% step. The written
 // analysis is Claude reading this same table.
 import { useCallback, useEffect, useState } from 'react';
-import { Plus, Sparkles, Trash2 } from 'lucide-react';
+import { Plus, RefreshCw, Sparkles, Trash2 } from 'lucide-react';
 import { api } from '../api';
 import { ErrorBanner, LoadingState } from '../components/AsyncState';
 import { formatDate, formatDateTime } from '../lib/datetime';
@@ -33,6 +36,218 @@ function position(r) {
   if (gap > 0.03) return ['status-pending', `${Math.round(gap * 100)}% Above`];
   if (gap < -0.03) return ['pill-info', `${Math.round(-gap * 100)}% Below`];
   return ['status-approved', 'At Market'];
+}
+
+// One observation says where it came from.
+const sourceLabel = (source) => (source === 'web' ? 'Read From Website' : 'Entered by Staff');
+
+// How the last read of a competitor's rates page went.
+const CHECK_STATUS = {
+  ok: ['status-approved', 'Rates Read'],
+  no_rates_found: ['pill-muted', 'No Rates Found'],
+  blocked_by_robots: ['status-pending', 'Blocked by Robots Rules'],
+  blocked: ['status-pending', 'Blocked'],
+  unreachable: ['status-pending', 'Unreachable'],
+  not_connected: ['pill-muted', 'Not Connected'],
+  error: ['status-rejected', 'Error'],
+};
+
+function RateMoves({ moves }) {
+  return (
+    <div className="dash-card">
+      <div className="dash-card-head"><div>
+        <div className="dash-card-title">Rate Moves</div>
+        <div className="dash-card-sub">Competitor rates that changed by 10% or more in the last 30 days, biggest first.</div>
+      </div></div>
+      <div className="req-table-wrapper">
+        <table className="req-table stack-table">
+          <thead><tr>
+            <th>Competitor</th><th>Unit Size</th><th className="num">Old Rate</th><th className="num">New Rate</th>
+            <th className="num">Change</th><th>Date Seen</th><th>Source</th>
+          </tr></thead>
+          <tbody>
+            {moves.map((v) => (
+              <tr key={`${v.competitorId}:${v.parking}:${v.width}x${v.depth}`}>
+                <td style={{ fontWeight: 600 }}>{v.competitor}</td>
+                <td data-th="Unit Size">{sizeLabel(v)}</td>
+                <td data-th="Old Rate" className="num">{money(v.oldRate)}</td>
+                <td data-th="New Rate" className="num"><strong>{money(v.newRate)}</strong></td>
+                <td data-th="Change" className="num">
+                  <span className={`status-badge ${v.percent < 0 ? 'pill-info' : 'status-pending'}`}>{v.percent > 0 ? '+' : ''}{v.percent}%</span>
+                </td>
+                <td data-th="Date Seen">{formatDate(v.date)}</td>
+                <td data-th="Source">{sourceLabel(v.source)}{v.promo ? <span className="ops-delta"> - {v.promo}</span> : null}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+const NEARBY_SHOWN = 8;
+
+// Storage facilities around this one, from OpenStreetMap. Its own read, so a
+// failure here leaves the rest of the tab standing.
+function Nearby({ facilityId, onSaved }) {
+  const [state, setState] = useState({ status: 'loading', data: null });
+  const [all, setAll] = useState(false);
+  const [adding, setAdding] = useState('');
+  const [error, setError] = useState('');
+
+  const load = useCallback(async () => {
+    setState({ status: 'loading', data: null });
+    try {
+      setState({ status: 'ready', data: await api.getOpsNearby(facilityId) });
+    } catch (err) {
+      console.error('Operations: could not load nearby facilities', err);
+      setState({ status: 'error', data: null });
+    }
+  }, [facilityId]);
+  useEffect(() => { load(); }, [load]);
+
+  const add = async (n) => {
+    setAdding(n.osmId);
+    setError('');
+    try {
+      onSaved(await api.addOpsCompetitor({ facility_id: facilityId, name: n.name, address: n.address, website: n.website,
+        distance_miles: n.distanceMiles, lat: n.lat, lng: n.lng, osm_id: n.osmId }));
+      setState((s) => (s.data ? { ...s, data: { ...s.data, facilities: s.data.facilities.filter((x) => x.osmId !== n.osmId) } } : s));
+    } catch (err) {
+      console.error('Operations: could not add nearby facility', err);
+      setError(`${n.name} could not be added. Try again.`);
+    } finally { setAdding(''); }
+  };
+
+  const d = state.data;
+  const list = d?.facilities || [];
+  return (
+    <div className="dash-card">
+      <div className="dash-card-head"><div>
+        <div className="dash-card-title">Nearby Storage Facilities</div>
+        <div className="dash-card-sub">
+          {d ? `Within ${d.radiusMiles} miles, nearest first. Add the ones a customer would price against.` : 'Storage facilities around this one, nearest first.'}
+        </div>
+      </div></div>
+      {state.status === 'loading' && <LoadingState compact label="Looking for nearby facilities" />}
+      {state.status === 'error' && (
+        <div className="ops-empty" role="alert">
+          The nearby list could not be loaded just now. Competitors can still be added by hand below.{' '}
+          <button type="button" className="ops-cell" onClick={load}>Try Again</button>
+        </div>
+      )}
+      {state.status === 'ready' && !list.length && (
+        <div className="ops-empty">{d.detail || `No other storage facilities found within ${d.radiusMiles} miles.`}</div>
+      )}
+      {list.length > 0 && (
+        <ul className="ops-reports">
+          {(all ? list : list.slice(0, NEARBY_SHOWN)).map((n) => (
+            <li className="ops-report" key={n.osmId}>
+              <div>
+                <div className="ops-report-title">{n.name}</div>
+                <div className="ops-report-about">
+                  {n.distanceMiles} miles away{n.address ? ` - ${n.address}` : ''}{n.website ? '' : ' - no website listed'}
+                </div>
+              </div>
+              <button type="button" className="secondary-btn" onClick={() => add(n)} disabled={adding === n.osmId} aria-label={`Add ${n.name}`}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                <Plus size={14} aria-hidden="true" /> Add
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {list.length > NEARBY_SHOWN && !all && (
+        <button type="button" className="ops-cell" onClick={() => setAll(true)} style={{ marginTop: 8 }}>Show All {count(list.length)}</button>
+      )}
+      {error && <p className="ops-form-error" role="alert" style={{ marginTop: 8 }}>{error}</p>}
+      {state.status === 'ready' && <p className="ops-note" style={{ marginTop: 12 }}>{d.attribution || 'Nearby facilities from OpenStreetMap contributors'}</p>}
+    </div>
+  );
+}
+
+// One tracked competitor: what is on file, the page its rates are read from,
+// how the last read went, and the controls for the daily reader.
+function Competitor({ c, engine, onSaved, onRemove }) {
+  const [editing, setEditing] = useState(false);
+  const [url, setUrl] = useState(c.ratesUrl || '');
+  const [busy, setBusy] = useState('');
+  const [error, setError] = useState('');
+  const latest = c.rates[0];
+  const [cls, label] = CHECK_STATUS[c.lastStatus] || ['pill-muted', 'Not Checked Yet'];
+
+  const run = async (what, call, failed) => {
+    setBusy(what);
+    setError('');
+    try {
+      onSaved(await call());
+      return true;
+    } catch (err) {
+      console.error(`Operations: competitor ${what} failed`, err);
+      setError(failed(err));
+      return false;
+    } finally { setBusy(''); }
+  };
+  const saveUrl = async (e) => {
+    e.preventDefault();
+    const next = url.trim();
+    if (next && !/^https?:\/\/\S+\.\S+/i.test(next)) { setError('Enter a full web address, starting with https://'); return; }
+    if (await run('save', () => api.updateOpsCompetitor(c.id, { rates_url: next }), () => 'The rates page could not be saved. Check the address and try again.')) setEditing(false);
+  };
+  const check = () => run('check', () => api.checkOpsCompetitor(c.id),
+    (err) => (err?.status === 409 ? 'This competitor was checked in the last 10 minutes. Try again a little later.' : 'The rates page could not be checked just now. Try again in a minute.'));
+  const watch = (e) => run('watch', () => api.updateOpsCompetitor(c.id, { watch: e.target.checked }), () => 'The change could not be saved. Try again.');
+  const checkHint = !c.ratesUrl ? 'Set a rates page first' : !engine?.connected ? 'Reading rates is not connected on this server yet' : undefined;
+
+  return (
+    <li className="ops-report ops-comp">
+      <div>
+        <div className="ops-report-title">{c.name}</div>
+        <div className="ops-report-about">
+          {c.distanceMiles ? `${c.distanceMiles} miles away - ` : ''}{count(c.rates.length)} {c.rates.length === 1 ? 'rate' : 'rates'} on file
+          {latest ? ` - last seen ${formatDate(latest.observedOn)}` : ''}
+        </div>
+        {latest?.rate ? (
+          <div className="ops-comp-line">
+            Latest: {sizeLabel(latest)} at {money(latest.rate)}{latest.promo ? ` (${latest.promo})` : ''} - {sourceLabel(latest.source)}
+          </div>
+        ) : null}
+        {editing ? (
+          <form className="ops-comp-form" onSubmit={saveUrl}>
+            <input className="form-input" type="url" value={url} maxLength={300} onChange={(e) => setUrl(e.target.value)}
+              placeholder="https://..." aria-label={`Rates page for ${c.name}`} />
+            <button type="submit" className="primary-btn" disabled={busy === 'save'}>Save</button>
+            <button type="button" className="secondary-btn" onClick={() => { setEditing(false); setUrl(c.ratesUrl || ''); setError(''); }}>Cancel</button>
+          </form>
+        ) : (
+          <div className="ops-comp-line">
+            {c.ratesUrl
+              ? <>Rates page: <a className="ops-link" href={c.ratesUrl} target="_blank" rel="noreferrer noopener" style={{ whiteSpace: 'normal' }}>{c.ratesUrl.replace(/^https?:\/\//i, '')}</a></>
+              : 'No rates page set, so this competitor is not read automatically.'}{' '}
+            <button type="button" className="ops-cell" onClick={() => { setUrl(c.ratesUrl || ''); setEditing(true); }}>{c.ratesUrl ? 'Change' : 'Set Rates Page'}</button>
+          </div>
+        )}
+        <div className="ops-comp-line">
+          <span className={`status-badge ${cls}`}>{label}</span>
+          {c.lastDetail ? ` ${c.lastDetail}.` : ''}{c.lastCheckedAt ? ` Checked ${formatDateTime(c.lastCheckedAt)}.` : ''}
+        </div>
+        {error && <p className="ops-form-error" role="alert" style={{ marginTop: 6 }}>{error}</p>}
+      </div>
+      <div className="ops-comp-actions">
+        <label className="ops-watch" title="Read this competitor's rates page in the daily run">
+          <input type="checkbox" checked={!!c.watch} disabled={busy === 'watch'} onChange={watch} /> Watch
+        </label>
+        <button type="button" className="secondary-btn" onClick={check} disabled={!!checkHint || busy === 'check'} title={checkHint}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <RefreshCw size={14} aria-hidden="true" /> {busy === 'check' ? 'Checking' : 'Check Now'}
+        </button>
+        <button type="button" className="secondary-btn" onClick={() => onRemove(c)} aria-label={`Stop tracking ${c.name}`} title="Stop tracking. Recorded rates are kept.">
+          <Trash2 size={14} aria-hidden="true" />
+        </button>
+      </div>
+    </li>
+  );
 }
 
 function AddCompetitor({ facilityId, onSaved }) {
@@ -190,6 +405,8 @@ export default function Market({ facility, facilities, onPick }) {
   const impact = compared.reduce((a, r) => a + r.monthlyImpact, 0);
   const sizes = [...new Map(m.rows.map((r) => [`${r.parking ? 'P' : 'S'}:${r.width}x${r.depth}`, { key: `${r.parking}:${r.width}x${r.depth}`, width: r.width, depth: r.depth, parking: r.parking }])).values()]
     .sort((a, b) => Number(a.parking) - Number(b.parking) || a.width * a.depth - b.width * b.depth);
+  const hours = m.engine?.everyHours || 24;
+  const every = hours === 24 ? 'once a day' : `every ${hours} hours`;
   const remove = async (c) => {
     try { setData(await api.removeOpsCompetitor(c.id)); } catch (err) { console.error('Operations: could not remove competitor', err); }
   };
@@ -203,6 +420,14 @@ export default function Market({ facility, facilities, onPick }) {
         <Kpi label="Priced Below Market" value={count(below)} sub="More than 3% under the median" />
         <Kpi label="If Suggestions Are Adopted" value={signed(impact)} sub="Per month, on vacant units at the new rate" />
       </div>
+
+      <p className="ops-note">
+        Rates come from each competitor&apos;s own public pricing page, read {every} by an identified reader that follows the
+        site&apos;s robots rules, plus anything staff record by hand; a site that blocks automated readers or loads prices with
+        scripts has to be entered by hand.{m.engine && !m.engine.connected ? ' The automatic reader is not connected on this server yet.' : ''}
+      </p>
+
+      {m.moves?.length > 0 && <RateMoves moves={m.moves} />}
 
       <Analysis key={facilityId} facilityId={facilityId} ready={m.rows.some((r) => r.competitors > 0)} />
 
@@ -247,6 +472,8 @@ export default function Market({ facility, facilities, onPick }) {
         </div>
       </div>
 
+      <Nearby key={facilityId} facilityId={facilityId} onSaved={setData} />
+
       <div className="ops-grid-2">
         <div className="dash-card">
           <div className="dash-card-head"><div>
@@ -255,22 +482,9 @@ export default function Market({ facility, facilities, onPick }) {
           </div></div>
           {m.competitors.length ? (
             <ul className="ops-reports">
-              {m.competitors.map((c) => (
-                <li className="ops-report" key={c.id}>
-                  <div>
-                    <div className="ops-report-title">{c.name}</div>
-                    <div className="ops-report-about">
-                      {c.distanceMiles ? `${c.distanceMiles} miles away - ` : ''}{count(c.rates.length)} {c.rates.length === 1 ? 'rate' : 'rates'} on file
-                      {c.rates[0] ? ` - last seen ${formatDate(c.rates[0].observedOn)}` : ''}
-                    </div>
-                  </div>
-                  <button type="button" className="secondary-btn" onClick={() => remove(c)} aria-label={`Stop tracking ${c.name}`} title="Stop tracking. Recorded rates are kept.">
-                    <Trash2 size={14} aria-hidden="true" />
-                  </button>
-                </li>
-              ))}
+              {m.competitors.map((c) => <Competitor key={c.id} c={c} engine={m.engine} onSaved={setData} onRemove={remove} />)}
             </ul>
-          ) : <div className="ops-empty">No competitors yet. Add the two or three facilities nearest {m.facility}.</div>}
+          ) : <div className="ops-empty">No competitors yet. Add the two or three facilities nearest {m.facility}, from the nearby list or by hand.</div>}
           <AddCompetitor facilityId={facilityId} onSaved={setData} />
         </div>
 

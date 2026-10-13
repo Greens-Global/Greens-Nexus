@@ -317,6 +317,8 @@ def summarize_facility(fac: dict, raw: dict) -> dict:
         "name": fac.get("name") or "",
         "shortName": (fac.get("name") or "").replace("Greens Storage", "").strip() or (fac.get("name") or ""),
         "asOf": today_s,
+        # Where the facility is, for Market Rates' nearby search. None when Cubby has no map pin.
+        "lat": fac.get("latitude"), "lng": fac.get("longitude"),
         "units": {"total": len(rr), "rented": len(rented), "vacant": len(vacant), "unavailable": len(held)},
         "area": {"total": area(rr), "rented": area(rented)},
         "rent": {"rentRoll": rent_roll, "streetRented": street_rented, "vacantPotential": vacant_potential,

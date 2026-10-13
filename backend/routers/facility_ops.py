@@ -1,12 +1,14 @@
 """Operations (storage facilities): the figures behind the Operations screen,
 read from Cubby through `cubby.py`, plus the Market Rates tab's own records
-(`ops_market.py`).
+(`ops_market.py`) and the reader that finds nearby facilities and reads their
+public pricing pages (`ops_market_engine.py`).
 
 Same door as the sidebar: supervisors and above, or anyone whose Access Group
 grants the Operations module. The payload names tenants who owe money, so it
 is never open to everyone signed in. Nothing here writes to Cubby.
 """
 import asyncio
+import time
 import uuid
 from datetime import date, datetime, timezone
 from typing import Optional
@@ -18,6 +20,7 @@ from sqlalchemy.orm import Session
 import cubby
 import models
 import ops_market
+import ops_market_engine
 from auth import get_current_user, require_level_or_module
 from database import get_db
 
@@ -77,6 +80,12 @@ class CompetitorBody(BaseModel):
     distance_miles: Optional[float] = Field(default=None, ge=0, le=500)
     website: Optional[str] = Field(default=None, max_length=300)
     notes: Optional[str] = Field(default=None, max_length=2000)
+    # Set when a competitor is added from the nearby list (OpenStreetMap).
+    lat: Optional[float] = Field(default=None, ge=-90, le=90)
+    lng: Optional[float] = Field(default=None, ge=-180, le=180)
+    osm_id: Optional[str] = Field(default=None, max_length=40)
+    rates_url: Optional[str] = Field(default=None, max_length=300)   # the page their prices are read from
+    watch: Optional[bool] = None
 
 
 class RateBody(BaseModel):
@@ -89,16 +98,26 @@ class RateBody(BaseModel):
     observed_on: Optional[str] = None             # YYYY-MM-DD; today when left out
 
 
+def _rates_url(value: Optional[str]) -> str:
+    """A rates page as typed: empty, or an http(s) address."""
+    v = (value or "").strip()
+    if v and not (v.lower().startswith(("http://", "https://")) and ops_market_engine.as_url(v)):
+        raise HTTPException(status_code=422, detail="The rates page must be a web address starting with http:// or https://")
+    return v
+
+
 def _competitor_dict(c: models.OpsCompetitor, rates: list) -> dict:
     return {"id": c.id, "facilityId": c.facility_id, "name": c.name, "address": c.address or "",
             "distanceMiles": c.distance_miles or 0, "website": c.website or "", "notes": c.notes or "",
-            "rates": rates}
+            "ratesUrl": ops_market_engine.rates_url_of(c), "watch": c.watch is not False,
+            "lastCheckedAt": c.last_checked_at or "", "lastStatus": c.last_status or "",
+            "lastDetail": c.last_detail or "", "rates": rates}
 
 
 def _rate_dict(r: models.OpsCompetitorRate) -> dict:
     return {"id": r.id, "competitorId": r.competitor_id, "width": r.width, "depth": r.depth,
             "parking": bool(r.parking), "rate": r.rate_cents, "promo": r.promo or "",
-            "observedOn": r.observed_on, "enteredBy": r.entered_by or ""}
+            "observedOn": r.observed_on, "enteredBy": r.entered_by or "", "source": r.source or "manual"}
 
 
 def _obs(r: models.OpsCompetitorRate) -> dict:
@@ -123,7 +142,14 @@ def _market(db: Session, facility: dict) -> dict:
         "freshDays": ops_market.FRESH_DAYS, "minCompetitors": ops_market.MIN_COMPETITORS,
         "competitors": [_competitor_dict(c, by_comp.get(c.id, [])[:40]) for c in comps],
         "rows": rows,
+        "moves": ops_market_engine.rate_moves(db, fid, today),
+        "engine": {"connected": _engine_connected(), "everyHours": ops_market_engine.watch_hours()},
     }
+
+
+def _engine_connected() -> bool:
+    import construction_ai
+    return construction_ai.configured()
 
 
 async def _facility(facility_id: str) -> dict:
@@ -144,12 +170,17 @@ async def market(facility_id: str, db: Session = Depends(get_db)):
 async def add_competitor(body: CompetitorBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     if not (body.name or "").strip():
         raise HTTPException(status_code=422, detail="A competitor needs a name")
+    rates_url = _rates_url(body.rates_url)
     facility = await _facility(body.facility_id or "")
 
     def _save():
+        website = (body.website or "").strip()
         c = models.OpsCompetitor(id=str(uuid.uuid4()), facility_id=facility["id"], name=body.name.strip(),
                                  address=(body.address or "").strip(), distance_miles=body.distance_miles or 0,
-                                 website=(body.website or "").strip(), notes=(body.notes or "").strip(),
+                                 website=website, notes=(body.notes or "").strip(),
+                                 lat=body.lat, lng=body.lng, osm_id=(body.osm_id or "").strip(),
+                                 rates_url=rates_url or ops_market_engine.as_url(website),
+                                 watch=body.watch is not False,
                                  active=True, created_by=user["email"], created_at=_now())
         db.add(c)
         db.commit()
@@ -168,8 +199,15 @@ async def update_competitor(competitor_id: str, body: CompetitorBody, db: Sessio
         data = body.model_dump(exclude_unset=True, exclude={"facility_id"})   # a competitor does not change facility
         if "name" in data and not (data["name"] or "").strip():
             raise HTTPException(status_code=422, detail="A competitor needs a name")
+        if "rates_url" in data:
+            data["rates_url"] = _rates_url(data["rates_url"])
+        if data.get("watch", True) is None:
+            del data["watch"]
         for k, v in data.items():
-            setattr(c, k, v.strip() if isinstance(v, str) else (v if v is not None else 0 if k == "distance_miles" else ""))
+            if k in ("lat", "lng", "watch"):
+                setattr(c, k, v)
+            else:
+                setattr(c, k, v.strip() if isinstance(v, str) else (v if v is not None else 0 if k == "distance_miles" else ""))
         db.commit()
         return _market(db, facility)
     return await asyncio.to_thread(_save)
@@ -188,6 +226,60 @@ async def remove_competitor(competitor_id: str, db: Session = Depends(get_db)):
         db.commit()
         return _market(db, facility)
     return await asyncio.to_thread(_save)
+
+
+_CHECK_EVERY_SEC = 600
+_check_started: dict[str, float] = {}   # competitor id -> when its last manual check began (this worker)
+
+
+@router.post("/market/competitors/{competitor_id}/check")
+async def check_competitor(competitor_id: str, db: Session = Depends(get_db)):
+    """Read this competitor's rates page now. At most once per competitor per
+    10 minutes, whoever asks - the daily run counts too."""
+    c = await asyncio.to_thread(lambda: db.get(models.OpsCompetitor, competitor_id))
+    if not c or not c.active:
+        raise HTTPException(status_code=404, detail="Competitor not found")
+    facility = await _facility(c.facility_id)
+    try:
+        since = (datetime.now(timezone.utc) - datetime.fromisoformat(c.last_checked_at)).total_seconds()
+    except (TypeError, ValueError):
+        since = _CHECK_EVERY_SEC
+    if since < _CHECK_EVERY_SEC or time.monotonic() - _check_started.get(c.id, -_CHECK_EVERY_SEC) < _CHECK_EVERY_SEC:
+        raise HTTPException(status_code=409, detail="This competitor was checked in the last 10 minutes. Try again a little later.")
+    _check_started[c.id] = time.monotonic()
+
+    def _run():
+        ops_market_engine.check_competitor(db, c, date.fromisoformat(facility["asOf"]))
+        return _market(db, facility)
+    return await asyncio.to_thread(_run)
+
+
+@router.get("/market/nearby")
+async def market_nearby(facility_id: str, radius_km: float = ops_market_engine.DEFAULT_RADIUS_KM, db: Session = Depends(get_db)):
+    """Storage facilities around one of ours, from OpenStreetMap, minus our own
+    and the ones already tracked. 424 (never 502) when OpenStreetMap is unhappy."""
+    data = await _from_cubby(cubby.summary, False)
+    facility = next((f for f in data["facilities"] if f["id"] == facility_id), None)
+    if not facility:
+        raise HTTPException(status_code=404, detail="Facility not found")
+    radius = min(max(radius_km, 1.0), ops_market_engine.MAX_RADIUS_KM)
+    out = {"facilityId": facility_id, "radiusKm": radius, "radiusMiles": round(radius / 1.609344),
+           "attribution": ops_market_engine.ATTRIBUTION, "facilities": [], "detail": ""}
+    if facility.get("lat") is None or facility.get("lng") is None:
+        return {**out, "detail": "Cubby has no map location for this facility, so nearby facilities cannot be looked up."}
+
+    def _find():
+        elements = ops_market_engine.nearby_elements(facility_id, facility["lat"], facility["lng"], radius)
+        existing = (db.query(models.OpsCompetitor)
+                    .filter(models.OpsCompetitor.facility_id == facility_id, models.OpsCompetitor.active == True).all())  # noqa: E712
+        ours = [(f["lat"], f["lng"]) for f in data["facilities"] if f.get("lat") is not None and f.get("lng") is not None]
+        return ops_market_engine.nearby_from_elements(elements, (facility["lat"], facility["lng"]), ours,
+                                                      data.get("organization") or "", existing)
+    try:
+        out["facilities"] = await asyncio.to_thread(_find)
+    except ops_market_engine.NearbyUnavailable as e:
+        raise HTTPException(status_code=424, detail=str(e)) from e
+    return out
 
 
 @router.post("/market/rates", status_code=201)

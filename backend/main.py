@@ -944,6 +944,16 @@ def _run_migrations():
             "ALTER TABLE task_projects ADD COLUMN time_tracking VARCHAR DEFAULT ''",
             # Sections made for the Custom grouping (Oct 13). models.TaskSection.custom.
             "ALTER TABLE task_sections ADD COLUMN custom BOOLEAN DEFAULT 0",
+            # Market engine (Oct 13). models.OpsCompetitor: map position, the
+            # rates page and how its last read went.
+            "ALTER TABLE ops_competitors ADD COLUMN lat FLOAT",
+            "ALTER TABLE ops_competitors ADD COLUMN lng FLOAT",
+            "ALTER TABLE ops_competitors ADD COLUMN osm_id VARCHAR DEFAULT ''",
+            "ALTER TABLE ops_competitors ADD COLUMN rates_url VARCHAR DEFAULT ''",
+            "ALTER TABLE ops_competitors ADD COLUMN last_checked_at VARCHAR DEFAULT ''",
+            "ALTER TABLE ops_competitors ADD COLUMN last_status VARCHAR DEFAULT ''",
+            "ALTER TABLE ops_competitors ADD COLUMN last_detail VARCHAR DEFAULT ''",
+            "ALTER TABLE ops_competitors ADD COLUMN watch BOOLEAN DEFAULT 1",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2105,6 +2115,14 @@ def _run_migrations():
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS subtask_order VARCHAR DEFAULT ''",
         "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS time_tracking VARCHAR DEFAULT ''",
         "ALTER TABLE task_sections ADD COLUMN IF NOT EXISTS custom BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE ops_competitors ADD COLUMN IF NOT EXISTS lat DOUBLE PRECISION",
+        "ALTER TABLE ops_competitors ADD COLUMN IF NOT EXISTS lng DOUBLE PRECISION",
+        "ALTER TABLE ops_competitors ADD COLUMN IF NOT EXISTS osm_id VARCHAR DEFAULT ''",
+        "ALTER TABLE ops_competitors ADD COLUMN IF NOT EXISTS rates_url VARCHAR DEFAULT ''",
+        "ALTER TABLE ops_competitors ADD COLUMN IF NOT EXISTS last_checked_at VARCHAR DEFAULT ''",
+        "ALTER TABLE ops_competitors ADD COLUMN IF NOT EXISTS last_status VARCHAR DEFAULT ''",
+        "ALTER TABLE ops_competitors ADD COLUMN IF NOT EXISTS last_detail VARCHAR DEFAULT ''",
+        "ALTER TABLE ops_competitors ADD COLUMN IF NOT EXISTS watch BOOLEAN DEFAULT TRUE",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -2817,6 +2835,18 @@ async def lifespan(app: FastAPI):
                 print("[startup] Cubby snapshot loop skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] Cubby snapshot loop skipped: {e}")
+        # Market watch (Operations, Oct 2026): once a day, reads each watched
+        # competitor's public pricing page (robots.txt honored, identified
+        # reader). Deployed worker only - a laptop must not send those requests.
+        try:
+            from leader import is_deployed_worker
+            if is_deployed_worker():
+                from ops_market_engine import market_watch_loop
+                _tasks.append(_a.create_task(market_watch_loop()))
+            else:
+                print("[startup] Market watch loop skipped (not the deployed worker)")
+        except Exception as e:
+            print(f"[startup] Market watch loop skipped: {e}")
         try:
             # One-shot: drains task attachments inlined as data: URLs into
             # Supabase Storage (5.7 GB of the prod DB), then exits. Idempotent.
