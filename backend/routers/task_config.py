@@ -575,7 +575,13 @@ def mark_all_read(user: dict = Depends(get_current_user), db: Session = Depends(
 # ── Changelog / What's New ───────────────────────────────────────────────────
 def changelog_entry_to_dict(e: models.TaskChangelogEntry) -> dict:
     payload = e.payload if isinstance(e.payload, dict) else {}
-    return {**payload, "id": e.id, "createdAt": e.created_at or "", "updatedAt": e.updated_at or ""}
+    out = {**payload, "id": e.id, "createdAt": e.created_at or "", "updatedAt": e.updated_at or ""}
+    # Stored entries keep the developer as GitHub named them; they are read
+    # out as the Nexus person (name + work email for the photo).
+    if isinstance(payload.get("developers"), list):
+        from changelog_prs import known_developer
+        out["developers"] = [known_developer(d) for d in payload["developers"]]
+    return out
 
 
 def changelog_comment_to_dict(c: models.TaskChangelogComment) -> dict:

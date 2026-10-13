@@ -1,8 +1,6 @@
-import { useState, useRef, useEffect, useMemo, lazy, Suspense } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { Menu, Search, LogOut, Settings, User, ArrowLeft, Shield, Check, ChevronDown, LayoutDashboard, Camera, Clock, Sparkles, X, UserCog, Archive, PlayCircle, Eye, Mail, Scale, Rocket } from "lucide-react";
-const Changelog = lazy(() => import("../tasks/ChangelogView"));
 import NotificationBell from "./NotificationBell";
-import PageHelp from "./PageHelp";
 import HelpMenu from "../support/HelpMenu";
 import { TabGroupButton, useHeaderTabs } from "./ModuleTabs";
 import MyProfileModal from "./MyProfileModal";
@@ -32,7 +30,7 @@ import { useRole, ROLES, MODULES, EXTERNAL_ROLE_META } from "../contexts/RoleCon
 import { usePersonPhoto } from "../lib/peoplePhotos";
 import { openContact } from "../lib/contactNav";
 import { api } from "../api";
-import { ModalLoading, Spinner } from './AsyncState';
+import { Spinner } from './AsyncState';
 
 // Header search reaches into the Task module's content, not just the module
 // list, so typing a task's title finds the task. Grouped by kind the way Asana's
@@ -47,7 +45,7 @@ const SEARCH_GROUPS = [
 ];
 const EMPTY_HITS = { tasks: [], projects: [], people: [], portfolios: [], teams: [] };
 
-export default function TopHeader({ title, activeView, theme, onThemeToggle, sidebarPinned, onSidebarPinnedChange, onMobileToggle, canGoBack, onBack, onNavigate, prevLabel, helpKey, helpLabel }) {
+export default function TopHeader({ title, activeView, theme, onThemeToggle, sidebarPinned, onSidebarPinnedChange, onMobileToggle, canGoBack, onBack, onNavigate, prevLabel }) {
   const { instance, accounts } = useMsal();
   const { myRole, can, myGrantedModules, actingAs, stopActAs, isExternal } = useRole();
   // Module tab strip published by the active module (<ModuleTabs>). When
@@ -106,7 +104,6 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
   }, []);
 
   const [open,         setOpen]         = useState(false);
-  const [changelogOpen, setChangelogOpen] = useState(false); // Profile → What's new
   // Red-dot eye icon next to the profile pill: lit while a published changelog
   // update is newer than this user's last visit to What's New (cleared on open).
   const [changelogUnseen, setChangelogUnseen] = useState(false);
@@ -115,13 +112,22 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
     api.getTaskChangelogUnseen().then(r => { if (alive) setChangelogUnseen(!!r?.unseen); }).catch(() => {});
     return () => { alive = false; };
   }, []);
+  // What's New is a page in the app now (Neil, Oct 12 2026), not an overlay:
+  // every way in navigates to it. An external can open it only with a grant
+  // that reaches the changelog API (App.jsx VIEW_ALT_GRANTS), so the entry
+  // points are hidden from one who cannot.
+  const canWhatsNew = !isExternal || !!(myGrantedModules?.has('tasks') || myGrantedModules?.has('tickets'));
   function openChangelog() {
-    setChangelogOpen(true);
-    if (changelogUnseen) {
-      setChangelogUnseen(false);
-      api.markTaskChangelogSeen().catch(() => {});
-    }
+    onNavigate?.('whats-new');
   }
+  // Landing on What's New by any route (menu, Help panel, a link, the URL)
+  // clears the unseen dot and records the visit server-side.
+  // The dot is hidden at once while the page is open (below); the stored
+  // flag clears once the visit is recorded, so it stays gone after you leave.
+  useEffect(() => {
+    if (activeView !== 'whats-new' || !changelogUnseen) return;
+    api.markTaskChangelogSeen().catch(() => {}).finally(() => setChangelogUnseen(false));
+  }, [activeView, changelogUnseen]);
   const [searchQuery,  setSearchQuery]  = useState('');
   const [searchOpen,   setSearchOpen]   = useState(false);
   const dropRef   = useRef(null);
@@ -505,12 +511,12 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
         )}
         {/* "?" Help menu: search the guide, help for this page, then Contact
             Support - self-service first (Neil, Sep 26). support/HelpMenu.jsx. */}
-        <HelpMenu activeView={activeView} onWhatsNew={openChangelog} />
+        <HelpMenu activeView={activeView} onWhatsNew={canWhatsNew ? openChangelog : undefined} />
         <NotificationBell onNavigate={onNavigate} />
 
         {/* Unseen-changelog eye icon: only rendered while there's a published
             update this user hasn't opened What's New for yet. */}
-        {changelogUnseen && (
+        {changelogUnseen && canWhatsNew && activeView !== 'whats-new' && (
           <button onClick={openChangelog} title="New update published - view What's New" aria-label="New update published"
             style={{
               position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -584,13 +590,17 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
               <button className="hud-item" onClick={() => { setOpen(false); setEmailSettingsOpen(true); }}>
                 <Mail size={14} /> Email Settings
               </button>
-              <button className="hud-item" onClick={() => { setOpen(false); openChangelog(); }}>
-                <Sparkles size={14} /> What's New
-              </button>
+              {canWhatsNew && (
+                <button className="hud-item" onClick={() => { setOpen(false); openChangelog(); }}>
+                  <Sparkles size={14} /> What's New
+                </button>
+              )}
               {/* Dark Mode + Theme moved into My Profile (Neil: group appearance
                   settings with the rest of "your" settings instead of loose in
                   the top-level menu). Help stays here. */}
-              {helpKey && <PageHelp pageKey={helpKey} label={helpLabel} variant="row" onActivate={() => setOpen(false)} />}
+              {/* "Help with this page" lived here; the header's Help panel has
+                  "Help for This Page" now, so it was a second way to the same
+                  thing (Neil, Oct 12 2026). */}
               {/* Task module's guided walkthrough. Moved out of the module's own
                   header (was cluttering the primary bar next to Manage) into
                   here, right under page help - only meaningful while the Task
@@ -655,11 +665,6 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
           )}
         </div>
       </div>
-      {changelogOpen && (
-        <Suspense fallback={<ModalLoading />}>
-          <Changelog onClose={() => setChangelogOpen(false)} />
-        </Suspense>
-      )}
     </header>
 
     {/* Persistent, hard-to-miss reminder that this is impersonation, not the

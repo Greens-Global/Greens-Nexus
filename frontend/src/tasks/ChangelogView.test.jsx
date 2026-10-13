@@ -15,6 +15,10 @@ vi.mock('../api', () => ({
     markTaskChangelogSeen: vi.fn(),
   },
 }));
+// Photos keyed by work email - the developers' avatars read from here.
+vi.mock('../lib/peoplePhotos', () => ({
+  usePhotoMap: () => ({ 'pranshu.pandey@greensglobal.com': 'https://example.test/pranshu.jpg' }),
+}));
 vi.mock('../contexts/RoleContext', () => ({
   useRole: () => ({ myEmail: 'admin@greensglobal.com', can: () => true }),
 }));
@@ -81,6 +85,44 @@ describe("What's New automatic publishing status", () => {
     render(<Changelog onClose={() => {}} />);
     expect(await screen.findByText('Neil Kadakia, pranshuup')).toBeTruthy();
     expect(screen.queryByText('Unknown')).toBeNull();
+  });
+
+  it("shows a developer's profile photo when the server names them as one of ours", async () => {
+    api.getTaskChangelogAutoStatus.mockResolvedValue(healthy);
+    api.getTaskChangelog.mockResolvedValue([{
+      id: 'e2', title: 'Faster lists', description: 'Plain words.', type: 'New Feature', module: 'Tasks',
+      status: 'Released', origin: 'pr', releasedAt: '2026-10-09T10:00:00Z', authorId: '',
+      developers: [{ login: 'pranshuup', name: 'Pranshu Pandey', email: 'pranshu.pandey@greensglobal.com', url: 'https://github.com/pranshuup' }],
+    }]);
+    render(<Changelog onClose={() => {}} />);
+    expect(await screen.findByText('Pranshu Pandey')).toBeTruthy();
+    expect(screen.getByAltText('Pranshu Pandey').getAttribute('src')).toBe('https://example.test/pranshu.jpg');
+  });
+
+  it('sits inside the app as a page when embedded: no overlay, no close button', async () => {
+    api.getTaskChangelogAutoStatus.mockResolvedValue(healthy);
+    const { container } = render(<Changelog embedded />);
+    await screen.findAllByText("What's New");
+    // In the render tree, not portaled over the app, and nothing to close.
+    expect(container.querySelector('[data-whats-new-view]')).not.toBeNull();
+    expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
+    expect(container.querySelector('[data-whats-new-view]').style.position).not.toBe('fixed');
+  });
+
+  it('starts the first card and the Activity Summary on the same line', async () => {
+    api.getTaskChangelogAutoStatus.mockResolvedValue(healthy);
+    api.getTaskChangelog.mockResolvedValue([{
+      id: 'e3', title: 'One update', description: 'Plain words.', type: 'Bug Fix', module: 'Tasks',
+      status: 'Released', releasedAt: '2026-10-09T10:00:00Z', authorId: 'admin@greensglobal.com',
+    }]);
+    render(<Changelog onClose={() => {}} />);
+    expect(await screen.findByText('One update')).toBeTruthy();
+    // The row holds exactly the two columns - the day label is above it, not
+    // inside the cards' column where it pushed the first card down.
+    const row = document.querySelector('[data-whats-new-row]');   // the view renders in a portal
+    expect(row.children.length).toBe(2);
+    expect(row.children[0].textContent).not.toMatch(/^(Today|Yesterday)/i);
+    expect(row.children[1].textContent).toMatch(/^Activity Summary/);
   });
 
   it("What's New shows the whole latest release day, so a hand-written note isn't pushed off", async () => {

@@ -148,7 +148,11 @@ const TABS = [
   { key: 'version-history', label: 'Version History', icon: Tag },
 ];
 
-export default function Changelog({ onClose }) {
+// `embedded` (Neil, Oct 12 2026): What's New is a normal Nexus view - the
+// sidebar and header stay, and you navigate away like from any module. It used
+// to cover the whole app as an overlay with its own close button. The overlay
+// form stays for any caller that still passes `onClose` without `embedded`.
+export default function Changelog({ onClose, embedded = false }) {
   const { myEmail, can } = useRole();
   const nameOf = useNameResolver();
   const isAdmin = !!can?.('manager');
@@ -204,10 +208,11 @@ export default function Changelog({ onClose }) {
   };
 
   useEffect(() => {
+    if (embedded) return undefined;     // a page has nothing to close
     const onKey = (e) => { if (e.key === 'Escape' && !adding && !editing) onClose?.(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [adding, editing, onClose]);
+  }, [adding, editing, onClose, embedded]);
 
   const sorted = useMemo(
     () => (entries || []).slice().sort(newestFirst),
@@ -224,8 +229,12 @@ export default function Changelog({ onClose }) {
     ? [...TABS, { key: 'manage', label: 'Manage', icon: ClipboardCheck, badge: pendingCount }]
     : TABS;
 
-  return createPortal(
-    <div className="nx-tasks-portal" style={{ position: 'fixed', inset: 0, zIndex: 3000, fontFamily: FONT, color: NX.ink, background: NX.canvas, display: 'flex', flexDirection: 'column', animation: 'fadeIn 0.13s ease' }}>
+  const shell = (
+    <div className="nx-tasks-portal" data-whats-new-view={embedded || undefined} style={embedded
+      // In the app: the page scrolls as every other view does, inside a card
+      // like the other modules' screens.
+      ? { fontFamily: FONT, color: NX.ink, background: NX.canvas, display: 'flex', flexDirection: 'column', border: `1px solid ${NX.border}`, borderRadius: 12, overflow: 'hidden', minHeight: 'calc(100vh - 140px)' }
+      : { position: 'fixed', inset: 0, zIndex: 3000, fontFamily: FONT, color: NX.ink, background: NX.canvas, display: 'flex', flexDirection: 'column', animation: 'fadeIn 0.13s ease' }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface }}>
         <Sparkles size={20} style={{ color: NX.blue, flexShrink: 0 }} />
@@ -234,11 +243,11 @@ export default function Changelog({ onClose }) {
           <div style={{ fontSize: 13, color: NX.dim }}>Track all updates, releases and changes across Nexus.</div>
         </div>
         <button style={{ ...btn('primary'), marginLeft: 'auto' }} onClick={() => setAdding(true)}><Plus size={15} />Add New Update</button>
-        <button onClick={onClose} title="Close" aria-label="Close" style={{ ...btn('ghost'), padding: 7, color: NX.dim }}><X size={18} /></button>
+        {!embedded && <button onClick={onClose} title="Close" aria-label="Close" style={{ ...btn('ghost'), padding: 7, color: NX.dim }}><X size={18} /></button>}
       </div>
 
       {/* Tab strip */}
-      <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, overflowX: 'auto', whiteSpace: 'nowrap', borderBottom: `1px solid ${NX.border}`, background: NX.surface, padding: '0 12px' }}>
+      <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, overflowX: 'auto', whiteSpace: 'nowrap', borderBottom: `1px solid ${NX.border}`, background: NX.surface, padding: '0 16px' }}>
         {tabs.map((t) => {
           const active = tab === t.key;
           const Icon = t.icon;
@@ -257,7 +266,7 @@ export default function Changelog({ onClose }) {
       </div>
 
       {/* Body */}
-      <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas }}>
+      <div className="nx-scroll" style={embedded ? { flex: 1, background: NX.canvas } : { flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas }}>
         {tab === 'whats-new' && <WhatsNewTab entries={published} nameOf={nameOf} myEmail={myEmail} isAdmin={isAdmin} onSetStatus={setStatus} onEdit={setEditing} />}
         {tab === 'timeline' && <TimelineTab entries={published} nameOf={nameOf} myEmail={myEmail} isAdmin={isAdmin} onSetStatus={setStatus} onEdit={setEditing} />}
         {tab === 'version-history' && <VersionHistoryTab entries={published} nameOf={nameOf} myEmail={myEmail} isAdmin={isAdmin} onSetStatus={setStatus} onEdit={setEditing} />}
@@ -283,9 +292,9 @@ export default function Changelog({ onClose }) {
           background: toast.error ? NX.red : NX.primary, color: '#fff', padding: '10px 16px', borderRadius: 10, fontSize: 13, fontWeight: 500,
           boxShadow: '0 12px 32px rgba(0,0,0,0.28)', maxWidth: '90vw' }}>{toast.text}</div>
       )}
-    </div>,
-    document.body,
+    </div>
   );
+  return embedded ? shell : createPortal(shell, document.body);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -313,8 +322,16 @@ function WhatsNewTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit })
   }, [entries]);
   const latest = latestDay[0];
   const [details, setDetails] = useState(null);
+  // One edge for everything (Neil, Oct 12 2026): the title, the day label and
+  // the cards start on the same 16px line as the header and the tab strip
+  // above; the update count ends on the Activity Summary's right edge; the
+  // summary's top is the first card's top. The day label used to live INSIDE
+  // the cards' column, which pushed the first card one label lower than the
+  // summary beside it, and the cards were centered at 1400px while the title
+  // stayed at the far left. The content fills the page, like other modules.
   return (
     <div style={{ padding: '20px 16px' }}>
+      <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
         <div>
           <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: NX.ink }}>What's New</h1>
@@ -323,23 +340,22 @@ function WhatsNewTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit })
         <span style={{ fontSize: 12, fontWeight: 600, color: NX.dim }}>{latestDay.length} update{latestDay.length === 1 ? '' : 's'}</span>
       </div>
 
-      {latest ? (
-        <div style={{ maxWidth: 1400, margin: '0 auto', display: 'flex', flexWrap: 'wrap', gap: 20, alignItems: 'flex-start' }}>
-          <div style={{ minWidth: 0, flex: '1 1 520px' }}>
-            <div style={{ marginBottom: 8, fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4, color: NX.faint }}>{relativeDayLabel(localDayKey(releasedKey(latest)))}</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {latestDay.map((e) => <EntryCard key={e.id} entry={e} nameOf={nameOf} onViewDetails={() => setDetails(e)} />)}
-            </div>
+      {latest ? (<>
+        <div style={{ marginBottom: 8, fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4, color: NX.faint }}>{relativeDayLabel(localDayKey(releasedKey(latest)))}</div>
+        <div data-whats-new-row style={{ display: 'flex', flexWrap: 'wrap', gap: 20, alignItems: 'flex-start' }}>
+          <div style={{ minWidth: 0, flex: '1 1 520px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {latestDay.map((e) => <EntryCard key={e.id} entry={e} nameOf={nameOf} onViewDetails={() => setDetails(e)} />)}
           </div>
           <div style={{ width: '100%', maxWidth: 320, flex: '1 1 280px' }}>
             <StatsPanel entries={entries} />
           </div>
         </div>
-      ) : (
+      </>) : (
         <div style={{ borderRadius: 12, border: `1px dashed ${NX.border}`, padding: '64px 0', textAlign: 'center', fontSize: 13, color: NX.dim }}>
           No updates published yet.
         </div>
       )}
+      </div>
 
       {details && (
         <SlideOver entry={details} nameOf={nameOf} myEmail={myEmail} isAdmin={isAdmin}
@@ -446,7 +462,7 @@ function EntryCard({ entry, nameOf, onViewDetails }) {
           <div style={{ marginTop: 16, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, borderTop: `1px solid ${NX.border}`, paddingTop: 12, fontSize: 12, color: NX.dim }}>
             {entry.developers?.length ? (
               <>
-                {entry.developers.map((d) => <Avatar key={d.login} name={d.name || d.login} size={20} />)}
+                {entry.developers.map((d) => <Avatar key={d.login} email={d.email} name={d.name || d.login} size={20} />)}
                 <span>{entry.developers.map((d) => d.name || d.login).join(', ')}</span>
               </>
             ) : (
@@ -1151,7 +1167,9 @@ function GithubDevelopers({ developers }) {
       {developers.map((d) => (
         <a key={d.login} href={d.url} target="_blank" rel="noreferrer" title={`@${d.login} on GitHub`}
           style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, textDecoration: 'none' }}>
-          <Avatar name={d.name || d.login} size={24} />
+          {/* `email` (set by the server for our own developers) is what
+              brings the profile photo; anyone else keeps initials. */}
+          <Avatar email={d.email} name={d.name || d.login} size={24} />
           <span style={{ fontSize: 13, fontWeight: 600, color: NX.ink }}>{d.name || d.login}</span>
         </a>
       ))}

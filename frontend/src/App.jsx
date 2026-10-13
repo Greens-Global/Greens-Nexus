@@ -80,13 +80,14 @@ const Egnyte              = lazy(() => import("./views/Egnyte"));
 const EmployeeTracking    = lazy(() => import("./components/TimeTrackingAdmin"));
 const Shifts              = lazy(() => import("./views/Shifts"));
 const MyBriefing          = lazy(() => import("./views/MyBriefing"));
+const WhatsNew            = lazy(() => import("./tasks/ChangelogView"));   // What's New as a page (Oct 12)
 
 const VIEW_LABELS = Object.fromEntries(MODULES.map(m => [m.id, m.label]));
 // Views that aren't registered MODULES (e.g. "purchase") fall back to a
 // title-cased version of their id so breadcrumbs never show raw lowercase ids.
 // Acronyms the title-caser would mangle ("pdf-editor" -> "Pdf Editor"). These
 // views live in Sidebar's NAV but not in MODULES, so they hit the fallback.
-const LABEL_OVERRIDES = { 'pdf-editor': 'PDF Tools', 'terms-conditions': 'Terms & Conditions', briefing: 'My Briefing', legal: 'Legal' };
+const LABEL_OVERRIDES = { 'pdf-editor': 'PDF Tools', 'terms-conditions': 'Terms & Conditions', briefing: 'My Briefing', legal: 'Legal', 'whats-new': "What's New" };
 const viewLabel = (view) => VIEW_LABELS[view] || LABEL_OVERRIDES[view]
   || (view || '').split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
@@ -155,7 +156,9 @@ const VIEW_MIN_ROLES = {
 const VIEW_GRANT = {};
 // Views that OTHER grants also open (any one is enough): a 'workforce-scorecard'
 // grant alone reaches Workforce Analytics for its Scorecard tab (Neil, 10/10).
-const VIEW_ALT_GRANTS = { 'employee-tracking': ['workforce-scorecard'] };
+// What's New: every internal user; an external only with a grant that
+// opens /task-changelog on the API (auth.MODULE_API_PREFIXES: tasks, tickets).
+const VIEW_ALT_GRANTS = { 'employee-tracking': ['workforce-scorecard'], 'whats-new': ['tasks', 'tickets'] };
 
 // E2E mode (Playwright CI only - VITE_E2E is never set on real builds) and the
 // local dev-login bypass (VITE_DEV_SKIP_AUTH, see msalInstance.js) both skip the
@@ -368,6 +371,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     // Open to every internal user (no VIEW_MIN_ROLES entry); externals get
     // Access Restricted here and 403 from the API.
     case "directory":          return <Directory />;
+    case "whats-new":          return <WhatsNew embedded />;
     case "timeclock":          return <TimeClock initialTab="overview" activeSub={activeSub} onSubChange={onSubChange} />;
     case "myhr":               return <TimeClock initialTab="overview" activeSub={activeSub} onSubChange={onSubChange} />;
     case "testing":            return <Testing />;
@@ -756,8 +760,6 @@ function MainApp() {
             <TopHeader
               title={viewLabel(activeView)}
               activeView={activeView}
-              helpKey={activeSub ? `${activeView}:${activeSub}` : activeView}
-              helpLabel={viewLabel(activeView)}
               theme={theme}
               onThemeToggle={() => setTheme(t => t === "dark" ? "light" : "dark")}
               sidebarPinned={sidebarPinned}
