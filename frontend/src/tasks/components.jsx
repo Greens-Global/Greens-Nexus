@@ -1677,7 +1677,7 @@ export function PersonDot({ value, people = [], nameOf, onChange, disabled = fal
       <AnchoredMenu anchorRef={ref} open={open} onClose={() => { setOpen(false); setQ(''); }}
         style={{ width: 220, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4 }}>
         <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people"
-          style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${NX.border}`, borderRadius: 7, padding: '6px 8px', fontFamily: FONT, fontSize: 12.5, marginBottom: 4, outline: 'none' }} />
+          style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${NX.border}`, borderRadius: 7, padding: '6px 8px', fontFamily: FONT, fontSize: 12.5, marginBottom: 4 }} />
         <div style={{ maxHeight: 240, overflowY: 'auto' }}>
           <button type="button" onClick={() => { onChange(''); setOpen(false); }} style={rowBtn}>
             {!value ? <Check size={13} /> : <span style={{ width: 13 }} />}<span>{nobodyLabel}</span>

@@ -116,7 +116,7 @@ export default function Checklist({ task, people = [], canEdit = true, autoFocus
               {editingId === item.id ? (
                 <input autoFocus value={editText} onChange={(e) => setEditText(e.target.value)} onBlur={() => commitRename(item)}
                   onKeyDown={(e) => { if (e.key === 'Enter') commitRename(item); if (e.key === 'Escape') setEditingId(null); }}
-                  style={{ flex: 1, minWidth: 0, border: `1px solid ${NX.blue}`, borderRadius: 6, padding: '3px 6px', fontFamily: FONT, fontSize: 13, outline: 'none' }} />
+                  style={{ flex: 1, minWidth: 0, border: `1px solid ${NX.blue}`, borderRadius: 6, padding: '3px 6px', fontFamily: FONT, fontSize: 13 }} />
               ) : (
                 <span onClick={() => { if (canEdit) { setEditingId(item.id); setEditText(item.title); } }}
                   title={item.done && item.doneBy ? `Done by ${nameOf(item.doneBy)}` : (canEdit ? 'Click to rename' : undefined)}
@@ -141,7 +141,7 @@ export default function Checklist({ task, people = [], canEdit = true, autoFocus
             onPaste={(e) => { const many = itemsFromPaste(e.clipboardData?.getData('text')); if (many) { e.preventDefault(); add(many); } }}
             placeholder={items.length ? 'Add an item' : 'Add an item, or paste a list'}
             aria-label="Add checklist item"
-            style={{ flex: 1, minWidth: 0, border: 'none', outline: 'none', background: 'transparent', fontFamily: FONT, fontSize: 13 }} />
+            style={{ flex: 1, minWidth: 0, border: 'none', background: 'transparent', fontFamily: FONT, fontSize: 13 }} />
           {draft.trim() && <button type="button" onClick={() => add()} style={{ ...btn('primary'), padding: '5px 10px', fontSize: 12 }}>Add</button>}
         </div>
       )}
