@@ -4,7 +4,7 @@
 // Renders nothing when the selection is empty; the parent owns `selected`.
 import { useRef, useState } from 'react';
 import { Copy, Trash2, X } from 'lucide-react';
-import { taskAssignees, bulkFieldsFor } from './lib';
+import { bulkFieldsFor, duplicateTaskData } from './lib';
 import { NX, FONT, btn, input as inputStyle } from './theme';
 import { SearchSelect } from './components';
 import { CustomFieldInput } from './TaskDetailDrawer';
@@ -33,6 +33,11 @@ export default function BulkActionBar({ selected, clearSel, store, people, locke
     closeField();
     clearSel();
   };
+  // SearchSelect's wrapper is minWidth:0 (so it can ellipsize in a table
+  // cell); in this row that let it shrink to nothing once the bar ran out of
+  // room, and Assign / Move To / Duplicate painted on top of each other
+  // (phone, Oct 13 2026). Each picker sits in one of these instead.
+  const keep = { display: 'inline-flex', flexShrink: 0 };
   const selStyle = { ...inputStyle, width: 'auto', padding: '5px 8px', background: 'rgba(255,255,255,0.14)', color: '#fff', border: '1px solid rgba(255,255,255,0.3)', flexShrink: 0 };
   const duplicate = async () => {
     const picked = tasks.filter((t) => selected.has(t.id));
@@ -40,25 +45,24 @@ export default function BulkActionBar({ selected, clearSel, store, people, locke
     // original never had (Oct 13 2026) - and that used to vanish silently.
     const failed = [];
     for (const t of picked) {
-      await store.createTask({
-        title: `${t.title} (copy)`, type: t.type || 'task', description: t.description || '',
-        status: t.status || 'not_started', priority: t.priority || 'medium',
-        projectId: t.projectId || '', teamId: t.teamId || '', assigneeIds: taskAssignees(t),
-        followerIds: t.followerIds || [], dueOn: t.dueOn || '', startOn: t.startOn || '',
-        tags: t.tags || [], estimateHours: t.estimateHours ?? null, isMilestone: !!t.isMilestone,
-        customFieldValues: t.customFieldValues || {},
-      }).catch((e) => { failed.push(`"${t.title}": ${e?.message || 'could not be copied'}`); });
+      await store.createTask(duplicateTaskData(t)).catch((e) => { failed.push(`"${t.title}": ${e?.message || 'could not be copied'}`); });
     }
     if (failed.length) alert(`${failed.length} of ${picked.length} could not be duplicated:\n${failed.slice(0, 5).join('\n')}`);
     clearSel();
   };
+  // Phones: the bar takes the floating MobileTaskBar's slot (the parent hides
+  // that bar while anything is selected) - same offset above the module nav,
+  // one row that swipes sideways. It used to wrap into a three-row block
+  // pinned to the list's bottom with the task bar's "+" sitting on top of it.
+  const place = isMobile
+    ? { position: 'fixed', left: 12, right: 12, bottom: 'calc(64px + env(safe-area-inset-bottom) + 18px)', zIndex: 2500, padding: '8px 10px' }
+    : { position: 'absolute', left: '50%', bottom: 22, transform: 'translateX(-50%)', zIndex: 30, padding: '10px 14px', maxWidth: 'min(96vw, 1180px)' };
   return (
-    /* One row on desktop: the controls grew when Assign/Move To became
-       searchable pickers and the bar wrapped Delete onto a second line,
-       which reads as two bars. It scrolls sideways rather than wrapping if
-       it ever does run out of room, and still wraps on mobile where a
-       single row genuinely cannot fit. */
-    <div className="nx-scroll" style={{ position: 'absolute', left: '50%', bottom: 22, transform: 'translateX(-50%)', background: NX.primary, color: '#fff', borderRadius: 12, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8, boxShadow: '0 10px 30px rgba(0,0,0,0.28)', zIndex: 30, flexWrap: isMobile ? 'wrap' : 'nowrap', overflowX: isMobile ? 'visible' : 'auto', maxWidth: 'min(96vw, 1180px)' }}>
+    /* One row: the controls grew when Assign/Move To became searchable
+       pickers and the bar wrapped Delete onto a second line, which reads as
+       two bars. It scrolls sideways rather than wrapping when it runs out
+       of room. */
+    <div className="nx-scroll" style={{ ...place, background: NX.primary, color: '#fff', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 8, boxShadow: '0 10px 30px rgba(0,0,0,0.28)', flexWrap: 'nowrap', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
       <span style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0 }}>{selected.size} selected</span>
       <select onChange={(e) => { if (e.target.value) { bulkUpdate([...selected], { status: e.target.value }); clearSel(); } }} defaultValue="" style={selStyle}>
         <option value="" disabled>Status…</option>
@@ -74,26 +78,30 @@ export default function BulkActionBar({ selected, clearSel, store, people, locke
           reading when the selection holds tasks with different people on
           them. Adding somebody alongside is a per-task action, done in the
           drawer. */}
-      <SearchSelect placeholder="Assign…" searchPlaceholder="Search people…"
-        buttonStyle={{ ...selStyle, minWidth: 132 }} emptyText="No people in the directory."
-        options={[{ id: '-', label: 'Unassigned' },
-                  ...people.map((p) => ({ id: p.email, label: p.name, keywords: p.email }))]}
-        onPick={(id) => { bulkUpdate([...selected], { assigneeIds: id === '-' ? [] : [id] }); clearSel(); }} />
+      <span style={keep}>
+        <SearchSelect placeholder="Assign…" searchPlaceholder="Search people…"
+          buttonStyle={{ ...selStyle, minWidth: 132 }} emptyText="No people in the directory."
+          options={[{ id: '-', label: 'Unassigned' },
+                    ...people.map((p) => ({ id: p.email, label: p.name, keywords: p.email }))]}
+          onPick={(id) => { bulkUpdate([...selected], { assigneeIds: id === '-' ? [] : [id] }); clearSel(); }} />
+      </span>
       {/* Move to another project. The server drops the old project's
           section and team on the way (see bulk_update) - both are
           project-scoped, so carrying them over would file the task under a
           group the destination does not have. Archived projects are left
           out: moving work INTO one is nobody's intent. */}
-      <SearchSelect placeholder="Move To…" searchPlaceholder="Search projects…"
-        buttonStyle={{ ...selStyle, minWidth: 140 }} menuMinWidth={300}
-        emptyText="No other projects to move into."
-        options={[{ id: '-', label: 'No project' },
-                  ...(store.projects || []).filter((p) => !p.archived && p.id !== lockedProjectId)
-                    .slice().sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'en', { sensitivity: 'base' }))
-                    .map((p) => ({ id: p.id, label: p.name }))]}
-        onPick={(id) => { bulkUpdate([...selected], { projectId: id === '-' ? '' : id }); clearSel(); }} />
+      <span style={keep}>
+        <SearchSelect placeholder="Move To…" searchPlaceholder="Search projects…"
+          buttonStyle={{ ...selStyle, minWidth: 140 }} menuMinWidth={300}
+          emptyText="No other projects to move into."
+          options={[{ id: '-', label: 'No project' },
+                    ...(store.projects || []).filter((p) => !p.archived && p.id !== lockedProjectId)
+                      .slice().sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'en', { sensitivity: 'base' }))
+                      .map((p) => ({ id: p.id, label: p.name }))]}
+          onPick={(id) => { bulkUpdate([...selected], { projectId: id === '-' ? '' : id }); clearSel(); }} />
+      </span>
       {fields.length > 0 && (
-        <span ref={fieldRef} style={{ display: 'inline-flex', flexShrink: 0 }}>
+        <span ref={fieldRef} style={keep}>
           <SearchSelect placeholder="Set Field…" searchPlaceholder="Search fields…"
             buttonStyle={{ ...selStyle, minWidth: 124 }} emptyText="No fields to set."
             options={fields.map((f) => ({ id: f.id, label: f.name }))}
@@ -120,10 +128,12 @@ export default function BulkActionBar({ selected, clearSel, store, people, locke
       {/* Custom grouping's sections (Oct 13 2026): file the selection under
           one at once - "these are the annual ones". */}
       {sections?.sections?.length > 0 && (
-        <SearchSelect placeholder="Move to Section…" searchPlaceholder="Search sections…"
-          buttonStyle={{ ...selStyle, minWidth: 150 }} emptyText="No sections yet."
-          options={[{ id: '-', label: 'No Section' }, ...sections.sections.map((x) => ({ id: x.id, label: x.name }))]}
-          onPick={(id) => { sections.move([...selected], id).catch((e) => alert(e?.message || 'Could not move the tasks.')); clearSel(); }} />
+        <span style={keep}>
+          <SearchSelect placeholder="Move to Section…" searchPlaceholder="Search sections…"
+            buttonStyle={{ ...selStyle, minWidth: 150 }} emptyText="No sections yet."
+            options={[{ id: '-', label: 'No Section' }, ...sections.sections.map((x) => ({ id: x.id, label: x.name }))]}
+            onPick={(id) => { sections.move([...selected], id).catch((e) => alert(e?.message || 'Could not move the tasks.')); clearSel(); }} />
+        </span>
       )}
       <button onClick={duplicate} title="Duplicate the selected tasks" style={{ ...btn('ghost'), color: '#fff', flexShrink: 0 }}><Copy size={14} />Duplicate</button>
       <button onClick={() => { if (confirm(`Delete ${selected.size} task(s)?`)) { [...selected].forEach(deleteTask); clearSel(); } }} style={{ ...btn('ghost'), color: '#fff', flexShrink: 0 }}><Trash2 size={15} />Delete</button>

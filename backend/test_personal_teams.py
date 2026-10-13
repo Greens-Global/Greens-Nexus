@@ -69,8 +69,11 @@ class PersonalTeamTests(unittest.TestCase):
         self.db.commit()
         # A RESTRICTED project: an org-visible one is visible to everybody
         # anyway, which would hide whether the team granted anything.
+        # MAKER owns it - a personal team may only carry projects its
+        # creator owns, so this is the ordinary case.
         self.proj = models.TaskProject(id=gen_id(), name="Roof replacement",
                                        access_level="restricted", member_emails=[],
+                                       owner_email=MAKER["email"],
                                        created_at=now_iso(), modified_at=now_iso())
         self.db.add(self.proj)
         self.db.commit()
@@ -252,9 +255,61 @@ class PersonalTeamTests(unittest.TestCase):
         self.assertEqual(self._team(t["id"]).project_ids, [self.proj.id])
 
     def test_a_creator_cannot_add_a_project_they_do_not_own(self):
+        theirs = self._own_project(OUTSIDER)
         t = self._make(projects=[])
-        self._forbidden(t["id"], TeamBody(project_ids=[self.proj.id]), MAKER)
-        self.assertEqual(self._roster(), set())
+        self._forbidden(t["id"], TeamBody(project_ids=[theirs.id]), MAKER)
+        self.db.refresh(theirs)
+        self.assertEqual(theirs.member_emails, [])
+
+    # -- the create path must hold the same line (Sep 30 review, item 1) -----
+    def test_a_team_cannot_be_created_on_a_project_you_do_not_own(self):
+        # The whole exploit in one call: name a restricted project you are not
+        # on, list yourself, and read it.
+        theirs = self._own_project(OUTSIDER)
+        for body in (dict(projects=[theirs.id]), dict(projects=[self.proj.id, theirs.id])):
+            with self.assertRaises(HTTPException) as e:
+                self._make(members=[MAKER["email"]], **body)
+            self.assertEqual(e.exception.status_code, 403)
+        self.db.refresh(theirs)
+        self.assertEqual(theirs.member_emails, [])
+        self.assertNotIn(theirs.id, visible_project_ids(self.db, MAKER))
+        self.assertEqual(self.db.query(models.TaskTeam).count(), 0)   # nothing half-made
+
+    def test_the_legacy_single_project_field_is_checked_too(self):
+        theirs = self._own_project(OUTSIDER)
+        with self.assertRaises(HTTPException) as e:
+            create_team(TeamBody(name="Sneak", project_id=theirs.id, member_emails=[MAKER["email"]]),
+                        user=MAKER, db=self.db)
+        self.assertEqual(e.exception.status_code, 403)
+
+    def test_a_team_naming_a_project_that_does_not_exist_is_refused(self):
+        with self.assertRaises(HTTPException) as e:
+            self._make(projects=["no-such-project"])
+        self.assertEqual(e.exception.status_code, 404)
+
+    def test_a_manager_can_create_a_team_on_any_project(self):
+        theirs = self._own_project(OUTSIDER)
+        t = self._make(user=BOSS, personal=False, projects=[theirs.id])
+        self.assertEqual(t["projectIds"], [theirs.id])
+
+    # -- who may delete a team ----------------------------------------------
+    def test_somebody_elses_team_cannot_be_deleted(self):
+        mine, shared = self._make(), self._approved()
+        for tid in (mine["id"], shared["id"]):
+            with self.assertRaises(HTTPException) as e:
+                delete_team(tid, user=OUTSIDER, db=self.db)
+            self.assertEqual(e.exception.status_code, 403)
+            self.assertIsNotNone(self._team(tid))
+        self.assertEqual(self._roster(), {MAKER["email"], MATE["email"]})   # grants untouched
+
+    def test_a_creator_cannot_delete_their_team_once_it_is_approved(self):
+        t = self._make()
+        decide_team_approval(t["id"], TeamApprovalBody(decision="approved"), user=BOSS, db=self.db)
+        with self.assertRaises(HTTPException) as e:
+            delete_team(t["id"], user=MAKER, db=self.db)
+        self.assertEqual(e.exception.status_code, 403)
+        delete_team(t["id"], user=BOSS, db=self.db)
+        self.assertIsNone(self._team(t["id"]))
 
     def test_a_manager_can_edit_any_team(self):
         t = self._make()

@@ -75,7 +75,7 @@ export default function LeadCard({ lead, onClick }) {
         background: C.white,
         padding: 10,
         boxShadow: SHADOW_SM,
-        transition: 'all .15s',
+        transition: 'opacity .15s',
         cursor: 'grab',
         opacity: dragging ? 0.4 : 1,
       }}

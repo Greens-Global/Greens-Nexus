@@ -113,6 +113,29 @@ class ScheduleTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {"NEXUS_CHANGELOG_POLL_MINUTES": "5"}):
             self.assertAlmostEqual(changelog_auto._interval_hours(), 5 / 60)
 
+    def test_a_due_time_left_by_the_old_24_hour_schedule_runs_now(self):
+        # Oct 13 2026: after the deploy that moved to a 15-minute poll, the
+        # saved next_run_at was still ~24h out, so nothing merged that day
+        # reached What's New until the next morning.
+        self._stub()
+        db = database.SessionLocal()
+        try:
+            changelog_auto._write_state(db, {"next_run_at": (datetime.now(timezone.utc) + timedelta(hours=20)).isoformat()})
+        finally:
+            db.close()
+        changelog_auto._sweep()
+        self.assertEqual(len(self.calls), 1)
+
+    def test_a_retry_backoff_is_still_honored(self):
+        self._stub()
+        db = database.SessionLocal()
+        try:
+            changelog_auto._write_state(db, {"next_run_at": (datetime.now(timezone.utc) + timedelta(minutes=50)).isoformat()})
+        finally:
+            db.close()
+        self.assertIsNone(changelog_auto._sweep())
+        self.assertEqual(len(self.calls), 0)
+
     def test_restart_inside_the_interval_does_not_regenerate(self):
         self._stub()
         changelog_auto._sweep()

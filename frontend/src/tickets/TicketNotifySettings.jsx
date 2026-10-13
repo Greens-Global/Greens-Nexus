@@ -8,6 +8,7 @@ import { useRole } from '../contexts/RoleContext';
 import { NX, FONT, btn, input as inputStyle, card } from '../tasks/theme';
 import { SkeletonBlocks, LoadingState } from '../components/AsyncState';
 import { TicketSelect } from './TicketAtoms';
+import SavedCheck from '../components/SavedCheck';
 
 const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
 const field = { marginBottom: 14 };
@@ -150,7 +151,7 @@ export default function TicketNotifySettings() {
             <button style={{ ...btn('primary'), opacity: saving ? 0.6 : 1 }} onClick={save} disabled={saving}>
               <Save size={14} /> {saving ? 'Saving…' : 'Save Settings'}
             </button>
-            {saved && <span style={{ fontSize: 12.5, color: NX.green, fontWeight: 600 }}>Saved</span>}
+            <SavedCheck show={saved} />
           </div>
         </>
       ) : (

@@ -28,6 +28,7 @@ from datetime import datetime, timezone, timedelta
 
 import hr_reminder_config
 from database import SessionLocal
+from notify_company import notification_company
 from models import (
     NexusEmployee,
     NexusNotification,
@@ -110,6 +111,7 @@ def _notify(
             action=json.dumps(action) if action else "",
             actioned=False,
             read_by="",
+            company=notification_company(db, recipient),
             created_at=_now_iso(),
             priority=1 if priority else 0,
         )

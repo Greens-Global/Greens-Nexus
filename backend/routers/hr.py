@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 from database import get_db
+from notify_company import notification_company
 from auth import require_module_grant, hr_scope, is_team_scope, get_current_user, hr_team_limited
 from routers.stepup import require_stepup
 from currency import is_currency
@@ -174,9 +175,14 @@ def _require_unrestricted(user: dict, db: Session) -> None:
 
 
 def _next_code(db: Session) -> str:
-    """GG-001, GG-002, … - next number after the highest existing code."""
+    """GG-001, GG-002, … - next number after the highest existing code.
+
+    Removed people count too (include_deleted): the soft-delete hook in
+    database.py hides them, but they can be restored, and a restored person
+    must not come back holding a code that was handed to somebody else."""
     best = 0
-    for (code,) in db.query(NexusEmployee.employee_code).all():
+    for (code,) in (db.query(NexusEmployee.employee_code)
+                    .execution_options(include_deleted=True).all()):
         m = re.fullmatch(r"GG-(\d+)", code or "")
         if m:
             best = max(best, int(m.group(1)))
@@ -539,6 +545,7 @@ def _hr_notify(db: Session, recipient: str, title: str, body: str, ref_id: str =
         id=str(uuid.uuid4()), type="custom_alert", recipient=recipient.strip().lower(),
         title=title, body=body, ref_id=ref_id, item_name="", requested_by=requested_by,
         action=json.dumps(action) if action else "", actioned=False, read_by="",
+        company=notification_company(db, recipient),
         created_at=datetime.now(timezone.utc).isoformat(), priority=1 if priority else 0,
     ))
 
@@ -919,12 +926,13 @@ _RESUME_TYPES = (".pdf", ".doc", ".docx")
 
 
 @router.post("/candidates/{cid}/resume")
-async def upload_resume(cid: str, file: UploadFile = File(...),
-                        user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+def upload_resume(cid: str, file: UploadFile = File(...),
+                  user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     """Resume - private hr-docs bucket, path on the record. Same storage
     helpers as Nexus Sign, so it also works on a local backend without
     Supabase (files under Generated File/). The upload is a blocking HTTP
-    call, so it runs in a thread - never on the event loop (CLAUDE.md)."""
+    call and so are the queries around it, so this is a plain `def`: FastAPI
+    runs it in its threadpool - never on the event loop (CLAUDE.md)."""
     from routers import esign as _es
     row = db.query(HrCandidate).filter(HrCandidate.id == cid).first()
     if not row:
@@ -933,15 +941,15 @@ async def upload_resume(cid: str, file: UploadFile = File(...),
     name = file.filename or "resume.pdf"
     if not name.lower().endswith(_RESUME_TYPES):
         raise HTTPException(400, "Resumes can be PDF or Word files.")
-    data = await file.read()
+    data = file.file.read()
     if not data:
         raise HTTPException(400, "That file is empty.")
     if len(data) > _MAX_DOC_BYTES:
         raise HTTPException(400, "File too large (max 15 MB)")
     safe = re.sub(r"[^a-zA-Z0-9._-]", "_", name)
     path = f"candidates/{cid}/{uuid.uuid4()}-{safe}"
-    up = await asyncio.to_thread(_es._storage_put, _DOC_BUCKET, path, data,
-                                 file.content_type or "application/octet-stream")
+    up = _es._storage_put(_DOC_BUCKET, path, data,
+                          file.content_type or "application/octet-stream")
     if not up.is_success:
         raise HTTPException(502, f"Storage upload failed: {up.text[:200]}")
     row.resume_url = path
@@ -1102,7 +1110,7 @@ def decide_leave(lid: str, body: LeaveDecision, user: dict = Depends(require_hr_
             body=f"Your {row.leave_type} leave ({row.start_date}, {row.days} day{'s' if row.days != 1 else ''}) was {row.status}."
                  + (f"\n\nNote: {row.decision_note}" if row.decision_note else ""),
             ref_id=row.id, item_name="", requested_by=user["email"],
-            action="", actioned=False, read_by="", created_at=now,
+            action="", actioned=False, read_by="", company=emp.company or "", created_at=now,
         ))
     db.commit()
     return _ser_leave(row)
@@ -1158,16 +1166,20 @@ def list_documents(eid: str, user: dict = Depends(require_hr_read), db: Session 
 
 
 @router.post("/employees/{eid}/documents")
-async def upload_document(eid: str, file: UploadFile = File(...), kind: str = Form("other"),
-                           expires_on: str = Form(""),
-                           user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+def upload_document(eid: str, file: UploadFile = File(...), kind: str = Form("other"),
+                    expires_on: str = Form(""),
+                    user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    # Plain `def` on purpose (as are the other uploads in this file): the
+    # storage POST and the queries are blocking, and FastAPI runs a `def`
+    # endpoint in its threadpool. As `async def` they froze the whole worker
+    # for the length of the upload (CLAUDE.md, the Aug 2 freeze class).
     emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
     if not emp:
         raise HTTPException(404, "Employee not found")
     _assert_scope(emp, hr_scope(user, db))
     if kind not in _DOC_KINDS:
         raise HTTPException(400, f"kind must be one of {_DOC_KINDS}")
-    data = await file.read()
+    data = file.file.read()
     if len(data) > _MAX_DOC_BYTES:
         raise HTTPException(400, "File too large (max 15 MB)")
     safe_name = re.sub(r"[^a-zA-Z0-9._-]", "_", file.filename or "document")
@@ -1245,15 +1257,15 @@ def list_paystubs(eid: str, user: dict = Depends(require_comp_read_or_manager),
 
 
 @router.post("/employees/{eid}/paystubs")
-async def upload_paystub(eid: str, file: UploadFile = File(...), period: str = Form(""),
-                         user: dict = Depends(require_hr_comp_write), db: Session = Depends(get_db)):
+def upload_paystub(eid: str, file: UploadFile = File(...), period: str = Form(""),
+                   user: dict = Depends(require_hr_comp_write), db: Session = Depends(get_db)):
     """One paystub PDF per pay period; `period` becomes the display name
     (e.g. "Jun 16 – Jun 30, 2026")."""
     emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
     if not emp:
         raise HTTPException(404, "Employee not found")
     _assert_scope(emp, hr_scope(user, db))
-    data = await file.read()
+    data = file.file.read()
     if len(data) > _MAX_DOC_BYTES:
         raise HTTPException(400, "File too large (max 15 MB)")
     safe_name = re.sub(r"[^a-zA-Z0-9._-]", "_", file.filename or "paystub.pdf")
@@ -1377,6 +1389,7 @@ def resolve_self_request(rid: str, body: ResolveRequestIn,
         title="HR resolved your request",
         body=(r.response or "Your request to HR has been handled.")[:300],
         ref_id=r.id, action="", actioned=False, read_by="",
+        company=notification_company(db, r.employee_email),
         created_at=datetime.now(timezone.utc).isoformat()))
     db.commit()
     return {"ok": True}
@@ -1782,8 +1795,8 @@ _MAX_AVATAR_BYTES = 5 * 1024 * 1024
 
 
 @router.post("/employees/{eid}/photo")
-async def upload_photo(eid: str, file: UploadFile = File(...),
-                       user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+def upload_photo(eid: str, file: UploadFile = File(...),
+                 user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
     if not emp:
         raise HTTPException(404, "Employee not found")
@@ -1791,7 +1804,7 @@ async def upload_photo(eid: str, file: UploadFile = File(...),
     ext = _IMAGE_TYPES.get(file.content_type or "")
     if not ext:
         raise HTTPException(400, "Photo must be JPEG, PNG, WebP or GIF")
-    data = await file.read()
+    data = file.file.read()
     if len(data) > _MAX_AVATAR_BYTES:
         raise HTTPException(400, "Photo must be under 5 MB")
     path = f"{eid}/{uuid.uuid4()}.{ext}"
@@ -2491,11 +2504,95 @@ def update_entity(entity_id: str, body: EntityUpdate, user: dict = Depends(requi
     return _serialize_entity(row)
 
 
+def _count_phrase(n: int, one: str, many: str, binned: int = 0, binned_word: str = "") -> str:
+    text = f"{n} {one if n == 1 else many}"
+    return f"{text} ({binned} {binned_word})" if binned else text
+
+
+def _join_phrases(parts: list) -> str:
+    return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]
+
+
+def _entity_references(db: Session, entity_id: str) -> list:
+    """What still points at a company, as phrases for the 409 ("12 employees").
+
+    Nothing here has a foreign key, so a deleted company leaves every one of
+    these holding an id that resolves to nothing - and the company walls
+    (auth.company_scope) then show those people and records to nobody.
+
+    Removed people, trashed tasks and deleted tickets are counted as well
+    (include_deleted): each can be restored, and would come back pointing at a
+    company that is gone. The message calls them out because the person
+    deleting the company cannot see them in the normal lists."""
+    from models import (Document, ExternalLink, HrChecklist, HrLifeEvent, HrSignRequest,
+                        HrSignTemplate, Item, NexusAccessScope, NexusGroup, Requisition, Task,
+                        TaskTicket)
+
+    def _n(model, column):
+        return db.query(model).filter(column == entity_id).count()
+
+    def _soft(model, column):
+        q = db.query(model).execution_options(include_deleted=True).filter(column == entity_id)
+        return q.count(), q.filter(model.deleted_at != "", model.deleted_at.isnot(None)).count()
+
+    # A link lists the companies it is shown to and [] means every company, so
+    # dropping the id from a one-company link would show it to everyone.
+    links = sum(1 for (ids,) in db.query(ExternalLink.companies).all()
+                if isinstance(ids, list) and entity_id in ids)
+    # 'entity' scope rows are what confine a person to this company. They block
+    # instead of going with it: a person left with no scope rows reads as
+    # unrestricted (auth.hr_scope).
+    scopes = (db.query(NexusAccessScope)
+              .filter(NexusAccessScope.scope_type == "entity",
+                      NexusAccessScope.scope_id == entity_id).count())
+    parts = []
+    for (count, binned), one, many, binned_word in (
+        (_soft(NexusEmployee, NexusEmployee.company), "employee", "employees", "removed, still restorable"),
+        ((_n(HrCandidate, HrCandidate.company), 0), "candidate", "candidates", ""),
+        ((_n(HrDepartment, HrDepartment.company_id), 0), "department", "departments", ""),
+        ((_n(NexusGroup, NexusGroup.company_id), 0), "role or group", "roles or groups", ""),
+        ((scopes, 0), "access scope", "access scopes", ""),
+        ((_n(Item, Item.company_id), 0), "inventory item", "inventory items", ""),
+        (_soft(Task, Task.company_id), "task", "tasks", "in the trash"),
+        (_soft(TaskTicket, TaskTicket.company_id), "ticket", "tickets", "deleted, still restorable"),
+        ((_n(Requisition, Requisition.company_id), 0), "requisition", "requisitions", ""),
+        ((_n(Document, Document.entity_id), 0), "document", "documents", ""),
+        ((_n(HrSignTemplate, HrSignTemplate.entity_id), 0), "signing template", "signing templates", ""),
+        ((_n(HrSignRequest, HrSignRequest.entity_id), 0), "signing envelope", "signing envelopes", ""),
+        ((_n(HrLifeEvent, HrLifeEvent.entity_id), 0), "HR life event", "HR life events", ""),
+        ((_n(HrChecklist, HrChecklist.company), 0), "checklist", "checklists", ""),
+        ((links, 0), "app link", "app links", ""),
+    ):
+        if count:
+            parts.append(_count_phrase(count, one, many, binned, binned_word))
+    return parts
+
+
 @router.delete("/entities/{entity_id}")
 def delete_entity(entity_id: str, user: dict = Depends(require_hr_delete), db: Session = Depends(get_db)):
+    """Deletes a company that nothing points at any more - 409 otherwise.
+
+    What is purely the company's own setup goes with it in the same
+    transaction: its work-site picks (the sites stay in the library), its
+    holiday calendar, its monitoring policy, its packet settings and checklist
+    templates, and the ticket-desk settings of its departments."""
     _require_unrestricted(user, db)
     row = db.query(HrEntity).filter(HrEntity.id == entity_id).first()
     if row:
+        refs = _entity_references(db, entity_id)
+        if refs:
+            raise HTTPException(409, f"This company still has {_join_phrases(refs)}. Move or remove them first.")
+        from models import HrChecklistTemplate, HrPacketSetting, MonitoringPolicy, TicketDepartment
+        for model, column in ((HrCompanyWorkSite, HrCompanyWorkSite.company_id),
+                              (HrCompanyHoliday, HrCompanyHoliday.company_id),
+                              (MonitoringPolicy, MonitoringPolicy.company_id),
+                              (HrPacketSetting, HrPacketSetting.entity_id),
+                              (HrChecklistTemplate, HrChecklistTemplate.entity_id),
+                              (TicketDepartment, TicketDepartment.company_id)):
+            db.query(model).filter(column == entity_id).delete(synchronize_session=False)
+        # The legacy one-company pointer on a library site (see HrWorkSite).
+        db.query(HrWorkSite).filter(HrWorkSite.company == entity_id).update(
+            {HrWorkSite.company: ""}, synchronize_session=False)
         db.delete(row); db.commit()
     return {"ok": True}
 
@@ -2512,13 +2609,21 @@ async def upload_entity_logo(entity_id: str, file: UploadFile = File(...),
     is real CPU work (a worst-case noisy clip took 45s in testing), so it
     runs in a thread with a hard timeout rather than blocking this async
     endpoint - see main.py's reminders_loop for the same to_thread pattern
-    and why it matters (Aug 2 instance-wide freeze incident)."""
-    row = db.query(HrEntity).filter(HrEntity.id == entity_id).first()
-    if not row:
-        raise HTTPException(404, "Entity not found")
-    scope = hr_scope(user, db)
-    if scope is not None and entity_id not in scope:
-        raise HTTPException(404, "Entity not found")
+    and why it matters (Aug 2 instance-wide freeze incident).
+
+    The endpoint stays `async` for that timeout, so the queries and the
+    storage POST go to threads as well. The request's session is only ever
+    used by one of those calls at a time, never by the loop alongside."""
+    def _find():
+        row = db.query(HrEntity).filter(HrEntity.id == entity_id).first()
+        if not row:
+            raise HTTPException(404, "Entity not found")
+        scope = hr_scope(user, db)
+        if scope is not None and entity_id not in scope:
+            raise HTTPException(404, "Entity not found")
+        return row
+
+    row = await asyncio.to_thread(_find)
 
     content_type = file.content_type or ""
     # Browsers send video/quicktime for .mov; some send video/mp4 for both
@@ -2548,19 +2653,22 @@ async def upload_entity_logo(entity_id: str, file: UploadFile = File(...),
         if len(data) > _MAX_AVATAR_BYTES:
             raise HTTPException(400, "Logo must be under 5 MB")
 
-    path = f"entities/{entity_id}/{uuid.uuid4()}.{ext}"
-    resp = httpx.post(
-        f"{_SUPABASE_URL}/storage/v1/object/{_AVATAR_BUCKET}/{path}",
-        headers={**_storage_headers(), "Content-Type": content_type,
-                 "cache-control": "max-age=31536000"},
-        content=data, timeout=60,
-    )
-    if not resp.is_success:
-        raise HTTPException(502, f"Storage upload failed: {resp.text[:200]}")
-    row.logo_url = f"{_SUPABASE_URL}/storage/v1/object/public/{_AVATAR_BUCKET}/{path}"
-    row.updated_at = datetime.now(timezone.utc).isoformat()
-    db.commit(); db.refresh(row)
-    return _serialize_entity(row)
+    def _store():
+        path = f"entities/{entity_id}/{uuid.uuid4()}.{ext}"
+        resp = httpx.post(
+            f"{_SUPABASE_URL}/storage/v1/object/{_AVATAR_BUCKET}/{path}",
+            headers={**_storage_headers(), "Content-Type": content_type,
+                     "cache-control": "max-age=31536000"},
+            content=data, timeout=60,
+        )
+        if not resp.is_success:
+            raise HTTPException(502, f"Storage upload failed: {resp.text[:200]}")
+        row.logo_url = f"{_SUPABASE_URL}/storage/v1/object/public/{_AVATAR_BUCKET}/{path}"
+        row.updated_at = datetime.now(timezone.utc).isoformat()
+        db.commit(); db.refresh(row)
+        return _serialize_entity(row)
+
+    return await asyncio.to_thread(_store)
 
 
 @router.get("/entities/{entity_id}/signature-templates")
@@ -2691,8 +2799,8 @@ def preview_sender_override(body: SenderOverridePreviewIn,
 
 
 @router.post("/signature-sender-overrides/logo")
-async def upload_sender_override_logo(file: UploadFile = File(...),
-                                      user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+def upload_sender_override_logo(file: UploadFile = File(...),
+                                user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     """Upload-and-return-a-URL only (Sep 22, Pranshu: "should be same as we
     upload in for normal employee") - an override isn't its own DB row (it
     lives inside the global signature-sender-overrides setting, only written
@@ -2702,7 +2810,7 @@ async def upload_sender_override_logo(file: UploadFile = File(...),
     ext = _IMAGE_TYPES.get(file.content_type or "")
     if not ext:
         raise HTTPException(400, "Logo must be JPEG, PNG, WebP, or GIF")
-    data = await file.read()
+    data = file.file.read()
     if len(data) > _MAX_AVATAR_BYTES:
         raise HTTPException(400, "Logo must be under 5 MB")
     path = f"signature-sender-overrides/{uuid.uuid4()}.{ext}"
@@ -3265,10 +3373,26 @@ def work_site_fence_check(lat: float, lng: float, radius_m: int = 150, site_id: 
 
 @router.delete("/work-sites/{site_id}")
 def delete_work_site(site_id: str, user: dict = Depends(require_hr_delete), db: Session = Depends(get_db)):
-    """Removes the site from the library and from every company using it."""
+    """Removes the site from the library and from every company using it -
+    409 while a person is assigned to it.
+
+    Removed people count (include_deleted): restoring one would bring back an
+    assignment to a site that is gone. Punches and location pings that name
+    the site are history - they neither block nor get deleted."""
     row = db.query(HrWorkSite).filter(HrWorkSite.id == site_id).first()
     if row:
         _assert_site_editable(db, site_id, hr_scope(user, db))
+        # work_site_ids is a JSON list in a text column: narrow in SQL, then
+        # read the list itself so an id inside a longer one cannot match.
+        assigned = [e for e in (db.query(NexusEmployee).execution_options(include_deleted=True)
+                                .filter(or_(NexusEmployee.work_site_id == site_id,
+                                            NexusEmployee.work_site_ids.contains(site_id))).all())
+                    if site_id == (e.work_site_id or "").strip() or site_id in allowed_site_ids(e)]
+        if assigned:
+            binned = sum(1 for e in assigned if e.deleted_at)
+            who = _count_phrase(len(assigned), "employee", "employees", binned, "removed, still restorable")
+            raise HTTPException(409, f"This work site is still assigned to {who}. "
+                                     "Assign them to another site first.")
         db.query(HrCompanyWorkSite).filter(HrCompanyWorkSite.site_id == site_id).delete(synchronize_session=False)
         db.delete(row); db.commit()
     return {"ok": True}

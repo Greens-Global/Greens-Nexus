@@ -8,6 +8,7 @@ from pydantic import BaseModel
 import models
 from database import get_db
 from auth import get_current_user, require_manager, require_administrator, require_level
+from notify_company import notification_company
 
 router = APIRouter(tags=["Requisitions & Hardware Assets"], dependencies=[Depends(get_current_user)])
 
@@ -206,6 +207,7 @@ def create_requisition(
              + (f" Submitted by {submitter_name}." if on_behalf else "")
              + (f' Reason: "{reason_snip}"' if reason_snip else ""),
         ref_id=server_id, item_name=data.item, requested_by=data.employee_name,
+        actor=payload["employee_email"] or submitter_email,
     )
     # On-behalf: tell the beneficiary a request was raised for them
     if on_behalf:
@@ -215,6 +217,7 @@ def create_requisition(
             title=f"Purchase request raised for you: {data.item}",
             body=f"{submitter_name} submitted a purchase request for {data.quantity}× {data.item} on your behalf. It is pending manager approval.",
             ref_id=server_id, item_name=data.item, requested_by=data.employee_name,
+            actor=payload["employee_email"] or submitter_email,
         )
 
     db.commit()
@@ -223,7 +226,10 @@ def create_requisition(
 
 
 def _req_notify(db: Session, *, type: str, recipient: str, title: str, body: str,
-                ref_id: str = "", item_name: str = "", requested_by: str = "") -> None:
+                ref_id: str = "", item_name: str = "", requested_by: str = "",
+                actor: str = "") -> None:
+    # `actor` = the email the request is about (requested_by is a display name):
+    # its company is stamped so a broadcast (blank approver) obeys the company wall.
     from datetime import timezone as _tz
     import uuid as _uuid
     db.add(models.NexusNotification(
@@ -232,6 +238,7 @@ def _req_notify(db: Session, *, type: str, recipient: str, title: str, body: str
         title=title, body=body,
         ref_id=ref_id, item_name=item_name, requested_by=requested_by,
         action="", actioned=False, read_by="",
+        company=notification_company(db, actor, recipient),
         created_at=datetime.now(_tz.utc).isoformat(),
     ))
 
@@ -441,6 +448,10 @@ def confirm_return(req_id: str, body: RequisitionConfirmReturn, user: dict = Dep
     req = db.query(models.Requisition).filter(models.Requisition.id == req_id).first()
     if not req:
         raise HTTPException(404, "Requisition not found")
+    # Evidence must come from our own storage (imported here: items.py is heavy
+    # and nothing else in this router needs it).
+    from routers.items import _validate_photo_url
+    _validate_photo_url(body.return_photo_url, "return_photo_url")
     _check_transition(req, "returned")
     if req.asset_id:
         asset = db.query(models.HardwareAsset).filter(models.HardwareAsset.id == req.asset_id).first()

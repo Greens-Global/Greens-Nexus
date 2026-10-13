@@ -269,11 +269,18 @@ async def report_locations(scope: dict = Depends(entity_scope)):
 
 
 @router.get("/reports/dimensions")
-async def report_dimensions(kind: str = Query(...)):
+async def report_dimensions(kind: str = Query(...), scope: dict = Depends(entity_scope)):
     """Values one dimension can be filtered by: vendor, customer, employee,
-    project (Project-Job), item (codes on the ledger, with names) or department."""
+    project (Project-Job), item (codes on the ledger, with names) or department.
+    The ledger kinds are every code on the WHOLE ledger with its line count -
+    the accounting app keeps no entity against them, so there is no part of
+    the list to give a person limited to certain entities: they get 403.
+    Departments are the Intacct department list, not ledger rows, and stay
+    open like the journals and the books."""
     if kind not in ("vendor", "customer", "employee", "project", "item", "department"):
         raise HTTPException(status_code=400, detail="kind must be vendor, customer, employee, project, item or department")
+    if scope["allowed"] is not None and kind != "department":
+        raise HTTPException(status_code=403, detail="Your accounting access is limited to certain entities. This list covers every entity, so it is not available - filter by entity or department.")
     return await _acct_get("/api/internal/reports/dimensions", {"kind": kind})
 
 

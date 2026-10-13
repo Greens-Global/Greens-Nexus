@@ -117,7 +117,9 @@ keep the diff minimal.
   for anonymous ones, tighter on credential-taking routes, plus a per-IP
   ceiling. In-process per worker, so it is a flood backstop. `/health` and
   `/version` are exempt; a new public probe endpoint goes in `EXEMPT_PREFIXES`
-  and a new credential-taking route in `SENSITIVE_PREFIXES`.
+  and a new credential-taking route in `SENSITIVE_PREFIXES` (30/min, always
+  per IP whatever headers it carries) - or in `SHARED_SOURCE_PREFIXES` when
+  its real callers share an address (Outlook's action servers, GitHub).
 
 ## Frontend conventions
 

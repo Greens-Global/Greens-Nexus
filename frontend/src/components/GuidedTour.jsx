@@ -163,7 +163,7 @@ export default function GuidedTour({ steps, onClose }) {
           position: 'fixed', top: rect.top - pad, left: rect.left - pad,
           width: rect.width + pad * 2, height: rect.height + pad * 2,
           borderRadius: 12, boxShadow: '0 0 0 9999px rgba(15,18,25,0.62)',
-          border: '2px solid #fff', pointerEvents: 'none', transition: 'all .25s ease',
+          border: '2px solid #fff', pointerEvents: 'none', transition: 'top .25s ease, left .25s ease, width .25s ease, height .25s ease',
         }} />
       ) : (
         <div style={{ position: 'absolute', inset: 0, background: 'rgba(15,18,25,0.62)' }} />

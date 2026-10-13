@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 import models
 from database import get_db
 from auth import get_current_user, require_level
+from notify_company import notification_company
 
 router = APIRouter(prefix="/knowledge-base", tags=["Knowledge Base"], dependencies=[Depends(get_current_user)])
 
@@ -69,7 +70,7 @@ def _kb_notify(db: Session, *, recipient: str, ntype: str, title: str, body: str
     db.add(models.NexusNotification(
         id=str(uuid.uuid4()), type=ntype, recipient=email, title=title, body=body,
         ref_id=doc.id, item_name=doc.title, requested_by="", action="", actioned=False,
-        read_by="", created_at=_now()))
+        read_by="", company=notification_company(db, email), created_at=_now()))
 
 
 def _dept_prefix(departments: list[str]) -> str:
@@ -2251,6 +2252,8 @@ def submit_quiz(cid: str, payload: QuizSubmitIn, user: dict = Depends(get_curren
             body=f"{who} completed “{c.title}” ({c.course_code or 'course'}) with a score of {score}%.",
             ref_id=c.id, item_name=c.title, requested_by=user["email"], action="",
             actioned=False, read_by="", created_at=_now(),
+            # Company wall: a broadcast is shown to the managers of the completer's company.
+            company=notification_company(db, user["email"]),
         ))
     db.commit()
     return {"score": score, "passed": passed, "pass_pct": pass_pct, "results": detail, "missed": missed,
@@ -2322,7 +2325,7 @@ def _emit_due_reminders(db: Session, email: str, assignments: list) -> None:
         db.add(models.NexusNotification(
             id=str(uuid.uuid4()), type=ntype, recipient=email, title=title, body=body,
             ref_id=a["course_id"], item_name=a["title"], requested_by="", action="",
-            actioned=False, read_by="", created_at=_now()))
+            actioned=False, read_by="", company=notification_company(db, email), created_at=_now()))
     db.commit()
 
 
@@ -2347,7 +2350,8 @@ def assign_course(cid: str, payload: AssignIn, user: dict = Depends(require_leve
         db.add(models.NexusNotification(
             id=str(uuid.uuid4()), type="kb_course_assigned", recipient=email, title="Training assigned",
             body=f"You've been assigned the course “{c.title}”{due}.", ref_id=c.id, item_name=c.title,
-            requested_by=user["email"], action="", actioned=False, read_by="", created_at=_now()))
+            requested_by=user["email"], action="", actioned=False, read_by="",
+            company=notification_company(db, user["email"], email), created_at=_now()))
     db.commit()
     return _assignment_list(c, db)
 

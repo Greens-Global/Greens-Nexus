@@ -55,6 +55,7 @@ import os
 import time
 from html import escape
 
+import secret_box
 from mail_text import rich_to_email_html
 
 # ── Configuration ────────────────────────────────────────────────────────────
@@ -75,9 +76,9 @@ def am_enabled() -> bool:
 
 # Same key the signed reply-to address uses (task_inbound_parse.py), with its
 # own context prefix so a token for one purpose can never be replayed as the
-# other. The DEV fallback protects nothing, which is fine on a laptop.
-_SECRET = (os.getenv("NEXUS_VAULT_KEY", "").strip()
-           or "nexus-task-reply-DEV-ONLY-key-set-NEXUS_VAULT_KEY").encode()
+# other. The DEV fallback protects nothing, which is fine on a laptop - and a
+# laptop is the only place it applies (secret_box.signing_secret).
+_SECRET = secret_box.signing_secret("nexus-task-reply-DEV-ONLY-key-set-NEXUS_VAULT_KEY")
 _CONTEXT = b"task-mail-action:v1:"
 
 TOKEN_TTL_SEC = 30 * 24 * 3600   # a month: long enough for a reminder read late
