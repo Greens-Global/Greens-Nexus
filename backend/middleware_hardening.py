@@ -23,6 +23,7 @@ All state is in-process per gunicorn worker (no Redis in this stack) - an
 attacker rotating across all 8 workers gets 8x the thresholds, which still
 collapses abuse by orders of magnitude. See cache.py for the same tradeoff.
 """
+import asyncio
 import collections
 import hashlib
 import json
@@ -145,9 +146,11 @@ class AuthFailureThrottle(BaseHTTPMiddleware):
                 if tripped:
                     self._blocked[ip] = now + self.BLOCK_SEC
             if tripped:
-                security_log("auth_throttle_tripped",
-                             f"{len(hits)} auth failures in {self.WINDOW_SEC}s - blocked {self.BLOCK_SEC}s",
-                             ip=ip)
+                # security_log writes to the database - off the event loop.
+                await asyncio.to_thread(
+                    security_log, "auth_throttle_tripped",
+                    f"{len(hits)} auth failures in {self.WINDOW_SEC}s - blocked {self.BLOCK_SEC}s",
+                    ip=ip)
         return response
 
 
@@ -234,7 +237,9 @@ class RequestRateLimit(BaseHTTPMiddleware):
                     self._logged.clear()
         if over:
             if log_it:
-                security_log("rate_limited", f"over {limit}/min on {path[:80]} ({'signed-in' if authed else 'anonymous'})", ip=ip)
+                await asyncio.to_thread(
+                    security_log, "rate_limited",
+                    f"over {limit}/min on {path[:80]} ({'signed-in' if authed else 'anonymous'})", ip=ip)
             return Response(content=json.dumps({"detail": "Too many requests - slow down and try again in a moment."}),
                             status_code=429, media_type="application/json",
                             headers={"Retry-After": "10"})

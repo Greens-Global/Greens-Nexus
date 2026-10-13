@@ -918,12 +918,13 @@ _RESUME_TYPES = (".pdf", ".doc", ".docx")
 
 
 @router.post("/candidates/{cid}/resume")
-async def upload_resume(cid: str, file: UploadFile = File(...),
-                        user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+def upload_resume(cid: str, file: UploadFile = File(...),
+                  user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     """Resume - private hr-docs bucket, path on the record. Same storage
     helpers as Nexus Sign, so it also works on a local backend without
     Supabase (files under Generated File/). The upload is a blocking HTTP
-    call, so it runs in a thread - never on the event loop (CLAUDE.md)."""
+    call and so are the queries around it, so this is a plain `def`: FastAPI
+    runs it in its threadpool - never on the event loop (CLAUDE.md)."""
     from routers import esign as _es
     row = db.query(HrCandidate).filter(HrCandidate.id == cid).first()
     if not row:
@@ -932,15 +933,15 @@ async def upload_resume(cid: str, file: UploadFile = File(...),
     name = file.filename or "resume.pdf"
     if not name.lower().endswith(_RESUME_TYPES):
         raise HTTPException(400, "Resumes can be PDF or Word files.")
-    data = await file.read()
+    data = file.file.read()
     if not data:
         raise HTTPException(400, "That file is empty.")
     if len(data) > _MAX_DOC_BYTES:
         raise HTTPException(400, "File too large (max 15 MB)")
     safe = re.sub(r"[^a-zA-Z0-9._-]", "_", name)
     path = f"candidates/{cid}/{uuid.uuid4()}-{safe}"
-    up = await asyncio.to_thread(_es._storage_put, _DOC_BUCKET, path, data,
-                                 file.content_type or "application/octet-stream")
+    up = _es._storage_put(_DOC_BUCKET, path, data,
+                          file.content_type or "application/octet-stream")
     if not up.is_success:
         raise HTTPException(502, f"Storage upload failed: {up.text[:200]}")
     row.resume_url = path
@@ -1157,16 +1158,20 @@ def list_documents(eid: str, user: dict = Depends(require_hr_read), db: Session 
 
 
 @router.post("/employees/{eid}/documents")
-async def upload_document(eid: str, file: UploadFile = File(...), kind: str = Form("other"),
-                           expires_on: str = Form(""),
-                           user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+def upload_document(eid: str, file: UploadFile = File(...), kind: str = Form("other"),
+                    expires_on: str = Form(""),
+                    user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    # Plain `def` on purpose (as are the other uploads in this file): the
+    # storage POST and the queries are blocking, and FastAPI runs a `def`
+    # endpoint in its threadpool. As `async def` they froze the whole worker
+    # for the length of the upload (CLAUDE.md, the Aug 2 freeze class).
     emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
     if not emp:
         raise HTTPException(404, "Employee not found")
     _assert_scope(emp, hr_scope(user, db))
     if kind not in _DOC_KINDS:
         raise HTTPException(400, f"kind must be one of {_DOC_KINDS}")
-    data = await file.read()
+    data = file.file.read()
     if len(data) > _MAX_DOC_BYTES:
         raise HTTPException(400, "File too large (max 15 MB)")
     safe_name = re.sub(r"[^a-zA-Z0-9._-]", "_", file.filename or "document")
@@ -1244,15 +1249,15 @@ def list_paystubs(eid: str, user: dict = Depends(require_comp_read_or_manager),
 
 
 @router.post("/employees/{eid}/paystubs")
-async def upload_paystub(eid: str, file: UploadFile = File(...), period: str = Form(""),
-                         user: dict = Depends(require_hr_comp_write), db: Session = Depends(get_db)):
+def upload_paystub(eid: str, file: UploadFile = File(...), period: str = Form(""),
+                   user: dict = Depends(require_hr_comp_write), db: Session = Depends(get_db)):
     """One paystub PDF per pay period; `period` becomes the display name
     (e.g. "Jun 16 – Jun 30, 2026")."""
     emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
     if not emp:
         raise HTTPException(404, "Employee not found")
     _assert_scope(emp, hr_scope(user, db))
-    data = await file.read()
+    data = file.file.read()
     if len(data) > _MAX_DOC_BYTES:
         raise HTTPException(400, "File too large (max 15 MB)")
     safe_name = re.sub(r"[^a-zA-Z0-9._-]", "_", file.filename or "paystub.pdf")
@@ -1781,8 +1786,8 @@ _MAX_AVATAR_BYTES = 5 * 1024 * 1024
 
 
 @router.post("/employees/{eid}/photo")
-async def upload_photo(eid: str, file: UploadFile = File(...),
-                       user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+def upload_photo(eid: str, file: UploadFile = File(...),
+                 user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     emp = db.query(NexusEmployee).filter(NexusEmployee.id == eid).first()
     if not emp:
         raise HTTPException(404, "Employee not found")
@@ -1790,7 +1795,7 @@ async def upload_photo(eid: str, file: UploadFile = File(...),
     ext = _IMAGE_TYPES.get(file.content_type or "")
     if not ext:
         raise HTTPException(400, "Photo must be JPEG, PNG, WebP or GIF")
-    data = await file.read()
+    data = file.file.read()
     if len(data) > _MAX_AVATAR_BYTES:
         raise HTTPException(400, "Photo must be under 5 MB")
     path = f"{eid}/{uuid.uuid4()}.{ext}"
@@ -2511,13 +2516,21 @@ async def upload_entity_logo(entity_id: str, file: UploadFile = File(...),
     is real CPU work (a worst-case noisy clip took 45s in testing), so it
     runs in a thread with a hard timeout rather than blocking this async
     endpoint - see main.py's reminders_loop for the same to_thread pattern
-    and why it matters (Aug 2 instance-wide freeze incident)."""
-    row = db.query(HrEntity).filter(HrEntity.id == entity_id).first()
-    if not row:
-        raise HTTPException(404, "Entity not found")
-    scope = hr_scope(user, db)
-    if scope is not None and entity_id not in scope:
-        raise HTTPException(404, "Entity not found")
+    and why it matters (Aug 2 instance-wide freeze incident).
+
+    The endpoint stays `async` for that timeout, so the queries and the
+    storage POST go to threads as well. The request's session is only ever
+    used by one of those calls at a time, never by the loop alongside."""
+    def _find():
+        row = db.query(HrEntity).filter(HrEntity.id == entity_id).first()
+        if not row:
+            raise HTTPException(404, "Entity not found")
+        scope = hr_scope(user, db)
+        if scope is not None and entity_id not in scope:
+            raise HTTPException(404, "Entity not found")
+        return row
+
+    row = await asyncio.to_thread(_find)
 
     content_type = file.content_type or ""
     # Browsers send video/quicktime for .mov; some send video/mp4 for both
@@ -2547,19 +2560,22 @@ async def upload_entity_logo(entity_id: str, file: UploadFile = File(...),
         if len(data) > _MAX_AVATAR_BYTES:
             raise HTTPException(400, "Logo must be under 5 MB")
 
-    path = f"entities/{entity_id}/{uuid.uuid4()}.{ext}"
-    resp = httpx.post(
-        f"{_SUPABASE_URL}/storage/v1/object/{_AVATAR_BUCKET}/{path}",
-        headers={**_storage_headers(), "Content-Type": content_type,
-                 "cache-control": "max-age=31536000"},
-        content=data, timeout=60,
-    )
-    if not resp.is_success:
-        raise HTTPException(502, f"Storage upload failed: {resp.text[:200]}")
-    row.logo_url = f"{_SUPABASE_URL}/storage/v1/object/public/{_AVATAR_BUCKET}/{path}"
-    row.updated_at = datetime.now(timezone.utc).isoformat()
-    db.commit(); db.refresh(row)
-    return _serialize_entity(row)
+    def _store():
+        path = f"entities/{entity_id}/{uuid.uuid4()}.{ext}"
+        resp = httpx.post(
+            f"{_SUPABASE_URL}/storage/v1/object/{_AVATAR_BUCKET}/{path}",
+            headers={**_storage_headers(), "Content-Type": content_type,
+                     "cache-control": "max-age=31536000"},
+            content=data, timeout=60,
+        )
+        if not resp.is_success:
+            raise HTTPException(502, f"Storage upload failed: {resp.text[:200]}")
+        row.logo_url = f"{_SUPABASE_URL}/storage/v1/object/public/{_AVATAR_BUCKET}/{path}"
+        row.updated_at = datetime.now(timezone.utc).isoformat()
+        db.commit(); db.refresh(row)
+        return _serialize_entity(row)
+
+    return await asyncio.to_thread(_store)
 
 
 @router.get("/entities/{entity_id}/signature-templates")
@@ -2690,8 +2706,8 @@ def preview_sender_override(body: SenderOverridePreviewIn,
 
 
 @router.post("/signature-sender-overrides/logo")
-async def upload_sender_override_logo(file: UploadFile = File(...),
-                                      user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+def upload_sender_override_logo(file: UploadFile = File(...),
+                                user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     """Upload-and-return-a-URL only (Sep 22, Pranshu: "should be same as we
     upload in for normal employee") - an override isn't its own DB row (it
     lives inside the global signature-sender-overrides setting, only written
@@ -2701,7 +2717,7 @@ async def upload_sender_override_logo(file: UploadFile = File(...),
     ext = _IMAGE_TYPES.get(file.content_type or "")
     if not ext:
         raise HTTPException(400, "Logo must be JPEG, PNG, WebP, or GIF")
-    data = await file.read()
+    data = file.file.read()
     if len(data) > _MAX_AVATAR_BYTES:
         raise HTTPException(400, "Logo must be under 5 MB")
     path = f"signature-sender-overrides/{uuid.uuid4()}.{ext}"

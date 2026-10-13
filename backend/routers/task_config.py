@@ -555,8 +555,10 @@ def task_ai_rephrase(body: RephraseBody):
 
 
 @router.post("/task-ocr")
-async def task_ocr(image: UploadFile = File(...)):
-    raw = await image.read()
+def task_ocr(image: UploadFile = File(...)):
+    # Plain `def` on purpose: Tesseract is seconds of CPU per image, and
+    # FastAPI runs a `def` endpoint in its threadpool, off the event loop.
+    raw = image.file.read()
     if not raw:
         raise HTTPException(400, "Empty image")
     try:
