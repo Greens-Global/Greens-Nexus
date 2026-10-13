@@ -19,7 +19,7 @@ import { SaveTemplateModal, DuplicateProjectModal, todayIso } from './TemplatesV
 const EMPTY_FORM = {
   name: '', description: '', color: NX.blue, ownerId: null,
   portfolioId: '', accessLevel: 'restricted', status: 'not_started',
-  startOn: '', dueOn: '', archived: false, customFieldValues: {},
+  startOn: '', dueOn: '', archived: false, customFieldValues: {}, timeTracking: '',
 };
 
 const VISIBILITY_OPTS = [
@@ -910,6 +910,22 @@ export function ProjectModal({ form, setForm, people, portfolios, onClose, onSav
               })}
             </div>
           )}
+        </div>
+
+        {/* Time / Actual columns, the task's Time Tracking section and the
+            create form's Estimated Time (Oct 13 2026). */}
+        <div>
+          <label style={label}>Time Tracking</label>
+          <select value={form.timeTracking || ''} onChange={(e) => set({ timeTracking: e.target.value })}
+            aria-label="Time Tracking" style={{ ...inputStyle, cursor: 'pointer' }}>
+            <option value="">Automatic - only once a task has time on it</option>
+            <option value="on">On - tasks in this project are time tracked</option>
+            <option value="off">Off - no time tracking in this project</option>
+          </select>
+          <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>
+            Shows the Time and Actual columns, each task's Time Tracking, and Estimated Time when creating a task.
+            Off hides them; time already entered on a task still shows on that task.
+          </div>
         </div>
 
         <div>

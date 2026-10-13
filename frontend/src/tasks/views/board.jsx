@@ -9,7 +9,7 @@ import {
   MoreHorizontal, Gauge, Rows3, ChevronDown,
 } from 'lucide-react';
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META } from '../theme';
-import { cfKey, cfFieldId, taskFieldValue, fieldsForProject, taskAssignees } from '../lib';
+import { cfKey, cfFieldId, taskFieldValue, fieldsForProject, taskAssignees, requiredFieldsFor } from '../lib';
 import { statusesForProject } from '../TasksContext';
 import { Avatar, PriorityChip } from '../components';
 import { fmtDate } from '../lib';
@@ -48,7 +48,7 @@ function MoreCards({ n }) {
   );
 }
 
-export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId, defaultAssigneeId = '' }) {
+export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId, defaultAssigneeId = '', onFullCreate }) {
   const [dragId, setDragId] = useState(null);
   // Which lane the card was picked up FROM. With a task able to sit in
   // several assignee lanes at once, the destination alone no longer says
@@ -205,7 +205,10 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
 
   const addTask = (status, title) => {
     const t = title.trim(); if (!t) return;
-    store.createTask({ title: t, type: 'task', status, priority: 'medium', projectId: lockedProjectId || '', assigneeIds: defaultAssigneeId ? [defaultAssigneeId] : [] }).catch(() => {});
+    const task = { title: t, type: 'task', status, priority: 'medium', projectId: lockedProjectId || '', assigneeIds: defaultAssigneeId ? [defaultAssigneeId] : [] };
+    // Required custom fields: the full Create form instead (see richlist's AddTaskInline).
+    if (onFullCreate && requiredFieldsFor(store.customFields, task.projectId).length) onFullCreate(task);
+    else store.createTask(task).catch((e) => alert(e?.message || 'Could not add the task.'));
     setAddIn(null);
   };
 

@@ -351,6 +351,49 @@ describe('RichListView range selection', () => {
     expect(ids()).toEqual([]);
   });
 
+  // Oct 13 2026: Ctrl+click did nothing in the real list. The tests above
+  // click the row element itself, but a real click lands in a cell, and every
+  // editable cell (Person, Due Date, Priority, a custom field) stops its own
+  // click - so only the title ever reached the row.
+  it('ctrl+click on an editable cell picks the row too', () => {
+    const onOpen = vi.fn();
+    renderSel(onOpen);
+    const cell = row('Bravo').querySelector('.rl-cell');
+    expect(cell).toBeTruthy();
+
+    fireEvent.click(cell, { ctrlKey: true });
+    fireEvent.click(row('Charlie').querySelector('.rl-cell'), { ctrlKey: true });
+
+    expect(ids()).toEqual(['b', 'c']);
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+
+  it('shift+click on an editable cell takes the range', () => {
+    renderSel();
+    fireEvent.click(row('Alpha').querySelector('.rl-cell'), { ctrlKey: true });
+    fireEvent.click(row('Charlie').querySelector('.rl-cell'), { shiftKey: true });
+    expect(ids()).toEqual(['a', 'b', 'c']);
+  });
+
+  it("a Mac's ctrl+click - which arrives as a right-click - picks the row", () => {
+    renderSel();
+    fireEvent.contextMenu(row('Alpha').querySelector('.rl-cell'), { ctrlKey: true });
+    expect(ids()).toEqual(['a']);
+  });
+
+  it('a plain right-click is left to the browser', () => {
+    renderSel();
+    fireEvent.contextMenu(row('Alpha'));
+    expect(ids()).toEqual([]);
+  });
+
+  it('the checkbox still picks exactly once with a modifier held', () => {
+    renderSel();
+    const box = row('Alpha').querySelector('button');
+    fireEvent.click(box, { ctrlKey: true });
+    expect(ids()).toEqual(['a']);
+  });
+
   it('leaves a plain arrow key alone, so the page still scrolls', () => {
     renderSel();
 
@@ -547,3 +590,75 @@ describe('+ Column > Existing Fields', () => {
   });
 });
 
+
+// A project with a required custom field (Oct 13 2026): the "Add task…" row
+// cannot make a title-only task there - the server refuses it - so it opens
+// the full Create form with the title in, and only creates directly elsewhere.
+describe('Add task row in a project with a required field', () => {
+  const prop = { id: 'f-prop', name: 'Property', type: 'select', appliesTo: ['task'], options: [],
+    projectIds: ['p-it'], requiredProjectIds: ['p-it'] };
+  const addRow = (lockedProjectId, createTask, onFullCreate) => {
+    render(
+      <RichListView visible={mockTasks} group="status" ctx={ctx}
+        store={{ ...store, customFields: [prop], createTask }} people={[]} selected={new Set()}
+        toggleSel={() => {}} onOpen={() => {}} onSelectAll={() => {}} lockedProjectId={lockedProjectId}
+        hidden={new Set()} setHidden={() => {}} onFullCreate={onFullCreate} />,
+    );
+    const box = screen.getAllByPlaceholderText('Add task…')[0];
+    fireEvent.change(box, { target: { value: 'Replace badge reader' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+  };
+
+  it('opens the full Create form instead of creating', () => {
+    const createTask = vi.fn(() => Promise.resolve({}));
+    const onFullCreate = vi.fn();
+    addRow('p-it', createTask, onFullCreate);
+    expect(createTask).not.toHaveBeenCalled();
+    expect(onFullCreate).toHaveBeenCalledWith(expect.objectContaining({ title: 'Replace badge reader', projectId: 'p-it' }));
+  });
+
+  it('still creates straight away where nothing is required', () => {
+    const createTask = vi.fn(() => Promise.resolve({}));
+    const onFullCreate = vi.fn();
+    addRow('p-other', createTask, onFullCreate);
+    expect(createTask).toHaveBeenCalled();
+    expect(onFullCreate).not.toHaveBeenCalled();
+  });
+});
+
+// Oct 13 2026: the header checkbox of one section (Recurring) also ticked
+// every task in the next (Missed) - one header was shared by all sections.
+describe('a section header checkbox', () => {
+  const two = [
+    { ...mockTasks[0], id: 'r1', title: 'Add K1s', status: 'not_started' },
+    { ...mockTasks[0], id: 'r2', title: 'Tax Return - RJK', status: 'not_started' },
+    { ...mockTasks[0], id: 'm1', title: 'Tax Return', status: 'in_progress' },
+  ];
+  const twoStore = { ...store, tasks: two, taskById: Object.fromEntries(two.map((t) => [t.id, t])) };
+  let latest;
+  function Harness() {
+    const [selected, setSelected] = useState(new Set(['m1']));
+    latest = selected;
+    return (
+      <RichListView visible={two} group="status" ctx={ctx} store={twoStore} people={[]}
+        selected={selected} setSelected={setSelected} toggleSel={() => {}} onOpen={() => {}}
+        lockedProjectId="" hidden={new Set()} setHidden={() => {}} />
+    );
+  }
+
+  it('selects only its own section, keeping what else was picked', () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByLabelText('Select all in Not Started'));
+    expect([...latest].sort()).toEqual(['m1', 'r1', 'r2']);
+    fireEvent.click(screen.getByLabelText('Deselect all in Not Started'));
+    expect([...latest]).toEqual(['m1']);
+  });
+
+  it("does not touch another section's tasks", () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByLabelText('Deselect all in In Progress'));
+    expect([...latest]).toEqual([]);
+    fireEvent.click(screen.getByLabelText('Select all in Not Started'));
+    expect([...latest].sort()).toEqual(['r1', 'r2']);
+  });
+});

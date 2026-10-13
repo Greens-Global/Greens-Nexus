@@ -36,7 +36,7 @@ import task_due
 import code_sequence
 from task_files import data_url_to_storage
 # Values are stored in the shape each field declares - see that function.
-from routers.task_config import coerce_custom_field_values
+from routers.task_config import coerce_custom_field_values, missing_required_fields
 
 router = APIRouter(prefix="/tasks", tags=["Tasks"],
                    dependencies=[Depends(get_current_user), Depends(require_any_module_grant("tasks", "tickets"))])
@@ -73,6 +73,7 @@ def task_to_dict(t: models.Task) -> dict:
         "teamId":           _nz(t.team_id),
         "parentTaskId":     _nz(t.parent_task_id),
         "subtaskIds":       t.subtask_ids or [],
+        "subtaskOrder":     t.subtask_order or "",
         "blockedByIds":     t.blocked_by_ids or [],
         "blockingIds":      t.blocking_ids or [],
         "dependencyTypes":  t.dependency_types if isinstance(t.dependency_types, dict) else {},
@@ -197,6 +198,7 @@ class TaskUpdate(BaseModel):
     team_id:          Optional[str] = None
     parent_task_id:   Optional[str] = None
     subtask_ids:      Optional[list] = None
+    subtask_order:    Optional[str] = None    # "" (due date, then priority) | "manual"
     blocked_by_ids:   Optional[list] = None
     blocking_ids:     Optional[list] = None
     dependency_types: Optional[dict] = None
@@ -636,13 +638,21 @@ def _apply_completion(t: models.Task, new_completed: bool, prev_completed: bool)
 
 
 # ── Recurrence: occurrence generation ────────────────────────────────────────
-# recurrence = {freq, interval, daysOfWeek?, dayOfMonth?, unit?,
-#               daysAfterCompletion?, until?, count?}
+# recurrence = {freq, interval, daysOfWeek?, dayOfMonth?, weekOfMonth?, weekday?,
+#               monthOfYear?, unit?, daysAfterCompletion?, until?, count?}
 #   freq: daily | weekly | monthly | yearly | periodic | custom
 #   daysOfWeek: frontend-index list (0=Sunday..6=Saturday) - weekly, and custom
 #               with unit='week'. `dayOfWeek` (singular) is read as a one-item
 #               fallback for series created before multi-day weekly existed.
 #   unit: day|week|month|year - custom only, borrows the matching freq's cadence.
+#   dayOfMonth: 1-31, or -1 for the last day of the month (monthly / custom
+#               month). A day past the month's end lands on its last day.
+#   weekOfMonth + weekday: "the 4th Friday", "the last Wednesday" (Oct 13 2026,
+#               Asana parity) - weekOfMonth 1-5 or -1 for the last one, weekday
+#               0=Sunday..6=Saturday. Wins over dayOfMonth when both are set.
+#               Monthly / custom month, and yearly / custom year, where
+#               monthOfYear (1-12, else the due date's month) says which month:
+#               "the 4th Thursday of November".
 #   periodic ignores everything above except daysAfterCompletion: the next due
 #   date is N days after THIS occurrence's completed_at, not a calendar date -
 #   see the base_iso branch in _spawn_next_occurrence below.
@@ -654,6 +664,64 @@ def _add_months(d: date, n: int) -> date:
     y = d.year + m // 12
     m = m % 12 + 1
     return date(y, m, min(d.day, calendar.monthrange(y, m)[1]))
+
+
+def _nth_weekday(year: int, month: int, week: int, weekday: int) -> date:
+    """The `week`-th `weekday` of a month: week 1-5, or -1 for the last one;
+    weekday 0=Sunday..6=Saturday (the frontend's numbering). A 5th that the
+    month does not have falls back to its last one, the way Asana does."""
+    target = (int(weekday) - 1) % 7                 # Sun=0 -> Python Mon=0
+    last = calendar.monthrange(year, month)[1]
+    if int(week) < 0:
+        d = date(year, month, last)
+        return d - timedelta(days=(d.weekday() - target) % 7)
+    d = date(year, month, 1)
+    d += timedelta(days=(target - d.weekday()) % 7)
+    d += timedelta(weeks=max(1, int(week)) - 1)
+    return d if d.month == month else d - timedelta(weeks=1)
+
+
+def _weekday_rule(rec: dict):
+    """(weekOfMonth, weekday) when the rule is an nth-weekday one, else None."""
+    wk, wd = rec.get("weekOfMonth"), rec.get("weekday")
+    if wk in (None, "") or wd in (None, ""):
+        return None
+    try:
+        return int(wk), int(wd)
+    except (TypeError, ValueError):
+        return None
+
+
+def _next_monthly_due(base: date, rec: dict, interval: int) -> date:
+    rule = _weekday_rule(rec)
+    if rule:
+        # This month's date first, when it is still ahead: a task due 10/01
+        # set to "the 4th Friday" next falls on 10/23, not in November. Then
+        # `interval` months on. Always after `base`, so the daily roll-forward
+        # (which steps this until it passes today) always moves.
+        here = _nth_weekday(base.year, base.month, *rule)
+        if here > base:
+            return here
+        m = _add_months(base.replace(day=1), interval)
+        return _nth_weekday(m.year, m.month, *rule)
+    nxt = _add_months(base, interval)
+    dom = rec.get("dayOfMonth")
+    if dom:
+        last = calendar.monthrange(nxt.year, nxt.month)[1]
+        day = last if int(dom) < 0 else min(int(dom), last)
+        nxt = date(nxt.year, nxt.month, day)
+    return nxt
+
+
+def _next_yearly_due(base: date, rec: dict, interval: int) -> date:
+    rule = _weekday_rule(rec)
+    if rule:
+        month = int(rec.get("monthOfYear") or base.month)
+        here = _nth_weekday(base.year, month, *rule)
+        if here > base:
+            return here
+        return _nth_weekday(base.year + interval, month, *rule)
+    return _add_months(base, 12 * interval)
 
 
 def _next_weekly_due(base: date, rec: dict, interval: int) -> date:
@@ -688,14 +756,9 @@ def _next_due(base_iso: str, rec: dict) -> str:
     if cadence in ("weekly", "week"):
         return _next_weekly_due(base, rec, interval).isoformat()
     if cadence in ("monthly", "month"):
-        nxt = _add_months(base, interval)
-        dom = rec.get("dayOfMonth")
-        if dom:
-            day = min(int(dom), calendar.monthrange(nxt.year, nxt.month)[1])
-            nxt = date(nxt.year, nxt.month, day)
-        return nxt.isoformat()
+        return _next_monthly_due(base, rec, interval).isoformat()
     if cadence in ("yearly", "year"):
-        return _add_months(base, 12 * interval).isoformat()
+        return _next_yearly_due(base, rec, interval).isoformat()
     # daily/day (and any unknown cadence) → advance whole days
     return (base + timedelta(days=interval)).isoformat()
 
@@ -728,7 +791,9 @@ def _spawn_next_occurrence(db: Session, t: models.Task, user: dict,
         # after THIS one was finished, not N days after its (possibly much
         # earlier) due date - due_on would defeat the whole point of
         # "Periodically" existing as separate from a calendar-based freq.
-        days = max(1, int(rec.get("daysAfterCompletion") or 1))
+        # Any whole number of days (presets to 240 plus "Other" in the UI);
+        # capped at ten years so a typo cannot push a date out of range.
+        days = min(3650, max(1, int(rec.get("daysAfterCompletion") or 1)))
         base = datetime.strptime((t.completed_at or now_iso())[:10], "%Y-%m-%d").date()
         next_due = (base + timedelta(days=days)).isoformat()
     elif next_due_override:
@@ -1403,6 +1468,19 @@ def create_task(body: TaskCreate, background_tasks: BackgroundTasks,
     # Normalizes tags/followers in place too, so the row is written clean rather
     # than needing a later PATCH to tidy it.
     validate_task_payload(db, body.__dict__, task_id=tid)
+    # A project's required custom fields (Oct 13 2026: "no one can create a
+    # task in that project without" them). Checked here, not just in the
+    # forms, so the quick-add rows, request forms and anything else that
+    # creates a task cannot slip past. Top-level tasks in a project only: a
+    # subtask is part of its parent, and a task with no project has no
+    # project to require anything.
+    if body.project_id and not body.parent_task_id:
+        missing = missing_required_fields(db, body.project_id,
+                                          coerce_custom_field_values(db, body.custom_field_values))
+        if missing:
+            names = ", ".join(f.name for f in missing)
+            where = f" in {project.name}" if project and project.name else " in this project"
+            raise HTTPException(422, f"{names} {'is' if len(missing) == 1 else 'are'} required for tasks{where}.")
     access_level = body.access_level or (project.access_level if project else None) or "org"
     # Company wall: stamp the creator's company so the task is fixed on their side
     # of the wall even if they later change companies (task_util.task_company falls
@@ -1509,6 +1587,13 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
     require_task_role(db, user, t, "editor")
     data = upd.model_dump(exclude_unset=True)
     validate_task_payload(db, data, task_id=task_id)
+    if "subtask_order" in data and data["subtask_order"] not in ("", "manual"):
+        data["subtask_order"] = ""
+    # A section belongs to one project (the Custom grouping, Oct 13 2026), so a
+    # task moved to another project leaves its old section behind - the same
+    # rule bulk_update applies to Move To.
+    if "project_id" in data and (data["project_id"] or "") != (t.project_id or "") and "section_id" not in data:
+        data["section_id"] = ""
     if "custom_field_values" in data:
         data["custom_field_values"] = coerce_custom_field_values(db, data["custom_field_values"])
     prev_assignees = set(task_assignees(t))
@@ -1932,7 +2017,29 @@ class BulkUpdate(BaseModel):
 
 
 _BULK_ALLOWED = {"status", "priority", "assignee_email", "assignee_emails", "team_id", "project_id",
-                 "completed", "tags", "due_on", "start_on", "is_milestone"}
+                 "completed", "tags", "due_on", "start_on", "is_milestone", "custom_field_values",
+                 # A project's own sections (Custom grouping, Oct 13 2026): the
+                 # batch bar's Move to Section.
+                 "section_id"}
+
+
+def _merge_custom_field_values(db: Session, current, change) -> dict:
+    """A task's custom-field values after a bulk edit (Oct 13 2026: Property
+    and the other custom columns could not be set on several tasks at once).
+
+    `change` is {field_id: value} for just the fields being set - it is MERGED
+    into each task's own values, never written over them, so setting Property
+    on twenty tasks keeps whatever else each one carries. An empty value ("",
+    None, []) clears that field. The rest goes through the same coercion a
+    single edit does, so a bulk value lands in the same shape."""
+    merged = dict(current or {}) if isinstance(current, dict) else {}
+    if not isinstance(change, dict):
+        return merged
+    clears = [fid for fid, v in change.items() if v in ("", None) or v == []]
+    for fid in clears:
+        merged.pop(fid, None)
+    merged.update(coerce_custom_field_values(db, {k: v for k, v in change.items() if k not in clears}))
+    return merged
 
 
 @router.post("/bulk")
@@ -1974,6 +2081,12 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
                 continue    # handled by _apply_completion below
             if k in ("assignee_email", "assignee_emails"):
                 continue    # applied together, below
+            if k == "custom_field_values":
+                # Merged into this task's own values - see
+                # _merge_custom_field_values. A new dict, so the JSON column
+                # registers the change.
+                t.custom_field_values = _merge_custom_field_values(db, t.custom_field_values, v)
+                continue
             setattr(t, k, v)
         # Same rule as the single PATCH: dragging 20 cards out of Not Started on
         # the board is 20 tasks starting today, and they must not need a second

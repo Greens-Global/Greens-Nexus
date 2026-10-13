@@ -9,7 +9,8 @@ import { useTasks } from './TasksContext';
 import { usePeople, PersonMultiSelect, DateField } from './components';
 import { SearchSelect } from './components';
 import { BottomSheet } from './MobileTaskBar';
-import { filesFromPaste, uploadTaskAttachment } from './lib';
+import { filesFromPaste, uploadTaskAttachment, requiredFieldsFor, isBlankValue } from './lib';
+import { CustomFieldInput } from './TaskDetailDrawer';
 import { NX, FONT, btn, input as inputStyle } from './theme';
 import AnchoredMenu from '../components/AnchoredMenu';
 
@@ -65,8 +66,14 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
   const [projectId, setProjectId] = useState(defaults.projectId || '');
   const lockedProject = !!defaults.projectId;
 
-  const draft = () => ({ title: title.trim(), dueOn, assigneeIds });
-  const canCreate = !!(title.trim() && assigneeIds.length && dueOn) && !busy;
+  // The project's required custom fields (Oct 13 2026) - shown right here
+  // and filled in before Create, since the server refuses the task without
+  // them.
+  const [cfValues, setCfValues] = useState(defaults.customFieldValues || {});
+  const reqFields = requiredFieldsFor(store.customFields, projectId);
+  const reqMissing = reqFields.filter((f) => isBlankValue(cfValues[f.id]));
+  const draft = () => ({ title: title.trim(), dueOn, assigneeIds, customFieldValues: cfValues });
+  const canCreate = !!(title.trim() && assigneeIds.length && dueOn) && reqMissing.length === 0 && !busy;
 
   const submit = async () => {
     if (!canCreate) return;
@@ -75,6 +82,7 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
       const t = await createTask({
         title: title.trim(), type: 'task', status: defaults.status || 'not_started',
         priority: defaults.priority || 'medium', assigneeIds, ownerId: defaults.ownerId ?? myEmail ?? '', projectId, teamId: defaults.teamId || '', dueOn: dueOn || '',
+        customFieldValues: cfValues,
       });
       for (const it of files) await uploadAttachment(t.id, it.file);
       onClose();
@@ -114,6 +122,13 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
               onPick={setProjectId} />
           </div>
         )}
+
+        {reqFields.map((f) => (
+          <div key={f.id}>
+            <span style={fieldLabel}>{f.name} <span style={{ color: NX.red }}>*</span></span>
+            <CustomFieldInput field={f} value={cfValues[f.id]} onChange={(v) => setCfValues((cur) => ({ ...cur, [f.id]: v }))} />
+          </div>
+        ))}
 
         {/* Attachment previews */}
         {files.length > 0 && (

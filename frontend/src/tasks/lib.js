@@ -79,6 +79,32 @@ export const taskProjectIds = (task) => {
 };
 export const taskInProject = (task, projectId) => !!projectId && taskProjectIds(task).includes(projectId);
 
+// ── Time tracking per project (Oct 13 2026) ─────────────────────────────────
+// Time / Actual are not every project's business: they show only where a
+// project tracks time. A project's timeTracking is "on", "off", or "" =
+// automatic - on only when one of its tasks already carries a time or an
+// actual, so a project that never used them stops showing empty "hrs : min"
+// columns, and one that did keeps them without anyone having to switch it on.
+
+/** Has this task had time put on it - an estimate or an actual? */
+export const hasTimeData = (t) => Number(t?.estimateHours) > 0 || Number(t?.actualHours) > 0;
+
+/** Does `project` track time? `tasks` is the task list, for the automatic case. */
+export function projectTracksTime(project, tasks) {
+  if (!project) return false;
+  if (project.timeTracking === 'on') return true;
+  if (project.timeTracking === 'off') return false;
+  return (tasks || []).some((t) => taskInProject(t, project.id) && hasTimeData(t));
+}
+
+/** Should this task offer time tracking? When it already has time on it
+ *  (never hide what is there), or one of its projects tracks time. */
+export function taskTracksTime(task, projects, tasks) {
+  if (hasTimeData(task)) return true;
+  const ids = taskProjectIds(task);
+  return (projects || []).some((p) => ids.includes(p.id) && projectTracksTime(p, tasks));
+}
+
 // The top-level task a subtask ultimately hangs off, or null for a top-level
 // task - what a row shows as "in <parent>" so a subtask listed on its own
 // (My Tasks, a person's tasks) still says where it lives.
@@ -295,6 +321,92 @@ export const fieldsForProject = (customFields, projectId) =>
     return ids.length === 0 || (projectId ? ids.includes(projectId) : false);
   });
 
+/** Must a new task in `projectId` carry a value for field `f`? Mirrors the
+ *  server's field_required_in (routers/task_config.py), which refuses the
+ *  create otherwise: required everywhere the field applies (`required`), or
+ *  in this project specifically (`requiredProjectIds`, Oct 13 2026). Never a
+ *  read-only field - it cannot be filled in. */
+export function isFieldRequiredIn(f, projectId) {
+  if (!f || f.readOnly || !fieldsForProject([f], projectId || '').length) return false;
+  if (f.required) return true;
+  return !!projectId && (f.requiredProjectIds || []).includes(projectId);
+}
+
+// ── Subtask order (Oct 13 2026) ─────────────────────────────────────────────
+const SUB_PRIORITY_RANK = { urgent: 0, high: 1, medium: 2, low: 3 };
+
+/** A task's subtasks in the order they show. By default the soonest due date
+ *  first, and among the same due date the higher priority first (a subtask
+ *  with no due date goes last); then the order they were added in. Once
+ *  someone drags them (the parent's subtaskOrder is "manual") it is the order
+ *  they were dragged into - each subtask's `position`. */
+export function orderSubtasks(subtasks, parent) {
+  const added = (a, b) => (Number(a.position) || 0) - (Number(b.position) || 0)
+    || String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
+  const list = [...(subtasks || [])];
+  if (parent?.subtaskOrder === 'manual') return list.sort(added);
+  const due = (t) => (t.dueOn ? String(t.dueOn).slice(0, 10) : '9999-99-99');
+  const rank = (t) => SUB_PRIORITY_RANK[t.priority] ?? 2;
+  return list.sort((a, b) => due(a).localeCompare(due(b)) || rank(a) - rank(b) || added(a, b));
+}
+
+/** The positions to write after moving subtask `id` to `toIndex` in `ordered`
+ *  (the list as it shows): every subtask numbered 1, 2, 3... in the new order,
+ *  only the ones that change - [{ id, position }]. */
+export function reorderedPositions(ordered, id, toIndex) {
+  const rest = ordered.filter((t) => t.id !== id);
+  const moved = ordered.find((t) => t.id === id);
+  if (!moved) return [];
+  const at = Math.max(0, Math.min(toIndex, rest.length));
+  const next = [...rest.slice(0, at), moved, ...rest.slice(at)];
+  return next.map((t, i) => ({ id: t.id, position: i + 1 }))
+    .filter((p) => Number(ordered.find((t) => t.id === p.id).position) !== p.position);
+}
+
+/** Every project a task is in: its own, then any it is "also in". */
+export const taskProjectIdsOf = (task) =>
+  [...new Set([task?.projectId, ...(task?.projectIds || [])].filter(Boolean))];
+
+/** The custom fields a task shows (Oct 13 2026): every field that is a column
+ *  in ANY project the task is in - Property on IT Support shows on an IT
+ *  Support task, also-in included - plus the ones used everywhere. Follows
+ *  the task: moved out of a project, that project's fields drop off. */
+export function fieldsForTask(customFields, task) {
+  const pids = taskProjectIdsOf(task);
+  return (customFields || []).filter((f) => (pids.length
+    ? pids.some((pid) => fieldsForProject([f], pid).length > 0)
+    : fieldsForProject([f], '').length > 0));
+}
+
+/** The projects (of the ones the task is in) that require field `f` - empty
+ *  = not required for this task. A task with no project counts only the
+ *  "required everywhere" switch. */
+export function requiredByProjectsOf(f, task) {
+  const pids = taskProjectIdsOf(task);
+  if (!pids.length) return isFieldRequiredIn(f, '') ? [''] : [];
+  return pids.filter((pid) => isFieldRequiredIn(f, pid));
+}
+
+/** The fields a new task in `projectId` has to fill in. */
+export const requiredFieldsFor = (customFields, projectId) =>
+  (customFields || []).filter((f) => isFieldRequiredIn(f, projectId));
+
+/** Blank as far as "required" is concerned - list-shaped values (people,
+ *  multiselect) are blank as [], which is not ''. */
+export const isBlankValue = (v) => v == null || v === '' || (Array.isArray(v) && v.length === 0);
+
+/** The custom fields that can be batch-set on these tasks (Oct 13 2026 -
+ *  Property and the other custom columns had no batch control): one that
+ *  applies to EVERY selected task's project, so a field scoped to one project
+ *  is never written onto a task in another, and never a read-only one. */
+export function bulkFieldsFor(customFields, tasks, selected) {
+  const picked = (tasks || []).filter((t) => selected.has(t.id));
+  if (!picked.length) return [];
+  return (customFields || [])
+    .filter((f) => !f.readOnly && picked.every((t) => fieldsForProject([f], t.projectId || '').length > 0))
+    .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'en', { sensitivity: 'base' }));
+}
+
 // The custom fields that apply to the project entity itself (Location, etc.)
 // - these render on the project record (ProjectsView), not as a task column.
 // A field can be in both lists at once if it applies to both.
@@ -317,6 +429,7 @@ export const projectToForm = (p) => ({
   accessLevel: p.accessLevel || 'restricted',
   status: p.status || 'not_started', startOn: p.startOn || '', dueOn: p.dueOn || '', archived: !!p.archived,
   customFieldValues: p.customFieldValues || {},
+  timeTracking: p.timeTracking || '',
 });
 
 export const isSection = (t) => t.type === 'section';
@@ -430,6 +543,9 @@ export function groupAddDefaults(group, key) {
     return {}; // "Recently Assigned" → no due date
   }
   if (group === 'status') return { status: key };
+  // A project's section is a field on the task; a personal (My Tasks) section
+  // is not, and is filed by the caller after the create.
+  if (group === 'section') return { sectionId: key === '-' ? '' : key };
   if (group === 'priority') return { priority: key };
   if (group === 'project') return key && key !== '-' ? { projectId: key } : {};
   if (group === 'team') return key && key !== '-' ? { teamId: key } : {};
@@ -455,6 +571,23 @@ export function groupTasks(list, group, ctx = {}) {
       by[k].tasks.push(t);
     }
     return out;
+  }
+  // Custom: the person's own sections (Oct 13 2026 - "make my own categories
+  // and name them", e.g. annual vs. general recurring tasks). ctx.sections is
+  // the ordered list ({ id, name }), ctx.sectionOf(task) the id a task is
+  // filed under. "No Section" leads (where new and unfiled tasks land), then
+  // every section in order - empty ones too, so a task can be dropped in.
+  if (group === 'section') {
+    const secs = ctx.sections || [];
+    const known = new Set(secs.map((x) => x.id));
+    const none = { key: '-', label: 'No Section', tasks: [], section: true };
+    const out = secs.map((x) => ({ key: x.id, label: x.name, tasks: [], section: true, sectionId: x.id }));
+    const byKey = Object.fromEntries(out.map((g) => [g.key, g]));
+    for (const t of list) {
+      const sid = ctx.sectionOf ? ctx.sectionOf(t) : t.sectionId;
+      (sid && known.has(sid) ? byKey[sid] : none).tasks.push(t);
+    }
+    return [none, ...out];
   }
   const buckets = new Map();
   const push = (k, label, t) => {

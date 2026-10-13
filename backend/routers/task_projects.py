@@ -62,6 +62,7 @@ def project_to_dict(p: models.TaskProject) -> dict:
         "status": p.status or "not_started", "startOn": _nz(p.start_on), "dueOn": _nz(p.due_on),
         "archived": bool(p.archived), "activityIds": p.activity_ids or [],
         "customFieldValues": p.custom_field_values or {},
+        "timeTracking": p.time_tracking or "",
         "createdAt": p.created_at or "", "modifiedAt": p.modified_at or "",
     }
 
@@ -192,6 +193,8 @@ class ProjectBody(BaseModel):
     due_on: Optional[str] = ""
     archived: Optional[bool] = None
     custom_field_values: Optional[dict] = None
+    # "" (automatic) | "on" | "off" - see models.TaskProject.time_tracking.
+    time_tracking: Optional[str] = None
     # A project's People-module department. Auto-resolved from the creator at
     # creation time, but editable afterwards - the creator's own department is a
     # guess, and a project raised by IT for Accounting belongs to Accounting.
@@ -257,6 +260,7 @@ def create_project(body: ProjectBody, user: dict = Depends(get_current_user), db
         archived=bool(body.archived),
         activity_ids=[], created_at=now, modified_at=now, created_by=user["email"],
         custom_field_values=coerce_custom_field_values(db, body.custom_field_values or {}),
+        time_tracking=body.time_tracking if body.time_tracking in ("on", "off") else "",
     )
     db.add(p)
     db.flush()   # the helper queries portfolios; the row must exist first
@@ -311,6 +315,8 @@ def update_project(project_id: str, body: ProjectBody, user: dict = Depends(get_
             v = {em.lower(): role for em, role in v.items()}
         if k == "custom_field_values":
             v = coerce_custom_field_values(db, v or {})
+        if k == "time_tracking":
+            v = v if v in ("on", "off") else ""
         setattr(p, k, v)
     # A role grant is also an access grant - keep member_emails (the flat
     # "has access at all" list every other visibility check relies on) a

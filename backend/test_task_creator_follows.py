@@ -179,6 +179,95 @@ class AssignLaterFollowsTests(unittest.TestCase):
         for got in r.json():
             self.assertIn(ME, followers(got), got["id"])
 
+    def test_bulk_sets_a_custom_field_without_touching_the_others(self):
+        # Batch-setting Property (Oct 13 2026) merges into each task's values.
+        db = database.SessionLocal()
+        try:
+            for fid, kind, opts in (("bulk-prop", "select", [{"id": "esc", "label": "GS Escondido"}]),
+                                    ("bulk-pts", "number", [])):
+                if not db.get(models.TaskCustomField, fid):
+                    db.add(models.TaskCustomField(id=fid, name=fid, type=kind, options=opts))
+            db.commit()
+        finally:
+            db.close()
+        a = make(title="Prop A", custom_field_values={"bulk-pts": 5})
+        b = make(title="Prop B")
+        r = c.post("/tasks/bulk", json={"ids": [a["id"], b["id"]],
+                                        "patch": {"custom_field_values": {"bulk-prop": "esc"}}})
+        self.assertEqual(r.status_code, 200, r.text)
+        got = {t["id"]: t["customFieldValues"] for t in r.json()}
+        self.assertEqual(got[a["id"]], {"bulk-pts": 5, "bulk-prop": "esc"})
+        self.assertEqual(got[b["id"]], {"bulk-prop": "esc"})
+        # A blank clears that one field.
+        r = c.post("/tasks/bulk", json={"ids": [a["id"]], "patch": {"custom_field_values": {"bulk-prop": ""}}})
+        self.assertEqual(r.json()[0]["customFieldValues"], {"bulk-pts": 5})
+
+
+    def test_a_project_s_required_field_must_be_filled_to_create_a_task(self):
+        # Required per project (Oct 13 2026): enforced by the API, so no
+        # create path - quick-add row, request form - can skip it.
+        db = database.SessionLocal()
+        try:
+            if not db.get(models.TaskProject, "req-proj"):
+                db.add(models.TaskProject(id="req-proj", name="IT Support", owner_email=ME))
+            if not db.get(models.TaskCustomField, "req-prop"):
+                db.add(models.TaskCustomField(id="req-prop", name="Property", type="select",
+                                              options=[{"id": "esc", "label": "GS Escondido"}],
+                                              project_ids=["req-proj"], required_project_ids=["req-proj"]))
+            db.commit()
+        finally:
+            db.close()
+        r = c.post("/tasks", json={"title": "No property", "project_id": "req-proj"})
+        self.assertEqual(r.status_code, 422, r.text)
+        self.assertIn("Property is required for tasks in IT Support", r.text)
+        r = c.post("/tasks", json={"title": "With property", "project_id": "req-proj",
+                                   "custom_field_values": {"req-prop": "esc"}})
+        self.assertIn(r.status_code, (200, 201), r.text)
+        # A subtask is part of its parent; a task outside the project is untouched.
+        sub = c.post("/tasks", json={"title": "Sub", "project_id": "req-proj", "parent_task_id": r.json()["id"]})
+        self.assertIn(sub.status_code, (200, 201), sub.text)
+        self.assertIn(c.post("/tasks", json={"title": "Elsewhere"}).status_code, (200, 201))
+
+
+    def test_a_main_task_remembers_its_subtasks_were_hand_ordered(self):
+        # Oct 13 2026: "" = due date then priority, "manual" = dragged order.
+        t = make(title="Ordered")
+        self.assertEqual(t["subtaskOrder"], "")
+        self.assertEqual(patch(t["id"], subtask_order="manual")["subtaskOrder"], "manual")
+        self.assertEqual(patch(t["id"], subtask_order="sideways")["subtaskOrder"], "")
+        sub = make(title="Sub", parent_task_id=t["id"])
+        self.assertEqual(patch(sub["id"], position=1)["position"], 1)
+
+
+    def test_a_project_s_time_tracking_setting(self):
+        # Oct 13 2026: "" automatic, "on", "off"; anything else reads as automatic.
+        r = c.post("/task-projects", json={"name": "Timed", "time_tracking": "on"})
+        self.assertIn(r.status_code, (200, 201), r.text)
+        p = r.json()
+        self.assertEqual(p["timeTracking"], "on")
+        r = c.patch(f"/task-projects/{p['id']}", json={"time_tracking": "off"})
+        self.assertEqual(r.json()["timeTracking"], "off")
+        r = c.patch(f"/task-projects/{p['id']}", json={"time_tracking": "maybe"})
+        self.assertEqual(r.json()["timeTracking"], "")
+
+
+    def test_custom_sections_file_tasks_and_a_project_move_unfiles_them(self):
+        # The Custom grouping (Oct 13 2026).
+        proj = c.post("/task-projects", json={"name": "Sectioned"}).json()
+        sec = c.post("/tasks/meta/sections", json={"project_id": proj["id"], "name": "Annual Recurring"})
+        self.assertIn(sec.status_code, (200, 201), sec.text)
+        sid = sec.json()["id"]
+        a = make(title="Inspection", project_id=proj["id"])
+        b = make(title="Fire panel", project_id=proj["id"])
+        r = c.post("/tasks/bulk", json={"ids": [a["id"], b["id"]], "patch": {"section_id": sid}})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual({t["sectionId"] for t in r.json()}, {sid})
+        # Moved to another project: the section stays behind with its project.
+        other = c.post("/task-projects", json={"name": "Elsewhere"}).json()
+        self.assertFalse(patch(a["id"], project_id=other["id"])["sectionId"])   # null / "" = no section
+        # A change that is not a project move leaves it filed.
+        self.assertEqual(patch(b["id"], title="Fire panel test")["sectionId"], sid)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -4896,6 +4896,18 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
 .nx-menu-row:focus-visible {
   background: var(--nx-hover) !important;
 }
+/* The row Enter (or Tab) will take in a search-and-pick menu - lib/listNav.js
+   (Oct 13 2026). A blue tint, not the grey of a selected row, so "what Enter
+   picks" and "already chosen" never look alike. After the hover rule, same
+   specificity, so it wins: the pointer moves the highlight anyway. */
+[data-nav-active],
+.nx-menu-row[data-nav-active]:hover {
+  background: rgba(37, 99, 235, 0.11) !important;
+}
+[data-theme="dark"] [data-nav-active],
+[data-theme="dark"] .nx-menu-row[data-nav-active]:hover {
+  background: rgba(96, 165, 250, 0.2) !important;
+}
 
 /* Each option is a labelled pill - an icon alone would make the user guess. */
 .nx-fab-item {

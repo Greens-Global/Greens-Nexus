@@ -2,7 +2,8 @@ import { useState, useEffect, useMemo } from "react";
 import { LoadingState } from './AsyncState';
 import { Search, X, UserCog, ChevronLeft, ChevronRight } from "lucide-react";
 import { api } from "../api";
-import { matchPeople, onEnterPickFirst } from "../lib/peopleSearch";
+import { matchPeople } from "../lib/peopleSearch";
+import { useListNav } from "../lib/listNav";
 
 // Search box + people list for starting an Act As session (Jul 2026). The
 // eligible list is already filtered server-side to roles strictly below the
@@ -34,6 +35,9 @@ export function ActAsPicker({ onStart, onDone, autoFocus = true, pageSize = 0 })
   const pageCount = pageSize ? Math.max(1, Math.ceil(filtered.length / pageSize)) : 1;
   const pageIdx = Math.min(page, pageCount - 1);   // a narrower search can leave `page` past the end
   const shown = pageSize ? filtered.slice(pageIdx * pageSize, (pageIdx + 1) * pageSize) : filtered;
+  // Up / Down / Enter over the rows on screen (lib/listNav.js); highlighted
+  // once something is typed.
+  const nav = useListNav(shown, { open: !!q.trim(), query: `${q}|${pageIdx}`, onPick: pick });
 
   async function pick(person) {
     if (starting) return;
@@ -53,7 +57,7 @@ export function ActAsPicker({ onStart, onDone, autoFocus = true, pageSize = 0 })
       <div style={{ position: 'relative' }}>
         <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
         <input autoFocus={autoFocus} value={q} onChange={e => { setQ(e.target.value); setPage(0); }} placeholder="Search people…"
-          onKeyDown={onEnterPickFirst(filtered, pick)}
+          {...nav.inputProps} onKeyDown={nav.onKeyDown}
           style={{ width: '100%', padding: '8px 10px 8px 30px', borderRadius: 8, border: '1px solid var(--line)', fontFamily: 'Inter, sans-serif', fontSize: 13, background: 'var(--bg)', color: 'var(--ink)', boxSizing: 'border-box' }} />
       </div>
       <div style={{ fontSize: 11, color: 'var(--muted)', margin: '8px 2px 4px', lineHeight: 1.4 }}>
@@ -69,8 +73,8 @@ export function ActAsPicker({ onStart, onDone, autoFocus = true, pageSize = 0 })
             {people.length === 0 ? "No one is eligible - Act As only works on roles strictly below your own." : "No matches."}
           </div>
         )}
-        {shown.map(p => (
-          <button key={p.email} onClick={() => pick(p)} disabled={!!starting}
+        {shown.map((p, i) => (
+          <button key={p.email} {...nav.optionProps(i)} onClick={() => pick(p)} disabled={!!starting}
             style={{
               width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '9px 10px',
               background: 'transparent', border: 'none', borderRadius: 8, textAlign: 'left',

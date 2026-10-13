@@ -65,6 +65,10 @@ class Task(Base):
     team_id           = Column(String, default="", index=True)  # TaskTeam within this task's project
     parent_task_id    = Column(String, default="", index=True)
     subtask_ids       = Column(JSON, default=list)
+    # How this task's subtasks are ordered (Oct 13 2026): "" = by due date,
+    # then priority; "manual" = the order someone dragged them into, read from
+    # each subtask's `position`. Set by the drawer's drag handle.
+    subtask_order     = Column(String, default="")
     blocked_by_ids    = Column(JSON, default=list)
     blocking_ids      = Column(JSON, default=list)
     dependency_types  = Column(JSON, default=dict)         # {blockerTaskId: "FS"|"FF"|"SS"|"SF"}
@@ -2901,6 +2905,11 @@ class TaskProject(Base):
     # applies_to). Same shape and same coerce_custom_field_values() as
     # Task.custom_field_values; the field defs table is shared.
     custom_field_values = Column(JSON, default=dict)
+    # Whether this project's tasks are time-tracked (Oct 13 2026): the list's
+    # Time / Actual columns, the task's Time Tracking section and the create
+    # form's Estimated Time. "" = automatic (shown only when a task in the
+    # project already has a time or actual on it), "on", "off".
+    time_tracking = Column(String, default="")
     # Soft delete -> Recycle Bin (Sept 2026). A non-empty deleted_at means
     # binned: hidden from every read by database.py's _hide_soft_deleted hook
     # (one hook rather than a filter at 72 query sites), restorable for the
@@ -3194,6 +3203,12 @@ class TaskCustomField(Base):
     # where its value renders. Default "task" keeps every pre-existing field
     # (and TaskTicket, which reuses these same defs) behaving exactly as before.
     applies_to  = Column(String, default="task")
+    # The projects a task must carry this field in before it can be created
+    # (Neil, Oct 13 2026: Property is required in some projects, not all).
+    # `required` above still means "in every project the field applies to";
+    # this list is the per-project version. Enforced on create by
+    # routers/tasks.py create_task and in every create form.
+    required_project_ids = Column(JSON, default=list)
 
 
 class TaskMemberRequest(Base):
