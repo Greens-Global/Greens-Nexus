@@ -18,8 +18,9 @@ import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, parseImportedAuthor
 // Drawer shows an em-dash for an unset date rather than an empty cell.
 const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '-');
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER, isMissed, MISSED_TITLE } from './theme';
-import { Avatar, PersonSelect, PersonMultiSelect, usePeople, useIsMobile, DateField, AttachmentViewer, ExternalTag, useImageZoom, localTodayISO, notPast } from './components';
+import { Avatar, PersonSelect, PersonMultiSelect, usePeople, useIsMobile, DateField, AttachmentViewer, ExternalTag, useImageZoom, localTodayISO, notPast, MenuCaption } from './components';
 import { matchPeople, onEnterPickFirst } from '../lib/peopleSearch';
+import { useFrequentCollaborators, frequentRows } from './frequentPeople';
 import RichDescription, { isEmptyDoc } from './RichDescription';
 import ProjectPicker from './ProjectPicker';
 import DueBadge from './DueBadge';
@@ -486,7 +487,11 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
 function CollaboratorMenuBody({ people, selected, onToggle }) {
   const [q, setQ] = useState('');
   const queryRef = useRef(null);
+  const frequent = useFrequentCollaborators();
   const filtered = q.trim() ? matchPeople(people, q) : people;
+  // Nothing typed: the people you share the most tasks with first, then
+  // everyone (the create window's Collaborators field does the same).
+  const top = q.trim() ? [] : frequentRows(people, frequent);
   // Same as the assignee picker: once a name is checked, the query that found
   // it has done its job - reset it and put the cursor back so the next name
   // can be typed straight away.
@@ -495,21 +500,25 @@ function CollaboratorMenuBody({ people, selected, onToggle }) {
     onToggle(email);
     if (adding) { setQ(''); queryRef.current?.focus(); }
   };
+  const row = (u, keyPrefix) => (
+    <label key={keyPrefix + u.email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 13, cursor: 'pointer' }}>
+      <input type="checkbox" checked={selected.includes(u.email)} onChange={() => pick(u.email)} />
+      <Avatar email={u.email} name={u.name} size={20} card={false} />
+      <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.name}</span>
+      {u.external && <ExternalTag />}
+    </label>
+  );
   return (
     <div>
       <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, padding: '4px 6px' }}>Collaborators</div>
       <input className="nx-inline-edit" ref={queryRef} autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
-        onKeyDown={onEnterPickFirst(filtered, (u) => pick(u.email))}
+        onKeyDown={onEnterPickFirst(top.length ? top : filtered, (u) => pick(u.email))}
         style={{ width: '100%', boxSizing: 'border-box', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '6px 8px', fontSize: 13, fontFamily: FONT, color: NX.ink }} />
       <div className="nx-scroll" style={{ maxHeight: 220, overflowY: 'auto' }}>
-        {filtered.map((u) => (
-          <label key={u.email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 13, cursor: 'pointer' }}>
-            <input type="checkbox" checked={selected.includes(u.email)} onChange={() => pick(u.email)} />
-            <Avatar email={u.email} name={u.name} size={20} card={false} />
-            <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.name}</span>
-            {u.external && <ExternalTag />}
-          </label>
-        ))}
+        {top.length > 0 && <MenuCaption inset={8}>Frequent</MenuCaption>}
+        {top.map((u) => row(u, 'f:'))}
+        {top.length > 0 && <MenuCaption inset={8}>All</MenuCaption>}
+        {filtered.map((u) => row(u, ''))}
         {filtered.length === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>{people.length === 0 ? 'No people' : 'No match'}</div>}
       </div>
     </div>

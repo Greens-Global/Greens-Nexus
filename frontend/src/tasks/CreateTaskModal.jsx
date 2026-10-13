@@ -8,6 +8,7 @@ import { api } from '../api';
 import { useTasks } from './TasksContext';
 import { Modal, PersonSelect, PersonMultiSelect, usePeople, DateField, useIsMobile } from './components';
 import { ProjectCreateModal } from './ProjectsView';
+import { useFrequentCollaborators } from './frequentPeople';
 import { CustomFieldInput } from './TaskDetailDrawer';
 import { filesFromPaste, teamInProject, fieldsForProject, uploadTaskAttachment, taskAssignees, externalizeInlineImages } from './lib';
 import ProjectPicker from './ProjectPicker';
@@ -48,6 +49,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
   const store = useTasks();
   const { createTask, updateTask, deleteTask, tasks, projects, teams, myEmail, customFields = [] } = store;
   const people = usePeople(true);   // assignee/collaborators - see TaskDetailDrawer
+  const frequent = useFrequentCollaborators();
   const fileRef = useRef(null);
   const editing = taskId ? store.taskById[taskId] : null;
   const isEdit = !!editing;
@@ -332,7 +334,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
           </div>
           <div style={field}>
             <label style={label}>Collaborators</label>
-            <PersonMultiSelect value={form.followerIds} onChange={(v) => set('followerIds', v)} people={people} placeholder="Add collaborators…" addTitle="Add collaborator" />
+            <PersonMultiSelect value={form.followerIds} onChange={(v) => set('followerIds', v)} people={people} frequent={frequent} placeholder="Add collaborators…" addTitle="Add collaborator" />
           </div>
           {/* Start Date is optional and sits before Due Date, the order the
               Timeline column reads them in. Left empty it fills itself in the
