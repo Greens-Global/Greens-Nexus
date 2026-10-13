@@ -9,7 +9,7 @@ import { C } from '../theme'
 const STATUSES = ['Active', 'Paused', 'Completed']
 
 const labelStyle = { display: 'block', fontSize: 12.5, fontWeight: 500, color: C.gray600, marginBottom: 6 }
-const fieldStyle = { width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 13, outline: 'none' }
+const fieldStyle = { width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 13 }
 
 export default function EditCampaignModal({ campaigns, initialCampaignId, onClose, onSave }) {
   const channels = GOOGLE_CHANNELS

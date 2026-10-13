@@ -241,9 +241,9 @@ function AssigneeCell({ value, people, onSelect, compact }) {
       {open && (
         <PortalDropdown anchorRef={ref} panelRef={panelRef} width={240}>
           <div className="nx-scroll" style={{ maxHeight: 280, overflowY: 'auto' }}>
-            <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
+            <input className="nx-inline-edit" autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
               onKeyDown={onEnterPickFirst(filtered, (p) => pick(p.email))}
-              style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
+              style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: 13, fontFamily: FONT, boxSizing: 'border-box', color: NX.ink }} />
             <div onClick={() => pick(null)} style={{ padding: '8px 12px', fontSize: 13, color: NX.dim, cursor: 'pointer' }}>Unassigned</div>
             {filtered.map((p) => (
               <div key={p.email} onClick={() => pick(p.email)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, background: p.email === value ? NX.hover : 'transparent' }}>
@@ -431,15 +431,15 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
         // estimate
         estimate: (
         <div className="rl-cell" style={{ ...editCell, gap: 2 }} onClick={(e) => e.stopPropagation()}>
-          <input type="number" className="rl-num" min={0} value={estH} placeholder="hrs" onChange={(e) => setEst(e.target.value, estM)} style={{ width: 30, textAlign: 'right', border: 'none', background: 'transparent', fontSize: 12, color: NX.dim, outline: 'none', fontFamily: FONT }} />
+          <input type="number" className="rl-num nx-inline-edit" min={0} value={estH} placeholder="hrs" onChange={(e) => setEst(e.target.value, estM)} style={{ width: 30, textAlign: 'right', border: 'none', fontSize: 12, color: NX.dim, fontFamily: FONT }} />
           <span style={{ color: NX.faint, fontSize: 12 }}>:</span>
-          <input type="number" className="rl-num" min={0} max={59} step={5} value={estM} placeholder="min" onChange={(e) => setEst(estH, e.target.value)} style={{ width: 30, textAlign: 'left', border: 'none', background: 'transparent', fontSize: 12, color: NX.dim, outline: 'none', fontFamily: FONT }} />
+          <input type="number" className="rl-num nx-inline-edit" min={0} max={59} step={5} value={estM} placeholder="min" onChange={(e) => setEst(estH, e.target.value)} style={{ width: 30, textAlign: 'left', border: 'none', fontSize: 12, color: NX.dim, fontFamily: FONT }} />
         </div>
         ),
         // actual
         actual: (
         <div className="rl-cell" style={{ ...editCell, gap: 3 }} onClick={(e) => e.stopPropagation()}>
-          <input type="number" className="rl-num" min={0} value={t.actualHours ?? ''} placeholder="0" onChange={(e) => store.updateTask(t.id, { actualHours: e.target.value === '' ? null : Number(e.target.value) })} style={{ width: 34, textAlign: 'right', border: 'none', background: 'transparent', fontSize: 12, color: NX.dim, outline: 'none', fontFamily: FONT }} />
+          <input type="number" className="rl-num nx-inline-edit" min={0} value={t.actualHours ?? ''} placeholder="0" onChange={(e) => store.updateTask(t.id, { actualHours: e.target.value === '' ? null : Number(e.target.value) })} style={{ width: 34, textAlign: 'right', border: 'none', fontSize: 12, color: NX.dim, fontFamily: FONT }} />
           <span style={{ color: NX.faint, fontSize: 12 }}>h</span>
         </div>
         ),
@@ -826,11 +826,11 @@ function FieldCell({ field, value, onChange, people = [] }) {
     return <DateField value={value || ''} onChange={onChange} color={NX.dim} compact style={{ fontSize: 12, width: '100%' }} />;
   }
   if (field.type === 'number') {
-    return <input type="number" className="rl-num" value={value ?? ''} onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))} placeholder="-"
-      style={{ width: '100%', border: 'none', background: 'transparent', fontSize: 12.5, color: NX.dim, outline: 'none', fontFamily: FONT }} />;
+    return <input type="number" className="rl-num nx-inline-edit" value={value ?? ''} onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))} placeholder="-"
+      style={{ width: '100%', border: 'none', fontSize: 12.5, color: NX.dim, fontFamily: FONT }} />;
   }
-  return <input type="text" value={value || ''} onChange={(e) => onChange(e.target.value)} placeholder="-"
-    style={{ width: '100%', border: 'none', background: 'transparent', fontSize: 12.5, color: NX.dim, outline: 'none', fontFamily: FONT }} />;
+  return <input className="nx-inline-edit" type="text" value={value || ''} onChange={(e) => onChange(e.target.value)} placeholder="-"
+    style={{ width: '100%', border: 'none', fontSize: 12.5, color: NX.dim, fontFamily: FONT }} />;
 }
 
 // monday-style Timeline cell: a colored date-range pill (start → due); click to
@@ -978,8 +978,8 @@ function AddTaskInline({ store, defaults, lockedProjectId }) {
        the divider that would otherwise cut straight across them. */
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 16px 6px 40px', color: NX.faint, borderBottomLeftRadius: 12, borderBottomRightRadius: 12 }}>
       <Plus size={13} style={{ flexShrink: 0 }} />
-      <input value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') add(); if (e.key === 'Escape') setTitle(''); }}
-        placeholder="Add task…" style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 13, fontFamily: FONT, color: NX.ink, width: '100%' }} />
+      <input className="nx-inline-edit" value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') add(); if (e.key === 'Escape') setTitle(''); }}
+        placeholder="Add task…" style={{ border: 'none', fontSize: 13, fontFamily: FONT, color: NX.ink, width: '100%' }} />
     </div>
   );
 }

@@ -51,7 +51,7 @@ export default function SetGoalsModal({ facilities, leadGoalByProperty, onChange
                   step="1"
                   value={draft[f] ? String(draft[f]) : ''}
                   onChange={(e) => handleChange(f, e.target.value)}
-                  style={{ width: '100%', padding: '6px 10px', borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 12.5, outline: 'none' }}
+                  style={{ width: '100%', padding: '6px 10px', borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 12.5 }}
                 />
               </div>
             ))}

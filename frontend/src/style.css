@@ -89,6 +89,7 @@
   --transition-fast:   0.13s ease;
   --transition-normal: 0.22s ease;
   --transition-slow:   0.38s cubic-bezier(.16,1,.3,1);
+  --focus-ring: hsl(var(--color-blue));   /* keyboard focus outline, see the a11y block */
 
   /* color tokens for status badges only */
   --color-blue:   215,75%,45%;
@@ -158,6 +159,7 @@
 
 [data-theme="dark"] {
   color-scheme: dark;
+  --focus-ring: hsl(215,85%,68%);        /* lighter so the ring clears dark cards */
   --loader:     #3fbe6f;
   --skel:       #1a2a20;
   --skel-sheen: #2a4533;
@@ -2509,10 +2511,36 @@ html { overflow-x: hidden; }
 /* ── Touch & accessibility polish (app-wide) ────────────────────────────────
    Kill the gray tap flash, keep double-tap zoom off interactive elements,
    and give keyboard users a consistent focus ring (mouse clicks unaffected -
-   :focus-visible only fires for keyboard/AT focus). */
+   :focus-visible only fires for keyboard/AT focus; text fields are the one
+   place browsers also light it on click, which is standard).
+
+   Keyboard focus is ALWAYS visible (Oct 11, 2026). Inline `outline: 'none'`
+   resets in JSX used to erase the ring on ~80 controls (borderless cell
+   inputs, Ctrl+V paste targets, list boxes) that had no other indicator.
+   React writes that reset as `style="outline: none"`, so the attribute rule
+   below restores the ring for keyboard focus even where a reset slips back
+   in. Component rings that set their own color (.dir-row, .egx-navbtn, the
+   .dk-* tiles) are more specific and keep it. Do not add `outline: none` to
+   a :focus or :focus-visible rule without replacing the indicator. */
 button, [role="button"], a, input, select, textarea, label { -webkit-tap-highlight-color: transparent; }
 button, [role="button"], select { touch-action: manipulation; }
-:focus-visible { outline: 2px solid hsl(var(--color-blue)); outline-offset: 2px; }
+:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+input:focus-visible, textarea:focus-visible, select:focus-visible, [contenteditable]:focus-visible { outline-offset: 0; }
+[style*="outline: none"]:focus-visible, [style*="outline:none"]:focus-visible { outline: 2px solid var(--focus-ring) !important; outline-offset: 1px; }
+/* Borderless inline-edit fields (Oct 12) - every input that is a bare line
+   of text with no box of its own: the task title, hours/minutes cells, the
+   search pills and menu search rows, add-subtask / add-label / add-task
+   rows, tag inputs, the Notes widget, SOP tag names. A field with its own
+   visible border keeps the standard ring. Text fields light :focus-visible on a
+   mouse click too, and a full blue box around a bare line of text read as
+   an error. They get a quieter indicator instead - still always visible:
+   a 2px underline in the ring color and a faint tint. Never drop it. */
+.nx-inline-edit { background: transparent; border-radius: 4px; }
+.nx-inline-edit:focus, .nx-inline-edit:focus-visible {
+  outline: none;
+  box-shadow: inset 0 -2px 0 var(--focus-ring);
+  background: color-mix(in srgb, var(--focus-ring) 8%, transparent);
+}
 
 /* Phone: comfortable thumb targets without blowing up dense desktop rows */
 @media (max-width: 640px) {
@@ -4436,7 +4464,6 @@ button, [role="button"], select { touch-action: manipulation; }
 .app-tile:hover, .app-tile:focus-visible {
   transform: translateY(-3px) scale(1.05);
   background: var(--mist);
-  outline: none;
 }
 .app-tile:active { transform: translateY(-1px) scale(1.02); }
 /* An app tile hovering over a folder while being dragged - iPhone-style

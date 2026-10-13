@@ -364,7 +364,7 @@ export default function Directory() {
               <div style={{ borderRight: mobile ? 'none' : `1px solid ${NX.border}`, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
                 {toolbar(false)}
 
-                <div ref={listRef} onKeyDown={onListKey} tabIndex={-1} style={{ overflowY: 'auto', maxHeight: mobile ? 'none' : 'calc(100vh - 300px)', minHeight: 300, outline: 'none' }}>
+                <div ref={listRef} onKeyDown={onListKey} tabIndex={-1} style={{ overflowY: 'auto', maxHeight: mobile ? 'none' : 'calc(100vh - 300px)', minHeight: 300 }}>
                   {filtered.length === 0 ? (
                     <div style={{ textAlign: 'center', padding: '40px 16px', color: 'var(--muted)' }}>
                       <Users size={26} style={{ opacity: 0.4, marginBottom: 10 }} />

@@ -61,7 +61,7 @@ export function BottomSheet({ title, onClose, onBack, children }) {
           phone bottom-sheet rules off it - this one is shaped here. */}
       <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={trapTab}
         className="nx-sheet" onClick={(e) => e.stopPropagation()} style={{
-        background: NX.surface, borderTopLeftRadius: 18, borderTopRightRadius: 18, outline: 'none',
+        background: NX.surface, borderTopLeftRadius: 18, borderTopRightRadius: 18,
         // A share of the VISIBLE height, so with the keyboard up the sheet
         // still fits above it and its body scrolls instead of hiding.
         maxHeight: vv ? Math.round(vv.height * 0.92) : '82vh',

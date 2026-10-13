@@ -53,7 +53,7 @@ export default function AddPhotoModal({ facilities, defaultFacility, onAdd, onCl
           <select
             value={facility}
             onChange={(e) => setFacility(e.target.value)}
-            style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 13, color: C.gray700, outline: 'none' }}
+            style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 13, color: C.gray700 }}
           >
             {facilities.map((f) => (
               <option key={f} value={f}>
@@ -91,7 +91,7 @@ export default function AddPhotoModal({ facilities, defaultFacility, onAdd, onCl
             })}
           </div>
         </div>
-        <div onPaste={handlePaste} tabIndex={0} style={{ outline: 'none' }}>
+        <div onPaste={handlePaste} tabIndex={0}>
           <label style={{ display: 'block', fontSize: 12, fontWeight: 500, color: C.gray600, marginBottom: 6 }}>Photo</label>
           <div style={{ display: 'flex', gap: 8 }}>
             <input
@@ -99,7 +99,7 @@ export default function AddPhotoModal({ facilities, defaultFacility, onAdd, onCl
               onChange={(e) => setUrl(e.target.value)}
               onPaste={handlePaste}
               placeholder={url.startsWith('data:') ? 'Photo uploaded from device' : 'Paste an image URL...'}
-              style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 13, outline: 'none' }}
+              style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 13 }}
             />
             <button
               onClick={() => fileInputRef.current?.click()}

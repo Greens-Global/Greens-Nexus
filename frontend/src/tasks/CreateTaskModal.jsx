@@ -506,12 +506,12 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
             ))}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px dashed ${NX.border}`, borderRadius: 8, padding: '6px 10px' }}>
               <ListChecks size={15} style={{ color: NX.faint }} />
-              <input value={subtaskInput} onChange={(e) => setSubtaskInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSubtask(); } }} placeholder="Add subtask + Enter" style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontFamily: FONT, fontSize: 13 }} />
+              <input className="nx-inline-edit" value={subtaskInput} onChange={(e) => setSubtaskInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSubtask(); } }} placeholder="Add subtask + Enter" style={{ flex: 1, border: 'none', fontFamily: FONT, fontSize: 13 }} />
             </div>
           </div>
         </div>
 
-        <div onPaste={onPasteFiles} tabIndex={0} style={{ ...field, outline: 'none' }}>
+        <div onPaste={onPasteFiles} tabIndex={0} style={{ ...field }}>
           <label style={label}>Attachments</label>
           <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={(e) => { onFiles(e.target.files); e.target.value = ''; }} />
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>

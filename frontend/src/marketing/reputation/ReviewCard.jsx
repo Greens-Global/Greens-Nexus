@@ -109,7 +109,7 @@ export default function ReviewCard({ review, onApprove, onRegenerate, highlightW
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             rows={3}
-            style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid ' + C.gray200, fontSize: 13, color: C.gray700, marginBottom: 8, outline: 'none' }}
+            style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid ' + C.gray200, fontSize: 13, color: C.gray700, marginBottom: 8 }}
           />
         ) : (
           <p style={{ fontSize: 13, color: C.gray700, marginBottom: 8 }}>{review.aiReply}</p>

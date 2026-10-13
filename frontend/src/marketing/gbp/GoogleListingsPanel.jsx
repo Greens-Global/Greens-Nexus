@@ -24,7 +24,7 @@ const btn = {
 const primaryBtn = { ...btn, border: 'none', background: C.emerald600, color: C.white }
 const input = {
   width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid ' + C.gray200, fontSize: 13,
-  color: C.gray800, background: C.white, outline: 'none', fontFamily: 'inherit',
+  color: C.gray800, background: C.white, fontFamily: 'inherit',
 }
 const label = { display: 'block', fontSize: 12, fontWeight: 500, color: C.gray600, marginBottom: 4 }
 
