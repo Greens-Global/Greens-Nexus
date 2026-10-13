@@ -688,6 +688,10 @@ class NexusGroup(Base):
     bod_target      = Column(String, default="chat")   # chat | channel
     bod_chat_id     = Column(String, default="")
     bod_chat_name   = Column(String, default="")
+    # Job roles: '' = made in Settings > Access; 'hiring' = made from Add
+    # Candidate's "Other" (Neil, Oct 12). A hiring-born role with no hiring
+    # packet of its own is flagged on Hiring > Packets until one is added.
+    created_from    = Column(String, default="")
     bod_team_id     = Column(String, default="")
     bod_team_name   = Column(String, default="")
 
@@ -915,6 +919,10 @@ class NexusEmployee(Base):
     # common ancestor of the three-way merge, so a change on either side is told
     # apart from the other side simply being different.
     m365_sync                = Column(JSON, default=dict)
+    # Backup Manager (Neil, Oct 13): covers this person when their manager is
+    # out, with the manager's rights over them. '' = the default - the
+    # manager's manager, else the company's HR contact (backup_manager.py).
+    backup_manager_email     = Column(String, default="")
 
 
 class HrRemovedIdentity(Base):
@@ -2810,6 +2818,10 @@ class PunchRequest(Base):
     decision_note  = Column(String, default="")          # approver's note (esp. on reject)
     applied_punch_id = Column(String, default="")        # the TimePunch created/voided on approval
     created_at     = Column(String, default="")
+    # The Type the employee picked for an added clock-in (Pranshu, Oct 13):
+    # '' = Regular, or "Sick" / "Vacation" / "Personal" - set on the clock-in
+    # when the request is approved, so the block lands as that leave.
+    category       = Column(String, default="")
 
 
 class MonitoringConsent(Base):
@@ -5702,3 +5714,21 @@ class HrLifeEvent(Base):
     created_at      = Column(String, default="")
     updated_at      = Column(String, default="")
     completed_at    = Column(String, default="")
+
+
+class NexusWorkforceScorecardLog(Base):
+    """One row per manager per scored week a Workforce Scorecard email was
+    generated (workforce_scorecard.py, Oct 10 2026) - the once-a-week dedupe
+    check and what the admin Delivery Log reads. New table - create_all
+    builds it; main._enable_rls_everywhere turns RLS on at startup."""
+    __tablename__ = "nexus_workforce_scorecard_log"
+    id            = Column(String, primary_key=True)   # uuid
+    manager_email = Column(String, index=True, nullable=False)
+    week_start    = Column(String, index=True, nullable=False)  # first day of the scored week, YYYY-MM-DD
+    scope         = Column(String, default="team")      # team|all - what the email covered
+    sent_at       = Column(String, default="")          # UTC iso; '' when nothing was mailed
+    mode          = Column(String, default="off")       # off|test|live - which config this run used
+    people_count  = Column(Integer, default=0)          # people on the scorecard
+    absent_count  = Column(Integer, default=0)          # absent all week
+    below_count   = Column(Integer, default=0)          # below expected + well below
+    created_at    = Column(String, default="")

@@ -73,7 +73,11 @@ class TeamScopeTests(unittest.TestCase):
                 compliance={"visa": "H1B", "expiryDate": "2027-01-01"}, personal={"dob": "1990-01-01"},
                 compensation={"base": 5200, "currency": "USD", "payBasis": "salary", "frequency": "monthly",
                               "benefits": [{"type": "health", "plan": "Gold", "deduction": 120}]},
-                bank=[{"bankName": "Chase", "holder": em, "number": "000123456789", "routingOrIfsc": "021000021"}]))
+                bank=[{"bankName": "Chase", "holder": em, "number": "000123456789", "routingOrIfsc": "021000021"}],
+                # Leo's Backup Manager is someone else: by default it would be his
+                # manager's manager, Valinda, who would then have a manager's
+                # rights over him (Neil, Oct 13 - see test_default_backup_*).
+                backup_manager_email=("cover" + D) if em == LOW else ""))
         for i, em in enumerate((MID, LOW)):
             for kind in ("paystub", "id_proof"):
                 db.add(models.HrDocument(id=f"d-{kind}-{i}", employee_id=f"e{1 + i}", kind=kind, file_name=f"{kind}.pdf",
@@ -202,6 +206,16 @@ class TeamScopeTests(unittest.TestCase):
         for who in (LOW, OUT):   # two levels down (seen in People) / not on the team
             for path in (f"/hr/employees/{self.ids[who]}/compensation", f"/hr/employees/{self.ids[who]}/paystubs"):
                 self.assertEqual(self._get(path).status_code, 404, path)
+
+    def test_default_backup_opens_pay_like_a_direct_report(self):
+        # With no backup set, Leo's backup is Valinda (his manager's manager) -
+        # the same rights as his manager, pay included (Neil, Oct 13).
+        db = database.SessionLocal()
+        db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == LOW).update({"backup_manager_email": ""})
+        db.commit()
+        db.close()
+        self.assertEqual(self._get(f"/hr/employees/{self.ids[LOW]}/compensation").status_code, 200)
+        self.assertEqual(self._get(f"/hr/employees/{self.ids[OUT]}/compensation").status_code, 404)
 
     def test_a_manager_cannot_change_pay(self):
         os.environ["NEXUS_DEV_EMAIL"] = VAL

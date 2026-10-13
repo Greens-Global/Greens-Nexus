@@ -76,7 +76,10 @@ class _Case(unittest.TestCase):
         self._emp(SUP, "Sam Super", manager="")
         self._emp(AMY, "Amy Adams", manager=SUP)
         self._emp(BOB, "Bob Brown", manager=SUP)
-        self._emp(CARA, "Cara Cole", manager=AMY)
+        # Cara's Backup Manager is set to someone else, so the supervisor reaches
+        # her only through the reporting line (her DEFAULT backup would be her
+        # manager's manager, SUP - Neil, Oct 13; see test_backup_covers_*).
+        self._emp(CARA, "Cara Cole", manager=AMY, backup_manager_email="other@greensglobal.com")
         self._emp(ZED, "Zed Zane", manager="other@greensglobal.com")
 
     def tearDown(self):
@@ -170,6 +173,16 @@ class TeamRuleTests(_Case):
         everyone = sorted(self._emails(d["in"] + d["out"] + d["onLeave"] + d["late"]))
         self.assertEqual(everyone, [AMY, BOB])
         self.assertEqual(d["counts"], {"in": 0, "out": 2, "onLeave": 0, "late": 0})
+
+    def test_backup_covers_a_second_level_report_like_a_direct_one(self):
+        # With no backup set, Cara's backup is her manager's manager - SUP -
+        # who then sees her as a manager sees a direct report (Neil, Oct 13).
+        self.db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == CARA).update(
+            {"backup_manager_email": ""})
+        self.db.commit()
+        d = self._today()
+        everyone = sorted(self._emails(d["in"] + d["out"] + d["onLeave"] + d["late"]))
+        self.assertEqual(everyone, [AMY, BOB, CARA])
 
     def test_manager_sees_the_whole_tree_never_themself(self):
         self.user = dict(MANAGER)

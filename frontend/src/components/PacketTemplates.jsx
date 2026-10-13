@@ -147,10 +147,15 @@ export function PacketEditor({ packet, event, eventLabel, companyId, companyName
             <select className="form-input" style={{ width: '100%', maxWidth: 420 }} value={t.roleIds[0] || ''}
               onChange={e => set('roleIds', e.target.value ? [e.target.value] : [])}>
               <option value="">Every role</option>
-              {companyRoles.map(r => <option key={r.id} value={r.id}>{r.name}{r.department ? ` - ${r.department}` : ''}</option>)}
+              <optgroup label={`${companyName || 'Company'} Roles`}>
+                {companyRoles.filter(r => r.companyId).map(r => <option key={r.id} value={r.id}>{r.name}{r.department ? ` - ${r.department}` : ''}</option>)}
+              </optgroup>
+              <optgroup label="Shared Roles">
+                {companyRoles.filter(r => !r.companyId).map(r => <option key={r.id} value={r.id}>{r.name}{r.department ? ` - ${r.department}` : ''}</option>)}
+              </optgroup>
             </select>
           )}
-          <div style={hint}>Every role the company has is listed. Pick one to give that role its own packet - IT gets one packet, Accounting another. "Every role" is the packet for roles that have no packet of their own.</div>
+          <div style={hint}>The company's own roles are listed first, then the roles shared across every company. Pick one to give that role its own packet - IT gets one packet, Accounting another. "Every role" is the packet for roles that have no packet of their own.</div>
 
           <label style={lbl}>Documents</label>
           {t.attachments.length === 0 && <div style={{ fontSize: 12.5, color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 12, padding: '12px 14px' }}>No PDF yet. Upload your {eventLabel.toLowerCase()} - the offer letter, NDA and the rest can be one merged PDF or several.</div>}

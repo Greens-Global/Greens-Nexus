@@ -115,7 +115,19 @@ def list_packets(user: dict = Depends(require_hr_read), db: Session = Depends(ge
     tpls = (db.query(HrSignTemplate).filter(HrSignTemplate.status == "active")
             .order_by(HrSignTemplate.name).all())
     tpls = [t for t in tpls if scope is None or not t.entity_id or t.entity_id in scope]
+    # Roles made from Add Candidate's "Other" that no hiring packet names yet
+    # (Neil, Oct 12) - the Packets button lights up until each gets one.
+    from models import NexusGroup
+    covered = {rid for r in rows if r.event == "hire" for rid in (r.role_ids or [])}
+    born = (db.query(NexusGroup).filter(NexusGroup.is_job_role == 1, NexusGroup.created_from == "hiring")
+            .order_by(NexusGroup.name).all())
+    names = {e.id: e.name for e in db.query(HrEntity).all()}
+    needing = [{"id": g.id, "name": g.name, "department": g.department or "",
+                "companyId": g.company_id or "", "companyName": names.get(g.company_id or "", "")}
+               for g in born if g.id not in covered
+               and (scope is None or not g.company_id or g.company_id in scope)]
     return {
+        "rolesNeedingPacket": needing,
         "settings": [hle.ser_setting(db, r) for r in rows],
         "templates": [{"id": t.id, "name": t.name, "kind": t.kind, "entityId": t.entity_id or "",
                        "roles": hle.template_roles(t),

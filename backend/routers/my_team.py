@@ -128,10 +128,8 @@ def team_members(db: Session, user: dict) -> dict:
     if int(user.get("level", 0)) >= 3:
         emails = set(team_emails(db, me))
     else:
-        emails = {(r.work_email or "").lower() for r in
-                  db.query(models.NexusEmployee.work_email)
-                  .filter(func.lower(models.NexusEmployee.manager_email) == me).all()
-                  if r.work_email}
+        import backup_manager          # direct reports + the people they back up (Oct 13)
+        emails = backup_manager.managed_directly(db, me)
     emails.discard(me)
     if not emails:
         return {}
