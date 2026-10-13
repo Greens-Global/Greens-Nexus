@@ -22,6 +22,7 @@ import { useDialogFocus, trapTab } from '../lib/useDialogFocus';
 import { useBackToClose } from '../lib/useBackToClose';
 import { toDownloadUrl } from '../lib/storageView';
 import { frequentRows } from './frequentPeople';
+import TeamPicks, { pickableTeams, firstTeamPick, toggleRoster } from './teamPicks';
 
 // `card={false}` opts a call site out of the hover card - for avatars that are
 // already inside an interactive row (menu items, pickers), where a second click
@@ -1085,7 +1086,11 @@ export function PersonSelect({ value, onChange, people, placeholder = 'Unassigne
 // `frequent` (emails, best first) puts a "Frequent" group above an "All" group
 // while nothing is typed - the Collaborators field passes it; a search is one
 // flat ranked list, as before.
-export function PersonMultiSelect({ value, onChange, people, placeholder = 'Select people', addTitle = 'Add people', frequent = null }) {
+// `teams` (the module's teams) adds a "Teams" group whose rows add or remove a
+// whole roster at once - see teamPicks.jsx; `onSaveTeam` lets the current
+// selection be kept as a team. Both are for the Collaborators field; an
+// assignee list leaves them off.
+export function PersonMultiSelect({ value, onChange, people, placeholder = 'Select people', addTitle = 'Add people', frequent = null, teams = null, onSaveTeam = null }) {
   const [open, setOpen] = useState(false);
   // Phones: the menu is a panel over the form, so it hides the very field it
   // just wrote to - close it once a name is picked. Desktop keeps it open,
@@ -1106,18 +1111,22 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
   const filtered = q ? matchPeople(people, q)
     : people.slice().sort((a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base' }));
   const top = q ? [] : frequentRows(people, frequent);
+  const teamRows = teams ? pickableTeams(teams, people, q).length : 0;
   const toggle = (em) => onChange(emails.includes(em) ? emails.filter((x) => x !== em) : [...emails, em]);
   // Removing a chip leaves the menu up - you're still editing the list; only
   // adding a name is the "done, get out of the way" moment.
-  const pick = (em) => {
-    const adding = !emails.includes(em);
-    toggle(em);
+  const afterPick = (adding) => {
     if (!adding) return;
     // The name is on the trigger now, so the query that found it is spent -
     // clear it (and take focus back) so the next name can just be typed.
     setQ('');
     if (isMobile) setOpen(false);
     else if (!touch) queryRef.current?.focus();
+  };
+  const pick = (em) => {
+    const adding = !emails.includes(em);
+    toggle(em);
+    afterPick(adding);
   };
   // One row; a Frequent person also appears under All, so the key carries
   // which group it is in.
@@ -1179,13 +1188,21 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
       {open && (
         <SelectMenu anchorRef={ref} onClose={() => setOpen(false)}>
           <input ref={queryRef} autoFocus={!touch} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
-            onKeyDown={onEnterPickFirst(top.length ? top : filtered, (p) => pick(p.email))}
+            onKeyDown={(e) => {
+              // Enter takes the first person; when the search matches a team
+              // and nobody, it takes that team instead of doing nothing.
+              const team = (e.key === 'Enter' && !top.length && !filtered.length && teams) ? firstTeamPick(teams, people, q) : null;
+              if (team) { e.preventDefault(); const r = toggleRoster(emails, team.roster); onChange(r.next); afterPick(r.adding); return; }
+              onEnterPickFirst(top.length ? top : filtered, (p) => pick(p.email))(e);
+            }}
             style={menuSearchStyle(touch)} />
+          {teams && <TeamPicks teams={teams} people={people} selected={emails} query={q} inset={12} rowPad="8px 12px"
+            onSaveTeam={onSaveTeam} onChange={(next, adding) => { onChange(next); afterPick(adding); }} />}
           {top.length > 0 && <MenuCaption>Frequent</MenuCaption>}
           {top.map((p) => personRow(p, 'f:'))}
-          {top.length > 0 && <MenuCaption>All</MenuCaption>}
+          {top.length > 0 ? <MenuCaption>All</MenuCaption> : (teamRows > 0 && filtered.length > 0 && <MenuCaption>People</MenuCaption>)}
           {filtered.map((p) => personRow(p, ''))}
-          {filtered.length === 0 && (
+          {filtered.length === 0 && teamRows === 0 && (
             <div style={{ padding: '10px 12px', fontSize: 12.5, color: NX.faint }}>
               {q ? `No people match “${q}”.` : 'No people in the directory.'}
             </div>

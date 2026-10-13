@@ -39,12 +39,12 @@ const INVENTORY_ALLOCATOR_ACTIONS = [
   { sub: 'myitems',  label: 'My Items',  Icon: User },
   { sub: 'handover', label: 'Hand Over', Icon: Camera },
 ];
-// Task module's own module-tab strip (Home/My Tasks/Projects/Portfolios/Teams,
+// Task module's own module-tab strip (Home/Tasks/Projects/Portfolios/Teams,
 // views/Tasks.jsx MODULE_TABS) - Asana app style: icon-over-label, fixed to
 // the bottom instead of the swipeable top strip desktop uses.
 const TASK_ACTIONS = [
   { sub: 'home',       label: 'Home',       Icon: Home },
-  { sub: 'mine',       label: 'My Tasks',   Icon: CheckCircle2 },
+  { sub: 'mine',       label: 'Tasks',      Icon: CheckCircle2 },
   { sub: 'projects',   label: 'Projects',   Icon: FolderKanban },
   { sub: 'portfolios', label: 'Portfolios', Icon: Briefcase },
   { sub: 'teams',      label: 'Teams',      Icon: Users },

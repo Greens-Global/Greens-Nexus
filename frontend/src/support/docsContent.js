@@ -433,7 +433,7 @@ export const DOCS = [
       {
         title: 'Add a Task in One Line',
         steps: [
-          'Open Tasks, then click the My Tasks tab.',
+          'Open Tasks. It opens on the Tasks tab, your own list.',
           'Click the one-line box at the top of the list and type a title.',
           'Press Enter. Set the due date right on that line if you need one.',
         ],
@@ -465,7 +465,7 @@ export const DOCS = [
     ],
     features: [
       { name: 'Home', desc: 'Your own dashboard of widgets (due soon, urgent, completed) for your day, week or month. Customize adds or removes widgets.' },
-      { name: 'My Tasks', desc: 'Everything assigned to you across every project, with comment, attachment and subtask counts on each row.' },
+      { name: 'Tasks', desc: 'Everything assigned to you across every project, with comment, attachment and subtask counts on each row.' },
       { name: 'Projects', desc: 'Related work in one place. You see a project if it is open to the company or you were added (directly or through a team).' },
       { name: 'Portfolios', desc: 'Groups of projects, so leads can follow progress across several at once.' },
       { name: 'Teams', desc: 'Named groups of people. Attach a team to a project to give everyone access in one move.' },

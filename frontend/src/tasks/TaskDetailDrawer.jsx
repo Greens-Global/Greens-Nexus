@@ -21,6 +21,7 @@ import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY
 import { Avatar, PersonSelect, PersonMultiSelect, usePeople, useIsMobile, DateField, AttachmentViewer, ExternalTag, useImageZoom, localTodayISO, notPast, MenuCaption } from './components';
 import { matchPeople, onEnterPickFirst } from '../lib/peopleSearch';
 import { useFrequentCollaborators, frequentRows } from './frequentPeople';
+import TeamPicks, { pickableTeams, firstTeamPick, toggleRoster } from './teamPicks';
 import RichDescription, { isEmptyDoc } from './RichDescription';
 import ProjectPicker from './ProjectPicker';
 import DueBadge from './DueBadge';
@@ -484,20 +485,29 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
 // Shared by MembersMenu below and the Properties tab's own Collaborators row -
 // they were two copies of the same unfiltered checkbox list, easy to miss a
 // search box on one and not the other. One body, used by both triggers.
-function CollaboratorMenuBody({ people, selected, onToggle }) {
+// `onChange(nextEmails, adding)` gets the whole list: a Teams row (teamPicks)
+// adds or removes several people in one click, so a per-email toggle no
+// longer fits. `adding` is what the phone callers close the menu on.
+function CollaboratorMenuBody({ people, selected, onChange }) {
   const [q, setQ] = useState('');
   const queryRef = useRef(null);
   const frequent = useFrequentCollaborators();
+  const { teams, createTeam } = useTasks();
+  // A team saved from here is the person's own (personal) until a manager
+  // approves it - see TaskTeam.approval_status.
+  const saveTeam = ({ name, memberIds }) => createTeam({ name, memberIds, personal: true });
   const filtered = q.trim() ? matchPeople(people, q) : people;
   // Nothing typed: the people you share the most tasks with first, then
   // everyone (the create window's Collaborators field does the same).
   const top = q.trim() ? [] : frequentRows(people, frequent);
+  const teamRows = pickableTeams(teams, people, q).length;
   // Same as the assignee picker: once a name is checked, the query that found
   // it has done its job - reset it and put the cursor back so the next name
   // can be typed straight away.
+  const pickTeam = (next, adding) => { onChange(next, adding); if (adding) { setQ(''); queryRef.current?.focus(); } };
   const pick = (email) => {
     const adding = !selected.includes(email);
-    onToggle(email);
+    onChange(adding ? [...selected, email] : selected.filter((e) => e !== email), adding);
     if (adding) { setQ(''); queryRef.current?.focus(); }
   };
   const row = (u, keyPrefix) => (
@@ -512,14 +522,21 @@ function CollaboratorMenuBody({ people, selected, onToggle }) {
     <div>
       <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, padding: '4px 6px' }}>Collaborators</div>
       <input className="nx-inline-edit" ref={queryRef} autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
-        onKeyDown={onEnterPickFirst(top.length ? top : filtered, (u) => pick(u.email))}
+        onKeyDown={(e) => {
+          // Enter takes the first person; a search that matches a team and
+          // nobody takes that team instead of doing nothing.
+          const team = (e.key === 'Enter' && !top.length && !filtered.length) ? firstTeamPick(teams, people, q) : null;
+          if (team) { e.preventDefault(); const r = toggleRoster(selected, team.roster); pickTeam(r.next, r.adding); return; }
+          onEnterPickFirst(top.length ? top : filtered, (u) => pick(u.email))(e);
+        }}
         style={{ width: '100%', boxSizing: 'border-box', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '6px 8px', fontSize: 13, fontFamily: FONT, color: NX.ink }} />
-      <div className="nx-scroll" style={{ maxHeight: 220, overflowY: 'auto' }}>
+      <div className="nx-scroll" style={{ maxHeight: 260, overflowY: 'auto' }}>
+        <TeamPicks teams={teams} people={people} selected={selected} query={q} onSaveTeam={saveTeam} onChange={pickTeam} />
         {top.length > 0 && <MenuCaption inset={8}>Frequent</MenuCaption>}
         {top.map((u) => row(u, 'f:'))}
-        {top.length > 0 && <MenuCaption inset={8}>All</MenuCaption>}
+        {top.length > 0 ? <MenuCaption inset={8}>All</MenuCaption> : (teamRows > 0 && filtered.length > 0 && <MenuCaption inset={8}>People</MenuCaption>)}
         {filtered.map((u) => row(u, ''))}
-        {filtered.length === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>{people.length === 0 ? 'No people' : 'No match'}</div>}
+        {filtered.length === 0 && teamRows === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>{people.length === 0 ? 'No people' : 'No match'}</div>}
       </div>
     </div>
   );
@@ -554,7 +571,6 @@ function ProjectMenuBody({ projects, exclude, onPick }) {
 function MembersMenu({ task, people, nameOf, patch }) {
   const isMobile = useIsMobile();
   const followers = task.followerIds || [];
-  const toggle = (email) => patch({ followerIds: followers.includes(email) ? followers.filter((e) => e !== email) : [...followers, email] });
   return (
     <div style={{ display: 'flex', alignItems: 'center' }}>
       {followers.slice(0, 3).map((em, i) => <span key={em} style={{ marginLeft: i ? -6 : 0 }}><Avatar email={em} name={nameOf(em)} size={24} /></span>)}
@@ -562,7 +578,7 @@ function MembersMenu({ task, people, nameOf, patch }) {
         <button onClick={t} title="Collaborators" style={{ ...btn('ghost'), padding: 5, marginLeft: followers.length ? 2 : 0, color: NX.faint }}><UserPlus size={16} /></button>
       )}>
         {(close) => <CollaboratorMenuBody people={people} selected={followers}
-          onToggle={(em) => { const adding = !followers.includes(em); toggle(em); if (isMobile && adding) close(); }} />}
+          onChange={(next, adding) => { patch({ followerIds: next }); if (isMobile && adding) close(); }} />}
       </Pop>
     </div>
   );
@@ -716,7 +732,7 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
           {/* Same as the assignee picker: on a phone the menu covers the form,
               so adding a name closes it. Unchecking one keeps it open. */}
           {(close) => <CollaboratorMenuBody people={people} selected={followers}
-            onToggle={(em) => { const adding = !followers.includes(em); toggleFollower(em); if (isMobile && adding) close(); }} />}
+            onChange={(next, adding) => { patch({ followerIds: next }); if (isMobile && adding) close(); }} />}
         </Pop>
       </Row>
 

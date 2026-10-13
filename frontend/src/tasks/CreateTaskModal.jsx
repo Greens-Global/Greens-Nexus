@@ -334,7 +334,9 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
           </div>
           <div style={field}>
             <label style={label}>Collaborators</label>
-            <PersonMultiSelect value={form.followerIds} onChange={(v) => set('followerIds', v)} people={people} frequent={frequent} placeholder="Add collaborators…" addTitle="Add collaborator" />
+            <PersonMultiSelect value={form.followerIds} onChange={(v) => set('followerIds', v)} people={people} frequent={frequent}
+              teams={store.teams} onSaveTeam={({ name, memberIds }) => store.createTeam({ name, memberIds, personal: true })}
+              placeholder="Add collaborators…" addTitle="Add collaborator" />
           </div>
           {/* Start Date is optional and sits before Due Date, the order the
               Timeline column reads them in. Left empty it fills itself in the
