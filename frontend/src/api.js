@@ -1236,6 +1236,7 @@ export const api = {
   retryLifeEventApply: (id)       => req(`/hr/life-events/${id}/retry-apply`, { method: 'POST' }),
   previewPromotion:    (eid, data) => req(`/hr/employees/${eid}/promotion/preview`, { method: 'POST', body: JSON.stringify(data) }),
   sendPromotion:       (eid, data) => req(`/hr/employees/${eid}/promotion`, { method: 'POST', body: JSON.stringify(data) }),
+  changeRole:          (eid, data) => req(`/hr/employees/${eid}/role`, { method: 'POST', body: JSON.stringify(data) }),
   previewOffboard:     (eid, data) => req(`/hr/employees/${eid}/offboard/preview`, { method: 'POST', body: JSON.stringify(data) }),
   offboard:            (eid, data) => req(`/hr/employees/${eid}/offboard`, { method: 'POST', body: JSON.stringify(data) }),
   cancelOffboarding:   (id)        => req(`/hr/life-events/${id}/cancel-offboarding`, { method: 'POST' }),

@@ -2,7 +2,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react';
 import { QuestionnairesModal, InterviewPanel, LeaderboardModal, EmployeeInterviews } from '../components/Interviews';
 import { PacketsModal, SendHiringPacketModal, PacketSigner, PersonLifeEvents, usDay } from '../components/HiringPacket';
-import { PromoteModal, OffboardModal } from '../components/HrPersonActions';
+import { PromoteModal, OffboardModal, RoleChangeModal } from '../components/HrPersonActions';
 import CandidateDetailModal, { STAGES, STAGE_META, candName } from '../components/HiringCandidateDetail';
 import { ScheduleInterviewModal } from '../components/HiringSchedule';
 import CandidateFormModal from '../components/HiringCandidateForm';
@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, formatWeekday } from '../lib/datetime';
+import { currencyOptions, moneyPrefix } from '../asset/lib/currency';
 import { formatDistance, metersToFeet, feetToMeters } from '../lib/distance';
 import { timeTrackingText } from '../lib/timeTracking';
 import { useNameResolver } from '../lib/useNameResolver';
@@ -475,7 +476,7 @@ function EmployeeFormModal({ employee, employees, externals = [], entities = [],
                 <div>
                   <label style={FL}>CURRENCY</label>
                   <select className="form-input" style={{ width: '100%' }} value={(f.contractor || {}).currency || 'USD'} onChange={e => setC('currency', e.target.value)}>
-                    <option value="USD">USD</option><option value="INR">INR</option>
+                    {currencyOptions().map(c => <option key={c.code} value={c.code}>{c.label}</option>)}
                   </select>
                 </div>
                 {cInput('ENGAGEMENT AREA', 'engagement_area', { placeholder: 'e.g. Escondido dev / remote' })}
@@ -1166,7 +1167,7 @@ function PayTab({ employee, reloadToken, onEdit, readOnly = false }) {
     try { await api.deleteEmployeeDoc(id); setStubs(s => s.filter(x => x.id !== id)); } catch { /* noop */ }
   };
 
-  const money = (v, cur) => v ? `${cur === 'INR' ? '₹' : '$'}${Number(v).toLocaleString()}` : '-';
+  const money = (v, cur) => v ? `${moneyPrefix(cur)}${Number(v).toLocaleString()}` : '-';
   const label = (list, v) => (list.find(([x]) => x === v) || [])[1] || v || '';
   const sectionLabel = txt => <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', margin: '16px 0 8px' }}>{txt}</div>;
   const row2 = (k, lbl, value) => (
@@ -1433,9 +1434,10 @@ function EmployeeAccess({ email, identityType = 'internal', companyId = '', toas
             </div>
           ) : <div style={{ color: 'var(--muted)', fontSize: 13 }}>No job role assigned yet.</div>}
           {data.job_role?.description && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>{data.job_role.description}</div>}
-          {/* Neil, Oct 8: changing someone's role is an HR action with a
-              letter (Promote / Change Role), not a silent switch. Setting the
-              FIRST role on a new record stays a direct pick. */}
+          {/* Neil, Oct 8: changing someone's role is an HR action from
+              People. Change Role asks whether it is a promotion (letter) or
+              just the role (Pranshu, Oct 13). Setting the FIRST role on a new
+              record stays a direct pick. */}
           {data.job_role && onChangeRole ? (
             <button className="secondary-btn" style={{ marginTop: 12, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }} onClick={onChangeRole}>
               <Shield size={13} /> Change Role
@@ -1686,7 +1688,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
   const [complianceOpen, setComplianceOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
   // HR's actions on an employee (Neil, Oct 8): promote / change role / offboard
-  const [roleAction, setRoleAction] = useState(null);      // 'promotion' | 'role_change'
+  const [roleAction, setRoleAction] = useState(null);      // 'choose' (Change Role asks first) | 'promotion'
   const [offboardOpen, setOffboardOpen] = useState(false);
   const [signParty, setSignParty] = useState(null);        // HR's own signature on a letter
   const [eventsKey, setEventsKey] = useState(0);
@@ -1829,8 +1831,8 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
               <TrendingUp size={13} /> Promote
             </button>
-            <button className="secondary-btn" onClick={() => setRoleAction('role_change')}
-              title="Move them to a different role, with a letter they and their manager sign"
+            <button className="secondary-btn" onClick={() => setRoleAction('choose')}
+              title="Move them to a different role - as a promotion with a letter, or just the role"
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
               <Shield size={13} /> Change Role
             </button>
@@ -1894,7 +1896,13 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
         </div>
       )}
       {!teamView && <PersonLifeEvents employeeId={e.id} refreshKey={eventsKey} onSignNow={setSignParty} toastOk={toastOk} toastErr={toastErr} />}
-      {roleAction && <PromoteModal employee={e} mode={roleAction} canSeePay={canSeeComp} toastErr={toastErr}
+      {roleAction === 'choose' && <RoleChangeModal employee={e} toastErr={toastErr}
+        onClose={() => setRoleAction(null)} onPromote={() => setRoleAction('promotion')}
+        onChanged={res => {
+          setRoleAction(null); onEmployeeUpdated?.(res.employee);
+          toastOk(`${e.firstName} is now ${res.employee.jobTitle}.${res.warning ? ` ${res.warning}` : ''}`);
+        }} />}
+      {roleAction === 'promotion' && <PromoteModal employee={e} mode={roleAction} canSeePay={canSeeComp} toastErr={toastErr}
         onClose={() => setRoleAction(null)}
         onSent={ev => {
           setRoleAction(null); setEventsKey(n => n + 1);
@@ -2041,8 +2049,10 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
         {tab === 'location' && <GeofenceSection employee={e} toastOk={toastOk} toastErr={toastErr} />}
 
         {tab === 'access' && teamView && <TeamAccessView employee={e} />}
-        {tab === 'access' && isAdmin && !teamView && <EmployeeAccess email={meEmail} identityType={e.identityType} companyId={e.company || ''} toastOk={toastOk} toastErr={toastErr} onChanged={onEmployeeUpdated}
-          onChangeRole={['active', 'onboarding'].includes(e.status) && e.identityType !== 'external' ? () => setRoleAction('role_change') : undefined} />}
+        {/* keyed on updatedAt: a role change made from the Change Role modal
+            re-reads the job role and access shown here */}
+        {tab === 'access' && isAdmin && !teamView && <EmployeeAccess key={e.updatedAt} email={meEmail} identityType={e.identityType} companyId={e.company || ''} toastOk={toastOk} toastErr={toastErr} onChanged={onEmployeeUpdated}
+          onChangeRole={['active', 'onboarding'].includes(e.status) && e.identityType !== 'external' ? () => setRoleAction('choose') : undefined} />}
 
         {tab === 'bod' && <WorkLogsSection employee={e} />}
 
@@ -5213,7 +5223,7 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
       toastOk('Compensation saved.'); onClose();
     } catch (e) { toastErr(e?.message || 'Could not save compensation.'); setBusy(false); }
   }
-  const money = (v, cur) => v ? `${cur === 'INR' ? '₹' : '$'}${Number(v).toLocaleString()}` : '-';
+  const money = (v, cur) => v ? `${moneyPrefix(cur)}${Number(v).toLocaleString()}` : '-';
   const dirty = JSON.stringify({ comp, bank }) !== JSON.stringify(baselineRef.current);
   const guard = useUnsavedGuard(dirty, onClose, save);
 
@@ -5239,7 +5249,7 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
             <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.04em', marginBottom: 10 }}>BASE PAY</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
               <div><label style={FL}>BASE AMOUNT</label><input className="form-input" style={{ width: '100%' }} type="number" value={comp.base} onChange={e => setC('base', e.target.value)} placeholder="e.g. 90000" /></div>
-              <div><label style={FL}>CURRENCY</label><select className="form-input" style={{ width: '100%' }} value={comp.currency} onChange={e => { const cur = e.target.value; setComp(p => ({ ...p, currency: cur, frequency: defaultPayFreq(p.payBasis, cur) })); }}><option value="USD">USD</option><option value="INR">INR</option></select></div>
+              <div><label style={FL}>CURRENCY</label><select className="form-input" style={{ width: '100%' }} value={comp.currency} onChange={e => { const cur = e.target.value; setComp(p => ({ ...p, currency: cur, frequency: defaultPayFreq(p.payBasis, cur) })); }}>{currencyOptions().map(c => <option key={c.code} value={c.code}>{c.label}</option>)}</select></div>
               <div><label style={FL}>PAY BASIS</label><select className="form-input" style={{ width: '100%' }} value={comp.payBasis} onChange={e => { const b = e.target.value; setComp(p => ({ ...p, payBasis: b, frequency: defaultPayFreq(b, p.currency) })); }}>{PAY_BASIS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
               <div><label style={FL}>PAY FREQUENCY</label><select className="form-input" style={{ width: '100%' }} value={comp.frequency} onChange={e => setC('frequency', e.target.value)}>{PAY_FREQ.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
               <div>

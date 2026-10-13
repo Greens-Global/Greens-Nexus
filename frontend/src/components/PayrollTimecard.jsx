@@ -19,6 +19,7 @@ import EmployeeCombobox from './EmployeeCombobox';
 import { downloadBlob } from './accounting/reportModel';
 import { formatDistance } from '../lib/distance';
 import { usePhotoMap } from '../lib/peoplePhotos';
+import { moneyPrefix } from '../asset/lib/currency';
 
 // ── Payroll timecard (SwipeClock 1:1, manager-editable) ───────────────────────
 // One employee, one pay period (biweekly, SUNDAY-anchored on SwipeClock's real
@@ -31,8 +32,7 @@ const DAY = 86400000;
 const isoDate = (d) => new Date(d).toISOString().slice(0, 10);
 const hhmm = (min) => `${Math.floor((min || 0) / 60)}:${String((min || 0) % 60).padStart(2, '0')}`;
 const dec = (min) => ((min || 0) / 60).toFixed(2);
-const CUR_SYM = { USD: '$', INR: '₹' };
-const money = (n, cur = 'USD') => `${CUR_SYM[cur] || '$'}${(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const money = (n, cur = 'USD') => `${moneyPrefix(cur)}${(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 // Punch kinds as they read in a request line. Breaks are requestable too
 // (BreakFixModal), so nothing here may assume in/out.
 const PR_KIND_LABEL = { in: 'clock-in', out: 'clock-out', break_start: 'break start', break_end: 'break end' };
@@ -506,7 +506,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // boundary lands on Saturday for US viewers, re-flooring a period back.
   const shift = (n) => setPStart(new Date(snapPeriodUTC(pStart.getTime()).getTime() + n * 14 * DAY));
   const isFixed = data?.payType === 'fixed';   // monthly salary employee (not hourly)
-  const cur = data?.currency || 'USD';         // $ or ₹
+  const cur = data?.currency || 'USD';         // any ISO code - see moneyPrefix
   // The manager tier never sees pay (Pranshu, 10/06) - the server sends none
   // and says so (payHidden): the pay columns, rates and totals disappear.
   const showPay = !data?.payHidden;

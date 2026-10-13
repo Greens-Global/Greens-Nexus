@@ -359,6 +359,27 @@ def send_promotion(eid: str, body: HirePacketIn, request: Request,
     return out
 
 
+class RoleChangeIn(BaseModel):
+    role_id: str
+    reason:  Optional[str] = ""
+
+
+@router.post("/employees/{eid}/role")
+def change_role(eid: str, body: RoleChangeIn, user: dict = Depends(require_hr_write),
+                db: Session = Depends(get_db)):
+    """Role change without a promotion: the role (and the access it carries)
+    switches now - no letter. A promotion goes through /promotion."""
+    from routers.hr import _serialize, _with_backup
+    try:
+        emp, warning = hle.change_role_now(db, user, eid, body.role_id, body.reason or "", hr_scope(user, db))
+    except hle.PacketError as e:
+        db.rollback()
+        _raise(e)
+    db.commit()
+    db.refresh(emp)
+    return {"employee": _with_backup(db, _serialize(emp)), "warning": warning}
+
+
 # ── offboarding ──────────────────────────────────────────────────────────────
 
 class SeparationIn(BaseModel):

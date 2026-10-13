@@ -53,6 +53,7 @@ from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, Tim
 from routers.hr import company_sites, allowed_site_ids as _allowed_site_ids, _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET, _SHOT_BUCKET, sync_comp_from_rate
 from routers.esign import _client_meta
 from routers.stepup import require_stepup
+from currency import is_currency
 from shift_day import shift_day as _shift_day, shift_bounds_by_day as _shift_bounds_by_day
 
 router = APIRouter(prefix="/timeclock", tags=["timeclock"])
@@ -8606,7 +8607,7 @@ class RateIn(BaseModel):
     hourly_rate: Optional[float] = None
     overtime_rule: Optional[str] = None      # ca | federal | none (unchanged if omitted)
     pay_type: Optional[str] = None           # hourly | fixed
-    currency: Optional[str] = None           # USD | INR
+    currency: Optional[str] = None           # any ISO 4217 code (currency.py)
     monthly_salary: Optional[float] = None   # fixed pay: gross per month
     weekend_ot_amount: Optional[float] = None
     full_day_hours: Optional[float] = None
@@ -8715,7 +8716,7 @@ def set_payroll_rate(body: RateIn, user: dict = Depends(require_team_write),
         row.overtime_rule = body.overtime_rule
     if body.pay_type in ("hourly", "fixed"):
         row.pay_type = body.pay_type
-    if body.currency in ("USD", "INR"):
+    if is_currency(body.currency):
         row.currency = body.currency
     if body.monthly_salary is not None:
         row.monthly_salary = max(0.0, float(body.monthly_salary or 0))

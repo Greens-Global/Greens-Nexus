@@ -652,6 +652,26 @@ class PromotionTests(LifeEventCase):
         ev = self._promote(inputs={"change_type": "role_change", "salary_text": "unchanged"}, pay=None)
         self.assertEqual(ev.flags, [])
 
+    # Change Role without a promotion (Pranshu, Oct 13): no letter, the role
+    # switches now under the same HR permission check.
+    def test_role_change_without_promotion_applies_now(self):
+        emp, warning = hle.change_role_now(self.db, HR_ONLY, "id-erin", "jr-2", "Team move", None)
+        self.db.commit()
+        self.assertEqual(warning, "")
+        member = self.db.query(models.NexusGroupMember).filter_by(email=ERIN).all()
+        self.assertEqual([m.group_id for m in member], ["jr-2"])
+        self.assertEqual((emp.job_title, emp.department), ("IT Dev Associate II", "IT"))
+        self.assertEqual(self.db.query(models.HrLifeEvent).count(), 0)              # nothing to sign
+        log = self.db.query(models.AuditLog).filter_by(action="Changed role", resource_id="id-erin").first()
+        self.assertIn("Team move", log.details)
+
+    def test_role_change_without_promotion_keeps_the_admin_guard(self):
+        with self.assertRaises(hle.PacketError) as e:
+            hle.change_role_now(self.db, HR_ONLY, "id-erin", "jr-admin", "", None)
+        self.assertEqual(e.exception.status, 403)
+        with self.assertRaises(hle.PacketError):
+            hle.change_role_now(self.db, HR_ONLY, "id-erin", "jr-1", "", None)          # already their role
+
 
 SEP_BODY = ["{{full_name}}: your last day is {{last_day}} ({{separation_type}}).",
             "For the company:", "[[sign:company]]", "Acknowledged:", "[[sign:employee]]"]
@@ -922,6 +942,12 @@ class SharedHireAndPayTests(LifeEventCase):
         self.assertEqual(hle.pay_text({"base": 32.5, "payBasis": "hourly", "currency": "USD"}), "$32.50 per hour")
         self.assertEqual(hle.pay_text({"base": 600000, "payBasis": "salary", "frequency": "annual",
                                        "currency": "INR"}), "₹600,000.00 per year")
+        # Any currency (Pranshu, Oct 13): the code where a symbol would mislead.
+        self.assertEqual(hle.pay_text({"base": 5000, "payBasis": "salary", "frequency": "monthly",
+                                       "currency": "CAD"}), "CAD 5,000.00 per month")
+        self.assertEqual(hle.clean_pay({"base": 10, "payBasis": "hourly", "currency": "eur"})["currency"], "EUR")
+        with self.assertRaises(ValueError):
+            hle.clean_pay({"base": 10, "payBasis": "hourly", "currency": "dollars"})
 
 
 if __name__ == "__main__":

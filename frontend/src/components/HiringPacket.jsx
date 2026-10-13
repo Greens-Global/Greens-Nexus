@@ -18,6 +18,7 @@ import { X, Send, FileSignature, RefreshCw, Ban, FolderOpen, CheckCircle, Clock,
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { formatDateTime } from '../lib/datetime';
+import { currencyOptions } from '../asset/lib/currency';
 import { usePeopleDirectory } from '../lib/queries';
 import { Spinner } from './AsyncState';
 import PersonSearchSelect from './PersonSearchSelect';
@@ -474,7 +475,7 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
             )}
             <div><label style={lbl}>Currency</label>
               <select className="form-input" style={{ width: '100%' }} value={pay.currency} onChange={e => setP('currency', e.target.value)}>
-                <option value="USD">USD</option><option value="INR">INR</option>
+                {currencyOptions().map(c => <option key={c.code} value={c.code}>{c.label}</option>)}
               </select></div>
             <div style={{ gridColumn: '1 / -1', ...hint }}>Printed in the offer letter and set as their pay from the start date once they sign.</div>
           </div>
