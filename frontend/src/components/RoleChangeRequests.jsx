@@ -8,13 +8,17 @@
 //                            Request for whoever asked or HR.
 //   RoleChangeDecisionModal - opened straight from the bell or the email
 //                            (People deep link hr-role-change-<id>).
+//   RoleHistory            - the person's role change log (Oct 14): decided
+//                            requests, direct changes made in People and
+//                            signed promotions - when, from / to, the reason,
+//                            who raised it and who approved or signed.
 //
 // What each viewer may do comes from the server (canDecide / canCancel).
 import { useEffect, useState } from 'react';
 import { X, Shield, ArrowRight, Check, Ban, Clock } from 'lucide-react';
 import { api } from '../api';
 import { Spinner } from './AsyncState';
-import { formatDateTime } from '../lib/datetime';
+import { formatDate, formatDateTime } from '../lib/datetime';
 
 const roleLabel = { manager: 'Manager', hr: 'HR' };
 
@@ -145,6 +149,57 @@ export function RoleChangeDecisionModal({ requestId, onClose, onDecided, toastOk
               )}
         </div>
       </div>
+    </div>
+  );
+}
+
+const HISTORY_TONE = { approved: 'green', completed: 'green', changed: 'blue', declined: 'red', canceled: 'gray' };
+
+function outcome(h) {
+  if (h.kind === 'promotion') {
+    return h.signers.length ? `Signed by ${h.signers.map(s => s.name).join(', ')}` : 'Signed through Nexus Sign';
+  }
+  if (h.kind === 'direct') return 'Changed directly in People - no approval needed';
+  if (h.status === 'approved') return `Approved by ${h.decidedByName || h.decidedBy}`;
+  if (h.status === 'declined') return `Declined by ${h.decidedByName || h.decidedBy}${h.note ? ` - ${h.note}` : ''}`;
+  return `Canceled by ${h.decidedByName || h.decidedBy}${h.note ? ` - ${h.note}` : ''}`;
+}
+
+export function RoleHistory({ employeeId = '', email = '', refreshKey }) {
+  const [rows, setRows] = useState(null);
+  useEffect(() => {
+    if (!employeeId && !email) return;
+    api.getRoleHistory({ employeeId, email }).then(setRows).catch(() => setRows([]));
+  }, [employeeId, email, refreshKey]);
+  return (
+    <div style={{ marginTop: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, fontWeight: 700, marginBottom: 8 }}>
+        <Clock size={14} style={{ color: 'var(--muted)' }} /> Role History
+      </div>
+      {rows === null ? <div style={{ padding: 14, color: 'var(--muted)' }}><Spinner size="inline" /></div>
+        : rows.length === 0 ? <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No role changes recorded yet.</div>
+        : rows.map(h => {
+          const tone = HISTORY_TONE[h.status] || 'gray';
+          return (
+            <div key={h.id} style={{ border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px', marginBottom: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 13 }}>
+                <span style={{ padding: '2px 9px', borderRadius: 6, fontSize: 11.5, fontWeight: 700,
+                  background: tone === 'gray' ? 'var(--mist)' : `hsla(var(--color-${tone}),0.12)`,
+                  color: tone === 'gray' ? 'var(--muted)' : `hsl(var(--color-${tone}))` }}>{h.statusLabel}</span>
+                <span>{h.from || 'No role'}</span>
+                <ArrowRight size={13} style={{ color: 'var(--muted)' }} />
+                <span style={{ fontWeight: 700 }}>{h.to}</span>
+                <span style={{ flex: 1 }} />
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}>{formatDateTime(h.at)}</span>
+              </div>
+              {h.reason && <div style={{ fontSize: 12.5, marginTop: 6, whiteSpace: 'pre-line', lineHeight: 1.5 }}><b>Reason:</b> {h.reason}</div>}
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 5, lineHeight: 1.5 }}>
+                Raised by {h.raisedByName || h.raisedBy || 'unknown'}{h.raisedAt && h.raisedAt !== h.at ? ` on ${formatDateTime(h.raisedAt)}` : ''}
+                {' - '}{outcome(h)}{h.effectiveDate ? `. Effective ${formatDate(h.effectiveDate)}` : ''}.
+              </div>
+            </div>
+          );
+        })}
     </div>
   );
 }

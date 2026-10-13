@@ -14,12 +14,14 @@ const preview = {
 };
 const send = vi.fn(() => Promise.resolve({ id: 'ev1' }));
 const requestRoleChange = vi.fn(() => Promise.resolve({ id: 'rq1', approvers: [{ email: 'max@x.com', name: 'Max', as: 'manager' }], warning: '' }));
+const changeRoleNow = vi.fn(() => Promise.resolve({ employeeId: 'e1', roleName: 'IT Dev Associate II', warning: '' }));
 vi.mock('../api', () => ({
   api: {
     hiringOptions: () => Promise.resolve({ roles: [{ id: 'jr-2', name: 'IT Dev Associate II', department: 'IT' }] }),
     previewPromotion: () => Promise.resolve(preview),
     sendPromotion: (...a) => send(...a),
     requestRoleChange: (...a) => requestRoleChange(...a),
+    changeRoleNow: (...a) => changeRoleNow(...a),
   },
 }));
 vi.mock('./ESign', () => ({ SignModal: () => null, AttachmentPlacer: () => null, MERGE_FIELDS: [['salary', 'Salary']] }));
@@ -58,14 +60,28 @@ describe('PromoteModal', () => {
   });
 });
 
-// Change Role asks first (Pranshu, Oct 13): without a promotion it sends a
-// request, with a reason, for the manager or HR to approve; Promotion hands
-// over to the letter.
+// Change Role (Pranshu, Oct 13-14): in People it asks first - without a
+// promotion HR changes the role directly; Promotion hands over to the letter.
+// From Settings > Access there is no promotion: it sends a request, with a
+// reason, for the manager or HR to approve.
 describe('RoleChangeModal', () => {
-  it('asks for approval, with a reason, when it is not a promotion', async () => {
+  it('in People changes the role directly, the reason optional', async () => {
     const onChanged = vi.fn();
     render(<RoleChangeModal employee={erin} onClose={() => {}} onPromote={() => {}} onChanged={onChanged} toastErr={() => {}} />);
     fireEvent.click(screen.getByText('Role Change Without Promotion'));
+    await waitFor(() => expect(screen.getByText(/IT Dev Associate II - IT/)).toBeTruthy());
+    fireEvent.change(screen.getByDisplayValue('- pick a role -'), { target: { value: 'jr-2' } });
+    fireEvent.click(screen.getByRole('button', { name: /Change Role/ }));
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+    expect(changeRoleNow).toHaveBeenCalledWith('e1', { role_id: 'jr-2', reason: '' });
+    expect(requestRoleChange).not.toHaveBeenCalled();
+  });
+
+  it('from Settings asks for approval, with a reason, and offers no promotion', async () => {
+    const onChanged = vi.fn();
+    render(<RoleChangeModal employee={erin} approval onClose={() => {}} onChanged={onChanged} toastErr={() => {}} />);
+    expect(screen.queryByText('Promotion')).toBeNull();
+    expect(screen.queryByText('Role Change Without Promotion')).toBeNull();
     await waitFor(() => expect(screen.getByText(/IT Dev Associate II - IT/)).toBeTruthy());
     const btn = screen.getByRole('button', { name: /Send For Approval/ });
     fireEvent.change(screen.getByDisplayValue('- pick a role -'), { target: { value: 'jr-2' } });

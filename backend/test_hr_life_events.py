@@ -563,7 +563,7 @@ class PromotionTests(LifeEventCase):
     def setUp(self):
         super().setUp()
         for m in (models.NexusGroup, models.NexusGroupMember, models.NexusRole, models.TimeApproval,
-                  models.HrRoleChangeRequest):
+                  models.HrRoleChangeRequest, models.AuditLog, models.HrLifeEvent):
             self.db.query(m).delete()
         self.db.add(models.HrEntity(id="ent-x", name="Elsewhere"))
         self.db.query(models.HrEntity).filter_by(id=ENTITY).update({"hr_contact_email": HR})
@@ -753,6 +753,70 @@ class PromotionTests(LifeEventCase):
         self.assertEqual(self._role_of_erin(), ["jr-1"])
         r = self.client.post(f"/hr/role-change-requests/{body['id']}/cancel")
         self.assertEqual(r.json()["status"], "canceled")
+
+    # From People, HR changes the role directly - no approval (Pranshu, Oct 14).
+    def test_people_changes_the_role_directly_and_overtakes_a_waiting_request(self):
+        import role_change as rc
+        req, _ = self._ask()                                                        # asked in Settings > Access
+        emp = self.db.query(models.NexusEmployee).filter_by(id="id-erin").first()
+        jr, _ = rc.change_now(self.db, HR_ONLY, emp, "jr-2", "Team move")
+        self.db.commit()
+        self.assertEqual(jr.id, "jr-2")
+        self.assertEqual(self._role_of_erin(), ["jr-2"])                            # no approval needed
+        emp = self.db.query(models.NexusEmployee).filter_by(id="id-erin").first()
+        self.assertEqual((emp.job_title, emp.department), ("IT Dev Associate II", "IT"))
+        req = self.db.query(models.HrRoleChangeRequest).get(req.id)
+        self.assertEqual(req.status, "canceled")                                    # the request is moot
+        self.assertEqual(self.db.query(models.NexusNotification).filter_by(ref_id=req.id, priority=1,
+                                                                           actioned=False).count(), 0)
+        titles = {(n.recipient, n.title) for n in self.db.query(models.NexusNotification).filter_by(ref_id="id-erin")}
+        self.assertEqual(titles, {(ERIN, "Your role changed"), (MGR, "Role changed - Erin Lee")})
+        audits = self.db.query(models.AuditLog).filter_by(action="Changed role", resource_id="id-erin").all()
+        self.assertTrue(any("Team move" in a.details for a in audits))
+        with self.assertRaises(rc.RoleChangeError):
+            rc.change_now(self.db, HR_ONLY, emp, "jr-2")                            # already their role
+        with self.assertRaises(rc.RoleChangeError) as e:
+            rc.change_now(self.db, HR_ONLY, emp, "jr-admin")                        # HR cannot hand out admin
+        self.assertEqual(e.exception.status, 403)
+
+    def test_people_change_and_pending_list_over_http(self):
+        self.db.add(models.NexusRole(email=HR, role="administrator"))              # the signed-in HTTP user
+        self.db.commit()
+        auth.invalidate_role_cache(HR)
+        req, _ = self._ask()
+        listed = self.client.get("/hr/role-change-requests").json()                # no person named: every one
+        self.assertEqual([(x["id"], x["employeeId"], x["canDecide"]) for x in listed], [(req.id, "id-erin", True)])
+        r = self.client.post("/hr/employees/id-erin/role", json={"role_id": "jr-2"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["roleName"], "IT Dev Associate II")
+        self.assertEqual(self._role_of_erin(), ["jr-2"])
+        self.assertEqual(self.client.get("/hr/role-change-requests").json(), [])
+        log = self.client.get("/hr/role-history?employee_id=id-erin").json()
+        self.assertEqual(sorted((x["kind"], x["statusLabel"]) for x in log),
+                         [("direct", "Changed In People"), ("request", "Canceled")])
+
+    def test_role_history_logs_requests_direct_changes_and_promotions(self):
+        import role_change as rc
+        req, _ = self._ask(reason="Covers month-end")
+        rc.decide(self.db, {"email": MGR, "level": 2, "role": "employee"}, req.id, True)
+        self.db.commit()
+        emp = self.db.query(models.NexusEmployee).filter_by(id="id-erin").first()
+        rc.change_now(self.db, HR_ONLY, emp, "jr-1", "Back to the old team")
+        self.db.commit()
+        self.db.add(models.HrLifeEvent(id="ev-p", kind="promotion", status="completed", employee_id="id-erin",
+                                       inputs={"change_type": "promotion", "old_title": "IT Dev Associate I",
+                                               "job_title": "Lead", "reason": "Great year"},
+                                       created_by=HR, created_at="2099-01-01T00:00:00", completed_at="2099-01-02T00:00:00"))
+        self.db.commit()
+        rows = rc.role_history(self.db, emp)
+        self.assertEqual([(r["kind"], r["statusLabel"], r["from"], r["to"]) for r in rows], [
+            ("promotion", "Promotion", "IT Dev Associate I", "Lead"),
+            ("direct", "Changed In People", "IT Dev Associate II", "IT Dev Associate I"),
+            ("request", "Approved", "IT Dev Associate I", "IT Dev Associate II"),
+        ])
+        self.assertEqual((rows[1]["reason"], rows[1]["raisedBy"]), ("Back to the old team", HR))
+        self.assertEqual((rows[2]["reason"], rows[2]["raisedBy"], rows[2]["decidedBy"]),
+                         ("Covers month-end", ADMIN_U["email"], MGR))
 
     def test_direct_assign_cannot_swap_a_role_without_approval(self):
         from fastapi import HTTPException
