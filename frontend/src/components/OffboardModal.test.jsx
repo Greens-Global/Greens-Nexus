@@ -5,11 +5,15 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 // Render-smoke for Offboard (Neil, Oct 8): the last day decides where the
 // paperwork goes and when they become Left.
 
+// The modal starts on TODAY'S LOCAL date - a UTC date is already tomorrow
+// in the evening in the US (after 5 PM Pacific).
+const localToday = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+
 const offboard = vi.fn(() => Promise.resolve({ id: 'ev1', applyStatus: 'scheduled', effectiveDate: '2099-01-31' }));
 vi.mock('../api', () => ({
   api: {
     previewOffboard: (eid, body) => Promise.resolve({
-      immediate: body.inputs.last_day <= new Date().toISOString().slice(0, 10), lastDay: body.inputs.last_day,
+      immediate: body.inputs.last_day <= localToday(), lastDay: body.inputs.last_day,
       package: true, documents: ['Separation Package'], sendTo: 'erin@x.com', why: 'they still have their work email until their last day',
       recipients: [{ order: 1, role: 'company', name: 'Hana', email: 'hana@x.com' }, { order: 2, role: 'employee', name: 'Erin Lee', email: 'erin@x.com', isSubject: true }],
       unresolved: [], egnyteSubfolder: 'Separation Documents',
@@ -33,7 +37,7 @@ describe('OffboardModal', () => {
   it('a future last day is scheduled', async () => {
     const onSent = vi.fn();
     render(<OffboardModal employee={erin} companyName="Greens" onClose={() => {}} onSent={onSent} toastErr={() => {}} />);
-    fireEvent.change(screen.getByDisplayValue(new Date().toISOString().slice(0, 10)), { target: { value: '2099-01-31' } });
+    fireEvent.change(screen.getByDisplayValue(localToday()), { target: { value: '2099-01-31' } });
     expect(screen.getByText(/through 01\/31\/2099; the morning after, Nexus marks them Left by itself/)).toBeTruthy();
     fireEvent.change(screen.getByDisplayValue('- pick one -'), { target: { value: 'resignation' } });
     fireEvent.click(screen.getByText('Review'));
