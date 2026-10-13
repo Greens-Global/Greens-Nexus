@@ -16,6 +16,7 @@ Design notes:
 - Public endpoints are token-authenticated only (secrets.token_urlsafe(32));
   they never expose other parties' emails.
 """
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -2491,29 +2492,37 @@ async def save_draft(request: Request, user: dict = Depends(get_current_user),
     email = user["email"].lower()
     draft_id = str(form.get("id") or "").strip()
     now = _now_iso()
-    row = None
-    if draft_id:
-        row = db.query(HrSignDraft).filter(HrSignDraft.id == draft_id,
-                                           HrSignDraft.owner_email == email).first()
-    if row is None:
-        row = HrSignDraft(id=str(uuid.uuid4()), owner_email=email, created_at=now)
-        db.add(row)
-    row.title = (str(payload.get("title") or "").strip() or "Untitled")[:200]
-    row.payload = payload
-    row.updated_at = now
-
     upload = form.get("file")
-    if upload is not None and hasattr(upload, "read"):
-        blob = await upload.read()
-        if len(blob) > _ATTACH_MAX * 4:
-            raise HTTPException(413, "That document is too large to keep as a draft")
-        path = f"esign/drafts/{row.id}/{uuid.uuid4()}.pdf"
-        if not _storage_put(_DOC_BUCKET, path, blob, "application/pdf").is_success:
-            raise HTTPException(502, "Could not store the draft document")
-        row.file_path = path
-        row.file_name = getattr(upload, "filename", "") or "document.pdf"
-    db.commit()
-    return _ser_draft(row)
+    has_file = upload is not None and hasattr(upload, "read")
+    blob = await upload.read() if has_file else b""
+
+    # The form is read on the loop (it has to be awaited); the queries and the
+    # storage upload are blocking, so they run in a thread - never on the
+    # event loop (CLAUDE.md). The session is used only inside that one call.
+    def _save():
+        row = None
+        if draft_id:
+            row = db.query(HrSignDraft).filter(HrSignDraft.id == draft_id,
+                                               HrSignDraft.owner_email == email).first()
+        if row is None:
+            row = HrSignDraft(id=str(uuid.uuid4()), owner_email=email, created_at=now)
+            db.add(row)
+        row.title = (str(payload.get("title") or "").strip() or "Untitled")[:200]
+        row.payload = payload
+        row.updated_at = now
+
+        if has_file:
+            if len(blob) > _ATTACH_MAX * 4:
+                raise HTTPException(413, "That document is too large to keep as a draft")
+            path = f"esign/drafts/{row.id}/{uuid.uuid4()}.pdf"
+            if not _storage_put(_DOC_BUCKET, path, blob, "application/pdf").is_success:
+                raise HTTPException(502, "Could not store the draft document")
+            row.file_path = path
+            row.file_name = getattr(upload, "filename", "") or "document.pdf"
+        db.commit()
+        return _ser_draft(row)
+
+    return await asyncio.to_thread(_save)
 
 
 @router.get("/drafts/{draft_id}/file")

@@ -907,12 +907,15 @@ def export_xlsx(run_id: str = Query(default=""), user: dict = Depends(require_qa
 
 
 @router.post("/import")
-async def import_xlsx(file: UploadFile = File(...), run_id: str = Query(default=""),
-                      user: dict = Depends(require_qa_write), db: Session = Depends(get_db)):
+def import_xlsx(file: UploadFile = File(...), run_id: str = Query(default=""),
+                user: dict = Depends(require_qa_write), db: Session = Depends(get_db)):
+    # Plain `def` on purpose: parsing the workbook and the per-row queries are
+    # blocking, and FastAPI runs a `def` endpoint in its threadpool - as
+    # `async def` a large import froze the whole worker (CLAUDE.md).
     _gate()
     from io import BytesIO
     from openpyxl import load_workbook
-    raw = await file.read()
+    raw = file.file.read()
     try:
         wb = load_workbook(BytesIO(raw), read_only=True, data_only=True)
     except Exception:
