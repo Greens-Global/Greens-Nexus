@@ -74,6 +74,21 @@ describe('useExit', () => {
   });
 });
 
+describe('useExit when the parent keeps the surface', () => {
+  it('drops `closing` after the wait so the surface is visible again', () => {
+    const onClose = vi.fn();   // a busy no-op: the parent does not unmount
+    const { result } = renderHook(() => useExit(onClose, 100));
+    act(() => { result.current[1](); });
+    expect(result.current[0]).toBe(true);
+    act(() => { vi.advanceTimersByTime(100); });
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(result.current[0]).toBe(false);
+    act(() => { result.current[1](); });         // and it can close again
+    act(() => { vi.advanceTimersByTime(100); });
+    expect(onClose).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('useExit after unmount', () => {
   it('ignores a close that arrives once the surface is gone', () => {
     const onClose = vi.fn();

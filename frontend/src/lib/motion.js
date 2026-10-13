@@ -91,7 +91,14 @@ export function useExit(onClose, ms = MOTION.exit) {
     const wait = motionWait(ms);
     if (wait === 0) { cb.current?.(...args); return; }
     setClosing(true);
-    timer.current = setTimeout(() => { timer.current = null; cb.current?.(...args); }, wait);
+    timer.current = setTimeout(() => {
+      timer.current = null;
+      cb.current?.(...args);
+      // A parent that keeps the surface after all (a busy no-op onClose, a
+      // close that only shuts something nested) gets it back visible. Batched
+      // with the parent's own update, so a real unmount never flashes.
+      if (alive.current) setClosing(false);
+    }, wait);
   }, [ms]);
   return [closing, requestClose];
 }

@@ -958,7 +958,7 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
   max-height: 90vh;
   overflow-y: auto;
   box-shadow: 0 24px 80px rgba(0,0,0,0.2), 0 4px 16px rgba(0,0,0,0.1);
-  animation: nx-pop-in var(--dur-md) var(--ease-out) both;
+  animation: nx-pop-in var(--dur-md) var(--ease-out);
 }
 
 /* ── Motion vocabulary (Oct 11, 2026) ─────────────────────────────────────────
@@ -967,7 +967,11 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
    (usePresence / useExit): the hook keeps the surface mounted while the
    `.is-closing` class plays, then unmounts on a timer - never on animationend.
    Everything here is transform/opacity. The reduced-motion rule further down
-   zeroes all of it and the hooks skip the wait too. */
+   zeroes all of it and the hooks skip the wait too.
+   Enter animations carry NO fill mode: with no delay it buys nothing, and a
+   fill keeps the animation "in effect" forever, which acts like will-change -
+   a stacking context, and for transforms a containing block that traps
+   position:fixed children (review, Oct 12). Exits keep `forwards`. */
 @keyframes nx-fade-in  { from { opacity: 0; } }
 @keyframes nx-fade-out { to   { opacity: 0; } }
 @keyframes nx-pop-in   { from { opacity: 0; transform: scale(.96) translateY(8px); } }
@@ -984,15 +988,15 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
 /* Inline-styled dialogs (tasks Modal, marketing Modal, DialogHost): the
    overlay is .nx-overlay; its panel is .nx-panel (centered card) or
    .nx-modal-sheet (the phone's full-height sheet). */
-.nx-overlay { animation: nx-fade-in var(--dur-sm) ease-out both; }
-.nx-overlay > .nx-panel { animation: nx-pop-in var(--dur-md) var(--ease-out) both; }
-.nx-overlay > .nx-modal-sheet { animation: sheetUp var(--dur-md) var(--ease-out) both; }
+.nx-overlay { animation: nx-fade-in var(--dur-sm) ease-out; }
+.nx-overlay > .nx-panel { animation: nx-pop-in var(--dur-md) var(--ease-out); }
+.nx-overlay > .nx-modal-sheet { animation: sheetUp var(--dur-md) var(--ease-out); }
 .nx-overlay.is-closing { animation: nx-fade-out var(--dur-sm) ease-in forwards; pointer-events: none; }
 .nx-overlay.is-closing > .nx-panel { animation: nx-pop-out var(--dur-sm) var(--ease-in) forwards; }
 .nx-overlay.is-closing > .nx-modal-sheet { animation: nx-sheet-down var(--dur-sm) var(--ease-in) forwards; }
 
 /* AnchoredMenu: grows out of its trigger corner and shrinks back into it. */
-.nx-anchored { animation: nx-menu-in var(--dur-sm) var(--ease-out) both; transform-origin: top left; }
+.nx-anchored { animation: nx-menu-in var(--dur-sm) var(--ease-out); transform-origin: top left; }
 .nx-anchored[data-align="end"] { transform-origin: top right; }
 .nx-anchored[data-dir="up"] { transform-origin: bottom left; }
 .nx-anchored[data-dir="up"][data-align="end"] { transform-origin: bottom right; }
