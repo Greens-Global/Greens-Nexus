@@ -265,6 +265,43 @@ class WatchTests(unittest.TestCase):
         self.assertEqual(len(self._bells(MGR)), 1)
         self.assertEqual(len(self._bells(BOSS)), 1)
 
+    def test_a_decider_who_lost_manage_access_is_skipped(self):
+        # MGR is the named decider; demoted, the advisory goes to the
+        # schedulers then the company's managers instead (Oct 12).
+        self.db.query(models.NexusRole).filter(models.NexusRole.email == MGR).delete()
+        self.db.commit()
+        auth.invalidate_role_cache()
+        g = self.db.query(models.ShiftGroup).first()
+        deciders, told = weather_watch.deciders_for(self.db, g, ENT)
+        self.assertEqual((deciders, told), ([], [BOSS]))
+        weather_watch.scan_once(self.db, NOW)
+        self.assertEqual(self._bells(MGR), [])
+        self.assertEqual(len(self._bells(BOSS)), 1)
+
+    def test_the_record_is_written_before_anything_is_sent(self):
+        # The dedupe is atomic (Oct 12): the advisory row is committed, under
+        # the group-day lock, BEFORE the Teams post and the email - so a
+        # concurrent scan reads it and sends nothing.
+        seen = []
+
+        def teams(db, g, html, as_emails):
+            other = database.SessionLocal()   # another connection: what a second scan would read
+            try:
+                seen.append([a.band for a in other.query(models.WeatherAdvisory).all()])
+            finally:
+                other.close()
+            return "ok"
+        with mock.patch.object(weather_watch, "_post_teams", side_effect=teams):
+            weather_watch.scan_once(self.db, NOW)
+        self.assertEqual(seen, [["major"]])
+        # A second pass (Check Now right after) sends nothing more.
+        s = weather_watch.scan_once(self.db, NOW + timedelta(minutes=1))
+        self.assertEqual(s["advisories"], 0)
+        self.assertEqual(weather_watch._send_email.call_count, 1)
+        adv = self.db.query(models.WeatherAdvisory).all()
+        self.assertEqual(len(adv), 1)
+        self.assertEqual(json.loads(adv[0].channels_json)["teams"], "ok")
+
     def test_a_provider_outage_is_quiet(self):
         weather_watch.fetch_forecast.return_value = None
         s = weather_watch.scan_once(self.db, NOW)

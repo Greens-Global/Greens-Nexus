@@ -340,9 +340,13 @@ def deciders_for(db: Session, g, company_id: str) -> tuple:
     """(deciders, everyone_told): the people who make the call, and the full
     advisory audience - deciders (else the group's schedulers) plus the
     company's managers. Only active people in People."""
-    from routers.timeclock import _schedulers, _weather_deciders
+    from auth import level_for
+    from routers.timeclock import _schedulers, _weather_deciders, SHIFT_MANAGE_LEVEL
     people = _people(db)
-    deciders = [e for e in _weather_deciders(g) if e in people] or [e for e in _schedulers(g) if e in people]
+    # A named decider who has since lost Manage access to Shifts stays on the
+    # group (its save only checks new names) but is skipped here (Oct 12).
+    named = [e for e in _weather_deciders(g) if e in people and level_for(e, db) >= SHIFT_MANAGE_LEVEL]
+    deciders = named or [e for e in _schedulers(g) if e in people]
     managers = [e for e in company_managers(db, company_id) if e in people]
     return deciders, list(dict.fromkeys(deciders + managers))
 
@@ -550,14 +554,23 @@ def _upsert_outlook(db: Session, g, day: str, o: dict, hours: list, tz: str) -> 
 
 
 def _record(db: Session, g, day: str, o: dict, hours: list, recipients: list, channels: dict, band: str = "",
-            now_utc: datetime = None) -> None:
-    """created_at is the scan's clock, which the hysteresis measures against."""
-    db.add(models.WeatherAdvisory(
+            now_utc: datetime = None):
+    """created_at is the scan's clock, which the hysteresis measures against.
+    Returns the row: the senders write it FIRST (the claim) and fill in
+    channels_json once the notices have gone."""
+    row = models.WeatherAdvisory(
         id=str(uuid.uuid4()), group_id=g.id, work_date=day, band=band or o["band"], chance=int(o["chance"]),
         inches=float(o["inches"]), storm=1 if o.get("storm") else 0, alerts_json=json.dumps(o.get("alerts") or []),
         window_start=_t12(o["windowStart"]), window_end=_t12(o["windowEnd"]), recipients_json=json.dumps(recipients),
         channels_json=json.dumps(channels), snapshot_json=json.dumps(hours),
-        created_at=(now_utc or datetime.now(timezone.utc)).isoformat()))
+        created_at=(now_utc or datetime.now(timezone.utc)).isoformat())
+    db.add(row)
+    return row
+
+
+def _finish(db: Session, row, channels: dict) -> None:
+    row.channels_json = json.dumps(channels)
+    db.commit()
 
 
 def _advise(db: Session, g, site, company_id: str, day: str, o: dict, hours: list, now_utc: datetime = None) -> dict:
@@ -567,6 +580,10 @@ def _advise(db: Session, g, site, company_id: str, day: str, o: dict, hours: lis
     action = {"view": "shifts", "sub": link_sub}
     headline = f"{'Weather warning' if o['band'] == 'warning' else 'Rain expected'} for {g.name} on {_day_label(day)}"
     body = f"{summary_line(o)} {o['shifts']} shift{'' if o['shifts'] == 1 else 's'} scheduled. Make the weather call."
+    # The record row goes in WITH the bells, before anything leaves Nexus:
+    # it is the claim a concurrent scan (Check Now beside the loop) sees
+    # under the group-day lock, so the email and Teams post go once.
+    rec = _record(db, g, day, o, hours, told, {}, now_utc=now_utc)
     for em in told:
         _bell(db, em, f"weather:{g.id}:{day}", headline, body, action=action, company=company_id, priority=1)
     channels = {"bell": len(told)}
@@ -587,14 +604,15 @@ def _advise(db: Session, g, site, company_id: str, day: str, o: dict, hours: lis
         channels["email"] = _send_email(deciders, subject, mail_html)
     except Exception as e:   # noqa: BLE001
         channels["email"] = f"failed: {str(e)[:160]}"
-    _record(db, g, day, o, hours, told, channels, now_utc=now_utc)
-    db.commit()
+    _finish(db, rec, channels)
     return channels
 
 
 def _heads_up(db: Session, g, company_id: str, day: str, o: dict, hours: list, now_utc: datetime = None) -> dict:
     """The quiet Teams line for a heads-up day (Neil: no bell)."""
     deciders, told = deciders_for(db, g, company_id)
+    rec = _record(db, g, day, o, hours, [], {}, now_utc=now_utc)   # the claim, before the post
+    db.commit()
     html = (f"<p>🌦️ Heads-up for {escape(g.name)} - {escape(_day_label(day))}: {escape(summary_line(o))} "
             f"No action needed yet; Nexus will advise if it turns major.</p>")
     try:
@@ -602,8 +620,7 @@ def _heads_up(db: Session, g, company_id: str, day: str, o: dict, hours: list, n
     except Exception as e:   # noqa: BLE001
         result = f"failed: {str(e)[:160]}"
     channels = {"teams": result}
-    _record(db, g, day, o, hours, [], channels, now_utc=now_utc)
-    db.commit()
+    _finish(db, rec, channels)
     return channels
 
 
@@ -641,6 +658,36 @@ def watched_groups(db: Session, cfg: dict) -> list:
             continue
         out.append((g, site, cid, members.get(g.id, [])))
     return out
+
+
+def _lock_group_day(db: Session, group_id: str, day: str) -> None:
+    """Row lock on the group-day's weather_outlook row (just upserted), held
+    until the caller commits. A no-op lock on SQLite, which runs one writer
+    at a time anyway."""
+    (db.query(models.WeatherOutlook).filter(models.WeatherOutlook.id == f"{group_id}:{day}")
+     .populate_existing().with_for_update().first())
+
+
+def _next_notice(cfg: dict, band: str, last_band: str, age_min, local: datetime) -> str:
+    """What this group-day's band asks for, given the last notice sent:
+    advise | eased | heads_up | held | none."""
+    if band in ("major", "warning"):
+        # Already told - or told something stronger: a warning that lapses
+        # while the rain stays is not news.
+        if last_band == band or (last_band == "warning" and band == "major"):
+            return "none"
+        if last_band == "eased" and band == "major" and age_min is not None and age_min < READVISE_AFTER_MIN:
+            return "held"
+        if band == "major" and in_quiet_hours(cfg, local):
+            return "held"
+        return "advise"
+    if last_band in ("major", "warning"):
+        if age_min is not None and age_min < EASE_AFTER_MIN:
+            return "held"   # let the easing stick before saying so
+        return "eased"
+    if band == "heads_up" and cfg.get("headsUpTeams") and not last_band:
+        return "heads_up"
+    return "none"
 
 
 def scan_once(db: Session, now_utc: datetime = None) -> dict:
@@ -691,31 +738,35 @@ def scan_once(db: Session, now_utc: datetime = None) -> dict:
             summary["bands"][o["band"]] = summary["bands"].get(o["band"], 0) + 1
             _upsert_outlook(db, g, day, o, hours, tz)
             db.commit()
+            # The dedupe is atomic (Oct 12): lock this group-day's outlook
+            # row, THEN read the record. A second scan running beside this
+            # one (Check Now on another worker, or beside the loop) waits
+            # here, and once the lock is free it reads the record row the
+            # sender wrote first (_advise / _heads_up / _eased) and skips.
+            # Every path below commits or rolls back, which frees the lock.
+            _lock_group_day(db, g.id, day)
             last = _last_advisory(db, g.id, day)
             last_band = last.band if last else ""
             age_min = _age_minutes(last, now_utc) if last else None
-            if o["band"] in ("major", "warning"):
-                # Already told - or told something stronger: a warning that
-                # lapses while the rain stays is not news.
-                if last_band == o["band"] or (last_band == "warning" and o["band"] == "major"):
-                    continue
-                if last_band == "eased" and o["band"] == "major" and age_min is not None and age_min < READVISE_AFTER_MIN:
-                    summary["held"] += 1
-                    continue
-                if o["band"] == "major" and in_quiet_hours(cfg, local):
-                    summary["held"] += 1
-                    continue
-                _advise(db, g, site, cid, day, o, hours, now_utc=now_utc)
-                summary["advisories"] += 1
-            elif last_band in ("major", "warning"):
-                if age_min is not None and age_min < EASE_AFTER_MIN:
-                    summary["held"] += 1   # let the easing stick before saying so
-                    continue
-                _eased(db, g, cid, day, o, hours, now_utc=now_utc)
-                summary["eased"] += 1
-            elif o["band"] == "heads_up" and cfg.get("headsUpTeams") and not last_band:
-                _heads_up(db, g, cid, day, o, hours, now_utc=now_utc)
-                summary["headsUp"] += 1
+            act = _next_notice(cfg, o["band"], last_band, age_min, local)
+            if act == "held":
+                summary["held"] += 1
+            if act not in ("advise", "eased", "heads_up"):
+                db.commit()   # nothing to send: free the lock
+                continue
+            try:
+                if act == "advise":
+                    _advise(db, g, site, cid, day, o, hours, now_utc=now_utc)
+                    summary["advisories"] += 1
+                elif act == "eased":
+                    _eased(db, g, cid, day, o, hours, now_utc=now_utc)
+                    summary["eased"] += 1
+                else:
+                    _heads_up(db, g, cid, day, o, hours, now_utc=now_utc)
+                    summary["headsUp"] += 1
+            except Exception:
+                db.rollback()   # never leave the group-day locked
+                raise
     return summary
 
 
