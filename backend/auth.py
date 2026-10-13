@@ -280,6 +280,10 @@ _EXTERNAL_BASE_PREFIXES = (
     "/roles/me", "/notifications", "/groups", "/myhr/directory",
     "/branding", "/help", "/client-errors", "/policy", "/stepup", "/auth/",
     "/version", "/health",
+    # Reading What's New is every Nexus user's default, externals included
+    # (Neil, Oct 12 2026). The prefix only opens task_config.view_router's
+    # read routes: every write under it still needs the task family's grant.
+    "/task-changelog",
 )
 
 # Module id -> the API prefixes that module's grant opens for an EXTERNAL

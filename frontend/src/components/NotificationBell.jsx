@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Bell, CheckCircle, XCircle, Package, ShoppingCart, RotateCcw, Check, X, Trash2, AlertCircle, User, Clock, HelpCircle, Megaphone, AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react';
+import { Bell, CheckCircle, XCircle, Package, ShoppingCart, RotateCcw, Check, X, Trash2, AlertCircle, User, Clock, HelpCircle, Megaphone, AlertTriangle, ChevronDown, ChevronRight, Sparkles } from 'lucide-react';
 import { useNotifications } from '../contexts/NotificationContext';
 import { useInventory }      from '../contexts/InventoryContext';
 import { useRequisitions }   from '../contexts/RequisitionContext';
@@ -65,6 +65,8 @@ const TYPE_META = {
   kb_course_recert:     { icon: RotateCcw,   label: 'Recertification due',   color: 'var(--color-orange)' },
   time_missed_out:      { icon: Clock,       label: 'Missing clock-out',    color: 'var(--color-orange)' },
   time_overtime:        { icon: Clock,       label: 'Overtime',             color: 'var(--color-orange)' },
+  // The week's What's New, kept here for anyone who dismissed the bar (Oct 12).
+  whats_new:            { icon: Sparkles,    label: "What's New",           color: 'var(--color-green)'  },
 };
 
 // Short stage labels/colors for chips on cards and the lifecycle "trail" strip

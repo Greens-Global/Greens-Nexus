@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { CheckCircle, XCircle, Package, ShoppingCart, RotateCcw, User, Clock, AlertCircle, X } from 'lucide-react';
+import { CheckCircle, XCircle, Package, ShoppingCart, RotateCcw, User, Clock, AlertCircle, X, Sparkles } from 'lucide-react';
 import { useNotifications } from '../contexts/NotificationContext';
 import { renderNotifBody, destinationFor } from './NotificationBell';
 import { useMsal }          from '@azure/msal-react';
@@ -29,6 +29,7 @@ const TYPE_META = {
   perm_update:        { icon: CheckCircle,  color: 'var(--color-green)'  },
   perm_return:        { icon: RotateCcw,    color: 'var(--color-orange)' },
   overdue:            { icon: AlertCircle,  color: 'var(--color-red)'    },
+  whats_new:          { icon: Sparkles,     color: 'var(--color-green)'  },   // What's New in the bell (Oct 12)
 };
 
 const LIFESPAN = 7000; // how long a popup stays before auto-dismissing

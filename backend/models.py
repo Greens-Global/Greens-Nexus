@@ -4526,6 +4526,9 @@ class ChangelogSeen(Base):
     __tablename__ = "changelog_seen"
     email        = Column(String, primary_key=True)   # lowercased
     last_seen_at = Column(String, default="")          # UTC ISO
+    # When this person last dismissed (or followed) the weekly New Feature bar
+    # - it stays away for 7 days after (Neil, Oct 12 2026). UTC ISO.
+    banner_seen_at = Column(String, default="")
 
 
 class AiConversation(Base):

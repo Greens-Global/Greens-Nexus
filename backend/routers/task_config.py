@@ -4,21 +4,32 @@ changelog/"What's New" feature. Single router, absolute paths, email-keyed.
 """
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy import or_, func
+from sqlalchemy.exc import IntegrityError
+from collections import Counter
 from pydantic import BaseModel
 from typing import Optional, Any
 import os
 import json
+import uuid
 import httpx
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 import models
 from database import get_db
 from auth import get_current_user, require_level, require_manager, require_any_module_grant
 from routers.task_util import now_iso, gen_id
+from changelog_prs import known_developer
 
 router = APIRouter(tags=["Tasks"],
                    dependencies=[Depends(get_current_user), Depends(require_any_module_grant("tasks", "tickets"))])
+
+# Reading What's New is every Nexus user's default (Neil, Oct 12 2026): the
+# changelog, its comments, the unseen dot, the weekly bar and the update
+# popup's question live here, behind sign-in only. Adding, editing, reviewing,
+# publishing and commenting stay on `router` above, behind the task family's
+# grant. Externals reach these too (auth._EXTERNAL_BASE_PREFIXES).
+view_router = APIRouter(tags=["Tasks"], dependencies=[Depends(get_current_user)])
 
 
 def _nz(v):
@@ -575,7 +586,12 @@ def mark_all_read(user: dict = Depends(get_current_user), db: Session = Depends(
 # ── Changelog / What's New ───────────────────────────────────────────────────
 def changelog_entry_to_dict(e: models.TaskChangelogEntry) -> dict:
     payload = e.payload if isinstance(e.payload, dict) else {}
-    return {**payload, "id": e.id, "createdAt": e.created_at or "", "updatedAt": e.updated_at or ""}
+    out = {**payload, "id": e.id, "createdAt": e.created_at or "", "updatedAt": e.updated_at or ""}
+    # Stored entries keep the developer as GitHub named them; they are read
+    # out as the Nexus person (name + work email for the photo).
+    if isinstance(payload.get("developers"), list):
+        out["developers"] = [known_developer(d) for d in payload["developers"]]
+    return out
 
 
 def changelog_comment_to_dict(c: models.TaskChangelogComment) -> dict:
@@ -593,10 +609,27 @@ class ChangelogCommentBody(BaseModel):
     body: str
 
 
-@router.get("/task-changelog")
+@view_router.get("/task-changelog")
 def list_changelog(db: Session = Depends(get_db)):
     rows = db.query(models.TaskChangelogEntry).order_by(models.TaskChangelogEntry.created_at.desc()).all()
     return [changelog_entry_to_dict(e) for e in rows]
+
+
+def _seen_row(db: Session, email: str) -> models.ChangelogSeen:
+    """This person's ChangelogSeen row, created when missing. Several requests
+    can ask at once - on a first visit to What's New the header's /seen and the
+    New Feature bar's dismissal fire together - so an insert that loses the race
+    reads the winner's row instead of failing with a 500 (Oct 12 2026)."""
+    row = db.query(models.ChangelogSeen).filter(models.ChangelogSeen.email == email).first()
+    if row:
+        return row
+    try:
+        with db.begin_nested():
+            row = models.ChangelogSeen(email=email, last_seen_at="", banner_seen_at="")
+            db.add(row)
+    except IntegrityError:
+        row = db.query(models.ChangelogSeen).filter(models.ChangelogSeen.email == email).first()
+    return row
 
 
 def _mark_changelog_seen(db: Session, email: str) -> None:
@@ -605,12 +638,7 @@ def _mark_changelog_seen(db: Session, email: str) -> None:
     email = (email or "").lower().strip()
     if not email:
         return
-    row = db.query(models.ChangelogSeen).filter(models.ChangelogSeen.email == email).first()
-    now = now_iso()
-    if row:
-        row.last_seen_at = now
-    else:
-        db.add(models.ChangelogSeen(email=email, last_seen_at=now))
+    _seen_row(db, email).last_seen_at = now_iso()
 
 
 @router.post("/task-changelog", status_code=201)
@@ -640,7 +668,7 @@ def update_changelog(entry_id: str, body: ChangelogEntryBody, user: dict = Depen
     return changelog_entry_to_dict(e)
 
 
-@router.get("/task-changelog/unseen")
+@view_router.get("/task-changelog/unseen")
 def get_changelog_unseen(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Powers the red-dot eye icon next to the profile pill: true when a
     published (Released) entry exists that is newer than this user's last
@@ -661,11 +689,173 @@ def get_changelog_unseen(user: dict = Depends(get_current_user), db: Session = D
     return {"unseen": not seen or (seen.last_seen_at or "") < latest}
 
 
-@router.post("/task-changelog/seen")
+@view_router.post("/task-changelog/seen")
 def mark_changelog_seen(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     _mark_changelog_seen(db, user["email"])
+    # What's New is open: its bell entry has been read.
+    email = (user["email"] or "").lower()
+    for n in (db.query(models.NexusNotification)
+              .filter(models.NexusNotification.recipient == email,
+                      models.NexusNotification.ref_id == WHATS_NEW_NOTICE_REF).all()):
+        readers = [x for x in (n.read_by or "").split(",") if x]
+        if email not in readers:
+            n.read_by = ",".join(readers + [email])
     db.commit()
     return {"ok": True}
+
+
+# ── Update announcements (Neil, Oct 12 2026) ───────────────────────────────
+# A weekly full-width bar (frontend components/FeatureBanner.jsx), raised by a
+# New Feature, and the new-version popup's See What's New. Both speak in
+# categories only - "2 new features and 3 bug fixes" - and leave the details to
+# What's New itself.
+FEATURE_BANNER_DAYS = 7
+# A hand-written update used to carry the author's browser wall time with no
+# zone; the company's home zone is the best reading of those. New ones are
+# saved as instants (ChangelogView's AddUpdateModal), and merges always were.
+_CHANGELOG_LOCAL_TZ = ZoneInfo("America/Los_Angeles")
+
+
+def _changelog_instant(value):
+    """An update's time as an aware UTC datetime, or None."""
+    s = str(value or "").strip()
+    if not s:
+        return None
+    try:
+        at = datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if at.tzinfo is None:
+        at = at.replace(tzinfo=_CHANGELOG_LOCAL_TZ)
+    return at.astimezone(timezone.utc)
+
+
+# Parsed released updates, kept until the table changes. Every page load asks
+# for the bar and every stale tab asks what its new version brings, and the
+# payloads carry screenshot data URLs - so they are decoded once per change,
+# not per request. The change check is one cheap aggregate query.
+_released_cache: dict = {"key": None, "rows": []}
+
+
+def _released_updates(db: Session) -> list:
+    """Released updates, newest first, as {id, type, at, merged} - `at` the
+    release time, `merged` when the change merged (merges only)."""
+    E = models.TaskChangelogEntry
+    count, latest_edit, latest_new = db.query(func.count(E.id), func.max(E.updated_at), func.max(E.created_at)).one()
+    key = (count, latest_edit or "", latest_new or "")
+    if _released_cache["key"] == key:
+        return _released_cache["rows"]
+    rows = []
+    for e in db.query(E).all():
+        p = e.payload if isinstance(e.payload, dict) else {}
+        if p.get("status") != "Released":
+            continue
+        at = _changelog_instant(p.get("releasedAt") or e.created_at)
+        if at:
+            rows.append({"id": e.id, "type": p.get("type") or "Update", "at": at,
+                         "merged": _changelog_instant(p.get("mergedAt"))})
+    rows.sort(key=lambda r: r["at"], reverse=True)
+    _released_cache.update(key=key, rows=rows)
+    return rows
+
+
+def _category_counts(rows: list) -> dict:
+    return {"counts": dict(Counter(r["type"] for r in rows)), "total": len(rows)}
+
+
+# Category names are Title Case even mid-sentence (Neil, Oct 12 2026) - the
+# same words, in the same order, as frontend lib/changelogCategories.js.
+_CATEGORY_WORDS = [
+    ("New Feature", "New Feature", "New Features"), ("Improvement", "Improvement", "Improvements"),
+    ("Performance", "Performance Improvement", "Performance Improvements"),
+    ("Security Update", "Security Update", "Security Updates"), ("Bug Fix", "Bug Fix", "Bug Fixes"),
+    ("Hotfix", "Hotfix", "Hotfixes"), ("Maintenance", "Maintenance Update", "Maintenance Updates"),
+]
+
+
+def _summarize_categories(counts: dict) -> str:
+    known = {t for t, _, _ in _CATEGORY_WORDS}
+    parts = [f"{counts[t]} {one if counts[t] == 1 else many}" for t, one, many in _CATEGORY_WORDS if counts.get(t)]
+    other = sum(c for t, c in counts.items() if t not in known)
+    if other:
+        parts.append(f"{other} Other Update{'' if other == 1 else 's'}")
+    return parts[0] if len(parts) < 2 else f"{', '.join(parts[:-1])} and {parts[-1]}"
+
+
+# The week's news also lives in the notification bell (Neil, Oct 12 2026), so a
+# person who dismissed the bar can still find it. One row per person, updated
+# in place (CLAUDE.md: never one per release). While the bar is announcing it,
+# the bell copy is written already read - no toast or badge on top of the bar;
+# while the bar is away for the week, new releases come back unread so the bell
+# does the telling. Opening What's New marks it read (mark_changelog_seen).
+WHATS_NEW_NOTICE_REF = "whats-new"
+
+
+def _whats_new_notice(db: Session, email: str, counts: dict, announced: bool) -> None:
+    body = f"Updates this week, including {_summarize_categories(counts)}."
+    read_by = email if announced else ""
+    row = (db.query(models.NexusNotification)
+           .filter(models.NexusNotification.recipient == email,
+                   models.NexusNotification.ref_id == WHATS_NEW_NOTICE_REF)
+           .order_by(models.NexusNotification.created_at.desc()).first())
+    if row is not None and row.body == body:
+        return
+    if row is not None:
+        # New releases since: fresh text, back to the top, and out of Closed if
+        # the person had cleared last week's copy.
+        row.title, row.body, row.created_at, row.read_by, row.actioned = "New in Nexus", body, now_iso(), read_by, False
+        row.closed_by = ""
+        return
+    db.add(models.NexusNotification(
+        id=str(uuid.uuid4()), type="whats_new", recipient=email, title="New in Nexus", body=body,
+        ref_id=WHATS_NEW_NOTICE_REF, item_name="", requested_by="",
+        action=json.dumps({"view": "whats-new"}), actioned=False, read_by=read_by, created_at=now_iso()))
+
+
+@view_router.get("/task-changelog/feature-banner")
+def get_feature_banner(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Whether to show this person the weekly bar, and what it counts.
+
+    Raised only by a New Feature released in the last 7 days that they have
+    not seen (opened What's New since), and never within 7 days of their last
+    dismissal - once a week at most, on every device. When it shows it counts
+    every category released since they last looked, bug fixes included."""
+    email = user["email"].lower()
+    week_ago = datetime.now(timezone.utc) - timedelta(days=FEATURE_BANNER_DAYS)
+    row = db.query(models.ChangelogSeen).filter(models.ChangelogSeen.email == email).first()
+    seen_at = _changelog_instant(row.last_seen_at) if row else None
+    floor = max(week_ago, seen_at) if seen_at else week_ago
+    fresh = [r for r in _released_updates(db) if r["at"] > floor]
+    if not any(r["type"] == "New Feature" for r in fresh):
+        return {"show": False}
+    counts = _category_counts(fresh)
+    banner_at = _changelog_instant(row.banner_seen_at) if row else None
+    away_this_week = bool(banner_at and banner_at > week_ago)
+    # The bell copy, whether or not the bar shows (see _whats_new_notice).
+    _whats_new_notice(db, email, counts["counts"], announced=not away_this_week)
+    db.commit()
+    if away_this_week:
+        return {"show": False}
+    return {"show": True, **counts}
+
+
+@view_router.post("/task-changelog/feature-banner/dismiss")
+def dismiss_feature_banner(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Dismissed, or What's New opened: no bar for 7 days."""
+    _seen_row(db, user["email"].lower()).banner_seen_at = now_iso()
+    db.commit()
+    return {"ok": True}
+
+
+@view_router.get("/task-changelog/released-since")
+def get_released_since(since: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """What the version waiting for a stale tab brings, by category: Released
+    updates whose change came after `since` - the running build's time. A
+    merge is placed by when it merged, not when its update was published:
+    publishing trails the merge by minutes, and a build cut in between already
+    contains it. A hand-written update is placed by its release time."""
+    since_at = _changelog_instant(since) or (datetime.now(timezone.utc) - timedelta(days=1))
+    return _category_counts([r for r in _released_updates(db) if (r["merged"] or r["at"]) > since_at])
 
 
 @router.delete("/task-changelog/{entry_id}", status_code=204)
@@ -675,7 +865,7 @@ def delete_changelog(entry_id: str, db: Session = Depends(get_db)):
     db.commit()
 
 
-@router.get("/task-changelog/{entry_id}/comments")
+@view_router.get("/task-changelog/{entry_id}/comments")
 def list_changelog_comments(entry_id: str, db: Session = Depends(get_db)):
     rows = db.query(models.TaskChangelogComment).filter(
         models.TaskChangelogComment.entry_id == entry_id).all()

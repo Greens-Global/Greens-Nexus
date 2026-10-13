@@ -18,6 +18,7 @@ import { StepUpOverlay } from "./stepup/StepUp";
 import GlobalSearch from "./components/GlobalSearch";
 import PullToRefresh from "./components/PullToRefresh";
 import UpdateBanner from "./components/UpdateBanner";
+import FeatureBanner from "./components/FeatureBanner";
 import AssistantWidget from "./components/AssistantWidget";
 import ViewErrorBoundary from "./components/ViewErrorBoundary";
 import { Spinner, ViewLoading } from "./components/AsyncState";
@@ -80,13 +81,14 @@ const Egnyte              = lazy(() => import("./views/Egnyte"));
 const EmployeeTracking    = lazy(() => import("./components/TimeTrackingAdmin"));
 const Shifts              = lazy(() => import("./views/Shifts"));
 const MyBriefing          = lazy(() => import("./views/MyBriefing"));
+const WhatsNew            = lazy(() => import("./tasks/ChangelogView"));   // What's New as a page (Oct 12)
 
 const VIEW_LABELS = Object.fromEntries(MODULES.map(m => [m.id, m.label]));
 // Views that aren't registered MODULES (e.g. "purchase") fall back to a
 // title-cased version of their id so breadcrumbs never show raw lowercase ids.
 // Acronyms the title-caser would mangle ("pdf-editor" -> "Pdf Editor"). These
 // views live in Sidebar's NAV but not in MODULES, so they hit the fallback.
-const LABEL_OVERRIDES = { 'pdf-editor': 'PDF Tools', 'terms-conditions': 'Terms & Conditions', briefing: 'My Briefing', legal: 'Legal' };
+const LABEL_OVERRIDES = { 'pdf-editor': 'PDF Tools', 'terms-conditions': 'Terms & Conditions', briefing: 'My Briefing', legal: 'Legal', 'whats-new': "What's New" };
 const viewLabel = (view) => VIEW_LABELS[view] || LABEL_OVERRIDES[view]
   || (view || '').split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
@@ -295,6 +297,9 @@ function TaskPrefetch() {
 // notification links, dev tools), the actual view content is never shown
 // without the correct role or a group grant.
 const LEGAL_VIEWS = new Set(['legal', 'privacy-policy', 'terms-conditions']);
+// Open to every signed-in user, externals included: reading What's New is
+// everyone's default (Neil, Oct 12 2026); changing it is gated inside.
+const OPEN_VIEWS = new Set(['whats-new']);
 
 function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
   const { can, myGrantedModules, isExternal } = useRole();
@@ -314,7 +319,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
   // Legal is open to everyone who signs in, externals included - they
   // accepted these terms too (Oct 7).
   const hasAccess = isExternal
-    ? (granted || LEGAL_VIEWS.has(activeView))
+    ? (granted || LEGAL_VIEWS.has(activeView) || OPEN_VIEWS.has(activeView))
     : (!minRole || can('administrator') || (minRole !== 'administrator' && granted));
 
   // An external landing on a non-granted view (e.g. the default 'dashboard'
@@ -368,6 +373,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     // Open to every internal user (no VIEW_MIN_ROLES entry); externals get
     // Access Restricted here and 403 from the API.
     case "directory":          return <Directory />;
+    case "whats-new":          return <WhatsNew />;
     case "timeclock":          return <TimeClock initialTab="overview" activeSub={activeSub} onSubChange={onSubChange} />;
     case "myhr":               return <TimeClock initialTab="overview" activeSub={activeSub} onSubChange={onSubChange} />;
     case "testing":            return <Testing />;
@@ -750,14 +756,15 @@ function MainApp() {
               center via <ModuleTabs> (Work OS shell - Stella-style layout) */}
           <HeaderTabsProvider>
           <main className={`main-content${sidebarCollapsed ? " main-collapsed" : ""}`}>
+            {/* The weekly "New in Nexus" bar - across the top of the page,
+                above the header (components/FeatureBanner.jsx). */}
+            <FeatureBanner activeView={activeView} onNavigate={navigate} />
             {/* PDF Editor is a full-bleed workspace with its own toolbar — hide
                 the Nexus top header so it gets the whole viewport height. */}
             {!pdfHasDoc && (
             <TopHeader
               title={viewLabel(activeView)}
               activeView={activeView}
-              helpKey={activeSub ? `${activeView}:${activeSub}` : activeView}
-              helpLabel={viewLabel(activeView)}
               theme={theme}
               onThemeToggle={() => setTheme(t => t === "dark" ? "light" : "dark")}
               sidebarPinned={sidebarPinned}
@@ -777,7 +784,7 @@ function MainApp() {
                 whole canvas. It used to cancel .viewport's padding with negative
                 margins, which only matched ONE of the five breakpoint paddings
                 and so sat off-center at most widths. */}
-            <div className={(activeView === 'tasks' || activeView === 'tickets' || activeView === 'pdf-editor' || pdfHasDoc) ? 'viewport viewport-flush'
+            <div className={(activeView === 'tasks' || activeView === 'tickets' || activeView === 'pdf-editor' || pdfHasDoc || activeView === 'whats-new') ? 'viewport viewport-flush'
               : activeView === 'dashboard' ? 'viewport viewport-desk'
               : activeView === 'documents' ? 'viewport viewport-tight'
               : 'viewport'}>
