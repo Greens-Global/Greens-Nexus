@@ -126,6 +126,25 @@ class WeatherSiteTests(unittest.TestCase):
         self.assertEqual(self._create(weather_deciders=[MGR, BOSS]).status_code, 200)
         self.assertEqual(self._groups()["Crew"]["weatherDeciders"], [MGR, BOSS])
 
+    def test_a_decider_who_lost_access_does_not_block_a_save(self):
+        self.assertEqual(self._create(weather_deciders=[MGR]).status_code, 200)
+        gid = self._groups()["Crew"]["id"]
+        # The manager is demoted after being named a decider.
+        db = database.SessionLocal()
+        try:
+            db.query(models.NexusRole).filter(models.NexusRole.email == MGR).delete()
+            db.commit()
+        finally:
+            db.close()
+        auth.invalidate_role_cache()
+        # Renaming the group (deciders sent back unchanged) still saves...
+        r = self.client.patch(f"/timeclock/shift-groups/{gid}", json={"name": "Crew", "members": [EMP], "weather_deciders": [MGR]})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self._groups()["Crew"]["weatherDeciders"], [MGR])
+        # ...but adding someone without Manage access is still refused.
+        r = self.client.patch(f"/timeclock/shift-groups/{gid}", json={"name": "Crew", "members": [EMP], "weather_deciders": [MGR, EMP]})
+        self.assertEqual(r.status_code, 400, r.text)
+
     def test_schedule_carries_the_group_site(self):
         self.assertEqual(self._create(work_site_id=SITE).status_code, 200)
         r = self.client.get("/timeclock/schedule", params={"start": "2026-10-12", "end": "2026-10-18"})

@@ -5258,11 +5258,17 @@ WEATHER_DECIDER_DENIED = ("{who} cannot make the weather call - weather deciders
                           "to Shifts (manager and above).")
 
 
-def _clean_deciders(db: Session, emails: list) -> str:
+def _clean_deciders(db: Session, emails: list, existing: list = ()) -> str:
+    """Only the deciders being ADDED are checked (Neil, Oct 12): one who has
+    since left People or lost Manage access stays on the list - so any other
+    edit to the group still saves - and the weather routing skips them
+    (weather_watch.deciders_for / weather_call.may_decide)."""
     from auth import level_for
     out = list(dict.fromkeys(e.strip().lower() for e in emails if e and e.strip()))
-    _check_people(db, out, " (weather deciders)")
-    for em in out:
+    kept = set(existing or ())
+    added = [em for em in out if em not in kept]
+    _check_people(db, added, " (weather deciders)")
+    for em in added:
         if level_for(em, db) < SHIFT_MANAGE_LEVEL:
             raise HTTPException(400, WEATHER_DECIDER_DENIED.format(who=em))
     return json.dumps(out)
@@ -5277,7 +5283,7 @@ def _apply_weather(db: Session, g, body: "GroupIn") -> None:
             raise HTTPException(400, "Work site not found.")
         g.work_site_id = sid
     if body.weather_deciders is not None:
-        g.weather_decider_emails = _clean_deciders(db, body.weather_deciders)
+        g.weather_decider_emails = _clean_deciders(db, body.weather_deciders, _weather_deciders(g))
     if body.weather_alerts is not None:
         g.weather_alerts = 1 if body.weather_alerts else 0
 
