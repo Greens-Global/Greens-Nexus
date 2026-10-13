@@ -1072,9 +1072,19 @@ def agenda(start: str = "", end: str = "", tz: str = "UTC",
 # dashboard_birthdays - watches NexusEmployee, so an HR edit invalidates it).
 @router.get("/birthdays")
 def birthdays(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    # Company wall (auth.company_scope): None = every company, else only the
+    # caller's own - and the cache is kept per wall, as the contact directory's
+    # is, so one company's roster is never served to another.
+    scope = auth.company_scope(user, db)
+    key = "all" if scope is None else ("co:" + ",".join(sorted(scope)) if scope else "co:none")
+
     def _load() -> dict:
-        rows = (db.query(models.NexusEmployee)
-                .filter(models.NexusEmployee.status == "active").all())
+        q = db.query(models.NexusEmployee).filter(models.NexusEmployee.status == "active")
+        if scope is not None:
+            if not scope:
+                return {"birthdays": []}
+            q = q.filter(models.NexusEmployee.company.in_(scope))
+        rows = q.all()
         out = []
         for e in rows:
             dob = ((e.personal or {}).get("dob") or "").strip()
@@ -1087,7 +1097,7 @@ def birthdays(user: dict = Depends(get_current_user), db: Session = Depends(get_
             out.append({"name": name, "month": int(m.group(1)), "day": int(m.group(2))})
         return {"birthdays": out}
 
-    return {**cache.dashboard_birthdays.get_or_load((), _load), "at": _now()}
+    return {**cache.dashboard_birthdays.get_or_load(key, _load), "at": _now()}
 
 
 # The caller's OWN company's holiday calendar for the Calendar widget (Sep

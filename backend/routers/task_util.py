@@ -20,7 +20,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from models import (TaskNotification, TaskActivity, NexusRole, NexusNotification, TaskProject,
-                    TaskTeam, Task, TaskComment, TaskAttachment, AsanaTaskLink)
+                    TaskTeam, Task, TaskComment, TaskAttachment)
 
 _SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 _SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
@@ -564,8 +564,12 @@ def create_comment(db: Session, task, *, actor_email: str, author_email: str = "
 def purge_task_permanently(db: Session, task_id: str, actor_email: str = "") -> bool:
     """Permanently remove an already-TRASHED task and everything under it - the
     full cascade delete_task ran immediately before soft delete existed:
-    subtasks, comments, attachments, its Asana link. Returns False if the id
-    doesn't exist or was never trashed (live tasks are never purged from here).
+    subtasks, comments, attachments. Returns False if the id doesn't exist or
+    was never trashed (live tasks are never purged from here).
+
+    Its Asana link rows (AsanaTaskLink) are deliberately LEFT: every asana_*
+    row is the permanent record of where a task came from and is never deleted
+    (CLAUDE.md, "Asana - removed").
 
     Shared by POST /tasks/{id}/permanent-delete (a manager emptying trash
     early) and task_trash.trash_purge_loop (the automatic 90-day sweep), so
@@ -588,6 +592,5 @@ def purge_task_permanently(db: Session, task_id: str, actor_email: str = "") -> 
                 detail="permanently deleted this task")
     db.query(TaskComment).filter(TaskComment.task_id.in_(gone_ids)).delete(synchronize_session=False)
     db.query(TaskAttachment).filter(TaskAttachment.task_id.in_(gone_ids)).delete(synchronize_session=False)
-    db.query(AsanaTaskLink).filter(AsanaTaskLink.nexus_task_id.in_(gone_ids)).delete(synchronize_session=False)
     db.query(Task).execution_options(include_deleted=True).filter(Task.id.in_(gone_ids)).delete(synchronize_session=False)
     return True

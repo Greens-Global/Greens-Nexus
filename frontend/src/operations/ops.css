@@ -1,0 +1,173 @@
+/* Operations (storage facilities) - chart colors and the few layout rules the
+   shared classes do not cover. Colors are roles, set once per theme:
+   two series (blue, orange), a neutral for "not in play", and a one-hue ramp
+   for the age of a past-due balance. Dark values are their own steps, picked
+   for the dark card, not an automatic flip. */
+.ops-root {
+  --ops-s1: #2a78d6;
+  --ops-s2: #eb6834;
+  --ops-neutral: #c4c7cc;
+  --ops-age-1: #86b6ef;
+  --ops-age-2: #5598e7;
+  --ops-age-3: #2a78d6;
+  --ops-age-4: #1c5cab;
+  --ops-age-5: #104281;
+  --ops-grid: rgba(15, 23, 42, 0.08);
+  --ops-surface: var(--card);
+}
+[data-theme="dark"] .ops-root {
+  --ops-s1: #3987e5;
+  --ops-s2: #d95926;
+  --ops-neutral: #4a5163;
+  /* Older debt stands further from the surface in both themes. */
+  --ops-age-1: #184f95;
+  --ops-age-2: #256abf;
+  --ops-age-3: #3987e5;
+  --ops-age-4: #6da7ec;
+  --ops-age-5: #9ec5f4;
+  --ops-grid: rgba(255, 255, 255, 0.09);
+}
+
+.ops-root { display: flex; flex-direction: column; gap: 18px; }
+.ops-root .kpi-grid { margin-bottom: 0; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+.ops-root .kpi-value { font-size: 27px; }
+
+.ops-grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.ops-grid-3-2 { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 18px; }
+@media (max-width: 1000px) {
+  .ops-grid-2, .ops-grid-3-2 { grid-template-columns: minmax(0, 1fr); }
+}
+
+.ops-pills { display: flex; gap: 6px; flex-wrap: wrap; }
+.ops-pill {
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--muted);
+  font: 500 13px/1 'Inter', sans-serif;
+  padding: 8px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ops-pill:hover { color: var(--ink); }
+.ops-pill[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--card); font-weight: 600; }
+.ops-pill:focus-visible, .ops-link:focus-visible, .ops-attn button:focus-visible { outline: 2px solid var(--ops-s1); outline-offset: 2px; }
+
+.ops-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+.ops-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+
+.ops-tip {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: var(--shadow-md);
+  padding: 10px 12px;
+  font-size: 12.5px;
+  color: var(--ink);
+  min-width: 150px;
+}
+.ops-tip-title { font-weight: 600; margin-bottom: 6px; }
+.ops-tip-row { display: flex; justify-content: space-between; gap: 16px; padding: 2px 0; color: var(--muted); }
+.ops-tip-row b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.ops-tip-row i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
+
+.ops-root .req-table td.num, .ops-root .req-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.ops-link { color: var(--ops-s1); font-weight: 600; font-size: 12.5px; text-decoration: none; white-space: nowrap; display: inline-flex; align-items: center; gap: 4px; }
+.ops-link:hover { text-decoration: underline; }
+.ops-empty { padding: 22px 8px; text-align: center; color: var(--muted); font-size: 13px; }
+
+.ops-attn { display: flex; flex-direction: column; }
+.ops-attn button {
+  display: flex; align-items: baseline; gap: 10px; width: 100%;
+  text-align: left; background: none; border: none; border-bottom: 1px solid var(--line);
+  padding: 10px 2px; cursor: pointer; font: inherit; color: var(--ink); font-size: 13.5px;
+}
+.ops-attn button:last-child { border-bottom: none; }
+.ops-attn button:hover span:last-child { text-decoration: underline; }
+.ops-attn .ops-attn-fac { flex: 0 0 104px; font-weight: 600; font-size: 12.5px; color: var(--muted); }
+
+.ops-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; gap: 2px; width: 140px; }
+.ops-bar span { display: block; height: 100%; }
+
+/* Everything that shows a figure is a way in to the list behind it. */
+.ops-kpi { display: block; width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer; transition: transform .12s ease, box-shadow .12s ease; }
+.ops-kpi:hover { transform: translateY(-1px); box-shadow: var(--shadow-md), 0 0 0 1px var(--ops-s1); }
+.ops-kpi:focus-visible, .ops-cell:focus-visible, .ops-name:focus-visible, .ops-chip:focus-visible { outline: 2px solid var(--ops-s1); outline-offset: 2px; }
+.ops-kpi .kpi-label { justify-content: space-between; }
+.ops-kpi-go { color: var(--muted); opacity: .55; flex-shrink: 0; }
+.ops-kpi:hover .ops-kpi-go { color: var(--ops-s1); opacity: 1; }
+
+.ops-cell { background: none; border: none; padding: 0; font: inherit; font-variant-numeric: tabular-nums; color: var(--ops-s1); font-weight: 600; cursor: pointer; }
+.ops-cell:hover, .ops-name:hover { text-decoration: underline; }
+.ops-name { color: var(--ink); text-decoration: none; }
+.ops-name:hover { color: var(--ops-s1); }
+
+.ops-chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--mist); color: var(--ink); font: 600 12px/1 'Inter', sans-serif; padding: 7px 10px; border-radius: 999px; cursor: pointer; white-space: nowrap; }
+.ops-chip:hover { border-color: var(--ops-s1); }
+.ops-root .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* The card a KPI just brought into view. */
+.ops-root .dash-card { scroll-margin-top: 84px; }
+.ops-lit { animation: opsLit 1.6s ease-out 1; }
+@keyframes opsLit { 0%, 45% { box-shadow: var(--shadow-md), 0 0 0 2px var(--ops-s1); } 100% { box-shadow: var(--shadow-md), 0 0 0 2px transparent; } }
+@media (prefers-reduced-motion: reduce) { .ops-kpi { transition: none; } .ops-kpi:hover { transform: none; } .ops-lit { animation: none; } }
+
+/* Facility picker on the left, period on the right. */
+.ops-bar-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.ops-period { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); font-weight: 500; }
+.ops-period select { font: 500 13px/1 'Inter', sans-serif; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 8px 12px; cursor: pointer; }
+.ops-period select:focus-visible, .ops-search input:focus-visible { outline: 2px solid var(--ops-s1); outline-offset: 2px; }
+.ops-note { font-size: 12.5px; color: var(--muted); margin: -8px 0 0; }
+
+/* Search and pager: a long list stays one page tall. */
+.ops-search { display: flex; align-items: center; gap: 8px; max-width: 320px; margin-bottom: 10px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); background: var(--card); }
+.ops-search input { flex: 1; min-width: 0; border: none; background: none; padding: 8px 0; font: 400 13px/1.2 'Inter', sans-serif; color: var(--ink); outline: none; }
+.ops-pager { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 10px; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ops-pager-btns { display: inline-flex; gap: 6px; }
+.ops-pager-btns .secondary-btn { display: inline-flex; align-items: center; padding: 6px 9px; }
+
+/* Lookup: one box, results in a panel under the bar. */
+.ops-bar-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.ops-lookup { position: relative; }
+.ops-lookup-box { margin-bottom: 0; width: 250px; border-radius: 999px; }
+.ops-x { background: none; border: none; padding: 2px; color: var(--muted); cursor: pointer; display: inline-flex; }
+.ops-lookup-panel { position: absolute; right: 0; top: calc(100% + 8px); z-index: 30; width: min(640px, calc(100vw - 48px)); max-height: 60vh; overflow-y: auto; padding: 8px 14px; }
+.ops-hits { list-style: none; margin: 0; padding: 0; }
+.ops-hit { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.ops-hit:last-child { border-bottom: none; }
+.ops-hit-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ops-hit-unit { font-weight: 700; font-size: 15px; color: var(--ink); }
+.ops-hit-where { font-size: 12.5px; color: var(--muted); }
+.ops-hit-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px 14px; margin: 10px 0 0; }
+.ops-hit-facts dt { font-size: 11px; color: var(--muted); }
+.ops-hit-facts dd { margin: 2px 0 0; font-size: 13.5px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+@media (max-width: 700px) { .ops-lookup, .ops-lookup-box { width: 100%; } .ops-lookup-panel { left: 0; right: auto; } }
+
+/* Reports and competitor lists: a title, a line about it, one action. */
+.ops-reports { list-style: none; margin: 0; padding: 0; }
+.ops-report { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.ops-report:last-child { border-bottom: none; }
+.ops-report-title { font-weight: 600; font-size: 13.5px; color: var(--ink); display: flex; align-items: center; gap: 8px; }
+.ops-report-about { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+
+/* Market Rates */
+.ops-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 12px; align-items: end; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+.ops-form label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; font-weight: 500; color: var(--muted); }
+.ops-form .form-input { width: 100%; }
+.ops-form-error { grid-column: 1 / -1; margin: 0; font-size: 12.5px; color: hsl(var(--color-red)); }
+.ops-delta { font-size: 12px; color: var(--muted); font-weight: 500; }
+.ops-why { font-size: 12.5px; color: var(--muted); min-width: 220px; white-space: normal; }
+.ops-analysis { font-size: 13.5px; line-height: 1.55; color: var(--ink); }
+.ops-analysis-head { font-weight: 600; font-size: 14.5px; margin: 0 0 10px; }
+.ops-analysis h4 { font-size: 12px; font-weight: 600; color: var(--muted); margin: 14px 0 6px; }
+.ops-analysis ul { margin: 0; padding-left: 18px; }
+.ops-analysis li { margin-bottom: 4px; }
+.ops-analysis .ops-note { margin-top: 14px; }
+/* A competitor: its lines on the left, its actions on the right. */
+.ops-comp { align-items: flex-start; flex-wrap: wrap; }
+.ops-comp > div:first-child { flex: 1 1 260px; min-width: 0; }
+.ops-comp-line { font-size: 12.5px; color: var(--muted); margin-top: 5px; overflow-wrap: anywhere; }
+.ops-comp-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ops-comp-form { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.ops-comp-form .form-input { flex: 1 1 220px; min-width: 0; }
+.ops-watch { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 500; color: var(--muted); cursor: pointer; }

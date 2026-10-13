@@ -155,7 +155,7 @@ export function destinationFor(n) {
 }
 
 export default function NotificationBell({ onNavigate }) {
-  const { notifications: allNotifications, unreadCount, markRead, markAllRead, dismiss, restore, addNotification, markActioned, pendingApprovalId, clearPendingApproval, openPanelSignal } = useNotifications();
+  const { notifications: allNotifications, unreadCount, markRead, markAllRead, dismiss, restore, markActioned, pendingApprovalId, clearPendingApproval, openPanelSignal } = useNotifications();
   const { approveRequest, allocateItem, requests: invRequests, requestsLoading: invRequestsLoading, refreshRequests: refreshInvRequests } = useInventory();
   const { approveRequisition, rejectRequisition }   = useRequisitions();
   const { accounts } = useMsal();
@@ -479,16 +479,7 @@ export default function NotificationBell({ onNavigate }) {
     allocateItem(refId, myName).then(() => {
       markActioned(n.id);
       dismiss(n.id);
-      const invReq = invRequests.find(r => r.id === refId);
-      addNotification({
-        type:        'allocated',
-        recipient:   invReq?.requestedByEmail || invReq?.requestedBy || n.requestedBy || '',
-        refId,
-        itemName:    n.itemName ?? invReq?.itemName ?? 'the item',
-        title:       'Item allocated ✓',
-        body:        `Your ${n.itemName ?? invReq?.itemName ?? 'item'} has been allocated and is ready for collection. Please pick it up from your supervisor.`,
-        action:      { label: 'Track Request →', view: 'inventory', sub: 'my-requests' },
-      });
+      // The requester's bell entry is written by the server (items.py update_checkout).
     }).catch(() => {}).finally(() => setAllocatingId(null));
   }
 

@@ -205,6 +205,22 @@ class AccountingAccessTests(unittest.TestCase):
         _as(OPEN)
         self.assertEqual(len(self.client.get("/accounting/reports/locations").json()["entities"]), len(ENTITIES))
 
+    def test_dimension_lists_are_held_to_the_limit(self):
+        # Vendors, customers, employees, projects and items are every code on
+        # the WHOLE ledger - the accounting app keeps no entity against them.
+        _as(OPEN)
+        r = self.client.get("/accounting/reports/dimensions?kind=vendor")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self._sent("/reports/dimensions")[-1], {"kind": "vendor"})
+        _as(LIMITED)
+        asked = len(self._sent("/reports/dimensions"))
+        for kind in ("vendor", "customer", "employee", "project", "item"):
+            self.assertEqual(self.client.get(f"/accounting/reports/dimensions?kind={kind}").status_code, 403, kind)
+        self.assertEqual(len(self._sent("/reports/dimensions")), asked)      # refused before the ledger is read
+        # Departments are the Intacct department list, not ledger rows.
+        self.assertEqual(self.client.get("/accounting/reports/dimensions?kind=department").status_code, 200)
+        self.assertEqual(self.client.get("/accounting/reports/dimensions?kind=nonsense").status_code, 400)
+
     def test_cash_position_adds_up_several_entities(self):
         _as(LIMITED)
         r = self.client.get("/accounting/reports/cash-position?asof=2026-09-25").json()

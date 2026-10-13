@@ -25,6 +25,7 @@ from routers import directory as directory_router  # Contact Directory (Support,
 from routers import github_webhook  # PR/push merged to dev/main -> admin notification + What's New drafts (Sep 2026)
 from routers import egnyte_oauth as egnyte_oauth_router  # Per-user Egnyte connection (browse as yourself)
 from routers import construction  # Construction module - jobsite daily logs, media, weekly reports
+from routers import facility_ops  # Operations: storage facility figures read from Cubby (Oct 2026)
 from routers import jobroles  # Roles & Access redesign (Jul 2026)
 from routers import access_scopes  # row-level scopes for external users (Jul 2026)
 from routers import hr_life_events as hr_life_events_router  # hiring packet / promotion / separation via Nexus Sign (Oct 2026)
@@ -943,6 +944,22 @@ def _run_migrations():
             "ALTER TABLE task_projects ADD COLUMN time_tracking VARCHAR DEFAULT ''",
             # Sections made for the Custom grouping (Oct 13). models.TaskSection.custom.
             "ALTER TABLE task_sections ADD COLUMN custom BOOLEAN DEFAULT 0",
+            # Indexes the hot reads were missing (Oct 13) - see the Postgres list.
+            'CREATE INDEX IF NOT EXISTS ix_audit_logs_timestamp ON audit_logs ("timestamp")',
+            "CREATE INDEX IF NOT EXISTS ix_audit_logs_resource_type ON audit_logs (resource_type)",
+            "CREATE INDEX IF NOT EXISTS ix_nexus_employees_work_email ON nexus_employees (work_email)",
+            "CREATE INDEX IF NOT EXISTS ix_hr_sign_parties_token ON hr_sign_parties (token)",
+            "CREATE INDEX IF NOT EXISTS ix_time_punches_local_date ON time_punches (local_date)",
+            # Market engine (Oct 13). models.OpsCompetitor: map position, the
+            # rates page and how its last read went.
+            "ALTER TABLE ops_competitors ADD COLUMN lat FLOAT",
+            "ALTER TABLE ops_competitors ADD COLUMN lng FLOAT",
+            "ALTER TABLE ops_competitors ADD COLUMN osm_id VARCHAR DEFAULT ''",
+            "ALTER TABLE ops_competitors ADD COLUMN rates_url VARCHAR DEFAULT ''",
+            "ALTER TABLE ops_competitors ADD COLUMN last_checked_at VARCHAR DEFAULT ''",
+            "ALTER TABLE ops_competitors ADD COLUMN last_status VARCHAR DEFAULT ''",
+            "ALTER TABLE ops_competitors ADD COLUMN last_detail VARCHAR DEFAULT ''",
+            "ALTER TABLE ops_competitors ADD COLUMN watch BOOLEAN DEFAULT 1",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2104,6 +2121,29 @@ def _run_migrations():
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS subtask_order VARCHAR DEFAULT ''",
         "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS time_tracking VARCHAR DEFAULT ''",
         "ALTER TABLE task_sections ADD COLUMN IF NOT EXISTS custom BOOLEAN DEFAULT FALSE",
+        # Indexes the hot reads were missing (Oct 13). create_all never adds an
+        # index to a table that already exists, so these lines are what reach
+        # dev and prod; the names are the ones index=True gives the model
+        # columns. audit_logs: the items activity feed sorts by timestamp and
+        # every reader filters resource_type. work_email is NOT unique yet -
+        # rows differing by case or spaces would fail the build at startup.
+        # Plain CREATE INDEX, not CONCURRENTLY: every worker runs this list at
+        # boot through the pooler under a 25 s statement_timeout, and a
+        # CONCURRENTLY build cut short leaves an INVALID index that IF NOT
+        # EXISTS then skips forever.
+        'CREATE INDEX IF NOT EXISTS ix_audit_logs_timestamp ON audit_logs ("timestamp")',
+        "CREATE INDEX IF NOT EXISTS ix_audit_logs_resource_type ON audit_logs (resource_type)",
+        "CREATE INDEX IF NOT EXISTS ix_nexus_employees_work_email ON nexus_employees (work_email)",
+        "CREATE INDEX IF NOT EXISTS ix_hr_sign_parties_token ON hr_sign_parties (token)",
+        "CREATE INDEX IF NOT EXISTS ix_time_punches_local_date ON time_punches (local_date)",
+        "ALTER TABLE ops_competitors ADD COLUMN IF NOT EXISTS lat DOUBLE PRECISION",
+        "ALTER TABLE ops_competitors ADD COLUMN IF NOT EXISTS lng DOUBLE PRECISION",
+        "ALTER TABLE ops_competitors ADD COLUMN IF NOT EXISTS osm_id VARCHAR DEFAULT ''",
+        "ALTER TABLE ops_competitors ADD COLUMN IF NOT EXISTS rates_url VARCHAR DEFAULT ''",
+        "ALTER TABLE ops_competitors ADD COLUMN IF NOT EXISTS last_checked_at VARCHAR DEFAULT ''",
+        "ALTER TABLE ops_competitors ADD COLUMN IF NOT EXISTS last_status VARCHAR DEFAULT ''",
+        "ALTER TABLE ops_competitors ADD COLUMN IF NOT EXISTS last_detail VARCHAR DEFAULT ''",
+        "ALTER TABLE ops_competitors ADD COLUMN IF NOT EXISTS watch BOOLEAN DEFAULT TRUE",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -2804,6 +2844,30 @@ async def lifespan(app: FastAPI):
                 print("[startup] Google Ads sync skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] Google Ads sync skipped: {e}")
+        # Cubby sync (Operations, Oct 2026): re-reads the facilities every 15
+        # minutes and keeps one snapshot row per facility per day. Deployed
+        # worker only.
+        try:
+            from leader import is_deployed_worker
+            if is_deployed_worker():
+                from cubby import cubby_snapshot_loop
+                _tasks.append(_a.create_task(cubby_snapshot_loop()))
+            else:
+                print("[startup] Cubby snapshot loop skipped (not the deployed worker)")
+        except Exception as e:
+            print(f"[startup] Cubby snapshot loop skipped: {e}")
+        # Market watch (Operations, Oct 2026): once a day, reads each watched
+        # competitor's public pricing page (robots.txt honored, identified
+        # reader). Deployed worker only - a laptop must not send those requests.
+        try:
+            from leader import is_deployed_worker
+            if is_deployed_worker():
+                from ops_market_engine import market_watch_loop
+                _tasks.append(_a.create_task(market_watch_loop()))
+            else:
+                print("[startup] Market watch loop skipped (not the deployed worker)")
+        except Exception as e:
+            print(f"[startup] Market watch loop skipped: {e}")
         try:
             # One-shot: drains task attachments inlined as data: URLs into
             # Supabase Storage (5.7 GB of the prod DB), then exits. Idempotent.
@@ -2913,6 +2977,7 @@ async def _bff_csrf_guard(request, call_next):
     session cookie and are immune to CSRF, so they pass untouched. SameSite=Lax
     already blocks the common vector; this is defense in depth. Runs the DB check
     in a thread so it never blocks the event loop."""
+    import hmac
     import bff_session
     if (bff_session.configured()
             and request.method in ("POST", "PUT", "PATCH", "DELETE")
@@ -2928,7 +2993,8 @@ async def _bff_csrf_guard(request, call_next):
                 db = SessionLocal()
                 try:
                     row = db.query(ServerSession).filter(ServerSession.id == sid).first()
-                    return bool(row and hdr and hdr == row.csrf_token)
+                    return bool(row and hdr and hmac.compare_digest(
+                        hdr.encode(), (row.csrf_token or "").encode()))
                 finally:
                     db.close()
 
@@ -3136,6 +3202,7 @@ app.include_router(accounting_saved.router)   # Accounting: memorized reports, p
 app.include_router(pfs.router)                # Personal Financial Statements (owners + explicit grant only)
 app.include_router(leasing.router)            # Leasing: tenants, rent over time, expected vs received
 app.include_router(operations.router)
+app.include_router(facility_ops.router)       # Operations: occupancy, collections, pricing, worklist
 app.include_router(unifi.router)
 app.include_router(dashboard.router)
 app.include_router(dashboards_router.router)
