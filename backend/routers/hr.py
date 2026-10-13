@@ -173,9 +173,14 @@ def _require_unrestricted(user: dict, db: Session) -> None:
 
 
 def _next_code(db: Session) -> str:
-    """GG-001, GG-002, … - next number after the highest existing code."""
+    """GG-001, GG-002, … - next number after the highest existing code.
+
+    Removed people count too (include_deleted): the soft-delete hook in
+    database.py hides them, but they can be restored, and a restored person
+    must not come back holding a code that was handed to somebody else."""
     best = 0
-    for (code,) in db.query(NexusEmployee.employee_code).all():
+    for (code,) in (db.query(NexusEmployee.employee_code)
+                    .execution_options(include_deleted=True).all()):
         m = re.fullmatch(r"GG-(\d+)", code or "")
         if m:
             best = max(best, int(m.group(1)))
@@ -2490,11 +2495,95 @@ def update_entity(entity_id: str, body: EntityUpdate, user: dict = Depends(requi
     return _serialize_entity(row)
 
 
+def _count_phrase(n: int, one: str, many: str, binned: int = 0, binned_word: str = "") -> str:
+    text = f"{n} {one if n == 1 else many}"
+    return f"{text} ({binned} {binned_word})" if binned else text
+
+
+def _join_phrases(parts: list) -> str:
+    return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]
+
+
+def _entity_references(db: Session, entity_id: str) -> list:
+    """What still points at a company, as phrases for the 409 ("12 employees").
+
+    Nothing here has a foreign key, so a deleted company leaves every one of
+    these holding an id that resolves to nothing - and the company walls
+    (auth.company_scope) then show those people and records to nobody.
+
+    Removed people, trashed tasks and deleted tickets are counted as well
+    (include_deleted): each can be restored, and would come back pointing at a
+    company that is gone. The message calls them out because the person
+    deleting the company cannot see them in the normal lists."""
+    from models import (Document, ExternalLink, HrChecklist, HrLifeEvent, HrSignRequest,
+                        HrSignTemplate, Item, NexusAccessScope, NexusGroup, Requisition, Task,
+                        TaskTicket)
+
+    def _n(model, column):
+        return db.query(model).filter(column == entity_id).count()
+
+    def _soft(model, column):
+        q = db.query(model).execution_options(include_deleted=True).filter(column == entity_id)
+        return q.count(), q.filter(model.deleted_at != "", model.deleted_at.isnot(None)).count()
+
+    # A link lists the companies it is shown to and [] means every company, so
+    # dropping the id from a one-company link would show it to everyone.
+    links = sum(1 for (ids,) in db.query(ExternalLink.companies).all()
+                if isinstance(ids, list) and entity_id in ids)
+    # 'entity' scope rows are what confine a person to this company. They block
+    # instead of going with it: a person left with no scope rows reads as
+    # unrestricted (auth.hr_scope).
+    scopes = (db.query(NexusAccessScope)
+              .filter(NexusAccessScope.scope_type == "entity",
+                      NexusAccessScope.scope_id == entity_id).count())
+    parts = []
+    for (count, binned), one, many, binned_word in (
+        (_soft(NexusEmployee, NexusEmployee.company), "employee", "employees", "removed, still restorable"),
+        ((_n(HrCandidate, HrCandidate.company), 0), "candidate", "candidates", ""),
+        ((_n(HrDepartment, HrDepartment.company_id), 0), "department", "departments", ""),
+        ((_n(NexusGroup, NexusGroup.company_id), 0), "role or group", "roles or groups", ""),
+        ((scopes, 0), "access scope", "access scopes", ""),
+        ((_n(Item, Item.company_id), 0), "inventory item", "inventory items", ""),
+        (_soft(Task, Task.company_id), "task", "tasks", "in the trash"),
+        (_soft(TaskTicket, TaskTicket.company_id), "ticket", "tickets", "deleted, still restorable"),
+        ((_n(Requisition, Requisition.company_id), 0), "requisition", "requisitions", ""),
+        ((_n(Document, Document.entity_id), 0), "document", "documents", ""),
+        ((_n(HrSignTemplate, HrSignTemplate.entity_id), 0), "signing template", "signing templates", ""),
+        ((_n(HrSignRequest, HrSignRequest.entity_id), 0), "signing envelope", "signing envelopes", ""),
+        ((_n(HrLifeEvent, HrLifeEvent.entity_id), 0), "HR life event", "HR life events", ""),
+        ((_n(HrChecklist, HrChecklist.company), 0), "checklist", "checklists", ""),
+        ((links, 0), "app link", "app links", ""),
+    ):
+        if count:
+            parts.append(_count_phrase(count, one, many, binned, binned_word))
+    return parts
+
+
 @router.delete("/entities/{entity_id}")
 def delete_entity(entity_id: str, user: dict = Depends(require_hr_delete), db: Session = Depends(get_db)):
+    """Deletes a company that nothing points at any more - 409 otherwise.
+
+    What is purely the company's own setup goes with it in the same
+    transaction: its work-site picks (the sites stay in the library), its
+    holiday calendar, its monitoring policy, its packet settings and checklist
+    templates, and the ticket-desk settings of its departments."""
     _require_unrestricted(user, db)
     row = db.query(HrEntity).filter(HrEntity.id == entity_id).first()
     if row:
+        refs = _entity_references(db, entity_id)
+        if refs:
+            raise HTTPException(409, f"This company still has {_join_phrases(refs)}. Move or remove them first.")
+        from models import HrChecklistTemplate, HrPacketSetting, MonitoringPolicy, TicketDepartment
+        for model, column in ((HrCompanyWorkSite, HrCompanyWorkSite.company_id),
+                              (HrCompanyHoliday, HrCompanyHoliday.company_id),
+                              (MonitoringPolicy, MonitoringPolicy.company_id),
+                              (HrPacketSetting, HrPacketSetting.entity_id),
+                              (HrChecklistTemplate, HrChecklistTemplate.entity_id),
+                              (TicketDepartment, TicketDepartment.company_id)):
+            db.query(model).filter(column == entity_id).delete(synchronize_session=False)
+        # The legacy one-company pointer on a library site (see HrWorkSite).
+        db.query(HrWorkSite).filter(HrWorkSite.company == entity_id).update(
+            {HrWorkSite.company: ""}, synchronize_session=False)
         db.delete(row); db.commit()
     return {"ok": True}
 
@@ -3264,10 +3353,26 @@ def work_site_fence_check(lat: float, lng: float, radius_m: int = 150, site_id: 
 
 @router.delete("/work-sites/{site_id}")
 def delete_work_site(site_id: str, user: dict = Depends(require_hr_delete), db: Session = Depends(get_db)):
-    """Removes the site from the library and from every company using it."""
+    """Removes the site from the library and from every company using it -
+    409 while a person is assigned to it.
+
+    Removed people count (include_deleted): restoring one would bring back an
+    assignment to a site that is gone. Punches and location pings that name
+    the site are history - they neither block nor get deleted."""
     row = db.query(HrWorkSite).filter(HrWorkSite.id == site_id).first()
     if row:
         _assert_site_editable(db, site_id, hr_scope(user, db))
+        # work_site_ids is a JSON list in a text column: narrow in SQL, then
+        # read the list itself so an id inside a longer one cannot match.
+        assigned = [e for e in (db.query(NexusEmployee).execution_options(include_deleted=True)
+                                .filter(or_(NexusEmployee.work_site_id == site_id,
+                                            NexusEmployee.work_site_ids.contains(site_id))).all())
+                    if site_id == (e.work_site_id or "").strip() or site_id in allowed_site_ids(e)]
+        if assigned:
+            binned = sum(1 for e in assigned if e.deleted_at)
+            who = _count_phrase(len(assigned), "employee", "employees", binned, "removed, still restorable")
+            raise HTTPException(409, f"This work site is still assigned to {who}. "
+                                     "Assign them to another site first.")
         db.query(HrCompanyWorkSite).filter(HrCompanyWorkSite.site_id == site_id).delete(synchronize_session=False)
         db.delete(row); db.commit()
     return {"ok": True}
