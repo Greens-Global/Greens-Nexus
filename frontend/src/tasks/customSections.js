@@ -24,8 +24,13 @@ export function useCustomSections(projectId = '') {
   const [mine, setMine] = useTableValue('mytasks', 'customSections', EMPTY);
   const personal = !projectId;
 
+  // Only sections made here for Custom (`custom`). A project imported from
+  // Asana also carries Asana's board columns as sections - "Not Started",
+  // "Completed"... - holding every task; showing those made Custom look like
+  // Status with the wrong statuses (Oct 13 2026). They are kept, just not
+  // offered, and their tasks start under No Section.
   const projectSections = useMemo(() => (store.sections || [])
-    .filter((x) => x.projectId === projectId)
+    .filter((x) => x.projectId === projectId && x.custom)
     .sort((a, b) => (a.position || 0) - (b.position || 0) || String(a.createdAt || '').localeCompare(String(b.createdAt || ''))),
   [store.sections, projectId]);
   const personalSections = useMemo(() => (Array.isArray(mine?.list) ? mine.list : []), [mine]);
@@ -42,7 +47,7 @@ export function useCustomSections(projectId = '') {
       return sec;
     }
     const last = projectSections[projectSections.length - 1];
-    return store.createSection({ projectId, name: n, position: (last?.position || 0) + 1 });
+    return store.createSection({ projectId, name: n, position: (last?.position || 0) + 1, custom: true });
   }, [personal, setMine, projectSections, store, projectId]);
 
   const rename = useCallback(async (id, name) => {

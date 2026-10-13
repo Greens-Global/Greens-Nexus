@@ -62,8 +62,9 @@ describe('useCustomSections', () => {
   beforeEach(() => {
     store = {
       sections: [
-        { id: 'p2', projectId: 'proj', name: 'Second', position: 2 },
-        { id: 'p1', projectId: 'proj', name: 'First', position: 1 },
+        { id: 'p2', projectId: 'proj', name: 'Second', position: 2, custom: true },
+        { id: 'old', projectId: 'proj', name: 'Not Started', position: 0 },
+        { id: 'p1', projectId: 'proj', name: 'First', position: 1, custom: true },
         { id: 'x', projectId: 'other', name: 'Elsewhere', position: 1 },
       ],
       createSection: vi.fn(() => Promise.resolve({})), updateSection: vi.fn(() => Promise.resolve({})),
@@ -82,7 +83,7 @@ describe('useCustomSections', () => {
     await act(() => sec.move(['a'], '-'));
     expect(store.updateTask).toHaveBeenCalledWith('a', { sectionId: '' });
     await act(() => sec.add('Third'));
-    expect(store.createSection).toHaveBeenCalledWith({ projectId: 'proj', name: 'Third', position: 3 });
+    expect(store.createSection).toHaveBeenCalledWith({ projectId: 'proj', name: 'Third', position: 3, custom: true });
   });
 
   it('My Tasks sections are personal - they never touch a task', async () => {

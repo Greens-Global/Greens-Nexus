@@ -3021,6 +3021,11 @@ class TaskSection(Base):
     name       = Column(String, nullable=False)
     position   = Column(Integer, default=0)
     created_at = Column(String, default="")
+    # Made in Nexus for the Custom grouping (Oct 13 2026). Older rows came from
+    # Asana, whose board columns were sections ("Not Started", "Completed"...)
+    # and held every imported task - Custom shows only these, so it starts
+    # clean. The older rows and their tasks' section_id are kept as they are.
+    custom     = Column(Boolean, default=False)
 
 
 class TaskCustomStatus(Base):

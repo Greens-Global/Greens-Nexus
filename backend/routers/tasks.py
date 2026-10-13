@@ -131,7 +131,8 @@ def activity_to_dict(a: models.TaskActivity) -> dict:
 
 def section_to_dict(s: models.TaskSection) -> dict:
     return {"id": s.id, "projectId": _nz(s.project_id), "name": s.name,
-            "position": s.position or 0, "createdAt": s.created_at or ""}
+            "position": s.position or 0, "createdAt": s.created_at or "",
+            "custom": bool(getattr(s, "custom", False))}
 
 
 def custom_status_to_dict(s: models.TaskCustomStatus) -> dict:
@@ -2430,6 +2431,7 @@ def task_activity(task_id: str, user: dict = Depends(get_current_user), db: Sess
 class SectionBody(BaseModel):
     id: Optional[str] = None
     project_id: Optional[str] = ""
+    custom: Optional[bool] = None   # made for the Custom grouping - models.TaskSection.custom
     # Optional so a PATCH can send only what it changes - a drag-to-reorder
     # carries a position and no name, and a required `name` here rejected it
     # with "name Field required" for a field it was not touching. Create still
@@ -2465,7 +2467,8 @@ def create_section(body: SectionBody, user: dict = Depends(get_current_user),
     if not (body.name or "").strip():
         raise HTTPException(422, "A section needs a name.")
     s = models.TaskSection(id=body.id or gen_id(), project_id=body.project_id or "",
-                           name=body.name.strip(), position=body.position or 0, created_at=now_iso())
+                           name=body.name.strip(), position=body.position or 0, created_at=now_iso(),
+                           custom=bool(body.custom))
     db.add(s)
     db.commit()
     db.refresh(s)

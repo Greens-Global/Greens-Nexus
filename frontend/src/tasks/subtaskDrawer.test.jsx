@@ -179,3 +179,29 @@ describe('subtasks of a main task', () => {
     }));
   });
 });
+
+// Filing a task under a Custom section from the task itself (Oct 13 2026).
+describe('the Section row', () => {
+  it("offers the project's Custom sections and files the task", () => {
+    const t = { ...parent, projectId: 'proj', sectionId: 'old-asana' };
+    state = { ...makeStore(), tasks: [t], taskById: { p: t },
+      sections: [
+        { id: 'old-asana', projectId: 'proj', name: 'Not Started', position: 0 },
+        { id: 's1', projectId: 'proj', name: 'Annual Recurring', position: 1, custom: true },
+      ] };
+    render(<TaskDetailDrawer taskId="p" onClose={() => {}} />);
+    const box = screen.getByLabelText('Section');
+    // The imported Asana section is not offered, so the task reads as unfiled.
+    expect(box.value).toBe('');
+    expect([...box.options].map((o) => o.textContent)).toEqual(['No Section', 'Annual Recurring']);
+    fireEvent.change(box, { target: { value: 's1' } });
+    expect(state.updateTask).toHaveBeenCalledWith('p', { sectionId: 's1' });
+  });
+
+  it('is not there when the project has no sections', () => {
+    const t = { ...parent, projectId: 'proj' };
+    state = { ...makeStore(), tasks: [t], taskById: { p: t }, sections: [] };
+    render(<TaskDetailDrawer taskId="p" onClose={() => {}} />);
+    expect(screen.queryByLabelText('Section')).toBeNull();
+  });
+});

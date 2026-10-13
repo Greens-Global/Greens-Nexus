@@ -32,6 +32,7 @@ import AnchoredMenu from '../components/AnchoredMenu';
 import { Spinner, LoadingState } from '../components/AsyncState';
 import { DAYS, DAY_ABBR, recurrenceLabel, monthRuleOf, yearRuleOf, PERIODIC_PRESETS, clampDays, MAX_PERIODIC_DAYS, ruleFromDate } from './recurrence';
 import { MonthDayControls, YearDayControls } from './RecurrenceParts';
+import { useCustomSections } from './customSections';
 
 const DEP_TYPES = { FS: 'Finish → Start', SS: 'Start → Start', FF: 'Finish → Finish', SF: 'Start → Finish' };
 /** "On these days" - the S M T W T F S row Weekly and Custom(week) share
@@ -843,6 +844,9 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
           <span style={{ color: NX.faint, fontSize: 13 }}>Pick a project first</span>
         )}
       </Row>
+
+      {/* Which of the project's Custom sections it is filed under. */}
+      <TaskSectionRow task={task} patch={patch} />
 
       {/* The project's custom columns, right here on the task (Oct 13 2026) -
           they used to live only on the Properties tab, which most people
@@ -1774,6 +1778,25 @@ function DependenciesTab({ blockedBy, blocking, task, removeDependency }) {
 }
 
 // ── Properties ──────────────────────────────────────────────────────────────
+/** "Section" - file the task under one of its project's Custom sections
+ *  from the task itself (Oct 13 2026), the per-task way to do what the batch
+ *  bar's Move to Section does for many. Shown only when the project has
+ *  sections; a section the project no longer offers reads as No Section. */
+function TaskSectionRow({ task, patch }) {
+  const sec = useCustomSections(task.projectId || '__none__');
+  if (!task.projectId || !sec.sections.length) return null;
+  const current = sec.sections.some((x) => x.id === task.sectionId) ? task.sectionId : '';
+  return (
+    <Row label="Section">
+      <select value={current} aria-label="Section" onChange={(e) => patch({ sectionId: e.target.value })}
+        style={{ ...inputStyle, width: 'auto', minWidth: 180, padding: '5px 8px', fontSize: 13, cursor: 'pointer' }}>
+        <option value="">No Section</option>
+        {sec.sections.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+      </select>
+    </Row>
+  );
+}
+
 /** One row per custom field the task carries (fieldsForTask): a column in
  *  any project it is in, or one used everywhere. A field one of those
  *  projects requires is starred, and flagged while it is still empty -
