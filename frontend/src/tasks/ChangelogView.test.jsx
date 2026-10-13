@@ -41,7 +41,7 @@ beforeEach(() => {
 
 async function openManage() {
   render(<Changelog />);
-  fireEvent.click(await screen.findByRole('button', { name: /Manage/ }));
+  fireEvent.click(await screen.findByRole('tab', { name: /Manage/ }));
 }
 
 describe("What's New automatic publishing status", () => {
