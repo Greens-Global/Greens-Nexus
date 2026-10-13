@@ -23,6 +23,9 @@ import { matchPeople } from '../../lib/peopleSearch';
 import { useListNav } from '../../lib/listNav';
 import { AddSectionButton, SectionMenu } from '../SectionControls';
 import DueBadge from '../DueBadge';
+import { useFlip } from '../../lib/motion';
+import ChangeFlash from '../../components/ChangeFlash';
+import { changedRecently } from '../recentChanges';
 
 const BASE_COLS = [
   { key: 'checkbox', label: '', width: 28, fixed: true },
@@ -348,6 +351,11 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
           </button>
           {t.isMilestone && <Diamond size={12} style={{ color: NX.purple, flexShrink: 0 }} />}
           <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none' }}>{t.title}</span>
+          {t.checklistTotal > 0 && (
+            <span title={`Checklist ${t.checklistDone || 0} of ${t.checklistTotal} done`} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, fontWeight: 600, flexShrink: 0, color: t.checklistDone === t.checklistTotal ? NX.green : NX.faint }}>
+              <ListChecks size={12} />{t.checklistDone || 0}/{t.checklistTotal}
+            </span>
+          )}
           {/* A subtask only appears as its own row in a person-scoped list (My
               Tasks mode / assignee filter). Say whose subtask it is, and let the
               parent open on click - otherwise it reads as a stray task. */}
@@ -449,7 +457,10 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
         // actual
         actual: (
         <div className="rl-cell" style={{ ...editCell, gap: 3 }} onClick={(e) => e.stopPropagation()}>
-          <input type="number" className="rl-num nx-inline-edit" min={0} value={t.actualHours ?? ''} placeholder="0" onChange={(e) => store.updateTask(t.id, { actualHours: e.target.value === '' ? null : Number(e.target.value) })} style={{ width: 34, textAlign: 'right', border: 'none', fontSize: 12, color: NX.dim, fontFamily: FONT }} />
+          <input type="number" className="rl-num nx-inline-edit" min={0} value={t.actualHours ?? ''} placeholder="0"
+            readOnly={t.timeEntryCount > 0} title={t.timeEntryCount > 0 ? `From ${t.timeEntryCount} time ${t.timeEntryCount === 1 ? 'entry' : 'entries'} - edit them in the task` : undefined}
+            onChange={(e) => { if (t.timeEntryCount > 0) return; store.updateTask(t.id, { actualHours: e.target.value === '' ? null : Number(e.target.value) }); }}
+            style={{ width: 34, textAlign: 'right', border: 'none', fontSize: 12, color: NX.dim, fontFamily: FONT, cursor: t.timeEntryCount > 0 ? 'default' : 'text' }} />
           <span style={{ color: NX.faint, fontSize: 12 }}>h</span>
         </div>
         ),
@@ -526,18 +537,19 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
         e.preventDefault();
         onPick(t.id, e);
       }}
-      data-task-row data-row-id={t.id} draggable className="nx-row-hover" data-selected={selected ? 'true' : undefined}
+      data-task-row data-row-id={t.id} data-flip={t.id} draggable className="nx-row-hover" data-selected={selected ? 'true' : undefined}
       onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; onDragStartRow?.(t.id); }}
       onDragEnd={() => onDragEndRow?.()}
       onDragOver={onRowDragOver} onDrop={onRowDrop} onDragLeave={onRowDragLeave}
       style={{
-        borderBottom: `1px solid ${NX.border2}`, background: rowBg, cursor: 'pointer',
+        position: 'relative', borderBottom: `1px solid ${NX.border2}`, background: rowBg, cursor: 'pointer',
         // Manual-reorder drop indicator: a colored line on whichever edge the
         // cursor is over, so dropping "reads" as inserting there rather than
         // replacing the row.
         boxShadow: dropEdge === 'above' ? `inset 0 2px 0 ${groupColor}`
           : dropEdge === 'below' ? `inset 0 -2px 0 ${groupColor}` : 'none',
       }}>
+      <ChangeFlash value={`${t.status}:${!!t.completed}`} color={sm.color} isFresh={() => changedRecently(t.id)} />
       <div style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'stretch', fontSize: 13 }}>
         {cols.map((c) => <Fragment key={c.key}>{cells[c.key] ?? cfCell(c.key)}</Fragment>)}
         <div />
@@ -1193,6 +1205,9 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
       ...customFields.map((f) => ({ key: f.id, width: 150 }))],
     [visibleCols, customFields, anyExtended],
   );
+  // Rows glide when a sort, a group change, a drop or a filter moves them.
+  const flipRef = useRef(null);
+  useFlip(flipRef);
   const { cols, widths, template, startResize, resetWidth, autofitWidth, wrapRef, dragProps } = useTableColumns({
     table: 'richlist', cols: gridCols, trailing: '12px',
   });
@@ -1440,7 +1455,7 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
   };
 
   return (
-    <div className="nx-list-scroll" style={{ margin: 16, minHeight: 'calc(100% - 32px)' }}>
+    <div ref={flipRef} className="nx-list-scroll" style={{ margin: 16, minHeight: 'calc(100% - 32px)' }}>
       <div ref={wrapRef} style={{ minWidth: 'fit-content', '--nx-grid': template }}>
         {groups.map((g, gi) => {
           const isCol = collapsed.has(g.key);

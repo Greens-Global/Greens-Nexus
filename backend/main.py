@@ -22,6 +22,7 @@ from routers import tasks, purchases, reviews, marketing, sop, assets, accountin
 from routers import task_projects, task_config  # Task Module (Jul 2026)
 from routers import tickets as tickets_router    # Ticket Module - split out of task_config (Jul 2026)
 from routers import directory as directory_router  # Contact Directory (Support, Oct 2026)
+from routers import site_models as site_models_router  # 3D property site models + markup pins (Neil, Oct 11 2026)
 from routers import github_webhook  # PR/push merged to dev/main -> admin notification + What's New drafts (Sep 2026)
 from routers import egnyte_oauth as egnyte_oauth_router  # Per-user Egnyte connection (browse as yourself)
 from routers import construction  # Construction module - jobsite daily logs, media, weekly reports
@@ -960,6 +961,38 @@ def _run_migrations():
             "ALTER TABLE ops_competitors ADD COLUMN last_status VARCHAR DEFAULT ''",
             "ALTER TABLE ops_competitors ADD COLUMN last_detail VARCHAR DEFAULT ''",
             "ALTER TABLE ops_competitors ADD COLUMN watch BOOLEAN DEFAULT 1",
+            # Weather Call (Oct 2026): a group's work site, deciders and switch. models.ShiftGroup.
+            "ALTER TABLE shift_groups ADD COLUMN work_site_id VARCHAR DEFAULT ''",
+            "ALTER TABLE shift_groups ADD COLUMN weather_decider_emails TEXT DEFAULT ''",
+            "ALTER TABLE shift_groups ADD COLUMN weather_alerts INTEGER DEFAULT 1",
+            # Weather Call (Oct 2026): what a weather call did to a placed shift. models.ScheduledShift.
+            "ALTER TABLE scheduled_shifts ADD COLUMN weather_status VARCHAR DEFAULT ''",
+            "ALTER TABLE scheduled_shifts ADD COLUMN weather_decision_id VARCHAR DEFAULT ''",
+            "ALTER TABLE scheduled_shifts ADD COLUMN original_start_hhmm VARCHAR DEFAULT ''",
+            "ALTER TABLE scheduled_shifts ADD COLUMN original_end_hhmm VARCHAR DEFAULT ''",
+            "ALTER TABLE scheduled_shifts ADD COLUMN original_label VARCHAR DEFAULT ''",
+            "ALTER TABLE scheduled_shifts ADD COLUMN original_work_date VARCHAR DEFAULT ''",
+            # Automation engine (Oct 2026). models.TaskAutomationRule conditions + run counters.
+            "ALTER TABLE task_automation_rules ADD COLUMN conditions JSON DEFAULT '[]'",
+            "ALTER TABLE task_automation_rules ADD COLUMN run_count INTEGER DEFAULT 0",
+            "ALTER TABLE task_automation_rules ADD COLUMN last_run_at VARCHAR DEFAULT ''",
+            # Checklists (Oct 2026). models.Task.checklist_total / checklist_done.
+            "ALTER TABLE tasks ADD COLUMN checklist_total INTEGER DEFAULT 0",
+            "ALTER TABLE tasks ADD COLUMN checklist_done INTEGER DEFAULT 0",
+            # Comment threads, reactions, assigned comments (Oct 2026). models.TaskComment.
+            "ALTER TABLE task_comments ADD COLUMN parent_id VARCHAR DEFAULT ''",
+            "ALTER TABLE task_comments ADD COLUMN reactions JSON DEFAULT '{}'",
+            "ALTER TABLE task_comments ADD COLUMN assignee_email VARCHAR DEFAULT ''",
+            "ALTER TABLE task_comments ADD COLUMN resolved_at VARCHAR DEFAULT ''",
+            "ALTER TABLE task_comments ADD COLUMN resolved_by VARCHAR DEFAULT ''",
+            # index=True on the model only applies at create_all; existing tables need it here.
+            "CREATE INDEX IF NOT EXISTS ix_task_comments_parent_id ON task_comments (parent_id)",
+            # Project default view + shared dashboard charts (Oct 2026). models.TaskProject.
+            "ALTER TABLE task_projects ADD COLUMN default_view JSON",
+            "ALTER TABLE task_projects ADD COLUMN shared_charts JSON DEFAULT '[]'",
+            # Time entries (Oct 2026). models.Task.time_entry_count.
+            "ALTER TABLE tasks ADD COLUMN time_entry_count INTEGER DEFAULT 0",
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_task_time_running ON task_time_entries (person_email) WHERE ended_at = ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2085,6 +2118,8 @@ def _run_migrations():
         # RLS per CLAUDE.md. models.HrPacketSetting, models.HrLifeEvent.
         "ALTER TABLE hr_packet_settings ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE hr_life_events ENABLE ROW LEVEL SECURITY",
+        # Site model markup pins (Neil, Oct 11): new table - RLS per CLAUDE.md. models.SiteModelMarkup, routers/site_models.py.
+        "ALTER TABLE site_model_markups ENABLE ROW LEVEL SECURITY",
         # Hiring intake (Neil, Oct 8): the job role a candidate applies for. models.HrCandidate.role_id.
         "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS role_id VARCHAR DEFAULT ''",
         # Interview scheduling (Neil, Oct 8): who the interview is with. models.HrInterview.
@@ -2144,6 +2179,37 @@ def _run_migrations():
         "ALTER TABLE ops_competitors ADD COLUMN IF NOT EXISTS last_status VARCHAR DEFAULT ''",
         "ALTER TABLE ops_competitors ADD COLUMN IF NOT EXISTS last_detail VARCHAR DEFAULT ''",
         "ALTER TABLE ops_competitors ADD COLUMN IF NOT EXISTS watch BOOLEAN DEFAULT TRUE",
+        # Weather Call (Oct 2026): a group's work site, deciders and switch. models.ShiftGroup.
+        "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS work_site_id VARCHAR DEFAULT ''",
+        "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS weather_decider_emails TEXT DEFAULT ''",
+        "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS weather_alerts INTEGER DEFAULT 1",
+        # Weather Call (Oct 2026): what a weather call did to a placed shift. models.ScheduledShift.
+        "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS weather_status VARCHAR DEFAULT ''",
+        "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS weather_decision_id VARCHAR DEFAULT ''",
+        "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS original_start_hhmm VARCHAR DEFAULT ''",
+        "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS original_end_hhmm VARCHAR DEFAULT ''",
+        "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS original_label VARCHAR DEFAULT ''",
+        "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS original_work_date VARCHAR DEFAULT ''",
+        # Automation engine (Oct 2026). models.TaskAutomationRule conditions + run counters.
+        "ALTER TABLE task_automation_rules ADD COLUMN IF NOT EXISTS conditions JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE task_automation_rules ADD COLUMN IF NOT EXISTS run_count INTEGER DEFAULT 0",
+        "ALTER TABLE task_automation_rules ADD COLUMN IF NOT EXISTS last_run_at VARCHAR DEFAULT ''",
+        # Checklists (Oct 2026). models.Task.checklist_total / checklist_done.
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS checklist_total INTEGER DEFAULT 0",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS checklist_done INTEGER DEFAULT 0",
+        # Comment threads, reactions, assigned comments (Oct 2026). models.TaskComment.
+        "ALTER TABLE task_comments ADD COLUMN IF NOT EXISTS parent_id VARCHAR DEFAULT ''",
+        "ALTER TABLE task_comments ADD COLUMN IF NOT EXISTS reactions JSONB DEFAULT '{}'::jsonb",
+        "ALTER TABLE task_comments ADD COLUMN IF NOT EXISTS assignee_email VARCHAR DEFAULT ''",
+        "ALTER TABLE task_comments ADD COLUMN IF NOT EXISTS resolved_at VARCHAR DEFAULT ''",
+        "ALTER TABLE task_comments ADD COLUMN IF NOT EXISTS resolved_by VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_task_comments_parent_id ON task_comments (parent_id)",
+        # Project default view + shared dashboard charts (Oct 2026). models.TaskProject.
+        "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS default_view JSONB",
+        "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS shared_charts JSONB DEFAULT '[]'::jsonb",
+        # Time entries (Oct 2026). models.Task.time_entry_count.
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS time_entry_count INTEGER DEFAULT 0",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_task_time_running ON task_time_entries (person_email) WHERE ended_at = ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -2719,6 +2785,20 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             print(f"[startup] workforce scorecard loop skipped: {e}")
         try:
+            # Weather Call (Oct 2026): the rain advisory per shift group, every
+            # half hour, behind the per-company switch. See weather_watch.py.
+            from weather_watch import weather_watch_loop
+            _tasks.append(_a.create_task(weather_watch_loop()))
+        except Exception as e:
+            print(f"[startup] weather watch loop skipped: {e}")
+        try:
+            # ...and the follow-up on a weather call: a second text to anyone
+            # silent after 30 minutes, the decider told after 60. weather_call.py.
+            from weather_call import weather_call_loop
+            _tasks.append(_a.create_task(weather_call_loop()))
+        except Exception as e:
+            print(f"[startup] weather call loop skipped: {e}")
+        try:
             from routers.hr_interviews import interview_followup_loop
             _tasks.append(_a.create_task(interview_followup_loop()))
         except Exception as e:
@@ -2959,6 +3039,9 @@ _CSRF_EXEMPT_PATHS = frozenset({
     # Daily Briefing one-click actions: authorized by a signed per-decision
     # token, same reasoning - see routers/briefing_actions.py.
     "/briefing-actions/page",
+    # Weather call acknowledgment (Oct 2026): the form on the signed-link
+    # page - the token is the credential - see routers/weather_call.py.
+    "/weather-call/ack",
     # ...and the Outlook card version of the briefing (Outlook's own JWT names
     # who clicked, same as /mail-actions/card).
     "/briefing-actions/card",
@@ -3285,6 +3368,10 @@ from routers import workforce_views  # noqa: E402
 app.include_router(workforce_views.router)  # Workforce Analytics saved team views (dashboard_views target='workforce') - see routers/workforce_views.py
 from routers import weather as weather_router  # noqa: E402
 app.include_router(weather_router.router)  # Dashboard Weather widget - Open-Meteo via the API (routers/weather.py)
+from routers import weather_watch as weather_watch_router  # noqa: E402
+app.include_router(weather_watch_router.router)  # Weather Alerts settings + Check Now (Weather Call, Oct 2026)
+from routers import weather_call as weather_call_router  # noqa: E402
+app.include_router(weather_call_router.router)  # The weather call itself: decide, acknowledge, reinstate (Oct 2026)
 from routers import accounting_flux  # noqa: E402
 app.include_router(accounting_flux.router)  # Accounting > Reports > Flux Analysis explanation notes (routers/accounting_flux.py)
 from routers import accounting_budgets, accounting_partners, accounting_allocations  # noqa: E402
@@ -3308,6 +3395,7 @@ app.include_router(marketing_gbp.router)           # Marketing > Google Business
 app.include_router(marketing_gbp.public_router)    # its OAuth callback - Google redirects a browser here, no bearer token
 from routers import property_tickets  # noqa: E402
 app.include_router(property_tickets.router)        # Tickets <-> Asset Management properties: the ticket property picker (Neil, 10/05)
+app.include_router(site_models_router.router)      # Site Models: to-scale 3D property models, public unit finder, owner markup pins (Neil, 10/11)
 from routers import ticket_walkthroughs  # noqa: E402
 app.include_router(ticket_walkthroughs.router)     # Tickets: Property Walkthrough - many tickets at one property in one submit (Neil, 10/05)
 from routers import marketing_ads  # noqa: E402

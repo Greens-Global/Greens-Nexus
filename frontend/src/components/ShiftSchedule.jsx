@@ -1,5 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
-import { CalendarPlus, Copy as CopyIcon, CalendarDays, Undo2, X as XIcon } from 'lucide-react';
+import { CalendarPlus, Copy as CopyIcon, CalendarDays, Undo2, X as XIcon, CloudRain } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
@@ -17,6 +17,8 @@ import TeamPicker, { ALL_TEAMS, NO_TEAM } from './shifts/TeamPicker';
 import { MOTION, useReducedMotion } from './shifts/motion';
 import { CopyModal, ClearModal, BulkModal } from './shifts/ScheduleDialogs';
 import WeekGrid, { TOOL_BTN } from './shifts/WeekGrid';
+import { weatherByDay } from './shifts/WeatherChip';
+import WeatherCallDialog from './shifts/WeatherCallDialog';
 import ScheduleDay from './shifts/ScheduleDay';
 import ScheduleMonth from './shifts/ScheduleMonth';
 import SchedulePhone from './shifts/SchedulePhone';
@@ -61,7 +63,7 @@ const SHORTCUTS = [
   ['Delete', 'Remove a draft'], ['Ctrl + C / Ctrl + V', 'Copy a shift, paste it on a day'], ['Esc', 'Close a menu or panel'],
 ];
 
-export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
+export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus = null }) {
   const { myEmail } = useRole() || {};
   const me = (myEmail || '').toLowerCase();
   const nameOf = useNameResolver();
@@ -91,6 +93,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
   const [ghost, setGhost] = useState(null);
   const [dropKey, setDropKey] = useState('');
   const [open, setOpen] = useState('');            // which dialog: share | copy | clear | fill | import | view | note | reorder
+  const [weatherCall, setWeatherCall] = useState(null);   // { groupId, date } while the Weather Call is open
   const [noteDate, setNoteDate] = useState('');
   const [addTo, setAddTo] = useState(null);
   const [undo, setUndo] = useState(null);          // { msg, fn, key } - the 5-second Undo bar
@@ -151,6 +154,12 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
   const names = useMemo(() => Object.fromEntries((data?.employees || []).map((e) => [e.email, nameOf(e.email, e.name)])), [data, nameOf]);
   const empByEmail = useMemo(() => Object.fromEntries((data?.employees || []).map((e) => [e.email, { ...e, name: nameOf(e.email, e.name), availability: data?.availability?.[e.email] || [] }])), [data, nameOf]);
   const groups = useMemo(() => orderGroups(data?.groups || []), [data]);
+  // Weather Call setup (Oct 2026): a watched group with no work site cannot
+  // get a forecast. Its managers see one line here until a site is set (or
+  // the watch is turned off for it) - dismissable for this visit.
+  const [weatherSetupHidden, setWeatherSetupHidden] = useState(false);
+  const weatherSetup = useMemo(() => groups.filter((g) => !g.archived && g.canEdit !== false && g.weatherAlerts !== false
+    && (!g.workSiteId || g.siteLocated === false)), [groups]);
 
   // ── The team on screen (10/02): one team at a time ─────────────────────
   // The remembered choice, else the first team the signed-in person is in,
@@ -186,6 +195,23 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
     try { localStorage.setItem(teamKey, id); } catch { /* private mode */ }
   };
   const setGroupFilter = (id) => pickTeam(id || ALL_TEAMS);
+  // Land on the day and group a weather advisory points at (Weather Call).
+  const focusDate = focus?.date || '', focusGroup = focus?.groupId || '';
+  useEffect(() => {
+    if (!focusDate) return;
+    setCursor(parseIso(focusDate));
+    if (focusGroup) {
+      setTeamPick(focusGroup);
+      try { localStorage.setItem(teamKey, focusGroup); } catch { /* private mode */ }
+      setWeatherCall({ groupId: focusGroup, date: focusDate });   // the advisory said "make the weather call"
+    }
+  }, [focusDate, focusGroup]);   // eslint-disable-line react-hooks/exhaustive-deps
+  // The Weather Call for a day: the group on screen, else the day's worst group.
+  const openWeatherCall = (ds) => {
+    const w = weather[ds];
+    const gid = groupFilter || w?.groupIds?.[0] || groups.find((g) => !g.archived)?.id || '';
+    if (gid) setWeatherCall({ groupId: gid, date: ds });
+  };
   // Back where you were in that team's list.
   useLayoutEffect(() => {
     const grid = rootRef.current?.querySelector('.week-grid');
@@ -297,6 +323,9 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
     (data?.dayNotes || []).forEach((n) => { if (!n.groupId || visibleGroupIds.has(n.groupId) || !groups.length) m[n.date] = m[n.date] ? `${m[n.date]} · ${n.note}` : n.note; });
     return m;
   }, [data, visibleGroupIds, groups.length]);
+  // The weather band per day for the groups on screen (Weather Call).
+  const weather = useMemo(() => weatherByDay(data?.weather || [], visibleGroupIds.size ? visibleGroupIds : null,
+    Object.fromEntries(groups.map((g) => [g.id, g.name]))), [data, visibleGroupIds, groups]);
 
   // Each team's people, hours, drafts and open shifts in view - the switcher's numbers.
   const teamNumbers = useMemo(() => {
@@ -723,6 +752,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
   const toggleCollapse = (key) => setFold({ ...fold, [key]: !collapsed.has(key) });
 
   const gridOn = {
+    weather: managing ? (ds) => openWeatherCall(ds) : null,
     cellClick: (email, ds, groupId, e) => {
       if (copied) { pasteInto(email, ds, groupId); return; }
       const usual = !e?.shiftKey && ghostOf(email, ds);
@@ -773,7 +803,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
   // is today, 1-9 pick a team while the schedule has focus.
   const [keysOpen, setKeysOpen] = useState(false);
   const navRef = useRef(null);
-  useEffect(() => { navRef.current = { shiftRange, goToday, pickTeam, liveGroups, blocked: !!panel || !!open || !!menu || !!personMenu || keysOpen }; });
+  useEffect(() => { navRef.current = { shiftRange, goToday, pickTeam, liveGroups, blocked: !!panel || !!open || !!menu || !!personMenu || keysOpen || !!weatherCall }; });
   useEffect(() => {
     const onKey = (e) => {
       const k = navRef.current;
@@ -896,6 +926,22 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
           coverage: showCoverage, toggleCoverage: () => setPrefs({ ...prefs, coverage: !showCoverage }),
           requests: () => (onOpenRequests ? onOpenRequests() : window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'shifts', sub: 'requests' } }))) }} />
 
+      {managing && weatherSetup.length > 0 && !weatherSetupHidden && (
+        <div role="note" aria-label="Weather setup" data-weather-setup="" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, padding: '8px 12px', borderRadius: 10, fontSize: 12.5, flexWrap: 'wrap',
+          background: 'hsl(var(--color-orange) / 0.1)', color: 'var(--ink)', border: '1px solid hsl(var(--color-orange) / 0.35)' }}>
+          <CloudRain size={14} style={{ color: 'hsl(var(--color-orange))', flexShrink: 0 }} />
+          <span style={{ flex: 1, minWidth: 200 }}>
+            {weatherSetup.length === 1
+              ? <><strong>{weatherSetup[0].name}</strong> has no work site{weatherSetup[0].workSiteId ? ' with coordinates' : ''}, so weather alerts cannot watch it.</>
+              : <><strong>{weatherSetup.length} groups</strong> have no work site, so weather alerts cannot watch them: {weatherSetup.map((g) => g.name).join(', ')}.</>}
+          </span>
+          <button type="button" className="secondary-btn" style={{ fontSize: 12 }}
+            onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'global-shifts' } }))}>Set a Work Site</button>
+          <button type="button" onClick={() => setWeatherSetupHidden(true)} aria-label="Hide the weather setup note" title="Hide for now"
+            style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}><XIcon size={14} /></button>
+        </div>
+      )}
+
       {(query.trim() || presetFilter || prefs.mine) && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, fontSize: 12.5, color: 'var(--muted)', flexWrap: 'wrap' }}>
           <span>Showing {[query.trim() ? `people matching "${query.trim()}"` : '', presetFilter ? presetName(presetFilter) : '', prefs.mine ? 'your shifts only' : ''].filter(Boolean).join(' · ')}</span>
@@ -919,10 +965,10 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
       <div key={`${start}|${view}|${team}`} className={`${reduce ? '' : slide > 0 ? 'm-slide-next' : slide < 0 ? 'm-slide-prev' : 'm-fade'} ${panel ? 'm-dim' : 'm-undim'}`}>
       {phone && view !== 'month' && groupBy !== 'shift' ? (
         <SchedulePhone single={single} emptyNote={emptyNote} days={days} sections={sections} byCell={byCell} openCells={openCells} offOn={offOn} holOn={holOn} usualOf={usualOf}
-          notes={notes} holidayDates={holidayDates} me={me} prefs={prefs} teamZone={teamZone} canManage={managing}
+          notes={notes} weather={weather} holidayDates={holidayDates} me={me} prefs={prefs} teamZone={teamZone} canManage={managing}
           rowEditable={rowEditable} empWeekMin={empWeekMin} dayStats={dayStats} dragId={drag?.id} collapsed={collapsed} copied={copied} on={gridOn} />
       ) : view === 'day' ? (
-        <ScheduleDay single={single} date={start} sections={sections} shifts={shown} openCells={openCells} notes={notes} canManage={managing} offOn={offOn} holOn={holOn}
+        <ScheduleDay single={single} date={start} sections={sections} shifts={shown} openCells={openCells} notes={notes} weather={weather} canManage={managing} offOn={offOn} holOn={holOn}
           copied={copied} prefs={prefs} rowEditable={rowEditable} shiftEditable={shiftEditable} dragId={drag?.id} on={gridOn}
           dragProps={dragProps} dropProps={dropProps} dropStyle={dropStyle} clickable={clickable} />
       ) : view === 'month' ? (
@@ -933,7 +979,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
           onOpen={(s) => openShiftEditor(s, s.email, s.date)} />
       ) : (
         <WeekGrid days={days} compact={compact} sections={sections} byCell={byCell} openCells={openCells} offOn={offOn} holOn={holOn} availOn={availOn} usualOf={usualOf}
-          notes={notes} holidayDates={holidayDates} me={me} prefs={prefs} teamZone={teamZone} canManage={managing}
+          notes={notes} weather={weather} holidayDates={holidayDates} me={me} prefs={prefs} teamZone={teamZone} canManage={managing}
           rowEditable={rowEditable} empWeekMin={empWeekMin} dayStats={dayStats} weekMin={weekMin} overWeeks={overWeeks}
           copied={copied} dropKey={dropKey} dragId={drag?.id} isCollapsed={(k) => collapsed.has(k)} on={gridOn}
           dragProps={dragProps} personDragProps={personDragProps} dropProps={dropProps} dropStyle={dropStyle} hoverCell={hoverCell} hoverShift={hoverShift} clickable={clickable}
@@ -974,6 +1020,9 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests }) {
       {open === 'note' && (
         <DayNoteDialog date={noteDate} onDateChange={setNoteDate} groups={groups.filter((g) => !g.archived)} notes={data?.dayNotes || []} busy={busy}
           onSave={saveDayNote} onClose={() => setOpen('')} />
+      )}
+      {weatherCall && (
+        <WeatherCallDialog key={`${weatherCall.groupId}|${weatherCall.date}`} groupId={weatherCall.groupId} date={weatherCall.date} onClose={() => setWeatherCall(null)} onChanged={load} toastOk={toastOk} toastErr={toastErr} />
       )}
       {open === 'view' && (
         <ViewOptionsDialog prefs={prefs} onPrefs={setPrefs} query={query} onQuery={setQuery} groupBy={groupBy} onGroupBy={setGroupBy}

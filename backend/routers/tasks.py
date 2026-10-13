@@ -8,6 +8,7 @@ with email used as the person id) so the ported frontend maps cleanly.
 Reference implementation: routers/items.py.
 """
 import calendar
+import logging
 import io
 import json
 import re
@@ -15,9 +16,10 @@ import time
 from datetime import date, datetime, timedelta
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, Any
@@ -29,10 +31,12 @@ from routers.task_util import (
     is_manager, visible_project_ids, task_is_visible, wall_tasks,
     project_for_task, require_project_role, require_task_role, create_comment,
     task_assignees, set_task_assignees,
-    purge_task_permanently,
+    purge_task_permanently, assert_person_on_task, COMMENT_REACTIONS,
 )
 from task_notify import notify_task_event
 import task_due
+import task_automation
+import task_schedule
 import code_sequence
 from task_files import data_url_to_storage
 # Values are stored in the shape each field declares - see that function.
@@ -100,7 +104,26 @@ def task_to_dict(t: models.Task) -> dict:
         "dueAgreement":     t.due_agreement or "",
         "dueProposal":      t.due_proposal if isinstance(t.due_proposal, dict) else None,
         "requesterId":      _nz(task_due.requester_of(t)),
+        # Checklist counters - see models.Task / _recount_checklist.
+        "checklistTotal":   int(t.checklist_total or 0),
+        "checklistDone":    int(t.checklist_done or 0),
+        # Time entries - see models.TaskTimeEntry / _recount_time.
+        "timeEntryCount":   int(t.time_entry_count or 0),
     }
+
+
+def time_entry_to_dict(e: models.TaskTimeEntry) -> dict:
+    return {"id": e.id, "taskId": e.task_id, "personId": _nz(e.person_email),
+            "startedAt": e.started_at or "", "endedAt": _nz(e.ended_at), "running": not e.ended_at,
+            "minutes": int(e.minutes or 0), "note": e.note or "", "billable": bool(e.billable),
+            "source": e.source or "timer", "createdAt": e.created_at or ""}
+
+
+def checklist_item_to_dict(i: models.TaskChecklistItem) -> dict:
+    return {"id": i.id, "taskId": i.task_id, "title": i.title or "", "done": bool(i.done),
+            "doneAt": i.done_at or "", "doneBy": _nz(i.done_by), "assigneeId": _nz(i.assignee_email),
+            "position": i.position if i.position is not None else 0.0,
+            "createdAt": i.created_at or "", "createdBy": _nz(i.created_by)}
 
 
 def comment_to_dict(c: models.TaskComment) -> dict:
@@ -108,6 +131,11 @@ def comment_to_dict(c: models.TaskComment) -> dict:
         "id": c.id, "taskId": c.task_id, "authorId": _nz(c.author_email),
         "body": c.body or "", "createdAt": c.created_at or "",
         "editedAt": _nz(c.edited_at), "pinned": bool(c.pinned),
+        # Threads, reactions, action items (Oct 2026) - see models.TaskComment.
+        "parentId": _nz(c.parent_id),
+        "reactions": c.reactions if isinstance(c.reactions, dict) else {},
+        "assigneeId": _nz(c.assignee_email),
+        "resolvedAt": _nz(c.resolved_at), "resolvedBy": _nz(c.resolved_by),
     }
 
 
@@ -870,6 +898,15 @@ def _spawn_next_occurrence(db: Session, t: models.Task, user: dict,
         created_at=now, modified_at=now, created_by=user["email"],
     )
     db.add(nxt)
+    # The checklist travels with the series, every line unticked: a recurring
+    # "monthly close" is the same steps each month.
+    items = (db.query(models.TaskChecklistItem).filter(models.TaskChecklistItem.task_id == t.id)
+             .order_by(models.TaskChecklistItem.position).all())
+    for i, item in enumerate(items):
+        db.add(models.TaskChecklistItem(id=gen_id(), task_id=nid, title=item.title, done=False,
+                                        assignee_email=item.assignee_email or "", position=float(i),
+                                        created_at=now, created_by=user["email"]))
+    nxt.checklist_total, nxt.checklist_done = len(items), 0
     # Reassigned (not mutated in place) so SQLAlchemy sees the JSON change.
     t.recurrence = {**rec, "nextOccurrenceId": nid}
     aid = log_activity(db, type="created", actor_email=user["email"], entity_id=nid,
@@ -1580,6 +1617,18 @@ def create_task(body: TaskCreate, background_tasks: BackgroundTasks,
     aid = log_activity(db, type="created", actor_email=user["email"], entity_id=tid,
                        entity_code=t.code, entity_title=t.title, detail="created this task")
     t.activity_ids = [aid]
+    # Automation rules that fire on creation (task_automation.py) write onto
+    # this same row before anyone is told about it, so a rule that assigns or
+    # re-dates the task notifies exactly as a person doing it would.
+    auto_before = task_automation.snapshot(t)
+    auto = task_automation.run_for_change(db, t, event="created", before=auto_before)
+    if "status" in auto.changed:
+        # Same rule as update_task: a rule that sets Completed closes the task,
+        # one that sets anything else on a task created as Completed reopens it.
+        _apply_completion(t, _resolve_completed({"status": auto.changed["status"]}, bool(t.completed)), bool(t.completed))
+    if "due_on" in auto.changed:
+        task_due.record_due_change(db, t, auto_before["due_on"], t.due_on or "",
+                                   actor=task_automation.AUTOMATION_ACTOR, source="automation")
     # Everyone assigned gets told, not just the first - the others would
     # otherwise carry work they were never notified about.
     for who in task_assignees(t):
@@ -1592,6 +1641,7 @@ def create_task(body: TaskCreate, background_tasks: BackgroundTasks,
     db.refresh(t)
     fire_task_event(tid, "created")
     background_tasks.add_task(notify_task_event, tid, "created", user["email"])
+    task_automation.run_after_commit(db, auto, background_tasks.add_task)
     return task_to_dict(t)
 
 
@@ -1620,11 +1670,14 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
         data["section_id"] = ""
     if "custom_field_values" in data:
         data["custom_field_values"] = coerce_custom_field_values(db, data["custom_field_values"])
+    if "actual_hours" in data and int(t.time_entry_count or 0) > 0:
+        raise HTTPException(409, "This task's time comes from its time entries - add or edit an entry instead.")
     prev_assignees = set(task_assignees(t))
     prev_status = t.status
     prev_completed = bool(t.completed)
     prev_followers = set((t.follower_emails or []))
     prev_due = (t.due_on or "")[:10]
+    auto_before = task_automation.snapshot(t)
     modified_kinds = [label for field, label in _MODIFIED_FIELD_LABELS.items() if field in data]
 
     new_status = data.get("status", prev_status)
@@ -1670,6 +1723,22 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
     # the primary duplicated inside the extras or a since-removed blank behind.
     if "project_id" in data or "project_ids" in data:
         t.project_ids = _extra_project_ids(t.project_ids, t.project_id or "")
+
+    # Automation rules (task_automation.py) see the row as this edit leaves it
+    # and write onto the same row. Whatever they changed is merged into `data`
+    # so the completion, activity, due-history and notification logic below
+    # treats it as part of this edit: one commit, one realtime ping, and the
+    # person a rule assigns is told the same way as one a colleague assigns.
+    auto = task_automation.run_for_change(
+        db, t, event="updated", before=auto_before, completed=new_completed,
+        gate=lambda ps, pc, ns, nc: _check_dependency_gate(db, t, ps, pc, ns, nc))
+    auto_moved_due = "due_on" in auto.changed
+    if auto.changed:
+        data.update(auto.changed)
+        if "assignee_emails" in auto.changed:
+            wanted = task_assignees(t)
+        new_completed = _resolve_completed(data, prev_completed)
+        modified_kinds = [label for field, label in _MODIFIED_FIELD_LABELS.items() if field in data]
 
     # After the field loop, so a start_on sent in this same PATCH wins over the
     # stamp - the caller stating a date is better information than "today".
@@ -1721,16 +1790,20 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
     ask = []
     if "due_on" in data and (t.due_on or "")[:10] != prev_due:
         # The 3rd+ extension, or one more than a month out, waits for approval
-        # (task_due.needs_approval) - the task keeps its date meanwhile.
+        # (task_due.needs_approval) - the task keeps its date meanwhile. A move
+        # an automation rule made has nobody to ask.
         ask = task_due.needs_approval(db, t, prev_due, t.due_on or "", user["email"],
-                                      privileged=is_manager(user))
+                                      privileged=is_manager(user) or auto_moved_due)
     if ask:
         wanted_due = (t.due_on or "")[:10]
         t.due_on = prev_due
         task_due.request_extension(db, t, user["email"], wanted_due, ask)
         modified_kinds = [k for k in modified_kinds if k != "Due date changed"]
     elif "due_on" in data and (t.due_on or "")[:10] != prev_due:
-        due_entry = task_due.record_due_change(db, t, prev_due, t.due_on or "", actor=user["email"])
+        due_entry = task_due.record_due_change(
+            db, t, prev_due, t.due_on or "",
+            actor=task_automation.AUTOMATION_ACTOR if auto_moved_due else user["email"],
+            source="automation" if auto_moved_due else "app")
         # The generic "Due date changed" becomes the actual story.
         modified_kinds = [k for k in modified_kinds if k != "Due date changed"]
         modified_kinds.insert(0, _due_change_label(t, due_entry))
@@ -1754,6 +1827,7 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
     fire_task_event(t.id, "updated")
     if spawned is not None:
         fire_task_event(spawned.id, "created")
+    task_automation.run_after_commit(db, auto, background_tasks.add_task)
 
     if wanted is not None and (set(task_assignees(t)) - prev_assignees):
         background_tasks.add_task(notify_task_event, t.id, "assigned", user["email"])
@@ -1769,6 +1843,72 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
                                   update_kind=", ".join(modified_kinds),
                                   due_changed=due_entry is not None)
     return task_to_dict(t)
+
+
+class RescheduleBody(BaseModel):
+    start_on: Optional[str] = None
+    due_on: Optional[str] = None
+    cascade: Optional[bool] = True
+
+
+@router.post("/{task_id}/reschedule")
+def reschedule_task(task_id: str, body: RescheduleBody, background_tasks: BackgroundTasks,
+                    user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Move a task's dates and push whatever waits on it (task_schedule.py).
+    The Timeline's drag lands here. The task itself goes through update_task,
+    so validation, roles, automation rules and the usual notifications all
+    apply; the dependents are then shifted only as far as their dependency
+    type demands, each with its own due-history line, event and email.
+    Answers {task, moved: [tasks], skipped: [{id, title}]} - `skipped` are
+    dependents the caller may not edit, left where they were. The task's own
+    move is committed by update_task before the cascade runs, so a cascade
+    that fails answers 200 with `cascadeError` and nothing moved: the drag DID
+    save, and a 500 would have had the UI say it did not."""
+    fields = {k: v for k, v in (("start_on", body.start_on), ("due_on", body.due_on)) if v is not None}
+    if not fields:
+        raise HTTPException(422, "Nothing to move: send start_on and/or due_on")
+    primary = update_task(task_id, TaskUpdate(**fields), background_tasks, user=user, db=db)
+    t = _get_task(db, task_id)
+    moved, skipped = [], []
+    if body.cascade:
+        import auth
+        scope = auth.company_scope(user, db)
+
+        def _can_edit(d: models.Task) -> bool:
+            # The company wall first (Oct 12 review): a manager clears every
+            # role check, so without it a link to another company's task
+            # would let this drag move that task. Reported as skipped.
+            if scope is not None and not auth.company_ok(
+                    getattr(d, "company_id", "") or auth.company_of(d.created_by or d.owner_email or "", db), scope):
+                return False
+            try:
+                require_task_role(db, user, d, "editor")
+                return True
+            except HTTPException:
+                return False
+        try:
+            moved, skipped = task_schedule.push_dependents(db, t, actor=user["email"], can_edit=_can_edit)
+            if moved:
+                for d in moved:
+                    req = task_due.requester_of(d)
+                    if req and req != user["email"].lower():
+                        task_notify(db, kind="task_due_changed", for_email=req,
+                                    title="Due date moved", body=f"{d.title} - moved with {t.title}", task_id=d.id,
+                                    nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
+                db.commit()
+        except Exception as e:   # the dependents' rows are uncommitted; the task's own move stands
+            db.rollback()
+            detail = e.detail if isinstance(e, HTTPException) else "The tasks waiting on it could not be moved."
+            if not isinstance(e, HTTPException):
+                logging.getLogger(__name__).exception("reschedule cascade failed for task %s", task_id)
+            return {"task": primary, "moved": [], "skipped": [], "cascadeError": detail}
+        for d in moved:
+            db.refresh(d)
+            fire_task_event(d.id, "updated")
+            background_tasks.add_task(notify_task_event, d.id, "modified", user["email"],
+                                      update_kind=f"Rescheduled after \"{t.title}\" moved", due_changed=True)
+    return {"task": primary, "moved": [task_to_dict(d) for d in moved],
+            "skipped": [{"id": d.id, "title": d.title} for d in skipped]}
 
 
 def _due_change_label(t: models.Task, entry: dict) -> str:
@@ -1946,6 +2086,11 @@ def delete_task(task_id: str, background_tasks: BackgroundTasks,
         row.deleted_at = deleted_stamp
         row.deleted_by = user["email"]
         row.modified_at = deleted_stamp
+    # A timer still running on a trashed task would otherwise sit there
+    # unstoppable and block that person's next Start; close it with the trash.
+    for e in (db.query(models.TaskTimeEntry)
+                .filter(models.TaskTimeEntry.task_id.in_(gone_ids), models.TaskTimeEntry.ended_at == "").all()):
+        _stop_entry(db, e)
     log_activity(db, type="deleted", actor_email=user["email"], entity_id=task_id,
                  entity_code=t.code, entity_title=t.title, detail="moved this task to Trash")
     db.commit()
@@ -2125,6 +2270,9 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
     # actually changed rather than restating the new value for every row.
     before = {t.id: (t.status, bool(t.completed), tuple(task_assignees(t))) for t in rows}
     before_due = {t.id: (t.due_on or "")[:10] for t in rows}
+    auto_before = {t.id: task_automation.snapshot(t) for t in rows}
+    auto_results: list = []
+    auto_changed: dict[str, dict] = {}   # task id -> fields the rules wrote on that row
     for t in rows:
         prev_status, prev_completed, _ = before[t.id]
         # Decided BEFORE the loop writes anything, from the payload and the
@@ -2167,6 +2315,16 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
             # Same re-clean update_task does: the primary must never also sit
             # in the "also in" extras list.
             t.project_ids = _extra_project_ids(t.project_ids, t.project_id or "")
+        # Same engine pass update_task makes, per row - a rule on "status
+        # changes to X" fires whether twenty cards were dragged or one.
+        auto = task_automation.run_for_change(
+            db, t, event="bulk", before=auto_before[t.id], completed=new_completed,
+            gate=lambda ps, pc, ns, nc, _t=t: _check_dependency_gate(db, _t, ps, pc, ns, nc))
+        if auto.changed:
+            auto_changed[t.id] = auto.changed
+            new_completed = _resolve_completed({**patch, **auto.changed}, prev_completed)
+        if auto.after_commit:
+            auto_results.append(auto)
         _apply_completion(t, new_completed, prev_completed)
         t.modified_at = now_iso()
 
@@ -2185,7 +2343,7 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
     for t in rows:
         prev_status, prev_completed, prev_assignees = before[t.id]
         acts = list(t.activity_ids or [])
-        if "status" in patch and t.status != prev_status:
+        if ("status" in patch or "status" in auto_changed.get(t.id, {})) and t.status != prev_status:
             acts.append(log_activity(db, type="status_changed", actor_email=user["email"],
                                      entity_id=t.id, entity_code=t.code, entity_title=t.title,
                                      detail=f"changed status to {t.status}"))
@@ -2210,9 +2368,13 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
         t.activity_ids = acts
         # After activity_ids is rebuilt - task_due appends its own entries.
         # Logged and counted like a single edit, but no per-row email (see above).
+        auto_due = "due_on" in auto_changed.get(t.id, {})
         ask = (task_due.needs_approval(db, t, before_due[t.id], t.due_on or "", actor, privileged=is_manager(user))
-               if "due_on" in patch else [])
-        if ask:
+               if "due_on" in patch and not auto_due else [])
+        if auto_due:
+            task_due.record_due_change(db, t, before_due[t.id], t.due_on or "",
+                                       actor=task_automation.AUTOMATION_ACTOR, source="automation")
+        elif ask:
             # Held for approval like a single edit; the approvers get one bell
             # for the whole batch, below.
             wanted_due = (t.due_on or "")[:10]
@@ -2259,6 +2421,10 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
     if newly_assigned:
         import task_notify as task_mail
         task_mail.queue_bulk_assignments(db, actor, newly_assigned)
+    # Comments the rules asked for. No BackgroundTasks on this endpoint; it is a
+    # sync def, so the inline emails run on a threadpool thread, not the loop.
+    for auto in auto_results:
+        task_automation.run_after_commit(db, auto)
     fire_task_event("", "bulk")
     return [task_to_dict(t) for t in rows]
 
@@ -2266,6 +2432,8 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
 # ── Comments ─────────────────────────────────────────────────────────────────
 class CommentCreate(BaseModel):
     body: str
+    parent_id: Optional[str] = ""        # reply in this comment's thread (Oct 2026)
+    assignee_email: Optional[str] = ""   # make the comment an action item for this person
     # No author_email. create_comment() accepts one so the Asana importer and the
     # inbound-email ingester can attribute a backfilled comment to whoever
     # actually wrote it - but both call that function in-process. Exposing it on
@@ -2276,6 +2444,12 @@ class CommentCreate(BaseModel):
 class CommentUpdate(BaseModel):
     body: Optional[str] = None
     pinned: Optional[bool] = None
+    resolved: Optional[bool] = None          # close / reopen an action item (Oct 2026)
+    assignee_email: Optional[str] = None     # hand the comment to someone ("" = nobody)
+
+
+class ReactionBody(BaseModel):
+    emoji: str
 
 
 @router.get("/{task_id}/comments")
@@ -2313,22 +2487,26 @@ def add_comment(task_id: str, body: CommentCreate, background_tasks: BackgroundT
     # author_email is deliberately NOT passed through from the request - it
     # defaults to the actor. See CommentCreate.
     c = create_comment(db, t, actor_email=user["email"],
-                       body=body.body or "", notify=notify, defer=background_tasks.add_task)
+                       body=body.body or "", notify=notify, defer=background_tasks.add_task,
+                       parent_id=body.parent_id or "",
+                       assignee_email=assert_person_on_task(db, t, body.assignee_email or ""))
     return comment_to_dict(c)
 
 
 @router.patch("/comments/{comment_id}")
-def edit_comment(comment_id: str, upd: CommentUpdate, user: dict = Depends(get_current_user),
-                 db: Session = Depends(get_db)):
+def edit_comment(comment_id: str, upd: CommentUpdate, background_tasks: BackgroundTasks,
+                 user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Editing the TEXT is author-only; pinning is a curation action any project
     editor may take. Before this, neither was checked at all (the handler took no
     `user`), so any signed-in person could rewrite anyone's comment on any task,
-    including in a project they can't otherwise see."""
+    including in a project they can't otherwise see. Every branch sits behind
+    the company wall and the task's viewer role first."""
     c = db.query(models.TaskComment).filter(models.TaskComment.id == comment_id).first()
     if not c:
         raise HTTPException(404, "Comment not found")
-    t = db.query(models.Task).filter(models.Task.id == c.task_id).first()
-    project = project_for_task(db, t) if t else None
+    t = _wall_task(db, user, c.task_id)
+    require_task_role(db, user, t, "viewer")
+    project = project_for_task(db, t)
     if upd.body is not None:
         # Managers bypass every other project-role check in this module, but
         # rewriting someone else's words is different in kind from access - so
@@ -2340,8 +2518,87 @@ def edit_comment(comment_id: str, upd: CommentUpdate, user: dict = Depends(get_c
     if upd.pinned is not None:
         require_project_role(db, user, project, "editor")
         c.pinned = bool(upd.pinned)
+    me = (user["email"] or "").lower()
+    if upd.assignee_email is not None:
+        # The author hands their own comment on; an editor can route anyone's.
+        if (c.author_email or "").lower() != me:
+            require_project_role(db, user, project, "editor")
+        who = assert_person_on_task(db, t, upd.assignee_email or "")
+        if who != (c.assignee_email or ""):
+            # A hand-off reopens the item: the new person has not acted on it
+            # yet, and a cleared one is no longer anybody's to resolve.
+            c.resolved_at, c.resolved_by = "", ""
+            if who and who != me:
+                task_notify(db, kind="task_activity", for_email=who,
+                            title="A comment was assigned to you", body=f"{t.title}", task_id=t.id,
+                            nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
+                # Same email the person gets when the comment is posted to them.
+                background_tasks.add_task(notify_task_event, t.id, "comment_assigned", me,
+                                          comment_body=c.body or "", comment_assignee=who)
+            t.activity_ids = list(t.activity_ids or []) + [log_activity(
+                db, type="comment_assigned", actor_email=me, entity_id=t.id, entity_code=t.code,
+                entity_title=t.title, detail=f"assigned a comment to {who}" if who else "cleared a comment's assignee")]
+        c.assignee_email = who
+    if upd.resolved is not None:
+        # The author, the person it was assigned to, or a project editor.
+        if me not in ((c.author_email or "").lower(), (c.assignee_email or "").lower()):
+            require_project_role(db, user, project, "editor")
+        if bool(upd.resolved) != bool(c.resolved_at):
+            c.resolved_at = now_iso() if upd.resolved else ""
+            c.resolved_by = me if upd.resolved else ""
+            if t is not None:
+                t.activity_ids = list(t.activity_ids or []) + [log_activity(
+                    db, type="comment_resolved" if upd.resolved else "comment_reopened", actor_email=me,
+                    entity_id=t.id, entity_code=t.code, entity_title=t.title,
+                    detail="resolved a comment" if upd.resolved else "reopened a comment")]
+                author = (c.author_email or "").lower()
+                if upd.resolved and author and author != me:
+                    task_notify(db, kind="task_activity", for_email=author,
+                                title="Your comment was resolved", body=f"{t.title}", task_id=t.id,
+                                nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
     if t:
         t.modified_at = now_iso()   # so a delta fetch (GET /tasks/delta) picks this task up
+    db.commit()
+    db.refresh(c)
+    fire_task_event(c.task_id, "comment")
+    return comment_to_dict(c)
+
+
+@router.post("/comments/{comment_id}/reactions")
+def react_to_comment(comment_id: str, body: ReactionBody, user: dict = Depends(get_current_user),
+                     db: Session = Depends(get_db)):
+    """Toggle one of COMMENT_REACTIONS for the caller. Anyone who can see the
+    task may react - a reaction is the lightest possible acknowledgment, which
+    is the point of it. The author gets a bell when a reaction goes on; a
+    toggle off is silent. The row is locked for the toggle: two people
+    reacting at the same moment must not read the same dict and have the
+    later write drop the earlier reaction (no-op on SQLite)."""
+    emoji = (body.emoji or "").strip()
+    if emoji not in COMMENT_REACTIONS:
+        raise HTTPException(422, "That reaction is not offered here")
+    c = db.query(models.TaskComment).filter(models.TaskComment.id == comment_id).with_for_update().first()
+    if not c:
+        raise HTTPException(404, "Comment not found")
+    t = _wall_task(db, user, c.task_id)
+    require_task_role(db, user, t, "viewer")
+    me = (user["email"] or "").lower()
+    reactions = {k: list(v) for k, v in (c.reactions or {}).items() if isinstance(v, list)}
+    people = reactions.get(emoji, [])
+    if me in people:
+        people = [p for p in people if p != me]
+    else:
+        people = people + [me]
+        author = (c.author_email or "").lower()
+        if author and author != me:
+            task_notify(db, kind="task_activity", for_email=author,
+                        title=f"{emoji} on your comment", body=f"{t.title}", task_id=t.id,
+                        nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
+    if people:
+        reactions[emoji] = people
+    else:
+        reactions.pop(emoji, None)
+    c.reactions = reactions   # reassigned, not mutated, so SQLAlchemy sees the JSON change
+    t.modified_at = now_iso()
     db.commit()
     db.refresh(c)
     fire_task_event(c.task_id, "comment")
@@ -2369,9 +2626,21 @@ def delete_comment(comment_id: str, user: dict = Depends(get_current_user),
         require_project_role(db, user, project_for_task(db, t) if t else None, "editor")
         if user.get("level", 1) < 3:
             raise HTTPException(403, "Only the author or a manager can delete a comment.")
+    # A thread's root holds other people's replies. Its author cannot take
+    # those down with it; a manager moderating the thread removes the lot.
+    replies = db.query(models.TaskComment).filter(models.TaskComment.parent_id == comment_id).all()
+    if replies and user.get("level", 1) < 3:
+        raise HTTPException(409, "This comment has replies. Delete the replies first, or ask a manager.")
+    gone = [comment_id] + [r.id for r in replies]
     if t:
-        t.comment_ids = [x for x in (t.comment_ids or []) if x != comment_id]
+        t.comment_ids = [x for x in (t.comment_ids or []) if x not in gone]
         t.modified_at = now_iso()   # so a delta fetch (GET /tasks/delta) picks this task up
+    for r in replies:
+        db.delete(r)
+    # Files attached while composing these comments stay on the task as plain
+    # attachments instead of pointing at a comment that is gone.
+    (db.query(models.TaskAttachment).filter(models.TaskAttachment.comment_id.in_(gone))
+       .update({"comment_id": ""}, synchronize_session=False))
     db.delete(c)
     db.commit()
     fire_task_event(c.task_id, "comment")
@@ -2384,6 +2653,419 @@ class AttachmentCreate(BaseModel):
     kind: Optional[str] = "other"
     url: Optional[str] = ""
     comment_id: Optional[str] = ""   # set only when attached while composing a comment
+
+
+# ── Time entries (Oct 2026) ───────────────────────────────────────────────────
+# A timer per person (one running at a time, on any task) and typed-in
+# minutes. Entries roll up into the task's actual_hours. Not Time Clock:
+# punches are attendance and payroll; this is effort against a task.
+class TimeEntryCreate(BaseModel):
+    minutes: int
+    note: Optional[str] = ""
+    billable: Optional[bool] = False
+    on: Optional[str] = ""        # YYYY-MM-DD the time was for; default today
+
+
+class TimeEntryUpdate(BaseModel):
+    minutes: Optional[int] = None
+    note: Optional[str] = None
+    billable: Optional[bool] = None
+
+
+class TimerStop(BaseModel):
+    note: Optional[str] = ""
+    billable: Optional[bool] = None
+
+
+MAX_ENTRY_MINUTES = 24 * 60
+
+
+def _recount_time(db: Session, t: models.Task) -> None:
+    """actual_hours and time_entry_count from the CLOSED entries. autoflush is
+    off, so pending rows are flushed first."""
+    db.flush()
+    rows = (db.query(models.TaskTimeEntry.minutes)
+            .filter(models.TaskTimeEntry.task_id == t.id, models.TaskTimeEntry.ended_at != "").all())
+    had_entries = (t.time_entry_count or 0) > 0
+    t.time_entry_count = len(rows)
+    if rows:
+        t.actual_hours = round(sum(int(m or 0) for (m,) in rows) / 60.0, 2)
+    elif had_entries:
+        # The last entry went: the rollup goes with it rather than surviving
+        # as a typed-in number nobody typed.
+        t.actual_hours = None
+    t.modified_at = now_iso()
+
+
+def _running_for(db: Session, email: str) -> Optional[models.TaskTimeEntry]:
+    return (db.query(models.TaskTimeEntry)
+            .filter(models.TaskTimeEntry.person_email == email, models.TaskTimeEntry.ended_at == "")
+            .order_by(models.TaskTimeEntry.started_at.desc()).first())
+
+
+def _stop_entry(db: Session, e: models.TaskTimeEntry, *, note: str = "", billable: Optional[bool] = None) -> models.Task:
+    """Close a running entry at now, rounding UP to the minute (a 20-second
+    timer is a minute, not nothing)."""
+    from datetime import datetime, timezone
+    start = datetime.fromisoformat(e.started_at)
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=timezone.utc)
+    secs = max(0, (datetime.now(timezone.utc) - start).total_seconds())
+    e.minutes = max(1, int(-(-secs // 60)))
+    e.ended_at = now_iso()
+    if note:
+        e.note = (note or "")[:1000]
+    if billable is not None:
+        e.billable = bool(billable)
+    # Through the soft-delete filter: a timer left running on a task that was
+    # then trashed must still stop (and must not block the person's next
+    # Start). A task purged underneath it leaves nothing to roll into.
+    t = (db.query(models.Task).execution_options(include_deleted=True)
+           .filter(models.Task.id == e.task_id).first())
+    if t is None:
+        return None
+    _recount_time(db, t)
+    t.activity_ids = list(t.activity_ids or []) + [log_activity(
+        db, type="time_logged", actor_email=e.person_email, entity_id=t.id, entity_code=t.code,
+        entity_title=t.title, detail=f"tracked {_fmt_minutes(e.minutes)}")]
+    return t
+
+
+def _fmt_minutes(m: int) -> str:
+    h, mm = divmod(int(m or 0), 60)
+    return (f"{h}h " if h else "") + (f"{mm}m" if mm or not h else "").strip() or "0m"
+
+
+@router.get("/time/running")
+def my_running_timer(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The caller's running timer, with the task it is on, or null."""
+    e = _running_for(db, user["email"].lower())
+    if not e:
+        return None
+    t = db.query(models.Task).filter(models.Task.id == e.task_id).first()
+    return {"entry": time_entry_to_dict(e), "task": task_to_dict(t) if t else None}
+
+
+@router.get("/time/mine")
+def my_time_entries(from_: str = Query("", alias="from"), to: str = "",
+                    user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The caller's closed entries between two days (inclusive) - the weekly
+    sheet. Defaults to the last 7 days."""
+    from datetime import date, timedelta
+    try:
+        end = date.fromisoformat(to) if to else date.today()
+        start = date.fromisoformat(from_) if from_ else end - timedelta(days=6)
+    except ValueError:
+        raise HTTPException(422, "from/to must be YYYY-MM-DD")
+    rows = (db.query(models.TaskTimeEntry)
+            .filter(models.TaskTimeEntry.person_email == user["email"].lower(),
+                    models.TaskTimeEntry.ended_at != "",
+                    models.TaskTimeEntry.started_at >= start.isoformat(),
+                    models.TaskTimeEntry.started_at < (end + timedelta(days=1)).isoformat())
+            .order_by(models.TaskTimeEntry.started_at.desc()).all())
+    ids = {r.task_id for r in rows}
+    titles = {t.id: t.title for t in db.query(models.Task).filter(models.Task.id.in_(list(ids))).all()} if ids else {}
+    return [{**time_entry_to_dict(r), "taskTitle": titles.get(r.task_id, "")} for r in rows]
+
+
+@router.post("/time/stop")
+def stop_my_timer(body: TimerStop, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Stop whatever the caller has running. Answers {entry, task} or null."""
+    e = _running_for(db, user["email"].lower())
+    if not e:
+        return None
+    t = _stop_entry(db, e, note=body.note or "", billable=body.billable)
+    db.commit()
+    db.refresh(e)
+    if t is not None:
+        db.refresh(t)
+        fire_task_event(t.id, "updated")
+    return {"entry": time_entry_to_dict(e), "task": task_to_dict(t) if t is not None else None}
+
+
+@router.get("/{task_id}/time")
+def list_time_entries(task_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    t = _wall_task(db, user, task_id)
+    require_task_role(db, user, t, "viewer")
+    rows = (db.query(models.TaskTimeEntry).filter(models.TaskTimeEntry.task_id == task_id)
+            .order_by(models.TaskTimeEntry.started_at.desc()).all())
+    return [time_entry_to_dict(e) for e in rows]
+
+
+@router.post("/{task_id}/time", status_code=201)
+def add_time_entry(task_id: str, body: TimeEntryCreate, user: dict = Depends(get_current_user),
+                   db: Session = Depends(get_db)):
+    """Typed-in time. Anyone who can comment on the task may log time on it -
+    logging effort is not editing the task."""
+    t = _wall_task(db, user, task_id)
+    require_task_role(db, user, t, "commenter")
+    if not (1 <= int(body.minutes) <= MAX_ENTRY_MINUTES):
+        raise HTTPException(422, "Minutes must be between 1 and 1440")
+    on = (body.on or "")[:10] or now_iso()[:10]
+    _check_iso_date(on, "on")
+    if on > (task_automation.business_today() + timedelta(days=1)).isoformat():
+        raise HTTPException(422, "That day has not happened yet")
+    me = user["email"].lower()
+    e = models.TaskTimeEntry(id=gen_id(), task_id=task_id, person_email=me, started_at=f"{on}T12:00:00+00:00",
+                             ended_at=now_iso(), minutes=int(body.minutes), note=(body.note or "")[:1000],
+                             billable=bool(body.billable), source="manual", created_at=now_iso())
+    db.add(e)
+    _recount_time(db, t)
+    t.activity_ids = list(t.activity_ids or []) + [log_activity(
+        db, type="time_logged", actor_email=me, entity_id=t.id, entity_code=t.code,
+        entity_title=t.title, detail=f"logged {_fmt_minutes(e.minutes)}")]
+    db.commit()
+    db.refresh(e)
+    db.refresh(t)
+    fire_task_event(t.id, "updated")
+    return {"entry": time_entry_to_dict(e), "task": task_to_dict(t)}
+
+
+@router.post("/{task_id}/time/start")
+def start_timer(task_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Start the caller's timer on this task. A timer already running on
+    another task is stopped first and comes back as `stopped`."""
+    t = _wall_task(db, user, task_id)
+    require_task_role(db, user, t, "commenter")
+    me = user["email"].lower()
+    stopped = None
+    prev = _running_for(db, me)
+    if prev is not None:
+        if prev.task_id == task_id:
+            return {"entry": time_entry_to_dict(prev), "task": task_to_dict(t), "stopped": None}
+        pt = _stop_entry(db, prev)
+        stopped = {"entry": time_entry_to_dict(prev), "task": task_to_dict(pt) if pt is not None else None}
+    e = models.TaskTimeEntry(id=gen_id(), task_id=task_id, person_email=me, started_at=now_iso(), ended_at="",
+                             minutes=0, note="", billable=False, source="timer", created_at=now_iso())
+    db.add(e)
+    try:
+        db.commit()
+    except IntegrityError:
+        # ux_task_time_running: a double-click or a second tab started one at
+        # the same moment. One running entry per person is the rule.
+        db.rollback()
+        raise HTTPException(409, "Your timer is already running. Stop it first.")
+    db.refresh(e)
+    if stopped and stopped["task"]:
+        fire_task_event(stopped["task"]["id"], "updated")
+    return {"entry": time_entry_to_dict(e), "task": task_to_dict(t), "stopped": stopped}
+
+
+@router.patch("/time/{entry_id}")
+def update_time_entry(entry_id: str, upd: TimeEntryUpdate, user: dict = Depends(get_current_user),
+                      db: Session = Depends(get_db)):
+    """Your own entry, or any entry as a manager."""
+    e = db.query(models.TaskTimeEntry).filter(models.TaskTimeEntry.id == entry_id).first()
+    if not e:
+        raise HTTPException(404, "Time entry not found")
+    # The wall before the owner check (Oct 12 review): another company's entry
+    # is 404, never a 403 that confirms it exists.
+    t = _wall_task(db, user, e.task_id)
+    me = user["email"].lower()
+    if e.person_email != me and not _is_manager_user(user):
+        raise HTTPException(403, "Only the person who logged this time, or a manager, can change it.")
+    if not e.ended_at:
+        raise HTTPException(409, "Stop the timer before editing this entry.")
+    data = upd.model_dump(exclude_unset=True)
+    if "minutes" in data:
+        if not (1 <= int(data["minutes"]) <= MAX_ENTRY_MINUTES):
+            raise HTTPException(422, "Minutes must be between 1 and 1440")
+        e.minutes = int(data["minutes"])
+    if "note" in data:
+        e.note = (data["note"] or "")[:1000]
+    if "billable" in data:
+        e.billable = bool(data["billable"])
+    _recount_time(db, t)
+    db.commit()
+    db.refresh(e)
+    db.refresh(t)
+    fire_task_event(t.id, "updated")
+    return {"entry": time_entry_to_dict(e), "task": task_to_dict(t)}
+
+
+@router.delete("/time/{entry_id}")
+def delete_time_entry(entry_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    e = db.query(models.TaskTimeEntry).filter(models.TaskTimeEntry.id == entry_id).first()
+    if not e:
+        raise HTTPException(404, "Time entry not found")
+    # The wall before the owner check (Oct 12 review): another company's entry
+    # is 404, never a 403 that confirms it exists.
+    t = _wall_task(db, user, e.task_id)
+    me = user["email"].lower()
+    if e.person_email != me and not _is_manager_user(user):
+        raise HTTPException(403, "Only the person who logged this time, or a manager, can remove it.")
+    db.delete(e)
+    _recount_time(db, t)
+    db.commit()
+    db.refresh(t)
+    fire_task_event(t.id, "updated")
+    return {"task": task_to_dict(t)}
+
+
+# ── Checklist (Oct 2026) ──────────────────────────────────────────────────────
+# The small steps inside a task. Editors add, rename, reorder and remove
+# lines; ticking a line is open to any editor AND to the person the line
+# names, so someone handed one step of a task they can otherwise only read
+# can still say it is done. Counters on the task row keep lists and boards
+# free of a query per task.
+class ChecklistItemCreate(BaseModel):
+    title: str
+    assignee_email: Optional[str] = ""
+    # Several lines at once (pasting a list into the add box) - ONE request,
+    # one recount, one realtime ping.
+    titles: Optional[list] = None
+
+
+class ChecklistItemUpdate(BaseModel):
+    title: Optional[str] = None
+    done: Optional[bool] = None
+    assignee_email: Optional[str] = None
+    position: Optional[float] = None
+
+
+class ChecklistOrder(BaseModel):
+    ids: list[str]
+
+
+def _recount_checklist(db: Session, t: models.Task) -> None:
+    """Task.checklist_total / checklist_done from the rows. autoflush is off,
+    so the caller's pending adds/deletes are flushed first or the count would
+    be one step behind the change that caused it."""
+    db.flush()
+    rows = db.query(models.TaskChecklistItem.done).filter(models.TaskChecklistItem.task_id == t.id).all()
+    t.checklist_total = len(rows)
+    t.checklist_done = sum(1 for (d,) in rows if d)
+    t.modified_at = now_iso()   # so a delta fetch picks the counters up
+
+
+def _checklist_item(db: Session, item_id: str) -> tuple:
+    i = db.query(models.TaskChecklistItem).filter(models.TaskChecklistItem.id == item_id).first()
+    if not i:
+        raise HTTPException(404, "Checklist item not found")
+    t = _get_task(db, i.task_id)
+    return i, t
+
+
+@router.get("/{task_id}/checklist")
+def list_checklist(task_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    t = _wall_task(db, user, task_id)
+    require_task_role(db, user, t, "viewer")
+    rows = (db.query(models.TaskChecklistItem).filter(models.TaskChecklistItem.task_id == task_id)
+            .order_by(models.TaskChecklistItem.position, models.TaskChecklistItem.created_at).all())
+    return [checklist_item_to_dict(i) for i in rows]
+
+
+@router.post("/{task_id}/checklist", status_code=201)
+def add_checklist_items(task_id: str, body: ChecklistItemCreate, user: dict = Depends(get_current_user),
+                        db: Session = Depends(get_db)):
+    """Returns {items: [the new lines], task: the task with fresh counters}."""
+    t = _wall_task(db, user, task_id)
+    require_task_role(db, user, t, "editor")
+    titles = [str(x).strip() for x in (body.titles if body.titles is not None else [body.title]) if str(x or "").strip()]
+    if not titles:
+        raise HTTPException(422, "A checklist item needs a title")
+    if len(titles) > 100:
+        raise HTTPException(422, "At most 100 items at a time")
+    last = (db.query(func.max(models.TaskChecklistItem.position))
+            .filter(models.TaskChecklistItem.task_id == task_id).scalar()) or 0.0
+    who = assert_person_on_task(db, t, body.assignee_email or "")
+    now = now_iso()
+    made = []
+    for n, title in enumerate(titles, start=1):
+        i = models.TaskChecklistItem(id=gen_id(), task_id=task_id, title=title[:500], done=False,
+                                     assignee_email=who, position=float(last) + n,
+                                     created_at=now, created_by=user["email"])
+        db.add(i)
+        made.append(i)
+    _recount_checklist(db, t)
+    if who and who != user["email"].lower():
+        task_notify(db, kind="task_activity", for_email=who,
+                    title="You were given a checklist item",
+                    body=f"{titles[0]} - {t.title}" if len(titles) == 1 else f"{len(titles)} items - {t.title}",
+                    task_id=t.id, nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
+    db.commit()
+    for i in made:
+        db.refresh(i)
+    db.refresh(t)
+    fire_task_event(t.id, "updated")
+    return {"items": [checklist_item_to_dict(i) for i in made], "task": task_to_dict(t)}
+
+
+@router.patch("/checklist/{item_id}")
+def update_checklist_item(item_id: str, upd: ChecklistItemUpdate, user: dict = Depends(get_current_user),
+                          db: Session = Depends(get_db)):
+    i, t = _checklist_item(db, item_id)
+    import auth
+    auth.assert_company(getattr(t, "company_id", "") or auth.company_of(t.created_by or t.owner_email or "", db), user, db)
+    data = upd.model_dump(exclude_unset=True)
+    me = (user["email"] or "").lower()
+    only_ticking = set(data) <= {"done"}
+    if only_ticking and (i.assignee_email or "").lower() == me:
+        require_task_role(db, user, t, "viewer")   # the line names them: ticking it is theirs to do
+    else:
+        require_task_role(db, user, t, "editor")
+    if "title" in data:
+        title = (data["title"] or "").strip()
+        if not title:
+            raise HTTPException(422, "A checklist item needs a title")
+        i.title = title[:500]
+    if "assignee_email" in data:
+        who = assert_person_on_task(db, t, data["assignee_email"] or "")
+        if who and who != (i.assignee_email or "") and who != me:
+            task_notify(db, kind="task_activity", for_email=who,
+                        title="You were given a checklist item", body=f"{i.title} - {t.title}",
+                        task_id=t.id, nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
+        i.assignee_email = who
+    if "position" in data and data["position"] is not None:
+        i.position = float(data["position"])
+    if "done" in data and bool(data["done"]) != bool(i.done):
+        i.done = bool(data["done"])
+        i.done_at = now_iso() if i.done else ""
+        i.done_by = me if i.done else ""
+        if i.done:
+            t.activity_ids = list(t.activity_ids or []) + [log_activity(
+                db, type="checklist_done", actor_email=me, entity_id=t.id, entity_code=t.code,
+                entity_title=t.title, detail=f"checked off \"{i.title}\"")]
+    _recount_checklist(db, t)
+    db.commit()
+    db.refresh(i)
+    db.refresh(t)
+    fire_task_event(t.id, "updated")
+    return {"item": checklist_item_to_dict(i), "task": task_to_dict(t)}
+
+
+@router.delete("/checklist/{item_id}")
+def delete_checklist_item(item_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    i, t = _checklist_item(db, item_id)
+    import auth
+    auth.assert_company(getattr(t, "company_id", "") or auth.company_of(t.created_by or t.owner_email or "", db), user, db)
+    require_task_role(db, user, t, "editor")
+    db.delete(i)
+    _recount_checklist(db, t)
+    db.commit()
+    db.refresh(t)
+    fire_task_event(t.id, "updated")
+    return {"task": task_to_dict(t)}
+
+
+@router.put("/{task_id}/checklist/order")
+def reorder_checklist(task_id: str, body: ChecklistOrder, user: dict = Depends(get_current_user),
+                      db: Session = Depends(get_db)):
+    """The whole order at once, as dragged. Ids not in the list keep their
+    place after the listed ones; ids of other tasks are ignored."""
+    t = _wall_task(db, user, task_id)
+    require_task_role(db, user, t, "editor")
+    rows = {i.id: i for i in db.query(models.TaskChecklistItem).filter(models.TaskChecklistItem.task_id == task_id).all()}
+    n = 0
+    for n, iid in enumerate([x for x in body.ids if x in rows], start=1):
+        rows[iid].position = float(n)
+    rest = sorted((i for i in rows.values() if i.id not in set(body.ids)), key=lambda i: (i.position or 0, i.created_at or ""))
+    for k, i in enumerate(rest, start=n + 1):
+        i.position = float(k)
+    t.modified_at = now_iso()
+    db.commit()
+    fire_task_event(t.id, "updated")
+    return [checklist_item_to_dict(i) for i in sorted(rows.values(), key=lambda i: i.position or 0)]
 
 
 @router.get("/{task_id}/attachments")

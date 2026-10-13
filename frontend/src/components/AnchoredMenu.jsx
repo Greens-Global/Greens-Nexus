@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { MOTION, usePresence } from '../lib/motion';
 import { rootZoom } from '../lib/utils';
 
 // A dropdown / popover pinned to the button that opened it (Neil, Sep 28).
@@ -46,6 +47,8 @@ export default function AnchoredMenu({
 }) {
   const ref = useRef(null);
   const [pos, setPos] = useState(null);
+  // Stays mounted for the exit (lib/motion.js): `closing` puts .is-closing on.
+  const { mounted, closing } = usePresence(open, MOTION.exitFast);
   // Callers pass `onClose` inline (a new function every render); reading it
   // through a ref keeps `place` stable so positioning doesn't loop.
   const closeRef = useRef(onClose);
@@ -80,7 +83,7 @@ export default function AnchoredMenu({
     const room = Math.max(120, up ? above : below);
     const left = Math.max(vLeft + EDGE, Math.min(align === 'end' ? r.right - w : r.left, vLeft + vw - EDGE - w));
     const top = up ? Math.max(vTop + EDGE, r.top - GAP - Math.min(h, room)) : r.bottom + GAP;
-    setPos({ left: left / z, top: top / z, maxHeight: room / z, maxWidth: (vw - EDGE * 2) / z });
+    setPos({ left: left / z, top: top / z, maxHeight: room / z, maxWidth: (vw - EDGE * 2) / z, up });
   }, [anchorRef, align, close]);
 
   // Measure before paint so the menu never flashes at the wrong spot (a
@@ -139,12 +142,14 @@ export default function AnchoredMenu({
     };
   }, [open, close, anchorRef, place]);
 
-  if (!open) return null;
+  if (!mounted) return null;
   return createPortal(
     <div
       ref={ref}
       role={role}
-      className={className}
+      className={[className, 'nx-anchored', closing ? 'is-closing' : ''].filter(Boolean).join(' ')}
+      data-align={align}
+      data-dir={pos?.up ? 'up' : 'down'}
       {...rest}
       onPointerDownCapture={(e) => { insideEvt.current = e.nativeEvent; rest.onPointerDownCapture?.(e); }}
       style={{

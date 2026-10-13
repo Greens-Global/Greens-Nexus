@@ -42,7 +42,8 @@ from routers.task_util import log_activity, now_iso, task_assignees, task_notify
 AGREED = ("", "accepted")      # "" = legacy row, or a date nobody needs to confirm
 # While an extension waits for approval the CURRENT date is still the agreed one.
 REQUESTED = "extension_requested"
-SOURCES = ("app", "bulk", "asana", "proposal", "counter", "approved")
+SOURCES = ("app", "bulk", "asana", "proposal", "counter", "automation", "cascade",   # automation: task_automation.py; cascade: task_schedule.py (Oct 2026)
+           "approved")
 # The 3rd extension onward needs approval - and so does any that lands more
 # than a calendar month after the first agreed date.
 APPROVAL_FROM = 3

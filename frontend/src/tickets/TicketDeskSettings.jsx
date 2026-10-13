@@ -32,6 +32,7 @@ import { useRole } from '../contexts/RoleContext';
 import { NX, FONT, btn, card } from '../tasks/theme';
 import { PersonMultiSelect, PersonSelect, usePeople } from '../tasks/components';
 import { useIsMobile } from '../lib/useIsMobile';
+import SavedCheck from '../components/SavedCheck';
 
 // The fallback chain, spelled out for whoever's reading it: a company's own
 // agents, if any -> the Default Agents list, if any -> every administrator.
@@ -370,7 +371,7 @@ export default function TicketDeskSettings() {
               <Save size={14} /> {saving ? 'Saving…' : 'Save'}
             </button>
             {dirty && !saving && <span style={{ fontSize: 12.5, color: NX.amber, fontWeight: 600 }}>Unsaved changes</span>}
-            {saved && <span style={{ fontSize: 12.5, color: NX.green, fontWeight: 600 }}>Saved</span>}
+            <SavedCheck show={saved} />
             {err && <span style={{ fontSize: 12.5, color: NX.red, fontWeight: 600 }}>{err}</span>}
           </div>
           <div style={{ fontSize: 11.5, color: NX.faint, lineHeight: 1.5, marginTop: 10 }}>

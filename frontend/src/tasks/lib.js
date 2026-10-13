@@ -453,7 +453,41 @@ export const projectToForm = (p) => ({
   status: p.status || 'not_started', startOn: p.startOn || '', dueOn: p.dueOn || '', archived: !!p.archived,
   customFieldValues: p.customFieldValues || {},
   timeTracking: p.timeTracking || '',
+  defaultView: p.defaultView || null,
 });
+
+/** The role a person holds on a project, as the backend's project_role_for
+ *  reads it minus team grants: owner > editor > commenter > viewer, or null.
+ *  Managers are owners everywhere; an org-level project makes everyone an
+ *  editor; bare membership counts as editor. Used only to decide what to
+ *  OFFER - the server enforces. */
+export function projectRoleOf(project, email, isManager = false) {
+  if (!project) return null;
+  if (isManager) return 'owner';
+  const me = (email || '').toLowerCase();
+  if (!me) return null;
+  if ((project.ownerId || '').toLowerCase() === me) return 'owner';
+  const explicit = (project.memberRoles || {})[me];
+  if (explicit) return explicit;
+  if ((project.memberIds || []).map((x) => (x || '').toLowerCase()).includes(me)) return 'editor';
+  if ((project.accessLevel || 'org') === 'org') return 'editor';
+  return null;
+}
+const ROLE_RANK = { viewer: 1, commenter: 2, editor: 3, owner: 4 };
+export const roleAtLeast = (role, min) => (ROLE_RANK[role] || 0) >= (ROLE_RANK[min] || 0);
+
+/** Which view and grouping a project opens with for this person (Oct 2026):
+ *  their own choice IN this project, else the project's default, else how
+ *  they look at task lists generally. */
+export function effectiveProjectView(projViews, project, globalView, globalGroup) {
+  const mine = (project && projViews?.[project.id]) || {};
+  const def = project?.defaultView || {};
+  return {
+    view: mine.view || def.view || globalView,
+    group: mine.group || def.group || globalGroup,
+    source: mine.view || mine.group ? 'mine' : def.view || def.group ? 'project' : 'global',
+  };
+}
 
 export const isSection = (t) => t.type === 'section';
 export const isSubtask = (t) => !!t.parentTaskId;
@@ -943,4 +977,71 @@ export function richBodyHtml(body, nameOf) {
       .join('');
   }
   return sanitizeRichHtml(s, nameOf);
+}
+
+// Checklist (Oct 2026).
+/** Lines pasted into the add box: one item per non-empty line, list bullets
+ *  and "[ ]" boxes stripped. A single line pastes as text like anywhere else. */
+export function itemsFromPaste(text) {
+  const lines = String(text || '').split(/\r?\n/)
+    // A bullet or number, then an optional "[ ]" / "[x]" box (markdown's
+    // "- [ ] call vendor"), both stripped.
+    .map((l) => l.replace(/^\s*(?:(?:[-*•]|\d+[.)])\s*)?(?:\[[ xX]?\]\s*)?/, '').trim())
+    .filter(Boolean);
+  return lines.length > 1 ? lines : null;
+}
+
+// Comment threads (Oct 2026). A reply carries its ROOT's id in parentId; a
+// root has none. Groups a flat, oldest-first comment list into
+// [{ root, replies }] in root order, replies oldest first. A reply whose root
+// is missing (deleted by a manager mid-fetch, or a legacy oddity) is shown as
+// a root rather than lost.
+export function threadComments(rows) {
+  const list = Array.isArray(rows) ? rows : [];
+  const ids = new Set(list.map((c) => c.id));
+  const roots = [];
+  const replies = new Map();
+  for (const c of list) {
+    if (c.parentId && ids.has(c.parentId)) {
+      if (!replies.has(c.parentId)) replies.set(c.parentId, []);
+      replies.get(c.parentId).push(c);
+    } else {
+      roots.push(c);
+    }
+  }
+  return roots.map((root) => ({ root, replies: replies.get(root.id) || [] }));
+}
+
+// The reactions a comment can carry - mirrors backend COMMENT_REACTIONS.
+export const COMMENT_REACTIONS = ['👍', '❤️', '🎉', '👏', '😂', '🔥', '👀', '✅'];
+
+// Time entries (Oct 2026).
+/** "1h 05m" / "45m" / "0m" from whole minutes. */
+export function fmtMinutes(m) {
+  const total = Math.max(0, Math.round(Number(m) || 0));
+  const h = Math.floor(total / 60), mm = total % 60;
+  if (!h) return `${mm}m`;
+  return mm ? `${h}h ${String(mm).padStart(2, '0')}m` : `${h}h`;
+}
+
+/** "00:12:34" for a running timer started at `startedAt` (ISO), as of `now`. */
+export function fmtElapsed(startedAt, now = Date.now()) {
+  const secs = Math.max(0, Math.floor((now - new Date(startedAt).getTime()) / 1000));
+  const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60), s = secs % 60;
+  return [h, m, s].map((n) => String(n).padStart(2, '0')).join(':');
+}
+
+/** Closed entries grouped by local day, newest day first, each with its
+ *  total: [{ day: 'YYYY-MM-DD', minutes, entries: [...] }]. */
+export function groupTimeByDay(entries) {
+  const byDay = new Map();
+  for (const e of entries || []) {
+    const d = new Date(e.startedAt);
+    const day = Number.isNaN(d.getTime()) ? '' : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    if (!byDay.has(day)) byDay.set(day, { day, minutes: 0, entries: [] });
+    const g = byDay.get(day);
+    g.minutes += Number(e.minutes) || 0;
+    g.entries.push(e);
+  }
+  return [...byDay.values()].sort((a, b) => (a.day < b.day ? 1 : a.day > b.day ? -1 : 0));
 }

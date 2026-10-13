@@ -66,6 +66,7 @@ const Placeholder         = lazy(() => import("./views/Placeholder"));
 const Directory           = lazy(() => import("./views/Directory"));   // Contact Directory (Support, Oct 2026)
 const PublicSign          = lazy(() => import("./views/PublicSign"));
 const PublicVerify        = lazy(() => import("./views/PublicVerify"));
+const PublicUnitFinder    = lazy(() => import("./views/PublicUnitFinder"));
 const ExternalActivate    = lazy(() => import("./views/ExternalActivate"));
 const PrivacyPolicy       = lazy(() => import("./views/PrivacyPolicy"));
 const TermsConditions     = lazy(() => import("./views/TermsConditions"));
@@ -491,6 +492,17 @@ export default function App() {
       </Suspense>
     );
   }
+  // Public unit finder (/map/{propertyId}) - a storage customer looking for
+  // their unit on the 3D site model has no login; the model served to them
+  // carries geometry and unit numbers only (routers/site_models.py).
+  if (parsePath().view === 'map') {
+    const pid = window.location.pathname.split('/').filter(Boolean)[1] || '';
+    return (
+      <Suspense fallback={<ViewLoading minHeight="100dvh" />}>
+        <PublicUnitFinder propertyId={pid} />
+      </Suspense>
+    );
+  }
   // Dev-only login preview (/__login) - with VITE_DEV_SKIP_AUTH the MSAL gates
   // never show LoginPage, so this is the only way to see it locally. Stripped
   // from production builds by the DEV guard.
@@ -784,7 +796,7 @@ function MainApp() {
                 whole canvas. It used to cancel .viewport's padding with negative
                 margins, which only matched ONE of the five breakpoint paddings
                 and so sat off-center at most widths. */}
-            <div className={(activeView === 'tasks' || activeView === 'tickets' || activeView === 'pdf-editor' || pdfHasDoc || activeView === 'whats-new') ? 'viewport viewport-flush'
+            <div key={`${activeView}/${viewEpoch}`} className={(activeView === 'tasks' || activeView === 'tickets' || activeView === 'pdf-editor' || pdfHasDoc || activeView === 'whats-new') ? 'viewport viewport-flush'
               : activeView === 'dashboard' ? 'viewport viewport-desk'
               : activeView === 'documents' ? 'viewport viewport-tight'
               : 'viewport'}>

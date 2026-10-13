@@ -5,6 +5,7 @@
 // Click a bar to edit it, an empty track to add a shift - or, with a shift
 // copied, to PASTE it there.
 import { StickyNote, Users, CalendarRange } from 'lucide-react';
+import WeatherChip from './WeatherChip';
 import { formatHHMM } from '../../lib/datetime';
 import { TimeOffBlock, HolidayBlock } from './ShiftBlock';
 import { PersonCell } from './WeekGrid';
@@ -14,7 +15,7 @@ const HOURS = [0, 3, 6, 9, 12, 15, 18, 21];
 const GRID = { display: 'grid', gridTemplateColumns: '180px minmax(560px, 1fr)' };
 const STICKY_LEFT = { position: 'sticky', left: 0, zIndex: 2, background: 'var(--card)', borderRight: '1px solid var(--line)' };
 
-export default function ScheduleDay({ date, sections, shifts, openCells, notes, canManage, offOn, holOn, copied, prefs, rowEditable, shiftEditable, dragId, on, single = false,
+export default function ScheduleDay({ date, sections, shifts, openCells, notes, weather = {}, canManage, offOn, holOn, copied, prefs, rowEditable, shiftEditable, dragId, on, single = false,
   dragProps = () => ({}), dropProps = () => ({}), dropStyle = () => ({}), clickable = (fn) => fn }) {
   const byEmail = {};
   shifts.forEach((s) => { if (s.date === date && s.email) (byEmail[s.email] ||= []).push(s); });
@@ -75,6 +76,7 @@ export default function ScheduleDay({ date, sections, shifts, openCells, notes, 
           <div style={{ ...STICKY_LEFT, zIndex: 4, background: 'var(--bg)', padding: '8px 12px' }}>
             <div style={{ fontSize: 11, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', display: 'flex', alignItems: 'center', gap: 6 }}>
               <Users size={11} /> {people.size} {people.size === 1 ? 'person' : 'people'} · {fmtHrs(dayMin)}
+              <WeatherChip w={weather[date]} size={12} onClick={on?.weather && weather[date] ? () => on.weather(date) : null} />
             </div>
             {(notes[date] || canManage) && (
               <div className="sched-hdr" style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 3, fontWeight: 600, minWidth: 0 }}>

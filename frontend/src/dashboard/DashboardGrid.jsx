@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from 'react';
-import { GripVertical, X, Settings2, ArrowUp, ArrowDown } from 'lucide-react';
+import { GripVertical, X, Settings2, ArrowUp, ArrowDown, Copy } from 'lucide-react';
 
 // A dependency-free drag + resize widget grid. 12 columns; each widget carries
 // { i, x, y, w, h }. In edit mode you drag by the header grip and resize from the
@@ -18,6 +18,24 @@ const GAP = 14;
 const MOBILE_BP = 700;
 const MIN_W = 2, MIN_H = 2, MAX_H = 8;
 
+// The phone stack, as rows (Oct 11). A widget the catalog marks `compact`
+// (a stat, a shortcut, an Action Tile - tiles that are an icon and a number
+// or a name) shares its row with the next compact one, two across, the way
+// Home's stat board and an iOS home screen do; everything else keeps a full
+// row of its own. Only tiles of the same height pair (a one-row pill beside
+// a two-row stat would leave a dead half-cell under the pill). Reading order
+// is unchanged - the pairing is only how the same order is drawn - so the
+// up/down arrows still mean what they did.
+export function stackRows(ordered, isCompact) {
+  const rows = [];
+  for (let k = 0; k < ordered.length; k++) {
+    const it = ordered[k], nx = ordered[k + 1];
+    if (isCompact(it) && nx && isCompact(nx) && (it.h || 2) === (nx.h || 2)) { rows.push([it, nx]); k++; }
+    else rows.push([it]);
+  }
+  return rows;
+}
+
 // `resolveLayout(nextLayout, draggedId)` is optional: pass it to have the
 // board settle collisions live (the other cards move out of the dragged one's
 // way while you drag, and the resolved board is what gets saved on drop).
@@ -25,7 +43,10 @@ const MIN_W = 2, MIN_H = 2, MAX_H = 8;
 // `alwaysResizable` puts the SE resize handle on every card in VIEW mode too,
 // so a card's height/width can be dragged without first entering Customize
 // (moving and removing still need it). Off by default.
-export default function DashboardGrid({ layout, editing, onLayoutChange, renderWidget, onRemove, onConfigure, limitsFor, resolveLayout, alwaysResizable, stacked = false, onMove, canConfigure }) {
+// `compactFor(it)` says which widgets pair up on a phone (see stackRows);
+// `onDuplicate(i)` adds a Duplicate control beside Configure in edit mode;
+// `emptyState` is what an empty board shows instead of a bare canvas.
+export default function DashboardGrid({ layout, editing, onLayoutChange, renderWidget, onRemove, onConfigure, onDuplicate, limitsFor, resolveLayout, alwaysResizable, stacked = false, onMove, canConfigure, compactFor, emptyState = null }) {
   const ref = useRef(null);
   const [width, setWidth] = useState(1000);
   const [drag, setDrag] = useState(null);   // live drag/resize session
@@ -89,18 +110,30 @@ export default function DashboardGrid({ layout, editing, onLayoutChange, renderW
     window.addEventListener('pointerup', up);
   }
 
+  const isCompact = (it) => !!compactFor?.(it);
+
   // ── Mobile: single-column stack, ordered by row then column ──
   if (mobile) {
     const ordered = [...layout].sort((a, b) => (a.y - b.y) || (a.x - b.x));
+    const rows = stackRows(ordered, isCompact);
+    const pos = new Map(ordered.map((it, k) => [it.i, k]));
+    const cell = (it) => (
+      // Edit mode drops the card 16px so its control bar (which sits
+      // across the top edge) never covers the card above it. A compact tile
+      // keeps its own height (a one-row pill stays a pill); everything else
+      // gets at least 150px so a list never collapses to a sliver.
+      <div key={it.i} style={{ height: it.h * ROW_H, minHeight: isCompact(it) ? 0 : 150, marginTop: editing ? 16 : 0, minWidth: 0 }}>
+        <Card it={it} editing={editing} onRemove={onRemove} onConfigure={onConfigure} onDuplicate={onDuplicate}
+          renderWidget={renderWidget} startDrag={() => {}} draggable={false} canConfigure={canConfigure}
+          onMove={onMove} first={pos.get(it.i) === 0} last={pos.get(it.i) === ordered.length - 1} />
+      </div>
+    );
     return (
       <div ref={ref} className="dash-grid" style={{ display: 'flex', flexDirection: 'column', gap: GAP }}>
-        {ordered.map((it, k) => (
-          // Edit mode drops the card 16px so its control bar (which sits
-          // across the top edge) never covers the card above it.
-          <div key={it.i} style={{ height: it.h * ROW_H, minHeight: 150, marginTop: editing ? 16 : 0 }}>
-            <Card it={it} editing={editing} onRemove={onRemove} onConfigure={onConfigure}
-              renderWidget={renderWidget} startDrag={() => {}} draggable={false} canConfigure={canConfigure}
-              onMove={onMove} first={k === 0} last={k === ordered.length - 1} />
+        {layout.length === 0 && emptyState}
+        {rows.map(row => row.length === 1 ? cell(row[0]) : (
+          <div key={row[0].i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: GAP }}>
+            {row.map(cell)}
           </div>
         ))}
       </div>
@@ -128,13 +161,16 @@ export default function DashboardGrid({ layout, editing, onLayoutChange, renderW
           maskImage: 'radial-gradient(ellipse at 50% 30%, black 55%, transparent 100%)',
           WebkitMaskImage: 'radial-gradient(ellipse at 50% 30%, black 55%, transparent 100%)' }} />
       )}
+      {layout.length === 0 && emptyState && (
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>{emptyState}</div>
+      )}
       {eff.map(it => (
         <div key={it.i} style={{
           position: 'absolute', left: it.x * unitW, top: it.y * ROW_H,
           width: it.w * unitW, height: it.h * ROW_H, padding: GAP / 2,
           boxSizing: 'border-box', transition: drag?.i === it.i ? 'none' : 'left 0.15s, top 0.15s, width 0.15s, height 0.15s',
           zIndex: drag?.i === it.i ? 10 : 1 }}>
-          <Card it={it} editing={editing} onRemove={onRemove} onConfigure={onConfigure}
+          <Card it={it} editing={editing} onRemove={onRemove} onConfigure={onConfigure} onDuplicate={onDuplicate}
             renderWidget={renderWidget} startDrag={startDrag} draggable alwaysResizable={alwaysResizable} canConfigure={canConfigure} />
         </div>
       ))}
@@ -144,13 +180,16 @@ export default function DashboardGrid({ layout, editing, onLayoutChange, renderW
 
 const iconBtn = { background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 3 };
 // Phone controls: 36px targets (Apple's minimum is 44pt for a lone button;
-// four side by side in one bar at 36 stays comfortably tappable).
+// four side by side in one bar at 36 stays comfortably tappable). Five
+// (Duplicate joins for a configurable tile) go to 32px so the bar still fits
+// a half-width paired cell on a 390px phone.
 const touchBtn = { ...iconBtn, width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 8, padding: 0 };
+const touchBtn5 = { ...touchBtn, width: 32, height: 32 };
 
 // The cell is a transparent frame: the widget renders its OWN native card
 // (.kpi-card / .dash-card) so it looks identical to the rest of the app. In edit
 // mode we overlay a small control cluster + resize handle on top.
-function Card({ it, editing, onRemove, onConfigure, renderWidget, startDrag, draggable, alwaysResizable, onMove, first, last, canConfigure }) {
+function Card({ it, editing, onRemove, onConfigure, onDuplicate, renderWidget, startDrag, draggable, alwaysResizable, onMove, first, last, canConfigure }) {
   // A widget with no options gets no gear - it used to show one that did nothing.
   const configurable = onConfigure && (!canConfigure || canConfigure(it));
   return (
@@ -162,16 +201,20 @@ function Card({ it, editing, onRemove, onConfigure, renderWidget, startDrag, dra
         <div style={{ position: 'absolute', inset: 0, borderRadius: 'var(--wk-r)', pointerEvents: 'none',
           boxShadow: 'inset 0 0 0 1.5px hsla(var(--color-blue),0.35)' }} />
       )}
-      {editing && !draggable && (
+      {editing && !draggable && (() => {
         // Stacked (phone): reorder with arrows - there is no drag here.
+        const tb = (onMove ? 2 : 0) + (configurable ? 1 : 0) + (onDuplicate ? 1 : 0) + 1 >= 5 ? touchBtn5 : touchBtn;
+        return (
         <div role="toolbar" aria-label="Widget controls" style={{ position: 'absolute', top: -20, left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: 2,
           background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 11, padding: 2, boxShadow: 'var(--shadow-md)', zIndex: 5 }}>
-          {onMove && <button onClick={() => onMove(it.i, -1)} disabled={first} title="Move Up" aria-label="Move Up" style={{ ...touchBtn, opacity: first ? 0.3 : 1, cursor: first ? 'default' : 'pointer' }}><ArrowUp size={17} /></button>}
-          {onMove && <button onClick={() => onMove(it.i, 1)} disabled={last} title="Move Down" aria-label="Move Down" style={{ ...touchBtn, opacity: last ? 0.3 : 1, cursor: last ? 'default' : 'pointer' }}><ArrowDown size={17} /></button>}
-          {configurable && <button onClick={() => onConfigure(it)} title="Configure" aria-label="Configure" style={touchBtn}><Settings2 size={17} /></button>}
-          <button onClick={() => onRemove(it.i)} title="Remove" aria-label="Remove" style={{ ...touchBtn, color: 'hsl(var(--color-red))' }}><X size={18} /></button>
+          {onMove && <button onClick={() => onMove(it.i, -1)} disabled={first} title="Move Up" aria-label="Move Up" style={{ ...tb, opacity: first ? 0.3 : 1, cursor: first ? 'default' : 'pointer' }}><ArrowUp size={17} /></button>}
+          {onMove && <button onClick={() => onMove(it.i, 1)} disabled={last} title="Move Down" aria-label="Move Down" style={{ ...tb, opacity: last ? 0.3 : 1, cursor: last ? 'default' : 'pointer' }}><ArrowDown size={17} /></button>}
+          {configurable && <button onClick={() => onConfigure(it)} title="Configure" aria-label="Configure" style={tb}><Settings2 size={17} /></button>}
+          {onDuplicate && <button onClick={() => onDuplicate(it.i)} title="Duplicate" aria-label="Duplicate" style={tb}><Copy size={16} /></button>}
+          <button onClick={() => onRemove(it.i)} title="Remove" aria-label="Remove" style={{ ...tb, color: 'hsl(var(--color-red))' }}><X size={18} /></button>
         </div>
-      )}
+        );
+      })()}
       {editing && draggable && (
         <div style={{ position: 'absolute', top: -12, left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: 1,
           background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 9, padding: '2px 4px', boxShadow: 'var(--shadow-md)', zIndex: 5 }}>
@@ -181,8 +224,11 @@ function Card({ it, editing, onRemove, onConfigure, renderWidget, startDrag, dra
             style={{ cursor: 'grab', display: 'flex', alignItems: 'center', color: 'var(--muted)', padding: 3, touchAction: 'none' }}>
             <GripVertical size={14} />
           </span>
-          {configurable && <button onClick={() => onConfigure(it)} title="Configure" style={iconBtn}><Settings2 size={13} /></button>}
-          <button onClick={() => onRemove(it.i)} title="Remove" style={iconBtn}><X size={14} /></button>
+          {configurable && <button onClick={() => onConfigure(it)} title="Configure" aria-label="Configure" style={iconBtn}><Settings2 size={13} /></button>}
+          {/* Duplicate (Oct 11): a second copy, same setup, placed in the
+              nearest free spot - the quick way to build a row of Action Tiles. */}
+          {onDuplicate && <button onClick={() => onDuplicate(it.i)} title="Duplicate" aria-label="Duplicate" style={iconBtn}><Copy size={13} /></button>}
+          <button onClick={() => onRemove(it.i)} title="Remove" aria-label="Remove" style={iconBtn}><X size={14} /></button>
         </div>
       )}
       {(editing || alwaysResizable) && draggable && (

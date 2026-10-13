@@ -35,6 +35,7 @@ const CACHE_KEY = 'nexus.taskTablePrefs';
 // Four lists can be mounted at once; they read one document and one fetch.
 let cache = null;             // { table: { order: [], widths: {} } }
 let inflight = null;
+let fromServer = false;       // the cache came from /task-prefs, not the offline fallback
 const listeners = new Set();
 
 const readCache = () => {
@@ -61,13 +62,23 @@ function loadPrefs() {
   if (cache) return Promise.resolve(cache);
   if (!inflight) {
     inflight = api.getTaskTablePrefs()
-      .then((r) => { cache = r?.prefs || {}; writeCache(cache); emit(); return cache; })
+      .then((r) => { cache = r?.prefs || {}; fromServer = true; writeCache(cache); emit(); return cache; })
       // Offline or a 500: fall back to whatever this browser last saw, then to
       // the defaults. A person who cannot reach the server still gets a table.
       .catch(() => { cache = readCache() || {}; emit(); return cache; })
       .finally(() => { inflight = null; });
   }
   return inflight;
+}
+
+/** Resolves with { prefs, fromServer } once the first load has settled. A
+ *  one-time lift from an older localStorage store must wait for this: a write
+ *  made DURING the first fetch is overwritten when it lands - and must only
+ *  run when the server actually answered (`fromServer`). On the offline
+ *  fallback "no charts" means "could not ask", and lifting then would throw
+ *  the old document away against a PUT that cannot land. */
+export function whenTablePrefsLoaded() {
+  return loadPrefs().then((prefs) => ({ prefs, fromServer }));
 }
 
 // Optimistic: the arrangement is applied locally and then sent. A failed PUT
@@ -77,7 +88,11 @@ function patchTable(table, patch) {
   cache = { ...(cache || {}), [table]: { ...((cache || {})[table] || {}), ...patch } };
   writeCache(cache);
   emit();
-  api.saveTaskTablePrefs(table, patch).catch(() => {});
+  // Returned for the caller that needs to know it landed (the one-time lift
+  // removes the old copy only then); handled here so nobody else has to.
+  const saved = api.saveTaskTablePrefs(table, patch);
+  saved.catch(() => {});
+  return saved;
 }
 
 function clearTable(table) {
@@ -114,6 +129,7 @@ export function resetAllTablePrefs() {
 // Test seam: lets a test start from a known document without a server.
 export function __setTablePrefsCache(next) {
   cache = next;
+  fromServer = next !== null;   // a preset document stands in for a server answer
   emit();
 }
 
@@ -172,9 +188,7 @@ export function useTableValue(table, name, fallback) {
   const value = stored === undefined ? fallback : stored;
   const ref = useRef(value);
   ref.current = value;
-  const set = useCallback((next) => {
-    patchTable(table, { [name]: typeof next === 'function' ? next(ref.current) : next });
-  }, [table, name]);
+  const set = useCallback((next) => patchTable(table, { [name]: typeof next === 'function' ? next(ref.current) : next }), [table, name]);
   return [value, set];
 }
 

@@ -1,0 +1,245 @@
+{
+  "id": "greens-storage-temecula",
+  "name": "Greens Storage Temecula",
+  "address": "47355 Rainbow Canyon Rd, Temecula, CA 92592",
+  "apn": "918-200-025, 918-200-027",
+  "acreage": 9.65,
+  "opened": "",
+  "county": "Riverside",
+  "parcelSource": "Riverside County Assessor parcels (OpenData)",
+  "cubbyFacilityId": "fac_MvDV6MGhb9q",
+  "frame": {
+    "lat0": 33.44295,
+    "lon0": -117.13637,
+    "bearingDeg": 21.4,
+    "mPerDegLon": 92889,
+    "mPerDegLat": 110900
+  },
+  "image": {
+    "file": "frontend/public/site-models/greens-storage-temecula/ground.jpg",
+    "bbox": [
+      -117.1376,
+      33.440384,
+      -117.1342,
+      33.445516
+    ],
+    "px": [
+      1300,
+      1962
+    ],
+    "attribution": "Imagery: Esri, Maxar, Earthstar Geographics"
+  },
+  "imageWide": {
+    "file": "frontend/public/site-models/greens-storage-temecula/ground-wide.jpg",
+    "bbox": [
+      -117.1479,
+      33.4345,
+      -117.1249,
+      33.4515
+    ]
+  },
+  "gates": [
+    {
+      "id": "main",
+      "name": "Gate",
+      "en": [
+        [
+          92,
+          -10
+        ]
+      ]
+    }
+  ],
+  "classify": [
+    {
+      "match": "^X",
+      "k": "in",
+      "veh": 0
+    },
+    {
+      "match": "^Z",
+      "k": "in",
+      "veh": 0
+    }
+  ],
+  "buildings": [
+    {
+      "id": "OFFICE",
+      "letters": [
+        "Z"
+      ],
+      "name": "Office",
+      "kind": "office",
+      "rect": {
+        "E": -1.6,
+        "N": -10.7,
+        "L": 9.5,
+        "W": 6.8,
+        "bearing": 16.5
+      },
+      "height": 3.5,
+      "floors": 1,
+      "roof": "red",
+      "doorSide": "ne",
+      "inferred": true,
+      "note": "Office at the west side of the lot by the Cubby facility point."
+    }
+  ],
+  "zones": [
+    {
+      "id": "A",
+      "name": "Section A",
+      "kind": "rv-lot",
+      "letters": [
+        "A"
+      ],
+      "parcels": [
+        "918200025",
+        "918200027"
+      ],
+      "inset": 3,
+      "uRange": [
+        140,
+        240
+      ]
+    },
+    {
+      "id": "B",
+      "name": "Section B",
+      "kind": "rv-lot",
+      "letters": [
+        "B"
+      ],
+      "parcels": [
+        "918200025",
+        "918200027"
+      ],
+      "inset": 3,
+      "uRange": [
+        60,
+        140
+      ]
+    },
+    {
+      "id": "C",
+      "name": "Section C",
+      "kind": "rv-lot",
+      "letters": [
+        "C"
+      ],
+      "parcels": [
+        "918200025",
+        "918200027"
+      ],
+      "inset": 3,
+      "uRange": [
+        -5,
+        60
+      ]
+    },
+    {
+      "id": "D",
+      "name": "Section D",
+      "kind": "rv-lot",
+      "letters": [
+        "D"
+      ],
+      "parcels": [
+        "918200025",
+        "918200027"
+      ],
+      "inset": 3,
+      "uRange": [
+        -30,
+        -5
+      ]
+    },
+    {
+      "id": "E",
+      "name": "Section E",
+      "kind": "rv-lot",
+      "letters": [
+        "E"
+      ],
+      "parcels": [
+        "918200025",
+        "918200027"
+      ],
+      "inset": 3,
+      "uRange": [
+        -170,
+        -30
+      ]
+    },
+    {
+      "id": "X",
+      "name": "Containers",
+      "kind": "rv-lot",
+      "letters": [
+        "X"
+      ],
+      "parcels": [
+        "918200025",
+        "918200027"
+      ],
+      "inset": 3,
+      "uRange": [
+        -215,
+        -170
+      ]
+    },
+    {
+      "id": "CANOPY1",
+      "name": "Covered Parking",
+      "kind": "canopy",
+      "letters": [],
+      "en": [
+        [
+          14.51,
+          60.62
+        ],
+        [
+          28.58,
+          123.57
+        ],
+        [
+          56.29,
+          117.38
+        ],
+        [
+          42.22,
+          54.43
+        ]
+      ]
+    },
+    {
+      "id": "CANOPY2",
+      "name": "Covered Parking",
+      "kind": "canopy",
+      "letters": [],
+      "en": [
+        [
+          -13.62,
+          6.77
+        ],
+        [
+          -2.98,
+          39.7
+        ],
+        [
+          22.62,
+          31.43
+        ],
+        [
+          11.98,
+          -1.5
+        ]
+      ]
+    }
+  ],
+  "sources": [
+    "Parcel: Riverside County Assessor OpenData parcels (APNs 918200025 5.40 ac and 918200027 4.25 ac)",
+    "Lot sections: split along the lot in proportion to each section's stall area; no canopy or row survey yet",
+    "Units: Cubby FMS inventory export, Oct 11, 2026 (527 active units)"
+  ]
+}

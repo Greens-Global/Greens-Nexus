@@ -15,7 +15,7 @@ function PhotoTile({ p, showFacility }) {
         borderRadius: 12,
         overflow: 'hidden',
         border: '1px solid ' + C.gray200,
-        transition: 'all .15s',
+        transition: 'box-shadow .15s, transform .15s',
         boxShadow: hovered ? '0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1)' : 'none',
         transform: hovered ? 'translateY(-2px)' : 'none',
       }}

@@ -75,8 +75,10 @@ export default function CustomDashboard() {
   // the grid and the gallery, but never out of the saved layout - a shared
   // view still carries it for the people it is for. Distinct from
   // canSeeWidget, which renders an inert "needs access" card instead.
-  const isHiddenWidget = (def) => widgetHidden(def, { timeTrackingExempt });
-  const offerWidget = (def) => canSeeWidget(def) && !isHiddenWidget(def);
+  // Takes the placed item, not just the type: an Action Tile is only a punch
+  // tile by its config, so the config decides (widgetHidden's third argument).
+  const isHiddenItem = (it) => widgetHidden(WIDGETS[it.type], { timeTrackingExempt }, it.config);
+  const offerWidget = (def) => canSeeWidget(def) && !widgetHidden(def, { timeTrackingExempt });
   // 'manager' | 'supervisor' | 'employee' - same access layer as canSeeWidget
   // above, just collapsed to one tier label. Drives which role-tiered widgets
   // seed a pristine board and whether team-wide KPIs get fetched (see
@@ -109,8 +111,8 @@ export default function CustomDashboard() {
 
   // The grid shows the layout minus the tiles that are not for this person;
   // the hidden ones ride along unchanged on every layout change and save.
-  const hiddenItems = d.layout.filter(it => isHiddenWidget(WIDGETS[it.type]));
-  const shownLayout = hiddenItems.length ? d.layout.filter(it => !isHiddenWidget(WIDGETS[it.type])) : d.layout;
+  const hiddenItems = d.layout.filter(isHiddenItem);
+  const shownLayout = hiddenItems.length ? d.layout.filter(it => !isHiddenItem(it)) : d.layout;
 
   const isOwnPersonal  = d.activeView?.scope === 'personal';
   const canEditInPlace = isOwnPersonal || (d.activeView?.scope === 'department' && d.canPublish);
@@ -125,7 +127,7 @@ export default function CustomDashboard() {
 
   const renderWidget = (it) => {
     const def = WIDGETS[it.type];
-    if (!def) return <div style={{ padding: 16, fontSize: 12, color: 'var(--muted)' }}>Unknown widget</div>;
+    if (!def) return <div className="dash-card" style={{ height: '100%', boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center', padding: 16 }}>This widget is no longer available.</div>;
     // Role-gated widget in a layout the user inherited (e.g. a dept template):
     // show an inert card instead of the real panel - and never delete it from
     // their saved layout.
@@ -140,7 +142,7 @@ export default function CustomDashboard() {
     return (
       <Suspense fallback={<div className="dash-card" style={{ height: '100%', boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><LoadingState compact /></div>}>
         <Comp
-          config={it.config || {}} kpis={d.kpis} notifications={notifications}
+          config={it.config || {}} size={{ w: it.w, h: it.h }} kpis={d.kpis} notifications={notifications}
           markRead={markRead} markAllRead={markAllRead} dismiss={dismiss} clearAll={clearAllNotifs}
           updateConfig={(patch) => d.updateWidgetConfig(it.i, patch)}
         />
@@ -349,11 +351,25 @@ export default function CustomDashboard() {
               onLayoutChange={(next) => d.setLayout(hiddenItems.length ? [...next, ...hiddenItems] : next)}
               renderWidget={renderWidget}
               onRemove={d.removeWidget}
+              onDuplicate={d.duplicateWidget}
               onConfigure={(it) => WIDGETS[it.type]?.configurable ? setConfigItem(it) : null}
               canConfigure={(it) => !!WIDGETS[it.type]?.configurable}
               limitsFor={(it) => WIDGETS[it.type]?.limits}
+              compactFor={(it) => !!WIDGETS[it.type]?.compact}
               stacked={isPhone}
               onMove={d.moveWidget}
+              emptyState={(
+                // An empty board used to be a bare dotted canvas with nothing
+                // saying what to do next.
+                <div style={{ textAlign: 'center', maxWidth: 360, fontFamily: 'var(--wk-font)' }}>
+                  <div style={{ width: 44, height: 44, borderRadius: 12, background: 'var(--mist)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', marginBottom: 12 }}><LayoutGrid size={20} /></div>
+                  <h3 style={{ margin: '0 0 6px', fontSize: 15, fontWeight: 700, color: 'var(--ink)' }}>This view is empty</h3>
+                  <p style={{ margin: '0 0 14px', fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>Add a widget to start building it - a punch tile, your open tasks, a shortcut, anything from the gallery.</p>
+                  {d.editing
+                    ? <button className="primary-btn" style={btn} onClick={() => setGallery(true)}><Plus size={14} /> Add Widget</button>
+                    : <button className="secondary-btn" style={btn} onClick={() => d.setEditing(true)}><SlidersHorizontal size={14} /> Customize</button>}
+                </div>
+              )}
             />
             {/* Room for the bottom bar, so it never covers the last widget. */}
             {d.editing && isPhone && <div aria-hidden style={{ height: 'calc(92px + env(safe-area-inset-bottom))' }} />}

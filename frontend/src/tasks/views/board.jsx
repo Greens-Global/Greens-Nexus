@@ -6,10 +6,13 @@
 import { useMemo, useRef, useState } from 'react';
 import {
   Circle, CheckCircle2, MessageSquare, Diamond, Plus, Trash2, ChevronsLeft, ChevronsRight,
-  MoreHorizontal, Gauge, Rows3, ChevronDown,
+  MoreHorizontal, Gauge, Rows3, ChevronDown, ListChecks,
 } from 'lucide-react';
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META } from '../theme';
 import { cfKey, cfFieldId, taskFieldValue, fieldsForProject, taskAssignees, requiredFieldsFor } from '../lib';
+import { useFlip } from '../../lib/motion';
+import ChangeFlash from '../../components/ChangeFlash';
+import { changedRecently } from '../recentChanges';
 import { statusesForProject } from '../TasksContext';
 import { Avatar, PriorityChip } from '../components';
 import { fmtDate } from '../lib';
@@ -72,6 +75,9 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
   const [sectionName, setSectionName] = useState('');
   const [swimOpen, setSwimOpen] = useState(false);
   const swimRef = useRef(null);
+  // Cards glide when a drop, a status change or a filter moves them.
+  const flipRef = useRef(null);
+  useFlip(flipRef);
   const [wip, setWip] = useState(() => { try { return JSON.parse(localStorage.getItem('nexus.board.wip') || '{}'); } catch { return {}; } });
 
   const setLimit = (status, n) => setWip((prev) => {
@@ -219,12 +225,13 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
     const proj = !lockedProjectId && t.projectId ? store.projects.find((p) => p.id === t.projectId) : null;
     const projColor = proj?.color || NX.purple;
     return (
-      <div key={t.id} draggable data-task-row
+      <div key={t.id} draggable data-task-row data-flip={t.id}
         onDragStart={() => { setDragId(t.id); setDragFrom(laneKey); }}
         onDragEnd={() => { setDragId(null); setDragFrom(null); }} onClick={() => onOpen(t.id)}
         onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.09)'; }}
         onMouseLeave={(e) => { e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.04)'; }}
-        style={{ background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 12, padding: 14, cursor: 'grab', boxShadow: '0 1px 2px rgba(0,0,0,0.04)', opacity: dragId === t.id ? 0.5 : 1, transition: 'box-shadow .15s' }}>
+        style={{ position: 'relative', background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 12, padding: 14, cursor: 'grab', boxShadow: '0 1px 2px rgba(0,0,0,0.04)', opacity: dragId === t.id ? 0.5 : 1, transition: 'box-shadow .15s' }}>
+        <ChangeFlash value={`${t.status}:${!!t.completed}`} color={statusMeta(t.status)?.color} isFresh={() => changedRecently(t.id)} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
           {proj && (
             <span style={{ padding: '2px 8px', borderRadius: 5, fontSize: 10.5, fontWeight: 600, background: `${projColor}1a`, color: projColor, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 130 }}>{proj.name}</span>
@@ -243,6 +250,11 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
               style={{ ...btn('ghost'), padding: 2, gap: 2, fontSize: 11, color: commentOpenId === t.id ? NX.blue : NX.faint }}>
               <MessageSquare size={11} />{t.commentIds?.length > 0 ? t.commentIds.length : ''}
             </button>
+            {t.checklistTotal > 0 && (
+              <span title={`Checklist ${t.checklistDone || 0} of ${t.checklistTotal} done`} style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: 11, color: t.checklistDone === t.checklistTotal ? NX.green : NX.faint }}>
+                <ListChecks size={11} />{t.checklistDone || 0}/{t.checklistTotal}
+              </span>
+            )}
             {t.dueOn && <span style={{ fontSize: 11, color: dc }}>{fmtDue(t.dueOn)}</span>}
             <DueBadge task={t} nameOf={ctx.nameOf} compact />
             {taskAssignees(t).slice(0, 3).map((a, i) => (
@@ -298,7 +310,7 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
   const swimLabel = SWIMLANE_OPTIONS.find((o) => o.key === swimlane).label;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, background: NX.canvas, fontFamily: FONT, padding: 16 }}>
+    <div ref={flipRef} style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, background: NX.canvas, fontFamily: FONT, padding: 16 }}>
       {/* Board toolbar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexShrink: 0 }}>
         <div>
