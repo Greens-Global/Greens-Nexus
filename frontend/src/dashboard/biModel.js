@@ -117,8 +117,9 @@ export function cardCsvRows(mod) {
 }
 
 // Hidden modules, per browser. A hidden card is a preference, not data, so
-// localStorage is the right home; the id list is validated against the
-// payload on read so a module that no longer exists cannot wedge the board.
+// localStorage is the right home. Only the shape is checked here; an id for
+// a module that no longer exists simply hides nothing, and the Modules menu
+// counts hidden ids against the live payload.
 export const LS_HIDDEN = 'nexus:bi-hidden-modules';
 export function loadHidden() {
   try {

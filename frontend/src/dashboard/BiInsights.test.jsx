@@ -1,4 +1,3 @@
-import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
@@ -9,7 +8,8 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 const dashInsights = vi.fn();
 const dashInsightsDrilldown = vi.fn();
 vi.mock('../api', () => ({ api: { dashInsights: (...a) => dashInsights(...a), dashInsightsDrilldown: (...a) => dashInsightsDrilldown(...a) } }));
-vi.mock('./widgets.jsx', () => ({ navigate: vi.fn() }));
+const navigate = vi.fn();
+vi.mock('./widgets.jsx', () => ({ navigate: (...a) => navigate(...a) }));
 vi.mock('recharts', () => ({
   ResponsiveContainer: ({ children }) => <div data-testid="chart">{children}</div>,
   AreaChart: ({ children }) => <div>{children}</div>, Area: () => null, Tooltip: () => null,
@@ -71,6 +71,19 @@ describe('BiInsights', () => {
     expect(screen.queryByTitle('See the breakdown of Cash on Hand')).toBeNull();
   });
 
+  it('an attention tile opens the breakdown, and the module arrow opens the module', async () => {
+    render(<BiInsights />);
+    await screen.findByText('Needs Attention');
+    // The strip renders before the cards, so the first match is the tile.
+    const tile = screen.getAllByTitle('See the breakdown of Overdue')[0];
+    expect(tile.className).toContain('bi-alert');
+    fireEvent.click(tile);
+    await waitFor(() => expect(dashInsightsDrilldown).toHaveBeenCalledWith('tasks', 'overdue'));
+    fireEvent.click(screen.getByLabelText('Close'));
+    fireEvent.click(screen.getByLabelText('Open Accounting'));
+    expect(navigate).toHaveBeenCalledWith('accounting');
+  });
+
   it('narrows the cards by search and by alert level', async () => {
     render(<BiInsights />);
     await screen.findByText('Needs Attention');
@@ -95,7 +108,7 @@ describe('BiInsights', () => {
   it('shows a calm state when nothing is past its alert level, and an error state instead of a blank screen', async () => {
     dashInsights.mockResolvedValueOnce({ at: '', modules: [payload.modules[2]] });
     const { unmount } = render(<BiInsights />);
-    expect(await screen.findByText('All clear')).toBeInTheDocument();
+    expect(await screen.findByText('All Clear')).toBeInTheDocument();
     unmount();
     dashInsights.mockRejectedValueOnce(new Error('boom'));
     render(<BiInsights />);

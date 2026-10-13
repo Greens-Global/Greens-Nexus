@@ -1283,7 +1283,7 @@ export const DOCS = [
       {
         title: 'Narrow the Board',
         steps: [
-          'Type in Find a Metric to keep only matching counts.',
+          'Type in the Find a metric box to keep only matching counts.',
           'Pick Critical, Warning or Good to keep only counts at that alert level.',
           'Use Modules to hide the cards you do not read. The choice is remembered on this browser.',
         ],

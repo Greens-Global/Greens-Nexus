@@ -27,6 +27,7 @@ import {
 import { api } from '../api';
 import { SkeletonBlocks, LoadingState } from '../components/AsyncState';
 import { navigate } from './widgets.jsx';
+import { formatTime } from '../lib/datetime';
 import {
   TONE_COLOR, TONE_LABEL, moduleMeta, attentionRows, worstTone, alertCount,
   visibleModule, csvText, boardCsvRows, cardCsvRows, loadHidden, saveHidden,
@@ -41,7 +42,7 @@ const REFRESH_MS = 30000;
 const ATTENTION_SHOWN = 8;
 
 function downloadCsv(name, rows) {
-  const blob = new Blob(['﻿' + csvText(rows)], { type: 'text/csv;charset=utf-8' });
+  const blob = new Blob(['\ufeff' + csvText(rows)], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = name;
@@ -49,10 +50,8 @@ function downloadCsv(name, rows) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-const fmtTime = (iso) => {
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-};
+// The server labels trend days "MM-DD"; show them the US way, "M/D".
+const dayLabel = (label) => String(label || '').replace(/^(\d{2})-(\d{2})$/, (_, m, d) => `${Number(m)}/${Number(d)}`);
 
 // ── Needs Attention: every critical/warning count above zero ─────────────────
 function AttentionStrip({ rows, onDrill }) {
@@ -79,7 +78,7 @@ function AttentionStrip({ rows, onDrill }) {
         <div className="bi-calm">
           <CheckCircle2 size={18} />
           <div>
-            <div style={{ fontWeight: 600 }}>All clear</div>
+            <div style={{ fontWeight: 600 }}>All Clear</div>
             <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No module is reporting an overdue, breached, unassigned or expiring item.</div>
           </div>
         </div>
@@ -133,13 +132,14 @@ function Breakdown({ rows }) {
 // earns its space, because the shape (not the numbers) is the point.
 function Trend({ rows, label }) {
   if (!rows?.length) return null;
-  const first = rows[0], last = rows[rows.length - 1];
+  const data = rows.map((r) => ({ ...r, label: dayLabel(r.label) }));
+  const first = data[0], last = data[data.length - 1];
   return (
     <div className="bi-shape">
       <div className="bi-shape-label">{label}</div>
       <div style={{ height: 56 }}>
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={rows} margin={{ top: 4, right: 2, left: 2, bottom: 0 }}>
+          <AreaChart data={data} margin={{ top: 4, right: 2, left: 2, bottom: 0 }}>
             <defs>
               <linearGradient id="bi-spark" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor={C('green')} stopOpacity={0.3} />
@@ -235,7 +235,7 @@ function ModuleCard({ mod, stats, shapes, onDrill }) {
                   {(s.tone === 'critical' || s.tone === 'warning') && typeof s.value === 'number' && s.value > 0 && (
                     <i className="bi-dot" style={{ background: toneColor(s.tone) }} />
                   )}
-                  {s.label}
+                  <span className="bi-stat-text">{s.label}</span>
                 </span>
                 <span className="bi-stat-value" style={{ color: typeof s.value === 'number' && s.value > 0 ? valueColor(s.tone) : 'var(--muted)' }}>
                   {typeof s.value === 'number' ? s.value.toLocaleString() : s.value}
@@ -258,11 +258,13 @@ function ModuleCard({ mod, stats, shapes, onDrill }) {
 // ── Drill-down: "of what?" for one count, from /insights/drilldown ───────────
 // "by_person" rows are counts per person, drawn as bars; "list" rows are the
 // records themselves. A metric with no breakdown says so in words.
+// Mounted with a key per request (see the bottom of BiInsights), so every
+// breakdown starts from a fresh loading state without resetting in an effect.
 function DrilldownModal({ request, onClose }) {
   const [state, setState] = useState({ loading: true, kind: 'by_person', rows: [], title: '', total: 0, error: '' });
+  const closeRef = useRef(null);
   useEffect(() => {
     let alive = true;
-    setState({ loading: true, kind: 'by_person', rows: [], title: '', total: 0, error: '' });
     api.dashInsightsDrilldown(request.moduleId, request.key)
       .then((r) => { if (alive) setState({ loading: false, kind: r.kind || 'by_person', rows: r.rows || [], title: r.title || request.label, total: r.total ?? 0, error: '' }); })
       .catch((e) => { if (alive) setState({ loading: false, kind: 'by_person', rows: [], title: request.label, total: 0, error: e?.message || 'No breakdown is available for this metric yet.' }); });
@@ -274,8 +276,15 @@ function DrilldownModal({ request, onClose }) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
+  // Keyboard users land on Close, and go back to the count they clicked.
+  useEffect(() => {
+    const before = document.activeElement;
+    closeRef.current?.focus();
+    return () => { if (before && typeof before.focus === 'function') before.focus(); };
+  }, []);
 
-  const max = Math.max(1, ...state.rows.map((r) => (typeof r.value === 'number' ? r.value : 0)));
+  const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+  const max = Math.max(1, ...state.rows.map((r) => num(r.value)));
   const go = () => { onClose(); if (request.nav) navigate(request.nav); };
   return (
     <div className="bi-scrim" onClick={onClose} role="presentation">
@@ -290,7 +299,7 @@ function DrilldownModal({ request, onClose }) {
           </div>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             {request.nav && <button type="button" className="secondary-btn" onClick={go}>Open {request.moduleLabel}</button>}
-            <button type="button" className="bi-icon-btn" onClick={onClose} aria-label="Close"><X size={16} /></button>
+            <button ref={closeRef} type="button" className="bi-icon-btn" onClick={onClose} aria-label="Close"><X size={16} /></button>
           </div>
         </div>
         <div className="bi-modal-body">
@@ -308,7 +317,7 @@ function DrilldownModal({ request, onClose }) {
                 {state.rows.map((r, i) => (
                   <div key={i} className="bi-stage bi-stage--wide">
                     <span className="bi-stage-label" title={r.label}>{r.label}</span>
-                    <span className="bi-stage-bar"><i style={{ width: `${(r.value / max) * 100}%` }} /></span>
+                    <span className="bi-stage-bar"><i style={{ width: `${(num(r.value) / max) * 100}%` }} /></span>
                     <span className="bi-stage-num">{r.value}</span>
                   </div>
                 ))}
@@ -327,8 +336,10 @@ function ModulesMenu({ modules, hidden, onToggle, onShowAll }) {
   useEffect(() => {
     if (!open) return;
     const close = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
     document.addEventListener('pointerdown', close);
-    return () => document.removeEventListener('pointerdown', close);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('pointerdown', close); document.removeEventListener('keydown', onKey); };
   }, [open]);
   const hiddenCount = hidden.filter((id) => modules.some((m) => m.id === id)).length;
   return (
@@ -369,6 +380,7 @@ export default function BiInsights() {
   const [query, setQuery] = useState('');
   const [hidden, setHiddenState] = useState(loadHidden);
   const [drill, setDrill] = useState(null);
+  const closeDrill = useCallback(() => setDrill(null), []);
   const alive = useRef(true);
 
   const setHidden = (next) => { setHiddenState(next); saveHidden(next); };
@@ -391,10 +403,11 @@ export default function BiInsights() {
   }, [load]);
 
   const attention = useMemo(() => attentionRows(state.modules), [state.modules]);
-  const cards = useMemo(() => state.modules
-    .filter((m) => !hidden.includes(m.id))
+  // Export is what is on screen: hidden modules and the filters both apply.
+  const shownModules = useMemo(() => state.modules.filter((m) => !hidden.includes(m.id)), [state.modules, hidden]);
+  const cards = useMemo(() => shownModules
     .map((m) => ({ mod: m, ...visibleModule(m, tone, query) }))
-    .filter((c) => c.visible), [state.modules, hidden, tone, query]);
+    .filter((c) => c.visible), [shownModules, tone, query]);
   const narrowed = tone !== 'all' || !!query.trim();
   const onDrill = (row) => {
     // A metric with no breakdown opens its module instead of a dead end.
@@ -410,12 +423,12 @@ export default function BiInsights() {
           <h2 className="bi-title">Business Intelligence</h2>
           <p className="bi-sub">
             Company-wide numbers from every module, as each module counts them.
-            {state.at && <> Updated {fmtTime(state.at)}, refreshes every 30 seconds.</>}
+            {state.at && formatTime(state.at) && <> Updated {formatTime(state.at)}, refreshes every 30 seconds.</>}
           </p>
         </div>
         <div className="bi-actions">
           <ModulesMenu modules={state.modules} hidden={hidden} onToggle={(id) => setHidden(hidden.includes(id) ? hidden.filter((x) => x !== id) : [...hidden, id])} onShowAll={() => setHidden([])} />
-          <button type="button" className="secondary-btn" onClick={() => downloadCsv('business-intelligence.csv', boardCsvRows(state.modules, tone, query))}><Download size={14} /> Export</button>
+          <button type="button" className="secondary-btn" title="Download the counts on screen as CSV" onClick={() => downloadCsv('business-intelligence.csv', boardCsvRows(shownModules, tone, query))}><Download size={14} /> Export</button>
           <button type="button" className="secondary-btn" onClick={load}><RefreshCw size={14} /> Refresh</button>
         </div>
       </div>
@@ -471,7 +484,7 @@ export default function BiInsights() {
         </>
       )}
 
-      {drill && <DrilldownModal request={drill} onClose={() => setDrill(null)} />}
+      {drill && <DrilldownModal key={`${drill.moduleId}:${drill.key}`} request={drill} onClose={closeDrill} />}
     </div>
   );
 }
