@@ -167,7 +167,7 @@ export default function TeamPicks({ teams, people, selected, onChange, onSaveTea
       )}
       {canSave && saving && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: rowPad }} onClick={(e) => e.stopPropagation()}>
-          <input className="nx-inline-edit" autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Team name" aria-label="Team name"
+          <input className="nx-inline-edit" autoFocus data-own-escape value={name} onChange={(e) => setName(e.target.value)} placeholder="Team name" aria-label="Team name"
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } else if (e.key === 'Escape') { e.stopPropagation(); setSaving(false); } }}
             style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${NX.border}`, borderRadius: 6, padding: '5px 8px', fontSize: 13, fontFamily: FONT, color: NX.ink, background: NX.surface }} />
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>

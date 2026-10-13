@@ -74,6 +74,54 @@ class NextDueTests(unittest.TestCase):
         r = {"freq": "custom", "unit": "year", "interval": 2}
         self.assertEqual(_next_due("2026-08-27", r), "2028-08-27")
 
+    # Nth weekday of the month (Oct 13 2026, Asana parity). Weekdays are the
+    # frontend's 0=Sunday numbering: 3=Wednesday, 4=Thursday, 5=Friday.
+    def test_the_4th_friday_still_ahead_this_month_comes_first(self):
+        r = {"freq": "monthly", "weekOfMonth": 4, "weekday": 5}
+        self.assertEqual(_next_due("2026-10-01", r), "2026-10-23")
+
+    def test_the_4th_friday_after_this_months(self):
+        r = {"freq": "monthly", "weekOfMonth": 4, "weekday": 5}
+        self.assertEqual(_next_due("2026-10-23", r), "2026-11-27")
+
+    def test_the_3rd_wednesday_already_past_moves_to_next_month(self):
+        r = {"freq": "monthly", "weekOfMonth": 3, "weekday": 3}
+        self.assertEqual(_next_due("2026-10-23", r), "2026-11-18")
+
+    def test_the_last_friday(self):
+        r = {"freq": "monthly", "weekOfMonth": -1, "weekday": 5}
+        self.assertEqual(_next_due("2026-10-23", r), "2026-10-30")
+        self.assertEqual(_next_due("2026-10-30", r), "2026-11-27")
+
+    def test_a_5th_friday_the_month_lacks_falls_back_to_its_last(self):
+        r = {"freq": "monthly", "weekOfMonth": 5, "weekday": 5}
+        self.assertEqual(_next_due("2026-10-30", r), "2026-11-27")
+
+    def test_every_2_months_on_the_2nd_tuesday(self):
+        r = {"freq": "custom", "unit": "month", "interval": 2, "weekOfMonth": 2, "weekday": 2}
+        self.assertEqual(_next_due("2026-10-13", r), "2026-12-08")
+
+    def test_the_last_day_of_the_month(self):
+        r = {"freq": "monthly", "dayOfMonth": -1}
+        self.assertEqual(_next_due("2026-01-31", r), "2026-02-28")
+        self.assertEqual(_next_due("2026-02-28", r), "2026-03-31")
+
+    def test_yearly_on_the_4th_thursday_of_november(self):
+        r = {"freq": "yearly", "weekOfMonth": 4, "weekday": 4, "monthOfYear": 11}
+        self.assertEqual(_next_due("2026-03-01", r), "2026-11-26")
+        self.assertEqual(_next_due("2026-11-26", r), "2027-11-25")
+
+    def test_a_weekday_rule_always_moves_forward(self):
+        # The daily roll-forward steps _next_due until it passes today, and
+        # stops if a step does not move - every rule must strictly advance.
+        rules = [{"freq": "monthly", "weekOfMonth": w, "weekday": d} for w in (1, 2, 3, 4, 5, -1) for d in range(7)]
+        for r in rules:
+            cur = "2026-01-01"
+            for _ in range(30):
+                nxt = _next_due(cur, r)
+                self.assertGreater(nxt, cur, r)
+                cur = nxt
+
 
 class PeriodicSpawnTests(unittest.TestCase):
     """Periodic is completion-relative, so it goes through _spawn_next_occurrence

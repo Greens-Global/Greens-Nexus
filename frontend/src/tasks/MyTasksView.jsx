@@ -18,9 +18,12 @@ import { CalendarView, DashboardView } from './views/extras';
 import { FilesView } from './views/more';
 import BoardView from './views/board';
 import { useTableColumns, TableHead, ResetColumnsButton, useTableValue, useTableSetting } from './tableCols';
-import { matchPeople, onEnterPickFirst } from '../lib/peopleSearch';
+import { matchPeople } from '../lib/peopleSearch';
+import { useListNav } from '../lib/listNav';
 import { selectionAfterClick } from './rowSelection';
 import BulkActionBar from './BulkActionBar';
+import { useCustomSections } from './customSections';
+import { AddSectionButton, SectionMenu } from './SectionControls';
 import TeamPicks, { pickableTeams, firstTeamPick, toggleRoster } from './teamPicks';
 import DueBadge from './DueBadge';
 import AnchoredMenu from '../components/AnchoredMenu';
@@ -57,7 +60,8 @@ const MY_TASK_EXPORT_COLS = (store, nameOf) => [
 // Group options for the mobile filter drill-in (mirrors the desktop Group select).
 const MY_GROUP_OPTIONS = [
   { key: 'date', label: 'Due Date' }, { key: 'status', label: 'Status' }, { key: 'priority', label: 'Priority' },
-  { key: 'project', label: 'Project' }, { key: 'assignee', label: 'Assignee' }, { key: 'none', label: 'None' },
+  { key: 'project', label: 'Project' }, { key: 'assignee', label: 'Assignee' }, { key: 'section', label: 'Custom' },
+  { key: 'none', label: 'None' },
 ];
 
 // The four list columns, in grid order, with the sort key each header drives.
@@ -95,6 +99,7 @@ function CollaboratorPicker({ value = [], people, onChange, anchor }) {
     : people.slice().sort((a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base' }));
   const teamRows = pickableTeams(teams, people, q).length;
   const pickTeam = (next, adding) => { onChange(next); if (adding) setQ(''); };
+  const nav = useListNav(filtered, { open, query: q, onPick: (u) => toggle(u.email) });
   return (
     <div>
       <button ref={ref} onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }} title="Add collaborators" style={{ ...btn('ghost'), padding: '2px 6px', display: 'flex', alignItems: 'center', gap: 3 }}>
@@ -124,8 +129,9 @@ function CollaboratorPicker({ value = [], people, onChange, anchor }) {
           onKeyDown={(e) => {
             const team = (e.key === 'Enter' && !filtered.length) ? firstTeamPick(teams, people, q) : null;
             if (team) { e.preventDefault(); const r = toggleRoster(value, team.roster); pickTeam(r.next, r.adding); return; }
-            onEnterPickFirst(filtered, (u) => toggle(u.email))(e);
+            nav.onKeyDown(e);
           }}
+          {...nav.inputProps}
           style={{ width: '100%', boxSizing: 'border-box', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '6px 8px', fontSize: 13, fontFamily: FONT, color: NX.ink }} />
         <div style={{ maxHeight: 240, overflowY: 'auto', padding: 4 }}>
           {/* Whole teams first (teamPicks.jsx), then people. */}
@@ -133,8 +139,8 @@ function CollaboratorPicker({ value = [], people, onChange, anchor }) {
             onSaveTeam={({ name, memberIds }) => createTeam({ name, memberIds, personal: true })}
             onChange={pickTeam} />
           {teamRows > 0 && filtered.length > 0 && <div role="presentation" style={{ padding: '9px 8px 4px', fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: NX.faint }}>People</div>}
-          {filtered.map((u) => (
-            <label key={u.email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 13, cursor: 'pointer' }}>
+          {filtered.map((u, i) => (
+            <label key={u.email} {...nav.optionProps(i)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 13, cursor: 'pointer' }}>
               <input type="checkbox" className="nx-check" checked={value.includes(u.email)} onChange={() => toggle(u.email)} /> {u.name}
             </label>
           ))}
@@ -248,7 +254,22 @@ function TaskRow({ t, people, projects, store, onOpen, band = false, cols = LIST
     // there's nothing else to read the row boundary from and the divider
     // needs to actually show up. NX.border is the same 1px line, darker.
     // Hover: .nx-row-hover (style.css) - the whole-row highlight every list shares.
-    <div onClick={() => onOpen(t.id)} className="stack-table-row nx-row-hover" data-selected={selected ? 'true' : undefined} data-task-row style={{ display: 'grid', gridTemplateColumns: ROW_GRID, alignItems: 'center', gap: 8, padding: '5px 16px', boxShadow: `inset 0 -1px 0 ${NX.border}`, fontSize: 13.5, cursor: 'pointer', background: rowBg }}>
+    // Shift / Ctrl / Cmd + click on any cell picks the row instead of opening
+    // it, the same as the project list (views/richlist.jsx); a Mac's
+    // Ctrl+click arrives as contextmenu.
+    <div onClick={() => onOpen(t.id)}
+      onClickCapture={(e) => {
+        if (!(e.shiftKey || e.ctrlKey || e.metaKey)) return;
+        if (!e.currentTarget.contains(e.target) || e.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+        e.stopPropagation(); e.preventDefault();
+        onPick(t.id, e);
+      }}
+      onContextMenu={(e) => {
+        if (!e.ctrlKey || !e.currentTarget.contains(e.target)) return;
+        e.preventDefault();
+        onPick(t.id, e);
+      }}
+      className="stack-table-row nx-row-hover" data-selected={selected ? 'true' : undefined} data-task-row style={{ display: 'grid', gridTemplateColumns: ROW_GRID, alignItems: 'center', gap: 8, padding: '5px 16px', boxShadow: `inset 0 -1px 0 ${NX.border}`, fontSize: 13.5, cursor: 'pointer', background: rowBg }}>
       <SelectBox checked={selected} onClick={(e) => onPick(t.id, e)} title={selected ? 'Deselect' : 'Select'} />
       {cols.map((c) => <Fragment key={c.key}>{cells[c.key]}</Fragment>)}
     </div>
@@ -339,7 +360,19 @@ export default function MyTasksView({ onNavigate }) {
   );
   // Board renders allMine (completed included); every other view renders `mine`.
   const shownCount = view === 'board' ? allMine.length : mine.length;
-  const groups = useMemo(() => groupTasks(mine, group, ctx), [mine, group, nameOf, store.projectName, store.teamName, store.taskById]);
+  // Custom grouping: the person's own sections (customSections.js) - theirs
+  // alone, saved with their My Tasks settings.
+  const sec = useCustomSections('');
+  const groups = useMemo(() => groupTasks(mine, group, { ...ctx, sections: sec.sections, sectionOf: sec.sectionOf }),
+    [mine, group, nameOf, store.projectName, store.teamName, store.taskById, sec.sections, sec.sectionOf]);
+  // Drag a task onto a section to file it there (Custom grouping only).
+  const [dragTask, setDragTask] = useState(null);
+  const [dropGroup, setDropGroup] = useState(null);
+  const sectionDrop = (g) => (group === 'section' ? {
+    onDragOver: (e) => { if (dragTask) { e.preventDefault(); if (dropGroup !== g.key) setDropGroup(g.key); } },
+    onDragLeave: (e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDropGroup((k) => (k === g.key ? null : k)); },
+    onDrop: (e) => { e.preventDefault(); if (dragTask) sec.move([dragTask], g.key).catch(() => {}); setDragTask(null); setDropGroup(null); },
+  } : {});
   const boardTasks = useMemo(() => sortTasks(allMine, sort, [], sortCtx), [allMine, sort, sortCtx]);
 
   // Batch selection - same gestures as the Task List (click, shift+click for a
@@ -427,7 +460,7 @@ export default function MyTasksView({ onNavigate }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', overflowX: 'visible', flexWrap: 'wrap' }}>
             <ProductivityBar filters={filters} setFilters={setFilters} sort={sort} setSort={setSort} hideAssignee current={{ view, group }} onApplyView={(v) => { if (v.group) setGroup(v.group); }} onOpenTask={setOpenId} />
             <select value={group} onChange={(e) => setGroup(e.target.value)} style={{ ...inputStyle, width: 'auto', flexShrink: 0, cursor: 'pointer', height: CONTROL_H, fontSize: CONTROL_FS, padding: '0 8px' }}>
-              {['date', 'status', 'priority', 'project', 'assignee', 'none'].map((g) => <option key={g} value={g}>Group: {g === 'date' ? 'Due Date' : g === 'none' ? 'None' : g[0].toUpperCase() + g.slice(1)}</option>)}
+              {['date', 'status', 'priority', 'project', 'assignee', 'section', 'none'].map((g) => <option key={g} value={g}>Group: {g === 'date' ? 'Due Date' : g === 'none' ? 'None' : g === 'section' ? 'Custom' : g[0].toUpperCase() + g.slice(1)}</option>)}
             </select>
             <ResetColumnsButton style={{ height: CONTROL_H }} />
           </div>
@@ -465,17 +498,33 @@ export default function MyTasksView({ onNavigate }) {
                   return (
                     /* Group header = a tinted full-width band (kit grammar) so
                        groups read at a glance against white task rows. */
-                    <div key={g.key}>
-                      <button onClick={() => toggleGroup(g.key)} style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '6px 16px', border: 'none', background: NX.surface2, boxShadow: `inset 0 -1px 0 ${NX.border}`, fontSize: 13.5, fontWeight: 700, color: NX.ink, cursor: 'pointer', textAlign: 'left', fontFamily: FONT }}>
-                        <ChevronDown size={14} style={{ color: NX.faint, transform: isCol ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0 }} />
-                        {g.label} <span style={{ color: NX.faint, fontWeight: 600, fontSize: 12 }}>{g.tasks.length} item{g.tasks.length !== 1 ? 's' : ''}</span>
-                      </button>
-                      {!isCol && g.tasks.map((t, i) => <TaskRow key={t.id} t={t} people={people} projects={projects} store={store} onOpen={setOpenId} band={i % 2 === 1} cols={listCols} isMobilePortrait={isMobilePortrait} selected={selected.has(t.id)} onPick={pickRow} />)}
+                    <div key={g.key} {...sectionDrop(g)}
+                      style={dropGroup === g.key ? { boxShadow: `inset 0 0 0 2px ${NX.blue}` } : undefined}>
+                      <div style={{ display: 'flex', alignItems: 'center', background: NX.surface2, boxShadow: `inset 0 -1px 0 ${NX.border}`, paddingRight: 10 }}>
+                        <button onClick={() => toggleGroup(g.key)} style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, padding: '6px 16px', border: 'none', background: 'transparent', fontSize: 13.5, fontWeight: 700, color: NX.ink, cursor: 'pointer', textAlign: 'left', fontFamily: FONT }}>
+                          <ChevronDown size={14} style={{ color: NX.faint, transform: isCol ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s', flexShrink: 0 }} />
+                          {g.label} <span style={{ color: NX.faint, fontWeight: 600, fontSize: 12 }}>{g.tasks.length} item{g.tasks.length !== 1 ? 's' : ''}</span>
+                        </button>
+                        {g.section && <SectionMenu sec={sec} group={g} />}
+                      </div>
+                      {!isCol && g.tasks.map((t, i) => (
+                        <div key={t.id} draggable={group === 'section'}
+                          onDragStart={group === 'section' ? (e) => { e.dataTransfer.effectAllowed = 'move'; setDragTask(t.id); } : undefined}
+                          onDragEnd={group === 'section' ? () => { setDragTask(null); setDropGroup(null); } : undefined}>
+                          <TaskRow t={t} people={people} projects={projects} store={store} onOpen={setOpenId} band={i % 2 === 1} cols={listCols} isMobilePortrait={isMobilePortrait} selected={selected.has(t.id)} onPick={pickRow} />
+                        </div>
+                      ))}
+                      {!isCol && group === 'section' && g.tasks.length === 0 && (
+                        <div style={{ padding: '10px 16px 10px 40px', fontSize: 12.5, color: NX.faint }}>Drag tasks here, or select some and use Move to Section.</div>
+                      )}
                     </div>
                   );
                 })}
               </div>
             </div>
+            {group === 'section' && (
+              <div style={{ padding: '8px 10px', borderTop: `1px solid ${NX.border}` }}><AddSectionButton sec={sec} /></div>
+            )}
             {/* No "Add Task" row here: it was a third way to open the same Create
                 Task form, next to the module bar's "+ Create" and the floating
                 "+". Nothing is lost: the form defaults a new task's assignee to
@@ -491,13 +540,13 @@ export default function MyTasksView({ onNavigate }) {
           // Same board as a project's (status columns, drag-and-drop, WIP limits,
           // swimlanes, Add section). Completed tasks are included so the
           // Completed column isn't always empty.
-          <BoardView visible={boardTasks} ctx={ctx} store={store} onOpen={setOpenId} defaultAssigneeId={myEmail} />
+          <BoardView visible={boardTasks} ctx={ctx} store={store} onOpen={setOpenId} defaultAssigneeId={myEmail} onFullCreate={openCreate} />
         )}
         {view === 'list' && mine.length === 0 && group !== 'date' && <EmptyState icon={CheckCircle2} title="No Tasks" hint="You're all caught up." />}
       </div>
 
       {view === 'list' && (
-        <BulkActionBar selected={selected} clearSel={clearSel} store={store} people={directory} isMobile={isMobile} />
+        <BulkActionBar selected={selected} clearSel={clearSel} store={store} people={directory} isMobile={isMobile} sections={sec} />
       )}
 
       {isMobile && (

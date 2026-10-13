@@ -10,7 +10,8 @@ import { NX, FONT, colorForKey, initialsOf, statusChip, priorityChip, btn, chip,
 import { fmtDate, teamInProject, teamProjectIds } from './lib';
 import { rootZoom } from '../lib/utils';
 import AnchoredMenu from '../components/AnchoredMenu';
-import { matchPeople, onEnterPickFirst } from '../lib/peopleSearch';
+import { matchPeople } from '../lib/peopleSearch';
+import { useListNav, openPickerOnKey, caretToEnd, focusNextField } from '../lib/listNav';
 import { useTasks } from './TasksContext';
 import PersonHover from '../components/PersonHoverCard';
 // Photos live in lib/peoplePhotos so the header avatar shares this one cache.
@@ -483,11 +484,14 @@ export function DateField({ value, onChange, placeholder = '-', color, style, ti
     if (r) { setRect(r); setOpen(true); }
   };
   const toggle = (e) => { if (disabled) return; e.stopPropagation(); open ? setOpen(false) : openCal(); };
+  // Tabbing on past the field closes its calendar - it only ever closed on
+  // a click outside or Escape, so a keyboard user left it hanging open.
+  const onKeyDown = (e) => { if (e.key === 'Tab' && open) setOpen(false); };
 
   if (compact && !value) {
     return (
       <span style={{ position: 'relative', display: 'inline-flex', ...style }}>
-        <button ref={btnRef} type="button" title={title || 'Set date'} disabled={disabled} onClick={toggle}
+        <button ref={btnRef} type="button" title={title || 'Set date'} disabled={disabled} onClick={toggle} onKeyDown={onKeyDown}
           style={{
             width: 24, height: 24, borderRadius: '50%', border: `1.5px dashed ${NX.border}`,
             background: 'transparent', color: NX.faint, display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -503,7 +507,7 @@ export function DateField({ value, onChange, placeholder = '-', color, style, ti
     <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, ...style }}>
       <button
         ref={btnRef} type="button" title={title || 'Set date'} disabled={disabled}
-        onClick={toggle}
+        onClick={toggle} onKeyDown={onKeyDown}
         style={{
           flex: 1, textAlign: 'left', border: 'none', background: 'transparent', padding: 0, margin: 0, cursor: disabled ? 'default' : 'pointer',
           fontFamily: FONT, fontSize: 'inherit', fontWeight: 'inherit', whiteSpace: 'nowrap',
@@ -996,10 +1000,21 @@ export function SelectMenu({ anchorRef, onClose, children, minWidth = 0 }) {
       if (anchorRef.current?.contains(e.target)) return;
       onClose();
     };
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    // Escape closes the menu, NOT the Create Task modal around it (whose own
+    // Escape listener sits on window) - window capture runs first, the same
+    // as AnchoredMenu - and hands focus back to the field, so Tab carries on
+    // from there. A box inside the menu with its own Escape (TeamPicks' team
+    // name) opts out with data-own-escape.
+    const onKey = (e) => {
+      if (e.key !== 'Escape' || e.target?.closest?.('[data-own-escape]')) return;
+      e.stopPropagation();
+      onClose();
+      const a = anchorRef.current;
+      (a?.matches?.('button, input') ? a : a?.querySelector?.('button, input'))?.focus?.();
+    };
     document.addEventListener('mousedown', onDoc);
-    document.addEventListener('keydown', onKey);
-    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); };
+    window.addEventListener('keydown', onKey, true);
+    return () => { document.removeEventListener('mousedown', onDoc); window.removeEventListener('keydown', onKey, true); };
   }, [onClose, anchorRef]);
   if (!pos) return null;
   return createPortal(
@@ -1037,6 +1052,9 @@ export function MenuCaption({ children, inset = 12 }) {
   );
 }
 
+// PersonSelect's "Unassigned" row, as an item the keyboard can land on.
+const UNASSIGNED_ROW = { email: '', name: 'Unassigned' };
+
 export function PersonSelect({ value, onChange, people, placeholder = 'Unassigned', disabled = false }) {
   const [open, setOpen] = useState(false);
   const isMobile = useIsMobile();
@@ -1049,9 +1067,26 @@ export function PersonSelect({ value, onChange, people, placeholder = 'Unassigne
   // them - derive a display name from the email - rather than the placeholder.
   const chosen = sel || (value ? { email: value, name: emailToName(value) } : null);
   const filtered = matchPeople(people, q);
+  const triggerRef = useRef(null);
+  // "Unassigned" is a row the keyboard can reach only while nothing is typed -
+  // a search that matches nobody must not make Enter clear the field.
+  const typed = q.trim() !== '';
+  const items = typed ? filtered : [UNASSIGNED_ROW, ...filtered];
+  const close = (refocus = true) => { setOpen(false); setQ(''); if (refocus) triggerRef.current?.focus(); };
+  const choose = (p) => { onChange(p === UNASSIGNED_ROW ? null : p.email); close(); };
+  const nav = useListNav(items, {
+    open, query: q, onPick: choose,
+    startAt: items.findIndex((p) => (p === UNASSIGNED_ROW ? !value : p.email === value)),
+    onTab: (p, back) => {
+      if (p) onChange(p === UNASSIGNED_ROW ? null : p.email);
+      close(false);
+      focusNextField(triggerRef.current, back);
+    },
+  });
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button type="button" disabled={disabled} onClick={() => setOpen((o) => !o)}
+      <button ref={triggerRef} type="button" disabled={disabled} onClick={() => setOpen((o) => !o)}
+        onKeyDown={(e) => { if (!open && !touch) openPickerOnKey(e, (k) => { setQ(k); setOpen(true); }); }}
         style={{ ...btn('outline'), width: '100%', justifyContent: 'space-between', opacity: disabled ? 0.6 : 1, cursor: disabled ? 'not-allowed' : 'pointer' }}>
         <span style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
           {chosen ? <Avatar email={chosen.email} name={chosen.name} size={20} card={false} /> : null}
@@ -1060,20 +1095,24 @@ export function PersonSelect({ value, onChange, people, placeholder = 'Unassigne
         <ChevronDown size={15} style={{ color: NX.faint }} />
       </button>
       {open && !disabled && (
-        <SelectMenu anchorRef={ref} onClose={() => setOpen(false)}>
+        <SelectMenu anchorRef={ref} onClose={() => close(false)}>
           {/* Desktop focuses the search box on open; a phone waits for a tap
               (see SelectMenu) rather than covering the list with the keyboard. */}
           <input autoFocus={!touch} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
-            onKeyDown={onEnterPickFirst(filtered, (p) => { onChange(p.email); setOpen(false); })}
+            {...nav.inputProps} onFocus={caretToEnd} onKeyDown={nav.onKeyDown}
             style={menuSearchStyle(touch)} />
-          <div onClick={() => { onChange(null); setOpen(false); }} style={{ padding: '8px 12px', fontSize: 13, color: NX.dim, cursor: 'pointer', ...(isMobile ? { display: 'flex', alignItems: 'center', ...menuRowTall(true) } : null) }}>Unassigned</div>
-          {filtered.map((p) => (
-            <div key={p.email} onClick={() => { onChange(p.email); setOpen(false); }} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, background: p.email === value ? NX.hover : 'transparent', ...menuRowTall(isMobile) }}>
-              <Avatar email={p.email} name={p.name} size={22} card={false} />
-              <span style={{ flex: 1 }}>{p.name}</span>
-              {p.email === value && <Check size={14} style={{ color: NX.blue }} />}
-            </div>
-          ))}
+          <div role="listbox">
+            <div className="nx-menu-row" {...(typed ? null : nav.optionProps(0))} onClick={() => choose(UNASSIGNED_ROW)}
+              style={{ padding: '8px 12px', fontSize: 13, color: NX.dim, cursor: 'pointer', ...(isMobile ? { display: 'flex', alignItems: 'center', ...menuRowTall(true) } : null) }}>Unassigned</div>
+            {filtered.map((p, i) => (
+              <div key={p.email} className="nx-menu-row" {...nav.optionProps(typed ? i : i + 1)} onClick={() => choose(p)}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, ...menuRowTall(isMobile) }}>
+                <Avatar email={p.email} name={p.name} size={22} card={false} />
+                <span style={{ flex: 1 }}>{p.name}</span>
+                {p.email === value && <Check size={14} style={{ color: NX.blue }} />}
+              </div>
+            ))}
+          </div>
         </SelectMenu>
       )}
     </div>
@@ -1128,12 +1167,27 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
     toggle(em);
     afterPick(adding);
   };
+  const triggerRef = useRef(null);
+  const close = (refocus = true) => { setOpen(false); setQ(''); if (refocus) triggerRef.current?.focus(); };
+  // Keyboard order is display order: Frequent, then everyone (a frequent
+  // person is in both, and can be reached in either).
+  const navItems = [...top, ...filtered];
+  const nav = useListNav(navItems, {
+    open, query: q, onPick: (p) => pick(p.email),
+    // Tab only ever ADDS the highlighted person - tabbing past someone
+    // already on the list must not take them off.
+    onTab: (p, back) => {
+      if (p && !emails.includes(p.email)) onChange([...emails, p.email]);
+      close(false);
+      focusNextField(triggerRef.current, back);
+    },
+  });
   // One row; a Frequent person also appears under All, so the key carries
-  // which group it is in.
-  const personRow = (p, keyPrefix) => {
+  // which group it is in. `navIndex` is its place in navItems.
+  const personRow = (p, keyPrefix, navIndex) => {
     const on = emails.includes(p.email);
     return (
-      <div key={keyPrefix + p.email} className="nx-menu-row" onClick={() => pick(p.email)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, background: on ? NX.hover : 'transparent', ...menuRowTall(isMobile) }}>
+      <div key={keyPrefix + p.email} className="nx-menu-row" {...nav.optionProps(navIndex)} onClick={() => pick(p.email)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, ...menuRowTall(isMobile) }}>
         <Avatar email={p.email} name={p.name} size={22} card={false} />
         <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
         {/* Externals are offered here, so say which they are - putting a
@@ -1146,7 +1200,15 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
   };
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button type="button" onClick={() => setOpen((o) => !o)} style={{ ...btn('outline'), width: '100%', justifyContent: 'space-between', height: 'auto', minHeight: 36, padding: '5px 10px' }}>
+      <button ref={triggerRef} type="button" onClick={() => setOpen((o) => !o)}
+        onKeyDown={(e) => {
+          if (open || touch) return;
+          // Backspace on the closed field takes the last person off - the
+          // keyboard's way to the chips' x (which are out of the Tab order).
+          if (e.key === 'Backspace' && emails.length) { e.preventDefault(); onChange(emails.slice(0, -1)); return; }
+          openPickerOnKey(e, (k) => { setQ(k); setOpen(true); });
+        }}
+        style={{ ...btn('outline'), width: '100%', justifyContent: 'space-between', height: 'auto', minHeight: 36, padding: '5px 10px' }}>
         {/* Chips scroll past ~3 rows rather than growing the field without bound -
             in a narrow grid column each chip takes its own row. */}
         <span className="nx-scroll" style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', maxHeight: 96, overflowY: 'auto' }}>
@@ -1157,8 +1219,12 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
               <span key={em} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: NX.surface2, border: `1px solid ${NX.border}`, borderRadius: 20, padding: '2px 7px 2px 2px', fontSize: 12, color: NX.ink }}>
                 <Avatar email={p.email} name={p.name} size={18} card={false} />
                 {p.name}
-                {/* A span, not a button - this sits inside the dropdown trigger button. */}
-                <span role="button" tabIndex={0} title={`Remove ${p.name}`}
+                {/* A span, not a button - this sits inside the dropdown trigger button.
+                    Out of the Tab order (tabIndex -1): each chip used to be a
+                    stop of its own, so tabbing past a field with three people
+                    on it took five presses. Backspace on the field, or the
+                    person's row in the menu, takes someone off instead. */}
+                <span role="button" tabIndex={-1} title={`Remove ${p.name}`}
                   onClick={(e) => { e.stopPropagation(); toggle(em); }}
                   onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); e.preventDefault(); toggle(em); } }}
                   style={{ display: 'inline-flex', cursor: 'pointer', color: NX.faint }}>
@@ -1172,7 +1238,7 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
               chevron alone reads as "replace", not "add" (Sagar, Aug 26).
               A span, not a button - it sits inside the dropdown trigger, and
               its click opens that same menu. */}
-          <span role="button" tabIndex={0} title={addTitle} aria-label={addTitle}
+          <span role="button" tabIndex={-1} title={addTitle} aria-label={addTitle}
             onClick={(e) => { e.stopPropagation(); setOpen(true); }}
             onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); e.preventDefault(); setOpen(true); } }}
             style={{
@@ -1186,22 +1252,24 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
         <ChevronDown size={15} style={{ color: NX.faint, flexShrink: 0 }} />
       </button>
       {open && (
-        <SelectMenu anchorRef={ref} onClose={() => setOpen(false)}>
+        <SelectMenu anchorRef={ref} onClose={() => close(false)}>
           <input ref={queryRef} autoFocus={!touch} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
+            {...nav.inputProps} onFocus={caretToEnd}
             onKeyDown={(e) => {
-              // Enter takes the first person; when the search matches a team
-              // and nobody, it takes that team instead of doing nothing.
-              const team = (e.key === 'Enter' && !top.length && !filtered.length && teams) ? firstTeamPick(teams, people, q) : null;
+              // Enter takes the highlighted person; when the search matches a
+              // team and nobody, it takes that team instead of doing nothing.
+              const team = (e.key === 'Enter' && !navItems.length && teams) ? firstTeamPick(teams, people, q) : null;
               if (team) { e.preventDefault(); const r = toggleRoster(emails, team.roster); onChange(r.next); afterPick(r.adding); return; }
-              onEnterPickFirst(top.length ? top : filtered, (p) => pick(p.email))(e);
+              if (e.key === 'Backspace' && !q && emails.length) { e.preventDefault(); onChange(emails.slice(0, -1)); return; }
+              nav.onKeyDown(e);
             }}
             style={menuSearchStyle(touch)} />
           {teams && <TeamPicks teams={teams} people={people} selected={emails} query={q} inset={12} rowPad="8px 12px"
             onSaveTeam={onSaveTeam} onChange={(next, adding) => { onChange(next); afterPick(adding); }} />}
           {top.length > 0 && <MenuCaption>Frequent</MenuCaption>}
-          {top.map((p) => personRow(p, 'f:'))}
+          {top.map((p, i) => personRow(p, 'f:', i))}
           {top.length > 0 ? <MenuCaption>All</MenuCaption> : (teamRows > 0 && filtered.length > 0 && <MenuCaption>People</MenuCaption>)}
-          {filtered.map((p) => personRow(p, ''))}
+          {filtered.map((p, i) => personRow(p, '', top.length + i))}
           {filtered.length === 0 && teamRows === 0 && (
             <div style={{ padding: '10px 12px', fontSize: 12.5, color: NX.faint }}>
               {q ? `No people match “${q}”.` : 'No people in the directory.'}
@@ -1239,7 +1307,15 @@ export function SearchSelect({
   const shown = query
     ? options.filter((o) => !o.header && `${o.label || ''} ${o.keywords || ''}`.toLowerCase().includes(query))
     : options;
-  const close = () => { setOpen(false); setQ(''); };
+  const triggerRef = useRef(null);
+  const close = (refocus = true) => { setOpen(false); setQ(''); if (refocus) triggerRef.current?.focus(); };
+  const pickable = shown.filter((o) => !o.header);
+  const nav = useListNav(pickable, {
+    open, query: q,
+    startAt: value !== undefined ? pickable.findIndex((o) => o.id === value) : 0,
+    onPick: (o) => { onPick(o.id); close(); },
+    onTab: (o, back) => { if (o) onPick(o.id); close(false); focusNextField(triggerRef.current, back); },
+  });
   // Two roles in one control. Given `value` it is a FIELD: the trigger shows
   // the current selection and a tick marks it in the list. Without one it is a
   // COMMAND (the bulk bar's "Assign..."), whose trigger always reads as its
@@ -1253,7 +1329,8 @@ export function SearchSelect({
     // and an item that will not shrink past its content painted a long project
     // name straight over the Due Date column.
     <div ref={ref} style={{ position: 'relative', minWidth: 0 }}>
-      <button type="button" onClick={() => (open ? close() : setOpen(true))}
+      <button ref={triggerRef} type="button" onClick={() => (open ? close(false) : setOpen(true))}
+        onKeyDown={(e) => { if (!open && !touch) openPickerOnKey(e, (k) => { setQ(k); setOpen(true); }); }}
         title={typeof label === 'string' ? label : undefined}
         style={{ ...btn('outline'), justifyContent: 'space-between', gap: 8, overflow: 'hidden', fontWeight: value !== undefined ? 400 : undefined, ...buttonStyle }}>
         {/* minWidth:0 is what actually lets the label ellipsis: a flex child
@@ -1263,8 +1340,9 @@ export function SearchSelect({
         <ChevronDown size={15} style={{ flexShrink: 0, opacity: 0.75 }} />
       </button>
       {open && (
-        <SelectMenu anchorRef={ref} onClose={close} minWidth={menuMinWidth}>
+        <SelectMenu anchorRef={ref} onClose={() => close(false)} minWidth={menuMinWidth}>
           <input autoFocus={!touch} value={q} onChange={(e) => setQ(e.target.value)} placeholder={searchPlaceholder}
+            {...nav.inputProps} onFocus={caretToEnd} onKeyDown={nav.onKeyDown}
             style={menuSearchStyle(touch)} />
           {shown.map((o) => (o.header ? (
             <div key={o.id} style={{
@@ -1272,10 +1350,8 @@ export function SearchSelect({
               textTransform: 'uppercase', color: NX.faint, cursor: 'default', userSelect: 'none',
             }}>{o.label}</div>
           ) : (
-            <div key={o.id} onClick={() => { onPick(o.id); close(); }}
-              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, ...menuRowTall(isMobile) }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = NX.hover; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
+            <div key={o.id} className="nx-menu-row" {...nav.optionProps(pickable.indexOf(o))} onClick={() => { onPick(o.id); close(); }}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, ...menuRowTall(isMobile) }}>
               {renderOption ? renderOption(o) : (
                 <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.label}</span>
               )}
@@ -1308,16 +1384,33 @@ export function ChipMultiSelect({ value, onChange, options, placeholder = 'Selec
   const labelFor = (id) => options.find((o) => o.id === id)?.label || id;
   const filtered = q ? options.filter((o) => (o.label || '').toLowerCase().includes(q.toLowerCase())) : options;
   const toggle = (id) => onChange(ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]);
+  const triggerRef = useRef(null);
+  const nav = useListNav(filtered, {
+    open, query: q,
+    onPick: (o) => { toggle(o.id); setQ(''); },
+    // Tab only adds - see PersonMultiSelect.
+    onTab: (o, back) => {
+      if (o && !ids.includes(o.id)) onChange([...ids, o.id]);
+      setOpen(false); setQ('');
+      focusNextField(triggerRef.current, back);
+    },
+  });
   return (
     <div ref={ref} style={{ position: 'relative', minWidth: 0 }}>
-      <button type="button" onClick={() => setOpen((o) => !o)} style={{ ...btn('outline'), width: '100%', justifyContent: 'space-between', height: 'auto', minHeight: 36, padding: '5px 10px', textAlign: 'left' }}>
+      <button ref={triggerRef} type="button" onClick={() => setOpen((o) => !o)}
+        onKeyDown={(e) => {
+          if (open || touch) return;
+          if (e.key === 'Backspace' && ids.length) { e.preventDefault(); onChange(ids.slice(0, -1)); return; }
+          openPickerOnKey(e, (k) => { setQ(k); setOpen(true); });
+        }}
+        style={{ ...btn('outline'), width: '100%', justifyContent: 'space-between', height: 'auto', minHeight: 36, padding: '5px 10px', textAlign: 'left' }}>
         <span className="nx-scroll" style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', maxHeight: 96, overflowY: 'auto' }}>
           {ids.length === 0 && <span style={{ color: NX.faint, fontWeight: 400 }}>{placeholder}</span>}
           {ids.map((id) => (
             <span key={id} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: NX.surface2, border: `1px solid ${NX.border}`, borderRadius: 20, padding: '2px 7px', fontSize: 12, color: NX.ink, maxWidth: '100%' }}>
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{labelFor(id)}</span>
               {/* A span, not a button - this sits inside the dropdown trigger button. */}
-              <span role="button" tabIndex={0} title={`Remove ${labelFor(id)}`}
+              <span role="button" tabIndex={-1} title={`Remove ${labelFor(id)}`}
                 onClick={(e) => { e.stopPropagation(); toggle(id); }}
                 onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); e.preventDefault(); toggle(id); } }}
                 style={{ display: 'inline-flex', cursor: 'pointer', color: NX.faint, flexShrink: 0 }}>
@@ -1329,12 +1422,18 @@ export function ChipMultiSelect({ value, onChange, options, placeholder = 'Selec
         <ChevronDown size={15} style={{ color: NX.faint, flexShrink: 0 }} />
       </button>
       {open && (
-        <SelectMenu anchorRef={ref} onClose={() => setOpen(false)}>
-          <input autoFocus={!touch} value={q} onChange={(e) => setQ(e.target.value)} placeholder={searchPlaceholder} style={menuSearchStyle(touch)} />
-          {filtered.map((o) => {
+        <SelectMenu anchorRef={ref} onClose={() => { setOpen(false); setQ(''); }}>
+          <input autoFocus={!touch} value={q} onChange={(e) => setQ(e.target.value)} placeholder={searchPlaceholder}
+            {...nav.inputProps} onFocus={caretToEnd}
+            onKeyDown={(e) => {
+              if (e.key === 'Backspace' && !q && ids.length) { e.preventDefault(); onChange(ids.slice(0, -1)); return; }
+              nav.onKeyDown(e);
+            }}
+            style={menuSearchStyle(touch)} />
+          {filtered.map((o, i) => {
             const on = ids.includes(o.id);
             return (
-              <div key={o.id} className="nx-menu-row" onClick={() => toggle(o.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, background: on ? NX.hover : 'transparent', ...menuRowTall(isMobile) }}>
+              <div key={o.id} className="nx-menu-row" {...nav.optionProps(i)} onClick={() => toggle(o.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, ...menuRowTall(isMobile) }}>
                 <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.label}</span>
                 {on && <Check size={14} style={{ color: NX.blue, flexShrink: 0 }} />}
               </div>
