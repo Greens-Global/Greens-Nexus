@@ -22,6 +22,7 @@ import { useDialogFocus, trapTab } from '../lib/useDialogFocus';
 import { useBackToClose } from '../lib/useBackToClose';
 import { toDownloadUrl } from '../lib/storageView';
 import { frequentRows } from './frequentPeople';
+import TeamPicks from './teamPicks';
 
 // `card={false}` opts a call site out of the hover card - for avatars that are
 // already inside an interactive row (menu items, pickers), where a second click
@@ -1085,7 +1086,11 @@ export function PersonSelect({ value, onChange, people, placeholder = 'Unassigne
 // `frequent` (emails, best first) puts a "Frequent" group above an "All" group
 // while nothing is typed - the Collaborators field passes it; a search is one
 // flat ranked list, as before.
-export function PersonMultiSelect({ value, onChange, people, placeholder = 'Select people', addTitle = 'Add people', frequent = null }) {
+// `teams` (the module's teams) adds a "Teams" group whose rows add or remove a
+// whole roster at once - see teamPicks.jsx; `onSaveTeam` lets the current
+// selection be kept as a team. Both are for the Collaborators field; an
+// assignee list leaves them off.
+export function PersonMultiSelect({ value, onChange, people, placeholder = 'Select people', addTitle = 'Add people', frequent = null, teams = null, onSaveTeam = null }) {
   const [open, setOpen] = useState(false);
   // Phones: the menu is a panel over the form, so it hides the very field it
   // just wrote to - close it once a name is picked. Desktop keeps it open,
@@ -1109,15 +1114,18 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
   const toggle = (em) => onChange(emails.includes(em) ? emails.filter((x) => x !== em) : [...emails, em]);
   // Removing a chip leaves the menu up - you're still editing the list; only
   // adding a name is the "done, get out of the way" moment.
-  const pick = (em) => {
-    const adding = !emails.includes(em);
-    toggle(em);
+  const afterPick = (adding) => {
     if (!adding) return;
     // The name is on the trigger now, so the query that found it is spent -
     // clear it (and take focus back) so the next name can just be typed.
     setQ('');
     if (isMobile) setOpen(false);
     else if (!touch) queryRef.current?.focus();
+  };
+  const pick = (em) => {
+    const adding = !emails.includes(em);
+    toggle(em);
+    afterPick(adding);
   };
   // One row; a Frequent person also appears under All, so the key carries
   // which group it is in.
@@ -1181,6 +1189,8 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
           <input ref={queryRef} autoFocus={!touch} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
             onKeyDown={onEnterPickFirst(top.length ? top : filtered, (p) => pick(p.email))}
             style={menuSearchStyle(touch)} />
+          {teams && <TeamPicks teams={teams} people={people} selected={emails} query={q} inset={12} rowPad="8px 12px"
+            onSaveTeam={onSaveTeam} onChange={(next, adding) => { onChange(next); afterPick(adding); }} />}
           {top.length > 0 && <MenuCaption>Frequent</MenuCaption>}
           {top.map((p) => personRow(p, 'f:'))}
           {top.length > 0 && <MenuCaption>All</MenuCaption>}

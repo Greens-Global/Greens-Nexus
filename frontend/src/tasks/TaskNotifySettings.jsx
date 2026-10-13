@@ -160,7 +160,7 @@ export default function TaskNotifySettings() {
               {/* The two reminder numbers above are the COMPANY DEFAULT: each
                   person can change their own in Email Settings (My Tasks).
                   This decides whether "Off" is one of their choices. */}
-              <Field label="Let People Turn Off Overdue Reminders" hint="Company settings above are everyone's default; each person can adjust their own in My Tasks, Email Settings. When this is off, the least anyone can choose is once a week or only once.">
+              <Field label="Let People Turn Off Overdue Reminders" hint="Company settings above are everyone's default; each person can adjust their own in Tasks, Email Settings. When this is off, the least anyone can choose is once a week or only once.">
                 <Toggle on={!!cfg.allowUserOverdueOff} onChange={() => set('allowUserOverdueOff', !cfg.allowUserOverdueOff)} />
               </Field>
 

@@ -15,7 +15,7 @@ import TaskDetailDrawer from './TaskDetailDrawer';
 import AnchoredMenu from '../components/AnchoredMenu';
 
 const WIDGET_META = [
-  { key: 'my_tasks', label: 'My Tasks' },
+  { key: 'my_tasks', label: 'Tasks' },   // was "My Tasks" (Neil, Oct 13 2026); the key is what saved layouts store
   // Key stays 'projects' though the widget is now Bookmarks: it is what every
   // saved dashboard layout stores, and renaming it would drop the widget off
   // everyone's Home rather than change what it shows.
@@ -242,7 +242,7 @@ export default function HomeView({ onNavigate }) {
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             {!isMobile && <Avatar email={myEmail} name={nameOf(myEmail)} size={38} />}
-            <button onClick={() => onNavigate('mine')} style={{ ...btn('ghost'), padding: 0, fontSize: 16, fontWeight: 700, color: NX.ink }}>My Tasks</button>
+            <button onClick={() => onNavigate('mine')} style={{ ...btn('ghost'), padding: 0, fontSize: 16, fontWeight: 700, color: NX.ink }}>Tasks</button>
           </div>
           {moreBtn(() => onNavigate('mine'))}
         </div>
@@ -547,7 +547,7 @@ export default function HomeView({ onNavigate }) {
           composed group even at full-bleed width. */}
       <div style={{ ...card, borderRadius: 16, padding: 20, marginBottom: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', margin: '0 0 14px' }}>
-        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>My Tasks</h2>
+        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>Tasks</h2>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <div>
             <button ref={rangeRef} onClick={() => setRangeOpen((o) => !o)} style={{ ...btn('outline'), whiteSpace: 'nowrap', padding: '6px 12px', fontSize: 12.5 }}>{rangeDef.label} <ChevronDown size={14} style={{ color: NX.faint }} /></button>
