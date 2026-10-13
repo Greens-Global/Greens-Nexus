@@ -1,0 +1,118 @@
+{
+  "id": "greens-storage-austin",
+  "name": "Greens Storage Austin",
+  "address": "8023 W Parmer Ln, Austin, TX 78729",
+  "apn": "R569024",
+  "acreage": 2.818,
+  "opened": "Operated by CubeSmart (store 6992); the signage reads CubeSmart",
+  "county": "Williamson",
+  "parcelSource": "Williamson County (WCAD) parcels",
+  "cubbyFacilityId": "",
+  "frame": {
+    "lat0": 30.4613,
+    "lon0": -97.7561,
+    "bearingDeg": 59.4,
+    "mPerDegLon": 95955,
+    "mPerDegLat": 110900
+  },
+  "image": {
+    "file": "frontend/public/site-models/greens-storage-austin/ground.jpg",
+    "bbox": [
+      -97.7572,
+      30.4602,
+      -97.7546,
+      30.4627
+    ],
+    "px": [
+      1200,
+      1336
+    ],
+    "attribution": "Imagery: Esri, Maxar, Earthstar Geographics"
+  },
+  "imageWide": {
+    "file": "frontend/public/site-models/greens-storage-austin/ground-wide.jpg",
+    "bbox": [
+      -97.7671,
+      30.4513,
+      -97.7451,
+      30.4713
+    ]
+  },
+  "gates": [
+    {
+      "id": "main",
+      "name": "Main Entrance",
+      "en": [
+        [
+          46,
+          -6
+        ]
+      ]
+    }
+  ],
+  "classify": [
+    {
+      "match": "^1",
+      "f": 1,
+      "k": "cc",
+      "veh": 0
+    },
+    {
+      "match": "^2",
+      "f": 2,
+      "k": "cc",
+      "veh": 0
+    },
+    {
+      "match": "^3",
+      "f": 3,
+      "k": "cc",
+      "veh": 0
+    },
+    {
+      "match": "^4",
+      "f": 4,
+      "k": "cc",
+      "veh": 0
+    },
+    {
+      "match": "^5",
+      "f": 5,
+      "k": "cc",
+      "veh": 0
+    }
+  ],
+  "buildings": [
+    {
+      "id": "MAIN",
+      "letters": [],
+      "name": "Main Building",
+      "kind": "storage",
+      "rect": {
+        "E": 8.1,
+        "N": 4.0,
+        "L": 61.5,
+        "W": 47.9,
+        "bearing": 59.4
+      },
+      "height": 17.0,
+      "floors": 5,
+      "roof": "white",
+      "doorSide": "both",
+      "corridor": 1.6,
+      "inferred": false,
+      "note": "Five-story climate-controlled building, 200 ft 11 in x 155 ft 11 in (Merriman Anderson, issued for construction 03/06/2018). Lobby, office and elevators at the glass corner facing Parmer Ln. Unit numbers start with the floor (1xxx on level 1 to 5xxx on level 5).",
+      "units": "^[1-5]",
+      "autoFit": true
+    }
+  ],
+  "zones": [],
+  "sources": [
+    "Parcel: Williamson County Appraisal District (WCAD R569024, Broadstone at Parmer Blk A Lot 2A, 2.818 ac, Greens Austin LLC, DBA CubeSmart)",
+    "Building: WCAD building footprint (30,594 sq ft) and Merriman Anderson floor plans A1.01-A1.05, issued for construction 03/06/2018",
+    "Units: CubeSmart rent roll for store 6992, 08/31/2026 (966 rented units); vacant sizes estimated from CubeSmart's unit mix",
+    "Not in Cubby: the store runs on CubeSmart's system, so there is no live link"
+  ],
+  "operator": "CubeSmart",
+  "unitSource": "CubeSmart rent roll, 08/31/2026"
+}

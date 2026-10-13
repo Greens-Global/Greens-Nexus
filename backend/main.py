@@ -22,6 +22,7 @@ from routers import tasks, purchases, reviews, marketing, sop, assets, accountin
 from routers import task_projects, task_config  # Task Module (Jul 2026)
 from routers import tickets as tickets_router    # Ticket Module - split out of task_config (Jul 2026)
 from routers import directory as directory_router  # Contact Directory (Support, Oct 2026)
+from routers import site_models as site_models_router  # 3D property site models + markup pins (Neil, Oct 11 2026)
 from routers import github_webhook  # PR/push merged to dev/main -> admin notification + What's New drafts (Sep 2026)
 from routers import egnyte_oauth as egnyte_oauth_router  # Per-user Egnyte connection (browse as yourself)
 from routers import construction  # Construction module - jobsite daily logs, media, weekly reports
@@ -2085,6 +2086,8 @@ def _run_migrations():
         # RLS per CLAUDE.md. models.HrPacketSetting, models.HrLifeEvent.
         "ALTER TABLE hr_packet_settings ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE hr_life_events ENABLE ROW LEVEL SECURITY",
+        # Site model markup pins (Neil, Oct 11): new table - RLS per CLAUDE.md. models.SiteModelMarkup, routers/site_models.py.
+        "ALTER TABLE site_model_markups ENABLE ROW LEVEL SECURITY",
         # Hiring intake (Neil, Oct 8): the job role a candidate applies for. models.HrCandidate.role_id.
         "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS role_id VARCHAR DEFAULT ''",
         # Interview scheduling (Neil, Oct 8): who the interview is with. models.HrInterview.
@@ -3308,6 +3311,7 @@ app.include_router(marketing_gbp.router)           # Marketing > Google Business
 app.include_router(marketing_gbp.public_router)    # its OAuth callback - Google redirects a browser here, no bearer token
 from routers import property_tickets  # noqa: E402
 app.include_router(property_tickets.router)        # Tickets <-> Asset Management properties: the ticket property picker (Neil, 10/05)
+app.include_router(site_models_router.router)      # Site Models: to-scale 3D property models, public unit finder, owner markup pins (Neil, 10/11)
 from routers import ticket_walkthroughs  # noqa: E402
 app.include_router(ticket_walkthroughs.router)     # Tickets: Property Walkthrough - many tickets at one property in one submit (Neil, 10/05)
 from routers import marketing_ads  # noqa: E402

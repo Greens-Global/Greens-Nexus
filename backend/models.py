@@ -5828,3 +5828,28 @@ class OpsCompetitorRate(Base):
     source        = Column(String, default="manual")              # manual | import | web (read from the competitor's page)
     entered_by    = Column(String, default="")
     created_at    = Column(String, default="")
+
+
+# ---------------------------------------------------------------------------
+# Site Models (Neil, Oct 11 2026): a pin an owner dropped on a property's 3D
+# site model - "this spot needs attention". Position is in the model's local
+# meter frame (u along the site axis, v toward the northeast, y up); `unit` is
+# the Cubby unit number when the pin sits on one. The model itself is a JSON
+# file (backend/site_models/), not a table. Enable RLS on dev and prod.
+# ---------------------------------------------------------------------------
+class SiteModelMarkup(Base):
+    __tablename__ = "site_model_markups"
+    id          = Column(String, primary_key=True)   # uuid
+    property_id = Column(String, index=True, default="")
+    unit        = Column(String, default="")
+    building    = Column(String, default="")
+    u           = Column(Float, default=0.0)
+    v           = Column(Float, default=0.0)
+    y           = Column(Float, default=0.0)
+    title       = Column(String, default="")
+    category    = Column(String, default="maintenance")   # maintenance | inspection | note
+    status      = Column(String, default="open")          # open | done
+    ticket_id   = Column(String, default="")
+    created_by  = Column(String, default="")
+    created_at  = Column(String, default="")
+    updated_at  = Column(String, default="")
