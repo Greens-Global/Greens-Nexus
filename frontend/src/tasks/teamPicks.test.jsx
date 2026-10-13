@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import TeamPicks, { teamRoster, pickableTeams, rosterState, toggleRoster, rosterExists } from './teamPicks';
+import TeamPicks, { teamRoster, pickableTeams, rosterState, toggleRoster, rosterExists, firstTeamPick } from './teamPicks';
 
 // Teams in the Collaborators pickers (Neil, Oct 13 2026): one click adds a
 // team's whole roster as ordinary collaborators, so the odd one out can be
@@ -20,8 +20,9 @@ const teams = [
 ];
 
 describe('team rosters', () => {
-  it('keeps only members the picker knows, lowercased and deduped', () => {
+  it('keeps only members the picker knows, spelled as the picker spells them, deduped', () => {
     expect(teamRoster(teams[0], people)).toEqual(['pragya@greensglobal.com', 'pranshu@greensglobal.com']);
+    expect(teamRoster(teams[0], [{ email: 'Pranshu@greensglobal.com', name: 'P' }])).toEqual(['Pranshu@greensglobal.com']);
     expect(teamRoster(teams[2], people)).toEqual([]);
   });
 
@@ -46,22 +47,28 @@ describe('team rosters', () => {
       .toEqual({ next: ['sahil@greensglobal.com'], adding: false });
   });
 
+  it('offers the first matching team to Enter', () => {
+    expect(firstTeamPick(teams, people, 'ops')?.team.id).toBe('t-ops');
+    expect(firstTeamPick(teams, people, 'nobody')).toBeNull();
+  });
+
   it('knows when the selection already is a team', () => {
     expect(rosterExists(teams, people, ['pranshu@greensglobal.com', 'pragya@greensglobal.com'])).toBe(true);
     expect(rosterExists(teams, people, ['pranshu@greensglobal.com'])).toBe(false);
   });
 });
 
-function Harness({ initial = [], onSaveTeam = null, query = '' }) {
+function Harness({ initial = [], onSaveTeam = null, query = '', onChange = null }) {
   const [sel, setSel] = useState(initial);
   return (
     <>
       <TeamPicks teams={teams} people={people} selected={sel} query={query} onSaveTeam={onSaveTeam}
-        onChange={(next) => setSel(next)} />
+        onChange={(next, adding) => { setSel(next); onChange?.(next, adding); }} />
       <div data-testid="sel">{sel.join(',')}</div>
     </>
   );
 }
+const boxOf = (title) => screen.getByTitle(title).querySelector('input');
 
 describe('TeamPicks', () => {
   it('renders nothing when there is no team to offer', () => {
@@ -71,23 +78,28 @@ describe('TeamPicks', () => {
     expect(screen.queryByTestId('team-picks')).toBeNull();
   });
 
-  it('adds the whole roster in one click, shows a partial team as mixed, and removes it on the next click', () => {
-    render(<Harness />);
-    const row = screen.getByTitle('Add Development (2)');
-    fireEvent.click(row);
+  it('adds the whole roster in one click (reporting adding), and removes it on the next (not adding)', () => {
+    const onChange = vi.fn();
+    render(<Harness onChange={onChange} />);
+    fireEvent.click(boxOf('Add Development (2)'));
     expect(screen.getByTestId('sel')).toHaveTextContent('pragya@greensglobal.com,pranshu@greensglobal.com');
+    expect(onChange).toHaveBeenLastCalledWith(['pragya@greensglobal.com', 'pranshu@greensglobal.com'], true);
     // all on -> the row offers to remove
-    const remove = screen.getByTitle('Remove Development (2)');
-    expect(remove.querySelector('input')).toBeChecked();
-    fireEvent.click(remove);
+    expect(boxOf('Remove Development (2)')).toBeChecked();
+    fireEvent.click(boxOf('Remove Development (2)'));
     expect(screen.getByTestId('sel')).toHaveTextContent('');
+    expect(onChange).toHaveBeenLastCalledWith([], false);
+  });
+
+  it('toggles from a label click too, exactly once', () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByTitle('Add Development (2)'));
+    expect(screen.getByTestId('sel')).toHaveTextContent('pragya@greensglobal.com,pranshu@greensglobal.com');
   });
 
   it('marks a half-added team as mixed, and a personal team as such', () => {
     render(<Harness initial={['pragya@greensglobal.com']} />);
-    const box = screen.getByTitle('Add Development (2)').querySelector('input');
-    expect(box.indeterminate).toBe(true);
-    expect(box).toHaveAttribute('aria-checked', 'mixed');
+    expect(boxOf('Add Development (2)').indeterminate).toBe(true);
     expect(screen.getByText('Personal')).toBeInTheDocument();
   });
 
@@ -109,9 +121,25 @@ describe('TeamPicks', () => {
     await waitFor(() => expect(screen.queryByLabelText('Team name')).toBeNull());
   });
 
-  it('does not offer to save a selection that already is a team, or a single person', () => {
+  it('keeps the name box open and shows the reason when the save fails, and Escape closes it', async () => {
+    const save = vi.fn().mockRejectedValue(new Error('Team name is required'));
+    render(<Harness initial={['pragya@greensglobal.com', 'sahil@greensglobal.com']} onSaveTeam={save} />);
+    fireEvent.click(screen.getByText('Save These 2 People as a Team'));
+    const name = screen.getByLabelText('Team name');
+    fireEvent.change(name, { target: { value: 'X' } });
+    fireEvent.click(screen.getByText('Save Team'));
+    expect(await screen.findByText('Team name is required')).toBeInTheDocument();
+    expect(screen.getByLabelText('Team name')).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByLabelText('Team name'), { key: 'Escape' });
+    expect(screen.queryByLabelText('Team name')).toBeNull();
+  });
+
+  it('does not offer to save a selection that already is a team', () => {
     render(<Harness initial={['pragya@greensglobal.com', 'pranshu@greensglobal.com']} onSaveTeam={vi.fn()} />);
     expect(screen.queryByText(/Save These/)).toBeNull();
+  });
+
+  it('does not offer to save a single person', () => {
     render(<Harness initial={['sahil@greensglobal.com']} onSaveTeam={vi.fn()} />);
     expect(screen.queryByText(/Save These/)).toBeNull();
   });

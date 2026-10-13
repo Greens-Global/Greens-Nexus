@@ -23,14 +23,17 @@ import { NX, FONT, btn } from './theme';
 
 const lower = (e) => (typeof e === 'string' ? e.trim().toLowerCase() : '');
 
-/** The members of `team` that `people` knows, lowercased, in roster order. */
+/** The members of `team` that `people` knows, spelled as `people` spells
+ *  them (so a person row's own `includes(u.email)` keeps matching), in
+ *  roster order, deduped. */
 export function teamRoster(team, people) {
-  const known = new Set((people || []).map((p) => lower(p.email)).filter(Boolean));
+  const known = new Map();
+  for (const p of people || []) { const k = lower(p.email); if (k && !known.has(k)) known.set(k, p.email); }
   const seen = new Set();
   const out = [];
   for (const raw of team?.memberIds || []) {
-    const em = lower(raw);
-    if (em && known.has(em) && !seen.has(em)) { seen.add(em); out.push(em); }
+    const k = lower(raw);
+    if (k && known.has(k) && !seen.has(k)) { seen.add(k); out.push(known.get(k)); }
   }
   return out;
 }
@@ -45,10 +48,15 @@ export function pickableTeams(teams, people, query = '') {
     .sort((a, b) => String(a.team.name || '').localeCompare(String(b.team.name || ''), 'en', { sensitivity: 'base' }));
 }
 
+/** The team Enter should pick when the search matches a team but no person. */
+export function firstTeamPick(teams, people, query = '') {
+  return pickableTeams(teams, people, query)[0] || null;
+}
+
 /** 'all' when every roster member is selected, 'some' when a few are, else 'none'. */
 export function rosterState(roster, selected) {
   const on = new Set((selected || []).map(lower));
-  const hits = roster.filter((em) => on.has(em)).length;
+  const hits = roster.filter((em) => on.has(lower(em))).length;
   if (!roster.length || hits === 0) return 'none';
   return hits === roster.length ? 'all' : 'some';
 }
@@ -58,11 +66,11 @@ export function rosterState(roster, selected) {
 export function toggleRoster(selected, roster) {
   const cur = Array.isArray(selected) ? selected : [];
   if (rosterState(roster, cur) === 'all') {
-    const drop = new Set(roster);
+    const drop = new Set(roster.map(lower));
     return { next: cur.filter((em) => !drop.has(lower(em))), adding: false };
   }
   const have = new Set(cur.map(lower));
-  return { next: [...cur, ...roster.filter((em) => !have.has(em))], adding: true };
+  return { next: [...cur, ...roster.filter((em) => !have.has(lower(em)))], adding: true };
 }
 
 /** True when some team's roster is exactly the selection - nothing to save. */
@@ -71,7 +79,7 @@ export function rosterExists(teams, people, selected) {
   if (!want.size) return false;
   return (teams || []).some((team) => {
     const roster = teamRoster(team, people);
-    return roster.length === want.size && roster.every((em) => want.has(em));
+    return roster.length === want.size && roster.every((em) => want.has(lower(em)));
   });
 }
 
@@ -86,13 +94,13 @@ function Caption({ children, inset }) {
   );
 }
 
-function TeamCheckbox({ state }) {
+// A real checkbox, so a label click reaches it once and Space toggles it
+// from the keyboard, the same as the person rows around it. `indeterminate`
+// is a DOM property with no React prop, so it is set on the node.
+function TeamCheckbox({ state, onToggle }) {
   const ref = useRef(null);
-  // `indeterminate` is a DOM property, not an attribute - React has no prop
-  // for it, so it is set on the node after each render.
   useEffect(() => { if (ref.current) ref.current.indeterminate = state === 'some'; }, [state]);
-  return <input ref={ref} type="checkbox" className="nx-check" checked={state === 'all'} readOnly
-    aria-checked={state === 'some' ? 'mixed' : state === 'all'} onChange={() => {}} style={{ pointerEvents: 'none' }} />;
+  return <input ref={ref} type="checkbox" className="nx-check" checked={state === 'all'} onChange={onToggle} />;
 }
 
 /**
@@ -141,9 +149,9 @@ export default function TeamPicks({ teams, people, selected, onChange, onSaveTea
         const state = rosterState(roster, cur);
         const title = state === 'all' ? `Remove ${team.name} (${roster.length})` : `Add ${team.name} (${roster.length})`;
         return (
-          <label key={team.id} title={title} onClick={(e) => { e.preventDefault(); const r = toggleRoster(cur, roster); onChange(r.next, r.adding); }}
+          <label key={team.id} title={title}
             style={{ display: 'flex', alignItems: 'center', gap: 8, padding: rowPad, fontSize: 13, cursor: 'pointer', color: NX.ink }}>
-            <TeamCheckbox state={state} />
+            <TeamCheckbox state={state} onToggle={() => { const r = toggleRoster(cur, roster); onChange(r.next, r.adding); }} />
             <span aria-hidden style={{ width: 20, height: 20, borderRadius: 6, flexShrink: 0, background: team.color || NX.purple, color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}><Users size={12} /></span>
             <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{team.name}</span>
             {(team.approvalStatus || 'approved') !== 'approved' && <span style={{ fontSize: 10.5, color: NX.faint }}>Personal</span>}
@@ -168,7 +176,7 @@ export default function TeamPicks({ teams, people, selected, onChange, onSaveTea
           </div>
           {/* A team saved here is yours: on your Teams tab, offered to you in
               these pickers, and sharable company-wide once a manager approves it. */}
-          <div style={{ fontSize: 11, color: NX.faint }}>{error || 'Saved as your personal team - you will find it on the Teams tab.'}</div>
+          <div style={{ fontSize: 11, color: error ? NX.red : NX.faint }}>{error || 'Saves as your personal team - you will find it on the Teams tab.'}</div>
         </div>
       )}
     </div>

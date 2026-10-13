@@ -21,7 +21,7 @@ import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY
 import { Avatar, PersonSelect, PersonMultiSelect, usePeople, useIsMobile, DateField, AttachmentViewer, ExternalTag, useImageZoom, localTodayISO, notPast, MenuCaption } from './components';
 import { matchPeople, onEnterPickFirst } from '../lib/peopleSearch';
 import { useFrequentCollaborators, frequentRows } from './frequentPeople';
-import TeamPicks from './teamPicks';
+import TeamPicks, { pickableTeams, firstTeamPick, toggleRoster } from './teamPicks';
 import RichDescription, { isEmptyDoc } from './RichDescription';
 import ProjectPicker from './ProjectPicker';
 import DueBadge from './DueBadge';
@@ -500,9 +500,11 @@ function CollaboratorMenuBody({ people, selected, onChange }) {
   // Nothing typed: the people you share the most tasks with first, then
   // everyone (the create window's Collaborators field does the same).
   const top = q.trim() ? [] : frequentRows(people, frequent);
+  const teamRows = pickableTeams(teams, people, q).length;
   // Same as the assignee picker: once a name is checked, the query that found
   // it has done its job - reset it and put the cursor back so the next name
   // can be typed straight away.
+  const pickTeam = (next, adding) => { onChange(next, adding); if (adding) { setQ(''); queryRef.current?.focus(); } };
   const pick = (email) => {
     const adding = !selected.includes(email);
     onChange(adding ? [...selected, email] : selected.filter((e) => e !== email), adding);
@@ -520,16 +522,21 @@ function CollaboratorMenuBody({ people, selected, onChange }) {
     <div>
       <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, padding: '4px 6px' }}>Collaborators</div>
       <input className="nx-inline-edit" ref={queryRef} autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
-        onKeyDown={onEnterPickFirst(top.length ? top : filtered, (u) => pick(u.email))}
+        onKeyDown={(e) => {
+          // Enter takes the first person; a search that matches a team and
+          // nobody takes that team instead of doing nothing.
+          const team = (e.key === 'Enter' && !top.length && !filtered.length) ? firstTeamPick(teams, people, q) : null;
+          if (team) { e.preventDefault(); const r = toggleRoster(selected, team.roster); pickTeam(r.next, r.adding); return; }
+          onEnterPickFirst(top.length ? top : filtered, (u) => pick(u.email))(e);
+        }}
         style={{ width: '100%', boxSizing: 'border-box', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '6px 8px', fontSize: 13, fontFamily: FONT, color: NX.ink }} />
       <div className="nx-scroll" style={{ maxHeight: 260, overflowY: 'auto' }}>
-        <TeamPicks teams={teams} people={people} selected={selected} query={q} onSaveTeam={saveTeam}
-          onChange={(next, adding) => { onChange(next, adding); if (adding) { setQ(''); queryRef.current?.focus(); } }} />
+        <TeamPicks teams={teams} people={people} selected={selected} query={q} onSaveTeam={saveTeam} onChange={pickTeam} />
         {top.length > 0 && <MenuCaption inset={8}>Frequent</MenuCaption>}
         {top.map((u) => row(u, 'f:'))}
-        {top.length > 0 && <MenuCaption inset={8}>All</MenuCaption>}
+        {top.length > 0 ? <MenuCaption inset={8}>All</MenuCaption> : (teamRows > 0 && filtered.length > 0 && <MenuCaption inset={8}>People</MenuCaption>)}
         {filtered.map((u) => row(u, ''))}
-        {filtered.length === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>{people.length === 0 ? 'No people' : 'No match'}</div>}
+        {filtered.length === 0 && teamRows === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>{people.length === 0 ? 'No people' : 'No match'}</div>}
       </div>
     </div>
   );

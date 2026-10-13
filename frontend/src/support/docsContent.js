@@ -433,7 +433,7 @@ export const DOCS = [
       {
         title: 'Add a Task in One Line',
         steps: [
-          'Open Tasks, then click the Tasks tab.',
+          'Open Tasks. It opens on the Tasks tab, your own list.',
           'Click the one-line box at the top of the list and type a title.',
           'Press Enter. Set the due date right on that line if you need one.',
         ],
