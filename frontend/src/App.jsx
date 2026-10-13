@@ -21,6 +21,7 @@ import UpdateBanner from "./components/UpdateBanner";
 import FeatureBanner from "./components/FeatureBanner";
 import AssistantWidget from "./components/AssistantWidget";
 import ViewErrorBoundary from "./components/ViewErrorBoundary";
+import WidgetBoundary, { NavFallback } from "./components/WidgetBoundary";
 import { Spinner, ViewLoading } from "./components/AsyncState";
 import { onBackendHealth, isBackendDown } from "./api";
 import { applyBrandAccent } from "./lib/brandAccent";
@@ -713,6 +714,9 @@ function MainApp() {
   }, [activeView, activeSub]);
 
 
+  // A crashed shell widget gets another try on the next navigation (WidgetBoundary).
+  const widgetKey = `${activeView}/${activeSub}`;
+
   return (
     <>
       <AuthStuckOverlay />
@@ -723,13 +727,13 @@ function MainApp() {
         <RoleGate>
         <RequisitionProvider>
         <InventoryProvider>
-        <NotificationToasts onNavigate={navigate} />
-        <StepUpOverlay />
-        <TimeclockWidget />
-        <GlobalSearch onNavigate={navigate} />
+        <WidgetBoundary name="toasts" resetKey={widgetKey}><NotificationToasts onNavigate={navigate} /></WidgetBoundary>
+        <WidgetBoundary name="step-up" resetKey={widgetKey}><StepUpOverlay /></WidgetBoundary>
+        <WidgetBoundary name="timeclock-widget" resetKey={widgetKey}><TimeclockWidget /></WidgetBoundary>
+        <WidgetBoundary name="global-search" resetKey={widgetKey}><GlobalSearch onNavigate={navigate} /></WidgetBoundary>
         <AssistantWidget />
-        <PullToRefresh />
-        <TaskPrefetch />
+        <WidgetBoundary name="pull-to-refresh" resetKey={widgetKey}><PullToRefresh /></WidgetBoundary>
+        <WidgetBoundary name="task-prefetch" resetKey={widgetKey}><TaskPrefetch /></WidgetBoundary>
         {activeView === 'sso' && activeSub === 'accounting' && (
           <Suspense fallback={<ViewLoading />}>
             <AccountingHandoff next={new URLSearchParams(window.location.search).get('next') || undefined} />
@@ -748,6 +752,8 @@ function MainApp() {
           </div>
         )}
         <div className="app-container" style={backendDown ? { paddingTop: 34 } : undefined}>
+          <WidgetBoundary name="sidebar" resetKey={widgetKey}
+            fallback={<NavFallback as="aside" className={`sidebar${sidebarCollapsed ? " collapsed" : ""}`} />}>
           <Sidebar
             ref={sidebarRef}
             activeView={activeView}
@@ -758,22 +764,30 @@ function MainApp() {
             collapsed={sidebarCollapsed}
             onToggleCollapse={() => setSidebarCollapsed(c => !c)}
           />
+          </WidgetBoundary>
           {/* App-style mobile chrome - phones only (CSS-gated ≤900px):
               bottom tab bar + adidas-style full-screen menu */}
+          <WidgetBoundary name="mobile-nav" resetKey={widgetKey} fallback={<NavFallback as="nav" className="mobile-nav" />}>
           <MobileNav activeView={activeView} activeSub={activeSub} onNavigate={navigate} />
+          </WidgetBoundary>
+          <WidgetBoundary name="mobile-menu" resetKey={widgetKey}
+            fallback={mobileMenuOpen ? <NavFallback className="mobile-menu" /> : null}>
           <MobileMenu open={mobileMenuOpen} onClose={() => setMobileMenuOpen(false)}
             onNavigate={navigate} activeView={activeView}
             theme={theme} onThemeToggle={() => setTheme(t => t === "dark" ? "light" : "dark")} />
+          </WidgetBoundary>
           {/* HeaderTabsProvider: modules publish their tab strip into the header
               center via <ModuleTabs> (Work OS shell - Stella-style layout) */}
           <HeaderTabsProvider>
           <main className={`main-content${sidebarCollapsed ? " main-collapsed" : ""}`}>
             {/* The weekly "New in Nexus" bar - across the top of the page,
                 above the header (components/FeatureBanner.jsx). */}
-            <FeatureBanner activeView={activeView} onNavigate={navigate} />
+            <WidgetBoundary name="feature-banner" resetKey={widgetKey}><FeatureBanner activeView={activeView} onNavigate={navigate} /></WidgetBoundary>
             {/* PDF Editor is a full-bleed workspace with its own toolbar — hide
                 the Nexus top header so it gets the whole viewport height. */}
             {!pdfHasDoc && (
+            <WidgetBoundary name="top-header" resetKey={widgetKey}
+              fallback={<NavFallback as="header" className="top-header" label="The header hit a snag." />}>
             <TopHeader
               title={viewLabel(activeView)}
               activeView={activeView}
@@ -787,9 +801,10 @@ function MainApp() {
               onNavigate={navigate}
               prevLabel={prevLabel}
             />
+            </WidgetBoundary>
             )}
             {/* Priority notices (Neil, 09/29): the yellow bar that stays until acted on. */}
-            {!pdfHasDoc && <PriorityBar onNavigate={navigate} />}
+            {!pdfHasDoc && <WidgetBoundary name="priority-bar" resetKey={widgetKey}><PriorityBar onNavigate={navigate} /></WidgetBoundary>}
             {/* viewport-desk: the Work OS canvas (soft gray --wk-bg) for the
                 dashboard surfaces - see the Work OS section in style.css */}
             {/* pdf-editor is flush for the same reason tasks is: it owns its

@@ -14,7 +14,7 @@ import DayTimeline from '../components/DayTimeline';
 import ModuleTabs from '../components/ModuleTabs';
 import PayrollTimecard from '../components/PayrollTimecard';
 import BodModal from '../components/BodModal';
-import { pollWhileVisible } from '../lib/pollWhileVisible';
+import { useTimeStatus, patchTimeStatus } from '../lib/useTimeStatus';
 import { punchDurable, replayPending, readPending, utcStamp } from '../lib/punchQueue';
 import { replayPendingBods } from '../lib/bodQueue';
 import { formatTime, formatDate, formatWeekday, formatHHMM, formatMonthDay, greetingFor } from '../lib/datetime';
@@ -437,7 +437,10 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     if (onSubChange && activeSub !== tab && activeSub !== 'shifts') onSubChange(tab);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
-  const [status, setStatus] = useState(null);
+  // The shared read (lib/useTimeStatus): this screen, the floating timer and
+  // the dashboard tiles are one request per poll (20s here - see the
+  // cross-device note below).
+  const { status, error: statusError, errorAt: statusErrorAt, reload: load } = useTimeStatus({ pollMs: 20000 });
   const [busy, setBusy] = useState('');
   const [msg, setMsg] = useState(null);        // {ok, text}
   const [bodMode, setBodMode] = useState(null);   // 'bod' | 'eod' | null - day-message modal
@@ -482,10 +485,15 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     msgTimer.current = setTimeout(() => setMsg(null), 6000);
   };
 
-  const load = useCallback(() => {
-    api.timeStatus().then(setStatus).catch(e => toast(false, e?.message || 'Could not load your time clock.'));
-  }, []);
-  useEffect(() => { load(); }, [load]);
+  // Every failed read says so, as it always did. Only failures that happen
+  // while this screen is open - not one left over from before it mounted.
+  const seenStatusError = useRef(statusErrorAt);
+  useEffect(() => {
+    if (!statusErrorAt || statusErrorAt === seenStatusError.current) return;
+    seenStatusError.current = statusErrorAt;
+    toast(false, statusError?.message || 'Could not load your time clock.');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusErrorAt]);
   // Landing a parked punch happens from four places - the background retry, the
   // Retry button, a DIFFERENT punch flushing the queue first, and a fresh page
   // load. One routine for all of them, so they can never drift apart on what
@@ -548,11 +556,10 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   }, []);
   // Cross-device sync: punch state lives on the server, so a break/punch on ANY
   // of your devices must show up here without a manual refresh. Re-fetch on a
-  // short poll, and - for the common "I just switched to this device" case -
-  // instantly when the tab regains focus/visibility. Same-device punches fire
-  // nexus:timeclock-changed locally.
+  // short poll (useTimeStatus, above), and - for the common "I just switched to
+  // this device" case - instantly when the tab regains focus/visibility.
+  // Same-device punches fire nexus:timeclock-changed locally.
   useEffect(() => {
-    const stopPoll = pollWhileVisible(load, 20000);
     // A day message parked by bodQueue.js (the server could not be reached when
     // it was sent) goes out the moment anything can reach the server again.
     const replayBods = () => { replayPendingBods().catch(() => {}); };
@@ -564,7 +571,6 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     window.addEventListener('online', replayBods);
     window.addEventListener('nexus:timeclock-changed', onChange);
     return () => {
-      stopPoll();
       document.removeEventListener('visibilitychange', onVis);
       window.removeEventListener('focus', onVis);
       window.removeEventListener('online', replayBods);
@@ -710,7 +716,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     setMonBusy(true);
     try {
       await api.timeMonitoringConsent();
-      setStatus(s => (s?.monitoring ? { ...s, monitoring: { ...s.monitoring, consentRequired: false } } : s));
+      patchTimeStatus(s => (s?.monitoring ? { ...s, monitoring: { ...s.monitoring, consentRequired: false } } : s));
       setMonGate(null);
       setMonBusy(false);
       actualPunch('in', true);

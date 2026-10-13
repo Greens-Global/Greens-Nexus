@@ -12,6 +12,7 @@ import { useState, useEffect } from 'react';
 import { LoadingState } from '../components/AsyncState';
 import { ArrowRight, ArrowUpRight, Cake, CalendarDays, Clock, Package, HandCoins } from 'lucide-react';
 import { api } from '../api';
+import { useTimeStatus } from '../lib/useTimeStatus';
 import { useRole } from '../contexts/RoleContext';
 import { formatDate, formatTime, formatDateLong } from '../lib/datetime';
 import { DashCard, navigate } from './widgets.jsx';
@@ -73,18 +74,18 @@ export function Row({ Icon, title, meta, status, statusLabel, onClick }) {
 // next to KPI tiles as an equal.
 const PUNCH_WORD = { in: 'in', out: 'out', break_start: 'break', break_end: 'back' };
 export function TimeClockWidget() {
-  const [status, setStatus] = useState(null);
+  // The shared read (lib/useTimeStatus): one request for this tile, the
+  // floating timer and anything else on screen. null = pending,
+  // { error: true } = it has never answered.
+  const { status: shared, loaded, failed, reload } = useTimeStatus({ pollMs: 120000 });
+  const status = shared ?? (loaded ? {} : failed ? { error: true } : null);
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
-    let alive = true;
-    const load = () => api.timeStatus().then(s => { if (alive) setStatus(s || {}); }).catch(() => { if (alive) setStatus(s => s || { error: true }); });
-    load();
-    const onFocus = () => { if (document.visibilityState !== 'hidden') load(); };
+    const onFocus = () => { if (document.visibilityState !== 'hidden') reload(); };
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onFocus);
-    const t = setInterval(load, 120000);
-    return () => { alive = false; clearInterval(t); window.removeEventListener('focus', onFocus); document.removeEventListener('visibilitychange', onFocus); };
-  }, []);
+    return () => { window.removeEventListener('focus', onFocus); document.removeEventListener('visibilitychange', onFocus); };
+  }, [reload]);
   // The totals are whole minutes, so a 15s tick keeps them honest without
   // re-rendering the board every second.
   useEffect(() => { const t = setInterval(() => setNow(new Date()), 15000); return () => clearInterval(t); }, []);

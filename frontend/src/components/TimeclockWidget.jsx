@@ -4,6 +4,7 @@ import { api } from '../api';
 import { editGuard } from '../asset/lib/editGuard.js';
 import BodModal from './BodModal';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
+import { useTimeStatus } from '../lib/useTimeStatus';
 import { punchDurable, replayPending, readPending } from '../lib/punchQueue';
 import { punchPosition, keepPositionWarm } from '../lib/geoPosition';
 import { replayPendingBods } from '../lib/bodQueue';
@@ -53,7 +54,10 @@ const fmtHMS = (sec) => {
 };
 
 export default function TimeclockWidget() {
-  const [status, setStatus] = useState(null);
+  // The shared read (lib/useTimeStatus): this widget, Workday and the dashboard
+  // tiles are one request per poll. 25s so a punch/break on ANOTHER device
+  // reflects in this widget's timer without a manual refresh.
+  const { status, reload: reloadStatus } = useTimeStatus({ pollMs: 25000 });
   // `|| {}`: null outside RoleProvider (render tests).
   const { myEmail = '' } = useRole() || {};
   // This widget is mounted app-wide and asks /time/status first, so it is the
@@ -85,7 +89,7 @@ export default function TimeclockWidget() {
   const startRef = useRef(null);                   // latest startCapture, for the global hook
 
   const load = useCallback(() => {
-    api.timeStatus().then(setStatus).catch(() => {});
+    reloadStatus();
     // Per-machine truth for the capture UI, not just the capture engine: the
     // server's agentActive only turns true once the agent BINDS this person's
     // session, so a running-but-unbound agent otherwise leaves a misleading
@@ -93,7 +97,7 @@ export default function TimeclockWidget() {
     // (Aarav, Sep 3). Cheap: an absent agent refuses instantly, a blocked one
     // times out in 1.2s, and this rides the existing 25s status poll.
     _localAgentPresent().then(setLocalAgent).catch(() => {});
-  }, []);
+  }, [reloadStatus]);
 
   // The mini-timer is mounted on every screen, so this is where a punch parked
   // by a dead connection gets its app-wide second chance - the person does not
@@ -110,9 +114,9 @@ export default function TimeclockWidget() {
     load();
     const onChange = () => load();
     window.addEventListener('nexus:timeclock-changed', onChange);
-    // Poll fairly often so a punch/break on ANOTHER device reflects in this
-    // widget's timer without a manual refresh (server holds the punch state).
-    const stopPoll = pollWhileVisible(load, 25000);
+    // The status itself is polled by useTimeStatus; this keeps the local-agent
+    // probe on the same 25s pace it always rode.
+    const stopPoll = pollWhileVisible(() => { _localAgentPresent().then(setLocalAgent).catch(() => {}); }, 25000);
     const sec = setInterval(() => setTick(t => t + 1), 1000);
     // Wall-clock scheduler: a frequent tick that fires a shot only once the full
     // interval has actually elapsed. Browsers throttle/freeze background-tab
