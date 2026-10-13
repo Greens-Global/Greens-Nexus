@@ -18,6 +18,7 @@ import { StepUpOverlay } from "./stepup/StepUp";
 import GlobalSearch from "./components/GlobalSearch";
 import PullToRefresh from "./components/PullToRefresh";
 import UpdateBanner from "./components/UpdateBanner";
+import FeatureBanner from "./components/FeatureBanner";
 import AssistantWidget from "./components/AssistantWidget";
 import ViewErrorBoundary from "./components/ViewErrorBoundary";
 import { Spinner, ViewLoading } from "./components/AsyncState";
@@ -755,6 +756,9 @@ function MainApp() {
               center via <ModuleTabs> (Work OS shell - Stella-style layout) */}
           <HeaderTabsProvider>
           <main className={`main-content${sidebarCollapsed ? " main-collapsed" : ""}`}>
+            {/* The weekly "New in Nexus" bar - across the top of the page,
+                above the header (components/FeatureBanner.jsx). */}
+            <FeatureBanner activeView={activeView} onNavigate={navigate} />
             {/* PDF Editor is a full-bleed workspace with its own toolbar — hide
                 the Nexus top header so it gets the whole viewport height. */}
             {!pdfHasDoc && (

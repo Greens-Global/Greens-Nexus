@@ -659,6 +659,11 @@ export const api = {
   // Red-dot eye icon next to the profile pill: unseen published update since this user's last visit.
   getTaskChangelogUnseen: () => req("/task-changelog/unseen"),
   markTaskChangelogSeen: () => req("/task-changelog/seen", { method: "POST" }),
+  // The weekly New Feature bar (components/FeatureBanner.jsx) and its dismissal.
+  getFeatureBanner: () => req('/task-changelog/feature-banner'),
+  dismissFeatureBanner: () => req('/task-changelog/feature-banner/dismiss', { method: 'POST' }),
+  // New Features released since `since` - the new-version popup's See What's New.
+  getNewFeatures: (since) => req(`/task-changelog/new-features?since=${encodeURIComponent(since || '')}`),
 
   // Purchase Requests
   getPurchaseRequests: () => req("/purchase-requests"),

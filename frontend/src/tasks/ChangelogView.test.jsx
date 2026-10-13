@@ -139,7 +139,7 @@ describe("What's New automatic publishing status", () => {
     expect(await screen.findByText('Ledger Operators')).toBeTruthy();
     expect(screen.getByText('Tickets Module Live')).toBeTruthy();
     expect(screen.queryByText('Older Change')).toBeNull();
-    expect(screen.getByText('2 updates')).toBeTruthy();
+    expect(screen.getByText('2 Updates')).toBeTruthy();
   });
 
   it('lists the latest merge on top when one run published several updates at once', async () => {

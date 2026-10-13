@@ -761,7 +761,9 @@ h1,h2,h3,h4,h5,h6,
    the module's white chrome fall short of the viewport instead of filling
    it. Strip padding and give it a definite height (100vh minus the 56px
    .top-header) so height:100% cascades correctly through the module. */
-.viewport-flush { padding: 0; overflow: hidden; display: flex; flex-direction: column; height: calc(100vh - 56px); }
+/* --nx-announce-h: the weekly New Feature bar's height while it shows
+   (components/FeatureBanner.jsx), 0 otherwise. */
+.viewport-flush { padding: 0; overflow: hidden; display: flex; flex-direction: column; height: calc(100vh - 56px - var(--nx-announce-h, 0px)); }
 /* Two classes (0,2,0) so this wins over every single-class `.viewport { padding: … }`
    rule regardless of source order - there are seven of them across the responsive
    blocks, and the flush variant (task/ticket module) must keep zero padding at all
@@ -4147,7 +4149,7 @@ button, [role="button"], select { touch-action: manipulation; }
      Nexus top header (~56px). Fill the rest of the viewport - subtracting the
      old ~206px left an empty gray band at the bottom that other modules don't
      have. Once a doc is open, `.has-doc` takes the whole viewport. */
-  height: calc(100vh - 56px);
+  height: calc(100vh - 56px - var(--nx-announce-h, 0px));
   min-height: 420px;  /* never collapse to a sliver on short windows */
   overflow: hidden;
   display: flex;
@@ -5351,6 +5353,19 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
   padding: 8px 14px; font-size: 13px; font-weight: 700; cursor: pointer;
   font-family: inherit; white-space: nowrap;
 }
+/* See What's New - offered when the waiting version brings a New Feature.
+   Nexus green; Reload steps back to an outline beside it. */
+.update-banner-whatsnew {
+  display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0;
+  background: hsl(142,60%,30%); color: #fff; border: 0; border-radius: 8px;
+  padding: 8px 14px; font-size: 13px; font-weight: 700; cursor: pointer;
+  font-family: inherit; white-space: nowrap;
+}
+.update-banner-whatsnew:hover { background: hsl(142,60%,25%); }
+.update-banner-reload.update-banner-reload-quiet {
+  background: transparent; color: var(--wk-ink, #323338);
+  border: 1px solid var(--wk-line, #d0d4e4);
+}
 .update-banner-close {
   background: none; border: 0; color: var(--wk-dim, #676879); cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center;
@@ -5364,6 +5379,13 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
     padding: 10px 8px 10px 14px; gap: 10px;
   }
   .update-banner-text { flex: 1; min-width: 0; font-size: 14px; }
+  /* With See What's New there are three controls: the message and the close
+     share the first row, the two buttons split the second - side by side
+     they had squeezed the message to one word per line (Oct 12). */
+  .update-banner { flex-wrap: wrap; row-gap: 8px; }
+  .update-banner-text { flex: 1 1 calc(100% - 48px); }
+  .update-banner-close { order: 1; }
+  .update-banner-whatsnew, .update-banner-reload { order: 2; flex: 1 1 0; justify-content: center; min-height: 40px; }
 }
 
 /* ── Accounting -> Reports, Oct 7 (Charmi: items 20 / 22 / 26 / 32 / 33) ──
@@ -5399,4 +5421,41 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
 .nx-clamp-2 {
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
   overflow: hidden; min-width: 0;
+}
+
+/* ── The weekly "New in Nexus" bar (components/FeatureBanner.jsx) ───────────
+   Full width across the top of the page, Nexus green (Neil, Oct 12 2026).
+   A shade deeper than --color-green (35% lightness), where white text
+   is only 4.1:1: at 30% it is 5.3:1. The button flips it, green on white (6.3:1). */
+.feature-banner {
+  display: flex; align-items: center; gap: 12px; flex-shrink: 0;
+  padding: 9px 12px 9px 16px; background: hsl(142,60%,30%); color: #fff;
+  font-family: var(--wk-font, inherit); font-size: 13.5px; line-height: 1.35;
+}
+.feature-banner-icon { flex-shrink: 0; }
+.feature-banner-text { flex: 1; min-width: 0; }
+.feature-banner-text strong { font-weight: 700; }
+.feature-banner-cta {
+  display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0;
+  background: #fff; color: hsl(142,60%,27%); border: 0; border-radius: 8px;
+  padding: 7px 12px; font-size: 13px; font-weight: 700; cursor: pointer;
+  font-family: inherit; white-space: nowrap;
+}
+.feature-banner-cta:hover { background: hsl(142,60%,95%); }
+.feature-banner-close {
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  width: 32px; height: 32px; border-radius: 8px; border: 0; cursor: pointer;
+  background: transparent; color: #fff;
+}
+.feature-banner-close:hover { background: rgba(255,255,255,.16); }
+.feature-banner-cta:focus-visible,
+.feature-banner-close:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+@media (max-width: 640px) {
+  .feature-banner { padding: 8px 6px 8px 12px; gap: 8px; font-size: 13px; }
+  .feature-banner-icon { display: none; }
+  .feature-banner-text {
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .feature-banner-cta { padding: 8px 10px; min-height: 36px; }
+  .feature-banner-close { width: 36px; height: 36px; }
 }

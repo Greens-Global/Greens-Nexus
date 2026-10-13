@@ -10,7 +10,7 @@ from typing import Optional, Any
 import os
 import json
 import httpx
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 import models
 from database import get_db
@@ -672,6 +672,94 @@ def mark_changelog_seen(user: dict = Depends(get_current_user), db: Session = De
     _mark_changelog_seen(db, user["email"])
     db.commit()
     return {"ok": True}
+
+
+# ── New Feature announcements (Neil, Oct 12 2026) ───────────────────────────
+# A weekly full-width bar (frontend components/FeatureBanner.jsx) and a See
+# What's New button on the new-version popup - for New Features only, never
+# for bug fixes alone.
+FEATURE_BANNER_DAYS = 7
+
+
+def _changelog_instant(value):
+    """An update's time as an aware UTC datetime, or None. A merge publishes
+    a zoned instant; a hand-written update carries browser-local wall time with
+    no zone, read here as UTC - a few hours off at most, and these rules work
+    in days."""
+    s = str(value or "").strip()
+    if not s:
+        return None
+    try:
+        at = datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return at if at.tzinfo else at.replace(tzinfo=timezone.utc)
+
+
+def _released_features(db: Session, since: datetime) -> list:
+    """Released New Features from `since` on, newest first, as (at, entry, payload)."""
+    out = []
+    for e in db.query(models.TaskChangelogEntry).all():
+        p = e.payload if isinstance(e.payload, dict) else {}
+        if p.get("status") != "Released" or p.get("type") != "New Feature":
+            continue
+        at = _changelog_instant(p.get("releasedAt") or e.created_at)
+        if at and at >= since:
+            out.append((at, e, p))
+    out.sort(key=lambda x: x[0], reverse=True)
+    return out
+
+
+def _feature_brief(at: datetime, e: models.TaskChangelogEntry, p: dict) -> dict:
+    return {"id": e.id, "title": p.get("title") or "", "module": p.get("module") or "",
+            "releasedAt": at.isoformat()}
+
+
+@router.get("/task-changelog/feature-banner")
+def get_feature_banner(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Whether to show this person the weekly New Feature bar. Shown when a
+    New Feature was released in the last 7 days that they have not seen - not
+    by opening What's New (last_seen_at), not by this bar (banner_seen_at) -
+    and never within 7 days of their last dismissal: once a week at most, on
+    every device. `more` counts the other unseen features."""
+    now = datetime.now(timezone.utc)
+    week_ago = now - timedelta(days=FEATURE_BANNER_DAYS)
+    features = _released_features(db, week_ago)
+    if not features:
+        return {"show": False}
+    row = db.query(models.ChangelogSeen).filter(models.ChangelogSeen.email == user["email"].lower()).first()
+    seen_at = _changelog_instant(row.last_seen_at) if row else None
+    banner_at = _changelog_instant(row.banner_seen_at) if row else None
+    if banner_at and banner_at > week_ago:
+        return {"show": False}
+    floor = max((t for t in (seen_at, banner_at) if t), default=None)
+    fresh = [f for f in features if not floor or f[0] > floor]
+    if not fresh:
+        return {"show": False}
+    return {"show": True, "feature": _feature_brief(*fresh[0]), "more": len(fresh) - 1}
+
+
+@router.post("/task-changelog/feature-banner/dismiss")
+def dismiss_feature_banner(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Dismissed, followed, or What's New opened: no bar for 7 days."""
+    email = user["email"].lower()
+    row = db.query(models.ChangelogSeen).filter(models.ChangelogSeen.email == email).first()
+    if not row:
+        row = models.ChangelogSeen(email=email, last_seen_at="")
+        db.add(row)
+    row.banner_seen_at = now_iso()
+    db.commit()
+    return {"ok": True}
+
+
+@router.get("/task-changelog/new-features")
+def get_new_features(since: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Released New Features since `since` (default: the last day) - whether
+    the version waiting for a stale tab brings one, so its popup can offer
+    See What's New."""
+    since_at = _changelog_instant(since) or (datetime.now(timezone.utc) - timedelta(days=1))
+    features = _released_features(db, since_at)
+    return {"count": len(features), "latest": _feature_brief(*features[0]) if features else None}
 
 
 @router.delete("/task-changelog/{entry_id}", status_code=204)

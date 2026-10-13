@@ -280,7 +280,8 @@ function WhatsNewTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit })
   // the cards' column, which pushed the first card one label lower than the
   // summary beside it, and the cards were centered at 1400px while the title
   // stayed at the far left. The content fills the page, like other modules.
-  const count = `${latestDay.length} update${latestDay.length === 1 ? '' : 's'}`;
+  // "3 Updates" (Neil, Oct 12 2026): a count you can read at a glance, Title Case.
+  const count = `${latestDay.length} Update${latestDay.length === 1 ? '' : 's'}`;
   // On a phone the page header already says What's New, so the tab skips its
   // own title and puts the count beside the day instead.
   return (
@@ -291,14 +292,14 @@ function WhatsNewTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit })
             <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: NX.ink }}>What's New</h1>
             <p style={{ margin: '2px 0 0', fontSize: 13, color: NX.dim }}>Everything published on the latest release day.</p>
           </div>
-          <span style={{ fontSize: 12, fontWeight: 600, color: NX.dim }}>{count}</span>
+          <span style={{ fontSize: 15, fontWeight: 700, color: NX.ink }}>{count}</span>
         </div>
       )}
 
       {latest ? (<>
         <div style={{ marginBottom: isMobile ? 10 : 8, display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4, color: NX.faint }}>
           <span>{relativeDayLabel(releasedKey(latest))}</span>
-          {isMobile && <span style={{ textTransform: 'none', letterSpacing: 0, fontSize: 12, color: NX.dim }}>{count}</span>}
+          {isMobile && <span style={{ textTransform: 'none', letterSpacing: 0, fontSize: 14, fontWeight: 700, color: NX.ink }}>{count}</span>}
         </div>
         <div data-whats-new-row style={{ display: 'flex', flexWrap: 'wrap', gap: isMobile ? 12 : 20, alignItems: 'flex-start' }}>
           <div style={{ minWidth: 0, flex: '1 1 520px', display: 'flex', flexDirection: 'column', gap: 12 }}>
