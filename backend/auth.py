@@ -306,7 +306,7 @@ MODULE_API_PREFIXES = {
     "sop":                ("/knowledge-base", "/sop-updates", "/lms-"),
     "it":                 ("/unifi",),
     "ops":                ("/construction",),
-    "operations":         ("/ops-projects", "/dev-projects"),
+    "operations":         ("/ops-projects", "/dev-projects", "/facility-ops"),
     "development":        ("/ops-projects", "/dev-projects"),
     "property-asset":     ("/property-assets",),
     "accounting":         ("/accounting",),

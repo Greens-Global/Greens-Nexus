@@ -6,10 +6,10 @@ import {
   LayoutDashboard, ShoppingCart, CheckSquare, BookOpen,
   Monitor, Wifi, Home, LayoutGrid, FileText,
   ClipboardCheck, Calculator,
-  Server, FileSpreadsheet, Landmark, BarChart3,
-  Users, LogIn, PenTool, Files, Megaphone, Star, ExternalLink,
+  FileSpreadsheet, Landmark, BarChart3,
+  Users, LogIn, PenTool, Files, Megaphone, ExternalLink,
   Settings, ChevronLeft, ChevronRight,
-  HelpCircle, Store, Calendar, Package, Contact,
+  HelpCircle, Store, Calendar, Package, Contact, HandCoins, Warehouse, ListChecks,
   FlaskConical,
   KeyRound,
   Briefcase, FileSignature, ArrowDownToLine, ArrowUpFromLine,
@@ -115,9 +115,10 @@ export const NAV = [
   {
     view: "operations", code: "OPS", label: "Operations", icon: Store, minRole: 'supervisor',
     sub: [
-      { subview: "fms",        label: "FMS Integration",        icon: Server },
-      { subview: "reputation", label: "Reputation Management",  icon: Star },
-      { subview: "site-staff", label: "Site Staff & Scheduling",icon: Calendar },
+      { subview: "overview",    label: "Overview",        icon: LayoutDashboard },
+      { subview: "collections", label: "Collections",     icon: HandCoins },
+      { subview: "units",       label: "Units & Pricing", icon: Warehouse },
+      { subview: "worklist",    label: "Worklist",        icon: ListChecks },
     ],
   },
   // Development was removed from the nav (Neil, Aug 11) - the module isn't

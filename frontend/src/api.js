@@ -1128,6 +1128,8 @@ export const api = {
   // Ops
   getOpsProjects: () => req("/ops-projects"),
   createOpsProject: (data) => req("/ops-projects", { method: "POST", body: JSON.stringify(data) }),
+  // Operations (storage facilities): every figure on the screen, read from Cubby
+  getFacilityOps: (fresh) => req(`/facility-ops/summary${fresh ? "?fresh=1" : ""}`),
 
   // Dev
   getDevProjects: () => req("/dev-projects"),

@@ -1,260 +1,142 @@
-import { useState } from "react";
-import { Server, Star, Calendar } from "lucide-react";
-import ModuleTabs from "../components/ModuleTabs";
+// Operations - the storage facilities, read from Cubby (Oct 2026).
+//
+// Replaces the mock FMS / Reputation / Site Staff tabs. Nothing here is typed
+// in: every figure comes from GET /facility-ops/summary, which reads Cubby.
+// One fetch feeds all four tabs and the facility picker, so switching either
+// is instant. Nexus only reads - payments, leases and tenant edits stay in
+// Cubby, and each tenant row links there.
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { LayoutDashboard, HandCoins, Warehouse, ListChecks, RefreshCw } from 'lucide-react';
+import ModuleTabs from '../components/ModuleTabs';
+import { ErrorBanner, LoadingState } from '../components/AsyncState';
+import { api } from '../api';
+import { formatDate, formatDateTime } from '../lib/datetime';
+import { combine, PERIODS, periodRange } from '../operations/model';
+import { pollWhileVisible } from '../lib/pollWhileVisible';
+import { Overview, Collections, Units, Worklist } from '../operations/OpsTabs';
+import '../operations/ops.css';
 
 const TABS = [
-  { key: "fms",        label: "FMS Integration",         Icon: Server   },
-  { key: "reputation", label: "Reputation Management",   Icon: Star     },
-  { key: "site-staff", label: "Site Staff & Scheduling", Icon: Calendar },
+  { key: 'overview',    label: 'Overview',        Icon: LayoutDashboard },
+  { key: 'collections', label: 'Collections',     Icon: HandCoins },
+  { key: 'units',       label: 'Units & Pricing', Icon: Warehouse },
+  { key: 'worklist',    label: 'Worklist',        Icon: ListChecks },
 ];
+const TAB_KEYS = new Set(TABS.map((t) => t.key));
 
-const FACILITIES = [
-  { name: "Harbor View Storage",  units: 612, rented: 575, occ: 94, mrr: 88200, lastSync: "6 min ago" },
-  { name: "Downtown Self Storage",units: 480, rented: 422, occ: 88, mrr: 71400, lastSync: "6 min ago" },
-  { name: "Riverside Storage",    units: 350, rented: 266, occ: 76, mrr: 39800, lastSync: "6 min ago" },
-  { name: "Lakeline Storage",     units: 528, rented: 480, occ: 91, mrr: 66100, lastSync: "6 min ago" },
-  { name: "Summit Storage",       units: 290, rented: 200, occ: 69, mrr: 27500, lastSync: "6 min ago" },
-];
+export default function FacilityOperations({ activeSub, onSubChange }) {
+  // The old mock tab ids (fms, reputation, site-staff) may still be bookmarked.
+  const sub = TAB_KEYS.has(activeSub) ? activeSub : 'overview';
+  const [state, setState] = useState({ status: 'loading', data: null, error: null });
+  const [refreshing, setRefreshing] = useState(false);
+  const [picked, setPicked] = useState('all');
+  const [period, setPeriod] = useState('this-month');
+  // Where the last KPI / chart bar pointed: the card to scroll to and, for the
+  // past-due table, what to narrow it to. `n` changes on every click so the
+  // same target can be asked for twice.
+  const [focus, setFocus] = useState(null);
 
-const REVIEWS = [
-  { author: "Marcus T.",  facility: "Harbor View Storage",  rating: 5, src: "Google", text: "Greens Storage did an outstanding job - spotless units and the climate control is the real deal.", replied: true  },
-  { author: "Dana R.",    facility: "Downtown Self Storage", rating: 4, src: "Google", text: "Easy move-in, friendly staff. Gate hours could be a little longer.", replied: false },
-  { author: "Priya S.",   facility: "Lakeline Storage",     rating: 5, src: "Meta",   text: "The craftsmanship of these facilities is a step above. Greens Storage project management is stellar.", replied: false },
-  { author: "Will C.",    facility: "Summit Storage",       rating: 3, src: "Google", text: "Decent price but the access road needs repaving.", replied: false },
-];
+  const load = useCallback(async (fresh = false) => {
+    if (fresh) setRefreshing(true);
+    else setState((s) => (s.data ? s : { status: 'loading', data: null, error: null }));
+    try {
+      const data = await api.getFacilityOps(fresh);
+      setState({ status: 'ready', data, error: null });
+    } catch (err) {
+      console.error('Operations: could not load facility figures', err);
+      // Keep what is on screen when a refresh fails; only an empty screen shows the error.
+      setState((s) => (s.data ? s : { status: 'error', data: null, error: err }));
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
 
-const STAFF = [
-  { name: "R. Okafor",  role: "Site Manager",   facility: "Harbor View Storage",  hrs: 40 },
-  { name: "M. Lind",    role: "Asst. Manager",  facility: "Downtown Self Storage", hrs: 32 },
-  { name: "S. Patel",   role: "Site Associate", facility: "Lakeline Storage",      hrs: 24 },
-  { name: "T. Nguyen",  role: "Site Manager",   facility: "Summit Storage",        hrs: 40 },
-];
+  useEffect(() => { load(); }, [load]);
+  // Stay current without Refresh: re-read every 5 minutes while the tab is in
+  // view (the server re-reads Cubby on its own every 15). Quiet - the figures
+  // on screen stay put until the new ones arrive.
+  useEffect(() => pollWhileVisible(() => load(), 5 * 60 * 1000), [load]);
 
-const pill = (cls, text) => <span className={`status-badge ${cls}`}>{text}</span>;
-
-// Portfolio-wide average review score, shown on the Reputation summary card.
-const AVG_RATING = 4.3;
-
-// Five stars with a fractional-filled last star (e.g. 4.3 -> four full stars
-// and a ~30%-filled fifth). An amber layer is clipped to value/5 over a grey
-// base row, so a partial rating never rounds up to a full star.
-function StarRow({ value, size = 15 }) {
-  const pct = Math.max(0, Math.min(100, (value / 5) * 100));
-  return (
-    <span style={{ position: "relative", display: "inline-block", fontSize: size, letterSpacing: 1, lineHeight: 1 }} aria-hidden="true">
-      <span style={{ color: "var(--line)" }}>★★★★★</span>
-      <span style={{ position: "absolute", inset: 0, overflow: "hidden", width: pct + "%", color: "var(--amber)", whiteSpace: "nowrap" }}>★★★★★</span>
-    </span>
+  const facilities = useMemo(() => state.data?.facilities || [], [state.data]);
+  const scope = useMemo(
+    () => (picked === 'all' ? facilities : facilities.filter((f) => f.id === picked)),
+    [facilities, picked],
   );
-}
+  const data = useMemo(() => combine(scope), [scope]);
+  const many = scope.length > 1;
+  const range = useMemo(() => periodRange(period, facilities[0]?.asOf), [period, facilities]);
 
-function FMS() {
-  const totalUnits  = FACILITIES.reduce((a, f) => a + f.units, 0);
-  const totalRented = FACILITIES.reduce((a, f) => a + f.rented, 0);
-  const avgOcc      = Math.round(FACILITIES.reduce((a, f) => a + f.occ, 0) / FACILITIES.length);
-  const totalMrr    = FACILITIES.reduce((a, f) => a + f.mrr, 0);
+  const go = (tab, section, filter = null) => {
+    setFocus({ section, filter, n: Date.now() });
+    if (tab !== sub) onSubChange?.(tab);
+  };
+  const jump = (tab, shortName, section) => {
+    const hit = facilities.find((f) => f.shortName === shortName);
+    if (hit) setPicked(hit.id);
+    go(tab, section);
+  };
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-      <div className="view-header">
-        <div className="view-title-group">
-          <h2>FMS Integration</h2>
-          <p>Facility management system connector</p>
-        </div>
-      </div>
-
-      <div className="banner-warn">
-        <Server size={16} />
-        <div>Currently connected to <strong>Hummingbird</strong>. Migration to <strong>Cubby</strong> is planned - this view switches over automatically once cutover completes.</div>
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 14 }}>
-        {[
-          { title: "Connection", rows: [["System","Hummingbird"],["Last sync","6 min ago"],["Interval","Every 15 min"],["Status","● Healthy"]] },
-          { title: "Portfolio Totals", rows: [["Units", totalUnits.toLocaleString()],["Rented",totalRented.toLocaleString()],["Occupancy",avgOcc+"%"],["MRR","$"+(totalMrr/1000).toFixed(1)+"k"]] },
-          { title: "Sync Log", log: ["✓ Occupancy pulled - 5 facilities","✓ Tenant ledger reconciled","✓ 12 move-ins, 4 move-outs","✓ Rate changes applied"] },
-        ].map(c => (
-          <div key={c.title} className="dash-card">
-            <div className="dash-card-title" style={{ marginBottom: 12 }}>{c.title}</div>
-            {c.rows && c.rows.map(([l, v]) => (
-              <div key={l} className="stat-row">
-                <span className="stat-label">{l}</span>
-                <span className={`stat-value${v.startsWith("●") ? " stat-ok" : ""}`}>{v}</span>
-              </div>
-            ))}
-            {c.log && <div className="log-list">{c.log.map((l, i) => <div key={i}>{l}</div>)}</div>}
-          </div>
-        ))}
-      </div>
-
-      <div className="dash-card">
-        <div className="dash-card-title" style={{ marginBottom: 12 }}>Per-Facility Feed</div>
-        <div style={{ overflowX: "auto" }}>
-          <table className="req-table stack-table">
-            <thead><tr><th>Facility</th><th>Units</th><th>Rented</th><th>Occupancy</th><th>MRR</th><th>Last sync</th></tr></thead>
-            <tbody>
-              {FACILITIES.map(f => (
-                <tr key={f.name}>
-                  <td style={{ fontWeight: 600 }}>{f.name}</td>
-                  <td data-th="Units" className="mono">{f.units}</td>
-                  <td data-th="Rented" className="mono">{f.rented}</td>
-                  <td data-th="Occupancy">{pill(f.occ >= 90 ? "status-approved" : f.occ >= 78 ? "status-pending" : "status-rejected", f.occ + "%")}</td>
-                  <td data-th="MRR" className="mono">${(f.mrr / 1000).toFixed(1)}k</td>
-                  <td data-th="Last sync" style={{ color: "var(--muted)" }}>{f.lastSync}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Reputation() {
-  const [reviews, setReviews] = useState(REVIEWS);
-  const [replyText, setReplyText] = useState({});
-
-  function submitReply(i) {
-    if (!(replyText[i] || "").trim()) return;
-    setReviews(r => r.map((rev, idx) => idx === i ? { ...rev, replied: true } : rev));
-  }
-
-  const pending = reviews.filter(r => !r.replied).length;
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-      <div className="view-header">
-        <div className="view-title-group">
-          <h2>Reputation Management</h2>
-          <p>Reviews across storage facilities</p>
-        </div>
-      </div>
-      <div className="kpi-grid">
-        {[
-          { label: "Average Rating", rating: AVG_RATING },
-          { label: "Response Rate",  value: "68%" },
-          { label: "Awaiting Reply", value: pending },
-          { label: "This Month",     value: "18" },
-        ].map(k => (
-          <div key={k.label} className="kpi-card">
-            <div className="kpi-label">{k.label}</div>
-            {k.rating != null ? (
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span className="kpi-value">{k.rating.toFixed(1)}</span>
-                <StarRow value={k.rating} />
-              </div>
-            ) : (
-              <div className="kpi-value">{k.value}</div>
-            )}
-          </div>
-        ))}
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        {reviews.map((r, i) => (
-          <div key={i} className="dash-card">
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-              <div className="user-avatar" style={{ width: 32, height: 32, borderRadius: 8, fontSize: 12 }}>{r.author[0]}</div>
-              <div>
-                <div style={{ fontWeight: 700, fontSize: 13 }}>{r.author}</div>
-                <div style={{ fontSize: 11, color: "var(--muted)" }}>{r.facility} · via {r.src}</div>
-              </div>
-              <div style={{ marginLeft: "auto", color: "var(--amber)", fontSize: 14, letterSpacing: 1 }}>
-                {"★".repeat(r.rating)}<span style={{ color: "var(--line)" }}>{"★".repeat(5 - r.rating)}</span>
-              </div>
-            </div>
-            <p style={{ fontSize: 13.5, lineHeight: 1.55, color: "var(--ink)" }}>{r.text}</p>
-            <div style={{ marginTop: 12 }}>
-              {r.replied
-                ? <span style={{ color: "var(--ok-fg)", fontSize: 12, fontWeight: 600 }}>✓ Replied</span>
-                : <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                    <input className="form-input" style={{ flex: 1 }} placeholder="Write a reply…" value={replyText[i] || ""} onChange={e => setReplyText(p => ({ ...p, [i]: e.target.value }))} />
-                    <button className="primary-btn" onClick={() => submitReply(i)} disabled={!(replyText[i] || "").trim()}
-                      title={(replyText[i] || "").trim() ? undefined : "Write a reply first"}>Reply</button>
-                  </div>
-              }
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function SiteStaff() {
-  const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-      <div className="view-header">
-        <div className="view-title-group">
-          <h2>Site Staff & Scheduling</h2>
-          <p>Roster and shift coverage by facility</p>
-        </div>
-        <button className="primary-btn">+ Add Shift</button>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
-        <div className="dash-card">
-          <div className="dash-card-title" style={{ marginBottom: 12 }}>Roster</div>
-          <table className="req-table stack-table">
-            <thead><tr><th>Name</th><th>Role</th><th>Facility</th><th>Hrs/wk</th></tr></thead>
-            <tbody>
-              {STAFF.map(s => (
-                <tr key={s.name}>
-                  <td style={{ fontWeight: 600 }}>{s.name}</td>
-                  <td data-th="Role">{s.role}</td>
-                  <td data-th="Facility" style={{ color: "var(--muted)" }}>{s.facility}</td>
-                  <td data-th="Hrs/wk" className="mono">{s.hrs}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="dash-card">
-          <div className="dash-card-title" style={{ marginBottom: 12 }}>Open Shifts</div>
-          <div className="task-list">
-            <div className="task-row">
-              <span className="prio-dot prio-high" />
-              <div className="task-content">
-                <div className="task-title">Summit Storage - Sat AM</div>
-                <div className="task-dept">No coverage</div>
-              </div>
-              <span className="task-due today">Open</span>
-            </div>
-            <div className="task-row">
-              <span className="prio-dot prio-med" />
-              <div className="task-content">
-                <div className="task-title">Riverside - Sun</div>
-                <div className="task-dept">Awaiting confirm</div>
-              </div>
-              <span className="task-due">Pending</span>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div className="dash-card">
-        <div className="dash-card-title" style={{ marginBottom: 14 }}>Week of May 25 - Harbor View Storage</div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 8 }}>
-          {days.map((d, i) => (
-            <div key={d}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", textTransform: "uppercase", marginBottom: 7, textAlign: "center" }}>{d}</div>
-              {i < 6 && <div style={{ background: "var(--mist)", borderRadius: 8, padding: "7px 4px", fontSize: 11, fontWeight: 600, textAlign: "center", marginBottom: 6, lineHeight: 1.4 }}>R. Okafor<br /><span style={{ fontFamily: "JetBrains Mono", color: "var(--muted)", fontWeight: 400 }}>8–4</span></div>}
-              {i < 5 && <div style={{ background: "var(--ok-bg)", color: "var(--ok-fg)", borderRadius: 8, padding: "7px 4px", fontSize: 11, fontWeight: 600, textAlign: "center", lineHeight: 1.4 }}>M. Lind<br /><span style={{ fontFamily: "JetBrains Mono", fontWeight: 400 }}>10–6</span></div>}
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-export default function FacilityOperations({ activeSub = "fms", onSubChange }) {
-  const sub = activeSub || "fms";
-  return (
-    <div style={{ animation: "fadeIn var(--transition-normal) ease-in-out" }}>
-      {/* Desktop: tabs render centered in the top header; phones keep the
-          in-page strip (ModuleTabs handles both) */}
+    <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
       <ModuleTabs tabs={TABS} active={sub} onChange={onSubChange} />
-      {sub === "fms"        && <FMS />}
-      {sub === "reputation" && <Reputation />}
-      {sub === "site-staff" && <SiteStaff />}
+
+      <div className="view-header">
+        <div className="view-title-group">
+          <h2>Operations</h2>
+          <p>
+            {state.data
+              ? `${state.data.organization || 'Storage facilities'} - ${facilities.length} facilities - from Cubby as of ${formatDateTime(state.data.fetchedAt)}, updates automatically`
+              : 'Storage facility figures from Cubby'}
+          </p>
+        </div>
+        {state.data && (
+          <button type="button" className="secondary-btn" onClick={() => load(true)} disabled={refreshing}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <RefreshCw size={14} aria-hidden="true" /> {refreshing ? 'Refreshing…' : 'Refresh'}
+          </button>
+        )}
+      </div>
+
+      {state.status === 'loading' && <LoadingState size="view" label="Reading the facilities from Cubby" minHeight={320} onRetry={() => load()} />}
+
+      {state.status === 'error' && (
+        <ErrorBanner
+          message={state.error?.status === 503
+            ? 'Cubby is not connected yet. An administrator needs to add the Cubby API key.'
+            : "Couldn't load the facility figures from Cubby."}
+          onRetry={() => load()} />
+      )}
+
+      {state.status === 'ready' && !facilities.length && (
+        <div className="dash-card"><div className="ops-empty">Cubby returned no facilities for this account.</div></div>
+      )}
+
+      {state.status === 'ready' && facilities.length > 0 && (
+        <div className="ops-root">
+          <div className="ops-bar-top">
+            <div className="ops-pills" role="group" aria-label="Facility">
+              <button type="button" className="ops-pill" aria-pressed={picked === 'all'} onClick={() => setPicked('all')}>All Facilities</button>
+              {facilities.map((f) => (
+                <button type="button" key={f.id} className="ops-pill" aria-pressed={picked === f.id} onClick={() => setPicked(f.id)}>{f.shortName}</button>
+              ))}
+            </div>
+            <label className="ops-period">
+              <span>Period</span>
+              <select value={period} onChange={(e) => setPeriod(e.target.value)}>
+                {PERIODS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+              </select>
+            </label>
+          </div>
+          <p className="ops-note">
+            Occupancy, rent and balances are as of today. Move-ins, collections and failed payments cover {range.label.toLowerCase()} ({formatDate(range.from)} - {formatDate(range.to)}).
+          </p>
+
+          {sub === 'overview' && <Overview data={data} facilities={facilities} scope={scope} many={many} range={range} focus={focus} go={go} onPick={setPicked} onJump={jump} />}
+          {sub === 'collections' && <Collections data={data} scope={scope} trend={state.data.trend} many={many} range={range} focus={focus} go={go} />}
+          {sub === 'units' && <Units data={data} many={many} focus={focus} go={go} />}
+          {sub === 'worklist' && <Worklist data={data} many={many} focus={focus} go={go} />}
+        </div>
+      )}
     </div>
   );
 }

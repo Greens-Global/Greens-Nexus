@@ -5755,3 +5755,27 @@ class NexusWorkforceScorecardLog(Base):
     absent_count  = Column(Integer, default=0)          # absent all week
     below_count   = Column(Integer, default=0)          # below expected + well below
     created_at    = Column(String, default="")
+
+
+class CubbyDailySnapshot(Base):
+    """One row per storage facility per day, written by cubby.py each time the
+    Operations figures are pulled (Oct 2026). Cubby reports today only; this is
+    the history behind the trend charts. Counts and cents - no tenant details.
+    New table - create_all builds it; main._enable_rls_everywhere turns RLS on
+    at startup."""
+    __tablename__ = "cubby_daily_snapshots"
+    id                     = Column(String, primary_key=True)   # "<facility_id>:<YYYY-MM-DD>"
+    facility_id            = Column(String, index=True, nullable=False)
+    snapshot_date          = Column(String, index=True, nullable=False)  # facility-local day, YYYY-MM-DD
+    units_total            = Column(Integer, default=0)
+    units_rented           = Column(Integer, default=0)
+    units_vacant           = Column(Integer, default=0)
+    units_unavailable      = Column(Integer, default=0)
+    area_total             = Column(Integer, default=0)          # square feet
+    area_rented            = Column(Integer, default=0)
+    rent_roll_cents        = Column(BigInteger, default=0)
+    vacant_potential_cents = Column(BigInteger, default=0)
+    past_due_cents         = Column(BigInteger, default=0)
+    past_due_tenants       = Column(Integer, default=0)
+    autopay_count          = Column(Integer, default=0)
+    captured_at            = Column(String, default="")          # UTC iso of the last pull that day
