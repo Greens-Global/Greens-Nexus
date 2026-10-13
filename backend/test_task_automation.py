@@ -350,6 +350,44 @@ class AutomationTests(unittest.TestCase):
         self.assertEqual(self._row(t["id"]).modified_at, before)
         self.assertEqual(self._runs()[-1].actions, ["nothing to change"], "the run is still logged for the dedupe")
 
+    def test_scheduled_assign_tells_the_new_person(self):
+        self._rule("Late goes to Priya", {"type": "due_date_arrives", "value": 1},
+                   [{"type": "add_assignee", "value": PRIYA}])
+        t = self._create(due_on=(TODAY - timedelta(days=1)).isoformat(), assignee_emails=[SAM])
+        sent = []
+        task_notify.notify_task_event = lambda *a, **kw: sent.append(a)
+        try:
+            task_automation.run_scheduled(self.db, TODAY.isoformat())
+        finally:
+            task_notify.notify_task_event = lambda *a, **kw: None
+        self.assertIn((t["id"], "assigned", task_automation.AUTOMATION_ACTOR), sent)
+        bell = self.db.query(models.TaskNotification).filter(
+            models.TaskNotification.task_id == t["id"], models.TaskNotification.for_email == PRIYA,
+            models.TaskNotification.kind == "task_assigned").first()
+        self.assertIsNotNone(bell, "the new assignee gets a bell")
+
+    def test_scheduled_due_move_is_in_the_due_history(self):
+        self._rule("Push a week", {"type": "due_date_arrives", "value": 0},
+                   [{"type": "shift_due_days", "value": 7}])
+        t = self._create(due_on=TODAY.isoformat())
+        task_automation.run_scheduled(self.db, TODAY.isoformat())
+        row = self._row(t["id"])
+        self.assertEqual(row.due_on[:10], (TODAY + timedelta(days=7)).isoformat())
+        last = (row.due_history or [])[-1]
+        self.assertEqual(last["source"], "automation")
+        self.assertEqual(last["by"], task_automation.AUTOMATION_ACTOR)
+        self.assertEqual(last["to"], (TODAY + timedelta(days=7)).isoformat())
+
+    def test_scheduled_matches_a_due_date_with_a_time(self):
+        self._rule("On the day", {"type": "due_date_arrives", "value": 0},
+                   [{"type": "set_priority", "value": "urgent"}])
+        t = self._create()
+        row = self._row(t["id"])
+        row.due_on = TODAY.isoformat() + "T17:00:00"
+        self.db.commit()
+        self.assertEqual(task_automation.run_scheduled(self.db, TODAY.isoformat()), 1)
+        self.assertEqual(self._row(t["id"]).priority, "urgent")
+
     # ── editing a rule re-validates ─────────────────────────────────────────
     def test_patch_toggle_does_not_need_the_whole_rule(self):
         r = self._rule("Toggle me", {"type": "created"}, [{"type": "add_tag", "value": "x"}])

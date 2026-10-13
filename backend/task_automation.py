@@ -50,8 +50,9 @@ from sqlalchemy.orm import Session
 import models
 from routers.task_util import (
     gen_id, now_iso, log_activity, task_assignees, set_task_assignees, email_list,
-    create_comment, fire_task_event,
+    create_comment, fire_task_event, task_notify,
 )
+import task_due
 
 # The "person" automated changes are attributed to - activity rows and the
 # author of an `add_comment`. Not a mailbox: the frontend's name resolver
@@ -463,7 +464,9 @@ def run_scheduled(db: Session, today_iso: str) -> int:
         # tomorrow is the one to act on today.
         target = (today - timedelta(days=offset)).isoformat()
         rows = (db.query(models.Task)
-                .filter(models.Task.due_on == target,
+                # Prefix, not equality: due_on is validated on its first ten
+                # characters only, so a stored value can carry a time suffix.
+                .filter(models.Task.due_on.like(f"{target}%"),
                         models.Task.completed.is_(False),
                         (models.Task.deleted_at == "") | (models.Task.deleted_at.is_(None)))
                 .all())
@@ -499,6 +502,24 @@ def run_scheduled(db: Session, today_iso: str) -> int:
                     # Only a real change marks the row modified; a no-op pass
                     # must not make every client's delta fetch re-pull the task.
                     t.modified_at = now_iso()
+                # The clock is told about like a person (Oct 12 review): a moved
+                # due date gets its history line and the requester's bell, and
+                # anyone the rule added as an assignee gets the bell and the
+                # "assigned" email, as update_task does for an edit.
+                if "due_on" in res.changed:
+                    entry = task_due.record_due_change(db, t, before["due_on"], t.due_on or "",
+                                                       actor=AUTOMATION_ACTOR, source="automation")
+                    req = task_due.requester_of(t)
+                    if entry and req:
+                        task_notify(db, kind="task_due_changed", for_email=req,
+                                    title="Due date extended" if entry.get("extension") else "Due date changed",
+                                    body=f"{t.title} - due {_us(t.due_on or '')}", task_id=t.id,
+                                    nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
+                added = [w for w in task_assignees(t) if w not in set(before["assignees"])]
+                for who in added:
+                    task_notify(db, kind="task_assigned", for_email=who, title="You were assigned a task",
+                                body=f"{t.title}", task_id=t.id,
+                                nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
                 # Logged even when nothing changed, so the dedupe holds and the
                 # Runs panel shows the rule looked.
                 _record(db, rule, t, event="scheduled", lines=lines or ["nothing to change"], dedupe_key=key)
@@ -507,6 +528,12 @@ def run_scheduled(db: Session, today_iso: str) -> int:
                 if lines:
                     fire_task_event(t.id, "updated")
                     fired += 1
+                if added:
+                    # Already on a worker thread (task_notify's scan runs in
+                    # asyncio.to_thread), so the email goes inline. Lazy:
+                    # task_notify imports this module.
+                    import task_notify as _mail
+                    _mail.notify_task_event(t.id, "assigned", AUTOMATION_ACTOR)
             except Exception as e:
                 db.rollback()
                 db.add(models.TaskAutomationRun(
