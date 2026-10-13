@@ -33,7 +33,7 @@ describe('the weekly New in Nexus bar', () => {
   it('says what shipped by category, bug fixes included', async () => {
     render(<FeatureBanner activeView="tasks" onNavigate={() => {}} />);
     expect((await screen.findByRole('region', { name: 'New in Nexus' })).textContent)
-      .toMatch(/2 new features and 3 bug fixes/);
+      .toMatch(/2 New Features and 3 Bug Fixes/);
   });
 
   it('its link only navigates; reaching What\'s New is what closes it for the week', async () => {
@@ -82,7 +82,7 @@ describe('the new-version popup', () => {
     build.stale = true;
     api.getReleasedSince.mockResolvedValue({ counts: { 'New Feature': 1, 'Bug Fix': 2 }, total: 3 });
     both();
-    expect(await screen.findByText('Includes 1 new feature and 2 bug fixes.')).toBeTruthy();
+    expect(await screen.findByText('Includes 1 New Feature and 2 Bug Fixes.')).toBeTruthy();
     expect(screen.getByText('A New Version of Nexus Is Available')).toBeTruthy();
     expect(screen.getByRole('button', { name: /See What's New/ })).toBeTruthy();
     expect(screen.getByRole('button', { name: /Reload/ })).toBeTruthy();
@@ -92,7 +92,7 @@ describe('the new-version popup', () => {
     build.stale = true;
     api.getReleasedSince.mockResolvedValue({ counts: { 'Bug Fix': 3 }, total: 3 });
     both();
-    expect(await screen.findByText('Includes 3 bug fixes.')).toBeTruthy();
+    expect(await screen.findByText('Includes 3 Bug Fixes.')).toBeTruthy();
     expect(screen.getByRole('button', { name: /See What's New/ })).toBeTruthy();
   });
 

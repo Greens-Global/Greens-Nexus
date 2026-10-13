@@ -3,15 +3,15 @@ import { summarizeCategories, hasNewFeature } from './changelogCategories';
 import { canEditWhatsNew } from './whatsNewAccess';
 
 describe('update categories, in words', () => {
-  it('names each category with its count, features first, in plain English', () => {
-    expect(summarizeCategories({ 'Bug Fix': 3, 'New Feature': 2 })).toBe('2 new features and 3 bug fixes');
-    expect(summarizeCategories({ 'New Feature': 1 })).toBe('1 new feature');
+  it('names each category with its count, features first, in Title Case (Neil)', () => {
+    expect(summarizeCategories({ 'Bug Fix': 3, 'New Feature': 2 })).toBe('2 New Features and 3 Bug Fixes');
+    expect(summarizeCategories({ 'New Feature': 1 })).toBe('1 New Feature');
     expect(summarizeCategories({ 'Bug Fix': 1, Improvement: 2, 'Security Update': 1 }))
-      .toBe('2 improvements, 1 security update and 1 bug fix');
+      .toBe('2 Improvements, 1 Security Update and 1 Bug Fix');
   });
 
-  it('folds unknown types into "other updates" and says nothing for nothing', () => {
-    expect(summarizeCategories({ 'Bug Fix': 1, Mystery: 2 })).toBe('1 bug fix and 2 other updates');
+  it('folds unknown types into "Other Updates" and says nothing for nothing', () => {
+    expect(summarizeCategories({ 'Bug Fix': 1, Mystery: 2 })).toBe('1 Bug Fix and 2 Other Updates');
     expect(summarizeCategories({})).toBe('');
   });
 
