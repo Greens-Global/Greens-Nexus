@@ -3,7 +3,7 @@
 // NexusTaskStore with a single Nexus-style context: loads from the FastAPI
 // backend, applies optimistic updates, and refetches on a task_events realtime
 // ping (with a poll fallback), mirroring RequisitionContext.
-import { createContext, useContext, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useContext, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { api } from '../api';
 import { supabase } from '../lib/supabase';
 import { useRole } from '../contexts/RoleContext';
@@ -12,6 +12,13 @@ import { STATUS_META, STATUS_ORDER, NX } from './theme';
 import { celebrateCompletion } from './celebrate';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { loadTaskData, taskSnapshot, rememberTaskData, FIRST_PAINT } from './taskStore';
+import { noteStatusChanges } from './recentChanges';
+
+function tasksReducer(prev, v) {
+  const next = typeof v === 'function' ? v(prev) : v;
+  noteStatusChanges(prev, next);
+  return next;
+}
 
 const Ctx = createContext(null);
 
@@ -57,6 +64,8 @@ const CAMEL_TO_SNAKE = {
   watcherIds: 'watcher_emails', csatRating: 'csat_rating', csatComment: 'csat_comment',
   taskIds: 'task_ids', subtaskTitles: 'subtask_titles', serviceArea: 'service_area',
   resolutionNote: 'resolution_note',
+  // Project default view + shared dashboard charts (Oct 2026).
+  defaultView: 'default_view', sharedCharts: 'shared_charts',
   // Convert to Ticket (Oct 6) - see backend TicketBody.from_task_id.
   fromTaskId: 'from_task_id', closeSourceTask: 'close_source_task',
   // Project-template options (save-as-template / use / duplicate) - see
@@ -101,7 +110,12 @@ export function TasksProvider({ children }) {
   // earlier visit, means this mount opens with the data already in hand and
   // never shows a spinner - the refresh below then streams over the top.
   const seed = taskSnapshot();
-  const [tasks, setTasks] = useState(seed?.tasks?.tasks || []);
+  // Every write to the task list notes which tasks changed status or
+  // completion (tasks/recentChanges.js), so a row or card that remounts in
+  // its new column / group can still glow. A reducer so it runs before any
+  // row renders the new list; the note is idempotent, so StrictMode's double
+  // call is harmless. `setTasks` keeps useState's (value | updater) contract.
+  const [tasks, setTasks] = useReducer(tasksReducer, seed?.tasks?.tasks || []);
   const [projects, setProjects] = useState(seed?.projects || []);
   const [portfolios, setPortfolios] = useState(seed?.portfolios || []);
   const [teams, setTeams] = useState(seed?.teams || []);
@@ -135,6 +149,9 @@ export function TasksProvider({ children }) {
   const ticketsLoadedRef = useRef(false);
   ticketsLoadedRef.current = ticketsLoaded;
   const commentCache = useRef({});   // taskId -> comment[]
+  // The caller's running task timer (Oct 2026): {entry, task} or null. One
+  // per person at a time; the module bar's chip and the drawer both read it.
+  const [runningTimer, setRunningTimer] = useState(null);
   // Last server timestamp a task fetch is known-good as of - see refetchTasks.
   // A ref, not state: read inside a stable useCallback, must not itself
   // trigger a re-render when it changes.
@@ -195,7 +212,11 @@ export function TasksProvider({ children }) {
     if (Array.isArray(rows)) setSections(rows);
   }, []);
 
-  useEffect(() => { loadCore(); loadNotifications(); loadBookmarks(); loadSections(); }, [loadCore, loadNotifications, loadBookmarks, loadSections]);
+  const loadRunningTimer = useCallback(async () => {
+    setRunningTimer(await api.getRunningTaskTimer().catch(() => null));
+  }, []);
+
+  useEffect(() => { loadCore(); loadNotifications(); loadBookmarks(); loadSections(); loadRunningTimer(); }, [loadCore, loadNotifications, loadBookmarks, loadSections, loadRunningTimer]);
 
   // Keep the module-scope cache in step with what's on screen, so the next
   // mount (Tasks -> Tickets, or a return trip from another module) starts from
@@ -444,8 +465,10 @@ export function TasksProvider({ children }) {
     commentCache.current[taskId] = sorted;
     return sorted;
   }, []);
-  const addComment = useCallback(async (taskId, body) => {
-    const c = await api.addTaskComment(taskId, { body });
+  // `extra`: { parent_id } for a reply in a thread, { assignee_email } to make
+  // the comment an action item (Oct 2026).
+  const addComment = useCallback(async (taskId, body, extra = {}) => {
+    const c = await api.addTaskComment(taskId, { body, ...extra });
     commentCache.current[taskId] = [...(commentCache.current[taskId] || []), c];
     refetchTasks().catch(() => {});
     return c;
@@ -517,6 +540,11 @@ export function TasksProvider({ children }) {
   const actions = useMemo(() => ({
     createProject: mk(api.createTaskProject, setProjects),
     updateProject: mkUpd(api.updateTaskProject, setProjects),
+    // One shared chart at a time (upsert / remove by id). The server merges
+    // under a row lock, so two editors sharing at once both land. Not through
+    // toBody: a chart is data, its keys stay as the Dashboard wrote them.
+    shareProjectChart: async (id, chart) => { const r = await api.putTaskProjectChart(id, chart.id, chart); setProjects((p) => p.map((x) => (x.id === id ? r : x))); return r; },
+    unshareProjectChart: async (id, chartId) => { const r = await api.deleteTaskProjectChart(id, chartId); setProjects((p) => p.map((x) => (x.id === id ? r : x))); return r; },
     // Not mkDel: a project delete bins its tasks server-side too, so the
     // whole core has to be refetched rather than just dropping the project
     // from its own list.
@@ -647,6 +675,21 @@ export function TasksProvider({ children }) {
     // Puts a task the server just returned into the store as-is (the due-date
     // confirm/propose/respond calls answer with the updated task).
     applyServerTask: (saved) => { if (saved?.id) patchLocalTask(saved.id, saved); },
+    // Timer (Oct 2026). Starting on a second task stops the first; the
+    // stopped task comes back with its new total and lands in the store too.
+    runningTimer,
+    startTimer: async (taskId) => {
+      const r = await api.startTaskTimer(taskId);
+      if (r?.stopped?.task) patchLocalTask(r.stopped.task.id, r.stopped.task);
+      setRunningTimer(r ? { entry: r.entry, task: r.task } : null);
+      return r;
+    },
+    stopTimer: async (data = {}) => {
+      const r = await api.stopTaskTimer(data);
+      if (r?.task) patchLocalTask(r.task.id, r.task);
+      setRunningTimer(null);
+      return r;
+    },
     markNotificationRead, markAllNotificationsRead, refresh: loadCore,
     offerUndo,
     // Bookmarks live HERE, not in `actions` below. That object is

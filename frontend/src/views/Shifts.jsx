@@ -29,7 +29,16 @@ export default function Shifts({ activeSub, onSubChange }) {
   const { can } = useRole();
   const canManage = can('manager');
   const tabs = TABS.filter(([, , , managerOnly]) => canManage || !managerOnly);
-  const tab = tabs.some(([k]) => k === activeSub) ? activeSub : 'mine';
+  // A weather advisory's bell deep-links to one day of one group:
+  // sub = "schedule:YYYY-MM-DD:<group id>" (Weather Call, Oct 2026). The tab
+  // is the part before the first colon; the rest is where to land.
+  const [subKey, focusDate = '', focusGroup = ''] = String(activeSub || '').split(':');
+  const tab = tabs.some(([k]) => k === subKey) ? subKey : 'mine';
+  const focus = tab === 'schedule' && /^\d{4}-\d{2}-\d{2}$/.test(focusDate) ? { date: focusDate, groupId: focusGroup } : null;
+  // Consumed once: the schedule has landed (its own effect ran first), so
+  // the address goes back to plain "schedule" and the same bell clicked
+  // again is a change again.
+  useEffect(() => { if (focus) onSubChange?.('schedule'); }, [activeSub]);   // eslint-disable-line react-hooks/exhaustive-deps
   const [toast, setToast] = useState(null);
   const timer = useRef(null);
   const requests = useManagerInbox(canManage);
@@ -78,7 +87,7 @@ export default function Shifts({ activeSub, onSubChange }) {
       </div>
 
       {tab === 'mine' ? <MyShifts />
-        : tab === 'schedule' ? <ShiftSchedule toastOk={toastOk} toastErr={toastErr} onOpenRequests={openRequests} />
+        : tab === 'schedule' ? <ShiftSchedule toastOk={toastOk} toastErr={toastErr} onOpenRequests={openRequests} focus={focus} />
           : <ShiftRequestsPage inbox={requests.inbox} timeoff={requests.timeoff} loading={requests.loading} error={requests.error}
             onRetry={requests.reload} onChanged={requests.reload} toastOk={toastOk} toastErr={toastErr} />}
 

@@ -46,6 +46,7 @@ KNOWN_PUBLIC = {
     "/health/schema",
     "/auth/login", "/auth/callback",       # BFF login: OAuth flow can't require auth; callback is state+PKCE guarded
     "/auth/logout",                        # only clears the session cookie; harmless without a valid session
+    "/site-models/public/{pid}",           # customer unit finder (/map/<id>): geometry + unit numbers, never occupancy (routers/site_models.public_view)
     "/branding/config",                    # login screen needs it pre-auth
     "/stepup/config",                      # same posture
     # Boot-failure beacon from public/guard.js: fired while the app cannot
@@ -133,6 +134,11 @@ KNOWN_PUBLIC = {
     "/briefing-actions/page",
     # Outlook card version of the briefing: verified exactly like /mail-actions/card.
     "/briefing-actions/card",
+    # Weather Call acknowledgment link from a text or an email (Oct 2026,
+    # routers/weather_call.py). Same shape as /mail-actions/page: an
+    # HMAC-signed, expiring token binds one call to one person. GET only
+    # renders the Acknowledge button; the button's POST acknowledges.
+    "/weather-call/ack",
     # Google Business Profile OAuth return (Oct 2026, routers/marketing_gbp.py):
     # Google redirects a browser here, so no bearer token. The `state` is
     # sealed with secret_box, bound to the admin who started it and expires;

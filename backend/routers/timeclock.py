@@ -89,6 +89,16 @@ def _schedulers(g) -> list:
     return [str(e).strip().lower() for e in v if str(e).strip()] if isinstance(v, list) else []
 
 
+def _weather_deciders(g) -> list:
+    """Who makes this group's weather call (lowercased emails) - see
+    models.ShiftGroup.weather_decider_emails. Empty = nobody named."""
+    try:
+        v = json.loads(getattr(g, "weather_decider_emails", "") or "[]")
+    except (TypeError, ValueError):
+        return []
+    return [str(e).strip().lower() for e in v if str(e).strip()] if isinstance(v, list) else []
+
+
 def _scheduled_groups(db: Session, email: str) -> list:
     """The shift groups this person schedules, by name."""
     email = (email or "").lower()
@@ -5243,6 +5253,59 @@ def _group_editable(db: Session, user: dict, g) -> bool:
     return _visible_emails(db, plain) is None or (user.get("email") or "").lower() in _schedulers(g)
 
 
+# Weather Call (Neil, Oct 10 2026): the weather call is made by the company
+# manager or a designee in charge of the group, and a designee must be able
+# to change shifts - so every decider needs Manage access to Shifts.
+WEATHER_DECIDER_DENIED = ("{who} cannot make the weather call - weather deciders need Manage access "
+                          "to Shifts (manager and above).")
+
+
+def _clean_deciders(db: Session, emails: list, existing: list = ()) -> str:
+    """Only the deciders being ADDED are checked (Neil, Oct 12): one who has
+    since left People or lost Manage access stays on the list - so any other
+    edit to the group still saves - and the weather routing skips them
+    (weather_watch.deciders_for / weather_call.may_decide)."""
+    from auth import level_for
+    out = list(dict.fromkeys(e.strip().lower() for e in emails if e and e.strip()))
+    kept = set(existing or ())
+    added = [em for em in out if em not in kept]
+    _check_people(db, added, " (weather deciders)")
+    for em in added:
+        if level_for(em, db) < SHIFT_MANAGE_LEVEL:
+            raise HTTPException(400, WEATHER_DECIDER_DENIED.format(who=em))
+    return json.dumps(out)
+
+
+def _apply_weather(db: Session, g, body: "GroupIn") -> None:
+    """The group's work site, weather deciders and alerts switch - each
+    None = leave as is."""
+    if body.work_site_id is not None:
+        sid = (body.work_site_id or "").strip()
+        if sid and not db.query(HrWorkSite.id).filter(HrWorkSite.id == sid).first():
+            raise HTTPException(400, "Work site not found.")
+        g.work_site_id = sid
+    if body.weather_deciders is not None:
+        g.weather_decider_emails = _clean_deciders(db, body.weather_deciders, _weather_deciders(g))
+    if body.weather_alerts is not None:
+        g.weather_alerts = 1 if body.weather_alerts else 0
+
+
+def _site_map(db: Session) -> dict:
+    return {s.id: s for s in db.query(HrWorkSite).all()}
+
+
+def _group_weather(g, sites: dict) -> dict:
+    """The weather fields of a group row: its site (and whether that site
+    has coordinates the forecast can use), its deciders, its switch."""
+    site = sites.get(getattr(g, "work_site_id", "") or "")
+    alerts = getattr(g, "weather_alerts", 1)
+    return {"workSiteId": getattr(g, "work_site_id", "") or "",
+            "workSiteName": (site.name or "") if site else "",
+            "siteLocated": bool(site and (site.latitude or "").strip() and (site.longitude or "").strip()),
+            "weatherDeciders": _weather_deciders(g),
+            "weatherAlerts": bool(int(alerts if alerts is not None else 1))}
+
+
 @router.get("/shift-groups")
 def list_shift_groups(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
     scope = _visible_emails(db, user)
@@ -5250,13 +5313,14 @@ def list_shift_groups(user: dict = Depends(require_team_read), db: Session = Dep
     for m in db.query(ShiftGroupMember).all():
         if scope is None or (m.employee_email or "").lower() in scope:
             members.setdefault(m.group_id, []).append(m.employee_email)
+    sites = _site_map(db)
     return {"groups": [{"id": g.id, "name": g.name, "members": members.get(g.id, []),
                         "schedulers": _schedulers(g), "archived": bool(getattr(g, "archived", 0)),
                         "sortOrder": int(getattr(g, "sort_order", 0) or 0),
                         "chatId": g.teams_chat_id or "", "chatName": g.teams_chat_name or "",
                         # chat | channel; for a channel, chatId/chatName are the CHANNEL.
                         "teamsTarget": _target_of(g), "teamId": g.teams_team_id or "",
-                        "teamName": g.teams_team_name or ""}
+                        "teamName": g.teams_team_name or "", **_group_weather(g, sites)}
                        for g in _ordered_groups(db)],
             # Groups are changed company-wide only (_require_unscoped_team), so
             # the screen offers New / Edit / Delete to those who can use them.
@@ -5275,6 +5339,10 @@ class GroupIn(BaseModel):
     teams_team_name: Optional[str] = None
     schedulers: Optional[List[str]] = None   # None = leave as is
     sort_order: Optional[int] = None         # None = leave as is
+    # Weather Call (Oct 2026). None = leave as is; work_site_id '' clears the site.
+    work_site_id: Optional[str] = None
+    weather_deciders: Optional[List[str]] = None
+    weather_alerts: Optional[bool] = None
 
 
 def _target_of(g) -> str:
@@ -5321,6 +5389,7 @@ def create_shift_group(body: GroupIn, user: dict = Depends(require_shift_manage)
                    teams_chat_id="", teams_chat_name="", teams_target="chat",
                    created_by=user["email"], created_at=_now_iso())
     _apply_teams_binding(g, body)
+    _apply_weather(db, g, body)
     if body.schedulers is not None:
         g.scheduler_emails = _clean_schedulers(db, body.schedulers)
     g.sort_order = (int(body.sort_order) if body.sort_order is not None
@@ -5342,6 +5411,7 @@ def set_group_members(group_id: str, body: GroupIn, user: dict = Depends(require
     if body.name.strip():
         g.name = body.name.strip()[:80]
     _apply_teams_binding(g, body)
+    _apply_weather(db, g, body)
     if body.schedulers is not None:
         g.scheduler_emails = _clean_schedulers(db, body.schedulers)
     if body.sort_order is not None:
@@ -5634,13 +5704,19 @@ def _sched_dict(row: ScheduledShift, presets: dict, effective: bool = False, tea
     acts = pend.get("activities", _acts(row))
     acts = [{"paid": True, **a} for a in acts if isinstance(a, dict)]
     break_min = _break_for(acts, int(pend.get("breakMin", getattr(row, "break_min", 0)) or 0))
+    # Weather Call (Oct 2026): a cancelled day stays on the grid, struck
+    # through, and counts no paid hours.
+    weather_status = getattr(row, "weather_status", "") or ""
     return {"id": row.id, "email": row.employee_email, "date": row.work_date,
             "shiftId": shift_id, "start": start, "end": end,
             "label": pend.get("label", row.label), "note": pend.get("note", row.note),
             "published": bool(row.published) and not pend and not removing,
             "hasChanges": bool(pend), "pendingDelete": removing,
             "openSlots": int(pend.get("openSlots", getattr(row, "open_slots", 0)) or 0),
-            "breakMin": break_min, "paidMin": max(0, _shift_minutes(start, end) - break_min),
+            "weatherStatus": weather_status,
+            "weatherDecisionId": getattr(row, "weather_decision_id", "") or "",
+            "breakMin": break_min,
+            "paidMin": 0 if weather_status == "cancelled" else max(0, _shift_minutes(start, end) - break_min),
             "activities": acts,
             "groupId": getattr(row, "group_id", "") or "",
             "timeZone": _shift_tz(row, p, team_tz),
@@ -5879,9 +5955,10 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
         em = (m.employee_email or "").lower()
         if em in people and (scope is None or em in scope):
             members.setdefault(m.group_id, []).append(em)
+    sites = _site_map(db)
     groups = [{"id": g.id, "name": g.name, "members": members.get(g.id, []),
                "archived": bool(getattr(g, "archived", 0)), "sortOrder": int(getattr(g, "sort_order", 0) or 0),
-               "canEdit": _group_editable(db, user, g)}
+               "canEdit": _group_editable(db, user, g), **_group_weather(g, sites)}
               for g in _ordered_groups(db)]
     if user.get("_group_scheduler"):
         groups = [g for g in groups if g["members"]]   # only the groups they schedule
@@ -5965,10 +6042,15 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
                                                            ScheduleDayNote.group_id.in_([""] + group_ids)).all()
                  if n.note]
 
+    # Weather bands per group and day (Weather Call, Oct 2026) - what the
+    # scan last wrote, never a live forecast call from here.
+    import weather_watch
+    weather = weather_watch.outlook_rows(db, start, end, group_ids)
+
     last = _last_publish(db) if can_write else {}
     return {"employees": employees, "shifts": [_shift_dict(s) for s in presets.values()],
             "groups": groups, "scheduled": scheduled, "openShifts": open_shifts,
-            "timeoff": timeoff, "holidays": holidays,
+            "timeoff": timeoff, "holidays": holidays, "weather": weather,
             "dayNotes": day_notes, "canManage": can_write, "availability": avail,
             "groupScheduler": bool(user.get("_group_scheduler")), "usual": usual,
             "me": (user.get("email") or "").lower(),
@@ -7148,6 +7230,12 @@ def publish_schedule(body: PublishScheduleIn, bt: BackgroundTasks, user: dict = 
             acts = pend.get("activities", _acts(r))
             r.activities_json = json.dumps(acts) if acts else ""
             r.color = pend.get("color", r.color or "") or ""
+            if getattr(r, "weather_status", "") or "":
+                # A manager who edits and shares a shift a weather call touched
+                # has set it by hand: the weather status and the saved
+                # originals no longer describe it (Weather Call, Oct 2026).
+                r.weather_status, r.weather_decision_id = "", ""
+                r.original_start_hhmm = r.original_end_hhmm = r.original_label = r.original_work_date = ""
             changes.append(shift_notify.change("changed", r, start=r.start_hhmm, end=r.end_hhmm, label=r.label, was=was))
             touched.append(r.id)
             updated += 1
@@ -7297,10 +7385,15 @@ def _shift_start_for(db: Session, email: str, dd: date):
     per-team trigger time - the timezone tags which team's own local clock the
     HH:MM is wall-clock-local to (e.g. a GG India shift stays on IST regardless
     of where the employee last punched from)."""
-    sched = (db.query(ScheduledShift)
-             .filter(ScheduledShift.employee_email == email,
-                     ScheduledShift.work_date == dd.isoformat(),
-                     ScheduledShift.published == 1).first())   # unpublished drafts don't drive Late
+    placed = (db.query(ScheduledShift)
+              .filter(ScheduledShift.employee_email == email,
+                      ScheduledShift.work_date == dd.isoformat(),
+                      ScheduledShift.published == 1).all())   # unpublished drafts don't drive Late
+    # A day a weather call cancelled is not a shift: never Late, and no
+    # falling back to the preset either (Weather Call, Oct 12).
+    sched = next((r for r in placed if (getattr(r, "weather_status", "") or "") != "cancelled"), None)
+    if placed and sched is None:
+        return None
     if sched:
         grace, tz = 10, "America/Los_Angeles"
         if sched.shift_id:

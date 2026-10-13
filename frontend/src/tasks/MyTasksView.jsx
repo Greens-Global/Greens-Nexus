@@ -4,7 +4,7 @@
 // Dashboard/Files tabs, and a List grouped into the four due-date buckets with
 // inline "Add task" rows, a "Task visibility" column, and "Add section".
 import { Fragment, useMemo, useRef, useState } from 'react';
-import { ChevronDown, Plus, List as ListIcon, Columns3, Calendar as CalIcon, LayoutDashboard, Paperclip, Circle, CheckCircle2, XCircle, CornerDownRight, Check, Minus } from 'lucide-react';
+import { ChevronDown, Plus, List as ListIcon, Columns3, Calendar as CalIcon, LayoutDashboard, Paperclip, Circle, CheckCircle2, XCircle, CornerDownRight, Check, Minus, Clock } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { EMPTY_FILTER, matchesFilter, sortTasks, groupTasks, taskIdFromUrl, personScoped, rootParent, effectiveProjectId, taskExportRows, taskAssignees, fmtDate } from './lib';
 import { NX, FONT, btn, CONTROL_H, CONTROL_FS, PRIORITY_META, input as inputStyle, isMissed, MISSED_TITLE } from './theme';
@@ -16,6 +16,7 @@ import QuickCreateTask from './QuickCreateTask';
 import TaskDetailDrawer from './TaskDetailDrawer';
 import { CalendarView, DashboardView } from './views/extras';
 import { FilesView } from './views/more';
+import TimeSheetView from './TimeSheetView';
 import BoardView from './views/board';
 import { useTableColumns, TableHead, ResetColumnsButton, useTableValue, useTableSetting } from './tableCols';
 import { matchPeople } from '../lib/peopleSearch';
@@ -27,6 +28,8 @@ import { AddSectionButton, SectionMenu } from './SectionControls';
 import TeamPicks, { pickableTeams, firstTeamPick, toggleRoster } from './teamPicks';
 import DueBadge from './DueBadge';
 import AnchoredMenu from '../components/AnchoredMenu';
+import ChangeFlash from '../components/ChangeFlash';
+import { changedRecently } from './recentChanges';
 
 const VIEW_TABS = [
   { key: 'list', label: 'List', icon: ListIcon },
@@ -34,6 +37,8 @@ const VIEW_TABS = [
   { key: 'calendar', label: 'Calendar', icon: CalIcon },
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { key: 'files', label: 'Files', icon: Paperclip },
+  // My time entries, a week at a time (Oct 2026) - effort on tasks, not punches.
+  { key: 'time', label: 'Time', icon: Clock },
   // The Recycle Bin lived here for a day and moved to Home (Neil, Sept 9):
   // it is not a way of looking at MY TASKS, it is a module-wide place where
   // deleted things wait, and it will grow to cover projects, portfolios and
@@ -269,7 +274,8 @@ function TaskRow({ t, people, projects, store, onOpen, band = false, cols = LIST
         e.preventDefault();
         onPick(t.id, e);
       }}
-      className="stack-table-row nx-row-hover" data-selected={selected ? 'true' : undefined} data-task-row style={{ display: 'grid', gridTemplateColumns: ROW_GRID, alignItems: 'center', gap: 8, padding: '5px 16px', boxShadow: `inset 0 -1px 0 ${NX.border}`, fontSize: 13.5, cursor: 'pointer', background: rowBg }}>
+      className="stack-table-row nx-row-hover" data-selected={selected ? 'true' : undefined} data-task-row style={{ position: 'relative', display: 'grid', gridTemplateColumns: ROW_GRID, alignItems: 'center', gap: 8, padding: '5px 16px', boxShadow: `inset 0 -1px 0 ${NX.border}`, fontSize: 13.5, cursor: 'pointer', background: rowBg }}>
+      <ChangeFlash value={`${t.status}:${!!t.completed}`} color={store.statusMeta?.[t.status]?.color} isFresh={() => changedRecently(t.id)} />
       <SelectBox checked={selected} onClick={(e) => onPick(t.id, e)} title={selected ? 'Deselect' : 'Select'} />
       {cols.map((c) => <Fragment key={c.key}>{cells[c.key]}</Fragment>)}
     </div>
@@ -534,6 +540,8 @@ export default function MyTasksView({ onNavigate }) {
           <CalendarView tasks={mine} onOpen={setOpenId} onCreate={(iso) => openCreate({ assigneeId: myEmail, dueOn: iso })} />
         ) : view === 'files' ? (
           <FilesView tasks={allMine} onOpen={setOpenId} nameOf={nameOf} />
+        ) : view === 'time' ? (
+          <TimeSheetView onOpen={setOpenId} />
         ) : view === 'dashboard' ? (
           <DashboardView tasks={allMine} stats={{}} store={store} scopeKey="my-tasks" onFilter={goFiltered} />
         ) : (

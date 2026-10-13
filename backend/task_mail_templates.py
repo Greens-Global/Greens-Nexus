@@ -265,12 +265,32 @@ def mentioned_email(*, t: dict, base_url: str, logo_url: str, comment_body: str,
     return subject, html
 
 
-def commented_email(*, t: dict, base_url: str, logo_url: str, comment_body: str) -> tuple[str, str]:
-    subject = _task_subject(t, "New Comment")
+def comment_assigned_email(*, t: dict, base_url: str, logo_url: str, comment_body: str,
+                           actor_name: str = "") -> tuple[str, str]:
+    """A comment was assigned to this person as an action item (Oct 2026).
+    Like a mention it is addressed AT them, so the subject names who did it."""
+    who = actor_name or t.get("actorName") or t.get("actorEmail") or "Someone"
+    subject = _task_subject(t, f"{who} Assigned You a Comment")
     html = task_email_html(
         task_title=t["title"], status=t["status"],
-        heading="New comment on your task",
-        intro=f"{t.get('actorName') or t.get('actorEmail')} commented on this task.",
+        heading="A comment was assigned to you",
+        intro=f"{who} assigned you this comment on the task - resolve it in Nexus once it is handled.",
+        rows=[
+            ("Comment", rich_to_email_html(comment_body, 500)),
+            *_common_rows(t),
+        ],
+        cta_label="View Comment", cta_url=_task_url(base_url, t["id"]), logo_url=logo_url,
+    )
+    return subject, html
+
+
+def commented_email(*, t: dict, base_url: str, logo_url: str, comment_body: str,
+                    reply: bool = False) -> tuple[str, str]:
+    subject = _task_subject(t, "New Reply" if reply else "New Comment")
+    html = task_email_html(
+        task_title=t["title"], status=t["status"],
+        heading="New reply on your task" if reply else "New comment on your task",
+        intro=f"{t.get('actorName') or t.get('actorEmail')} {'replied in a comment thread' if reply else 'commented'} on this task.",
         rows=[
             ("Comment", rich_to_email_html(comment_body, 500)),
             *_common_rows(t),
