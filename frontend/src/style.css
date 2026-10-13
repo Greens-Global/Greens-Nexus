@@ -3948,6 +3948,11 @@ button, [role="button"], select { touch-action: manipulation; }
 [data-theme="dark"] .dk-action-label { color: var(--ink); }
 [data-theme="dark"] .dk-action-sub { color: var(--text-muted); }
 [data-theme="dark"] .dk-action-sub--on, [data-theme="dark"] .dk-action-sub--ok { color: #4ade80; }
+[data-theme="dark"] .dk-action-sub--bad { color: #f87171; }
+.dk-action[aria-disabled="true"] { cursor: default; opacity: .72; }
+.dk-action[aria-disabled="true"]:hover, .dk-action[aria-disabled="true"]:active { transform: none; box-shadow: var(--wk-shadow); border-color: var(--wk-line2); }
+/* The Action Tile's announcer: read by screen readers, never drawn. */
+.dk-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 @media (prefers-reduced-motion: reduce) { .dk-action:active { transform: none; } }
 
 /* main: queue + rail */

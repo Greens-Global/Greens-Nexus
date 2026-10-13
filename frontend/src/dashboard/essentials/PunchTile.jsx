@@ -41,7 +41,7 @@ export default function PunchTile({ row }) {
       <ActionFace row={row} Icon={Icon} color={ACTION_COLOR[next.kind] || 'green'}
         label={busyLabel(next.kind) || next.label} sub={sub} tone={tone}
         subRole={note ? (note.ok ? 'status' : 'alert') : undefined}
-        disabled={!!busy} busy={!!busy} onClick={() => act(next.kind)} />
+        busy={!!busy} onClick={() => act(next.kind)} />
       {modals}
     </>
   );

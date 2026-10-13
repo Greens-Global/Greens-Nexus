@@ -697,17 +697,27 @@ function QuickActionsWidget({ config }) {
 // screen (request an item, time off...), or the next punch on the clock. The
 // face is an app icon with its name under it; at one row tall it turns into a
 // pill with the icon beside the name. The whole tile is the button.
+// `subRole` ('status' | 'alert') announces the caption: the live region sits
+// OUTSIDE the button (a button's children are presentational, so a role on
+// them may never be read out). `busy` keeps the button focusable - a
+// disabled button drops keyboard focus to <body> mid-punch - and marks it
+// aria-disabled with the click ignored; `disabled` is for a tile that cannot
+// act at all yet (loading).
 export function ActionFace({ Icon, color = 'blue', label, sub, tone, subRole, row, disabled, busy, onClick }) {
+  const inert = !!busy && !disabled;
   return (
-    <button type="button" className={`dk-stat dk-action${row ? ' dk-action--row' : ''}`} onClick={onClick}
-      disabled={disabled} aria-busy={busy || undefined} title={sub ? `${label} - ${sub}` : label}
-      style={{ height: '100%', width: '100%', boxSizing: 'border-box' }}>
-      <span className={`dk-chip dk-chip--${color} dk-action-chip`}><Icon /></span>
-      <span className="dk-action-text">
-        <span className="dk-action-label">{label}</span>
-        {sub && <span className={`dk-action-sub${tone ? ` dk-action-sub--${tone}` : ''}`} role={subRole}>{sub}</span>}
-      </span>
-    </button>
+    <>
+      <button type="button" className={`dk-stat dk-action${row ? ' dk-action--row' : ''}`} onClick={inert ? undefined : onClick}
+        disabled={disabled} aria-disabled={inert || undefined} aria-busy={busy || undefined} title={sub ? `${label} - ${sub}` : label}
+        style={{ height: '100%', width: '100%', boxSizing: 'border-box' }}>
+        <span className={`dk-chip dk-chip--${color} dk-action-chip`}><Icon /></span>
+        <span className="dk-action-text">
+          <span className="dk-action-label">{label}</span>
+          {sub && <span className={`dk-action-sub${tone ? ` dk-action-sub--${tone}` : ''}`}>{sub}</span>}
+        </span>
+      </button>
+      <span role={subRole === 'alert' ? 'alert' : 'status'} className="dk-sr-only">{subRole ? sub : ''}</span>
+    </>
   );
 }
 

@@ -37,6 +37,7 @@ const Action = WIDGETS.action.render;
 beforeEach(() => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   vi.setSystemTime(NOW);
+  vi.clearAllMocks();   // call counts start at zero in every test
   roleMock.timeTrackingExempt = false;
   punchMock.readPending.mockReturnValue(null);
   apiMock.timeStatus.mockResolvedValue({ lastPunch: { kind: 'out', at: stamp(new Date(NOW.getTime() - 60 * 60000)), localDate: TODAY }, allowed: ['in'], days: {} });
@@ -104,7 +105,39 @@ describe('Action Tile render', () => {
     fireEvent.click(btn);
     await waitFor(() => expect(punchMock.punchDurable).toHaveBeenCalledTimes(1));
     expect(punchMock.punchDurable.mock.calls[0][0].kind).toBe('in');
-    expect(await screen.findByText(/Clocked in at 10:30 AM at Main Office/)).toBeTruthy();
+    // Shown on the tile and announced from a live region outside the button.
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(/Clocked in at 10:30 AM at Main Office/));
+    expect(btn).toHaveTextContent(/Clocked in at 10:30 AM at Main Office/);
+    expect(btn.contains(screen.getByRole('status'))).toBe(false);
+  });
+
+  it('a double tap records one punch, and the tile stays busy (focusable) until the fresh status is in', async () => {
+    let releaseStatus;
+    punchMock.punchDurable.mockResolvedValue({ ok: true, punch: { kind: 'in', at: stamp(NOW) } });
+    render(<Action config={{ action: 'punch' }} size={{ w: 2, h: 2 }} />);
+    const btn = await screen.findByRole('button', { name: /Punch In/ });
+    // The reload after the punch hangs until released.
+    apiMock.timeStatus.mockImplementation(() => new Promise(r => { releaseStatus = r; }));
+    btn.focus();
+    fireEvent.click(btn);
+    fireEvent.click(btn);
+    await waitFor(() => expect(punchMock.punchDurable).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(releaseStatus).toBeTypeOf('function'));
+    // Punch recorded, status not back yet: still busy, never disabled, focus kept.
+    expect(btn).toHaveAttribute('aria-disabled', 'true');
+    expect(btn).not.toBeDisabled();
+    expect(document.activeElement).toBe(btn);
+    fireEvent.click(btn);
+    expect(punchMock.punchDurable).toHaveBeenCalledTimes(1);
+    releaseStatus({ lastPunch: { kind: 'in', at: stamp(NOW) }, allowed: ['out', 'break_start'], days: {} });
+    expect(await screen.findByRole('button', { name: /Punch Out/ })).not.toHaveAttribute('aria-disabled');
+  });
+
+  it('a failed punch is announced as an alert', async () => {
+    punchMock.punchDurable.mockResolvedValue({ ok: false, error: { message: 'Punch failed.' } });
+    render(<Action config={{ action: 'punch' }} size={{ w: 2, h: 2 }} />);
+    fireEvent.click(await screen.findByRole('button', { name: /Punch In/ }));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Punch failed.'));
   });
 
   it('on a break the one punch is End Break; clocked in it is Punch Out with hours so far', () => {

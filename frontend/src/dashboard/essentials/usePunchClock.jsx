@@ -108,6 +108,9 @@ export function usePunchClock() {
   const alive = useRef(true);
   const clickedAt = useRef('');                       // when Punch In was pressed, carried through the gate
   const noteTimer = useRef(null);
+  // Set for the whole of a tap's flow (share, gates, punch) - a second tap
+  // before React re-renders the button busy must not start a second flow.
+  const inFlight = useRef(false);
 
   const loadStatus = useCallback(() => api.timeStatus()
     .then(s => { if (alive.current) setStatus(s || {}); })
@@ -133,7 +136,19 @@ export function usePunchClock() {
   };
 
   async function act(kind) {
-    if (busy) return;
+    if (busy || inFlight.current) return;
+    inFlight.current = true;
+    // Released here unless the beginning-of-day gate takes the flow over
+    // (its send / skip / close release it).
+    let handedToGate = false;
+    try {
+      handedToGate = await runAct(kind);
+    } finally {
+      if (!handedToGate) inFlight.current = false;
+    }
+  }
+
+  async function runAct(kind) {
     setNote(null);
     // Screen share for a clock-in / back-from-break, started from within this
     // click: the browser only grants sharing on a user gesture. start()
@@ -163,9 +178,10 @@ export function usePunchClock() {
       // Beginning-of-day message, when today's is still owed (bodRequired:
       // no message sent and no clock-in yet today; never for role-exempt
       // people). The punch records once it is sent or acknowledged.
-      if (status?.bodRequired && !status?.bodExempt) { setGate('bod'); return; }
+      if (status?.bodRequired && !status?.bodExempt) { setGate('bod'); return true; }
     }
     await punch(kind);
+    return false;
   }
 
   // The durable punch itself: land a parked punch first (punching past it
@@ -202,7 +218,10 @@ export function usePunchClock() {
         say(true, `${PUNCH_DONE[kind]} at ${formatTime(p.at ? utc(p.at) : new Date())}${where}.`);
         window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));
         if (kind === 'out' && res.result?.promptEod) setEodOpen(true);
-        loadStatus();
+        // Stay busy until the fresh status is in: re-enabling now would offer
+        // the punch just made for one more round trip (a second tap reopened
+        // the screen-share picker and got "Duplicate punch").
+        await loadStatus();
       } else if (res.unreachable) {
         say(false, res.queued
           ? 'Nexus could not reach the server. Your punch is saved on this device and will record when the connection returns.'
@@ -226,9 +245,9 @@ export function usePunchClock() {
       {gate === 'bod' && createPortal(
         <div onClick={stop}>
           <BodModal mode="bod" required
-            onSent={() => { setGate(null); punch('in'); }}
-            onSkip={() => { bodMarker(); setGate(null); punch('in'); }}
-            onClose={() => { clickedAt.current = ''; setGate(null); }}
+            onSent={() => { setGate(null); punch('in').finally(() => { inFlight.current = false; }); }}
+            onSkip={() => { bodMarker(); setGate(null); punch('in').finally(() => { inFlight.current = false; }); }}
+            onClose={() => { clickedAt.current = ''; inFlight.current = false; setGate(null); }}
             toastOk={(t) => say(true, t)} toastErr={(t) => say(false, t)} />
         </div>, document.body)}
       {eodOpen && createPortal(
