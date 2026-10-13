@@ -67,3 +67,14 @@ backend/Generated File/
 .seal-dev/
 *-seal-key.pem
 frontend/e2e/test-results/
+
+# The root src/ held an IDE's session state from the initial commit (a
+# conversation dump, an encoder binary) - never the app, which is frontend/src
+# and backend/. Anchored to the repo root so frontend/src is NOT matched.
+/src/
+
+# Agent worktrees (the tracked skills under .claude/ stay tracked)
+.claude/worktrees/
+
+# Local e-sign seal test output
+backend/nexus-seal-test/

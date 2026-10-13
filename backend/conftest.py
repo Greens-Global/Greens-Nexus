@@ -10,7 +10,13 @@ failing without anyone touching them.
 So the limiter is off for test runs unless a run asks for it. Its own tests
 (test_security_debt_sep22.py) switch it on themselves, and production is not
 affected: nothing imports this file outside pytest.
+
+It also gives the run a throwaway database (`_testdb`) before any test module
+can import `database`, so a test file that does not set DATABASE_URL itself can
+no longer bind to `greens_nexus.db` or to whatever `backend/.env` points at.
 """
 import os
+
+import _testdb  # noqa: F401 - sets DATABASE_URL to a temp SQLite file; keep first
 
 os.environ.setdefault("NEXUS_RATE_LIMIT", "off")
