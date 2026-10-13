@@ -4,7 +4,7 @@
 // Renders nothing when the selection is empty; the parent owns `selected`.
 import { useRef, useState } from 'react';
 import { Copy, Trash2, X } from 'lucide-react';
-import { taskAssignees, bulkFieldsFor } from './lib';
+import { bulkFieldsFor, duplicateTaskData } from './lib';
 import { NX, FONT, btn, input as inputStyle } from './theme';
 import { SearchSelect } from './components';
 import { CustomFieldInput } from './TaskDetailDrawer';
@@ -40,14 +40,7 @@ export default function BulkActionBar({ selected, clearSel, store, people, locke
     // original never had (Oct 13 2026) - and that used to vanish silently.
     const failed = [];
     for (const t of picked) {
-      await store.createTask({
-        title: `${t.title} (copy)`, type: t.type || 'task', description: t.description || '',
-        status: t.status || 'not_started', priority: t.priority || 'medium',
-        projectId: t.projectId || '', teamId: t.teamId || '', assigneeIds: taskAssignees(t),
-        followerIds: t.followerIds || [], dueOn: t.dueOn || '', startOn: t.startOn || '',
-        tags: t.tags || [], estimateHours: t.estimateHours ?? null, isMilestone: !!t.isMilestone,
-        customFieldValues: t.customFieldValues || {},
-      }).catch((e) => { failed.push(`"${t.title}": ${e?.message || 'could not be copied'}`); });
+      await store.createTask(duplicateTaskData(t)).catch((e) => { failed.push(`"${t.title}": ${e?.message || 'could not be copied'}`); });
     }
     if (failed.length) alert(`${failed.length} of ${picked.length} could not be duplicated:\n${failed.slice(0, 5).join('\n')}`);
     clearSel();

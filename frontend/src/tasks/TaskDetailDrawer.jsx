@@ -6,19 +6,19 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  ArrowLeft, ArrowRightToLine, CornerDownRight, GripVertical, CheckCircle2, Circle, XCircle, ChevronDown, ChevronRight,
+  ArrowLeft, ArrowRightToLine, CornerDownRight, GripVertical, Copy, CheckCircle2, Circle, XCircle, ChevronDown, ChevronRight,
   ChevronLeft, Diamond, Repeat, ThumbsUp, Trash2, Link2, X, Clock, ShieldCheck,
-  Paperclip, Download, Pin, Pencil, Plus, CalendarDays, Maximize2, Minimize2,
+  Paperclip, Download, Pin, Pencil, Plus, Maximize2, Minimize2,
   RotateCcw, ThumbsDown, Share2, MoreHorizontal, UserPlus, Globe, Lock, Check, Ban, Ticket,
 } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
-import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, parseImportedAuthor, fmtHours, teamInProject, fieldOption, richBodyHtml, uploadTaskAttachment, taskAssignees, fieldsForTask, requiredByProjectsOf, isBlankValue, orderSubtasks, reorderedPositions, taskTracksTime } from './lib';
+import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, parseImportedAuthor, fmtHours, teamInProject, fieldOption, richBodyHtml, uploadTaskAttachment, taskAssignees, fieldsForTask, requiredByProjectsOf, isBlankValue, orderSubtasks, reorderedPositions, taskTracksTime, duplicateTaskData } from './lib';
 
 // Drawer shows an em-dash for an unset date rather than an empty cell.
 const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '-');
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER, isMissed, MISSED_TITLE } from './theme';
-import { Avatar, PersonSelect, PersonMultiSelect, usePeople, useIsMobile, DateField, AttachmentViewer, ExternalTag, useImageZoom, localTodayISO, notPast, MenuCaption } from './components';
+import { Avatar, PersonSelect, PersonMultiSelect, usePeople, useIsMobile, DateField, AttachmentViewer, ExternalTag, useImageZoom, MenuCaption } from './components';
 import { matchPeople } from '../lib/peopleSearch';
 import { useListNav } from '../lib/listNav';
 import { useFrequentCollaborators, frequentRows } from './frequentPeople';
@@ -35,6 +35,45 @@ import { MonthDayControls, YearDayControls } from './RecurrenceParts';
 import { useCustomSections } from './customSections';
 
 const DEP_TYPES = { FS: 'Finish → Start', SS: 'Start → Start', FF: 'Finish → Finish', SF: 'Start → Finish' };
+/** A whole-number box for the Recurrence menu (Oct 13 2026). It used to save
+ *  - clamped to at least 1 - on every keystroke: clearing "1" put it straight
+ *  back, so typing "2" made "12", and each key sent a save and a "Changes
+ *  saved" toast. Now the box holds what is typed and saves once, on Enter or
+ *  leaving it, only a whole number >= `min`; Escape or anything else puts the
+ *  saved value back. `allowEmpty` lets clearing it save `null` (no count). */
+export function CommitNumberInput({ value, onCommit, min = 1, max = 9999, allowEmpty = false, style, ...rest }) {
+  const shown = value == null ? '' : String(value);
+  const [text, setText] = useState(shown);
+  const [synced, setSynced] = useState(shown);
+  if (synced !== shown) { setSynced(shown); setText(shown); }   // saved elsewhere
+  const commit = () => {
+    const raw = text.trim();
+    if (raw === '' && allowEmpty) { if (value != null) onCommit(null); return; }
+    const n = Number(raw);
+    if (raw === '' || !Number.isInteger(n) || n < min) { setText(shown); return; }
+    const v = Math.min(max, n);
+    setText(String(v));
+    if (v !== Number(value)) onCommit(v);
+  };
+  return (
+    <input type="number" inputMode="numeric" min={min} max={max} step="1" value={text} {...rest}
+      onChange={(e) => setText(e.target.value)}
+      onFocus={(e) => e.target.select()}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') { e.preventDefault(); commit(); }
+        else if (e.key === 'Escape') { e.stopPropagation(); setText(shown); }
+      }}
+      style={style} />
+  );
+}
+
+/** Toggling a day in or out of a recurrence's days - never down to none: a
+ *  rule with no days has nothing to land on. */
+const toggleDay = (days, i) => (days.includes(i)
+  ? (days.length > 1 ? days.filter((x) => x !== i) : days)
+  : [...days, i].sort((a, b) => a - b));
+
 /** "On these days" - the S M T W T F S row Weekly and Custom(week) share
  *  inside the Recurrence popover. Multi-toggle, stays open (no close-on-pick)
  *  since more than one day is usually wanted. */
@@ -297,6 +336,23 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
     return result;
   };
 
+  // Duplicate (Oct 13 2026): a copy of this task and its subtasks
+  // (duplicateTaskData - what the task is, not its comments, files or
+  // recurrence), opened straight away; Undo deletes the copy again.
+  const duplicate = async () => {
+    try {
+      const copy = await createTask(duplicateTaskData(task));
+      for (const sub of subtasks) {
+        await createTask(duplicateTaskData(sub, { title: sub.title, parentTaskId: copy.id })).catch(() => {});
+      }
+      offerUndo(`Duplicated "${(task.title || '').slice(0, 40)}"`, () => deleteTask(copy.id));
+      setTrail([]);
+      setActiveId(copy.id);
+    } catch (e) {
+      alert(`Could not duplicate the task: ${e?.message || e}`);
+    }
+  };
+
   const counts = {
     comments: (task.commentIds || []).length,
     attachments: (task.attachmentIds || []).length,
@@ -394,6 +450,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
                   {onEdit && <MenuItem icon={<Pencil size={14} />} onClick={() => { onEdit(activeId); close(); }}>Edit Task</MenuItem>}
                   {/* Filed as a task when it is really a request for a team
                       (Neil, 10/05: "employees ... may still do it as a task"). */}
+                  <MenuItem icon={<Copy size={14} />} onClick={() => { close(); duplicate(); }}>Duplicate Task</MenuItem>
                   <MenuItem icon={<Ticket size={14} />} onClick={() => { setConverting(true); close(); }}>Convert to Ticket</MenuItem>
                   <MenuItem icon={<Diamond size={14} style={{ color: task.isMilestone ? NX.purple : undefined }} />} onClick={() => { patch({ isMilestone: !task.isMilestone }); close(); }}>
                     {task.isMilestone ? 'Unmark milestone' : 'Mark as milestone'}
@@ -679,6 +736,9 @@ function TitleInput({ value, completed, onCommit }) {
 // ── Overview ────────────────────────────────────────────────────────────────
 function OverviewTab({ task, patch, people, projectName, teamName, teams, projects, blockedBy, depCandidates, addDependency, removeDependency, setDependencyType, subtasks, createTask, updateTask, onOpenSub, nameOf, myEmail, getComments, addComment, refresh, onViewAllComments }) {
   const isMobile = useIsMobile();
+  // Whether the folding sections below have anything in them.
+  const hasApproval = !!task.approvalStatus && task.approvalStatus !== 'none';
+  const hasComments = (task.commentIds || []).length > 0;
   const { statusMeta, statusOrder, statusOrderFor, customFields = [], tasks: allTasks = [] } = useTasks();
   // The task's own project, not the view's: this drawer opens from My Tasks and
   // from search, where no project is locked.
@@ -891,7 +951,7 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
               if (recStep === 'weekly') {
                 const cur = task.recurrence?.freq === 'weekly' ? task.recurrence : {};
                 const days = cur.daysOfWeek ?? (cur.dayOfWeek != null ? [cur.dayOfWeek] : [1]);
-                const toggle = (i) => pickFreq({ freq: 'weekly', daysOfWeek: days.includes(i) ? days.filter((x) => x !== i) : [...days, i].sort() });
+                const toggle = (i) => { const next = toggleDay(days, i); if (next !== days) pickFreq({ freq: 'weekly', daysOfWeek: next }); };
                 return (<>
                   <MenuItem icon={<ChevronLeft size={14} />} onClick={() => setRecStep('root')}>Back</MenuItem>
                   <div style={{ padding: '4px 10px 8px' }}>
@@ -969,8 +1029,8 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
                   <div style={{ padding: '4px 10px 8px', display: 'flex', flexDirection: 'column', gap: 8 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
                       <span style={{ color: NX.faint }}>Every</span>
-                      <input type="number" min="1" step="1" value={interval}
-                        onChange={(e) => applyCustom({ interval: Math.max(1, Number(e.target.value) || 1) })}
+                      <CommitNumberInput value={interval} min={1} max={365} aria-label="Repeat every"
+                        onCommit={(n) => applyCustom({ interval: n })}
                         style={{ ...inputStyle, width: 50, padding: '4px 6px', fontSize: 12 }} />
                       <select value={unit} onChange={(e) => applyCustom({ unit: e.target.value })} style={recSel}>
                         <option value="day">Day{interval === 1 ? '' : 's'}</option>
@@ -981,7 +1041,7 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
                     </div>
                     {unit === 'week' && (<>
                       <div style={{ fontSize: 11, color: NX.faint }}>On these days</div>
-                      <RecurDayPicker value={days} onToggle={(i) => applyCustom({ unit: 'week', daysOfWeek: days.includes(i) ? days.filter((x) => x !== i) : [...days, i].sort() })} />
+                      <RecurDayPicker value={days} onToggle={(i) => { const next = toggleDay(days, i); if (next !== days) applyCustom({ unit: 'week', daysOfWeek: next }); }} />
                     </>)}
                     {unit === 'month' && (<>
                       <div style={{ fontSize: 11, color: NX.faint }}>On</div>
@@ -1021,8 +1081,8 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
               )}
               {recEndMode === 'after' && (
                 <>
-                  <input type="number" min="1" step="1" value={task.recurrence.count ?? ''} placeholder="e.g. 10"
-                    onChange={(e) => patchRecEnd(e.target.value ? { count: Math.max(1, Number(e.target.value)) } : {})}
+                  <CommitNumberInput value={task.recurrence.count ?? null} min={1} allowEmpty placeholder="e.g. 10" aria-label="Occurrences"
+                    onCommit={(n) => patchRecEnd(n == null ? {} : { count: n })}
                     style={{ ...inputStyle, width: 72, padding: '5px 8px', fontSize: 12 }} />
                   <span style={{ color: NX.faint }}>times</span>
                 </>
@@ -1041,7 +1101,7 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
       {/* Subtasks (inline) */}
       {/* Open whenever the task has subtasks (Oct 13 2026) - folded, they
           were easy to miss. */}
-      <Section key={`${task.id}:${subtasks?.length > 0}`} defaultOpen={subtasks?.length > 0}
+      <Section key={`subtasks:${task.id}:${subtasks?.length > 0}`} defaultOpen={subtasks?.length > 0}
         title={subtasks?.length ? `Subtasks ${subtasks.filter((s) => s.completed).length}/${subtasks.length}` : 'Subtasks'}>
         <SubtasksTab task={task} subtasks={subtasks || []} createTask={createTask} updateTask={updateTask} people={people} onOpenSub={onOpenSub} hideHeading />
       </Section>
@@ -1054,15 +1114,17 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
         </Section>
       )}
 
-      {/* Approval */}
-      <Section defaultOpen={false} title="Approval">
+      {/* Approval, Comments (and Subtasks above): open when there is
+          something in them, folded when empty (Oct 13 2026). Keyed so the
+          choice is made again for each task, and when content first appears. */}
+      <Section key={`approval:${task.id}:${hasApproval}`} defaultOpen={hasApproval} title="Approval">
         <Approval task={task} patch={patch} />
       </Section>
 
       {/* Add comment - dropped on mobile: the Comments/All-activity block at the
           bottom of the stacked layout already has a composer. */}
       {!isMobile && (
-        <Section title="Comments">
+        <Section key={`comments:${task.id}:${hasComments}`} defaultOpen={hasComments} title="Comments">
           <QuickComment task={task} addComment={addComment} getComments={getComments}
             nameOf={nameOf} myEmail={myEmail} onViewAll={onViewAllComments} />
         </Section>
@@ -1613,22 +1675,42 @@ function AttachmentsTab({ task, refresh }) {
 }
 
 // ── Subtasks ────────────────────────────────────────────────────────────────
+/** A subtask row's people: its assignees as faces, and a click opens a
+ *  searchable list to tick several on or off - right in the row, without
+ *  opening the subtask (Oct 13 2026: it was one person, display only). */
 function SubtaskAssignee({ subtask, people, updateTask }) {
+  const [q, setQ] = useState('');
+  const on = taskAssignees(subtask);
+  const filtered = matchPeople(people, q);
+  const toggle = (email) => updateTask(subtask.id, {
+    assigneeIds: on.includes(email) ? on.filter((x) => x !== email) : [...on, email],
+  });
+  const nav = useListNav(filtered, { query: q, onPick: (p) => toggle(p.email) });
   return (
     <div onClick={(e) => e.stopPropagation()}>
-      <Pop width={200} trigger={(t) => (
-        <button onClick={t} title={subtask.assigneeId ? 'Change assignee' : 'Assign'} style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center' }}>
-          {subtask.assigneeId
-            ? <Avatar email={subtask.assigneeId} size={18} />
+      <Pop width={240} trigger={(t) => (
+        <button type="button" onClick={() => { setQ(''); t(); }} aria-label={`Assignees of ${subtask.title}`}
+          title={on.length ? `Assigned to ${on.length === 1 ? '1 person' : `${on.length} people`} - change` : 'Assign'}
+          style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center' }}>
+          {on.length
+            ? on.slice(0, 3).map((em, i) => <span key={em} style={{ marginLeft: i ? -6 : 0 }}><Avatar email={em} size={20} card={false} /></span>)
             : <span style={{ width: 18, height: 18, borderRadius: '50%', border: `1px dashed ${NX.border}`, display: 'inline-block' }} />}
+          {on.length > 3 && <span style={{ fontSize: 11, color: NX.faint, marginLeft: 3 }}>+{on.length - 3}</span>}
         </button>
       )}>
-        {(close) => (
+        {() => (
           <>
-            <MenuItem icon={!subtask.assigneeId ? <Check size={13} /> : <span style={{ width: 13, display: 'inline-block' }} />} onClick={() => { updateTask(subtask.id, { assigneeId: '' }); close(); }}>Unassigned</MenuItem>
-            {people.map((p) => (
-              <MenuItem key={p.email} icon={<Avatar email={p.email} name={p.name} size={16} card={false} />} onClick={() => { updateTask(subtask.id, { assigneeId: p.email }); close(); }}>{p.name}</MenuItem>
+            <input className="nx-inline-edit" autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
+              {...nav.inputProps} onKeyDown={nav.onKeyDown}
+              style={{ width: '100%', boxSizing: 'border-box', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '6px 8px', fontSize: 13, fontFamily: FONT, color: NX.ink }} />
+            {filtered.map((p, i) => (
+              <label key={p.email} {...nav.optionProps(i)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 13, cursor: 'pointer' }}>
+                <input type="checkbox" className="nx-check" checked={on.includes(p.email)} onChange={() => toggle(p.email)} />
+                <Avatar email={p.email} name={p.name} size={18} card={false} />
+                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+              </label>
             ))}
+            {filtered.length === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>No match</div>}
           </>
         )}
       </Pop>
@@ -1640,7 +1722,6 @@ function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub
   const [title, setTitle] = useState('');
   const [dueOn, setDueOn] = useState('');
   const [assigneeId, setAssigneeId] = useState('');
-  const dateRef = useRef(null);
   const done = subtasks.filter((s) => s.completed).length;
 
   // A new subtask starts with the main task's collaborators, project and team
@@ -1730,7 +1811,11 @@ function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub
               {s.completed ? <CheckCircle2 size={15} style={{ color: NX.green }} /> : <Circle size={15} />}
             </button>
             <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, color: s.completed ? NX.faint : NX.ink, textDecoration: s.completed ? 'line-through' : 'none' }}>{s.title}</span>
-            {s.dueOn && <span style={{ fontSize: 11, color: NX.faint }}>{fmtDate(s.dueOn)}</span>}
+            {/* Due date, set or changed right here (Oct 13 2026). */}
+            <span onClick={(e) => e.stopPropagation()} style={{ display: 'inline-flex', fontSize: 11.5, color: NX.faint }}>
+              <DateField value={s.dueOn || ''} onChange={(v) => updateTask(s.id, { dueOn: v || '' })} compact
+                title={s.dueOn ? 'Change due date' : 'Set due date'} />
+            </span>
             <SubtaskAssignee subtask={s} people={people} updateTask={updateTask} />
             <ChevronRight size={14} style={{ color: NX.faint }} />
           </div>
@@ -1740,9 +1825,13 @@ function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub
         <Plus size={14} style={{ color: NX.faint, flexShrink: 0 }} />
         <input className="nx-inline-edit" value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} placeholder="Add subtask"
           style={{ flex: 1, minWidth: 0, border: 'none', fontFamily: FONT, fontSize: 13 }} />
-        {dueOn && <span style={{ fontSize: 11, color: NX.faint }}>{fmtDate(dueOn)}</span>}
-        <button onClick={() => dateRef.current?.showPicker?.() ?? dateRef.current?.focus()} title="Due Date" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><CalendarDays size={15} /></button>
-        <input ref={dateRef} type="date" value={dueOn} min={localTodayISO()} onChange={(e) => setDueOn(notPast(e.target.value))} style={{ position: 'absolute', width: 0, height: 0, opacity: 0 }} tabIndex={-1} />
+        {/* The Nexus calendar, the one every task date uses (Oct 13 2026) -
+            this was the browser's own date picker, which opened off the
+            bottom of the drawer, half cut off and unclickable. It places
+            itself on screen, flipping above when there is no room below. */}
+        <span style={{ display: 'inline-flex', fontSize: 11.5, color: NX.faint }}>
+          <DateField value={dueOn} onChange={(v) => setDueOn(v || '')} compact noPast title="Due Date" />
+        </span>
         <div style={{ minWidth: 150 }}>
           <PersonSelect value={assigneeId || null} people={people} onChange={(email) => setAssigneeId(email || '')} placeholder="Assignee" />
         </div>

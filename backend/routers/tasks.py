@@ -726,20 +726,27 @@ def _next_yearly_due(base: date, rec: dict, interval: int) -> date:
 
 
 def _next_weekly_due(base: date, rec: dict, interval: int) -> date:
-    """Nearest of one or more selected weekdays after `base`, then jumped
-    forward (interval - 1) more weeks for an "every N weeks" cadence. Multiple
-    days (daysOfWeek) is what Custom's "On these days" checkboxes need past a
-    single weekday; plain Weekly sends one-item lists through the same path."""
+    """The next selected weekday after `base` for an "every N weeks on these
+    days" rule. The rest of `base`'s own week comes first; once its days are
+    used up the rule jumps `interval` weeks to the first selected day of that
+    week. Weeks run Sunday-Saturday, the order of the S M T W T F S picker.
+
+    It used to take the nearest selected day and THEN add (interval - 1)
+    weeks, which is right for one day but drifts with several: "every 2 weeks
+    on Mon and Thu" went Mon 10/19 -> Thu 10/29 -> Mon 11/09 instead of
+    Mon 10/19 -> Thu 10/22 -> Mon 11/02 (Oct 13 2026)."""
     days = rec.get("daysOfWeek")
     if not days and rec.get("dayOfWeek") is not None:
         days = [rec.get("dayOfWeek")]           # legacy single-day series
     if not days:
         return base + timedelta(weeks=interval)
-    targets = {(int(d) - 1) % 7 for d in days}  # frontend Sun=0 → Python Mon=0
-    nxt = base + timedelta(days=1)
-    while nxt.weekday() not in targets:
-        nxt += timedelta(days=1)
-    return nxt + timedelta(weeks=interval - 1)
+    picked = sorted({int(d) % 7 for d in days})   # frontend Sun=0..Sat=6
+    sun_index = (base.weekday() + 1) % 7          # Python Mon=0 -> Sun=0
+    week_start = base - timedelta(days=sun_index)
+    later = [d for d in picked if d > sun_index]
+    if later:
+        return week_start + timedelta(days=later[0])
+    return week_start + timedelta(weeks=interval, days=picked[0])
 
 
 def _next_due(base_iso: str, rec: dict) -> str:

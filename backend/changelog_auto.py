@@ -148,6 +148,14 @@ def _due(state: dict) -> bool:
         return True
     if when.tzinfo is None:
         when = when.replace(tzinfo=timezone.utc)
+    # A due time further out than this code ever schedules was written by an
+    # older, slower schedule - the 24h backstop before the 15-minute poll
+    # (Oct 2026). Honoring it held the first poll back by up to a day after the
+    # deploy that shortened the interval, so What's New stayed empty of
+    # everything merged meanwhile. The longest wait now is the retry backoff.
+    longest = timedelta(hours=max(_interval_hours(), _RETRY_HOURS))
+    if when - _now() > longest:
+        return True
     return _now() >= when
 
 

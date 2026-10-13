@@ -363,6 +363,29 @@ export function reorderedPositions(ordered, id, toIndex) {
     .filter((p) => Number(ordered.find((t) => t.id === p.id).position) !== p.position);
 }
 
+/** The create body for a copy of task `t` - Duplicate in the task drawer's
+ *  menu and in the batch bar (Oct 13 2026). Copies what the task IS: title
+ *  ("(copy)" added), description, project/also-in/team/section, assignees,
+ *  collaborators, dates, priority, labels, estimate, milestone, custom
+ *  fields. Not its history - comments, attachments, activity, time logged -
+ *  and not its recurrence: a copy is a one-off, not a second series. So a
+ *  copy starts Not Started, even of a recurring, missed or completed task.
+ *  `overrides` win (a subtask copy passes its new parent). */
+export function duplicateTaskData(t, overrides = {}) {
+  const fresh = ['recurring', 'missed', 'completed'].includes(t.status) || t.completed;
+  return {
+    title: `${t.title} (copy)`, type: t.type || 'task', description: t.description || '',
+    status: fresh ? 'not_started' : (t.status || 'not_started'), priority: t.priority || 'medium',
+    projectId: t.projectId || '', projectIds: [...(t.projectIds || [])], teamId: t.teamId || '',
+    sectionId: t.sectionId || '',
+    assigneeIds: taskAssignees(t), ownerId: t.ownerId || '',
+    followerIds: [...(t.followerIds || [])], dueOn: t.dueOn || '', startOn: t.startOn || '',
+    tags: [...(t.tags || [])], estimateHours: t.estimateHours ?? null, isMilestone: !!t.isMilestone,
+    customFieldValues: { ...(t.customFieldValues || {}) },
+    ...overrides,
+  };
+}
+
 /** Every project a task is in: its own, then any it is "also in". */
 export const taskProjectIdsOf = (task) =>
   [...new Set([task?.projectId, ...(task?.projectIds || [])].filter(Boolean))];
