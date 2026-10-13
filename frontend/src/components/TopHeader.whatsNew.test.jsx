@@ -68,4 +68,12 @@ describe("TopHeader - What's New and page help", () => {
     openMenu();
     expect(screen.queryByText("What's New")).toBeNull();
   });
+
+  it('is offered to an external with only the Support grant (it opens the task API)', () => {
+    roleState.isExternal = true;
+    roleState.grants = new Map([['support', 'viewer']]);
+    header();
+    openMenu();
+    expect(screen.getByText("What's New")).toBeTruthy();
+  });
 });

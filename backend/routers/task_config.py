@@ -16,6 +16,7 @@ import models
 from database import get_db
 from auth import get_current_user, require_level, require_manager, require_any_module_grant
 from routers.task_util import now_iso, gen_id
+from changelog_prs import known_developer
 
 router = APIRouter(tags=["Tasks"],
                    dependencies=[Depends(get_current_user), Depends(require_any_module_grant("tasks", "tickets"))])
@@ -579,7 +580,6 @@ def changelog_entry_to_dict(e: models.TaskChangelogEntry) -> dict:
     # Stored entries keep the developer as GitHub named them; they are read
     # out as the Nexus person (name + work email for the photo).
     if isinstance(payload.get("developers"), list):
-        from changelog_prs import known_developer
         out["developers"] = [known_developer(d) for d in payload["developers"]]
     return out
 

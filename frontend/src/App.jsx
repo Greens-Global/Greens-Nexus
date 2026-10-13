@@ -30,6 +30,7 @@ import LoginPage from "./views/LoginPage";
 import PolicyGate from "./components/PolicyGate";
 import Dashboard from "./views/Dashboard";
 import { hasDirtyDialog, confirmDiscard } from "./lib/dialogGuard";
+import { WHATS_NEW_GRANTS } from "./lib/whatsNewAccess";
 
 // Lazy-loaded - only fetched when the user navigates there
 const InventoryManagement = lazy(() => import("./views/InventoryManagement"));
@@ -156,9 +157,9 @@ const VIEW_MIN_ROLES = {
 const VIEW_GRANT = {};
 // Views that OTHER grants also open (any one is enough): a 'workforce-scorecard'
 // grant alone reaches Workforce Analytics for its Scorecard tab (Neil, 10/10).
-// What's New: every internal user; an external only with a grant that
-// opens /task-changelog on the API (auth.MODULE_API_PREFIXES: tasks, tickets).
-const VIEW_ALT_GRANTS = { 'employee-tracking': ['workforce-scorecard'], 'whats-new': ['tasks', 'tickets'] };
+// What's New: every internal user; an external only with a grant that opens
+// /task-changelog on the API (lib/whatsNewAccess.js, shared with the header).
+const VIEW_ALT_GRANTS = { 'employee-tracking': ['workforce-scorecard'], 'whats-new': WHATS_NEW_GRANTS };
 
 // E2E mode (Playwright CI only - VITE_E2E is never set on real builds) and the
 // local dev-login bypass (VITE_DEV_SKIP_AUTH, see msalInstance.js) both skip the
@@ -371,7 +372,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     // Open to every internal user (no VIEW_MIN_ROLES entry); externals get
     // Access Restricted here and 403 from the API.
     case "directory":          return <Directory />;
-    case "whats-new":          return <WhatsNew embedded />;
+    case "whats-new":          return <WhatsNew />;
     case "timeclock":          return <TimeClock initialTab="overview" activeSub={activeSub} onSubChange={onSubChange} />;
     case "myhr":               return <TimeClock initialTab="overview" activeSub={activeSub} onSubChange={onSubChange} />;
     case "testing":            return <Testing />;
@@ -779,7 +780,7 @@ function MainApp() {
                 whole canvas. It used to cancel .viewport's padding with negative
                 margins, which only matched ONE of the five breakpoint paddings
                 and so sat off-center at most widths. */}
-            <div className={(activeView === 'tasks' || activeView === 'tickets' || activeView === 'pdf-editor' || pdfHasDoc) ? 'viewport viewport-flush'
+            <div className={(activeView === 'tasks' || activeView === 'tickets' || activeView === 'pdf-editor' || pdfHasDoc || activeView === 'whats-new') ? 'viewport viewport-flush'
               : activeView === 'dashboard' ? 'viewport viewport-desk'
               : activeView === 'documents' ? 'viewport viewport-tight'
               : 'viewport'}>

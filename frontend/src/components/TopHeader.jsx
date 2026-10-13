@@ -30,6 +30,7 @@ import { useRole, ROLES, MODULES, EXTERNAL_ROLE_META } from "../contexts/RoleCon
 import { usePersonPhoto } from "../lib/peoplePhotos";
 import { openContact } from "../lib/contactNav";
 import { api } from "../api";
+import { canOpenWhatsNew } from "../lib/whatsNewAccess";
 import { Spinner } from './AsyncState';
 
 // Header search reaches into the Task module's content, not just the module
@@ -113,17 +114,15 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
     return () => { alive = false; };
   }, []);
   // What's New is a page in the app now (Neil, Oct 12 2026), not an overlay:
-  // every way in navigates to it. An external can open it only with a grant
-  // that reaches the changelog API (App.jsx VIEW_ALT_GRANTS), so the entry
-  // points are hidden from one who cannot.
-  const canWhatsNew = !isExternal || !!(myGrantedModules?.has('tasks') || myGrantedModules?.has('tickets'));
+  // every way in navigates to it. Its entry points are hidden from an
+  // external who could not open it (lib/whatsNewAccess.js).
+  const canWhatsNew = canOpenWhatsNew({ isExternal, myGrantedModules });
   function openChangelog() {
     onNavigate?.('whats-new');
   }
   // Landing on What's New by any route (menu, Help panel, a link, the URL)
-  // clears the unseen dot and records the visit server-side.
-  // The dot is hidden at once while the page is open (below); the stored
-  // flag clears once the visit is recorded, so it stays gone after you leave.
+  // records the visit. The dot is hidden at once while the page is open
+  // (below) and the flag clears once the visit is saved, so it stays gone.
   useEffect(() => {
     if (activeView !== 'whats-new' || !changelogUnseen) return;
     api.markTaskChangelogSeen().catch(() => {}).finally(() => setChangelogUnseen(false));
@@ -597,13 +596,11 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
               )}
               {/* Dark Mode + Theme moved into My Profile (Neil: group appearance
                   settings with the rest of "your" settings instead of loose in
-                  the top-level menu). Help stays here. */}
-              {/* "Help with this page" lived here; the header's Help panel has
-                  "Help for This Page" now, so it was a second way to the same
-                  thing (Neil, Oct 12 2026). */}
+                  the top-level menu). Page help is the header's Help panel
+                  ("Help for This Page"); the row that was here went Oct 12. */}
               {/* Task module's guided walkthrough. Moved out of the module's own
                   header (was cluttering the primary bar next to Manage) into
-                  here, right under page help - only meaningful while the Task
+                  here - only meaningful while the Task
                   module is the active view, so it's gated on activeView rather
                   than shown everywhere. Tasks.jsx owns the tour state; this just
                   asks it to open via the same nexus:tasks-* event pattern the

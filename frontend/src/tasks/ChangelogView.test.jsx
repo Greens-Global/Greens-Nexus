@@ -40,7 +40,7 @@ beforeEach(() => {
 });
 
 async function openManage() {
-  render(<Changelog onClose={() => {}} />);
+  render(<Changelog />);
   fireEvent.click(await screen.findByRole('button', { name: /Manage/ }));
 }
 
@@ -82,7 +82,7 @@ describe("What's New automatic publishing status", () => {
       developers: [{ login: 'neilkadakia', name: 'Neil Kadakia', url: 'https://github.com/neilkadakia' },
         { login: 'pranshuup', name: 'pranshuup', url: 'https://github.com/pranshuup' }],
     }]);
-    render(<Changelog onClose={() => {}} />);
+    render(<Changelog />);
     expect(await screen.findByText('Neil Kadakia, pranshuup')).toBeTruthy();
     expect(screen.queryByText('Unknown')).toBeNull();
   });
@@ -94,19 +94,22 @@ describe("What's New automatic publishing status", () => {
       status: 'Released', origin: 'pr', releasedAt: '2026-10-09T10:00:00Z', authorId: '',
       developers: [{ login: 'pranshuup', name: 'Pranshu Pandey', email: 'pranshu.pandey@greensglobal.com', url: 'https://github.com/pranshuup' }],
     }]);
-    render(<Changelog onClose={() => {}} />);
+    render(<Changelog />);
     expect(await screen.findByText('Pranshu Pandey')).toBeTruthy();
     expect(screen.getByAltText('Pranshu Pandey').getAttribute('src')).toBe('https://example.test/pranshu.jpg');
   });
 
-  it('sits inside the app as a page when embedded: no overlay, no close button', async () => {
+  it('is a page in the app: in the render tree, nothing to close, never a dialog backdrop', async () => {
     api.getTaskChangelogAutoStatus.mockResolvedValue(healthy);
-    const { container } = render(<Changelog embedded />);
+    const { container } = render(<Changelog />);
     await screen.findAllByText("What's New");
-    // In the render tree, not portaled over the app, and nothing to close.
-    expect(container.querySelector('[data-whats-new-view]')).not.toBeNull();
+    const root = container.querySelector('[data-whats-new-view]');
+    expect(root).not.toBeNull();                                    // not portaled over the app
     expect(screen.queryByRole('button', { name: 'Close' })).toBeNull();
-    expect(container.querySelector('[data-whats-new-view]').style.position).not.toBe('fixed');
+    // .nx-tasks-portal is what lib/dialogGuard treats as a popup: a filter
+    // change on the page would then block every navigation as "unsaved".
+    expect(root.classList.contains('nx-tasks-portal')).toBe(false);
+    expect(root.closest('.nx-tasks-portal, .modal-overlay')).toBeNull();
   });
 
   it('starts the first card and the Activity Summary on the same line', async () => {
@@ -115,11 +118,11 @@ describe("What's New automatic publishing status", () => {
       id: 'e3', title: 'One update', description: 'Plain words.', type: 'Bug Fix', module: 'Tasks',
       status: 'Released', releasedAt: '2026-10-09T10:00:00Z', authorId: 'admin@greensglobal.com',
     }]);
-    render(<Changelog onClose={() => {}} />);
+    render(<Changelog />);
     expect(await screen.findByText('One update')).toBeTruthy();
     // The row holds exactly the two columns - the day label is above it, not
     // inside the cards' column where it pushed the first card down.
-    const row = document.querySelector('[data-whats-new-row]');   // the view renders in a portal
+    const row = document.querySelector('[data-whats-new-row]');
     expect(row.children.length).toBe(2);
     expect(row.children[0].textContent).not.toMatch(/^(Today|Yesterday)/i);
     expect(row.children[1].textContent).toMatch(/^Activity Summary/);
@@ -132,7 +135,7 @@ describe("What's New automatic publishing status", () => {
       { id: 'b', title: 'Ledger Operators', description: 'PR.', type: 'Bug Fix', module: 'Accounting', status: 'Released', origin: 'pr', releasedAt: at(15) },
       { id: 'c', title: 'Older Change', description: 'Old.', type: 'Improvement', module: 'HR', status: 'Released', releasedAt: at(10, 7) },
     ]);
-    render(<Changelog onClose={() => {}} />);
+    render(<Changelog />);
     expect(await screen.findByText('Ledger Operators')).toBeTruthy();
     expect(screen.getByText('Tickets Module Live')).toBeTruthy();
     expect(screen.queryByText('Older Change')).toBeNull();
@@ -146,7 +149,7 @@ describe("What's New automatic publishing status", () => {
       { id: 'c', title: 'Merged Last', description: 'x', type: 'Bug Fix', module: 'A', status: 'Released', releasedAt: run, mergedAt: '2026-10-08T18:00:00Z' },
       { id: 'b', title: 'Merged Second', description: 'x', type: 'Bug Fix', module: 'A', status: 'Released', releasedAt: run, mergedAt: '2026-10-08T12:00:00Z' },
     ]);
-    render(<Changelog onClose={() => {}} />);
+    render(<Changelog />);
     await screen.findByText('Merged Last');
     const titles = screen.getAllByText(/^Merged (First|Second|Last)$/).map((n) => n.textContent);
     expect(titles).toEqual(['Merged Last', 'Merged Second', 'Merged First']);

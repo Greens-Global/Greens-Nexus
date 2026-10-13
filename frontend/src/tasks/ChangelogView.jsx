@@ -13,7 +13,6 @@
 // so every field below lives inside that payload; the server owns only id/createdAt/updatedAt.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { LoadingState } from '../components/AsyncState';
-import { createPortal } from 'react-dom';
 import {
   Sparkles, Clock, Tag, ClipboardCheck, Plus, X, ArrowRight, CheckCircle2, User,
   ImageIcon, Search, ChevronRight, ChevronDown, GitBranch, Layers, CalendarDays,
@@ -148,11 +147,15 @@ const TABS = [
   { key: 'version-history', label: 'Version History', icon: Tag },
 ];
 
-// `embedded` (Neil, Oct 12 2026): What's New is a normal Nexus view - the
-// sidebar and header stay, and you navigate away like from any module. It used
-// to cover the whole app as an overlay with its own close button. The overlay
-// form stays for any caller that still passes `onClose` without `embedded`.
-export default function Changelog({ onClose, embedded = false }) {
+// What's New is a normal Nexus view (Neil, Oct 12 2026): the sidebar and
+// header stay, and you navigate away like from any module. It used to cover
+// the whole app as an overlay with its own close button. It is mounted the way
+// Tasks and Tickets are - App.jsx gives it the full-height `viewport-flush`
+// and it fills that, so the Timeline's two panes scroll on their own. The
+// root is `.nx-tasks` (the module's phone styles), NOT `.nx-tasks-portal`:
+// lib/dialogGuard treats that class as a popup backdrop, and on a page every
+// filter change or comment keystroke would then read as unsaved work.
+export default function Changelog() {
   const { myEmail, can } = useRole();
   const nameOf = useNameResolver();
   const isAdmin = !!can?.('manager');
@@ -207,13 +210,6 @@ export default function Changelog({ onClose, embedded = false }) {
     }
   };
 
-  useEffect(() => {
-    if (embedded) return undefined;     // a page has nothing to close
-    const onKey = (e) => { if (e.key === 'Escape' && !adding && !editing) onClose?.(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [adding, editing, onClose, embedded]);
-
   const sorted = useMemo(
     () => (entries || []).slice().sort(newestFirst),
     [entries],
@@ -229,12 +225,8 @@ export default function Changelog({ onClose, embedded = false }) {
     ? [...TABS, { key: 'manage', label: 'Manage', icon: ClipboardCheck, badge: pendingCount }]
     : TABS;
 
-  const shell = (
-    <div className="nx-tasks-portal" data-whats-new-view={embedded || undefined} style={embedded
-      // In the app: the page scrolls as every other view does, inside a card
-      // like the other modules' screens.
-      ? { fontFamily: FONT, color: NX.ink, background: NX.canvas, display: 'flex', flexDirection: 'column', border: `1px solid ${NX.border}`, borderRadius: 12, overflow: 'hidden', minHeight: 'calc(100vh - 140px)' }
-      : { position: 'fixed', inset: 0, zIndex: 3000, fontFamily: FONT, color: NX.ink, background: NX.canvas, display: 'flex', flexDirection: 'column', animation: 'fadeIn 0.13s ease' }}>
+  return (
+    <div className="nx-tasks" data-whats-new-view style={{ fontFamily: FONT, color: NX.ink, background: NX.canvas, display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface }}>
         <Sparkles size={20} style={{ color: NX.blue, flexShrink: 0 }} />
@@ -243,7 +235,6 @@ export default function Changelog({ onClose, embedded = false }) {
           <div style={{ fontSize: 13, color: NX.dim }}>Track all updates, releases and changes across Nexus.</div>
         </div>
         <button style={{ ...btn('primary'), marginLeft: 'auto' }} onClick={() => setAdding(true)}><Plus size={15} />Add New Update</button>
-        {!embedded && <button onClick={onClose} title="Close" aria-label="Close" style={{ ...btn('ghost'), padding: 7, color: NX.dim }}><X size={18} /></button>}
       </div>
 
       {/* Tab strip */}
@@ -266,7 +257,7 @@ export default function Changelog({ onClose, embedded = false }) {
       </div>
 
       {/* Body */}
-      <div className="nx-scroll" style={embedded ? { flex: 1, background: NX.canvas } : { flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas }}>
+      <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas }}>
         {tab === 'whats-new' && <WhatsNewTab entries={published} nameOf={nameOf} myEmail={myEmail} isAdmin={isAdmin} onSetStatus={setStatus} onEdit={setEditing} />}
         {tab === 'timeline' && <TimelineTab entries={published} nameOf={nameOf} myEmail={myEmail} isAdmin={isAdmin} onSetStatus={setStatus} onEdit={setEditing} />}
         {tab === 'version-history' && <VersionHistoryTab entries={published} nameOf={nameOf} myEmail={myEmail} isAdmin={isAdmin} onSetStatus={setStatus} onEdit={setEditing} />}
@@ -294,7 +285,6 @@ export default function Changelog({ onClose, embedded = false }) {
       )}
     </div>
   );
-  return embedded ? shell : createPortal(shell, document.body);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -331,7 +321,6 @@ function WhatsNewTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit })
   // stayed at the far left. The content fills the page, like other modules.
   return (
     <div style={{ padding: '20px 16px' }}>
-      <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
         <div>
           <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: NX.ink }}>What's New</h1>
@@ -355,7 +344,6 @@ function WhatsNewTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit })
           No updates published yet.
         </div>
       )}
-      </div>
 
       {details && (
         <SlideOver entry={details} nameOf={nameOf} myEmail={myEmail} isAdmin={isAdmin}
@@ -1167,9 +1155,10 @@ function GithubDevelopers({ developers }) {
       {developers.map((d) => (
         <a key={d.login} href={d.url} target="_blank" rel="noreferrer" title={`@${d.login} on GitHub`}
           style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, textDecoration: 'none' }}>
-          {/* `email` (set by the server for our own developers) is what
-              brings the profile photo; anyone else keeps initials. */}
-          <Avatar email={d.email} name={d.name || d.login} size={24} />
+          {/* `email` (set by the server for our own developers) brings the
+              profile photo. card={false}: this sits inside a GitHub link, and
+              the hover card's own click would open People on top of it. */}
+          <Avatar email={d.email} name={d.name || d.login} size={24} card={false} />
           <span style={{ fontSize: 13, fontWeight: 600, color: NX.ink }}>{d.name || d.login}</span>
         </a>
       ))}
