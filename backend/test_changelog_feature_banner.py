@@ -12,6 +12,7 @@
 
 Run with: python -m unittest test_changelog_feature_banner -v
 """
+import json
 import os
 import tempfile
 import unittest
@@ -40,7 +41,9 @@ def ago(**kw) -> str:
     return (NOW - timedelta(**kw)).isoformat()
 
 
-class AnnouncementTests(unittest.TestCase):
+class _Case(unittest.TestCase):
+    """Shared setup: a fresh table, the clock frozen, the parsed list reset."""
+
     @classmethod
     def setUpClass(cls):
         models.Base.metadata.create_all(bind=database.engine)
@@ -54,6 +57,7 @@ class AnnouncementTests(unittest.TestCase):
         self.db = database.SessionLocal()
         self.db.query(models.TaskChangelogEntry).delete()
         self.db.query(models.ChangelogSeen).delete()
+        self.db.query(models.NexusNotification).delete()
         self.db.commit()
         T._released_cache.update(key=None, rows=[])
         for p in (mock.patch.object(T, "datetime", _FrozenDT),
@@ -80,6 +84,8 @@ class AnnouncementTests(unittest.TestCase):
         self.db.expire_all()
         return T.get_feature_banner(user=ME, db=self.db)
 
+
+class AnnouncementTests(_Case):
     # ── the weekly bar ─────────────────────────────────────────────────────
     def test_a_new_feature_raises_it_and_it_counts_every_category(self):
         self._entry("Scorecard emails", ago(hours=2))
@@ -173,6 +179,61 @@ class AnnouncementTests(unittest.TestCase):
         with mock.patch.object(self.db, "query", side_effect=stale_first_lookup):
             row = T._seen_row(self.db, ME["email"])
         self.assertEqual(row.last_seen_at, "x")
+
+
+class BellTests(_Case):
+    """The week's news is kept in the notification bell too (Neil, Oct 12
+    2026), so a person who dismissed the bar can still find it there."""
+
+    def _notices(self):
+        self.db.expire_all()
+        return (self.db.query(models.NexusNotification)
+                .filter(models.NexusNotification.ref_id == T.WHATS_NEW_NOTICE_REF).all())
+
+    def test_while_the_bar_announces_it_the_bell_copy_is_already_read(self):
+        self._entry("Scorecard", ago(hours=2))
+        self._entry("A fix", ago(hours=1), type_="Bug Fix")
+        self.assertTrue(self._banner()["show"])
+        [n] = self._notices()
+        self.assertEqual((n.recipient, n.type, n.title), (ME["email"], "whats_new", "New in Nexus"))
+        self.assertEqual(n.body, "Updates this week, including 1 New Feature and 1 Bug Fix.")
+        self.assertIn(ME["email"], n.read_by)                     # no toast, no badge on top of the bar
+        self.assertEqual(json.loads(n.action), {"view": "whats-new"})
+
+    def test_with_the_bar_away_for_the_week_new_releases_come_back_unread(self):
+        self._entry("First", ago(days=2))
+        self._banner()
+        T.dismiss_feature_banner(user=ME, db=self.db)
+        self._entry("Second", ago(minutes=5))
+        self.assertFalse(self._banner()["show"])                  # the bar stays away...
+        [n] = self._notices()                                      # ...one row, updated in place...
+        self.assertEqual(n.body, "Updates this week, including 2 New Features.")
+        self.assertEqual(n.read_by, "")                           # ...and the bell tells them
+
+    def test_unchanged_news_is_left_alone_and_a_cleared_copy_comes_back_for_new_news(self):
+        self._entry("First", ago(days=2))
+        self._banner()
+        [n] = self._notices()
+        n.closed_by, stamp = ME["email"], n.created_at
+        self.db.commit()
+        self._banner()
+        self.assertEqual((self._notices()[0].created_at, self._notices()[0].closed_by), (stamp, ME["email"]))
+        self._entry("Second", ago(minutes=5))
+        self._banner()
+        self.assertEqual(self._notices()[0].closed_by, "")
+
+    def test_opening_whats_new_marks_it_read(self):
+        self._entry("First", ago(days=2))
+        T.dismiss_feature_banner(user=ME, db=self.db)
+        self._banner()
+        self.assertEqual(self._notices()[0].read_by, "")
+        T.mark_changelog_seen(user=ME, db=self.db)
+        self.assertIn(ME["email"], self._notices()[0].read_by)
+
+    def test_bug_fixes_alone_never_reach_the_bell(self):
+        self._entry("A fix", ago(hours=1), type_="Bug Fix")
+        self._banner()
+        self.assertEqual(self._notices(), [])
 
 
 class ReadAccessTests(unittest.TestCase):

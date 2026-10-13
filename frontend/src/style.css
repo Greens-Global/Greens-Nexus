@@ -5489,9 +5489,13 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
   color: rgba(255, 255, 255, .9);
 }
 .feature-banner-rule { flex-shrink: 0; width: 1px; height: 18px; background: rgba(255, 255, 255, .35); }
-.feature-banner-text { flex: 1; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.feature-banner-title { font-weight: 700; }
-.feature-banner-more { color: rgba(255, 255, 255, .82); }
+.feature-banner-text {
+  flex: 1; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: rgba(255, 255, 255, .92); cursor: pointer;
+}
+.feature-banner-text:hover .feature-banner-count { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: rgba(255, 255, 255, .55); }
+.feature-banner-count { font-weight: 800; color: #fff; white-space: nowrap; }   /* "3 Bug Fixes" never splits */
+.feature-banner-lead-short { display: none; }
 .feature-banner-cta {
   display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0;
   background: #fff; color: hsl(142, 60%, 26%); border: 0; border-radius: 9px;
@@ -5516,13 +5520,16 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
 .feature-banner-close:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 @media (max-width: 640px) {
   .feature-banner-row { padding: 8px 6px 8px 12px; gap: 9px; font-size: 13px; }
-  .feature-banner-label, .feature-banner-rule { display: none; }
+  .feature-banner-label, .feature-banner-rule, .feature-banner-lead { display: none; }
+  .feature-banner-lead-short { display: inline; }
   .feature-banner-text {
     white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
   }
-  .feature-banner-cta { padding: 8px 10px 8px 12px; min-height: 38px; }
-  .feature-banner-cta-long { display: none; }
-  .feature-banner-cta-short { display: inline; }
+  /* The whole message opens What's New on a phone, so the button gives its
+     width back to the words: a white arrow square (its name stays "See
+     What's New" for screen readers). */
+  .feature-banner-cta { padding: 0; width: 40px; height: 40px; justify-content: center; }
+  .feature-banner-cta-long, .feature-banner-cta-short { display: none; }
   .feature-banner-close { width: 38px; height: 38px; }
 }
 @media (prefers-reduced-motion: reduce) {

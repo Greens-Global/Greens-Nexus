@@ -32,8 +32,18 @@ afterEach(() => { cleanup(); document.documentElement.style.removeProperty('--nx
 describe('the weekly New in Nexus bar', () => {
   it('says what shipped by category, bug fixes included', async () => {
     render(<FeatureBanner activeView="tasks" onNavigate={() => {}} />);
-    expect((await screen.findByRole('region', { name: 'New in Nexus' })).textContent)
-      .toMatch(/2 New Features and 3 Bug Fixes/);
+    const region = await screen.findByRole('region', { name: 'New in Nexus' });
+    expect(region.querySelector('.feature-banner-text').textContent).toMatch(/2 New Features and 3 Bug Fixes$/);
+    // The lead-in: the full one, and the short one phones show instead (CSS).
+    expect(region.querySelector('.feature-banner-lead').textContent).toBe('Updates this week, including ');
+    expect(region.querySelector('.feature-banner-lead-short').textContent).toBe('Including ');
+  });
+
+  it("opens What's New from the message as well as the button", async () => {
+    const onNavigate = vi.fn();
+    render(<FeatureBanner activeView="tasks" onNavigate={onNavigate} />);
+    fireEvent.click(await screen.findByText('2 New Features'));
+    expect(onNavigate).toHaveBeenCalledWith('whats-new');
   });
 
   it('its link only navigates; reaching What\'s New is what closes it for the week', async () => {
@@ -82,7 +92,7 @@ describe('the new-version popup', () => {
     build.stale = true;
     api.getReleasedSince.mockResolvedValue({ counts: { 'New Feature': 1, 'Bug Fix': 2 }, total: 3 });
     both();
-    expect(await screen.findByText('Includes 1 New Feature and 2 Bug Fixes.')).toBeTruthy();
+    expect(await screen.findByText('Including 1 New Feature and 2 Bug Fixes.')).toBeTruthy();
     expect(screen.getByText('A New Version of Nexus Is Available')).toBeTruthy();
     expect(screen.getByRole('button', { name: /See What's New/ })).toBeTruthy();
     expect(screen.getByRole('button', { name: /Reload/ })).toBeTruthy();
@@ -92,7 +102,7 @@ describe('the new-version popup', () => {
     build.stale = true;
     api.getReleasedSince.mockResolvedValue({ counts: { 'Bug Fix': 3 }, total: 3 });
     both();
-    expect(await screen.findByText('Includes 3 Bug Fixes.')).toBeTruthy();
+    expect(await screen.findByText('Including 3 Bug Fixes.')).toBeTruthy();
     expect(screen.getByRole('button', { name: /See What's New/ })).toBeTruthy();
   });
 

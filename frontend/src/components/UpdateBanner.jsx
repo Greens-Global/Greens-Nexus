@@ -17,7 +17,7 @@ import { prefersReducedMotion } from './shifts/motion';
 // it reappears next session, and the nets are still behind it.
 //
 // What the new version brings is said in categories only (Neil, Oct 12 2026):
-// "Includes 2 new features and 3 bug fixes", with See What's New for the
+// "Including 2 New Features and 3 Bug Fixes.", with See What's New for the
 // details - which loads the new version straight onto What's New. The
 // categories are answered by FeatureBanner from inside the signed-in app
 // (lib/updateSignal.js); this popup sits outside the sign-in gate and cannot
@@ -61,7 +61,7 @@ export default function UpdateBanner() {
       </span>
       <span className="update-banner-copy">
         <span className="update-banner-text">A New Version of Nexus Is Available</span>
-        <span className="update-banner-sub">{summary ? `Includes ${summary}.` : 'Reload when it suits you.'}</span>
+        <span className="update-banner-sub">{summary ? `Including ${summary}.` : 'Reload when it suits you.'}</span>
       </span>
       {summary && (
         <button onClick={seeWhatsNew} disabled={reloading} className="update-banner-whatsnew">

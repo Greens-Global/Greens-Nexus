@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from typing import Optional, Any
 import os
 import json
+import uuid
 import httpx
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
@@ -691,6 +692,14 @@ def get_changelog_unseen(user: dict = Depends(get_current_user), db: Session = D
 @view_router.post("/task-changelog/seen")
 def mark_changelog_seen(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     _mark_changelog_seen(db, user["email"])
+    # What's New is open: its bell entry has been read.
+    email = (user["email"] or "").lower()
+    for n in (db.query(models.NexusNotification)
+              .filter(models.NexusNotification.recipient == email,
+                      models.NexusNotification.ref_id == WHATS_NEW_NOTICE_REF).all()):
+        readers = [x for x in (n.read_by or "").split(",") if x]
+        if email not in readers:
+            n.read_by = ",".join(readers + [email])
     db.commit()
     return {"ok": True}
 
@@ -754,6 +763,55 @@ def _category_counts(rows: list) -> dict:
     return {"counts": dict(Counter(r["type"] for r in rows)), "total": len(rows)}
 
 
+# Category names are Title Case even mid-sentence (Neil, Oct 12 2026) - the
+# same words, in the same order, as frontend lib/changelogCategories.js.
+_CATEGORY_WORDS = [
+    ("New Feature", "New Feature", "New Features"), ("Improvement", "Improvement", "Improvements"),
+    ("Performance", "Performance Improvement", "Performance Improvements"),
+    ("Security Update", "Security Update", "Security Updates"), ("Bug Fix", "Bug Fix", "Bug Fixes"),
+    ("Hotfix", "Hotfix", "Hotfixes"), ("Maintenance", "Maintenance Update", "Maintenance Updates"),
+]
+
+
+def _summarize_categories(counts: dict) -> str:
+    known = {t for t, _, _ in _CATEGORY_WORDS}
+    parts = [f"{counts[t]} {one if counts[t] == 1 else many}" for t, one, many in _CATEGORY_WORDS if counts.get(t)]
+    other = sum(c for t, c in counts.items() if t not in known)
+    if other:
+        parts.append(f"{other} Other Update{'' if other == 1 else 's'}")
+    return parts[0] if len(parts) < 2 else f"{', '.join(parts[:-1])} and {parts[-1]}"
+
+
+# The week's news also lives in the notification bell (Neil, Oct 12 2026), so a
+# person who dismissed the bar can still find it. One row per person, updated
+# in place (CLAUDE.md: never one per release). While the bar is announcing it,
+# the bell copy is written already read - no toast or badge on top of the bar;
+# while the bar is away for the week, new releases come back unread so the bell
+# does the telling. Opening What's New marks it read (mark_changelog_seen).
+WHATS_NEW_NOTICE_REF = "whats-new"
+
+
+def _whats_new_notice(db: Session, email: str, counts: dict, announced: bool) -> None:
+    body = f"Updates this week, including {_summarize_categories(counts)}."
+    read_by = email if announced else ""
+    row = (db.query(models.NexusNotification)
+           .filter(models.NexusNotification.recipient == email,
+                   models.NexusNotification.ref_id == WHATS_NEW_NOTICE_REF)
+           .order_by(models.NexusNotification.created_at.desc()).first())
+    if row is not None and row.body == body:
+        return
+    if row is not None:
+        # New releases since: fresh text, back to the top, and out of Closed if
+        # the person had cleared last week's copy.
+        row.title, row.body, row.created_at, row.read_by, row.actioned = "New in Nexus", body, now_iso(), read_by, False
+        row.closed_by = ""
+        return
+    db.add(models.NexusNotification(
+        id=str(uuid.uuid4()), type="whats_new", recipient=email, title="New in Nexus", body=body,
+        ref_id=WHATS_NEW_NOTICE_REF, item_name="", requested_by="",
+        action=json.dumps({"view": "whats-new"}), actioned=False, read_by=read_by, created_at=now_iso()))
+
+
 @view_router.get("/task-changelog/feature-banner")
 def get_feature_banner(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Whether to show this person the weekly bar, and what it counts.
@@ -762,17 +820,23 @@ def get_feature_banner(user: dict = Depends(get_current_user), db: Session = Dep
     not seen (opened What's New since), and never within 7 days of their last
     dismissal - once a week at most, on every device. When it shows it counts
     every category released since they last looked, bug fixes included."""
+    email = user["email"].lower()
     week_ago = datetime.now(timezone.utc) - timedelta(days=FEATURE_BANNER_DAYS)
-    row = db.query(models.ChangelogSeen).filter(models.ChangelogSeen.email == user["email"].lower()).first()
-    banner_at = _changelog_instant(row.banner_seen_at) if row else None
-    if banner_at and banner_at > week_ago:
-        return {"show": False}
+    row = db.query(models.ChangelogSeen).filter(models.ChangelogSeen.email == email).first()
     seen_at = _changelog_instant(row.last_seen_at) if row else None
     floor = max(week_ago, seen_at) if seen_at else week_ago
     fresh = [r for r in _released_updates(db) if r["at"] > floor]
     if not any(r["type"] == "New Feature" for r in fresh):
         return {"show": False}
-    return {"show": True, **_category_counts(fresh)}
+    counts = _category_counts(fresh)
+    banner_at = _changelog_instant(row.banner_seen_at) if row else None
+    away_this_week = bool(banner_at and banner_at > week_ago)
+    # The bell copy, whether or not the bar shows (see _whats_new_notice).
+    _whats_new_notice(db, email, counts["counts"], announced=not away_this_week)
+    db.commit()
+    if away_this_week:
+        return {"show": False}
+    return {"show": True, **counts}
 
 
 @view_router.post("/task-changelog/feature-banner/dismiss")

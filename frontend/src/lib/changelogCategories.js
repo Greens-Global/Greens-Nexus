@@ -16,14 +16,23 @@ const PHRASES = {
   Maintenance: ['Maintenance Update', 'Maintenance Updates'],
 };
 
-export function summarizeCategories(counts = {}) {
+// Each category as { count, label } ("2", "New Features"), in reading order -
+// for a caller that styles the parts (the weekly bar bolds them).
+export function categoryParts(counts = {}) {
   const parts = Object.keys(PHRASES)
     .filter((t) => counts[t] > 0)
-    .map((t) => `${counts[t]} ${PHRASES[t][counts[t] === 1 ? 0 : 1]}`);
+    .map((t) => ({ count: counts[t], label: PHRASES[t][counts[t] === 1 ? 0 : 1] }));
   const other = Object.entries(counts).reduce((n, [t, c]) => (PHRASES[t] ? n : n + (c || 0)), 0);
-  if (other > 0) parts.push(`${other} Other Update${other === 1 ? '' : 's'}`);
-  if (parts.length < 2) return parts[0] || '';
-  return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+  if (other > 0) parts.push({ count: other, label: `Other Update${other === 1 ? '' : 's'}` });
+  return parts;
+}
+
+// The joiner between part i and the next: ", " then " and " before the last.
+export const partJoiner = (i, n) => (i < n - 2 ? ', ' : i === n - 2 ? ' and ' : '');
+
+export function summarizeCategories(counts = {}) {
+  const parts = categoryParts(counts);
+  return parts.map((p, i) => `${p.count} ${p.label}${partJoiner(i, parts.length)}`).join('');
 }
 
 export const hasNewFeature = (counts) => (counts?.['New Feature'] || 0) > 0;

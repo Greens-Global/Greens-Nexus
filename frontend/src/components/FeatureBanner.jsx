@@ -2,14 +2,17 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Sparkles, ArrowRight, X } from 'lucide-react';
 import { api } from '../api';
 import { RUNNING_SINCE, setReleaseSummary, useUpdateSignal } from '../lib/updateSignal';
-import { summarizeCategories } from '../lib/changelogCategories';
+import { categoryParts, partJoiner } from '../lib/changelogCategories';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { prefersReducedMotion } from './shifts/motion';
 
 // The weekly "New in Nexus" bar (Neil, Oct 12 2026): a full-width Nexus-green
 // strip across the top of the page, raised by a New Feature, linking to
-// What's New. It speaks in categories only - "2 new features and 3 bug fixes"
-// - and leaves the details to What's New.
+// What's New. It speaks in categories only - "Updates this week, including
+// 2 New Features and 3 Bug Fixes", the counts in bold - and leaves the details
+// to What's New. The message is a way in too, not only the button. The same
+// news is kept in the notification bell (server: _whats_new_notice), so a
+// person who dismissed the bar can still find it there.
 //
 // Once a week, decided by the server (GET /task-changelog/feature-banner):
 // only for a New Feature released in the last 7 days that this person has not
@@ -113,6 +116,7 @@ export default function FeatureBanner({ activeView, onNavigate }) {
     closeTimer.current = setTimeout(() => { setBanner(null); setClosing(false); }, CLOSE_MS);
   };
 
+  const parts = categoryParts(banner.counts);
   return (
     <div ref={ref} role="region" aria-label="New in Nexus" className={`feature-banner${closing ? ' is-closing' : ''}`}>
       <div className="feature-banner-clip">
@@ -120,8 +124,18 @@ export default function FeatureBanner({ activeView, onNavigate }) {
           <Sparkles size={17} className="feature-banner-icon" aria-hidden="true" />
           <span className="feature-banner-label">New in Nexus</span>
           <span className="feature-banner-rule" aria-hidden="true" />
-          <p className="feature-banner-text">
-            <span className="feature-banner-title">{summarizeCategories(banner.counts)}</span>
+          {/* The message opens What's New too - a bigger target than the
+              button; the button stays the keyboard and screen-reader way in. */}
+          <p className="feature-banner-text" onClick={() => onNavigate?.('whats-new')}>
+            {/* Phones start at "Including" - the lead-in pushed the last
+                category out of two lines. */}
+            <span className="feature-banner-lead">Updates this week, including </span>
+            <span className="feature-banner-lead-short">Including </span>
+            {parts.map((p, i) => (
+              <span key={p.label}>
+                <strong className="feature-banner-count">{p.count} {p.label}</strong>{partJoiner(i, parts.length)}
+              </span>
+            ))}
           </p>
           <button type="button" className="feature-banner-cta" onClick={() => onNavigate?.('whats-new')} aria-label="See What's New">
             <span className="feature-banner-cta-long">See What&apos;s New</span>
