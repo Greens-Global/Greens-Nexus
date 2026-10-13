@@ -2415,6 +2415,19 @@ class ScheduledShift(Base):
     # preset / team setting when placed (Oct 2); '' on older rows, which
     # resolve preset -> team at read time (_sched_dict).
     timezone        = Column(String, default="")
+    # Weather Call (Oct 2026): what a weather call did to THIS placement -
+    # '' | cancelled (off, unpaid) | delayed | shortened | moved | kept - with
+    # the decision it came from and the times it had before, so Reinstate
+    # and a pay question can both see the original. The row is never
+    # deleted by a weather call.
+    weather_status      = Column(String, default="")
+    weather_decision_id = Column(String, default="")
+    original_start_hhmm = Column(String, default="")
+    original_end_hhmm   = Column(String, default="")
+    original_label      = Column(String, default="")
+    # A delay that moves an overnight shift's start past midnight puts the
+    # row on the next calendar day; this is the day it was on (Oct 12).
+    original_work_date  = Column(String, default="")
     # The grid and the reminder scan read one person's days (Oct 2).
     __table_args__ = (Index("ix_scheduled_shifts_email_date", "employee_email", "work_date"),)
 
@@ -2443,6 +2456,16 @@ class ShiftGroup(Base):
     # sort_order is the manager's own order (Reorder Teams), then name.
     archived        = Column(Integer, default=0)
     sort_order      = Column(Integer, default=0)
+    # Weather Call (Neil, Oct 10 2026): where this group works - an HrWorkSite
+    # whose coordinates the weather watch reads. '' = no site, which means no
+    # weather advisory for the group (the schedule says so to its managers).
+    work_site_id    = Column(String, default="")
+    # Who makes this group's weather call (JSON list of emails). Each must
+    # hold Manage access to Shifts (manager and above). Empty = the group's
+    # schedulers, then the company's managers.
+    weather_decider_emails = Column(String, default="")
+    # 1 = the weather watch includes this group (when its company is switched on).
+    weather_alerts  = Column(Integer, default=1)
 
 
 class ShiftGroupMember(Base):
@@ -5852,4 +5875,96 @@ class SiteModelMarkup(Base):
     ticket_id   = Column(String, default="")
     created_by  = Column(String, default="")
     created_at  = Column(String, default="")
+
+
+class WeatherOutlook(Base):
+    """The latest forecast band for one shift group on one day (Weather Call,
+    Oct 2026) - written by weather_watch.scan_once every half hour, read by
+    the schedule grid, which never calls a weather service itself. id is
+    "<group_id>:<YYYY-MM-DD>" so the scan upserts. New table - create_all
+    builds it; main._enable_rls_everywhere turns RLS on at startup."""
+    __tablename__ = "weather_outlook"
+    id           = Column(String, primary_key=True)
+    group_id     = Column(String, default="", index=True)
+    work_date    = Column(String, default="", index=True)   # YYYY-MM-DD, site-local
+    band         = Column(String, default="quiet")          # quiet | heads_up | major | warning
+    chance       = Column(Integer, default=0)               # highest rain chance in the scheduled hours, %
+    inches       = Column(Float, default=0)                 # rain expected over the scheduled hours
+    storm        = Column(Integer, default=0)               # 1 = a thunderstorm hour reached the storm chance
+    alerts_json  = Column(String, default="")               # NWS warnings in force that day (JSON list of events)
+    window_start = Column(String, default="")               # "7:00 AM" - the scheduled hours the band covers
+    window_end   = Column(String, default="")
+    hourly_json  = Column(String, default="")               # [{time, chance, inches, code}] for those hours
+    shifts       = Column(Integer, default=0)
+    people       = Column(Integer, default=0)
+    timezone     = Column(String, default="")               # the site's zone, from the forecast
+    updated_at   = Column(String, default="")
+
+
+class WeatherAdvisory(Base):
+    """Every weather notice the watch sent for a group-day (Weather Call,
+    Oct 2026): the record for later ("we told them on Thursday at 4 PM, here
+    is the forecast as it stood") and the dedupe - one notice per group, day
+    and band. band is major | warning (the advisory), heads_up (the quiet
+    Teams line) or eased (the all-clear bell). channels_json says what went
+    where and why anything did not. New table - create_all builds it;
+    main._enable_rls_everywhere turns RLS on at startup."""
+    __tablename__ = "weather_advisories"
+    id              = Column(String, primary_key=True)
+    group_id        = Column(String, default="", index=True)
+    work_date       = Column(String, default="", index=True)
+    band            = Column(String, default="")
+    chance          = Column(Integer, default=0)
+    inches          = Column(Float, default=0)
+    storm           = Column(Integer, default=0)
+    alerts_json     = Column(String, default="")
+    window_start    = Column(String, default="")
+    window_end      = Column(String, default="")
+    recipients_json = Column(String, default="")   # who was told (emails)
+    channels_json   = Column(String, default="")   # {"bell": n, "teams": "ok" | reason, "email": n, "dayNote": bool}
+    snapshot_json   = Column(String, default="")   # the hours the band was computed from
+    created_at      = Column(String, default="", index=True)
+
+
+class WeatherDecision(Base):
+    """A weather call (Weather Call, Phase 2 - Oct 2026): what a decider did
+    about one shift group's day because of the weather, and who was told.
+    kind: cancel (the day is off and UNPAID for the people picked), delay
+    (start later), end_early, move (another site or indoor work), proceed
+    (the plan stands despite the forecast). people_json is the roster as it
+    stood - every person on the day with selected / outcome / their shift
+    ids / original times / each channel's result / acknowledgment time -
+    so the record answers "who was told what, when, and did they see it"
+    without the shifts. status: active | superseded (a later call on the
+    same day) | reinstated (undone by Reinstate). New table - create_all
+    builds it; main._enable_rls_everywhere turns RLS on at startup."""
+    __tablename__ = "weather_decisions"
+    id             = Column(String, primary_key=True)
+    group_id       = Column(String, default="", index=True)
+    work_date      = Column(String, default="", index=True)
+    company        = Column(String, default="")
+    kind           = Column(String, default="")
+    new_start      = Column(String, default="")   # delay: the new start (HH:MM)
+    new_end        = Column(String, default="")   # end_early: the new end
+    move_to        = Column(String, default="")   # move: where
+    reason         = Column(String, default="")
+    sms            = Column(Integer, default=1)   # the crew was texted (unless opted out / no phone)
+    people_json    = Column(Text, default="")
+    outlook_json   = Column(String, default="")   # the forecast band as it stood when the call was made
+    status         = Column(String, default="active", index=True)
+    decided_by     = Column(String, default="")
+    decided_at     = Column(String, default="", index=True)
+    escalated_at   = Column(String, default="")   # the decider was told who had not acknowledged
+    reinstated_by  = Column(String, default="")
+    reinstated_at  = Column(String, default="")
+
+
+class NexusPersonPref(Base):
+    """A person's own notification switches that are not about tasks
+    (task_notify_prefs covers those). First use: weather_sms - whether a
+    weather call texts them (on by default; Neil, Oct 10). New table -
+    create_all builds it; RLS from the startup sweep."""
+    __tablename__ = "nexus_person_prefs"
+    email       = Column(String, primary_key=True)
+    weather_sms = Column(Integer, default=1)
     updated_at  = Column(String, default="")

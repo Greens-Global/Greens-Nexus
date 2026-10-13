@@ -2147,6 +2147,20 @@ export const api = {
   forceResendWorkforceScorecard: (logId) => req(`/workforce-scorecard/log/${logId}`, { method: "DELETE" }),
   sendTestWorkforceScorecard: (managerEmail, weekStart) =>
     req("/workforce-scorecard/test-send", { method: "POST", body: JSON.stringify({ manager_email: managerEmail, week_start: weekStart || "" }) }),
+  // ── Weather Call (Oct 2026): the watch's settings, Check Now and the record of what was sent.
+  weatherWatchSettings:     ()     => req('/weather-watch/settings'),
+  weatherWatchSettingsSave: (data) => req('/weather-watch/settings', { method: 'PUT', body: JSON.stringify(data) }),
+  weatherWatchScan:         ()     => req('/weather-watch/scan', { method: 'POST' }),
+  weatherWatchAdvisories:   (groupId = '') => req(`/weather-watch/advisories${groupId ? `?group_id=${encodeURIComponent(groupId)}` : ''}`),
+  // The weather call itself: the screen, the decision, follow-up, acknowledging, a person's texts switch.
+  weatherCallScreen:    (groupId, date)       => req(`/weather-call/${encodeURIComponent(groupId)}/${date}`),
+  weatherCallDecide:    (groupId, date, data) => req(`/weather-call/${encodeURIComponent(groupId)}/${date}`, { method: 'POST', body: JSON.stringify(data) }),
+  weatherCallReinstate: (id)                  => req(`/weather-call/${encodeURIComponent(id)}/reinstate`, { method: 'POST' }),
+  weatherCallRemind:    (id)                  => req(`/weather-call/${encodeURIComponent(id)}/remind`, { method: 'POST' }),
+  weatherCallAck:       (id)                  => req(`/weather-call/${encodeURIComponent(id)}/ack`, { method: 'POST' }),
+  weatherCallMine:      ()                    => req('/weather-call/mine'),
+  weatherCallMyPrefs:   ()                    => req('/weather-call/my-prefs'),
+  weatherCallMyPrefsSave: (data)              => req('/weather-call/my-prefs', { method: 'PUT', body: JSON.stringify(data) }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

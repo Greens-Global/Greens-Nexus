@@ -961,6 +961,17 @@ def _run_migrations():
             "ALTER TABLE ops_competitors ADD COLUMN last_status VARCHAR DEFAULT ''",
             "ALTER TABLE ops_competitors ADD COLUMN last_detail VARCHAR DEFAULT ''",
             "ALTER TABLE ops_competitors ADD COLUMN watch BOOLEAN DEFAULT 1",
+            # Weather Call (Oct 2026): a group's work site, deciders and switch. models.ShiftGroup.
+            "ALTER TABLE shift_groups ADD COLUMN work_site_id VARCHAR DEFAULT ''",
+            "ALTER TABLE shift_groups ADD COLUMN weather_decider_emails TEXT DEFAULT ''",
+            "ALTER TABLE shift_groups ADD COLUMN weather_alerts INTEGER DEFAULT 1",
+            # Weather Call (Oct 2026): what a weather call did to a placed shift. models.ScheduledShift.
+            "ALTER TABLE scheduled_shifts ADD COLUMN weather_status VARCHAR DEFAULT ''",
+            "ALTER TABLE scheduled_shifts ADD COLUMN weather_decision_id VARCHAR DEFAULT ''",
+            "ALTER TABLE scheduled_shifts ADD COLUMN original_start_hhmm VARCHAR DEFAULT ''",
+            "ALTER TABLE scheduled_shifts ADD COLUMN original_end_hhmm VARCHAR DEFAULT ''",
+            "ALTER TABLE scheduled_shifts ADD COLUMN original_label VARCHAR DEFAULT ''",
+            "ALTER TABLE scheduled_shifts ADD COLUMN original_work_date VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2147,6 +2158,17 @@ def _run_migrations():
         "ALTER TABLE ops_competitors ADD COLUMN IF NOT EXISTS last_status VARCHAR DEFAULT ''",
         "ALTER TABLE ops_competitors ADD COLUMN IF NOT EXISTS last_detail VARCHAR DEFAULT ''",
         "ALTER TABLE ops_competitors ADD COLUMN IF NOT EXISTS watch BOOLEAN DEFAULT TRUE",
+        # Weather Call (Oct 2026): a group's work site, deciders and switch. models.ShiftGroup.
+        "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS work_site_id VARCHAR DEFAULT ''",
+        "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS weather_decider_emails TEXT DEFAULT ''",
+        "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS weather_alerts INTEGER DEFAULT 1",
+        # Weather Call (Oct 2026): what a weather call did to a placed shift. models.ScheduledShift.
+        "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS weather_status VARCHAR DEFAULT ''",
+        "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS weather_decision_id VARCHAR DEFAULT ''",
+        "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS original_start_hhmm VARCHAR DEFAULT ''",
+        "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS original_end_hhmm VARCHAR DEFAULT ''",
+        "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS original_label VARCHAR DEFAULT ''",
+        "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS original_work_date VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -2722,6 +2744,20 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             print(f"[startup] workforce scorecard loop skipped: {e}")
         try:
+            # Weather Call (Oct 2026): the rain advisory per shift group, every
+            # half hour, behind the per-company switch. See weather_watch.py.
+            from weather_watch import weather_watch_loop
+            _tasks.append(_a.create_task(weather_watch_loop()))
+        except Exception as e:
+            print(f"[startup] weather watch loop skipped: {e}")
+        try:
+            # ...and the follow-up on a weather call: a second text to anyone
+            # silent after 30 minutes, the decider told after 60. weather_call.py.
+            from weather_call import weather_call_loop
+            _tasks.append(_a.create_task(weather_call_loop()))
+        except Exception as e:
+            print(f"[startup] weather call loop skipped: {e}")
+        try:
             from routers.hr_interviews import interview_followup_loop
             _tasks.append(_a.create_task(interview_followup_loop()))
         except Exception as e:
@@ -2962,6 +2998,9 @@ _CSRF_EXEMPT_PATHS = frozenset({
     # Daily Briefing one-click actions: authorized by a signed per-decision
     # token, same reasoning - see routers/briefing_actions.py.
     "/briefing-actions/page",
+    # Weather call acknowledgment (Oct 2026): the form on the signed-link
+    # page - the token is the credential - see routers/weather_call.py.
+    "/weather-call/ack",
     # ...and the Outlook card version of the briefing (Outlook's own JWT names
     # who clicked, same as /mail-actions/card).
     "/briefing-actions/card",
@@ -3288,6 +3327,10 @@ from routers import workforce_views  # noqa: E402
 app.include_router(workforce_views.router)  # Workforce Analytics saved team views (dashboard_views target='workforce') - see routers/workforce_views.py
 from routers import weather as weather_router  # noqa: E402
 app.include_router(weather_router.router)  # Dashboard Weather widget - Open-Meteo via the API (routers/weather.py)
+from routers import weather_watch as weather_watch_router  # noqa: E402
+app.include_router(weather_watch_router.router)  # Weather Alerts settings + Check Now (Weather Call, Oct 2026)
+from routers import weather_call as weather_call_router  # noqa: E402
+app.include_router(weather_call_router.router)  # The weather call itself: decide, acknowledge, reinstate (Oct 2026)
 from routers import accounting_flux  # noqa: E402
 app.include_router(accounting_flux.router)  # Accounting > Reports > Flux Analysis explanation notes (routers/accounting_flux.py)
 from routers import accounting_budgets, accounting_partners, accounting_allocations  # noqa: E402

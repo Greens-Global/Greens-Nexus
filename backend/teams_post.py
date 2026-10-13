@@ -83,6 +83,22 @@ def send_channel_message(token: str, team_id: str, channel_id: str, html: str) -
         raise RuntimeError(f"Graph {r.status_code}: {r.text[:180]}")
 
 
+def send_chat_message_urgent(token: str, chat_id: str, html: str) -> None:
+    """POST one URGENT message into a Teams chat as the token's user
+    (Weather Call, Oct 2026): Teams re-notifies the reader every two minutes
+    for twenty minutes until they open it. Urgent works in one-to-one and
+    small group chats, not channels - a weather call to one person. Raises
+    on failure so the caller records the reason."""
+    r = httpx.post(
+        f"{GRAPH}/chats/{chat_id}/messages",
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        json={"body": {"contentType": "html", "content": with_signature(html)}, "importance": "urgent"},
+        timeout=15,
+    )
+    if r.status_code >= 400:
+        raise RuntimeError(f"Graph {r.status_code}: {r.text[:180]}")
+
+
 CLAIM_WINDOW_SEC = 90      # one deliverer owns a row for this long per attempt
 SWEEP_MIN_AGE_SEC = 120    # sweeps leave rows this young to the endpoint's inline attempt
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 // Settings > Global Settings > Shifts (Oct 2026; was Shifts > Presets &
 // Teams and the settings block under the manager inbox): deleting a shift
@@ -34,6 +34,7 @@ vi.mock('../../api', () => ({
     timeOffTypesSave: vi.fn().mockImplementation(async (b) => ({ builtIn: ['vacation'], custom: b.custom })),
     getPeopleDirectory: vi.fn().mockResolvedValue([{ email: 'a@x.com', name: 'Amy Adams' }, { email: 'b@x.com', name: 'Bob Brown' }, { email: 'c@x.com', name: 'Cat Cole' }]),
     getRolesDirectory: vi.fn().mockResolvedValue([]),
+    getWorkSites: vi.fn().mockResolvedValue([{ id: 's1', name: 'Harbor View', latitude: '33.1', longitude: '-117.2' }, { id: 's2', name: 'Yard', latitude: '', longitude: '' }]),
   },
 }));
 
@@ -42,7 +43,8 @@ const { ZONE_GROUPS } = await import('../../lib/worldClockZones');
 const ASIA = ZONE_GROUPS.Asia[0];
 
 const preset = { id: 'p1', name: 'Store', code: 'GST', start: '09:00', end: '17:00', days: '1,2,3,4,5', graceMin: 10, breakMin: 0, color: '#2563eb', timezone: 'America/Los_Angeles', placed: 3, assigned: 1 };
-const groups = [{ id: 'g1', name: 'Front Desk', members: ['a@x.com', 'b@x.com'], schedulers: [], chatId: 'c1', chatName: 'Front Desk Chat', sortOrder: 0 },
+const groups = [{ id: 'g1', name: 'Front Desk', members: ['a@x.com', 'b@x.com'], schedulers: [], chatId: 'c1', chatName: 'Front Desk Chat', sortOrder: 0,
+  workSiteId: 's1', workSiteName: 'Harbor View', siteLocated: true, weatherDeciders: ['a@x.com'], weatherAlerts: true },
   { id: 'g2', name: 'Back Office', members: ['c@x.com'], schedulers: [], sortOrder: 1 },
   { id: 'g3', name: 'Operations', members: ['a@x.com'], schedulers: [], chatId: 'ch9', chatName: 'BOD-EOD', teamsTarget: 'channel', teamId: 't9', teamName: 'Ops Team', sortOrder: 2 }];
 const toastOk = vi.fn();
@@ -166,6 +168,24 @@ describe('Groups', () => {
     fireEvent.click(screen.getByRole('button', { name: /Save/ }));
     await waitFor(() => expect(timeShiftGroupSet).toHaveBeenCalled());
     expect(timeShiftGroupSet.mock.calls[0][1]).toMatchObject({ teams_target: 'channel', teams_chat_id: 'c-bod', teams_chat_name: 'BOD-EOD', teams_team_id: 't1', teams_team_name: 'Admin' });
+  });
+
+  // Weather Call (Oct 2026): a group's work site is where the weather watch
+  // looks, and its deciders make the call. The list says which groups the
+  // watch cannot see; the editor saves the three fields with the rest.
+  it('shows each group on the weather watch and saves its work site and deciders', async () => {
+    timeShiftGroupSet.mockReset().mockResolvedValue({ ok: true });
+    render(<ShiftGroupsPanel toastOk={toastOk} toastErr={toastErr} />);
+    expect(await screen.findByText('Harbor View · Weather alerts on · 1 decider')).toBeTruthy();
+    expect(screen.getAllByText('No work site - weather alerts cannot watch this group').length).toBe(2);   // Back Office, Operations
+    fireEvent.click(screen.getAllByText('Edit')[1]);                                  // Back Office
+    const dlg = await screen.findByRole('dialog', { name: 'Edit Group' });
+    fireEvent.change(within(dlg).getByLabelText('Work site'), { target: { value: 's1' } });
+    fireEvent.change(within(dlg).getByLabelText('Add a weather decider'), { target: { value: 'b@x.com' } });
+    expect(within(dlg).getByRole('button', { name: 'Remove weather decider Bob Brown' })).toBeTruthy();
+    fireEvent.click(within(dlg).getByRole('button', { name: /Save/ }));
+    await waitFor(() => expect(timeShiftGroupSet).toHaveBeenCalled());
+    expect(timeShiftGroupSet.mock.calls[0][1]).toMatchObject({ work_site_id: 's1', weather_deciders: ['b@x.com'], weather_alerts: true });
   });
 
   it('switching between chat and channel clears the other kind', async () => {
