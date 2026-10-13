@@ -1,8 +1,8 @@
-"""Role change without a promotion, with approval (Pranshu, Oct 13 2026).
+"""Role change without a promotion (Pranshu, Oct 13-14 2026).
 
-An admin or HR asks for the change from People (Change Role > Role Change
-Without Promotion) or from Settings > Access, and gives a reason. Nothing
-changes yet: the employee's manager and their company's HR contact
+From PEOPLE (Change Role > Role Change Without Promotion) HR changes the role
+directly - change_now. From SETTINGS > ACCESS an admin only ASKS, with a
+reason - request_change. Nothing changes yet: the employee's manager and their company's HR contact
 (hr_entities.hr_contact_email) each get a bell (priority - the yellow bar)
 and an email with the reason, and EITHER of them approves or declines -
 from the bell / email (both open the decision dialog in People) or from the
@@ -170,9 +170,9 @@ def send_emails(batch: list) -> None:
 
 # ── ask / decide / cancel ────────────────────────────────────────────────────
 
-def request_change(db: Session, user: dict, emp: models.NexusEmployee, role_id: str, reason: str) -> tuple:
-    """Record the request and tell the approvers. Not committed.
-    Returns (request, warning, emails)."""
+def _checked(db: Session, user: dict, emp: models.NexusEmployee, role_id: str) -> tuple:
+    """Lock the employee and check the change can be made - shared by a request
+    and a direct change. Returns (employee, email, role, current role, warning)."""
     from hr_life_events import current_job_role
     from routers.jobroles import check_can_assign
     # Locked: two requests at once must not both pass the one-pending check.
@@ -182,9 +182,6 @@ def request_change(db: Session, user: dict, emp: models.NexusEmployee, role_id: 
     email = (emp.work_email or "").strip().lower()
     if not email:
         raise RoleChangeError("They need a work email first - the role is their access in Nexus.", 409)
-    reason = (reason or "").strip()
-    if not reason:
-        raise RoleChangeError("Add the reason - their manager and HR read it before they approve.")
     jr = (db.query(models.NexusGroup).filter(models.NexusGroup.id == (role_id or "").strip(),
                                              models.NexusGroup.is_job_role == 1).first()
           if (role_id or "").strip() else None)
@@ -197,9 +194,22 @@ def request_change(db: Session, user: dict, emp: models.NexusEmployee, role_id: 
         warning = check_can_assign(db, user, jr, email, hr_path=True)
     except HTTPException as e:
         raise RoleChangeError(str(e.detail), e.status_code)
-    open_req = (db.query(models.HrRoleChangeRequest)
-                .filter(models.HrRoleChangeRequest.employee_id == emp.id, models.HrRoleChangeRequest.status == PENDING)
-                .first())
+    return emp, email, jr, cur, warning
+
+
+def _pending_for(db: Session, emp_id: str):
+    return (db.query(models.HrRoleChangeRequest)
+            .filter(models.HrRoleChangeRequest.employee_id == emp_id, models.HrRoleChangeRequest.status == PENDING))
+
+
+def request_change(db: Session, user: dict, emp: models.NexusEmployee, role_id: str, reason: str) -> tuple:
+    """Settings > Access: record the request and tell the approvers. Not
+    committed. Returns (request, warning, emails)."""
+    reason = (reason or "").strip()
+    if not reason:
+        raise RoleChangeError("Add the reason - their manager and HR read it before they approve.")
+    emp, email, jr, cur, warning = _checked(db, user, emp, role_id)
+    open_req = _pending_for(db, emp.id).first()
     if open_req:
         raise RoleChangeError(f"A role change to {open_req.to_role_name} is already waiting for approval - "
                               f"cancel it on their Access tab first.", 409)
@@ -232,6 +242,44 @@ def request_change(db: Session, user: dict, emp: models.NexusEmployee, role_id: 
             "Review And Approve", url,
             "You get this email because you are their manager or their company's HR contact in Nexus.")))
     return req, warning, emails
+
+
+def change_now(db: Session, user: dict, emp: models.NexusEmployee, role_id: str, reason: str = "") -> tuple:
+    """People: HR changes the role directly - no approval. A request still
+    waiting on this person is overtaken: canceled, its approvers told. Not
+    committed. Returns (role, warning)."""
+    from routers.hr import _hr_notify
+    from routers.jobroles import apply_job_role
+    emp, email, jr, cur, warning = _checked(db, user, emp, role_id)
+    me = user["email"].lower()
+    reason = (reason or "").strip()[:1000]
+    from_title = emp.job_title or (cur.name if cur else "")
+    apply_job_role(db, jr, email, me)
+    if jr.department:
+        emp.department = jr.department
+    emp.updated_at = _now()
+    db.add(models.AuditLog(timestamp=_now(), user_email=me, user_role=str(user.get("role") or ""),
+                           action="Changed role", resource_type="employee", resource_id=emp.id,
+                           details=json.dumps({"employee": email, "from": from_title, "to": jr.name,
+                                               "reason": reason, "via": "people"})[:4000]))
+    who = _name(db, me)
+    name = (emp.display_name or f"{emp.first_name} {emp.last_name}").strip()
+    for req in _pending_for(db, emp.id).with_for_update().all():
+        req.status, req.decided_by, req.decided_at = "canceled", me, _now()
+        req.decision_note = f"Changed directly in People to {jr.name}."
+        _clear_bells(db, req)
+        for to in ({req.requested_by} | {a.get("email", "") for a in (req.approvers or [])}) - {me, ""}:
+            _bell(db, to, f"Role change canceled - {name}",
+                  f"{who} changed {name}'s role to {jr.name} in People. Nothing to approve.", req, me, button=PEOPLE)
+    _hr_notify(db, email, "Your role changed",
+               f"Your role is now {jr.name}. Your access in Nexus follows the new role.", ref_id=emp.id, requested_by=me)
+    manager = (emp.manager_email or "").strip().lower()
+    if manager and manager not in (me, email):
+        _hr_notify(db, manager, f"Role changed - {name}",
+                   f"{who} changed {name}'s role: {from_title or 'No role'} -> {jr.name}."
+                   + (f"\nReason: {reason}" if reason else ""),
+                   ref_id=emp.id, requested_by=me, action={"view": "hr", "sub": "hr-people", "label": "Open People"})
+    return jr, warning
 
 
 def _load(db: Session, req_id: str, lock: bool = False) -> models.HrRoleChangeRequest:
@@ -319,3 +367,54 @@ def cancel(db: Session, user: dict, req_id: str, can_manage: bool) -> models.HrR
                   f"{_name(db, me)} canceled the change of {req.employee_name}'s role to {req.to_role_name}. "
                   f"Nothing to approve.", req, me, button=PEOPLE)
     return req
+
+
+# ── history ──────────────────────────────────────────────────────────────────
+
+def _signers(db: Session, sign_request_id: str) -> list:
+    if not sign_request_id:
+        return []
+    rows = (db.query(models.HrSignParty).filter(models.HrSignParty.request_id == sign_request_id)
+            .order_by(models.HrSignParty.ordinal).all())
+    return [{"name": p.name or p.email, "signedAt": p.signed_at or ""} for p in rows if p.signed_at]
+
+
+def role_history(db: Session, emp: models.NexusEmployee) -> list:
+    """Every role change on one person, newest first (Pranshu, Oct 14): requests
+    from Settings > Access once decided, direct changes from People, and signed
+    promotions - when, from what to what, the reason, who raised it and who
+    approved (or signed). A request still waiting is the pending card, not this."""
+    out = []
+    for r in (db.query(models.HrRoleChangeRequest)
+              .filter(models.HrRoleChangeRequest.employee_id == emp.id, models.HrRoleChangeRequest.status != PENDING)):
+        out.append({"id": r.id, "kind": "request", "status": r.status, "statusLabel": STATUS_LABELS.get(r.status, r.status),
+                    "at": r.decided_at or r.created_at, "from": r.from_title, "to": r.to_role_name, "reason": r.reason,
+                    "raisedBy": r.requested_by, "raisedByName": r.requested_by_name or _name(db, r.requested_by),
+                    "raisedAt": r.created_at, "decidedBy": r.decided_by, "decidedByName": _name(db, r.decided_by),
+                    "note": r.decision_note or "", "signers": [], "effectiveDate": ""})
+    for a in (db.query(models.AuditLog)
+              .filter(models.AuditLog.action == "Changed role", models.AuditLog.resource_type == "employee",
+                      models.AuditLog.resource_id == emp.id)):
+        try:
+            d = json.loads(a.details or "{}")
+        except ValueError:
+            d = {}
+        out.append({"id": f"audit-{a.id}", "kind": "direct", "status": "changed", "statusLabel": "Changed In People",
+                    "at": a.timestamp, "from": d.get("from", ""), "to": d.get("to", ""), "reason": d.get("reason", ""),
+                    "raisedBy": a.user_email, "raisedByName": _name(db, a.user_email), "raisedAt": a.timestamp,
+                    "decidedBy": "", "decidedByName": "", "note": "", "signers": [], "effectiveDate": ""})
+    for ev in (db.query(models.HrLifeEvent)
+               .filter(models.HrLifeEvent.kind == "promotion", models.HrLifeEvent.employee_id == emp.id,
+                       models.HrLifeEvent.status == "completed")):
+        d = ev.inputs or {}
+        promo = d.get("change_type", "promotion") == "promotion"
+        out.append({"id": ev.id, "kind": "promotion", "status": "completed",
+                    "statusLabel": "Promotion" if promo else "Role Change Letter",
+                    "at": ev.completed_at or ev.applied_at or ev.created_at,
+                    "from": d.get("old_title") or d.get("old_role_name", ""),
+                    "to": d.get("job_title") or d.get("role_name", ""), "reason": d.get("reason", ""),
+                    "raisedBy": ev.created_by, "raisedByName": _name(db, ev.created_by), "raisedAt": ev.created_at,
+                    "decidedBy": "", "decidedByName": "", "note": "",
+                    "signers": _signers(db, ev.sign_request_id), "effectiveDate": ev.effective_date or ""})
+    out.sort(key=lambda x: x["at"] or "", reverse=True)
+    return out

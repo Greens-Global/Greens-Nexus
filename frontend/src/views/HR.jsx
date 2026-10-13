@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } fro
 import { QuestionnairesModal, InterviewPanel, LeaderboardModal, EmployeeInterviews } from '../components/Interviews';
 import { PacketsModal, SendHiringPacketModal, PacketSigner, PersonLifeEvents, usDay } from '../components/HiringPacket';
 import { PromoteModal, OffboardModal, RoleChangeModal } from '../components/HrPersonActions';
-import { RoleChangeRequestCard, RoleChangeDecisionModal } from '../components/RoleChangeRequests';
+import { RoleChangeRequestCard, RoleChangeDecisionModal, RoleHistory } from '../components/RoleChangeRequests';
 import CandidateDetailModal, { STAGES, STAGE_META, candName } from '../components/HiringCandidateDetail';
 import { ScheduleInterviewModal } from '../components/HiringSchedule';
 import CandidateFormModal from '../components/HiringCandidateForm';
@@ -14,7 +14,7 @@ import {
   Building2, Trash2, MapPinned, Wallet, Landmark, Lock, Contact, Heart,
   ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight, RotateCcw,
   ChevronDown, Globe, Globe2, BookMarked, Download, Link2, ExternalLink,
-  ListChecks, RefreshCw, Video,
+  ListChecks, RefreshCw, Video, Hourglass,
 } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, formatWeekday } from '../lib/datetime';
@@ -1759,7 +1759,9 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
     ['documents', 'Documents', FileText],
     ['interviews', 'Interviews', Video],
     ['checklist', 'Checklist', ListChecks],
-    isAdmin && ['access', 'Access', Shield],
+    // Everyone in People sees Access (Pranshu, Oct 14): the pending role
+    // change and the role history; managing access stays admin-only.
+    ['access', 'Access', Shield],
     ['bod', 'Work Logs', Clock],
   ]).filter(Boolean);
   const expiry = nextExpiry(e);
@@ -1898,13 +1900,11 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
         </div>
       )}
       {!teamView && <PersonLifeEvents employeeId={e.id} refreshKey={eventsKey} onSignNow={setSignParty} toastOk={toastOk} toastErr={toastErr} />}
-      {!teamView && !isAdmin && <div style={{ marginTop: 14 }}><RoleChangeRequestCard employeeId={e.id} refreshKey={requestsKey}
-        toastOk={toastOk} toastErr={toastErr} onDecided={() => onReload?.()} /></div>}
       {roleAction === 'choose' && <RoleChangeModal employee={e} toastErr={toastErr}
         onClose={() => setRoleAction(null)} onPromote={() => setRoleAction('promotion')}
         onChanged={res => {
-          setRoleAction(null); setRequestsKey(n => n + 1);
-          toastOk(`Sent to ${res.approvers.map(a => a.name).join(' and ')} - the role changes when one of them approves.${res.warning ? ` ${res.warning}` : ''}`);
+          setRoleAction(null); setRequestsKey(n => n + 1); onReload?.();
+          toastOk(`${e.firstName} is now ${res.roleName}.${res.warning ? ` ${res.warning}` : ''}`);
         }} />}
       {roleAction === 'promotion' && <PromoteModal employee={e} mode={roleAction} canSeePay={canSeeComp} toastErr={toastErr}
         onClose={() => setRoleAction(null)}
@@ -2054,13 +2054,14 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
 
         {/* Role change awaiting approval (Pranshu, Oct 13): the manager or HR
             approves here, or from the bell / email. */}
-        {tab === 'access' && (teamView || isAdmin) && <RoleChangeRequestCard employeeId={e.id} refreshKey={requestsKey}
-          toastOk={toastOk} toastErr={toastErr} onDecided={() => onReload?.()} />}
+        {tab === 'access' && <RoleChangeRequestCard employeeId={e.id} refreshKey={requestsKey}
+          toastOk={toastOk} toastErr={toastErr} onDecided={() => { setRequestsKey(n => n + 1); onReload?.(); }} />}
         {tab === 'access' && teamView && <TeamAccessView employee={e} />}
         {/* keyed on updatedAt: a role change made from the Change Role modal
             re-reads the job role and access shown here */}
         {tab === 'access' && isAdmin && !teamView && <EmployeeAccess key={e.updatedAt} email={meEmail} identityType={e.identityType} companyId={e.company || ''} toastOk={toastOk} toastErr={toastErr} onChanged={onEmployeeUpdated}
           onChangeRole={['active', 'onboarding'].includes(e.status) && e.identityType !== 'external' ? () => setRoleAction('choose') : undefined} />}
+        {tab === 'access' && <RoleHistory employeeId={e.id} refreshKey={`${requestsKey}-${eventsKey}-${e.updatedAt || ''}`} />}
 
         {tab === 'bod' && <WorkLogsSection employee={e} />}
 
@@ -5653,6 +5654,22 @@ function PeopleStatCards({ employees, externals = [], loading, isMobile, onStatu
   );
 }
 
+// A role change waiting on approval (Pranshu, Oct 14): the People list marks
+// the person so HR sees something is pending for them; a click opens it.
+function PendingRoleBadge({ req, onOpen }) {
+  if (!req) return null;
+  const label = `Role change to ${req.toRoleName} - ${req.canDecide ? 'waiting for your approval' : 'awaiting approval'}`;
+  const open = ev => { ev.stopPropagation(); onOpen(req); };
+  return (
+    <span role="button" tabIndex={0} title={label} aria-label={label} onClick={open}
+      onKeyDown={ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); open(ev); } }}
+      style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 20, height: 20, borderRadius: '50%', flexShrink: 0, cursor: 'pointer',
+        background: 'hsla(var(--color-orange),0.16)', color: 'hsl(var(--color-orange))' }}>
+      <Hourglass size={11} />
+    </span>
+  );
+}
+
 export default function HR({ activeSub, onSubChange }) {
   // Legacy subviews (hr-ms / hr-asana / …) all collapse into People for now.
   // E-Sign moved to its own top-level Documents module (Jul 2026); legacy
@@ -5729,6 +5746,7 @@ export default function HR({ activeSub, onSubChange }) {
   // Bell / email "Review Request" on a role change (Pranshu, Oct 13) lands on
   // hr-role-change-<id>: open the decision right away, then People.
   const [roleDecisionId, setRoleDecisionId] = useState(null);
+  const [pendingRoles, setPendingRoles] = useState({});   // employeeId -> waiting role change
   useEffect(() => {
     const m = String(activeSub || '').match(/^hr-role-change-(.+)$/);
     if (m) { setRoleDecisionId(m[1]); onSubChange?.('hr-people'); }
@@ -5812,6 +5830,12 @@ export default function HR({ activeSub, onSubChange }) {
     if (hrTeam || (sub !== 'hr-people' && sub !== 'hr-checklists')) return;
     api.getChecklistProgress().then(r => setClProgress(r.progress || {})).catch(() => {});
   }, [sub, selectedId, hrTeam]);
+  useEffect(() => {
+    if (sub !== 'hr-people') return;
+    api.getRoleChangeRequests()
+      .then(rows => setPendingRoles(Object.fromEntries((rows || []).map(r => [r.employeeId, r]))))
+      .catch(() => {});
+  }, [sub, selectedId, employees, roleDecisionId]);
   const openChecklistOf = (id) => { setOpenTab('checklist'); setSelectedId(id); onSubChange?.('hr-people'); };
   const entityName = id => entities.find(en => en.id === id)?.name || '';
 
@@ -6153,6 +6177,7 @@ export default function HR({ activeSub, onSubChange }) {
                             <div style={{ minWidth: 0 }}>
                               <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}>
                                 {fullName(e)}{isExtRow(e) && <ExternalBadge />}
+                                <PendingRoleBadge req={pendingRoles[e.id]} onOpen={r => setRoleDecisionId(r.id)} />
                               </div>
                               <div className="ppl-cell-sub" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                 {e.workEmail || e.employeeCode}
@@ -6199,6 +6224,7 @@ export default function HR({ activeSub, onSubChange }) {
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontWeight: 600, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}>
                               {fullName(e)}{isExtRow(e) && <ExternalBadge />}
+                                <PendingRoleBadge req={pendingRoles[e.id]} onOpen={r => setRoleDecisionId(r.id)} />
                             </div>
                             <div className="ppl-cell-sub" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.jobTitle || e.externalCompany || e.workEmail || '-'}</div>
                             {(clProgress[e.id] || []).length > 0 && (

@@ -1302,6 +1302,10 @@ export const api = {
   approveRoleChange:   (id)        => req(`/hr/role-change-requests/${id}/approve`, { method: 'POST' }),
   declineRoleChange:   (id, note)  => req(`/hr/role-change-requests/${id}/decline`, { method: 'POST', body: JSON.stringify({ note }) }),
   cancelRoleChange:    (id)        => req(`/hr/role-change-requests/${id}/cancel`, { method: 'POST' }),
+  // From People, HR changes the role directly - no approval (Pranshu, Oct 14).
+  changeRoleNow:       (eid, data) => req(`/hr/employees/${eid}/role`, { method: 'POST', body: JSON.stringify(data) }),
+  getRoleHistory:      ({ employeeId = '', email = '' } = {}) =>
+    req(`/hr/role-history?employee_id=${encodeURIComponent(employeeId)}&email=${encodeURIComponent(email)}`),
   previewOffboard:     (eid, data) => req(`/hr/employees/${eid}/offboard/preview`, { method: 'POST', body: JSON.stringify(data) }),
   offboard:            (eid, data) => req(`/hr/employees/${eid}/offboard`, { method: 'POST', body: JSON.stringify(data) }),
   cancelOffboarding:   (id)        => req(`/hr/life-events/${id}/cancel-offboarding`, { method: 'POST' }),

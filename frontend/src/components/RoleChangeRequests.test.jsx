@@ -21,10 +21,18 @@ vi.mock('../api', () => ({
     approveRoleChange: (...a) => approve(...a),
     declineRoleChange: (...a) => decline(...a),
     cancelRoleChange: () => Promise.resolve({ ...row, status: 'canceled' }),
+    getRoleHistory: () => Promise.resolve([
+      { id: 'h1', kind: 'promotion', status: 'completed', statusLabel: 'Promotion', at: '2026-10-14T17:00:00Z', from: 'Associate', to: 'Lead',
+        reason: 'Great year', raisedBy: 'hana@x.com', raisedByName: 'Hana', raisedAt: '2026-10-10T17:00:00Z',
+        signers: [{ name: 'Erin Lee' }, { name: 'Max' }], effectiveDate: '2026-10-01' },
+      { id: 'h2', kind: 'request', status: 'approved', statusLabel: 'Approved', at: '2026-10-13T17:00:00Z', from: 'Tester', to: 'Associate',
+        reason: 'Covers month-end close', raisedBy: 'ada@x.com', raisedByName: 'Ada', raisedAt: '2026-10-12T17:00:00Z',
+        decidedBy: 'max@x.com', decidedByName: 'Max', signers: [] },
+    ]),
   },
 }));
 
-const { RoleChangeRequestCard, RoleChangeDecisionModal } = await import('./RoleChangeRequests');
+const { RoleChangeRequestCard, RoleChangeDecisionModal, RoleHistory } = await import('./RoleChangeRequests');
 
 describe('RoleChangeRequestCard', () => {
   beforeEach(() => { approve.mockClear(); decline.mockClear(); });
@@ -60,5 +68,16 @@ describe('RoleChangeDecisionModal', () => {
     fireEvent.click(screen.getByText('Decline Request'));
     await waitFor(() => expect(onDecided).toHaveBeenCalled());
     expect(decline).toHaveBeenCalledWith('rq1', 'Not this quarter');
+  });
+});
+
+describe('RoleHistory', () => {
+  it('logs who raised each change, the reason, and who approved or signed', async () => {
+    render(<RoleHistory employeeId="e1" />);
+    await waitFor(() => expect(screen.getByText('Lead')).toBeTruthy());
+    expect(screen.getByText(/Signed by Erin Lee, Max/)).toBeTruthy();
+    expect(screen.getByText(/Raised by Ada/)).toBeTruthy();
+    expect(screen.getByText(/Approved by Max/)).toBeTruthy();
+    expect(screen.getByText('Covers month-end close')).toBeTruthy();
   });
 });

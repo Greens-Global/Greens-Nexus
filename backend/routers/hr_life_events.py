@@ -407,12 +407,27 @@ def _rc_employee(db: Session, user: dict, employee_id: str = "", email: str = ""
     return emp
 
 
+@router.post("/employees/{eid}/role")
+def change_role_now(eid: str, body: RoleChangeIn, user: dict = Depends(require_hr_write),
+                    db: Session = Depends(get_db)):
+    """People > Change Role > Role Change Without Promotion (Pranshu, Oct 14):
+    HR changes the role directly - no approval. The reason is optional and
+    kept in the audit row. A promotion goes through /promotion."""
+    emp = _rc_employee(db, user, eid)
+    try:
+        jr, warning = rc.change_now(db, user, emp, body.role_id, body.reason or "")
+    except rc.RoleChangeError as e:
+        _rc_raise(db, e)
+    db.commit()
+    return {"employeeId": emp.id, "roleId": jr.id, "roleName": jr.name, "warning": warning}
+
+
 @router.post("/role-change-requests")
 def request_role_change(body: RoleChangeIn, background: BackgroundTasks,
                         user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
-    """Role change without a promotion (Pranshu, Oct 13): asks the employee's
-    manager or HR - the role changes only when one of them approves
-    (role_change.py). A promotion goes through /promotion."""
+    """Settings > Access > Change Role (Pranshu, Oct 13): asks the employee's
+    manager and HR - the role changes only when one of them approves
+    (role_change.py). From People, HR changes it directly (/employees/{eid}/role)."""
     emp = _rc_employee(db, user, body.employee_id or "", body.email or "")
     try:
         req, warning, emails = rc.request_change(db, user, emp, body.role_id, body.reason or "")
@@ -426,19 +441,32 @@ def request_role_change(body: RoleChangeIn, background: BackgroundTasks,
 @router.get("/role-change-requests")
 def list_role_change_requests(employee_id: str = "", email: str = "", user: dict = Depends(get_current_user),
                               db: Session = Depends(get_db)):
-    """The PENDING request on one person, for their Access tab - shown to HR
-    and to whoever can decide or cancel it."""
+    """PENDING requests - on one person (their Access tab), or with no person
+    named every one the caller can see (the People list marks those people).
+    Shown to HR and to whoever can decide or cancel them."""
     from models import HrRoleChangeRequest
     q = db.query(HrRoleChangeRequest).filter(HrRoleChangeRequest.status == rc.PENDING)
     if employee_id:
         q = q.filter(HrRoleChangeRequest.employee_id == employee_id)
     elif email:
         q = q.filter(HrRoleChangeRequest.employee_email == email.strip().lower())
-    else:
-        raise HTTPException(400, "Say whose requests")
     editor = _hr_editor(user, db)
     return [rc.ser(db, r, user["email"], editor) for r in q.order_by(HrRoleChangeRequest.created_at.desc()).all()
             if rc.can_see(db, r, user["email"], _hr_reader(user, db, r.company))]
+
+
+@router.get("/role-history")
+def role_history(employee_id: str = "", email: str = "", user: dict = Depends(get_current_user),
+                 db: Session = Depends(get_db)):
+    """The person's role change log for their Access tab (Pranshu, Oct 14) -
+    HR (their company) and the person's own manager."""
+    q = db.query(NexusEmployee)
+    emp = (q.filter(NexusEmployee.id == employee_id).first() if employee_id
+           else q.filter(NexusEmployee.work_email == email.strip().lower()).first() if email else None)
+    me = user["email"].lower()
+    if not emp or not (_hr_reader(user, db, emp.company or "") or (emp.manager_email or "").lower() == me):
+        raise HTTPException(404, "Employee not found")
+    return rc.role_history(db, emp)
 
 
 @router.get("/role-change-requests/{rid}")

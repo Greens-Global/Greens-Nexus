@@ -5,9 +5,8 @@ import {
   Hash, MessageSquare,
 } from 'lucide-react';
 import { InviteExternalModal, ExternalPersonSection, ExternalBadge, inviteOutcomeToast } from './ExternalUsersPanel';
-import { openPersonProfile } from '../lib/personNav';
 import { RoleChangeModal } from '../components/HrPersonActions';
-import { RoleChangeRequestCard } from '../components/RoleChangeRequests';
+import { RoleChangeRequestCard, RoleHistory } from '../components/RoleChangeRequests';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { usePeopleDirectory } from '../lib/queries';
@@ -1000,18 +999,19 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
             </div>
             {eff.job_role && !extRec && (
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>
-                A role change goes to their manager or HR to approve. A promotion is made in People with a letter they sign.
+                A role change here goes to their manager and HR - it takes effect when one of them approves.
               </div>
             )}
             {eff.job_role && !extRec && (
               <div style={{ marginTop: 12 }}>
-                <RoleChangeRequestCard email={person} refreshKey={roleReqKey} toastOk={toastOk} toastErr={toastErr} onDecided={refresh} />
+                <RoleChangeRequestCard email={person} refreshKey={roleReqKey} toastOk={toastOk} toastErr={toastErr}
+                  onDecided={() => { setRoleReqKey(n => n + 1); refresh(); }} />
+                <RoleHistory email={person} refreshKey={`${roleReqKey}-${eff.job_role?.id || ''}`} />
               </div>
             )}
             {roleReqOpen && (
               <RoleChangeModal employee={{ workEmail: person, firstName: nameOf(person), jobTitle: eff.job_role?.name || '' }}
-                roles={roleChoices.filter(r => r.id !== eff.job_role?.id)}
-                onPromote={() => { setRoleReqOpen(false); openPersonProfile(person); }}
+                roles={roleChoices.filter(r => r.id !== eff.job_role?.id)} approval
                 onClose={() => setRoleReqOpen(false)} toastErr={toastErr}
                 onChanged={res => {
                   setRoleReqOpen(false); setRoleReqKey(n => n + 1);
