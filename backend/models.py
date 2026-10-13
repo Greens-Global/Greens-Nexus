@@ -5755,3 +5755,30 @@ class NexusWorkforceScorecardLog(Base):
     absent_count  = Column(Integer, default=0)          # absent all week
     below_count   = Column(Integer, default=0)          # below expected + well below
     created_at    = Column(String, default="")
+
+
+class HrRoleChangeRequest(Base):
+    """A role change that is not a promotion (Pranshu, Oct 13): an admin or HR
+    asks, with a reason; the employee's manager OR their company's HR contact
+    approves, and only then does the role change. Declined / canceled requests
+    stay as the record. role_change.py drives it.
+    New table - RLS per CLAUDE.md (main.py list + the startup sweep)."""
+    __tablename__ = "hr_role_change_requests"
+    id                = Column(String, primary_key=True)            # uuid
+    employee_id       = Column(String, default="", index=True)      # NexusEmployee.id
+    employee_email    = Column(String, default="", index=True)
+    employee_name     = Column(String, default="")
+    company           = Column(String, default="")                  # HrEntity.id
+    from_role_id      = Column(String, default="")
+    from_title        = Column(String, default="")
+    to_role_id        = Column(String, default="")
+    to_role_name      = Column(String, default="")
+    reason            = Column(String, default="")                  # shown to the approvers
+    status            = Column(String, default="pending", index=True)   # pending | approved | declined | canceled
+    approvers         = Column(JSON, default=list)                  # [{email, name, as: manager|hr}]
+    requested_by      = Column(String, default="")
+    requested_by_name = Column(String, default="")
+    created_at        = Column(String, default="")
+    decided_by        = Column(String, default="")                  # approver / decliner / whoever canceled
+    decided_at        = Column(String, default="")
+    decision_note     = Column(String, default="")                  # why it was declined

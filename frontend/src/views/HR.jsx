@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } fro
 import { QuestionnairesModal, InterviewPanel, LeaderboardModal, EmployeeInterviews } from '../components/Interviews';
 import { PacketsModal, SendHiringPacketModal, PacketSigner, PersonLifeEvents, usDay } from '../components/HiringPacket';
 import { PromoteModal, OffboardModal, RoleChangeModal } from '../components/HrPersonActions';
+import { RoleChangeRequestCard, RoleChangeDecisionModal } from '../components/RoleChangeRequests';
 import CandidateDetailModal, { STAGES, STAGE_META, candName } from '../components/HiringCandidateDetail';
 import { ScheduleInterviewModal } from '../components/HiringSchedule';
 import CandidateFormModal from '../components/HiringCandidateForm';
@@ -1678,7 +1679,7 @@ function OfficeContact({ e, row, canSync, onSynced, toastOk, toastErr }) {
   );
 }
 
-function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, isAdmin = false, teamView = false, initialTab = 'overview', checklists = [], onEdit, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated, onRemoved, onRestored, onExternalChanged }) {
+function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, isAdmin = false, teamView = false, initialTab = 'overview', checklists = [], onEdit, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated, onRemoved, onRestored, onExternalChanged, onReload }) {
   // Removed from Nexus (soft delete) - the record is intact and restorable.
   const isRemoved = !!e.deletedAt;
   const [provisionOpen, setProvisionOpen] = useState(false);
@@ -1692,6 +1693,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
   const [offboardOpen, setOffboardOpen] = useState(false);
   const [signParty, setSignParty] = useState(null);        // HR's own signature on a letter
   const [eventsKey, setEventsKey] = useState(0);
+  const [requestsKey, setRequestsKey] = useState(0);   // the pending role change card
   const [welcomeBusy, setWelcomeBusy] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
   const [tab, setTab] = useState(initialTab);
@@ -1896,11 +1898,13 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
         </div>
       )}
       {!teamView && <PersonLifeEvents employeeId={e.id} refreshKey={eventsKey} onSignNow={setSignParty} toastOk={toastOk} toastErr={toastErr} />}
+      {!teamView && !isAdmin && <div style={{ marginTop: 14 }}><RoleChangeRequestCard employeeId={e.id} refreshKey={requestsKey}
+        toastOk={toastOk} toastErr={toastErr} onDecided={() => onReload?.()} /></div>}
       {roleAction === 'choose' && <RoleChangeModal employee={e} toastErr={toastErr}
         onClose={() => setRoleAction(null)} onPromote={() => setRoleAction('promotion')}
         onChanged={res => {
-          setRoleAction(null); onEmployeeUpdated?.(res.employee);
-          toastOk(`${e.firstName} is now ${res.employee.jobTitle}.${res.warning ? ` ${res.warning}` : ''}`);
+          setRoleAction(null); setRequestsKey(n => n + 1);
+          toastOk(`Sent to ${res.approvers.map(a => a.name).join(' and ')} - the role changes when one of them approves.${res.warning ? ` ${res.warning}` : ''}`);
         }} />}
       {roleAction === 'promotion' && <PromoteModal employee={e} mode={roleAction} canSeePay={canSeeComp} toastErr={toastErr}
         onClose={() => setRoleAction(null)}
@@ -2048,6 +2052,10 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
 
         {tab === 'location' && <GeofenceSection employee={e} toastOk={toastOk} toastErr={toastErr} />}
 
+        {/* Role change awaiting approval (Pranshu, Oct 13): the manager or HR
+            approves here, or from the bell / email. */}
+        {tab === 'access' && (teamView || isAdmin) && <RoleChangeRequestCard employeeId={e.id} refreshKey={requestsKey}
+          toastOk={toastOk} toastErr={toastErr} onDecided={() => onReload?.()} />}
         {tab === 'access' && teamView && <TeamAccessView employee={e} />}
         {/* keyed on updatedAt: a role change made from the Change Role modal
             re-reads the job role and access shown here */}
@@ -5718,6 +5726,13 @@ export default function HR({ activeSub, onSubChange }) {
   const [clProgress, setClProgress] = useState({});
   const [clView, setClView] = useState('overview');   // People > Checklists: overview | settings
   const [openTab, setOpenTab] = useState('overview'); // the profile tab a jump should land on
+  // Bell / email "Review Request" on a role change (Pranshu, Oct 13) lands on
+  // hr-role-change-<id>: open the decision right away, then People.
+  const [roleDecisionId, setRoleDecisionId] = useState(null);
+  useEffect(() => {
+    const m = String(activeSub || '').match(/^hr-role-change-(.+)$/);
+    if (m) { setRoleDecisionId(m[1]); onSubChange?.('hr-people'); }
+  }, [activeSub]);   // eslint-disable-line react-hooks/exhaustive-deps
   const { canAccessModule, can, hrScope } = useRole();
   const canSeeComp = !hrTeam && canAccessModule('hr_comp', 'owner', 'viewer');   // a team view never shows pay
   const isAdmin = can('administrator');   // Roles & Access tab is admin-only
@@ -6034,7 +6049,7 @@ export default function HR({ activeSub, onSubChange }) {
             companyName={entityName(selected.company)} canSeeComp={canSeeComp} isAdmin={isAdmin}
             initialTab={openTab} checklists={clProgress[selected.id] || []}
             toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved} onRemoved={onRemovedFromNexus} onRestored={onRestoredToNexus}
-            onExternalChanged={load}
+            onExternalChanged={load} onReload={load}
             onEdit={emp => { setEditing(emp); setFormOpen(true); }}
             onBack={() => setSelectedId(null)} />
           </>
@@ -6214,7 +6229,7 @@ export default function HR({ activeSub, onSubChange }) {
                       companyName={entityName(selected.company)} canSeeComp={canSeeComp} isAdmin={isAdmin}
                       initialTab={openTab} checklists={clProgress[selected.id] || []}
                       toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved} onRemoved={onRemovedFromNexus} onRestored={onRestoredToNexus}
-                      onExternalChanged={load}
+                      onExternalChanged={load} onReload={load}
                       onEdit={emp => { setEditing(emp); setFormOpen(true); }}
                       onBack={() => setSelectedId(null)} />
                   ) : (
@@ -6246,6 +6261,9 @@ export default function HR({ activeSub, onSubChange }) {
             load();   // the new external lands in the directory (master list)
           }} />
       )}
+      {roleDecisionId && <RoleChangeDecisionModal requestId={roleDecisionId} toastOk={toastOk} toastErr={toastErr}
+        onClose={() => setRoleDecisionId(null)}
+        onDecided={out => { setRoleDecisionId(null); load(); setOpenTab('access'); setSelectedId(out.employeeId); }} />}
       {toast && (
         <div role={toast.kind === 'error' ? 'alert' : 'status'}
           onMouseEnter={() => clearTimeout(toastTimer.current)}

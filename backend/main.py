@@ -2104,6 +2104,8 @@ def _run_migrations():
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS subtask_order VARCHAR DEFAULT ''",
         "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS time_tracking VARCHAR DEFAULT ''",
         "ALTER TABLE task_sections ADD COLUMN IF NOT EXISTS custom BOOLEAN DEFAULT FALSE",
+        # Role change approvals (Pranshu, Oct 13). New table - RLS per CLAUDE.md. models.HrRoleChangeRequest.
+        "ALTER TABLE hr_role_change_requests ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

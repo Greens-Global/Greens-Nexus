@@ -1139,7 +1139,9 @@ export const DOCS = [
         title: "Promote or Change Someone's Role",
         steps: [
           'Set up the letter once in People > Hiring > Packets under Promotion Letter: Add Packet, upload the letter PDF (or type it), place the signature boxes for the employee and the manager (employee first), and save. A packet can be for every role or for particular roles.',
-          'Open the person in People and click Change Role. Choose Role Change Without Promotion to just switch their role: pick the new role (and a reason if you like) and click Change Role. Their access and title change right away, with no letter.',
+          'Open the person in People (or Settings > Access) and click Change Role. Choose Role Change Without Promotion, pick the new role, write the reason, and click Send For Approval. Nothing changes yet.',
+          "Their manager and their company's HR contact each get a Nexus notification (on the yellow bar) and an email with the reason. Either one approves or declines - from the notification or email (Review Request opens the decision), or from the person's Access tab. The person who asked never approves their own request.",
+          'When one of them approves, the new role, its access and the title take effect, and the employee and the person who asked are told. A decline leaves the role as it is; the note goes to whoever asked. Only one request per person can wait at a time - Cancel Request on their Access tab withdraws it.',
           'For a promotion, choose Promotion there, or click Promote on the profile.',
           "Pick the new role, the title in the letter, the effective date (it can be in the past), their new responsibilities and their new pay (in any currency), then click Review Letter.",
           'Check the change, the signing order and the Egnyte folder. Any timesheet already signed from that date is listed - it is flagged for review, not repriced.',

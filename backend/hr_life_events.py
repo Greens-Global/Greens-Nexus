@@ -1158,45 +1158,6 @@ def _apply_promotion(db: Session, ev: HrLifeEvent, req: HrSignRequest) -> None:
 _APPLY["promotion"] = _apply_promotion
 
 
-def change_role_now(db: Session, user: dict, eid: str, role_id: str, reason: str, scope) -> tuple:
-    """A role change that is not a promotion (Pranshu, Oct 13): "it should
-    just change the role" - no letter, no pay, nothing to sign. The same
-    apply_job_role a signed promotion runs (access, tier, title), under the
-    same HR permission check, plus the department the role belongs to and an
-    audit row. Not committed. Returns (employee, warning)."""
-    import json
-    from fastapi import HTTPException
-    from models import AuditLog, NexusGroup
-    from routers.jobroles import apply_job_role, check_can_assign
-    emp = _load_employee(db, eid, scope, lock=True)
-    if emp.status not in ("active", "onboarding"):
-        raise PacketError(f"{emp.first_name} is {emp.status} - only current employees can change roles.", 409)
-    email = (emp.work_email or "").strip().lower()
-    if not email:
-        raise PacketError("They need a work email first - the role is their access in Nexus.", 409)
-    jr = (db.query(NexusGroup).filter(NexusGroup.id == (role_id or "").strip(), NexusGroup.is_job_role == 1).first()
-          if (role_id or "").strip() else None)
-    if not jr:
-        raise PacketError("Pick the new role.")
-    cur = current_job_role(db, email)
-    if cur and cur.id == jr.id:
-        raise PacketError(f"{emp.first_name} already has the {jr.name} role.")
-    try:
-        warning = check_can_assign(db, user, jr, email, hr_path=True)
-    except HTTPException as e:
-        raise PacketError(str(e.detail), e.status_code)
-    old_title = emp.job_title or (cur.name if cur else "")
-    apply_job_role(db, jr, email, user["email"])
-    if jr.department:
-        emp.department = jr.department
-    emp.updated_at = _now()
-    db.add(AuditLog(timestamp=_now(), user_email=user["email"], user_role=str(user.get("role") or ""),
-                    action="Changed role", resource_type="employee", resource_id=emp.id,
-                    details=json.dumps({"employee": email, "from": old_title, "to": jr.name,
-                                        "reason": (reason or "").strip()[:1000]})[:4000]))
-    return emp, warning
-
-
 # ── Offboarding (Neil, Oct 8: 28:19 - 30:04) ─────────────────────────────────
 # "There needs to be an option for each employee to do an off-boarding ... it
 # should very clearly say what company are they with, what is the off-boarding

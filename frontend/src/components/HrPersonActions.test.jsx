@@ -13,13 +13,13 @@ const preview = {
   salaryText: '$40.00 per hour', unresolved: [], signedPeriods: [{ label: '09/06/2026 - 09/19/2026' }],
 };
 const send = vi.fn(() => Promise.resolve({ id: 'ev1' }));
-const changeRole = vi.fn(() => Promise.resolve({ employee: { id: 'e1', jobTitle: 'IT Dev Associate II' }, warning: '' }));
+const requestRoleChange = vi.fn(() => Promise.resolve({ id: 'rq1', approvers: [{ email: 'max@x.com', name: 'Max', as: 'manager' }], warning: '' }));
 vi.mock('../api', () => ({
   api: {
     hiringOptions: () => Promise.resolve({ roles: [{ id: 'jr-2', name: 'IT Dev Associate II', department: 'IT' }] }),
     previewPromotion: () => Promise.resolve(preview),
     sendPromotion: (...a) => send(...a),
-    changeRole: (...a) => changeRole(...a),
+    requestRoleChange: (...a) => requestRoleChange(...a),
   },
 }));
 vi.mock('./ESign', () => ({ SignModal: () => null, AttachmentPlacer: () => null, MERGE_FIELDS: [['salary', 'Salary']] }));
@@ -58,20 +58,22 @@ describe('PromoteModal', () => {
   });
 });
 
-// Change Role asks first (Pranshu, Oct 13): without a promotion it just
-// switches the role; Promotion hands over to the letter.
+// Change Role asks first (Pranshu, Oct 13): without a promotion it sends a
+// request, with a reason, for the manager or HR to approve; Promotion hands
+// over to the letter.
 describe('RoleChangeModal', () => {
-  it('changes the role directly when it is not a promotion', async () => {
+  it('asks for approval, with a reason, when it is not a promotion', async () => {
     const onChanged = vi.fn();
     render(<RoleChangeModal employee={erin} onClose={() => {}} onPromote={() => {}} onChanged={onChanged} toastErr={() => {}} />);
     fireEvent.click(screen.getByText('Role Change Without Promotion'));
     await waitFor(() => expect(screen.getByText(/IT Dev Associate II - IT/)).toBeTruthy());
-    const btn = screen.getByRole('button', { name: /Change Role$/ });
-    expect(btn).toBeDisabled();
+    const btn = screen.getByRole('button', { name: /Send For Approval/ });
     fireEvent.change(screen.getByDisplayValue('- pick a role -'), { target: { value: 'jr-2' } });
+    expect(btn).toBeDisabled();                                       // the reason is required
+    fireEvent.change(screen.getByPlaceholderText(/Accounting team/), { target: { value: 'Covers month-end' } });
     fireEvent.click(btn);
     await waitFor(() => expect(onChanged).toHaveBeenCalled());
-    expect(changeRole).toHaveBeenCalledWith('e1', { role_id: 'jr-2', reason: '' });
+    expect(requestRoleChange).toHaveBeenCalledWith({ employee_id: 'e1', email: '', role_id: 'jr-2', reason: 'Covers month-end' });
   });
 
   it('Promotion goes to the promotion letter', () => {
