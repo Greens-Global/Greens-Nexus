@@ -12,6 +12,7 @@ import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY
 import { cfKey, cfFieldId, taskFieldValue, fieldsForProject, taskAssignees } from '../lib';
 import { useFlip } from '../../lib/motion';
 import ChangeFlash from '../../components/ChangeFlash';
+import { changedRecently } from '../recentChanges';
 import { statusesForProject } from '../TasksContext';
 import { Avatar, PriorityChip } from '../components';
 import { fmtDate } from '../lib';
@@ -227,7 +228,7 @@ export default function BoardView({ visible, ctx, store, onOpen, lockedProjectId
         onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 6px 16px rgba(0,0,0,0.09)'; }}
         onMouseLeave={(e) => { e.currentTarget.style.boxShadow = '0 1px 2px rgba(0,0,0,0.04)'; }}
         style={{ position: 'relative', background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 12, padding: 14, cursor: 'grab', boxShadow: '0 1px 2px rgba(0,0,0,0.04)', opacity: dragId === t.id ? 0.5 : 1, transition: 'box-shadow .15s' }}>
-        <ChangeFlash value={t.status} color={statusMeta(t.status)?.color} />
+        <ChangeFlash value={`${t.status}:${!!t.completed}`} color={statusMeta(t.status)?.color} isFresh={() => changedRecently(t.id)} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
           {proj && (
             <span style={{ padding: '2px 8px', borderRadius: 5, fontSize: 10.5, fontWeight: 600, background: `${projColor}1a`, color: projColor, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 130 }}>{proj.name}</span>

@@ -76,6 +76,18 @@ describe('useFlip', () => {
     expect(calls.map((c) => c.key)).toEqual(['b']);
   });
 
+  it('tags its own animations and leaves CSS transitions alone', () => {
+    const cancelled = [];
+    const { rerender } = render(<List items={rows('a', 'b')} />);
+    // 'a' has a hover transition running (a CSSTransition has no id).
+    const a = document.querySelector('[data-flip="a"]');
+    a.getAnimations = () => [{ id: '', cancel() { cancelled.push('css'); } }];
+    rerender(<List items={rows('b', 'a')} />);
+    expect(cancelled).toEqual([]);
+    expect(calls.every((c) => c.opts.id === 'nx-flip')).toBe(true);
+    expect(calls.find((c) => c.key === 'a').keyframes[0].transform).toBe('translate(0px, -40px)');
+  });
+
   it('does nothing when motion is off', () => {
     setMotionEnabled(false);
     const { rerender } = render(<List items={rows('a', 'b')} />);

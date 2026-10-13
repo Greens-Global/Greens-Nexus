@@ -23,6 +23,7 @@ import { matchPeople, onEnterPickFirst } from '../../lib/peopleSearch';
 import DueBadge from '../DueBadge';
 import { useFlip } from '../../lib/motion';
 import ChangeFlash from '../../components/ChangeFlash';
+import { changedRecently } from '../recentChanges';
 
 const BASE_COLS = [
   { key: 'checkbox', label: '', width: 28, fixed: true },
@@ -508,7 +509,7 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
         boxShadow: dropEdge === 'above' ? `inset 0 2px 0 ${groupColor}`
           : dropEdge === 'below' ? `inset 0 -2px 0 ${groupColor}` : 'none',
       }}>
-      <ChangeFlash value={t.status} color={sm.color} />
+      <ChangeFlash value={`${t.status}:${!!t.completed}`} color={sm.color} isFresh={() => changedRecently(t.id)} />
       <div style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'stretch', fontSize: 13 }}>
         {cols.map((c) => <Fragment key={c.key}>{cells[c.key] ?? cfCell(c.key)}</Fragment>)}
         <div />

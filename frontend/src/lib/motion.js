@@ -116,6 +116,7 @@ export function useExit(onClose, ms = MOTION.exit) {
 // the forced layout read and animates right there.
 const FLIP_EASE_MOVE = 'cubic-bezier(.2,.8,.2,1)';   // mirrors --ease-standard
 const FLIP_EASE_ENTER = 'cubic-bezier(.16,1,.3,1)';  // mirrors --ease-out
+const FLIP_ID = 'nx-flip';  // tags our animations apart from CSS ones
 const FLIP_BULK = 12;  // more new items than this in one commit = a load, not an add
 
 export function useFlip(ref) {
@@ -138,7 +139,10 @@ export function useFlip(ref) {
       return out;
     };
     const place = (el, c) => { const r = el.getBoundingClientRect(); return { x: r.left - c.left, y: r.top - c.top }; };
-    const running = (el) => (el.getAnimations?.() || []);
+    // Only this hook's own glides: getAnimations() also returns CSS
+    // transitions (a row's hover background), which must not be cancelled
+    // nor make a resting row look mid-glide (review, Oct 12).
+    const running = (el) => (el.getAnimations?.() || []).filter((a) => a.id === FLIP_ID);
 
     if (bound.current !== root) {
       // New container (or first run): nothing to animate from yet.
@@ -189,13 +193,13 @@ export function useFlip(ref) {
     for (const [k, el] of els) {
       const p = prev.get(k);
       if (!p) {
-        if (!bulk) el.animate([{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }], { duration: MOTION.sm, easing: FLIP_EASE_ENTER });
+        if (!bulk) el.animate([{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }], { id: FLIP_ID, duration: MOTION.sm, easing: FLIP_EASE_ENTER });
         continue;
       }
       const n = next.get(k);
       const dx = p.x - n.x; const dy = p.y - n.y;
       if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
-      el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], { duration: MOTION.md, easing: FLIP_EASE_MOVE });
+      el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], { id: FLIP_ID, duration: MOTION.md, easing: FLIP_EASE_MOVE });
     }
   });
 
@@ -205,11 +209,25 @@ export function useFlip(ref) {
 // A value that just changed (a row's status, a card's column) gets one brief
 // glow. Returns 0 while idle and a fresh positive number for each change, so
 // a `key={n}` on the glow element restarts its animation even when two
-// changes land inside one glow. Silent on mount and when motion is off.
-export function useChangeFlash(value, ms = 900) {
+// changes land inside one glow. Silent when motion is off, and silent on
+// mount unless `isFresh()` says this item changed a moment ago: a card that
+// moves to another board column (or a row to another status group) is a new
+// element, so its change arrives as a mount (tasks/recentChanges.js).
+export function useChangeFlash(value, ms = 900, isFresh = null) {
   const [tick, setTick] = useState(0);
   const prev = useRef(value);
   const count = useRef(0);
+  const freshRef = useRef(isFresh);
+  useEffect(() => {
+    if (!freshRef.current?.()) return undefined;
+    const wait = motionWait(ms);
+    if (wait === 0) return undefined;
+    setTick(++count.current);
+    const t = setTimeout(() => setTick(0), wait);
+    return () => clearTimeout(t);
+    // Mount only: a later change is the effect below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   useEffect(() => {
     if (Object.is(prev.current, value)) return undefined;
     prev.current = value;

@@ -32,6 +32,27 @@ describe('ChangeFlash', () => {
     expect(glow()).toBeNull();
   });
 
+  it('glows on mount when isFresh says the item just changed (a card that moved column)', () => {
+    render(<ChangeFlash value="done" isFresh={() => true} />);
+    expect(glow()).not.toBeNull();
+    act(() => { vi.advanceTimersByTime(900); });
+    expect(glow()).toBeNull();
+  });
+
+  it('stays silent on mount when isFresh says no', () => {
+    render(<ChangeFlash value="done" isFresh={() => false} />);
+    expect(glow()).toBeNull();
+  });
+
+  it('does not glow on a fresh mount under reduced motion', () => {
+    const mm = window.matchMedia;
+    window.matchMedia = () => ({ matches: true, addEventListener() {}, removeEventListener() {} });
+    try {
+      render(<ChangeFlash value="done" isFresh={() => true} />);
+      expect(glow()).toBeNull();
+    } finally { window.matchMedia = mm; }
+  });
+
   it('does nothing when motion is off', () => {
     setMotionEnabled(false);
     const { rerender } = render(<ChangeFlash value="a" />);
