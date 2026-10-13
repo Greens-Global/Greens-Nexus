@@ -119,9 +119,11 @@ class ConflictAndBreakApiTests(unittest.TestCase):
                                             work_email=em, status="active", deleted_at=""))
             db.add(models.NexusGroup(id=G_ED, name="ed", allowed_modules="hr:editor"))
             db.add(models.NexusGroupMember(group_id=G_ED, email=ADMIN))
-            # Changing shifts needs a manager (Sep 29); the hr:editor grant
-            # keeps the company-wide scope these tests exercise.
-            db.add(models.NexusRole(email=ADMIN, role="manager", assigned_by="test"))
+            # Changing shifts needs a manager (Sep 29). Since Oct 6 (People:
+            # the Manager tier sees only its own team) a manager's People grant
+            # is team-limited, so the company-wide scope these tests exercise
+            # is an administrator's.
+            db.add(models.NexusRole(email=ADMIN, role="administrator", assigned_by="test"))
             db.add(models.Shift(id=SHIFT, code="GST", name="Store", start_hhmm="09:00", end_hhmm="17:00",
                                 color="#3b82f6", break_min=30))
             db.commit()

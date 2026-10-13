@@ -59,7 +59,7 @@ import {
   Plus, Pencil, Trash2, Upload, GripVertical, MapPinned,
   Globe, Package, Search, Wrench, CalendarClock, ShieldCheck, Palette, FileCheck,
   Tags,
-  Clock, Users,
+  Clock, Users, CloudRain,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -73,6 +73,7 @@ import TicketHelpTopicsSettings from '../tickets/TicketHelpTopicsSettings';
 import TicketDeskAccessSettings from '../tickets/TicketDeskAccessSettings';
 import DailyBriefingSettings from '../components/DailyBriefingSettings';
 import WeeklyDigestSettings from '../components/WeeklyDigestSettings';
+import WorkforceScorecardSettings from '../components/WorkforceScorecardSettings';
 
 // Borrowed components, lazy so their home module's chunk only loads once an
 // admin actually opens that section.
@@ -98,6 +99,8 @@ const SignInPolicyPanel = lazy(() => import('./BrandingPoliciesSettings').then(m
 const ShiftSettingsPanel = lazy(() => import('../components/shifts/ShiftSettingsSections').then(m => ({ default: m.ShiftSettingsPanel })));
 const ShiftTypesPanel = lazy(() => import('../components/shifts/ShiftSettingsSections').then(m => ({ default: m.ShiftTypesPanel })));
 const ShiftGroupsPanel = lazy(() => import('../components/shifts/ShiftSettingsSections').then(m => ({ default: m.ShiftGroupsPanel })));
+// Weather Alerts (Weather Call, Oct 2026): the per-company switch and the rain thresholds.
+const WeatherSettingsPanel = lazy(() => import('../components/shifts/WeatherSettings'));
 // Audit Logs (Sep 11) - same tab-beside-Roles-&-Access treatment. The old
 // header AdminPanel drawer that used to render this is gone; AuditLogs is
 // named-exported from that file and embedded directly here now.
@@ -141,7 +144,7 @@ const GLOBAL_CATEGORIES = [
   { key: 'timeclock',      label: 'Time Clock',     Icon: CalendarClock, adminOnly: true,
     desc: 'Punch rounding, the auto-lunch deduction and California paid rest breaks - the rules every timecard is computed with.' },
   { key: 'shifts',         label: 'Shifts',         Icon: CalendarClock,
-    desc: 'What staff may request and see on the schedule, the team time zone and week start, shift reminders and time-off reasons, the shift types managers place, and the groups people are scheduled in.' },
+    desc: 'What staff may request and see on the schedule, the team time zone and week start, time-off reasons, the shift types managers place, the groups people are scheduled in, and the weather alerts for their work sites.' },
 ];
 const CATEGORY_KEYS = new Set(GLOBAL_CATEGORIES.map(c => c.key));
 // Categories that were folded into another one - old links still land.
@@ -166,6 +169,9 @@ const GLOBAL_SECTIONS = [
   { id: 'weekly-digest', category: 'notifications', icon: Mail, title: 'Weekly Digest',
     sub: "A Monday email listing each employee's overdue tasks with their due dates, sent before their shift. Send it to everyone, or to a few test recipients first.",
     keywords: 'weekly digest summary email overdue tasks due dates extend monday shift test recipients' },
+  { id: 'workforce-scorecard', category: 'notifications', icon: Mail, title: 'Workforce Scorecard',
+    sub: 'A weekly email to managers scoring each hourly person\'s punched hours against their expected hours (US 8h, India 9h, or their shift) - who worked, who was short, who was absent.',
+    keywords: 'workforce analytics scorecard attendance hours expected worked absent late weekly manager email shift standard day india hourly test recipients' },
   { id: 'hr-reminders', category: 'notifications', icon: CalendarClock, title: 'HR & Compliance Reminders',
     sub: 'Choose how many days ahead HR is warned about visa and right-to-work expiry, contract ends, new starters, expiring documents and unsigned signature requests.',
     keywords: 'hr people visa right to work immigration expiry expiring contract end new starter onboarding document compliance e-sign signature chase nudge reminder days before alerts timing bell' },
@@ -198,14 +204,17 @@ const GLOBAL_SECTIONS = [
     sub: 'Punch rounding (off by default), the auto-lunch deduction and California paid rest breaks. Applies to every timecard.',
     keywords: 'time clock punch rounding nearest minutes swipeclock auto lunch deduction meal break paid rest break california timecard payroll' },
   { id: 'shift-settings', category: 'shifts', icon: CalendarClock, title: 'Shift Settings',
-    sub: 'What staff may request (open shifts, swaps, offers, time off) and see of their teammates, the team time zone, which day the week starts on, shift reminders and the time-off reasons.',
-    keywords: 'shifts schedule requests swap offer open shift time off reasons reminders time zone week start sunday monday visibility' },
+    sub: 'What staff may request (open shifts, swaps, offers, time off) and see of their teammates, the team time zone, which day the week starts on, and the time-off reasons.',
+    keywords: 'shifts schedule requests swap offer open shift time off reasons time zone week start sunday monday visibility' },
   { id: 'shift-types', category: 'shifts', icon: Clock, title: 'Shift Types',
     sub: 'The reusable shifts managers place with one click - name, code, color, times, time zone and days. A person\'s usual hours are one of these.',
     keywords: 'shifts presets shift type code color times usual hours grace break time zone days' },
   { id: 'shift-groups', category: 'shifts', icon: Users, title: 'Groups',
     sub: 'Who is scheduled together, the order they appear in, who may build each group\'s schedule, and the Teams chat its BOD / EOD messages go to.',
     keywords: 'shifts groups teams members schedulers order teams chat bod eod' },
+  { id: 'shift-weather', category: 'shifts', icon: CloudRain, title: 'Weather Alerts',
+    sub: 'Which companies the weather watch runs for, what counts as major rain, quiet hours, and the heads-up line in Teams. Nexus advises; a manager makes the weather call.',
+    keywords: 'weather rain forecast alerts advisory storm thunderstorm warning nws quiet hours deciders weather call' },
 ];
 const SECTION_META = Object.fromEntries(GLOBAL_SECTIONS.map(s => [s.id, s]));
 
@@ -365,6 +374,16 @@ function WeeklyDigestSection({ defaultOpen }) {
   return (
     <Section {...SECTION_META['weekly-digest']} defaultOpen={defaultOpen}>
       <WeeklyDigestSettings />
+    </Section>
+  );
+}
+
+// ── Workforce Scorecard ────────────────────────────────────────────────────
+// Global-Admin only, like the Weekly Digest (WorkforceScorecardSettings.jsx).
+function WorkforceScorecardSection({ defaultOpen }) {
+  return (
+    <Section {...SECTION_META['workforce-scorecard']} defaultOpen={defaultOpen}>
+      <WorkforceScorecardSettings />
     </Section>
   );
 }
@@ -1006,6 +1025,7 @@ function GlobalSettings({ category, onCategory, toast, toastOk, toastErr }) {
       case 'task-notifications':   return <TaskNotificationsSection key={key} defaultOpen={single} />;
       case 'daily-briefing':       return <DailyBriefingSection key={key} defaultOpen={single} />;
       case 'weekly-digest':        return <WeeklyDigestSection key={key} defaultOpen={single} />;
+      case 'workforce-scorecard':  return <WorkforceScorecardSection key={key} defaultOpen={single} />;
       case 'hr-reminders':         return <HrRemindersSection key={key} defaultOpen={single} />;
       case 'equipment-reminders':  return <LazyPanelSection key={key} id={id} Panel={EquipmentReminderSettings} defaultOpen={single} />;
       case 'item-types':           return <ItemSettingsSection key={key} defaultOpen={single} toast={toast} />;
@@ -1032,6 +1052,7 @@ function GlobalSettings({ category, onCategory, toast, toastOk, toastErr }) {
       case 'shift-settings':       return <LazyPanelSection key={key} id={id} Panel={ShiftSettingsPanel} defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;
       case 'shift-types':          return <LazyPanelSection key={key} id={id} Panel={ShiftTypesPanel} defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;
       case 'shift-groups':         return <LazyPanelSection key={key} id={id} Panel={ShiftGroupsPanel} defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;
+      case 'shift-weather':        return <LazyPanelSection key={key} id={id} Panel={WeatherSettingsPanel} defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;
       default:                     return null;
     }
   }

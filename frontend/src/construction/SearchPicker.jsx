@@ -73,7 +73,7 @@ export default function SearchPicker({
               ref={searchRef} value={q} onChange={(e) => setQ(e.target.value)} placeholder={searchPlaceholder}
               style={{
                 width: '100%', boxSizing: 'border-box', padding: '9px 12px 9px 30px', border: 'none',
-                outline: 'none', fontSize: '0.85rem', fontFamily: 'inherit',
+                fontSize: '0.85rem', fontFamily: 'inherit',
                 backgroundColor: 'transparent', color: 'var(--text-primary)',
               }} />
           </div>

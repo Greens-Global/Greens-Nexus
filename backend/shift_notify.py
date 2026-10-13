@@ -2,7 +2,7 @@
 
 Nexus Shifts never told anyone anything: a manager could publish, change or
 remove someone's shift and the person only found out by opening the schedule.
-Teams Shifts tells the people affected. Two pieces:
+Teams Shifts tells the people affected.
 
   Schedule published (notify_published, called from
   routers/timeclock.publish_schedule): everyone whose shifts were added,
@@ -11,27 +11,21 @@ Teams Shifts tells the people affected. Two pieces:
   and never the person who pressed Publish. The emails go out after the
   response (BackgroundTasks), so publishing a big team stays fast.
 
-  Shift reminder (shift_reminder_loop): a bell notification REMINDER_LEAD_MIN
-  before a shift placed on the schedule starts, in the shift's own time zone.
-  Only placed (published) shifts - a default preset repeats every workday, and
-  a daily ping about the same 9 AM start is noise. Skipped when the person is
-  already clocked in, on approved time off, or on a company holiday that day.
-  One per shift (NexusNotification.ref_id is the dedupe key). Bell only: an
-  email before every shift is more than anyone asked for.
+  The "Your shift starts at ..." bell reminder that used to live here was
+  removed on Oct 12 2026 (Neil): bell-only, it was seen only by someone who
+  had already opened Nexus - at work - and the Daily Briefing already goes
+  out before the shift and lists it. Do not bring it back.
 """
-import asyncio
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from html import escape
 
 from sqlalchemy.orm import Session
 
 import models
 from app_url import app_url
-from database import SessionLocal
+from notify_company import notification_company
 
-REMINDER_LEAD_MIN = 60   # default; admins change it in the Requests inbox settings
-REMINDER_SCAN_SEC = 5 * 60
 _DEFAULT_TZ = "America/Los_Angeles"
 # My Shifts lives in the Shifts module now (Sep 29), not a Workday tab.
 MY_SHIFTS_ACTION = {"view": "shifts", "sub": "mine"}
@@ -166,7 +160,8 @@ def _upsert_bell(db: Session, recipient: str, ref_id: str, title: str, body: str
     db.add(models.NexusNotification(
         id=str(uuid.uuid4()), type="custom_alert", recipient=recipient, title=title, body=body,
         ref_id=ref_id, item_name="", requested_by=actor,
-        action='{"view": "shifts", "sub": "mine"}', actioned=False, read_by="", created_at=now))
+        action='{"view": "shifts", "sub": "mine"}', actioned=False, read_by="",
+        company=notification_company(db, actor, recipient), created_at=now))
 
 
 def notify_published(db: Session, changes: list, actor_email: str, d0: str, d1: str, bt=None) -> int:
@@ -216,128 +211,3 @@ def notify_team(db: Session, emails: set, actor_email: str, d0: str, d1: str) ->
         n += 1
     db.commit()
     return n
-
-
-# ── Shift reminder ────────────────────────────────────────────────────────
-
-def _local_now(tz: str) -> datetime:
-    from routers.timeclock import _shift_local_now
-    return _shift_local_now(tz)
-
-
-def _reminder_key(row) -> str:
-    """One reminder per shift AND start: a shift whose start moved at the
-    next publish is reminded again at its new time (Oct 2, B2-16)."""
-    return f"shift-reminder:{row.id}:{row.work_date}T{(row.start_hhmm or '')[:5]}"
-
-
-def _clocked_in_set(db: Session, emails: set) -> set:
-    """Who is clocked in right now, from ONE read of everyone's last punch
-    (routers.timeclock._clocked_in is one query per person)."""
-    if not emails:
-        return set()
-    last = {}
-    for p in (db.query(models.TimePunch)
-              .filter(models.TimePunch.employee_email.in_(list(emails)), models.TimePunch.voided == 0)
-              .order_by(models.TimePunch.at).all()):
-        last[(p.employee_email or "").lower()] = p.kind
-    return {em for em, kind in last.items() if kind != "out"}
-
-
-def reminder_scan_once(db: Session) -> int:
-    """Bell every person whose placed, published shift starts within the next
-    REMINDER_LEAD_MIN minutes in its own zone. Returns how many were sent.
-    Clocked-in, time off and holidays are read once per scan, not three
-    queries per candidate (Oct 2, B4-35)."""
-    from routers.timeclock import _company_holidays_for_many, _shift_tz
-    from routers.shift_requests import get_settings as _settings
-    cfg = _settings(db)
-    if not cfg.get("reminders", True):
-        return 0
-    lead = int(cfg.get("reminderLeadMinutes") or REMINDER_LEAD_MIN)
-    utc_today = datetime.now(timezone.utc).date()
-    lo, hi = (utc_today - timedelta(days=1)).isoformat(), (utc_today + timedelta(days=1)).isoformat()
-    rows = (db.query(models.ScheduledShift)
-            .filter(models.ScheduledShift.published == 1, models.ScheduledShift.employee_email != "",
-                    models.ScheduledShift.pending_delete == 0,   # being removed: no reminder
-                    models.ScheduledShift.work_date >= lo, models.ScheduledShift.work_date <= hi).all())
-    if not rows:
-        return 0
-    presets = {s.id: s for s in db.query(models.Shift).all()}
-    people = {(e.work_email or "").lower(): e for e in db.query(models.NexusEmployee).all()
-              if e.work_email and (e.status or "active") == "active" and not (e.deleted_at or "")}
-    team_tz = cfg.get("timeZone") or _DEFAULT_TZ
-    # Which of these shifts are due, before any of the per-person reads.
-    due = []
-    for r in rows:
-        em = (r.employee_email or "").lower()
-        if em not in people:
-            continue
-        tz = _shift_tz(r, presets.get(r.shift_id), team_tz)
-        try:
-            start = datetime.strptime(f"{r.work_date} {(r.start_hhmm or '09:00')[:5]}", "%Y-%m-%d %H:%M")
-        except ValueError:
-            continue
-        now = _local_now(tz)
-        if start - timedelta(minutes=lead) <= now < start:
-            due.append((r, em, start, now))
-    if not due:
-        return 0
-    emails = {em for _, em, _, _ in due}
-    keys = {_reminder_key(r) for r, _, _, _ in due}
-    already = {k for (k,) in db.query(models.NexusNotification.ref_id)
-               .filter(models.NexusNotification.ref_id.in_(list(keys))).all()}
-    clocked_in = _clocked_in_set(db, emails)
-    off = {}
-    for t in (db.query(models.TimeOffRequest)
-              .filter(models.TimeOffRequest.employee_email.in_(list(emails)),
-                      models.TimeOffRequest.status == "approved",
-                      models.TimeOffRequest.start_date <= hi, models.TimeOffRequest.end_date >= lo).all()):
-        off.setdefault((t.employee_email or "").lower(), []).append((t.start_date, t.end_date))
-    holidays = _company_holidays_for_many(db, {em: people[em] for em in emails}, lo, hi)
-    sent = 0
-    for r, em, start, now in due:
-        key = _reminder_key(r)
-        if key in already or em in clocked_in:
-            continue
-        if any(a <= r.work_date <= b for a, b in off.get(em, [])) or r.work_date in holidays.get(em, {}):
-            continue
-        when = "Today" if start.date() == now.date() else "Tomorrow"
-        detail = f"{when}, {_us(r.work_date)} · {_t12(r.start_hhmm)} - {_t12(r.end_hhmm)}"
-        if r.label:
-            detail += f" · {r.label}"
-        db.add(models.NexusNotification(
-            id=str(uuid.uuid4()), type="custom_alert", recipient=em,
-            title=f"Your shift starts at {_t12(r.start_hhmm)}", body=detail + ".",
-            ref_id=key, item_name="", requested_by="",
-            action='{"view": "timeclock", "sub": "clock"}', actioned=False, read_by="",
-            created_at=datetime.now(timezone.utc).isoformat()))
-        already.add(key)
-        sent += 1
-    if sent:
-        db.commit()
-    return sent
-
-
-def _reminder_tick() -> int:
-    db = SessionLocal()
-    try:
-        return reminder_scan_once(db)
-    except Exception as e:   # noqa: BLE001 - a bad row must not kill the loop
-        db.rollback()
-        print(f"[shift-notify] reminder scan failed: {e}")
-        return 0
-    finally:
-        db.close()
-
-
-async def shift_reminder_loop():
-    """Started from main.py's lifespan on the elected leader. The scan is
-    synchronous DB work, so it runs in a thread (CLAUDE.md: never block the
-    event loop)."""
-    await asyncio.sleep(120)
-    while True:
-        n = await asyncio.to_thread(_reminder_tick)
-        if n:
-            print(f"[shift-notify] {n} shift reminder(s) sent")
-        await asyncio.sleep(REMINDER_SCAN_SEC)

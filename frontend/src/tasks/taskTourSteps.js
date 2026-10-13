@@ -29,7 +29,7 @@ export function buildTaskTourSteps({ go, canManage, isMobile }) {
       target: 'task-tabs',
       before: () => go('home'),
       title: 'Five tabs, and that is the whole module',
-      body: 'Your work is in My Tasks. Work is grouped into Projects, projects into Portfolios, and people into Teams. Home is a dashboard you arrange yourself.',
+      body: 'Your work is in Tasks. Work is grouped into Projects, projects into Portfolios, and people into Teams. Home is a dashboard you arrange yourself.',
     },
     {
       target: 'task-screen-home',
@@ -40,7 +40,7 @@ export function buildTaskTourSteps({ go, canManage, isMobile }) {
     {
       target: 'task-screen-mine',
       before: () => go('mine'),
-      title: 'My Tasks is where you actually live',
+      title: 'Tasks is where you actually live',
       body: 'Everything assigned to you, across every project, in one list. Each row shows its comment, attachment and subtask counts, so you can see what has a conversation attached before opening anything.',
     },
     // The navbar Create button is hidden on phones for the screens that carry
@@ -105,8 +105,8 @@ export function buildTaskTourSteps({ go, canManage, isMobile }) {
     before: () => go('home'),
     title: 'That is the tour',
     body: canManage
-      ? 'Day to day you will be in My Tasks and Projects. Manage is there when the module itself needs changing. You can run this again any time from the tour button.'
-      : 'Day to day you will be in My Tasks and Projects - the rest is there when you need it. You can run this again any time from the tour button.',
+      ? 'Day to day you will be in Tasks and Projects. Manage is there when the module itself needs changing. You can run this again any time from the tour button.'
+      : 'Day to day you will be in Tasks and Projects - the rest is there when you need it. You can run this again any time from the tour button.',
   });
 
   // `when` is ours, not GuidedTour's - strip it so the component only ever

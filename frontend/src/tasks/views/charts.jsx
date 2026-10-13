@@ -1,13 +1,19 @@
 // Task Module - Dashboard chart primitives (Card / LightBar / Donut) and the
 // Custom Charts panel + builder. Ported from the export's dashboard/charts.tsx
-// and CustomCharts.tsx to the Nexus inline-style idiom. Custom charts persist to
-// localStorage, namespaced by a scope key (project id, or "workspace").
-import { useMemo, useRef, useState } from 'react';
-import { Plus, BarChart3, LineChart as LineIcon, PieChart, Hash, Trash2, Pencil, ChevronDown, Check, X } from 'lucide-react';
+// and CustomCharts.tsx to the Nexus inline-style idiom. Custom charts live in
+// the person's profile (the "charts" document in /task-prefs, Oct 2026 - they
+// used to be in this browser's localStorage, so a chart built at a desk was
+// gone on a laptop), namespaced by a scope key (project id, or "workspace").
+// A project can also SHARE charts: those sit on the project row
+// (TaskProject.shared_charts) and every viewer of the project sees them.
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Plus, BarChart3, LineChart as LineIcon, PieChart, Hash, Trash2, Pencil, ChevronDown, Check, X, Users, User } from 'lucide-react';
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER } from '../theme';
 import { useUnsavedGuard } from '../../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../../components/UnsavedChangesPrompt';
-import { taskAssignees } from '../lib';
+import { taskAssignees, projectRoleOf, roleAtLeast } from '../lib';
+import { useTableValue, whenTablePrefsLoaded } from '../tableCols';
+import { useRole } from '../../contexts/RoleContext';
 
 const PALETTE = ['#2563eb', '#16a34a', '#f59e0b', '#7c3aed', '#dc2626', '#0891b2', '#db2777', '#65a30d'];
 
@@ -137,18 +143,47 @@ const DIMENSIONS = [
 const METRICS = [
   { key: 'count', label: 'Task Count' }, { key: 'sum_estimate', label: 'Estimated Hours' }, { key: 'sum_actual', label: 'Actual Hours' },
 ];
-const KEY = 'nexus.customCharts';
+// The pre-Oct-2026 localStorage document. Read once to lift what this
+// browser held into the person's profile the first time they open a dashboard
+// after the change; never written again.
+const LEGACY_KEY = 'nexus.customCharts';
+const readLegacy = () => { try { return JSON.parse(localStorage.getItem(LEGACY_KEY) || 'null'); } catch { return null; } };
 
-const readAll = () => { try { return JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { return {}; } };
+/** Personal charts for every scope, in the person's profile. `null` until the
+ *  first load settles AND nothing was ever stored. */
+export function useMyCharts() {
+  const [data, setData] = useTableValue('charts', 'data', undefined);
+  // One-time lift from this browser's old document - after the profile has
+  // loaded, so a profile that already has charts is never overwritten and
+  // the lift is not lost under the load landing after it.
+  useEffect(() => {
+    let alive = true;
+    whenTablePrefsLoaded().then(({ prefs, fromServer }) => {
+      if (!alive || !fromServer || prefs?.charts?.data !== undefined) return;
+      const legacy = readLegacy();
+      if (legacy && typeof legacy === 'object' && Object.keys(legacy).length) {
+        // The old copy goes only once the profile holds it.
+        Promise.resolve(setData(legacy))
+          .then(() => { try { localStorage.removeItem(LEGACY_KEY); } catch { /* private mode */ } })
+          .catch(() => {});
+      }
+    });
+    return () => { alive = false; };
+  }, [setData]);
+  return [data || {}, setData];
+}
 const autoTitle = (cfg) => {
   const m = cfg.metric === 'count' ? 'Total tasks' : cfg.metric === 'sum_estimate' ? 'Estimated hours' : 'Actual hours';
   return `${m} by ${(DIMENSIONS.find((d) => d.key === cfg.dimension)?.label || '').toLowerCase()}`;
 };
 
 function passes(t, f) {
-  if (f.statuses.length && !f.statuses.includes(t.status)) return false;
-  if (f.priorities.length && !f.priorities.includes(t.priority)) return false;
-  if (f.assigneeIds.length && !taskAssignees(t).some((e) => f.assigneeIds.includes(e))) return false;
+  // A chart from an older document, or shared by someone else, may lack a
+  // filter list; missing means "no filter", never a crash for every viewer.
+  const list = (k) => (Array.isArray(f?.[k]) ? f[k] : []);
+  if (list('statuses').length && !list('statuses').includes(t.status)) return false;
+  if (list('priorities').length && !list('priorities').includes(t.priority)) return false;
+  if (list('assigneeIds').length && !taskAssignees(t).some((e) => list('assigneeIds').includes(e))) return false;
   return true;
 }
 
@@ -232,43 +267,88 @@ function ChartRenderer({ cfg, data }) {
 }
 
 export function CustomChartsPanel({ scopeKey, tasks, store }) {
-  const [charts, setCharts] = useState(() => readAll()[scopeKey] ?? []);
-  const [editing, setEditing] = useState(null);
+  const [all, setAll] = useMyCharts();
+  const charts = all[scopeKey] ?? [];
+  const [editing, setEditing] = useState(null);     // { cfg, shared }
   const [adding, setAdding] = useState(false);
+  const { can } = useRole();
+  // A project dashboard also shows what the project shares; editors curate it.
+  const project = scopeKey !== 'workspace' ? store.projectById?.(scopeKey) : null;
+  const shared = project?.sharedCharts || [];
+  const canShare = !!project && roleAtLeast(projectRoleOf(project, store.myEmail, !!can?.('manager')), 'editor');
+  const [err, setErr] = useState('');
 
-  const persist = (next) => { const all = readAll(); all[scopeKey] = next; localStorage.setItem(KEY, JSON.stringify(all)); setCharts(next); };
-  const save = (cfg) => persist(charts.some((c) => c.id === cfg.id) ? charts.map((c) => (c.id === cfg.id ? cfg : c)) : [...charts, cfg]);
-  const remove = (id) => persist(charts.filter((c) => c.id !== id));
+  const persistMine = (next) => setAll({ ...all, [scopeKey]: next });
+  // Shared charts go one at a time (upsert / remove by id) and the server
+  // merges them under a row lock. Each answers whether it landed, so the
+  // personal copy only moves once the project actually holds the chart - a
+  // 403, a 422 or a dropped connection must not lose it.
+  const putShared = async (cfg) => {
+    setErr('');
+    try { await store.shareProjectChart(project.id, cfg); return true; } catch (e) { setErr(e?.message || 'That did not save.'); return false; }
+  };
+  const dropShared = async (cfg) => {
+    setErr('');
+    try { await store.unshareProjectChart(project.id, cfg.id); return true; } catch (e) { setErr(e?.message || 'That did not save.'); return false; }
+  };
+  const save = (cfg, isShared) => {
+    if (isShared) return putShared(cfg);
+    persistMine(charts.some((c) => c.id === cfg.id) ? charts.map((c) => (c.id === cfg.id ? cfg : c)) : [...charts, cfg]);
+  };
+  const remove = (cfg, isShared) => (isShared ? dropShared(cfg) : persistMine(charts.filter((c) => c.id !== cfg.id)));
+  // Sharing MOVES the chart: one copy, on the project, for everyone.
+  const share = async (cfg) => { if (await putShared(cfg)) persistMine(charts.filter((c) => c.id !== cfg.id)); };
+  const unshare = async (cfg) => { if (await dropShared(cfg)) persistMine([...charts, cfg]); };
+
+  const grid = (list, isShared) => (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(320px, 100%), 1fr))', gap: 16 }}>
+      {list.map((cfg) => (
+        <Card key={cfg.id} title={
+          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cfg.title}</span>
+            {(!isShared || canShare) && <>
+              {project && canShare && (isShared
+                ? <button onClick={() => unshare(cfg)} title="Stop sharing - back to only you" aria-label={`Stop sharing ${cfg.title}`} style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><User size={13} /></button>
+                : <button onClick={() => share(cfg)} title="Share with everyone on this project" aria-label={`Share ${cfg.title}`} style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><Users size={13} /></button>)}
+              <button onClick={() => setEditing({ cfg, shared: isShared })} title="Edit" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><Pencil size={13} /></button>
+              <button onClick={() => remove(cfg, isShared)} title="Remove" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><Trash2 size={13} /></button>
+            </>}
+          </span>
+        }>
+          <ChartRenderer cfg={cfg} data={computeSeries(cfg, tasks, store)} />
+        </Card>
+      ))}
+    </div>
+  );
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '8px 2px 12px' }}>
-        <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: NX.ink }}>Custom Charts</h3>
+      {project && shared.length > 0 && (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '8px 2px 12px' }}>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: NX.ink }}>Project Charts</h3>
+            <span style={{ fontSize: 12, color: NX.faint }}>Shared with everyone on this project</span>
+          </div>
+          {grid(shared, true)}
+        </>
+      )}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '20px 2px 12px' }}>
+        <div>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: NX.ink }}>{project ? 'My Charts' : 'Custom Charts'}</h3>
+          <span style={{ fontSize: 12, color: NX.faint }}>Saved to your profile - the same on every device.{project && canShare ? ' Share one to put it on the project for everyone.' : ''}</span>
+        </div>
         <button onClick={() => setAdding(true)} style={btn('outline')}><Plus size={14} />Add Chart</button>
       </div>
+      {err && <div style={{ fontSize: 12, color: NX.red, marginBottom: 8 }}>{err}</div>}
       {charts.length === 0 ? (
         <div style={{ borderRadius: 16, border: `1px dashed ${NX.border}`, background: NX.surface, padding: '32px 16px', textAlign: 'center', fontSize: 13, color: NX.faint }}>
           No custom charts yet. Click <span style={{ fontWeight: 700, color: NX.ink }}>Add Chart</span> to build one from any dimension, metric and filter.
         </div>
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(320px, 100%), 1fr))', gap: 16 }}>
-          {charts.map((cfg) => (
-            <Card key={cfg.id} title={
-              <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cfg.title}</span>
-                <button onClick={() => setEditing(cfg)} title="Edit" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><Pencil size={13} /></button>
-                <button onClick={() => remove(cfg.id)} title="Remove" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><Trash2 size={13} /></button>
-              </span>
-            }>
-              <ChartRenderer cfg={cfg} data={computeSeries(cfg, tasks, store)} />
-            </Card>
-          ))}
-        </div>
-      )}
+      ) : grid(charts, false)}
       {(adding || editing) && (
-        <AddChartModal tasks={tasks} store={store} initial={editing}
+        <AddChartModal tasks={tasks} store={store} initial={editing?.cfg || null}
           onClose={() => { setAdding(false); setEditing(null); }}
-          onSave={(cfg) => { save(cfg); setAdding(false); setEditing(null); }} />
+          onSave={(cfg) => { save(cfg, !!editing?.shared); setAdding(false); setEditing(null); }} />
       )}
     </div>
   );
@@ -328,7 +408,7 @@ function AddChartModal({ tasks, store, initial, onClose, onSave }) {
           {/* Preview */}
           <div className="nx-scroll" style={{ minWidth: 300, flex: '1 1 340px', overflow: 'auto', borderRight: `1px solid ${NX.border}`, padding: 24 }}>
             <input value={title} onChange={(e) => { setTitleTouched(true); patch({ title: e.target.value }); }}
-              style={{ marginBottom: 16, width: '100%', border: '1px solid transparent', borderRadius: 8, background: 'transparent', fontSize: 20, fontWeight: 700, color: NX.ink, outline: 'none', padding: '4px 6px', fontFamily: FONT }} />
+              style={{ marginBottom: 16, width: '100%', border: '1px solid transparent', borderRadius: 8, background: 'transparent', fontSize: 20, fontWeight: 700, color: NX.ink, padding: '4px 6px', fontFamily: FONT }} />
             <ChartRenderer cfg={{ ...cfg, title }} data={data} />
           </div>
           {/* Controls */}

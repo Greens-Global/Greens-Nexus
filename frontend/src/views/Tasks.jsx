@@ -1,6 +1,7 @@
 // Tasks view - shell for the ported Task Module. Mounts the module's data
 // provider and reproduces the export's chrome inside the Nexus shell:
-//   • module tabs Home · My Tasks · Projects · Portfolios · Teams - export's NexusModuleTabs
+//   • module tabs Home · Tasks · Projects · Portfolios · Teams - export's NexusModuleTabs
+//     (the second tab was "My Tasks" until Oct 13 2026, Neil; its key stays 'mine')
 //   • a Manage button for admin-only settings, plus a slot the active
 //     sub-view can portal its own page-level control into (Home's Customize)
 // Sub-view is driven by the host's activeSub/onSubChange so it round-trips through
@@ -19,6 +20,7 @@ import TemplatesView from '../tasks/TemplatesView';
 import TeamsView from '../tasks/TeamsView';
 import ManageView from '../tasks/ManageView';
 import CreateMenu from '../tasks/CreateMenu';
+import RunningTimerChip from '../tasks/RunningTimerChip';
 import { useIsMobile } from '../tasks/components';
 import { useRole } from '../contexts/RoleContext';
 import { NX, FONT, btn as btnStyle } from '../tasks/theme';
@@ -41,7 +43,7 @@ const TASK_TOUR_ID = 'task';
 // via the "Templates" entry point on the Projects screen instead.
 const MODULE_TABS = [
   { key: 'home', label: 'Home', icon: Home },
-  { key: 'mine', label: 'My Tasks', icon: CheckCircle2 },
+  { key: 'mine', label: 'Tasks', icon: CheckCircle2 },
   { key: 'projects', label: 'Projects', icon: FolderKanban },
   { key: 'portfolios', label: 'Portfolios', icon: Briefcase },
   { key: 'teams', label: 'Teams', icon: Users },
@@ -250,6 +252,7 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
               It sits here rather than in the page body so the module's
               top-level controls read as one group in the same bar, instead of
               one floating over the widget grid a row below the other. */}
+          <RunningTimerChip />
           <div id="nx-tasks-bar-actions" style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }} />
           {/* Outside the tab strip's own scroller, so it cannot scroll away on
               a narrow window the way Manage used to. */}

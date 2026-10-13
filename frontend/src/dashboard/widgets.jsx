@@ -1,4 +1,4 @@
-import { useState, useEffect, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { useMsal } from '@azure/msal-react';
 import {
@@ -9,7 +9,7 @@ import {
   CheckCheck, Trash2, Mail, CalendarPlus, FolderOpen, LayoutGrid,
   Bookmark, Plus, Link2, Lock,
   PenLine, Contact, ShoppingCart, Cake, UserMinus,
-  Ticket as TicketIcon, CloudSun, Search,
+  Ticket as TicketIcon, CloudSun, Search, HardHat, Building2,
 } from 'lucide-react';
 import { formatTime } from '../lib/datetime';
 import { api } from '../api';
@@ -29,6 +29,9 @@ const lazyPanel = (name) => lazy(() => import('./panels.jsx').then(m => ({ defau
 const QuickActionModal = lazy(() => import('./QuickActionModals.jsx'));
 // Weather (Sep 29) loads with the first Weather tile, not with every dashboard.
 const WeatherWidget = lazy(() => import('./weatherWidget.jsx'));
+// The one-tap Punch tile (Oct 11) brings the whole punch stack (gates, the
+// durable queue, geolocation, agent pairing) - loaded only when a board has one.
+const PunchTile = lazy(() => import('./essentials/PunchTile.jsx'));
 
 const ApprovalsPanel    = lazyPanel('ApprovalsPanel');
 const WhoHasWhatPanel   = lazyPanel('WhoHasWhatPanel');
@@ -87,26 +90,28 @@ export const KPI_CATALOG = {
 };
 
 // Curated shortcut destinations for the picker (module + optional sub-screen).
+// Each carries its module's icon (Oct 11) so a row of Shortcut tiles reads
+// like a row of app icons instead of fifteen identical stacks of layers.
 export const SHORTCUT_TARGETS = [
-  { view: 'timeclock',        label: 'Time Clock' },
-  { view: 'myhr',             label: 'Workday' },
-  { view: 'tasks',            label: 'Tasks' },
-  { view: 'inventory',        label: 'Item Management' },
-  { view: 'inventory', sub: 'catalog',   label: 'Item Management · Browse catalog' },
-  { view: 'inventory', sub: 'checkouts', label: 'Item Management · Checkouts' },
-  { view: 'purchase',         label: 'Purchase Requests' },
-  { view: 'property-asset',   label: 'Asset Management' },
-  { view: 'sop',              label: 'Knowledge Base' },
-  { view: 'hr',               label: 'HR' },
-  { view: 'accounting',       label: 'Accounting' },
-  { view: 'operations',       label: 'Operations' },
-  { view: 'ops',              label: 'Construction' },
-  { view: 'external-links',   label: 'Links' },
-  { view: 'support',          label: 'Support' },
+  { view: 'timeclock',        label: 'Time Clock',        Icon: Clock,        color: 'green' },
+  { view: 'myhr',             label: 'Workday',           Icon: Briefcase,    color: 'brand' },
+  { view: 'tasks',            label: 'Tasks',             Icon: CheckSquare,  color: 'blue' },
+  { view: 'inventory',        label: 'Item Management',   Icon: Package,      color: 'orange' },
+  { view: 'inventory', sub: 'catalog',   label: 'Item Management · Browse catalog', Icon: Boxes,     color: 'orange' },
+  { view: 'inventory', sub: 'checkouts', label: 'Item Management · Checkouts',      Icon: HandCoins, color: 'orange' },
+  { view: 'purchase',         label: 'Purchase Requests', Icon: ShoppingCart, color: 'purple' },
+  { view: 'property-asset',   label: 'Asset Management',  Icon: Building2,    color: 'brand' },
+  { view: 'sop',              label: 'Knowledge Base',    Icon: BookOpen,     color: 'brand' },
+  { view: 'hr',               label: 'HR',                Icon: Users,        color: 'green' },
+  { view: 'accounting',       label: 'Accounting',        Icon: BarChart3,    color: 'purple' },
+  { view: 'operations',       label: 'Operations',        Icon: ClipboardList, color: 'blue' },
+  { view: 'ops',              label: 'Construction',      Icon: HardHat,      color: 'orange' },
+  { view: 'external-links',   label: 'Links',             Icon: ExternalLink, color: 'blue' },
+  { view: 'support',          label: 'Support',           Icon: TicketIcon,   color: 'red' },
 ];
 
-const labelFor = (t) => SHORTCUT_TARGETS.find(s => s.view === t.view && (s.sub || '') === (t.sub || ''))?.label
-  || t.label || t.view;
+const targetFor = (t) => SHORTCUT_TARGETS.find(s => s.view === t.view && (s.sub || '') === (t.sub || ''));
+const labelFor = (t) => targetFor(t)?.label || t.label || t.view;
 
 // ── Native card shells (match the Overview screen exactly) ────────────────────
 export function DashCard({ title, sub, action, children, onClick, style }) {
@@ -198,12 +203,16 @@ function KpiBarWidget({ config, kpis }) {
 
 function ShortcutWidget({ config }) {
   const t = config || SHORTCUT_TARGETS[0];
-  const color = t.color || 'blue';
+  // Saved configs carry only { view, sub, label } - the icon and color come
+  // from the catalog entry they point at; an unknown target keeps the old look.
+  const known = targetFor(t);
+  const color = t.color || known?.color || 'blue';
+  const Icon = known?.Icon || Layers;
   return (
     <div className="dash-card" onClick={() => navigate(t.view, t.sub)}
       style={{ height: '100%', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 9, textAlign: 'center', cursor: 'pointer' }}>
       <span className={`dk-chip dk-chip--${color}`} style={{ width: 44, height: 44, borderRadius: 12 }}>
-        <Layers size={20} />
+        <Icon size={20} />
       </span>
       <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--wk-ink)' }}>{labelFor(t)}</div>
       <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--wk-brand)', fontSize: 12.5, fontWeight: 600 }}>Open <ArrowRight size={12} /></div>
@@ -582,7 +591,7 @@ function PersonalLinksWidget() {
     </button>
   );
   return (
-    <div tabIndex={-1} onPaste={onPaste} style={{ height: '100%', outline: 'none' }}>
+    <div tabIndex={-1} onPaste={onPaste} style={{ height: '100%' }}>
       <DashCard title="My Personal Links" sub={note || 'Only visible to you'}
         action={<Lock size={15} style={{ color: 'var(--muted)' }} />}>
         {state.loading ? (
@@ -640,15 +649,30 @@ export function resolveQuickActions(config) {
   const picked = new Set(keys);
   return QUICK_ACTIONS.filter(a => picked.has(a.key));
 }
-function QuickActionsWidget({ config }) {
+// Which composer is open and the one-line note it left behind, shared by the
+// Quick Actions card and the Action Tile. Composers report whether Graph sent
+// it or Outlook took over, so the card can say which actually happened
+// instead of a blanket "Done". The note's timer is held in a ref and cleared
+// on unmount (a removed tile used to set state after it was gone) and on
+// every new note (the first note's timer used to wipe the second one early).
+function useComposer() {
   const [modal, setModal] = useState(null);
   const [note, setNote] = useState('');
-  // Composers report whether Graph sent it or Outlook took over, so the card
-  // can say which actually happened instead of a blanket "Done".
+  const timer = useRef(null);
+  useEffect(() => () => clearTimeout(timer.current), []);
   const close = (res) => {
     setModal(null);
-    if (res?.toast) { setNote(res.toast); setTimeout(() => setNote(''), 4000); }
+    if (res?.toast) {
+      setNote(res.toast);
+      clearTimeout(timer.current);
+      timer.current = setTimeout(() => setNote(''), 4000);
+    }
   };
+  return { modal, setModal, note, close };
+}
+
+function QuickActionsWidget({ config }) {
+  const { modal, setModal, note, close } = useComposer();
   const actions = resolveQuickActions(config);
   // Same row anatomy as DeskHome's quick actions - icon chip, label, chevron.
   return (
@@ -664,6 +688,67 @@ function QuickActionsWidget({ config }) {
       </div>
       {modal && <Suspense fallback={<ModalLoading />}><QuickActionModal kind={modal} onClose={close} /></Suspense>}
     </DashCard>
+  );
+}
+
+// ── Single-action tiles (Oct 11) ──────────────────────────────────────────────
+// Neil: "smaller tiles that do single actions... can make it feel like iOS".
+// One tile = one thing: a composer (task, event, email, ticket, link), a
+// screen (request an item, time off...), or the next punch on the clock. The
+// face is an app icon with its name under it; at one row tall it turns into a
+// pill with the icon beside the name. The whole tile is the button.
+// `subRole` ('status' | 'alert') announces the caption: the live region sits
+// OUTSIDE the button (a button's children are presentational, so a role on
+// them may never be read out). `busy` keeps the button focusable - a
+// disabled button drops keyboard focus to <body> mid-punch - and marks it
+// aria-disabled with the click ignored; `disabled` is for a tile that cannot
+// act at all yet (loading).
+export function ActionFace({ Icon, color = 'blue', label, sub, tone, subRole, row, disabled, busy, onClick }) {
+  const inert = !!busy && !disabled;
+  return (
+    <>
+      <button type="button" className={`dk-stat dk-action${row ? ' dk-action--row' : ''}`} onClick={inert ? undefined : onClick}
+        disabled={disabled} aria-disabled={inert || undefined} aria-busy={busy || undefined} title={sub ? `${label} - ${sub}` : label}
+        style={{ height: '100%', width: '100%', boxSizing: 'border-box' }}>
+        <span className={`dk-chip dk-chip--${color} dk-action-chip`}><Icon /></span>
+        <span className="dk-action-text">
+          <span className="dk-action-label">{label}</span>
+          {sub && <span className={`dk-action-sub${tone ? ` dk-action-sub--${tone}` : ''}`}>{sub}</span>}
+        </span>
+      </button>
+      <span role={subRole === 'alert' ? 'alert' : 'status'} className="dk-sr-only">{subRole ? sub : ''}</span>
+    </>
+  );
+}
+
+// What an Action Tile can be. The punch comes first - the one most people
+// tap every day - then every quick action, each a tile of its own.
+// `timeTracked`: not for a time-tracking-exempt person (see widgetHidden).
+export const ACTION_CHOICES = [
+  { key: 'punch', label: 'Punch In / Out', color: 'green', Icon: Clock, timeTracked: true, hint: 'Whichever punch is next, in one tap' },
+  ...QUICK_ACTIONS,
+];
+export const DEFAULT_ACTION = 'task';
+export const actionChoice = (key) => ACTION_CHOICES.find(a => a.key === key);
+
+function ActionTile({ config, size }) {
+  const { modal, setModal, note, close } = useComposer();
+  // One row tall = the pill layout; anything taller = the app-icon layout.
+  const row = (size?.h ?? 2) <= 1;
+  const a = actionChoice(config?.action) || actionChoice(DEFAULT_ACTION);
+  if (a.key === 'punch') {
+    return (
+      <Suspense fallback={<ActionFace row={row} Icon={Clock} color="green" label="Punch Clock" sub="Loading…" disabled />}>
+        <PunchTile row={row} />
+      </Suspense>
+    );
+  }
+  return (
+    <>
+      <ActionFace row={row} Icon={a.Icon} color={a.color} label={a.label} sub={note || undefined} tone={note ? 'ok' : undefined}
+        onClick={() => a.act ? setModal(a.act) : navigate(a.view, a.sub)} />
+      {modal && <Suspense fallback={<ModalLoading />}><QuickActionModal kind={modal} onClose={close} /></Suspense>}
+    </>
   );
 }
 
@@ -746,9 +831,9 @@ function NotesWidget({ config, updateConfig }) {
   useEffect(() => { setText(config?.text || ''); }, [config?.text]);
   return (
     <DashCard title="Notes" action={<StickyNote size={15} style={{ color: C('orange') }} />}>
-      <textarea value={text} onChange={e => setText(e.target.value)} onBlur={() => updateConfig({ text })}
+      <textarea className="nx-inline-edit" value={text} onChange={e => setText(e.target.value)} onBlur={() => updateConfig({ text })}
         placeholder="Jot something down…"
-        style={{ width: '100%', height: '100%', minHeight: 60, resize: 'none', border: 'none', background: 'transparent', outline: 'none', fontFamily: 'var(--wk-font)', fontSize: 13.5, color: 'var(--ink)', lineHeight: 1.6 }} />
+        style={{ width: '100%', height: '100%', minHeight: 60, resize: 'none', border: 'none', fontFamily: 'var(--wk-font)', fontSize: 13.5, color: 'var(--ink)', lineHeight: 1.6 }} />
     </DashCard>
   );
 }
@@ -792,7 +877,7 @@ function ClockWidget() {
 // AND re-applied to saved layouts on load, so a stat tile can never balloon.
 const STAT_LIMITS = { minW: 2, minH: 2, maxW: 4, maxH: 3 };
 export const WIDGETS = {
-  kpi:           { title: 'KPI Stat',        cat: 'Metrics',   icon: BarChart3,    size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: KpiWidget,          configurable: 'kpi' },
+  kpi:           { title: 'KPI Stat',        cat: 'Metrics',   icon: BarChart3,    size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: KpiWidget,          configurable: 'kpi', compact: true },
   'kpi-bar':     { title: 'KPI Bar Chart',   cat: 'Metrics',   icon: BarChart3,    size: { w: 4, h: 3 }, limits: { minW: 3, minH: 3, maxW: 6, maxH: 5 }, render: KpiBarWidget },
   // A two-row stat tile since Sep 29 (was 3x3 with its own header + button):
   // maxH 2 so every saved board shrinks with it on load, minW 3 so today
@@ -801,12 +886,17 @@ export const WIDGETS = {
   'my-requests': { title: 'My Requests',     cat: 'Workday',   icon: ClipboardList, size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: MyRequestsWidget },
   'due-back':    { title: 'Due Back Soon',   cat: 'Workday',   icon: Boxes,        size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: DueBackWidget },
   'coming-up':   { title: 'Coming Up',       cat: 'Workday',   icon: Cake,         size: { w: 3, h: 3 }, limits: { minW: 2, minH: 2, maxW: 4, maxH: 5 }, render: ComingUpWidget },
-  shortcut:      { title: 'Shortcut Tile',   cat: 'Navigation', icon: Layers,      size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: ShortcutWidget,     configurable: 'shortcut' },
+  // Action Tile (Oct 11): one action per tile, app-icon face, down to one
+  // row tall (a pill) - the smallest tile on the board. `compact`: on a
+  // phone two of these sit side by side instead of each taking a full row.
+  action:        { title: 'Action Tile',     cat: 'Actions',   icon: Zap,          size: { w: 2, h: 2 }, limits: { minW: 2, minH: 1, maxW: 4, maxH: 2 }, render: ActionTile, configurable: 'action', compact: true,
+                   timeTrackedWhen: (config) => (config?.action || DEFAULT_ACTION) === 'punch' },
+  shortcut:      { title: 'Shortcut Tile',   cat: 'Navigation', icon: Layers,      size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: ShortcutWidget,     configurable: 'shortcut', compact: true },
   links:         { title: 'Quick Links',     cat: 'Links',     icon: ExternalLink, size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 4, maxH: 6 }, render: LinksWidget },
   'links-folder': { title: 'Links Folder',   cat: 'Links',     icon: FolderOpen,   size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 4, maxH: 6 }, render: LinksFolderWidget, configurable: 'links-folder' },
   favorites:     { title: 'Favorites',       cat: 'Links',     icon: Bookmark,     size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 6, maxH: 6 }, render: FavoritesWidget },
   'personal-links': { title: 'My Personal Links', cat: 'Links', icon: Link2,       size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 6, maxH: 6 }, render: PersonalLinksWidget },
-  'quick-actions': { title: 'Quick Actions', cat: 'Navigation', icon: Zap,         size: { w: 3, h: 4 }, limits: { minW: 3, minH: 2, maxW: 6, maxH: 6 }, render: QuickActionsWidget, configurable: 'quick-actions' },
+  'quick-actions': { title: 'Quick Actions', cat: 'Actions',   icon: ListTodo,         size: { w: 3, h: 4 }, limits: { minW: 3, minH: 2, maxW: 6, maxH: 6 }, render: QuickActionsWidget, configurable: 'quick-actions' },
   notifications: { title: 'Notifications',   cat: 'Live',      icon: Bell,         size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: NotificationsWidget },
   // 'agenda' is the pre-merge widget type (My Agenda, list-only) - kept as a
   // hidden alias so dashboards that already have one keep working, but it now
@@ -819,9 +909,9 @@ export const WIDGETS = {
   calendar:      { title: 'Calendar',        cat: 'Live',      icon: CalendarDays, size: { w: 8, h: 5 }, limits: { minW: 5, minH: 4, maxW: 12, maxH: 8 }, render: CalendarPanel },
   clock:         { title: 'Clock & Greeting', cat: 'Utility',  icon: Clock,        size: { w: 3, h: 3 }, limits: { minW: 2, minH: 2, maxW: 4, maxH: 4 }, render: ClockWidget },
   notes:         { title: 'Notes',           cat: 'Utility',   icon: StickyNote,   size: { w: 3, h: 3 }, limits: { minW: 2, minH: 2, maxW: 6, maxH: 6 }, render: NotesWidget },
-  'team-attendance': { title: 'Team Clocked-In', cat: 'Team',  icon: Users,        size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: (p) => <TeamStatWidget {...p} config={{ metric: 'clocked_in_now' }} />, minRole: 'supervisor' },
-  'team-approvals':  { title: 'Team Approvals',  cat: 'Team',  icon: ClipboardCheck, size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: (p) => <TeamStatWidget {...p} config={{ metric: 'pending_requisitions' }} />, minRole: 'manager' },
-  'time-off':        { title: 'Time Off to Review', cat: 'Team', icon: CalendarClock, size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: (p) => <TeamStatWidget {...p} config={{ metric: 'time_off_pending' }} />, minRole: 'manager' },
+  'team-attendance': { title: 'Team Clocked-In', cat: 'Team',  icon: Users,        size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: (p) => <TeamStatWidget {...p} config={{ metric: 'clocked_in_now' }} />, minRole: 'supervisor', compact: true },
+  'team-approvals':  { title: 'Team Approvals',  cat: 'Team',  icon: ClipboardCheck, size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: (p) => <TeamStatWidget {...p} config={{ metric: 'pending_requisitions' }} />, minRole: 'manager', compact: true },
+  'time-off':        { title: 'Time Off to Review', cat: 'Team', icon: CalendarClock, size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: (p) => <TeamStatWidget {...p} config={{ metric: 'time_off_pending' }} />, minRole: 'manager', compact: true },
 
   // ── Panels ported from the old Overview / Team Analytics screens ──
   approvals:       { title: 'Pending Approvals',  cat: 'Team',      icon: ClipboardList, size: { w: 8, h: 5 }, limits: { minW: 6, minH: 4, maxW: 12, maxH: 8 }, render: ApprovalsPanel,    minRole: 'manager' },
@@ -869,8 +959,21 @@ export function widgetAllowed(def, { can, myGrantedModules, canAccessModule }) {
 // time-tracking-exempt person (Neil, Oct 8): it is left out of their grid
 // (kept in the saved layout, so a shared view still carries it for the
 // hourly people) and out of the gallery. Unknown (null) counts as tracked.
-export function widgetHidden(def, { timeTrackingExempt }) {
-  return !!def?.timeTracked && timeTrackingExempt === true;
+// `timeTrackedWhen(config)` is the same call for a tile whose relevance
+// depends on how it is set up (an Action Tile set to the punch); without a
+// config (the gallery asking about the type itself) it is never hidden.
+export function widgetHidden(def, { timeTrackingExempt }, config) {
+  if (timeTrackingExempt !== true) return false;
+  return !!def?.timeTracked || (!!config && !!def?.timeTrackedWhen?.(config));
+}
+
+// The gallery's size word for a tile's default footprint - the iOS widget
+// vocabulary (Small / Medium / Large / Wide), not a w×h nobody can picture.
+export function sizeLabel({ w, h } = {}) {
+  if (w >= 8) return 'Wide';
+  if (w <= 3 && h <= 2) return 'Small';
+  if (w <= 4 && h <= 4) return 'Medium';
+  return 'Large';
 }
 
 // Clamp a layout item to its widget's limits (also keeps it inside the 12-col grid).

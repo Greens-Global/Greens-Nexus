@@ -20,6 +20,10 @@ import { Check, ChevronDown, Plus, Search } from 'lucide-react';
 import { NX, FONT, input as inputStyle } from './theme';
 import { teamInProject } from './lib';
 import AnchoredMenu from '../components/AnchoredMenu';
+import { useListNav, openPickerOnKey, caretToEnd, focusNextField } from '../lib/listNav';
+
+// The "No project" row, as an item the keyboard can land on.
+const NONE_ROW = { id: '', name: '' };
 
 /** Projects the user is actually attached to: owner, explicit member, or a
  *  member of a team that is on the project. Mirrors the "direct access or team
@@ -66,9 +70,18 @@ export default function ProjectPicker({
     const needle = q.trim().toLowerCase();
     const match = (p) => !needle || (p.name || '').toLowerCase().includes(needle);
     const live = (projects || []).filter((p) => !p.archived && match(p));
+    // While searching, a name that STARTS with the text comes first, then one
+    // with a word that does, then the rest - the same ranking the people
+    // pickers use (lib/peopleSearch.js) - so "me" highlights Menifee, not
+    // "GSE Development", for Enter to take.
+    const rank = (p) => {
+      const name = (p.name || '').toLowerCase();
+      return name.startsWith(needle) ? 0 : name.split(/[\s\-_/#.]+/).some((w) => w.startsWith(needle)) ? 1 : 2;
+    };
+    const order = needle ? (a, b) => rank(a) - rank(b) || byName(a, b) : byName;
     return {
-      mine: live.filter((p) => mineIds.has(p.id)).sort(byName),
-      others: live.filter((p) => !mineIds.has(p.id)).sort(byName),
+      mine: live.filter((p) => mineIds.has(p.id)).sort(order),
+      others: live.filter((p) => !mineIds.has(p.id)).sort(order),
     };
   }, [projects, teams, myEmail, q]);
 
@@ -76,14 +89,30 @@ export default function ProjectPicker({
   // stopPropagation. An outside tap is AnchoredMenu's job.
   useEffect(() => {
     if (!open) return undefined;
-    const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); } };
+    const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); setQ(''); wrapRef.current?.focus(); } };
     document.addEventListener('keydown', onKey, true);
     return () => document.removeEventListener('keydown', onKey, true);
   }, [open]);
 
   useEffect(() => { if (open) searchRef.current?.focus(); }, [open]);
 
-  const pick = (id) => { onChange?.(id); setOpen(false); setQ(''); };
+  const pick = (id) => { onChange?.(id); setOpen(false); setQ(''); wrapRef.current?.focus(); };
+  const openPanel = (text = '') => { setPanelW(wrapRef.current?.offsetWidth || 0); setQ(text); setOpen(true); };
+
+  // Keyboard: the highlighted row is what Enter takes (see lib/listNav.js).
+  const showNone = allowNone && !q.trim();
+  const navItems = [...(showNone ? [NONE_ROW] : []), ...mine, ...others];
+  const nav = useListNav(navItems, {
+    open, query: q,
+    startAt: navItems.findIndex((p) => p.id === (value || '')),
+    onPick: (p) => pick(p.id),
+    onTab: (p, back) => {
+      if (p) onChange?.(p.id);
+      setOpen(false); setQ('');
+      focusNextField(wrapRef.current, back);
+    },
+  });
+  const navAt = (p) => nav.optionProps(navItems.indexOf(p));
 
   // className carries the hover/focus highlight (.nx-menu-row in style.css) -
   // inline styles cannot express a :hover state, which is why these rows only
@@ -101,7 +130,8 @@ export default function ProjectPicker({
 
   return (
     <div>
-      <button ref={wrapRef} type="button" onClick={() => { setPanelW(wrapRef.current?.offsetWidth || 0); setOpen((o) => !o); }}
+      <button ref={wrapRef} type="button" onClick={() => (open ? setOpen(false) : openPanel())}
+        onKeyDown={(e) => { if (!open) openPickerOnKey(e, openPanel); }}
         style={{
           ...inputStyle, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           gap: 8, cursor: 'pointer', textAlign: 'left', width: '100%',
@@ -117,30 +147,28 @@ export default function ProjectPicker({
       {/* Portaled: inside Create Task the modal body scrolls, and clipped
           the panel's lower half. */}
       <AnchoredMenu anchorRef={wrapRef} open={open} onClose={() => setOpen(false)} role="dialog" style={{
-        width: panelW || undefined,
+        // At least as wide as the field, and never narrower than 360px: in
+        // the task drawer the field is ~220px, and copying that width cut
+        // "Maintenance 910 S. ECR" to "Maintenance 910 S. El..." (Oct 13 2026).
+        // AnchoredMenu keeps it on screen on a phone.
+        width: Math.max(panelW || 0, 360),
         background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10,
         boxShadow: '0 12px 32px rgba(0,0,0,0.16)', overflowX: 'hidden',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px',
           borderBottom: `1px solid ${NX.border2}` }}>
           <Search size={14} style={{ color: NX.faint, flexShrink: 0 }} />
-          <input
+          <input className="nx-inline-edit"
             ref={searchRef} value={q} onChange={(e) => setQ(e.target.value)}
             placeholder="Search projects"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                const first = mine[0] || others[0];
-                if (first) pick(first.id);
-              }
-            }}
-            style={{ border: 'none', outline: 'none', background: 'transparent', flex: 1,
+            {...nav.inputProps} onFocus={caretToEnd} onKeyDown={nav.onKeyDown}
+            style={{ border: 'none', flex: 1,
               fontSize: 13.5, color: NX.ink, fontFamily: FONT }} />
         </div>
 
-        <div className="nx-scroll" style={{ maxHeight: 280, overflowY: 'auto' }}>
+        <div role="listbox" className="nx-scroll" style={{ maxHeight: 280, overflowY: 'auto' }}>
           {allowNone && !q.trim() && (
-            <button type="button" className="nx-menu-row" onClick={() => pick('')} style={rowStyle(!value)}>
+            <button type="button" tabIndex={-1} className="nx-menu-row" {...navAt(NONE_ROW)} onClick={() => pick('')} style={rowStyle(false)}>
               <span style={{ width: 14, flexShrink: 0 }}>{!value && <Check size={14} />}</span>
               <span style={{ color: NX.dim }}>{noneLabel}</span>
             </button>
@@ -148,17 +176,17 @@ export default function ProjectPicker({
 
           {mine.length > 0 && <div style={heading}>Your Projects</div>}
           {mine.map((p) => (
-            <button key={p.id} type="button" className="nx-menu-row" onClick={() => pick(p.id)} style={rowStyle(p.id === value)}>
+            <button key={p.id} type="button" tabIndex={-1} className="nx-menu-row" {...navAt(p)} onClick={() => pick(p.id)} style={rowStyle(false)}>
               <span style={{ width: 14, flexShrink: 0 }}>{p.id === value && <Check size={14} />}</span>
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+              <span style={{ minWidth: 0, overflowWrap: 'anywhere', lineHeight: 1.35 }}>{p.name}</span>
             </button>
           ))}
 
           {others.length > 0 && <div style={heading}>{mine.length ? 'All Projects' : 'Projects'}</div>}
           {others.map((p) => (
-            <button key={p.id} type="button" className="nx-menu-row" onClick={() => pick(p.id)} style={rowStyle(p.id === value)}>
+            <button key={p.id} type="button" tabIndex={-1} className="nx-menu-row" {...navAt(p)} onClick={() => pick(p.id)} style={rowStyle(false)}>
               <span style={{ width: 14, flexShrink: 0 }}>{p.id === value && <Check size={14} />}</span>
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+              <span style={{ minWidth: 0, overflowWrap: 'anywhere', lineHeight: 1.35 }}>{p.name}</span>
             </button>
           ))}
 

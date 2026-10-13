@@ -18,6 +18,7 @@ import { StepUpOverlay } from "./stepup/StepUp";
 import GlobalSearch from "./components/GlobalSearch";
 import PullToRefresh from "./components/PullToRefresh";
 import UpdateBanner from "./components/UpdateBanner";
+import FeatureBanner from "./components/FeatureBanner";
 import AssistantWidget from "./components/AssistantWidget";
 import ViewErrorBoundary from "./components/ViewErrorBoundary";
 import { Spinner, ViewLoading } from "./components/AsyncState";
@@ -65,6 +66,7 @@ const Placeholder         = lazy(() => import("./views/Placeholder"));
 const Directory           = lazy(() => import("./views/Directory"));   // Contact Directory (Support, Oct 2026)
 const PublicSign          = lazy(() => import("./views/PublicSign"));
 const PublicVerify        = lazy(() => import("./views/PublicVerify"));
+const PublicUnitFinder    = lazy(() => import("./views/PublicUnitFinder"));
 const ExternalActivate    = lazy(() => import("./views/ExternalActivate"));
 const PrivacyPolicy       = lazy(() => import("./views/PrivacyPolicy"));
 const TermsConditions     = lazy(() => import("./views/TermsConditions"));
@@ -80,13 +82,14 @@ const Egnyte              = lazy(() => import("./views/Egnyte"));
 const EmployeeTracking    = lazy(() => import("./components/TimeTrackingAdmin"));
 const Shifts              = lazy(() => import("./views/Shifts"));
 const MyBriefing          = lazy(() => import("./views/MyBriefing"));
+const WhatsNew            = lazy(() => import("./tasks/ChangelogView"));   // What's New as a page (Oct 12)
 
 const VIEW_LABELS = Object.fromEntries(MODULES.map(m => [m.id, m.label]));
 // Views that aren't registered MODULES (e.g. "purchase") fall back to a
 // title-cased version of their id so breadcrumbs never show raw lowercase ids.
 // Acronyms the title-caser would mangle ("pdf-editor" -> "Pdf Editor"). These
 // views live in Sidebar's NAV but not in MODULES, so they hit the fallback.
-const LABEL_OVERRIDES = { 'pdf-editor': 'PDF Tools', 'terms-conditions': 'Terms & Conditions', briefing: 'My Briefing', legal: 'Legal' };
+const LABEL_OVERRIDES = { 'pdf-editor': 'PDF Tools', 'terms-conditions': 'Terms & Conditions', briefing: 'My Briefing', legal: 'Legal', 'whats-new': "What's New" };
 const viewLabel = (view) => VIEW_LABELS[view] || LABEL_OVERRIDES[view]
   || (view || '').split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
@@ -153,6 +156,9 @@ const VIEW_MIN_ROLES = {
 // A view whose Access Group grant has another module's id (none today:
 // Shifts, the one entry, became everyone's module on Sep 29).
 const VIEW_GRANT = {};
+// Views that OTHER grants also open (any one is enough): a 'workforce-scorecard'
+// grant alone reaches Workforce Analytics for its Scorecard tab (Neil, 10/10).
+const VIEW_ALT_GRANTS = { 'employee-tracking': ['workforce-scorecard'] };
 
 // E2E mode (Playwright CI only - VITE_E2E is never set on real builds) and the
 // local dev-login bypass (VITE_DEV_SKIP_AUTH, see msalInstance.js) both skip the
@@ -292,6 +298,9 @@ function TaskPrefetch() {
 // notification links, dev tools), the actual view content is never shown
 // without the correct role or a group grant.
 const LEGAL_VIEWS = new Set(['legal', 'privacy-policy', 'terms-conditions']);
+// Open to every signed-in user, externals included: reading What's New is
+// everyone's default (Neil, Oct 12 2026); changing it is gated inside.
+const OPEN_VIEWS = new Set(['whats-new']);
 
 function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
   const { can, myGrantedModules, isExternal } = useRole();
@@ -307,11 +316,12 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
   // baseline employee screens are internal-only. The backend enforces the
   // same boundary per request (auth.apply_external_policy).
   const grantKey = VIEW_GRANT[activeView] || activeView;
+  const granted = [grantKey, ...(VIEW_ALT_GRANTS[activeView] || [])].some(g => myGrantedModules.has(g));
   // Legal is open to everyone who signs in, externals included - they
   // accepted these terms too (Oct 7).
   const hasAccess = isExternal
-    ? (myGrantedModules.has(grantKey) || LEGAL_VIEWS.has(activeView))
-    : (!minRole || can('administrator') || (minRole !== 'administrator' && myGrantedModules.has(grantKey)));
+    ? (granted || LEGAL_VIEWS.has(activeView) || OPEN_VIEWS.has(activeView))
+    : (!minRole || can('administrator') || (minRole !== 'administrator' && granted));
 
   // An external landing on a non-granted view (e.g. the default 'dashboard'
   // after login) is bounced to their first granted module instead of being
@@ -364,6 +374,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     // Open to every internal user (no VIEW_MIN_ROLES entry); externals get
     // Access Restricted here and 403 from the API.
     case "directory":          return <Directory />;
+    case "whats-new":          return <WhatsNew />;
     case "timeclock":          return <TimeClock initialTab="overview" activeSub={activeSub} onSubChange={onSubChange} />;
     case "myhr":               return <TimeClock initialTab="overview" activeSub={activeSub} onSubChange={onSubChange} />;
     case "testing":            return <Testing />;
@@ -425,7 +436,7 @@ const DEFAULT_SUBS = {
   sop:               "index",
   it:                "network",
   ops:               "construction-dashboard",
-  operations:        "fms",
+  operations:        "overview",
   development:       "dev-permits",
   "property-asset":  "asset-portfolio",
   hr:                "hr-ms",
@@ -478,6 +489,17 @@ export default function App() {
     return (
       <Suspense fallback={<ViewLoading minHeight="100dvh" />}>
         <PublicVerify token={token} />
+      </Suspense>
+    );
+  }
+  // Public unit finder (/map/{propertyId}) - a storage customer looking for
+  // their unit on the 3D site model has no login; the model served to them
+  // carries geometry and unit numbers only (routers/site_models.py).
+  if (parsePath().view === 'map') {
+    const pid = window.location.pathname.split('/').filter(Boolean)[1] || '';
+    return (
+      <Suspense fallback={<ViewLoading minHeight="100dvh" />}>
+        <PublicUnitFinder propertyId={pid} />
       </Suspense>
     );
   }
@@ -746,14 +768,15 @@ function MainApp() {
               center via <ModuleTabs> (Work OS shell - Stella-style layout) */}
           <HeaderTabsProvider>
           <main className={`main-content${sidebarCollapsed ? " main-collapsed" : ""}`}>
+            {/* The weekly "New in Nexus" bar - across the top of the page,
+                above the header (components/FeatureBanner.jsx). */}
+            <FeatureBanner activeView={activeView} onNavigate={navigate} />
             {/* PDF Editor is a full-bleed workspace with its own toolbar — hide
                 the Nexus top header so it gets the whole viewport height. */}
             {!pdfHasDoc && (
             <TopHeader
               title={viewLabel(activeView)}
               activeView={activeView}
-              helpKey={activeSub ? `${activeView}:${activeSub}` : activeView}
-              helpLabel={viewLabel(activeView)}
               theme={theme}
               onThemeToggle={() => setTheme(t => t === "dark" ? "light" : "dark")}
               sidebarPinned={sidebarPinned}
@@ -773,7 +796,7 @@ function MainApp() {
                 whole canvas. It used to cancel .viewport's padding with negative
                 margins, which only matched ONE of the five breakpoint paddings
                 and so sat off-center at most widths. */}
-            <div className={(activeView === 'tasks' || activeView === 'tickets' || activeView === 'pdf-editor' || pdfHasDoc) ? 'viewport viewport-flush'
+            <div key={`${activeView}/${viewEpoch}`} className={(activeView === 'tasks' || activeView === 'tickets' || activeView === 'pdf-editor' || pdfHasDoc || activeView === 'whats-new') ? 'viewport viewport-flush'
               : activeView === 'dashboard' ? 'viewport viewport-desk'
               : activeView === 'documents' ? 'viewport viewport-tight'
               : 'viewport'}>

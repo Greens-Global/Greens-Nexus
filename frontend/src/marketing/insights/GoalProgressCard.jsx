@@ -35,7 +35,7 @@ export default function GoalProgressCard({ leads, goal, onChangeGoal, range }) {
         <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 600, color: pct >= 100 ? C.emerald600 : C.gray500 }}>{pct.toFixed(0)}%</span>
       </div>
       <div style={{ width: '100%', height: 10, borderRadius: 9999, background: C.gray100, overflow: 'hidden', marginBottom: 16 }}>
-        <div style={{ height: '100%', borderRadius: 9999, background: barBg, transition: 'all .15s', width: `${pct}%` }} />
+        <div style={{ height: '100%', borderRadius: 9999, background: barBg, transition: 'width .15s', width: `${pct}%` }} />
       </div>
 
       {showProjection && (

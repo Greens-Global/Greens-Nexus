@@ -750,12 +750,14 @@ def _queue_requester_teams_dm(db: Session, t: models.TaskTicket, actor_email: st
 @router.get("/task-tickets")
 def list_tickets(mine: bool = False, user: dict = Depends(get_current_user),
                  db: Session = Depends(get_db)):
-    """`mine=true` narrows to just the tickets THIS person raised - what the
-    Support page's "My Open Tickets" needs. Being cc'd on someone else's
-    ticket (mentioned in a comment, added as a watcher) does not make it
-    "mine": that list showing a ticket Ankush raised, just because Pranshu
-    was watching it, read as a gap in the requester scoping, not a feature
-    (Pranshu, Sep 10 2026).
+    """`mine=true` is the Support page's list: the tickets THIS person is
+    part of - raised for them, raised BY them for someone else, or that they
+    watch. The page sorts them itself (Neil, Oct 12 2026): only a ticket FOR
+    the person is under Open Tickets; one they filed for a colleague or were
+    added to sits under "Tickets I'm Following". (Pranshu, Sep 10 2026, had a
+    watched ticket showing under "My Open Tickets" and called it a scoping
+    gap - the Following tab is what keeps that true while still letting the
+    person reach what they follow.)
 
     Without `mine`, an employee who lacks the desk grant still gets scoped
     automatically rather than seeing the whole company's queue - but a little
@@ -777,10 +779,11 @@ def list_tickets(mine: bool = False, user: dict = Depends(get_current_user),
         rows = [t for t in rows if (t.company_id or "") in _cscope]
     me = (user.get("email") or "").lower()
     if mine:
-        # Raised by me, or raised by me on someone else's behalf (Oct 1) - the
-        # person who filed it still needs to find it. Being cc'd is not enough.
+        # For me, filed by me on someone else's behalf (Oct 1), or watched by
+        # me (Oct 12) - the page puts the last two under Following.
         rows = [t for t in rows if (t.requester_email or "").lower() == me
-                or (t.created_by_email or "").lower() == me]
+                or (t.created_by_email or "").lower() == me
+                or me in [(w or "").lower() for w in (t.watcher_emails or [])]]
     # Without the desk grant the scope is forced, not requested: the unscoped
     # list IS the agent queue, so honouring `mine` only when asked would leave
     # the whole company's tickets one query parameter away from any employee.
@@ -2377,9 +2380,11 @@ class TicketLinkBody(BaseModel):
 @router.post("/task-tickets/{ticket_id}/links", status_code=201, dependencies=[Depends(require_ticket_desk)])
 def add_ticket_link(ticket_id: str, body: TicketLinkBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     t = _ticket_or_404(db, ticket_id)
+    _require_ticket_participant(db, user, t)       # company wall: another company's ticket is 404
     if body.ticket_id == ticket_id:
         raise HTTPException(422, "A ticket cannot be linked to itself")
     other = _ticket_or_404(db, body.ticket_id)
+    _require_ticket_participant(db, user, other)   # a link writes to BOTH tickets
     typ = body.type if body.type in _LINK_INVERSE else "relates"
     t.links = [l for l in (t.links or []) if l.get("ticketId") != other.id] + [{"ticketId": other.id, "type": typ}]
     other.links = [l for l in (other.links or []) if l.get("ticketId") != t.id] + [{"ticketId": t.id, "type": _LINK_INVERSE[typ]}]
@@ -2391,12 +2396,21 @@ def add_ticket_link(ticket_id: str, body: TicketLinkBody, user: dict = Depends(g
 
 
 @router.delete("/task-tickets/{ticket_id}/links/{target_id}", dependencies=[Depends(require_ticket_desk)])
-def remove_ticket_link(ticket_id: str, target_id: str, db: Session = Depends(get_db)):
+def remove_ticket_link(ticket_id: str, target_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    # Sep 30 review: this took no user, so the desk grant alone let anyone
+    # unlink tickets in another company, and nothing recorded who did it.
     t = _ticket_or_404(db, ticket_id)
+    _require_ticket_participant(db, user, t)
+    had = any(l.get("ticketId") == target_id for l in (t.links or []))
     t.links = [l for l in (t.links or []) if l.get("ticketId") != target_id]
     other = db.query(models.TaskTicket).filter(models.TaskTicket.id == target_id).first()
     if other:
+        _require_ticket_participant(db, user, other)
         other.links = [l for l in (other.links or []) if l.get("ticketId") != ticket_id]
+    if had:
+        log_activity(db, type="unlinked", actor_email=user["email"], entity_kind="ticket",
+                     entity_id=t.id, entity_code=t.code, entity_title=t.subject,
+                     detail=f"unlinked {other.code if other else target_id}")
     db.commit()
     db.refresh(t)
     return ticket_to_dict(t)

@@ -16,6 +16,7 @@ import os
 import unittest
 import uuid
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 os.environ.setdefault("NEXUS_SKIP_AUTH", "true")
 
@@ -33,6 +34,13 @@ REQ = "req-chase-test"   # replaced per test in setUp
 
 def _ago(days):
     return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+
+def _expiry(days_from_today):
+    """An expires_on date relative to TODAY WHERE THE COMPANY WORKS: an
+    envelope is signable through the whole of its expiry day in Pacific time
+    (esign._check_expiry), so a UTC "yesterday" is still today in the evening."""
+    return (datetime.now(ZoneInfo("America/Los_Angeles")).date() + timedelta(days=days_from_today)).isoformat()
 
 
 class EsignChaseTests(unittest.TestCase):
@@ -160,16 +168,14 @@ class EsignChaseTests(unittest.TestCase):
         self.assertEqual(self._events(pid, "reminded"), [])
 
     def test_does_not_chase_an_envelope_that_is_already_past_expiry(self):
-        pid = self._envelope(last_contact_days=9,
-                             expires_on=(datetime.now(timezone.utc).date() - timedelta(days=2)).isoformat())
+        pid = self._envelope(last_contact_days=9, expires_on=_expiry(-2))
         reminders.run_esign_chase(self.db)
         self.db.commit()
         self.assertEqual(self._events(pid, "reminded"), [])
 
     # ── expiry ──────────────────────────────────────────────────────────────
     def test_expires_a_passed_envelope_and_tells_the_sender(self):
-        self._envelope(last_contact_days=1,
-                       expires_on=(datetime.now(timezone.utc).date() - timedelta(days=1)).isoformat())
+        self._envelope(last_contact_days=1, expires_on=_expiry(-1))
         reminders.run_esign_expiry(self.db)
         self.db.commit()
         req = self.db.query(models.HrSignRequest).filter(models.HrSignRequest.id == REQ).first()
@@ -179,8 +185,7 @@ class EsignChaseTests(unittest.TestCase):
         self.assertEqual(expired[0].recipient, SENDER)
 
     def test_leaves_an_unexpired_envelope_alone(self):
-        self._envelope(last_contact_days=1,
-                       expires_on=(datetime.now(timezone.utc).date() + timedelta(days=5)).isoformat())
+        self._envelope(last_contact_days=1, expires_on=_expiry(5))
         reminders.run_esign_expiry(self.db)
         self.db.commit()
         req = self.db.query(models.HrSignRequest).filter(models.HrSignRequest.id == REQ).first()

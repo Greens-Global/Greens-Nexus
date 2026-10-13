@@ -270,7 +270,7 @@ export function Select({ value, onChange, options, icon, label }) {
         style={{
           appearance: "none", borderRadius: 12, border: "1px solid var(--border-color)", background: "var(--bg-card)",
           color: "var(--text-primary)", padding: "7px 26px 7px 32px", fontSize: 13.5, fontWeight: 500,
-          fontFamily: "inherit", outline: "none", cursor: "pointer",
+          fontFamily: "inherit", cursor: "pointer",
         }}>
         {options.map((o) => <option key={o} value={o}>{o === "All" ? (label || "All") : o}</option>)}
       </select>

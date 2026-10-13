@@ -1191,7 +1191,7 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
                                   fontWeight: editingEl.bold ? 700 : 400, fontStyle: editingEl.italic ? 'italic' : 'normal',
                                   color: editingEl.color, background: editingEl.bg ? 'rgba(255,255,255,0.97)' : 'rgba(255,255,255,0.75)',
                                   border: `1.5px dashed ${SEL}`, borderRadius: 3, whiteSpace: block ? 'pre-wrap' : 'pre',
-                                  outline: 'none', resize: 'none', padding: '3px 3px', boxSizing: 'border-box', overflow: 'hidden' }} />
+                                  resize: 'none', padding: '3px 3px', boxSizing: 'border-box', overflow: 'hidden' }} />
                             </foreignObject>
                           );
                         })()}

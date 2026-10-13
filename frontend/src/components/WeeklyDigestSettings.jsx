@@ -14,6 +14,7 @@ import { dialog } from '../ui/dialog';
 import { useRole } from '../contexts/RoleContext';
 import { NX, FONT, btn, input as inputStyle } from '../tasks/theme';
 import { formatDate, formatTime } from '../lib/datetime';
+import SavedCheck from './SavedCheck';
 
 const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
 
@@ -213,7 +214,7 @@ export default function WeeklyDigestSettings() {
           onClick={save} disabled={saving || switchingToLive}>
           <Save size={14} /> {saving ? 'Saving…' : 'Save Settings'}
         </button>
-        {saved && <span style={{ fontSize: 12.5, color: NX.green, fontWeight: 600 }}>Saved</span>}
+        <SavedCheck show={saved} />
       </div>
 
       <SendTestDigest testRecipients={cfg.test_recipients || []} />

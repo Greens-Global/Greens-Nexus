@@ -11,16 +11,21 @@ import {
   // The subtask/comment/attachment icons moved with their badges into
   // components.TaskCountBadges, which My Tasks renders too.
   Hash, List, Calendar, CheckSquare, ListOrdered, CircleDot, BarChart3, TrendingUp, Star, CalendarPlus, CalendarClock, Timer, ArrowLeft, EyeOff,
-  Lock, Users, ListChecks, CornerDownRight, ArrowUp, ArrowDown,
+  Lock, Users, ListChecks, CornerDownRight, ArrowUp, ArrowDown, ChevronRight, Search,
 } from 'lucide-react';
-import { groupTasks, matchesFilter, sortTasks, topLevel, groupAddDefaults, fieldsForProject, teamInProject, teamColumnApplies, rootParent, effectiveProjectId, cfKey, taskAssignees } from '../lib';
+import { groupTasks, matchesFilter, sortTasks, topLevel, groupAddDefaults, fieldsForProject, teamInProject, teamColumnApplies, rootParent, effectiveProjectId, cfKey, taskAssignees, requiredFieldsFor, projectTracksTime, taskTracksTime } from '../lib';
 import { NX, FONT, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER, colorForKey, isMissed, MISSED_TITLE } from '../theme';
 import { useTableColumns, useTableSetting, ColResizer, nextSort, ResetColumnsButton } from '../tableCols';
 import { selectionAfterClick, selectionAfterArrow } from '../rowSelection';
 import { Avatar, useClickOutside, DateField, TaskCountBadges, SearchSelect, UnassignedAvatar, localTodayISO } from '../components';
 import { emailToName, rootZoom } from '../../lib/utils';
-import { matchPeople, onEnterPickFirst } from '../../lib/peopleSearch';
+import { matchPeople } from '../../lib/peopleSearch';
+import { useListNav } from '../../lib/listNav';
+import { AddSectionButton, SectionMenu } from '../SectionControls';
 import DueBadge from '../DueBadge';
+import { useFlip } from '../../lib/motion';
+import ChangeFlash from '../../components/ChangeFlash';
+import { changedRecently } from '../recentChanges';
 
 const BASE_COLS = [
   { key: 'checkbox', label: '', width: 28, fixed: true },
@@ -53,7 +58,9 @@ const COL_SORT_KEY = {
 const HIDDEN_KEY = 'nexus.richlist.hiddenCols';   // pre-profile, migrated on read
 // Stable identities: a fresh [] each render would re-run every consumer's memo.
 const EMPTY_LIST = [];
-const DEFAULT_COLLAPSED = ['completed'];
+// The status-group key of finished work. Its collapse state is NOT part of the
+// stored collapsed list - see RichListView.
+const COMPLETED_KEY = 'completed';
 
 // Type picker for "+ Column" - matches the export's AddColumnMenu grid exactly
 // (grouped: Recommended / Basic / Planning-Status / Date). Nexus's backend only
@@ -226,6 +233,14 @@ function AssigneeCell({ value, people, onSelect, compact }) {
   const name = value ? (people.find((p) => p.email === value)?.name || emailToName(value)) : null;
   const pick = (em) => { onSelect(em); setOpen(false); setQ(''); };
   const filtered = matchPeople(people, q);
+  // Up / Down / Enter (lib/listNav.js). "Unassigned" is reachable only while
+  // nothing is typed, so a search that matches nobody never clears the cell.
+  const typed = q.trim() !== '';
+  const navItems = typed ? filtered : [null, ...filtered];
+  const nav = useListNav(navItems, {
+    open, query: q, onPick: (p) => pick(p ? p.email : null),
+    startAt: navItems.findIndex((p) => (p ? p.email === value : !value)),
+  });
   return (
     <div ref={ref} style={{ position: 'relative', ...(compact ? { width: '100%' } : {}) }}>
       {/* The cell value itself is the dropdown trigger - clicking it opens the
@@ -239,12 +254,12 @@ function AssigneeCell({ value, people, onSelect, compact }) {
       {open && (
         <PortalDropdown anchorRef={ref} panelRef={panelRef} width={240}>
           <div className="nx-scroll" style={{ maxHeight: 280, overflowY: 'auto' }}>
-            <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
-              onKeyDown={onEnterPickFirst(filtered, (p) => pick(p.email))}
-              style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
-            <div onClick={() => pick(null)} style={{ padding: '8px 12px', fontSize: 13, color: NX.dim, cursor: 'pointer' }}>Unassigned</div>
-            {filtered.map((p) => (
-              <div key={p.email} onClick={() => pick(p.email)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, background: p.email === value ? NX.hover : 'transparent' }}>
+            <input className="nx-inline-edit" autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
+              {...nav.inputProps} onKeyDown={nav.onKeyDown}
+              style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: 13, fontFamily: FONT, boxSizing: 'border-box', color: NX.ink }} />
+            <div className="nx-menu-row" {...(typed ? null : nav.optionProps(0))} onClick={() => pick(null)} style={{ padding: '8px 12px', fontSize: 13, color: NX.dim, cursor: 'pointer' }}>Unassigned</div>
+            {filtered.map((p, i) => (
+              <div key={p.email} className="nx-menu-row" {...nav.optionProps(typed ? i : i + 1)} onClick={() => pick(p.email)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink }}>
                 <Avatar email={p.email} name={p.name} size={22} card={false} />
                 <span style={{ flex: 1 }}>{p.name}</span>
                 {p.email === value && <Check size={14} style={{ color: NX.blue }} />}
@@ -336,6 +351,11 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
           </button>
           {t.isMilestone && <Diamond size={12} style={{ color: NX.purple, flexShrink: 0 }} />}
           <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none' }}>{t.title}</span>
+          {t.checklistTotal > 0 && (
+            <span title={`Checklist ${t.checklistDone || 0} of ${t.checklistTotal} done`} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, fontWeight: 600, flexShrink: 0, color: t.checklistDone === t.checklistTotal ? NX.green : NX.faint }}>
+              <ListChecks size={12} />{t.checklistDone || 0}/{t.checklistTotal}
+            </span>
+          )}
           {/* A subtask only appears as its own row in a person-scoped list (My
               Tasks mode / assignee filter). Say whose subtask it is, and let the
               parent open on click - otherwise it reads as a stray task. */}
@@ -429,15 +449,18 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
         // estimate
         estimate: (
         <div className="rl-cell" style={{ ...editCell, gap: 2 }} onClick={(e) => e.stopPropagation()}>
-          <input type="number" className="rl-num" min={0} value={estH} placeholder="hrs" onChange={(e) => setEst(e.target.value, estM)} style={{ width: 30, textAlign: 'right', border: 'none', background: 'transparent', fontSize: 12, color: NX.dim, outline: 'none', fontFamily: FONT }} />
+          <input type="number" className="rl-num nx-inline-edit" min={0} value={estH} placeholder="hrs" onChange={(e) => setEst(e.target.value, estM)} style={{ width: 30, textAlign: 'right', border: 'none', fontSize: 12, color: NX.dim, fontFamily: FONT }} />
           <span style={{ color: NX.faint, fontSize: 12 }}>:</span>
-          <input type="number" className="rl-num" min={0} max={59} step={5} value={estM} placeholder="min" onChange={(e) => setEst(estH, e.target.value)} style={{ width: 30, textAlign: 'left', border: 'none', background: 'transparent', fontSize: 12, color: NX.dim, outline: 'none', fontFamily: FONT }} />
+          <input type="number" className="rl-num nx-inline-edit" min={0} max={59} step={5} value={estM} placeholder="min" onChange={(e) => setEst(estH, e.target.value)} style={{ width: 30, textAlign: 'left', border: 'none', fontSize: 12, color: NX.dim, fontFamily: FONT }} />
         </div>
         ),
         // actual
         actual: (
         <div className="rl-cell" style={{ ...editCell, gap: 3 }} onClick={(e) => e.stopPropagation()}>
-          <input type="number" className="rl-num" min={0} value={t.actualHours ?? ''} placeholder="0" onChange={(e) => store.updateTask(t.id, { actualHours: e.target.value === '' ? null : Number(e.target.value) })} style={{ width: 34, textAlign: 'right', border: 'none', background: 'transparent', fontSize: 12, color: NX.dim, outline: 'none', fontFamily: FONT }} />
+          <input type="number" className="rl-num nx-inline-edit" min={0} value={t.actualHours ?? ''} placeholder="0"
+            readOnly={t.timeEntryCount > 0} title={t.timeEntryCount > 0 ? `From ${t.timeEntryCount} time ${t.timeEntryCount === 1 ? 'entry' : 'entries'} - edit them in the task` : undefined}
+            onChange={(e) => { if (t.timeEntryCount > 0) return; store.updateTask(t.id, { actualHours: e.target.value === '' ? null : Number(e.target.value) }); }}
+            style={{ width: 34, textAlign: 'right', border: 'none', fontSize: 12, color: NX.dim, fontFamily: FONT, cursor: t.timeEntryCount > 0 ? 'default' : 'text' }} />
           <span style={{ color: NX.faint, fontSize: 12 }}>h</span>
         </div>
         ),
@@ -494,18 +517,39 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
       // split Excel and every file manager make. A bare click still opens.
       if (e.shiftKey || e.ctrlKey || e.metaKey) { e.preventDefault(); onPick(t.id, e); return; }
       onOpen(t.id);
-    }} data-task-row data-row-id={t.id} draggable className="nx-row-hover" data-selected={selected ? 'true' : undefined}
+    }}
+      // Capture, so a modified click picks the row from ANY cell (Sagar, Oct
+      // 13 2026: Ctrl+click did nothing). Every editable cell - Person, Due
+      // Date, Priority, a custom field - stops its own click to open its
+      // editor, so the row's handler above only ever heard clicks on the
+      // title. A click inside one of those cells' portaled menus is not on
+      // the row (DOM check), and the checkbox picks for itself.
+      onClickCapture={(e) => {
+        if (!(e.shiftKey || e.ctrlKey || e.metaKey)) return;
+        if (!e.currentTarget.contains(e.target) || e.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+        e.stopPropagation(); e.preventDefault();
+        onPick(t.id, e);
+      }}
+      // A Mac turns Ctrl+click into a right-click: no click event comes at
+      // all, only contextmenu. Treat it as the Ctrl+click it was meant as.
+      onContextMenu={(e) => {
+        if (!e.ctrlKey || !e.currentTarget.contains(e.target)) return;
+        e.preventDefault();
+        onPick(t.id, e);
+      }}
+      data-task-row data-row-id={t.id} data-flip={t.id} draggable className="nx-row-hover" data-selected={selected ? 'true' : undefined}
       onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; onDragStartRow?.(t.id); }}
       onDragEnd={() => onDragEndRow?.()}
       onDragOver={onRowDragOver} onDrop={onRowDrop} onDragLeave={onRowDragLeave}
       style={{
-        borderBottom: `1px solid ${NX.border2}`, background: rowBg, cursor: 'pointer',
+        position: 'relative', borderBottom: `1px solid ${NX.border2}`, background: rowBg, cursor: 'pointer',
         // Manual-reorder drop indicator: a colored line on whichever edge the
         // cursor is over, so dropping "reads" as inserting there rather than
         // replacing the row.
         boxShadow: dropEdge === 'above' ? `inset 0 2px 0 ${groupColor}`
           : dropEdge === 'below' ? `inset 0 -2px 0 ${groupColor}` : 'none',
       }}>
+      <ChangeFlash value={`${t.status}:${!!t.completed}`} color={sm.color} isFresh={() => changedRecently(t.id)} />
       <div style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'stretch', fontSize: 13 }}>
         {cols.map((c) => <Fragment key={c.key}>{cells[c.key] ?? cfCell(c.key)}</Fragment>)}
         <div />
@@ -518,9 +562,40 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
 // AddColumnMenu: pick a type from the grouped grid, then name/configure it.
 // New fields show up as columns immediately since every configured custom
 // field is rendered as one (see RichListView below).
-function AddFieldMenu({ createCustomField }) {
+// The icon a stored field kind wears in the Existing Fields list - the same
+// icons the type grid uses, keyed by what the field IS rather than by the
+// visual type it was created as (that is not stored).
+const STORAGE_ICON = { text: Hash, number: Hash, select: List, multiselect: ListChecks, people: Users, date: Calendar, checkbox: CheckSquare };
+
+// The workspace's custom fields that COULD be added to this project's list but
+// are not on it: task fields scoped to other projects. Fields scoped to no
+// project are already on every list, so they never qualify.
+export function addableFields(allFields, projectId) {
+  if (!projectId) return [];
+  return (allFields || [])
+    .filter((f) => (f.appliesTo || ['task']).includes('task'))
+    .filter((f) => { const ids = (f.projectIds || []).filter(Boolean); return ids.length > 0 && !ids.includes(projectId); })
+    .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base' }));
+}
+
+function AddFieldMenu({ createCustomField, allCustomFields, updateCustomField, lockedProjectId }) {
   const [open, setOpen] = useState(false);
-  const [step, setStep] = useState('pick'); // 'pick' | 'config'
+  const [step, setStep] = useState('pick'); // 'pick' | 'config' | 'existing'
+  // Existing Fields: a field defined for another project can be put on this
+  // one from here (Neil, Oct 12 2026) instead of a trip to Manage > Custom
+  // Fields. It is its own STEP, not a list in the pick panel - a workspace
+  // with forty fields would have pushed the type grid off the bottom - so the
+  // pick panel carries one row that opens it, and only when there is
+  // something to add.
+  const [fieldQuery, setFieldQuery] = useState('');
+  // The field being added, and why the last add failed. The menu waits for
+  // the save: closing at once made a refused or dropped save look like it
+  // worked, with no column and nothing said.
+  const [adding, setAdding] = useState('');
+  const [addError, setAddError] = useState('');
+  const addable = useMemo(() => addableFields(allCustomFields, lockedProjectId), [allCustomFields, lockedProjectId]);
+  const fq = fieldQuery.trim().toLowerCase();
+  const addableShown = fq ? addable.filter((f) => `${f.name} ${f.description || ''}`.toLowerCase().includes(fq)) : addable;
   const [picked, setPicked] = useState(null); // the TYPE_GROUPS entry chosen
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -530,13 +605,30 @@ function AddFieldMenu({ createCustomField }) {
   const close = () => setOpen(false);
   useClickOutside([ref, panelRef], close, open);
 
-  const reset = () => { setStep('pick'); setPicked(null); setName(''); setDescription(''); setOptions(['']); };
+  const reset = () => { setStep('pick'); setPicked(null); setName(''); setDescription(''); setOptions(['']); setFieldQuery(''); setAdding(''); setAddError(''); };
+  const addExisting = async (f) => {
+    if (!updateCustomField || adding) return;
+    const ids = (f.projectIds || []).filter(Boolean);
+    setAdding(f.id); setAddError('');
+    try {
+      await updateCustomField(f.id, { projectIds: [...ids, lockedProjectId] });
+      reset(); close();
+    } catch (e) {
+      setAdding('');
+      setAddError(e?.status === 403
+        ? `You can't add ${f.name} to this project.`
+        : `${f.name} could not be added. Try again.`);
+    }
+  };
   const pickType = (t) => { setPicked(t); setName(t.label); setStep('config'); };
   const create = () => {
     if (!picked || !name.trim()) return;
     const needsOptions = picked.storage === 'select' || picked.storage === 'multiselect';
     const opts = needsOptions ? options.map((o) => o.trim()).filter(Boolean) : [];
-    createCustomField({ name: name.trim(), description: description.trim(), type: picked.storage, options: opts }).catch(() => {});
+    // Made from a project's list, the field belongs to that project - which is
+    // also all the server lets anyone below manager create (task_config.py).
+    createCustomField({ name: name.trim(), description: description.trim(), type: picked.storage, options: opts,
+      ...(lockedProjectId ? { projectIds: [lockedProjectId] } : {}) }).catch(() => {});
     reset(); close();
   };
 
@@ -550,6 +642,17 @@ function AddFieldMenu({ createCustomField }) {
         <div style={{ maxHeight: '70vh', overflowY: 'auto', padding: 12 }}>
           {step === 'pick' ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {addable.length > 0 && (
+                <button onClick={() => setStep('existing')} title="Put a field another project already uses on this list" style={{
+                  display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, cursor: 'pointer', fontFamily: FONT,
+                  border: `1px solid ${NX.border}`, background: NX.surface2, fontSize: 13, color: NX.ink, textAlign: 'left', width: '100%',
+                }}>
+                  <Search size={14} style={{ color: NX.dim, flexShrink: 0 }} />
+                  <span style={{ flex: 1, fontWeight: 600 }}>Existing Fields</span>
+                  <span style={{ fontSize: 11.5, color: NX.faint, fontWeight: 500 }}>{addable.length}</span>
+                  <ChevronRight size={14} style={{ color: NX.faint, flexShrink: 0 }} />
+                </button>
+              )}
               {TYPE_GROUPS.map((g) => (
                 <div key={g.label}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: NX.faint, marginBottom: 6 }}>{g.label}</div>
@@ -567,6 +670,42 @@ function AddFieldMenu({ createCustomField }) {
                   </div>
                 </div>
               ))}
+            </div>
+          ) : step === 'existing' ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <button onClick={() => setStep('pick')} style={{ ...btn('ghost'), padding: 0, fontSize: 12, fontWeight: 600, color: NX.dim, justifyContent: 'flex-start' }}>
+                <ArrowLeft size={13} />Existing Fields
+              </button>
+              {/* A search box only once there are enough rows to need one. */}
+              {addable.length > 6 && (
+                <input autoFocus value={fieldQuery} onChange={(e) => setFieldQuery(e.target.value)} placeholder="Search fields…"
+                  style={{ ...inputStyle, fontSize: 13, padding: '6px 8px' }} />
+              )}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {addError && (
+                  <div role="alert" style={{ padding: '6px 8px', marginBottom: 4, borderRadius: 8, fontSize: 12.5, color: NX.red, background: 'rgba(220,38,38,0.08)' }}>{addError}</div>
+                )}
+                {addableShown.map((f) => {
+                  const Icon = STORAGE_ICON[f.type] || Hash;
+                  const n = (f.projectIds || []).filter(Boolean).length;
+                  const busy = adding === f.id;
+                  return (
+                    <button key={f.id} onClick={() => addExisting(f)} title={f.description || f.name} disabled={!!adding} aria-busy={busy || undefined} style={{
+                      display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 8, border: 'none',
+                      background: 'transparent', cursor: adding ? 'default' : 'pointer', fontSize: 13, color: NX.ink, textAlign: 'left', fontFamily: FONT, width: '100%',
+                      opacity: adding && !busy ? 0.5 : 1,
+                    }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = NX.hover; }} onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
+                      <Icon size={15} style={{ color: NX.dim, flexShrink: 0 }} />
+                      <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                      <span style={{ fontSize: 11, color: NX.faint, flexShrink: 0 }}>{busy ? 'Adding…' : `${n} project${n !== 1 ? 's' : ''}`}</span>
+                    </button>
+                  );
+                })}
+                {addableShown.length === 0 && (
+                  <div style={{ padding: '8px 8px', fontSize: 12.5, color: NX.faint }}>No fields match “{fieldQuery.trim()}”.</div>
+                )}
+              </div>
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -732,11 +871,11 @@ function FieldCell({ field, value, onChange, people = [] }) {
     return <DateField value={value || ''} onChange={onChange} color={NX.dim} compact style={{ fontSize: 12, width: '100%' }} />;
   }
   if (field.type === 'number') {
-    return <input type="number" className="rl-num" value={value ?? ''} onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))} placeholder="-"
-      style={{ width: '100%', border: 'none', background: 'transparent', fontSize: 12.5, color: NX.dim, outline: 'none', fontFamily: FONT }} />;
+    return <input type="number" className="rl-num nx-inline-edit" value={value ?? ''} onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))} placeholder="-"
+      style={{ width: '100%', border: 'none', fontSize: 12.5, color: NX.dim, fontFamily: FONT }} />;
   }
-  return <input type="text" value={value || ''} onChange={(e) => onChange(e.target.value)} placeholder="-"
-    style={{ width: '100%', border: 'none', background: 'transparent', fontSize: 12.5, color: NX.dim, outline: 'none', fontFamily: FONT }} />;
+  return <input className="nx-inline-edit" type="text" value={value || ''} onChange={(e) => onChange(e.target.value)} placeholder="-"
+    style={{ width: '100%', border: 'none', fontSize: 12.5, color: NX.dim, fontFamily: FONT }} />;
 }
 
 // monday-style Timeline cell: a colored date-range pill (start → due); click to
@@ -809,7 +948,7 @@ export function peopleStackLayout(width, count) {
 }
 
 // Eye menu - hide/show columns, persisted per person (monday's "Hide" toolbar).
-function HideColsMenu({ customFields, hidden, setHidden, lockedProjectId, teams }) {
+function HideColsMenu({ customFields, hidden, setHidden, lockedProjectId, teams, tracksTime = true }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   const panelRef = useRef(null);
@@ -825,7 +964,9 @@ function HideColsMenu({ customFields, hidden, setHidden, lockedProjectId, teams 
     // in a project with fewer than two teams (teamColumnApplies).
     ...BASE_COLS.filter((c) => HIDEABLE.includes(c.key)
       && !(c.key === 'project' && lockedProjectId)
-      && !(c.key === 'team' && !teamColumnApplies(teams, lockedProjectId)))
+      && !(c.key === 'team' && !teamColumnApplies(teams, lockedProjectId))
+      // Not offered where the project does not track time - they are not shown.
+      && !((c.key === 'estimate' || c.key === 'actual') && !tracksTime))
       .map((c) => ({ key: c.key, label: c.label })),
     ...customFields.map((f) => ({ key: f.id, label: f.name })),
   ];
@@ -865,17 +1006,23 @@ const soleTeamId = (store, projectId) => {
   return own.length === 1 ? own[0].id : '';
 };
 
-function AddTaskInline({ store, defaults, lockedProjectId }) {
+function AddTaskInline({ store, defaults, lockedProjectId, onFullCreate }) {
   const [title, setTitle] = useState('');
   const add = () => {
     const t = title.trim(); if (!t) return;
-    store.createTask({
+    const projectId = defaults.projectId || lockedProjectId || '';
+    const task = {
       title: t, type: 'task',
       status: defaults.status || 'not_started', priority: defaults.priority || 'medium',
-      projectId: defaults.projectId || lockedProjectId || '',
-      teamId: defaults.teamId || soleTeamId(store, defaults.projectId || lockedProjectId || ''),
+      projectId,
+      teamId: defaults.teamId || soleTeamId(store, projectId),
       dueOn: defaults.dueOn || '', assigneeIds: defaults.assigneeIds || (defaults.assigneeId ? [defaults.assigneeId] : []),
-    }).catch(() => {});
+    };
+    // A project with required custom fields (Oct 13 2026) cannot take a
+    // title-only task - the server refuses it - so the full Create form
+    // opens with the title already in, to fill in the rest.
+    if (onFullCreate && requiredFieldsFor(store.customFields, projectId).length) onFullCreate(task);
+    else store.createTask(task).catch((e) => alert(e?.message || 'Could not add the task.'));
     setTitle('');
   };
   return (
@@ -884,8 +1031,8 @@ function AddTaskInline({ store, defaults, lockedProjectId }) {
        the divider that would otherwise cut straight across them. */
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 16px 6px 40px', color: NX.faint, borderBottomLeftRadius: 12, borderBottomRightRadius: 12 }}>
       <Plus size={13} style={{ flexShrink: 0 }} />
-      <input value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') add(); if (e.key === 'Escape') setTitle(''); }}
-        placeholder="Add task…" style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 13, fontFamily: FONT, color: NX.ink, width: '100%' }} />
+      <input className="nx-inline-edit" value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') add(); if (e.key === 'Escape') setTitle(''); }}
+        placeholder="Add task…" style={{ border: 'none', fontSize: 13, fontFamily: FONT, color: NX.ink, width: '100%' }} />
     </div>
   );
 }
@@ -914,35 +1061,73 @@ export function useHiddenCols() {
 // The Hide + "+ Column" pair, for the workspace toolbar. Rendered there rather
 // than above the table so they cost no vertical space at all - they used to sit
 // inside the column-header row, which repeated them once per group.
-export function ListColumnControls({ hidden, setHidden, customFields, createCustomField, lockedProjectId, teams }) {
+// `customFields` is what is ON this list (scoped to the project); `allCustomFields`
+// is the whole workspace's, which the + Column menu's Existing Fields step
+// draws from. Outside a project a new field lands on every project, which is
+// a manager's to add (`canManageFields`), so + Column is not offered there to
+// anyone else.
+export function ListColumnControls({ hidden, setHidden, customFields, createCustomField, lockedProjectId, teams, allCustomFields, updateCustomField, tracksTime = true, canManageFields = true }) {
   return (
     <>
-      <HideColsMenu customFields={customFields} hidden={hidden} setHidden={setHidden} lockedProjectId={lockedProjectId} teams={teams} />
-      <AddFieldMenu createCustomField={createCustomField} />
+      <HideColsMenu customFields={customFields} hidden={hidden} setHidden={setHidden} lockedProjectId={lockedProjectId} teams={teams} tracksTime={tracksTime} />
+      {(lockedProjectId || canManageFields) && (
+        <AddFieldMenu createCustomField={createCustomField} allCustomFields={allCustomFields} updateCustomField={updateCustomField} lockedProjectId={lockedProjectId} />
+      )}
     </>
   );
 }
 
-export default function RichListView({ visible, group, sort, setSort, ctx, store, people, selected, setSelected, toggleSel, onOpen, onSelectAll, lockedProjectId = '', hidden, setHidden }) {
-  // Completed ships collapsed: it is the one section that only grows, and on a
-  // real project it buried the work still to do under a few hundred finished
-  // rows. Opening it is remembered (an empty list is a stored value, not
-  // "unset"), so it stays open for anyone who wants it open.
-  const [collapsedList, setCollapsedList] = useTableSetting('richlist', 'collapsed', DEFAULT_COLLAPSED);
-  const collapsed = useMemo(() => new Set(collapsedList), [collapsedList]);
+export default function RichListView({ visible, group, sort, setSort, ctx, store, people, selected, setSelected, toggleSel, onOpen, lockedProjectId = '', hidden, setHidden, onFullCreate, customSections = null }) {
+  // Which groups the person folded away - remembered in their profile, as the
+  // other table settings are.
+  const [collapsedList, setCollapsedList] = useTableSetting('richlist', 'collapsed', EMPTY_LIST);
   const effGroup = group === 'none' ? 'status' : group;
+  // Completed is collapsed EVERY time a list opens (Neil, Oct 12 2026). It is
+  // the one section that only grows, and on a real project it buries the work
+  // still to do under a few hundred finished rows. Its state used to live in
+  // the stored list above, which meant opening it once, in any project, left
+  // it open in every project from then on - the default never applied again.
+  // So it is kept apart: a plain piece of state that starts collapsed, flips
+  // when the header is clicked, and resets when the list changes to another
+  // project (the component stays mounted across that switch) or is reopened.
+  // Any stale 'completed' entry in the stored list is ignored rather than
+  // migrated, so nobody's profile needs touching. Only the STATUS grouping has
+  // a Completed group; a custom-field option that happens to be keyed
+  // 'completed' is an ordinary group.
+  const completedGroup = effGroup === 'status';
+  const [completedOpen, setCompletedOpen] = useState(false);
+  // Reset-on-prop-change during render (the React-documented idiom), not an
+  // effect: an effect would paint one frame of the previous project's open
+  // section before closing it.
+  const [openedFor, setOpenedFor] = useState(lockedProjectId);
+  if (openedFor !== lockedProjectId) { setOpenedFor(lockedProjectId); setCompletedOpen(false); }
+  const collapsed = useMemo(() => {
+    if (!completedGroup) return new Set(collapsedList);
+    const n = new Set(collapsedList.filter((k) => k !== COMPLETED_KEY));
+    if (!completedOpen) n.add(COMPLETED_KEY);
+    return n;
+  }, [collapsedList, completedOpen, completedGroup]);
   // Inside a project every row has the same project, so the column is noise - and
   // the same is true of Team once the project has fewer than two of them. Both go
   // through the hidden SET: TaskRow gates cells on `hidden` while the header and
   // grid template come from `cols`, so filtering one alone misaligns every row.
   // Neither is written to the stored hidden list: this is what the data currently
   // makes pointless, not what the user chose to hide.
+  // Time / Actual only where time is tracked (Oct 13 2026): the project's
+  // own setting inside a project (projectTracksTime), otherwise whether any
+  // task on screen is time tracked. Hidden the same data-driven way.
+  const tracksTime = useMemo(() => (lockedProjectId
+    ? projectTracksTime((store.projects || []).find((p) => p.id === lockedProjectId), store.tasks)
+    : (visible || []).some((t) => taskTracksTime(t, store.projects, store.tasks))),
+  [lockedProjectId, store.projects, store.tasks, visible]);
   const hiddenEff = useMemo(() => {
-    if (!lockedProjectId) return hidden;
-    const n = new Set([...hidden, 'project']);
+    const n = new Set(hidden);
+    if (!tracksTime) { n.add('estimate'); n.add('actual'); }
+    if (!lockedProjectId) return n;
+    n.add('project');
     if (!teamColumnApplies(store.teams, lockedProjectId)) n.add('team');
     return n;
-  }, [hidden, lockedProjectId, store.teams]);
+  }, [hidden, lockedProjectId, store.teams, tracksTime]);
   const visibleCols = useMemo(() => BASE_COLS.filter((c) => !hiddenEff.has(c.key)), [hiddenEff]);
   // Built once for the whole table, not once per row: every row's project cell
   // reads the same list, and a fresh array per row would be thousands of
@@ -959,6 +1144,7 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
   const dropPatch = (key) => {
     // Creating inside an assignee group assigns to that one person.
     if (effGroup === 'assignee') return { assigneeIds: key === '-' ? [] : [key] };
+    if (effGroup === 'section') return customSections ? { section: key } : null;
     const d = groupAddDefaults(effGroup, key);
     return Object.keys(d).length ? d : null;
   };
@@ -1019,6 +1205,9 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
       ...customFields.map((f) => ({ key: f.id, width: 150 }))],
     [visibleCols, customFields, anyExtended],
   );
+  // Rows glide when a sort, a group change, a drop or a filter moves them.
+  const flipRef = useRef(null);
+  useFlip(flipRef);
   const { cols, widths, template, startResize, resetWidth, autofitWidth, wrapRef, dragProps } = useTableColumns({
     table: 'richlist', cols: gridCols, trailing: '12px',
   });
@@ -1034,8 +1223,12 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
   // purpose: a task carries its status id wherever it is rendered (My Tasks,
   // search, a portfolio rollup) and a missed meta lookup would draw a raw uuid.
   const scopedStatusOrder = store.statusOrderFor ? store.statusOrderFor(lockedProjectId) : store.statusOrder;
-  const groupCtx = { ...ctx, statusMeta: store.statusMeta, statusOrder: scopedStatusOrder, customFields: allCustomFields };
-  const groups = useMemo(() => groupTasks(visible, effGroup, groupCtx).filter((g) => g.tasks.length > 0), [visible, effGroup, ctx, store.statusMeta, scopedStatusOrder]);
+  const groupCtx = { ...ctx, statusMeta: store.statusMeta, statusOrder: scopedStatusOrder, customFields: allCustomFields,
+    sections: customSections?.sections, sectionOf: customSections?.sectionOf };
+  // Empty groups are dropped - except a Custom section, which someone made on
+  // purpose and has to stay on screen to have tasks dragged into it.
+  const groups = useMemo(() => groupTasks(visible, effGroup, groupCtx).filter((g) => g.tasks.length > 0 || g.section),
+    [visible, effGroup, ctx, store.statusMeta, scopedStatusOrder, customSections?.sections, customSections?.sectionOf]);
   // Incremental rendering. Every task used to mount a full row on first paint -
   // ~80 DOM nodes each, so the real workspace (2,400 tasks) built ~190k nodes
   // synchronously and the tab went "page isn't responding". Rows are handed out
@@ -1139,10 +1332,9 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
       document.body.style.userSelect = '';
     };
   }, []);
-  const allSel = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
-  const someSel = !allSel && visibleIds.some((id) => selected.has(id));
   const toggleGroup = (k) => {
-    const n = new Set(collapsed);
+    if (completedGroup && k === COMPLETED_KEY) { setCompletedOpen((o) => !o); return; }
+    const n = new Set(collapsedList);
     n.has(k) ? n.delete(k) : n.add(k);
     setCollapsedList([...n]);
   };
@@ -1226,10 +1418,26 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
   // along with it - the right trade there, where a frozen header would eat a
   // third of a short screen.
   // z-index clears the rows: the Person stack layers its avatars up to ~8.
-  const groupHeader = (
+  // Each section's header checkbox covers THAT section's tasks only (Oct 13
+  // 2026: ticking it in Recurring also ticked every Missed row - one header
+  // shared by every section, checking every visible task). Toggled against
+  // the rest of the selection, which it leaves alone.
+  const groupSelect = (ids) => {
+    const all = ids.length > 0 && ids.every((id) => selected.has(id));
+    setSelected((cur) => {
+      const next = new Set(cur);
+      for (const id of ids) { if (all) next.delete(id); else next.add(id); }
+      return next;
+    });
+  };
+  const groupHeader = (g) => {
+    const ids = g.tasks.map((t) => t.id);
+    const allSel = ids.length > 0 && ids.every((id) => selected.has(id));
+    const someSel = !allSel && ids.some((id) => selected.has(id));
+    return (
     <div style={{ display: 'grid', gridTemplateColumns: 'var(--nx-grid)', alignItems: 'stretch', borderBottom: `1px solid ${NX.border2}`, background: NX.surface, fontSize: 13, fontWeight: 400, color: NX.dim, position: 'sticky', top: 0, zIndex: 20, borderTopLeftRadius: 12, borderTopRightRadius: 12 }}>
       <div style={{ ...headCell, justifyContent: 'center', padding: '2px 4px' }}>
-        <button onClick={onSelectAll} title={allSel ? 'Deselect all' : 'Select all'} style={{ width: 16, height: 16, borderRadius: 3, border: `1.5px solid ${allSel || someSel ? NX.primary : NX.border}`, background: allSel || someSel ? NX.primary : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, flexShrink: 0 }}>
+        <button onClick={() => groupSelect(ids)} title={allSel ? `Deselect all in ${g.label}` : `Select all in ${g.label}`} aria-label={allSel ? `Deselect all in ${g.label}` : `Select all in ${g.label}`} style={{ width: 16, height: 16, borderRadius: 3, border: `1.5px solid ${allSel || someSel ? NX.primary : NX.border}`, background: allSel || someSel ? NX.primary : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, flexShrink: 0 }}>
           {allSel ? <Check size={11} strokeWidth={3} color="#fff" /> : someSel ? <Minus size={11} strokeWidth={3} color="#fff" /> : null}
         </button>
       </div>
@@ -1243,10 +1451,11 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
           table (see below). */}
       <div />
     </div>
-  );
+    );
+  };
 
   return (
-    <div className="nx-list-scroll" style={{ margin: 16, minHeight: 'calc(100% - 32px)' }}>
+    <div ref={flipRef} className="nx-list-scroll" style={{ margin: 16, minHeight: 'calc(100% - 32px)' }}>
       <div ref={wrapRef} style={{ minWidth: 'fit-content', '--nx-grid': template }}>
         {groups.map((g, gi) => {
           const isCol = collapsed.has(g.key);
@@ -1271,7 +1480,14 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
             <div key={g.key} style={{ marginTop: 22 }}
               onDragOver={(e) => { if (dragId && dropPatch(g.key)) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dropKey !== g.key) setDropKey(g.key); } }}
               onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDropKey((k) => (k === g.key ? null : k)); }}
-              onDrop={(e) => { e.preventDefault(); const patch = dropPatch(g.key); if (dragId && patch) store.updateTask(dragId, patch).catch(() => {}); setDragId(null); setDropKey(null); }}>
+              onDrop={(e) => {
+                e.preventDefault();
+                const patch = dropPatch(g.key);
+                if (dragId && patch?.section !== undefined) customSections.move([dragId], patch.section).catch(() => {});
+                else if (dragId && patch) store.updateTask(dragId, patch).catch(() => {});
+                setDragId(null); setDropKey(null);
+              }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               <button onClick={() => toggleGroup(g.key)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '2px 2px 8px', border: 'none', background: 'transparent', cursor: 'pointer', textAlign: 'left', fontFamily: FONT }}>
                 <ChevronDown size={17} style={{ color: NX.faint, transform: isCol ? 'rotate(-90deg)' : 'none', transition: 'transform 0.15s' }} />
                 <span style={{ width: 10, height: 10, borderRadius: 3, background: gc, flexShrink: 0 }} />
@@ -1280,13 +1496,15 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
                 {/* collapsed: the status mix stays visible on the header line */}
                 {isCol && total > 0 && <span style={{ display: 'inline-flex', width: 130, marginLeft: 10 }}>{statusBar(12)}</span>}
               </button>
+              {g.section && customSections && <span style={{ marginBottom: 8 }}><SectionMenu sec={customSections} group={g} /></span>}
+              </div>
               {!isCol && (
                 /* No `overflow: hidden` here: it would clip the sticky column
                    header out of existence (a sticky element cannot escape a
                    clipping ancestor). The corners are rounded on the header and
                    on the block itself instead. */
                 <div style={{ border: `1px solid ${isDropTarget ? gc : NX.border}`, borderRadius: 12, background: NX.surface, boxShadow: isDropTarget ? `0 0 0 2px ${gc}55` : 'none', transition: 'box-shadow 0.12s' }}>
-                  {groupHeader}
+                  {groupHeader(g)}
                   {g.tasks.slice(0, groupBudgets[gi] ?? g.tasks.length).map((t, ri) => (
                     <TaskRow key={t.id} t={t} band={ri % 2 === 1} cols={cols} customFields={customFields} template={template} store={store} people={people} selected={selected.has(t.id)} toggleSel={toggleSel} onPick={pickRow} onOpen={onOpen}
                       personWidth={personWidth} groupColor={gc} projectOptions={projectOptions} onDragStartRow={setDragId} onDragEndRow={() => { setDragId(null); setDropKey(null); setDropRow(null); }}
@@ -1295,7 +1513,7 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
                       onRowDragLeave={manualSort ? rowDragLeave(t) : undefined}
                       dropEdge={manualSort && dropRow?.taskId === t.id ? dropRow.edge : null} />
                   ))}
-                  <AddTaskInline store={store} lockedProjectId={lockedProjectId} defaults={groupAddDefaults(effGroup, g.key)} />
+                  <AddTaskInline store={store} lockedProjectId={lockedProjectId} defaults={effGroup === 'section' && customSections?.personal ? {} : groupAddDefaults(effGroup, g.key)} onFullCreate={onFullCreate} />
                 </div>
               )}
             </div>
@@ -1304,6 +1522,9 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
         {/* Grows the render budget as it comes into view - see ROW_BATCH. Kept
             in the flow (not fixed) so it only fires while the user is actually
             near the end of the list. */}
+        {effGroup === 'section' && customSections && (
+          <div style={{ marginTop: 16 }}><AddSectionButton sec={customSections} /></div>
+        )}
         {renderBudget < totalRows && (
           <div ref={moreRef} style={{ padding: '18px 2px', textAlign: 'center', fontSize: 12.5, color: NX.faint }}>
             Showing {renderBudget} of {totalRows}

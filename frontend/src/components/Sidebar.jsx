@@ -6,10 +6,10 @@ import {
   LayoutDashboard, ShoppingCart, CheckSquare, BookOpen,
   Monitor, Wifi, Home, LayoutGrid, FileText,
   ClipboardCheck, Calculator,
-  Server, FileSpreadsheet, Landmark, BarChart3,
-  Users, LogIn, PenTool, Files, Megaphone, Star, ExternalLink,
+  FileSpreadsheet, Landmark, BarChart3,
+  Users, LogIn, PenTool, Files, Megaphone, ExternalLink,
   Settings, ChevronLeft, ChevronRight,
-  HelpCircle, Store, Calendar, Package, Contact,
+  HelpCircle, Store, Calendar, Package, Contact, HandCoins, Warehouse, ListChecks, Scale,
   FlaskConical,
   KeyRound,
   Briefcase, FileSignature, ArrowDownToLine, ArrowUpFromLine,
@@ -45,7 +45,10 @@ export const NAV = [
   // The route (App.jsx VIEW_MIN_ROLES) and the backend endpoints gate on the same
   // grant. Watching needs a viewer grant; remote control + device/policy admin
   // need a full grant.
-  { view: "employee-tracking", code: "EMP", label: "Workforce Analytics",  icon: MonitorDot,   minRole: 'supervisor' },
+  // `grants`: a 'workforce-scorecard' grant alone also opens it (the Scorecard
+  // tab only - TimeTrackingAdmin hides the monitoring tabs without the
+  // employee-tracking grant). Neil, 10/10.
+  { view: "employee-tracking", code: "EMP", label: "Workforce Analytics",  icon: MonitorDot,   minRole: 'supervisor', grants: ['employee-tracking', 'workforce-scorecard'] },
   // Shifts (Sep 29, Sagar): its own module, moved out of People > Time.
   // Everyone's module since Neil, Sep 29: each person sees their own week and
   // their team's (My Shifts, formerly Workday > Shifts); managers and above
@@ -112,9 +115,12 @@ export const NAV = [
   {
     view: "operations", code: "OPS", label: "Operations", icon: Store, minRole: 'supervisor',
     sub: [
-      { subview: "fms",        label: "FMS Integration",        icon: Server },
-      { subview: "reputation", label: "Reputation Management",  icon: Star },
-      { subview: "site-staff", label: "Site Staff & Scheduling",icon: Calendar },
+      { subview: "overview",    label: "Overview",        icon: LayoutDashboard },
+      { subview: "collections", label: "Collections",     icon: HandCoins },
+      { subview: "units",       label: "Units & Pricing", icon: Warehouse },
+      { subview: "worklist",    label: "Worklist",        icon: ListChecks },
+      { subview: "market",      label: "Market Rates",    icon: Scale },
+      { subview: "reports",     label: "Reports",         icon: FileSpreadsheet },
     ],
   },
   // Development was removed from the nav (Neil, Aug 11) - the module isn't
@@ -278,9 +284,11 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
               // External (B2B guest) accounts: ONLY explicitly granted modules -
               // no baseline screens (Dashboard/Time Clock/My HR are internal-only).
               // Mirrors the server's path allowlist in auth.apply_external_policy.
+              // `grants` (a list) = any one of them opens the item; else the single grant/view key.
+              const granted = (item) => (item.grants || [item.grant || item.view]).some(g => myGrantedModules.has(g));
               const visible = NAV.filter(item => (!item.qaGated || qaEnabled) && (isExternal
-                ? (!item.divider && myGrantedModules.has(item.grant || item.view))
-                : (!item.minRole || can('administrator') || myGrantedModules.has(item.grant || item.view))));
+                ? (!item.divider && granted(item))
+                : (!item.minRole || can('administrator') || granted(item))));
               const out = [];
               if (!collapsed && visible.length && !visible[0].divider) {
                 out.push(<li key="k0" className="nav-kicker">{KICKERS[0]}</li>);

@@ -27,9 +27,9 @@
   50%  { stroke-dasharray: 86 126; stroke-dashoffset: -22; }
   100% { stroke-dasharray: 86 126; stroke-dashoffset: -125; }
 }
-.nxl-in { animation: nxl-in .28s cubic-bezier(.16, 1, .3, 1) both; }
+.nxl-in { animation: nxl-in .28s var(--ease-out) both; }
 @keyframes nxl-in { from { opacity: 0; transform: scale(.9); } to { opacity: 1; transform: none; } }
-.nx-rise { animation: nx-rise .44s cubic-bezier(.16, 1, .3, 1) both; animation-delay: calc(var(--i, 0) * 45ms); }
+.nx-rise { animation: nx-rise .44s var(--ease-out) both; animation-delay: calc(var(--i, 0) * 45ms); }
 @keyframes nx-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 .nx-skel { display: block; border-radius: 8px; background: linear-gradient(100deg, var(--skel) 36%, var(--skel-sheen) 50%, var(--skel) 64%); background-size: 320% 100%; animation: nx-sheen 1.7s ease-in-out infinite; animation-delay: calc(var(--i, 0) * 90ms); }
 @keyframes nx-sheen { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
@@ -89,6 +89,17 @@
   --transition-fast:   0.13s ease;
   --transition-normal: 0.22s ease;
   --transition-slow:   0.38s cubic-bezier(.16,1,.3,1);
+  --focus-ring: hsl(var(--color-blue));   /* keyboard focus outline, see the a11y block */
+
+  /* Motion vocabulary (Oct 11, 2026) - see the "Motion vocabulary" block and
+     lib/motion.js. New motion uses these; arriving eases out, leaving eases in. */
+  --dur-xs: 100ms;   /* press feedback, exits of small things */
+  --dur-sm: 150ms;   /* menus and popovers; exits of modals */
+  --dur-md: 220ms;   /* modals, sheets, content swaps */
+  --dur-lg: 320ms;   /* whole-surface moves (sidebars, full sheets) */
+  --ease-out: cubic-bezier(.16,1,.3,1);
+  --ease-in: cubic-bezier(.55,0,.85,.36);
+  --ease-standard: cubic-bezier(.2,.8,.2,1);
 
   /* color tokens for status badges only */
   --color-blue:   215,75%,45%;
@@ -158,6 +169,7 @@
 
 [data-theme="dark"] {
   color-scheme: dark;
+  --focus-ring: hsl(215,85%,68%);        /* lighter so the ring clears dark cards */
   --loader:     #3fbe6f;
   --skel:       #1a2a20;
   --skel-sheen: #2a4533;
@@ -754,6 +766,12 @@ h1,h2,h3,h4,h5,h6,
 
 /* â”€â”€ Viewport â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .viewport { padding: 32px 36px; overflow-y: auto; background: transparent; }
+/* Keyed per screen in App.jsx (Oct 11): a new screen fades in instead of
+   snapping. Opacity only - a transform here would re-anchor every fixed
+   overlay a screen opens while the animation runs. No fill mode either: a
+   fill keeps the screen a stacking context, and its inline modals would sit
+   under the header and sidebar (review, Oct 12). */
+.viewport { animation: nx-fade-in var(--dur-sm) ease-out; }
 
 /* Task module manages its own full-height flex layout + internal scrolling
    (fixed header/tabs, scrolling body per sub-view) - the default .viewport
@@ -761,7 +779,9 @@ h1,h2,h3,h4,h5,h6,
    the module's white chrome fall short of the viewport instead of filling
    it. Strip padding and give it a definite height (100vh minus the 56px
    .top-header) so height:100% cascades correctly through the module. */
-.viewport-flush { padding: 0; overflow: hidden; display: flex; flex-direction: column; height: calc(100vh - 56px); }
+/* --nx-announce-h: the weekly New Feature bar's height while it shows
+   (components/FeatureBanner.jsx), 0 otherwise. */
+.viewport-flush { padding: 0; overflow: hidden; display: flex; flex-direction: column; height: calc(100vh - 56px - var(--nx-announce-h, 0px)); }
 /* Two classes (0,2,0) so this wins over every single-class `.viewport { padding: … }`
    rule regardless of source order - there are seven of them across the responsive
    blocks, and the flush variant (task/ticket module) must keep zero padding at all
@@ -948,8 +968,62 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
   max-height: 90vh;
   overflow-y: auto;
   box-shadow: 0 24px 80px rgba(0,0,0,0.2), 0 4px 16px rgba(0,0,0,0.1);
-  animation: fadeInUp 0.2s cubic-bezier(.16,1,.3,1) both;
+  animation: nx-pop-in var(--dur-md) var(--ease-out);
 }
+
+/* ── Motion vocabulary (Oct 11, 2026) ─────────────────────────────────────────
+   Tokens --dur-xs/sm/md/lg and --ease-out (arriving) / --ease-in (leaving) live
+   in :root. Exits run ~70% of their enter and are driven by lib/motion.js
+   (usePresence / useExit): the hook keeps the surface mounted while the
+   `.is-closing` class plays, then unmounts on a timer - never on animationend.
+   Everything here is transform/opacity. The reduced-motion rule further down
+   zeroes all of it and the hooks skip the wait too.
+   Enter animations carry NO fill mode: with no delay it buys nothing, and a
+   fill keeps the animation "in effect" forever, which acts like will-change -
+   a stacking context, and for transforms a containing block that traps
+   position:fixed children (review, Oct 12). Exits keep `forwards`. */
+@keyframes nx-fade-in  { from { opacity: 0; } }
+@keyframes nx-fade-out { to   { opacity: 0; } }
+@keyframes nx-pop-in   { from { opacity: 0; transform: scale(.96) translateY(8px); } }
+@keyframes nx-pop-out  { to   { opacity: 0; transform: scale(.97) translateY(6px); } }
+@keyframes nx-menu-in  { from { opacity: 0; transform: scale(.97) translateY(-4px); } }
+@keyframes nx-menu-out { to   { opacity: 0; transform: scale(.98) translateY(-2px); } }
+@keyframes nx-sheet-down { to { opacity: .5; transform: translateY(48px); } }
+
+/* The app-wide .modal-overlay / .modal-content pair: a call site that closes
+   through useExit() puts `is-closing` on the overlay and gets the exit. */
+.modal-overlay.is-closing { animation: nx-fade-out var(--dur-sm) ease-in forwards; pointer-events: none; }
+.modal-overlay.is-closing .modal-content { animation: nx-pop-out var(--dur-sm) var(--ease-in) forwards; }
+
+/* Inline-styled dialogs (tasks Modal, marketing Modal, DialogHost): the
+   overlay is .nx-overlay; its panel is .nx-panel (centered card) or
+   .nx-modal-sheet (the phone's full-height sheet). */
+.nx-overlay { animation: nx-fade-in var(--dur-sm) ease-out; }
+.nx-overlay > .nx-panel { animation: nx-pop-in var(--dur-md) var(--ease-out); }
+.nx-overlay > .nx-modal-sheet { animation: sheetUp var(--dur-md) var(--ease-out); }
+.nx-overlay.is-closing { animation: nx-fade-out var(--dur-sm) ease-in forwards; pointer-events: none; }
+.nx-overlay.is-closing > .nx-panel { animation: nx-pop-out var(--dur-sm) var(--ease-in) forwards; }
+.nx-overlay.is-closing > .nx-modal-sheet { animation: nx-sheet-down var(--dur-sm) var(--ease-in) forwards; }
+
+/* AnchoredMenu: grows out of its trigger corner and shrinks back into it. */
+.nx-anchored { animation: nx-menu-in var(--dur-sm) var(--ease-out); transform-origin: top left; }
+.nx-anchored[data-align="end"] { transform-origin: top right; }
+.nx-anchored[data-dir="up"] { transform-origin: bottom left; }
+.nx-anchored[data-dir="up"][data-align="end"] { transform-origin: bottom right; }
+.nx-anchored.is-closing { animation: nx-menu-out var(--dur-xs) var(--ease-in) forwards; pointer-events: none; }
+/* Change flash (ChangeFlash.jsx): a row or card whose status just changed
+   glows in that status's color and fades. An overlay, opacity only, so the
+   row's own background and hover state are untouched. */
+.nx-flash { position: absolute; inset: 0; border-radius: inherit; background: var(--flash, var(--wk-brand)); pointer-events: none; z-index: 1; animation: nx-flash-out 900ms var(--ease-out) both; }
+@keyframes nx-flash-out { from { opacity: .26; } to { opacity: 0; } }
+/* Saved cue (SavedCheck.jsx): the check draws itself while the word fades
+   in; the whole cue fades when the caller clears its flag. */
+.nx-saved { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 600; animation: nx-fade-in var(--dur-sm) ease-out both; }
+.nx-saved svg { flex: none; }
+.nx-saved path { stroke-dasharray: 15; stroke-dashoffset: 15; animation: nx-check-draw var(--dur-lg) var(--ease-out) forwards; }
+@keyframes nx-check-draw { to { stroke-dashoffset: 0; } }
+.nx-saved.is-closing { animation: nx-fade-out var(--dur-xs) ease-in forwards; }
+@media (prefers-reduced-motion: reduce) { .nx-saved, .nx-saved path { animation: none; } .nx-saved path { stroke-dashoffset: 0; } }
 
 .modal-header {
   display: flex;
@@ -1977,7 +2051,10 @@ html { overflow-x: hidden; }
 .mobile-menu {
   position: fixed;
   inset: 0;
-  z-index: 400;
+  /* Above the module floats (Tasks' MobileTaskBar / MobileFab at 2500, the
+     create "+" menu at 2600) - at 400 the task "+" sat on top of the open
+     menu. Below the gates (3000) and modals (3200+). */
+  z-index: 2700;
   background: var(--card);
   display: flex;
   flex-direction: column;
@@ -2340,6 +2417,7 @@ html { overflow-x: hidden; }
     max-height: 92vh;
     animation: sheetUp 0.26s cubic-bezier(.16,1,.3,1);
   }
+  .modal-overlay.is-closing .modal-content { animation: nx-sheet-down var(--dur-sm) var(--ease-in) forwards; }
 }
 
 /* PropertyAsset on phones: section tabs live in the bottom action bar */
@@ -2507,10 +2585,36 @@ html { overflow-x: hidden; }
 /* ── Touch & accessibility polish (app-wide) ────────────────────────────────
    Kill the gray tap flash, keep double-tap zoom off interactive elements,
    and give keyboard users a consistent focus ring (mouse clicks unaffected -
-   :focus-visible only fires for keyboard/AT focus). */
+   :focus-visible only fires for keyboard/AT focus; text fields are the one
+   place browsers also light it on click, which is standard).
+
+   Keyboard focus is ALWAYS visible (Oct 11, 2026). Inline `outline: 'none'`
+   resets in JSX used to erase the ring on ~80 controls (borderless cell
+   inputs, Ctrl+V paste targets, list boxes) that had no other indicator.
+   React writes that reset as `style="outline: none"`, so the attribute rule
+   below restores the ring for keyboard focus even where a reset slips back
+   in. Component rings that set their own color (.dir-row, .egx-navbtn, the
+   .dk-* tiles) are more specific and keep it. Do not add `outline: none` to
+   a :focus or :focus-visible rule without replacing the indicator. */
 button, [role="button"], a, input, select, textarea, label { -webkit-tap-highlight-color: transparent; }
 button, [role="button"], select { touch-action: manipulation; }
-:focus-visible { outline: 2px solid hsl(var(--color-blue)); outline-offset: 2px; }
+:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+input:focus-visible, textarea:focus-visible, select:focus-visible, [contenteditable]:focus-visible { outline-offset: 0; }
+[style*="outline: none"]:focus-visible, [style*="outline:none"]:focus-visible { outline: 2px solid var(--focus-ring) !important; outline-offset: 1px; }
+/* Borderless inline-edit fields (Oct 12) - every input that is a bare line
+   of text with no box of its own: the task title, hours/minutes cells, the
+   search pills and menu search rows, add-subtask / add-label / add-task
+   rows, tag inputs, the Notes widget, SOP tag names. A field with its own
+   visible border keeps the standard ring. Text fields light :focus-visible on a
+   mouse click too, and a full blue box around a bare line of text read as
+   an error. They get a quieter indicator instead - still always visible:
+   a 2px underline in the ring color and a faint tint. Never drop it. */
+.nx-inline-edit { background: transparent; border-radius: 4px; }
+.nx-inline-edit:focus, .nx-inline-edit:focus-visible {
+  outline: none;
+  box-shadow: inset 0 -2px 0 var(--focus-ring);
+  background: color-mix(in srgb, var(--focus-ring) 8%, transparent);
+}
 
 /* Phone: comfortable thumb targets without blowing up dense desktop rows */
 @media (max-width: 640px) {
@@ -3659,6 +3763,23 @@ button, [role="button"], select { touch-action: manipulation; }
   box-shadow: none;
 }
 
+/* Tab ink (Oct 11, 2026 - components/TabInk.jsx): the header strip and the
+   phone strip draw the active highlight as ONE element that glides between
+   tabs. The active button keeps its color and aria-current; the ink carries
+   the pill (header) or the underline (phone). Width is the one non-transform
+   property in the transition: a single small element, and scaleX would warp
+   the pill's corners. */
+.hdr-tabs, .module-tabs-inline { position: relative; }
+.hdr-tab, .module-tab-inline-btn { position: relative; z-index: 1; }
+.tab-ink { position: absolute; left: 0; top: 0; z-index: 0; pointer-events: none; box-sizing: border-box; }
+.tab-ink--glide { transition: transform var(--dur-md) var(--ease-standard), width var(--dur-md) var(--ease-standard); }
+.tab-ink--pill { background: var(--wk-card); border: 1px solid var(--wk-line); border-radius: 9px; box-shadow: 0 1px 3px rgba(29,33,57,.08); }
+[data-theme="dark"] .tab-ink--pill { background: rgba(43,69,225,.18); border-color: var(--line); box-shadow: none; }
+.tab-ink--line { box-shadow: inset 0 -2.5px 0 var(--wk-brand); }
+.hdr-tabs:has(.tab-ink) .hdr-tab.active { background: none; border-color: transparent; box-shadow: none; }
+.module-tabs-inline:has(.tab-ink) .module-tab-inline-btn.active { box-shadow: none; }
+@media (prefers-reduced-motion: reduce) { .tab-ink--glide { transition: none; } }
+
 /* ── Work OS buttons - app-wide restyle of the shared button classes ──────
    Primary: brand-filled (was near-black --pine). Secondary: white with a real
    border (was a gray tint pill). Both Figtree, radius 8, quiet 150ms hovers. */
@@ -3687,6 +3808,25 @@ button, [role="button"], select { touch-action: manipulation; }
   box-shadow: none;
 }
 [data-theme="dark"] .secondary-btn:hover, [data-theme="dark"] .btn-sm:hover { background: var(--mist); }
+
+/* Press feedback (Oct 11, 2026): every shared tappable answers the press at
+   once - a small scale, transform only, released over --dur-xs. The transition
+   lists restate each class's own properties because the shorthand replaces
+   them. Disabled controls stay still, and so does everything under reduced
+   motion. Dashboard tiles (.dk-action) and the phone nav already do this. */
+.primary-btn, .btn-primary { transition: background .15s, transform var(--dur-xs) var(--ease-standard); }
+.secondary-btn, .btn-sm { transition: background .15s, border-color .15s, transform var(--dur-xs) var(--ease-standard); }
+.icon-btn { transition: background var(--transition-fast), transform var(--dur-xs) var(--ease-standard); }
+.hdr-tab { transition: background .15s, color .15s, border-color .15s, transform var(--dur-xs) var(--ease-standard); }
+.module-tab-inline-btn { transition: color .15s, transform var(--dur-xs) var(--ease-standard); }
+.primary-btn:active:not(:disabled), .btn-primary:active:not(:disabled),
+.secondary-btn:active:not(:disabled), .btn-sm:active:not(:disabled) { transform: scale(.97); }
+.icon-btn:active:not(:disabled) { transform: scale(.92); }
+.hdr-tab:active, .module-tab-inline-btn:active { transform: scale(.96); }
+@media (prefers-reduced-motion: reduce) {
+  .primary-btn:active, .btn-primary:active, .secondary-btn:active, .btn-sm:active,
+  .icon-btn:active, .hdr-tab:active, .module-tab-inline-btn:active { transform: none; }
+}
 
 /* KPI card hover - Work OS depth: 1px lift, deeper shadow (the legacy rule's
    -5px jump reads as bouncy next to the quiet cards) */
@@ -3921,6 +4061,47 @@ button, [role="button"], select { touch-action: manipulation; }
 }
 [data-theme="dark"] .dk-stat--hero { background: linear-gradient(135deg, #3a4cd9, #2436b8); }
 
+/* Action Tile (Oct 11) - one action per tile, an app-icon face: the colored
+   chip large and centered with the name under it, the whole tile the button.
+   .dk-stat gives it the card chrome and hover lift; this centers it, grows the
+   chip to icon size and adds the press (scale down under the finger, the way
+   a home-screen icon answers a tap). One row tall (.dk-action--row) it is a
+   pill: chip beside the name, caption on one line. */
+.dk-action {
+  align-items: center; justify-content: center; text-align: center;
+  gap: 10px; padding: 12px 14px;
+  transition: box-shadow .15s ease, border-color .15s ease, transform .12s ease;
+}
+.dk-action:active { transform: scale(.97); box-shadow: var(--wk-shadow); }
+.dk-action:disabled { cursor: default; opacity: .72; }
+.dk-action:disabled:hover { transform: none; box-shadow: var(--wk-shadow); border-color: var(--wk-line2); }
+.dk-action .dk-action-chip { width: 46px; height: 46px; border-radius: 14px; flex-shrink: 0; }
+.dk-action .dk-action-chip svg { width: 22px; height: 22px; }
+.dk-action-text { display: flex; flex-direction: column; align-items: center; min-width: 0; max-width: 100%; gap: 2px; }
+.dk-action-label { font-size: 13px; font-weight: 700; color: var(--wk-ink); line-height: 1.2; overflow-wrap: anywhere; }
+.dk-action-sub {
+  font-size: 11.5px; color: var(--wk-faint); line-height: 1.3; font-weight: 500;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.dk-action-sub--on  { color: var(--wk-green); }
+.dk-action-sub--ok  { color: var(--wk-green); font-weight: 600; }
+.dk-action-sub--bad { color: var(--wk-red); font-weight: 600; }
+.dk-action--row { flex-direction: row; justify-content: flex-start; text-align: left; padding: 8px 14px; gap: 12px; }
+.dk-action--row .dk-action-chip { width: 34px; height: 34px; border-radius: 10px; }
+.dk-action--row .dk-action-chip svg { width: 17px; height: 17px; }
+.dk-action--row .dk-action-text { align-items: flex-start; }
+.dk-action--row .dk-action-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.dk-action--row .dk-action-sub { -webkit-line-clamp: 1; }
+[data-theme="dark"] .dk-action-label { color: var(--ink); }
+[data-theme="dark"] .dk-action-sub { color: var(--text-muted); }
+[data-theme="dark"] .dk-action-sub--on, [data-theme="dark"] .dk-action-sub--ok { color: #4ade80; }
+[data-theme="dark"] .dk-action-sub--bad { color: #f87171; }
+.dk-action[aria-disabled="true"] { cursor: default; opacity: .72; }
+.dk-action[aria-disabled="true"]:hover, .dk-action[aria-disabled="true"]:active { transform: none; box-shadow: var(--wk-shadow); border-color: var(--wk-line2); }
+/* The Action Tile's announcer: read by screen readers, never drawn. */
+.dk-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+@media (prefers-reduced-motion: reduce) { .dk-action:active { transform: none; } }
+
 /* main: queue + rail */
 .dk-main { display: grid; grid-template-columns: 1fr 330px; gap: 18px; align-items: start; }
 .dk-queue { min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
@@ -4147,7 +4328,7 @@ button, [role="button"], select { touch-action: manipulation; }
      Nexus top header (~56px). Fill the rest of the viewport - subtracting the
      old ~206px left an empty gray band at the bottom that other modules don't
      have. Once a doc is open, `.has-doc` takes the whole viewport. */
-  height: calc(100vh - 56px);
+  height: calc(100vh - 56px - var(--nx-announce-h, 0px));
   min-height: 420px;  /* never collapse to a sliver on short windows */
   overflow: hidden;
   display: flex;
@@ -4294,8 +4475,8 @@ button, [role="button"], select { touch-action: manipulation; }
 /* Motion: one vocabulary - menus and dialogs pop, revealed lists slide in.
    All of it sits behind prefers-reduced-motion. */
 @media (prefers-reduced-motion: no-preference) {
-  .egx-menu { animation: egxPop .14s cubic-bezier(.16, 1, .3, 1); transform-origin: top right; }
-  .egx-pop { animation: egxPop .16s cubic-bezier(.16, 1, .3, 1); }
+  .egx-menu { animation: egxPop .14s var(--ease-out); transform-origin: top right; }
+  .egx-pop { animation: egxPop .16s var(--ease-out); }
   .egx-overlay { animation: egxFade .15s ease; }
   .egx-tree-kids { animation: egxReveal .16s ease-out; }
   .egx-selbar { animation: egxReveal .15s ease-out; }
@@ -4434,7 +4615,6 @@ button, [role="button"], select { touch-action: manipulation; }
 .app-tile:hover, .app-tile:focus-visible {
   transform: translateY(-3px) scale(1.05);
   background: var(--mist);
-  outline: none;
 }
 .app-tile:active { transform: translateY(-1px) scale(1.02); }
 /* An app tile hovering over a folder while being dragged - iPhone-style
@@ -4821,8 +5001,8 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
    into "x" while its options are open. */
 .nx-fab {
   box-shadow: 0 6px 16px rgba(23, 26, 38, .18), 0 2px 4px rgba(23, 26, 38, .10);
-  transition: box-shadow .18s cubic-bezier(.16, 1, .3, 1),
-              transform .18s cubic-bezier(.16, 1, .3, 1),
+  transition: box-shadow .18s var(--ease-out),
+              transform .18s var(--ease-out),
               filter .18s ease;
 }
 .nx-fab:hover {
@@ -4835,7 +5015,7 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
   outline: 2px solid var(--wk-brand, #2b45e1);
   outline-offset: 3px;
 }
-.nx-fab-icon { transition: transform .2s cubic-bezier(.16, 1, .3, 1); }
+.nx-fab-icon { transition: transform .2s var(--ease-out); }
 
 /* Checkboxes in the Task module read as greyed out until they are ticked
    (Neil, Sept 8): an unchecked box is an offer, a checked one is a decision, and
@@ -4867,6 +5047,18 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
 .nx-menu-row:focus-visible {
   background: var(--nx-hover) !important;
 }
+/* The row Enter (or Tab) will take in a search-and-pick menu - lib/listNav.js
+   (Oct 13 2026). A blue tint, not the grey of a selected row, so "what Enter
+   picks" and "already chosen" never look alike. After the hover rule, same
+   specificity, so it wins: the pointer moves the highlight anyway. */
+[data-nav-active],
+.nx-menu-row[data-nav-active]:hover {
+  background: rgba(37, 99, 235, 0.11) !important;
+}
+[data-theme="dark"] [data-nav-active],
+[data-theme="dark"] .nx-menu-row[data-nav-active]:hover {
+  background: rgba(96, 165, 250, 0.2) !important;
+}
 
 /* Each option is a labelled pill - an icon alone would make the user guess. */
 .nx-fab-item {
@@ -4884,7 +5076,7 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
   white-space: nowrap;
   cursor: pointer;
   box-shadow: 0 4px 14px rgba(23, 26, 38, .14);
-  animation: nx-fab-in .26s cubic-bezier(.16, 1, .3, 1) both;
+  animation: nx-fab-in .26s var(--ease-out) both;
   transition: border-color .15s ease, transform .15s ease;
 }
 .nx-fab-item:hover { border-color: var(--wk-brand, #2b45e1); transform: translateX(-2px); }
@@ -5331,39 +5523,84 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
 }
 .acct-dash.acct-dash--condensed .req-table { font-size: 0.78rem; }
 
-/* "A new version of Nexus is available" (components/UpdateBanner.jsx).
-   Desktop: centered, as wide as its text. Phone: full width with 12px
-   gutters, above the browser's bottom bar, so it never wraps into a narrow
-   column (Oct 3). */
+/* ── Update popup (components/UpdateBanner.jsx) ─────────────────────────────
+   A card that rises in from the bottom: icon tile, a title and a line under
+   it, then the actions. Centered with left/right + auto margins rather than
+   translateX(-50%), so `transform` is free for the motion. When the waiting
+   version brings new features the tile turns Nexus green and See What's New
+   leads; Reload steps back to an outline (Neil, Oct 12 2026). */
 .update-banner {
-  position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+  position: fixed; bottom: 20px; left: 16px; right: 16px; margin-inline: auto;
   z-index: 9998; display: flex; align-items: center; gap: 12px;
-  width: max-content; max-width: calc(100vw - 32px);
+  width: fit-content; max-width: min(640px, calc(100vw - 32px));
   background: var(--wk-card, #fff); color: var(--wk-ink, #323338);
-  border: 1px solid var(--wk-line, #d0d4e4); border-radius: 12px;
-  box-shadow: 0 8px 24px rgba(29, 33, 57, .14);
-  padding: 10px 10px 10px 16px; font-family: var(--wk-font, inherit);
+  border: 1px solid var(--wk-line, #d0d4e4); border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(29, 33, 57, .06), 0 14px 36px rgba(29, 33, 57, .18);
+  padding: 10px 10px 10px 12px; font-family: var(--wk-font, inherit);
+  animation: ub-in .42s cubic-bezier(.16, 1, .3, 1) both;
 }
-.update-banner-text { font-size: 13.5px; font-weight: 600; line-height: 1.35; }
-.update-banner-reload {
+.update-banner.is-leaving { animation: ub-out .22s cubic-bezier(.4, 0, 1, 1) both; }
+@keyframes ub-in { from { opacity: 0; transform: translateY(18px) scale(.98); } to { opacity: 1; transform: none; } }
+@keyframes ub-out { to { opacity: 0; transform: translateY(14px) scale(.98); } }
+/* A plain colored icon - no tinted rounded tile behind it (Neil: no colored
+   boxes; color as an accent only). */
+.update-banner-icon {
+  flex-shrink: 0; width: 24px; height: 24px; margin-left: 4px;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--wk-brand, #2b45e1);
+  animation: ub-pop .5s .12s cubic-bezier(.34, 1.56, .64, 1) both;
+}
+.update-banner.has-features .update-banner-icon { color: hsl(142, 60%, 30%); }
+@keyframes ub-pop { from { opacity: 0; transform: scale(.4) rotate(-25deg); } to { opacity: 1; transform: none; } }
+.update-banner-copy { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.update-banner-text { font-size: 13.5px; font-weight: 700; line-height: 1.3; }
+.update-banner-sub { font-size: 12.5px; color: var(--wk-dim, #676879); line-height: 1.35; }
+.update-banner-reload,
+.update-banner-whatsnew {
   display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0;
-  background: var(--wk-brand, #2b45e1); color: #fff; border: 0; border-radius: 8px;
-  padding: 8px 14px; font-size: 13px; font-weight: 700; cursor: pointer;
-  font-family: inherit; white-space: nowrap;
+  border: 0; border-radius: 9px; padding: 9px 14px; font-size: 13px; font-weight: 700;
+  cursor: pointer; font-family: inherit; white-space: nowrap;
+  transition: background-color .15s ease, transform .15s ease, box-shadow .15s ease;
 }
+.update-banner-reload { background: var(--wk-brand, #2b45e1); color: #fff; }
+.update-banner-whatsnew { background: hsl(142, 60%, 30%); color: #fff; box-shadow: 0 2px 8px hsla(142, 60%, 25%, .3); }
+.update-banner-whatsnew:hover { background: hsl(142, 60%, 26%); transform: translateY(-1px); box-shadow: 0 6px 16px hsla(142, 60%, 25%, .32); }
+.update-banner-arrow { transition: transform .18s cubic-bezier(.16, 1, .3, 1); }
+.update-banner-whatsnew:hover .update-banner-arrow { transform: translateX(3px); }
+.update-banner-reload.update-banner-reload-quiet {
+  background: transparent; color: var(--wk-ink, #323338);
+  box-shadow: inset 0 0 0 1px var(--wk-line, #d0d4e4);
+}
+.update-banner-reload.update-banner-reload-quiet:hover { background: var(--wk-hover, #f5f6f8); }
+.update-banner-reload:active, .update-banner-whatsnew:active { transform: scale(.97); }
+.update-banner-reload:disabled, .update-banner-whatsnew:disabled { cursor: progress; opacity: .85; }
+.update-banner-spin { animation: spin .8s linear infinite; }
 .update-banner-close {
   background: none; border: 0; color: var(--wk-dim, #676879); cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center;
   width: 32px; height: 32px; border-radius: 8px; flex-shrink: 0;
+  transition: background-color .15s ease;
 }
 .update-banner-close:hover { background: var(--wk-hover, #f5f6f8); }
+.update-banner button:focus-visible { outline: 2px solid var(--wk-brand, #2b45e1); outline-offset: 2px; }
 @media (max-width: 600px) {
+  /* Phones: the message (and the close) on top, the buttons sharing the row
+     under it - side by side they had squeezed the message to one word per
+     line (Oct 12). */
   .update-banner {
-    left: 12px; right: 12px; transform: none; width: auto; max-width: none;
+    left: 12px; right: 12px; width: auto; max-width: none; flex-wrap: wrap; row-gap: 10px;
     bottom: calc(12px + env(safe-area-inset-bottom, 0px));
-    padding: 10px 8px 10px 14px; gap: 10px;
+    padding: 12px 8px 10px 12px; gap: 10px;
   }
-  .update-banner-text { flex: 1; min-width: 0; font-size: 14px; }
+  .update-banner-copy { flex: 1 1 calc(100% - 96px); }
+  .update-banner-text { font-size: 14px; }
+  .update-banner-close { order: 1; align-self: flex-start; }
+  .update-banner-whatsnew, .update-banner-reload { order: 2; flex: 1 1 0; justify-content: center; min-height: 42px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .update-banner, .update-banner.is-leaving, .update-banner-icon, .update-banner-spin { animation: none; }
+  .update-banner-reload, .update-banner-whatsnew, .update-banner-arrow { transition: none; }
+  .update-banner-whatsnew:hover, .update-banner-whatsnew:hover .update-banner-arrow { transform: none; }
 }
 
 /* ── Accounting -> Reports, Oct 7 (Charmi: items 20 / 22 / 26 / 32 / 33) ──
@@ -5399,4 +5636,224 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
 .nx-clamp-2 {
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
   overflow: hidden; min-width: 0;
+}
+
+/* ── New in Nexus bar (components/FeatureBanner.jsx) ────────────────────────
+   Full width across the top of the page, Nexus green (Neil, Oct 12 2026).
+   A shade deeper than --color-green (35% lightness, where white text is only
+   4.1:1): this gradient runs 26-32% lightness, 5.3:1 and up; the button flips
+   it, green on white (6.3:1). No pill shapes - a small-caps label and a thin
+   rule set the message off, the editorial way the rest of Nexus does it.
+   Motion: it opens by growing to its height (grid rows 0fr -> 1fr), the
+   sparkle pops once, and one sheen crosses it; closing folds it back. That
+   height change is the only layout animation, and reduced motion drops all of
+   it. The full-height views follow its height live (--nx-announce-h). */
+.feature-banner {
+  position: relative; display: grid; grid-template-rows: 1fr; flex-shrink: 0; overflow: hidden;
+  background: linear-gradient(100deg, hsl(142, 62%, 25%) 0%, hsl(142, 58%, 30%) 55%, hsl(150, 56%, 29%) 100%);
+  color: #fff; font-family: var(--wk-font, inherit);
+  animation: fb-open .44s cubic-bezier(.16, 1, .3, 1) both;
+}
+/* Its own animation, not a transition: the opening one holds 1fr, and a held
+   animation value outranks any class change. */
+.feature-banner.is-closing { animation: fb-close .3s cubic-bezier(.4, 0, .2, 1) both; }
+@keyframes fb-open { from { grid-template-rows: 0fr; } to { grid-template-rows: 1fr; } }
+@keyframes fb-close { from { grid-template-rows: 1fr; opacity: 1; } to { grid-template-rows: 0fr; opacity: 0; } }
+/* One sheen across the bar when it arrives - not a loop. */
+.feature-banner::after {
+  content: ''; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(105deg, transparent 30%, rgba(255, 255, 255, .16) 48%, transparent 66%);
+  transform: translateX(-100%);
+  animation: fb-sheen 1.5s .45s cubic-bezier(.4, 0, .2, 1) both;
+}
+@keyframes fb-sheen { to { transform: translateX(100%); } }
+.feature-banner-clip { min-height: 0; overflow: hidden; }
+.feature-banner-row {
+  display: flex; align-items: center; gap: 12px; padding: 10px 10px 10px 18px;
+  font-size: 13.5px; line-height: 1.35;
+  animation: fb-content .5s .1s cubic-bezier(.16, 1, .3, 1) both;
+}
+@keyframes fb-content { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+.feature-banner-icon { flex-shrink: 0; animation: fb-spark .7s .25s cubic-bezier(.34, 1.56, .64, 1) both; }
+@keyframes fb-spark { from { opacity: 0; transform: scale(.3) rotate(-35deg); } to { opacity: 1; transform: none; } }
+.feature-banner-label {
+  flex-shrink: 0; font-size: 11.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
+  color: rgba(255, 255, 255, .9);
+}
+.feature-banner-rule { flex-shrink: 0; width: 1px; height: 18px; background: rgba(255, 255, 255, .35); }
+.feature-banner-text {
+  flex: 1; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: rgba(255, 255, 255, .92); cursor: pointer;
+}
+.feature-banner-text:hover .feature-banner-count { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: rgba(255, 255, 255, .55); }
+.feature-banner-count { font-weight: 800; color: #fff; white-space: nowrap; }   /* "3 Bug Fixes" never splits */
+.feature-banner-lead-short { display: none; }
+.feature-banner-cta {
+  display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0;
+  background: #fff; color: hsl(142, 60%, 26%); border: 0; border-radius: 9px;
+  padding: 8px 12px 8px 14px; font-size: 13px; font-weight: 700; cursor: pointer;
+  font-family: inherit; white-space: nowrap;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .12);
+  transition: transform .15s ease, box-shadow .15s ease, background-color .15s ease;
+}
+.feature-banner-cta:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(0, 0, 0, .2); background: hsl(142, 60%, 97%); }
+.feature-banner-cta:active { transform: scale(.97); }
+.feature-banner-cta-arrow { transition: transform .18s cubic-bezier(.16, 1, .3, 1); }
+.feature-banner-cta:hover .feature-banner-cta-arrow { transform: translateX(3px); }
+.feature-banner-cta-short { display: none; }
+.feature-banner-close {
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  width: 34px; height: 34px; border-radius: 9px; border: 0; cursor: pointer;
+  background: transparent; color: rgba(255, 255, 255, .9);
+  transition: background-color .15s ease, color .15s ease;
+}
+.feature-banner-close:hover { background: rgba(255, 255, 255, .16); color: #fff; }
+.feature-banner-cta:focus-visible,
+.feature-banner-close:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+@media (max-width: 640px) {
+  .feature-banner-row { padding: 8px 6px 8px 12px; gap: 9px; font-size: 13px; }
+  .feature-banner-label, .feature-banner-rule, .feature-banner-lead { display: none; }
+  .feature-banner-lead-short { display: inline; }
+  .feature-banner-text {
+    white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  }
+  /* The whole message opens What's New on a phone, so the button gives its
+     width back to the words: a white arrow square (its name stays "See
+     What's New" for screen readers). */
+  .feature-banner-cta { padding: 0; width: 40px; height: 40px; justify-content: center; }
+  .feature-banner-cta-long, .feature-banner-cta-short { display: none; }
+  .feature-banner-close { width: 38px; height: 38px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .feature-banner, .feature-banner.is-closing, .feature-banner-row, .feature-banner-icon { animation: none; }
+  .feature-banner::after { display: none; }
+  .feature-banner-cta, .feature-banner-cta-arrow { transition: none; }
+  .feature-banner-cta:hover, .feature-banner-cta:hover .feature-banner-cta-arrow { transform: none; }
+}
+
+/* ── Business Intelligence board (Oct 13 2026) ──────────────────────────────
+   Reads as the Dashboard does: .dash-card panels, .dk-chip module icons,
+   counts in their alert color. Everything here is layout for BiInsights.jsx. */
+.bi-root { display: flex; flex-direction: column; gap: 22px; animation: fadeIn var(--transition-normal) ease-in-out; }
+.bi-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.bi-title { margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -.02em; color: var(--ink); }
+.bi-sub { margin: 4px 0 0; font-size: 13px; color: var(--muted); max-width: 640px; line-height: 1.45; }
+.bi-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.bi-section { display: flex; flex-direction: column; gap: 12px; }
+.bi-section-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+.bi-section-title { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: -.01em; color: var(--ink); }
+.bi-section-sub { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+
+/* Needs Attention tiles - the .dk-stat anatomy, one per signal */
+.bi-attention { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 12px; }
+.bi-alert {
+  background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 13px 14px 12px;
+  text-align: left; cursor: pointer; font-family: inherit; color: var(--ink); min-width: 0;
+  display: flex; flex-direction: column; align-items: flex-start; position: relative; overflow: hidden;
+  box-shadow: var(--shadow-md); transition: transform .15s ease, box-shadow .15s ease;
+}
+.bi-alert::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; }
+.bi-alert--critical::before { background: hsl(var(--color-red)); }
+.bi-alert--warning::before { background: hsl(var(--color-orange)); }
+.bi-alert:hover { transform: translateY(-1px); box-shadow: 0 8px 28px rgba(0,0,0,.09), 0 2px 8px rgba(0,0,0,.05); }
+.bi-alert:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: 2px; }
+.bi-alert-top { display: flex; align-items: center; justify-content: space-between; width: 100%; }
+.bi-alert-tone { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+.bi-alert--critical .bi-alert-tone { color: hsl(var(--color-red)); }
+.bi-alert--warning .bi-alert-tone { color: hsl(var(--color-orange)); }
+.bi-alert-arrow { opacity: 0; transform: translateX(-3px); transition: opacity .15s ease, transform .15s ease; color: var(--muted); }
+.bi-alert:hover .bi-alert-arrow { opacity: 1; transform: none; }
+.bi-alert-num { font-size: 26px; font-weight: 800; letter-spacing: -.02em; line-height: 1.1; margin-top: 8px; font-variant-numeric: tabular-nums; }
+.bi-alert--critical .bi-alert-num { color: hsl(var(--color-red)); }
+.bi-alert--warning .bi-alert-num { color: hsl(var(--color-orange)); }
+.bi-alert-label { font-size: 13px; font-weight: 600; color: var(--ink); margin-top: 3px; line-height: 1.3; }
+.bi-alert-mod { font-size: 11.5px; color: var(--muted); margin-top: 1px; }
+.bi-calm {
+  display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: 12px; font-size: 13.5px; color: var(--ink);
+  background: hsla(var(--color-green), .08); border: 1px solid hsla(var(--color-green), .25);
+}
+.bi-calm > svg { color: hsl(var(--color-green)); flex-shrink: 0; }
+.bi-calm--error { background: hsla(var(--color-red), .07); border-color: hsla(var(--color-red), .25); }
+.bi-calm--error > svg { color: hsl(var(--color-red)); }
+
+/* Module cards - sized by what they hold, never by a grid cell */
+.bi-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 14px; align-items: start; }
+.bi-card { padding: 18px 18px 16px; display: flex; flex-direction: column; }
+.bi-card .dk-chip { width: 32px; height: 32px; }
+.bi-card .dk-chip svg { width: 16px; height: 16px; }
+.bi-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.bi-icon-btn {
+  background: none; border: none; cursor: pointer; color: var(--muted); display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 8px; padding: 0; transition: background var(--transition-fast), color var(--transition-fast);
+}
+.bi-icon-btn:hover { background: rgba(0,0,0,0.05); color: var(--ink); }
+[data-theme="dark"] .bi-icon-btn:hover { background: rgba(255,255,255,0.08); }
+.bi-stats { display: flex; flex-direction: column; }
+.bi-stat {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 8px; margin: 0 -8px; box-sizing: content-box;
+  border: none; border-radius: 8px; background: none; font-family: inherit; font-size: 13px; color: var(--ink); text-align: left;
+}
+.bi-stat + .bi-stat { border-top: 1px solid var(--line); border-radius: 0 0 8px 8px; }
+.bi-stat--drill { cursor: pointer; }
+.bi-stat--drill:hover { background: var(--wk-hover); }
+.bi-stat--drill:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: -2px; }
+.bi-stat-label { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; color: var(--muted); font-weight: 500; }
+.bi-stat-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bi-stat-value { font-weight: 700; font-variant-numeric: tabular-nums; font-size: 14px; }
+.bi-stat-chev { color: var(--muted); opacity: .45; flex-shrink: 0; }
+.bi-stat--drill:hover .bi-stat-chev { opacity: 1; }
+.bi-shape { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.bi-shape-label { font-size: 11.5px; font-weight: 600; color: var(--muted); margin-bottom: 8px; }
+.bi-split { display: flex; height: 10px; border-radius: 6px; overflow: hidden; background: var(--mist); gap: 2px; }
+.bi-split > span { display: block; min-width: 4px; }
+[data-theme="dark"] .bi-split, [data-theme="dark"] .bi-stage-bar { background: rgba(255,255,255,.08); }
+.bi-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; font-size: 12px; color: var(--muted); }
+.bi-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.bi-legend i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.bi-legend b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.bi-spark-axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 2px; }
+.bi-stages { display: flex; flex-direction: column; gap: 6px; }
+.bi-stage { display: grid; grid-template-columns: 92px 1fr 36px; align-items: center; gap: 10px; font-size: 12.5px; }
+.bi-stage--wide { grid-template-columns: minmax(120px, 220px) 1fr 44px; }
+.bi-stage-label { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bi-stage-bar { display: block; height: 10px; border-radius: 6px; background: var(--mist); overflow: hidden; }
+.bi-stage-bar i { display: block; height: 100%; background: hsl(var(--color-blue)); border-radius: 6px; min-width: 2px; }
+.bi-stage-num { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ink); }
+.bi-table { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.bi-table-row { display: flex; justify-content: space-between; gap: 12px; padding: 8px 12px; font-size: 12.5px; }
+.bi-table-row + .bi-table-row { border-top: 1px solid var(--line); }
+.bi-table-row > span:first-child { font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bi-table-row > span:last-child { color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; flex-shrink: 0; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bi-empty { padding: 28px 16px; text-align: center; font-size: 13px; color: var(--muted); background: var(--card); border: 1px dashed var(--line); border-radius: 14px; }
+
+/* Filters */
+.bi-filters { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.bi-search { display: flex; align-items: center; gap: 6px; background: var(--card); border: 1px solid var(--wk-line2); border-radius: 10px; padding: 0 6px 0 10px; height: 34px; color: var(--muted); min-width: 200px; }
+.bi-search:focus-within { border-color: var(--wk-brand); box-shadow: 0 0 0 3px var(--wk-brand-tint); }
+.bi-search input { border: none; outline: none; background: none; font-family: inherit; font-size: 13px; color: var(--ink); flex: 1; min-width: 0; }
+.bi-search input::placeholder { color: var(--wk-faint); }
+.bi-search .bi-icon-btn { width: 24px; height: 24px; }
+.bi-tones { display: inline-flex; background: rgba(0,0,0,0.04); border-radius: 10px; padding: 3px; gap: 2px; }
+[data-theme="dark"] .bi-tones { background: rgba(255,255,255,0.06); }
+.bi-tone { display: inline-flex; align-items: center; gap: 6px; border: none; background: none; cursor: pointer; font-family: inherit; font-size: 12.5px; font-weight: 600; color: var(--muted); padding: 5px 10px; border-radius: 8px; transition: background var(--transition-fast), color var(--transition-fast); }
+.bi-tone i { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.bi-tone--on { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.bi-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 50; min-width: 220px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow-md); padding: 6px; }
+.bi-menu-row { display: flex; align-items: center; gap: 10px; width: 100%; border: none; background: none; cursor: pointer; font-family: inherit; font-size: 13px; color: var(--ink); padding: 8px 10px; border-radius: 8px; text-align: left; }
+.bi-menu-row:hover { background: var(--wk-hover); }
+.bi-menu-row--action { color: var(--wk-brand); font-weight: 600; border-top: 1px solid var(--line); border-radius: 0 0 8px 8px; margin-top: 4px; }
+.bi-check { width: 16px; height: 16px; border-radius: 5px; border: 1.5px solid var(--wk-line); display: inline-flex; align-items: center; justify-content: center; color: #fff; flex-shrink: 0; }
+.bi-check--on { background: var(--wk-brand); border-color: var(--wk-brand); }
+
+/* Drill-down */
+.bi-scrim { position: fixed; inset: 0; background: rgba(15,23,42,0.45); z-index: 1400; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.bi-modal { background: var(--card); border-radius: 16px; box-shadow: 0 24px 64px rgba(0,0,0,.25); width: min(640px, 100%); max-height: min(80vh, 720px); display: flex; flex-direction: column; overflow: hidden; }
+.bi-modal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 18px; border-bottom: 1px solid var(--line); }
+.bi-modal-body { padding: 16px 18px 18px; overflow: auto; flex: 1; min-height: 0; }
+
+@media (max-width: 640px) {
+  .bi-card { padding: 14px; }
+  .bi-grid { grid-template-columns: 1fr; }
+  .bi-search { min-width: 0; flex: 1; }
+  .bi-filters { width: 100%; }
 }

@@ -1,0 +1,135 @@
+{
+  "id": "greens-storage-fairfield",
+  "name": "Greens Storage Fairfield",
+  "address": "5044 Peabody Rd, Fairfield, CA 94533",
+  "apn": "0166-080-040, 0166-080-030",
+  "acreage": 9.75,
+  "opened": "",
+  "county": "Solano",
+  "parcelSource": "Solano County parcels (hosted layer)",
+  "cubbyFacilityId": "fac_NZEnukUARtt",
+  "frame": {
+    "lat0": 38.29201,
+    "lon0": -121.96738,
+    "bearingDeg": 90.3,
+    "mPerDegLon": 87371,
+    "mPerDegLat": 110900
+  },
+  "image": {
+    "file": "frontend/public/site-models/greens-storage-fairfield/ground.jpg",
+    "bbox": [
+      -121.9698,
+      38.290756,
+      -121.9644,
+      38.293044
+    ],
+    "px": [
+      2360,
+      1000
+    ],
+    "attribution": "Imagery: Esri, Maxar, Earthstar Geographics"
+  },
+  "imageWide": {
+    "file": "frontend/public/site-models/greens-storage-fairfield/ground-wide.jpg",
+    "bbox": [
+      -121.9789,
+      38.2835,
+      -121.9559,
+      38.3005
+    ]
+  },
+  "gates": [
+    {
+      "id": "main",
+      "name": "Gate",
+      "en": [
+        [
+          -8,
+          42
+        ]
+      ]
+    }
+  ],
+  "classify": [
+    {
+      "match": "^X",
+      "k": "in",
+      "veh": 0
+    }
+  ],
+  "buildings": [
+    {
+      "id": "OFFICE",
+      "letters": [],
+      "name": "Office",
+      "kind": "office",
+      "rect": {
+        "E": -8.8,
+        "N": 20.6,
+        "L": 18.3,
+        "W": 15.8,
+        "bearing": 88.8
+      },
+      "height": 4.0,
+      "floors": 1,
+      "roof": "red",
+      "doorSide": "ne",
+      "inferred": true,
+      "note": "Office at the Peabody Rd entrance."
+    }
+  ],
+  "zones": [
+    {
+      "id": "LOT",
+      "name": "RV Lot",
+      "kind": "rv-lot",
+      "letters": [
+        "A",
+        "B",
+        "C",
+        "D",
+        "E",
+        "F",
+        "G",
+        "H",
+        "I"
+      ],
+      "parcels": [
+        "0166080040",
+        "0166080030"
+      ],
+      "inset": 4
+    },
+    {
+      "id": "X",
+      "name": "Containers",
+      "kind": "rv-lot",
+      "letters": [
+        "X"
+      ],
+      "en": [
+        [
+          -48,
+          4
+        ],
+        [
+          -26,
+          4
+        ],
+        [
+          -26,
+          30
+        ],
+        [
+          -48,
+          30
+        ]
+      ]
+    }
+  ],
+  "sources": [
+    "Parcel: Solano County parcel layer (APNs 0166080040 4.75 ac and 0166080030 5.00 ac)",
+    "Stall rows: schematic fill of the lot in letter order; no row survey yet",
+    "Units: Cubby FMS inventory export, Oct 11, 2026 (307 active units)"
+  ]
+}

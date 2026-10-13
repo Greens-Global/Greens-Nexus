@@ -6,6 +6,8 @@ would flag. If the app can't import, boot, and serve /health, this fails.
 
     python -m unittest test_app_boot
 """
+import _testdb  # noqa: F401 - FIRST import: throwaway DATABASE_URL (unittest skips conftest)
+
 import importlib
 import os
 import pkgutil

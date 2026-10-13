@@ -144,8 +144,8 @@ def is_muted(p: dict, t) -> bool:
 def wants_event(p: dict, event_type: str, t) -> bool:
     """Instant (event-driven) emails. A mention always gets through - even a
     muted task - because it is a person asking this person directly."""
-    if event_type == "mentioned":
-        return True
+    if event_type in ("mentioned", "comment_assigned"):
+        return True   # addressed at this person by name - never silenced
     if is_muted(p, t):
         return False
     if event_type in LOCKED_EVENTS:

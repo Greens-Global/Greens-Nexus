@@ -10,6 +10,8 @@ import LiveView from './LiveView';
 import Locations from '../views/Locations';
 import { WorkforceViewBar, ViewNotice } from './workforce/WorkforceViews';
 import { WorkforceViewProvider, useWorkforceView, useWorkforceViews } from './workforce/viewContext';
+import Scorecard from './workforce/Scorecard';
+import { useRole } from '../contexts/RoleContext';
 import { Spinner, LoadingState } from './AsyncState';
 
 // Human "last seen" from a seconds delta.
@@ -344,7 +346,7 @@ function PresenceBadges({ pres }) {
         <span title={`${controller.name} is giving remote support`}
           style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 800,
             color: 'hsl(var(--color-orange))', background: 'hsla(var(--color-orange),0.12)', padding: '3px 9px', borderRadius: 999 }}>
-          <Wrench size={12} style={{ transformOrigin: 'center', animation: 'nexusWrenchWork 1.1s ease-in-out infinite' }} />
+          <Wrench size={12} />
           <Avatar email={controller.email} name={controller.name} size={16} card={false} />
         </span>
       )}
@@ -353,7 +355,7 @@ function PresenceBadges({ pres }) {
           <button ref={btnRef} onClick={() => (open ? setOpen(false) : openMenu())} title={`${watchers.length} watching - click to see who`}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 800, cursor: 'pointer',
               color: 'hsl(var(--color-blue))', background: 'hsla(var(--color-blue),0.12)', border: 'none', padding: '3px 9px', borderRadius: 999 }}>
-            <Eye size={13} style={{ animation: 'nexusEyeWatch 1.4s ease-in-out infinite' }} />
+            <Eye size={13} />
             {watchers.length}
           </button>
           {open && pos && createPortal(
@@ -362,7 +364,7 @@ function PresenceBadges({ pres }) {
               <div style={{ position: 'fixed', top: pos.top, right: pos.right, zIndex: 3001, minWidth: 200, maxWidth: 280,
                 background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12,
                 boxShadow: '0 16px 44px rgba(0,0,0,0.30)', padding: 6, transformOrigin: 'top right',
-                animation: 'nexusPresPop 0.15s cubic-bezier(0.16,1,0.3,1)' }}>
+                animation: 'nexusPresPop 0.15s var(--ease-out)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 8px 7px' }}>
                   <Eye size={12} style={{ color: 'hsl(var(--color-blue))' }} />
                   <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>Watching now</span>
@@ -483,12 +485,16 @@ function LiveCoverage({ onOpenPerson }) {
   );
 }
 
+// `grant`: the module grant that shows the tab (administrator+ sees all).
+// Scorecard (Neil, 10/10) has its own grant, so a manager can get the weekly
+// hours scorecard without the monitoring surfaces - and vice versa.
 const MON_SUBTABS = [
-  { id: 'coverage',    label: 'Coverage' },
-  { id: 'activity',    label: 'Activity' },
-  { id: 'locations',   label: 'Locations' },
-  { id: 'computers',   label: 'Computers' },
-  { id: 'screenshots', label: 'Screenshots' },
+  { id: 'coverage',    label: 'Coverage',    grant: 'employee-tracking' },
+  { id: 'activity',    label: 'Activity',    grant: 'employee-tracking' },
+  { id: 'scorecard',   label: 'Scorecard',   grant: 'workforce-scorecard' },
+  { id: 'locations',   label: 'Locations',   grant: 'employee-tracking' },
+  { id: 'computers',   label: 'Computers',   grant: 'employee-tracking' },
+  { id: 'screenshots', label: 'Screenshots', grant: 'employee-tracking' },
 ];
 
 // ── Monitoring Policy (per company) ────────────────────────────────────────────
@@ -599,16 +605,26 @@ function ActivityInsights() {
 }
 
 export default function TimeTrackingAdmin({ initialSub = 'coverage', module = false }) {
-  const [sub, setSub] = useState(initialSub);
+  const { canAccessModule } = useRole();
+  // The tabs this person's grants open; a scorecard-only grant sees just that one.
+  const tabs = MON_SUBTABS.filter(t => canAccessModule(t.grant, 'administrator', 'viewer'));
+  // Saved team views live behind the tracking grant's API (workforce_views.py,
+  // require_tracking_read) - a scorecard-only person gets no picker rather
+  // than one whose every call fails.
+  const canTrack = canAccessModule('employee-tracking', 'administrator', 'viewer');
+  const allowed = (id) => tabs.some(t => t.id === id);
+  const fallback = tabs[0]?.id || 'coverage';
+  const [sub, setSub] = useState(() => (allowed(initialSub) ? initialSub : fallback));
   // Saved team views (Sep 29) - one picker in the header filters every tab.
   const views = useWorkforceViews();
   const [shotReq, setShotReq] = useState({ email: '', date: '' });   // Coverage -> Screenshots deep-link
   useEffect(() => {
-    if (initialSub) setSub(initialSub);
+    if (initialSub) setSub(allowed(initialSub) ? initialSub : fallback);
     // Opening Screenshots straight from the header/menu shows the people list -
     // clear any leftover Coverage deep-link so it doesn't reopen the last person.
     if (initialSub === 'screenshots') setShotReq({ email: '', date: '' });
-  }, [initialSub]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialSub, tabs.length]);
 
   return (
     <WorkforceViewProvider value={views.ctx}>
@@ -621,7 +637,7 @@ export default function TimeTrackingAdmin({ initialSub = 'coverage', module = fa
             <h2>Workforce Analytics</h2>
             <p>Disclosed monitoring - coverage, activity, locations, screenshots, and company computers</p>
           </div>
-          <WorkforceViewBar state={views} />
+          {canTrack && <WorkforceViewBar state={views} />}
         </div>
       )}
       <style>{`@keyframes nexusDotPulse {
@@ -629,13 +645,11 @@ export default function TimeTrackingAdmin({ initialSub = 'coverage', module = fa
         70% { box-shadow: 0 0 0 5px transparent; }
         100% { box-shadow: 0 0 0 0 transparent; }
       }
-      @keyframes nexusEyeWatch { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.55; transform: scale(1.14); } }
-      @keyframes nexusWrenchWork { 0%,100% { transform: rotate(-14deg); } 50% { transform: rotate(14deg); } }
       @keyframes nexusPresPop { from { opacity: 0; transform: translateY(-6px) scale(0.96); } to { opacity: 1; transform: translateY(0) scale(1); } }`}</style>
 
       {/* Sub-tabs so the monitoring screen isn't one long scroll. */}
       <div className="scroll-tabs" style={{ display: 'flex', gap: 4, marginTop: module ? 18 : 0, marginBottom: 16, borderBottom: '1px solid var(--line)' }}>
-        {MON_SUBTABS.map(t => (
+        {tabs.map(t => (
           <button key={t.id} onClick={() => { if (t.id === 'screenshots') setShotReq({ email: '', date: '' }); setSub(t.id); }}
             style={{ padding: '8px 14px', border: 'none', background: 'none', cursor: 'pointer',
               fontFamily: 'Inter, sans-serif', fontSize: 13, fontWeight: sub === t.id ? 700 : 500,
@@ -647,18 +661,20 @@ export default function TimeTrackingAdmin({ initialSub = 'coverage', module = fa
         ))}
       </div>
 
-      {sub === 'coverage' && <MonitoringAlertsPanel />}
-      {sub === 'coverage' && <LiveCoverage onOpenPerson={(email) => { setShotReq({ email, date: new Date().toISOString().slice(0, 10) }); setSub('screenshots'); }} />}
+      {sub === 'coverage' && allowed('coverage') && <MonitoringAlertsPanel />}
+      {sub === 'coverage' && allowed('coverage') && <LiveCoverage onOpenPerson={(email) => { setShotReq({ email, date: new Date().toISOString().slice(0, 10) }); setSub('screenshots'); }} />}
 
-      {sub === 'activity' && <ActivityInsights />}
+      {sub === 'activity' && allowed('activity') && <ActivityInsights />}
 
-      {sub === 'locations' && <Locations embedded />}
+      {sub === 'scorecard' && allowed('scorecard') && <Scorecard />}
 
-      {sub === 'screenshots' && (
+      {sub === 'locations' && allowed('locations') && <Locations embedded />}
+
+      {sub === 'screenshots' && allowed('screenshots') && (
         <ScreenshotsAdmin embedded initialEmail={shotReq.email} initialDate={shotReq.date} onBack={() => { setShotReq({ email: '', date: '' }); setSub('coverage'); }} />
       )}
 
-      {sub === 'computers' && <AgentInstall />}
+      {sub === 'computers' && allowed('computers') && <AgentInstall />}
     </div>
     </WorkforceViewProvider>
   );

@@ -4,21 +4,34 @@ changelog/"What's New" feature. Single router, absolute paths, email-keyed.
 """
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
+from sqlalchemy import or_, func
+from sqlalchemy.exc import IntegrityError
+from collections import Counter
 from pydantic import BaseModel
 from typing import Optional, Any
 import os
 import json
+import uuid
 import httpx
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 import models
 from database import get_db
+from notify_company import notification_company
 from auth import get_current_user, require_level, require_manager, require_any_module_grant
-from routers.task_util import now_iso, gen_id
+from routers.task_util import now_iso, gen_id, is_manager, require_project_role
+from changelog_prs import known_developer
+import task_automation
 
 router = APIRouter(tags=["Tasks"],
                    dependencies=[Depends(get_current_user), Depends(require_any_module_grant("tasks", "tickets"))])
+
+# Reading What's New is every Nexus user's default (Neil, Oct 12 2026): the
+# changelog, its comments, the unseen dot, the weekly bar and the update
+# popup's question live here, behind sign-in only. Adding, editing, reviewing,
+# publishing and commenting stay on `router` above, behind the task family's
+# grant. Externals reach these too (auth._EXTERNAL_BASE_PREFIXES).
+view_router = APIRouter(tags=["Tasks"], dependencies=[Depends(get_current_user)])
 
 
 def _nz(v):
@@ -62,8 +75,15 @@ def create_saved_view(body: SavedViewBody, user: dict = Depends(get_current_user
 
 
 @router.delete("/task-saved-views/{view_id}", status_code=204)
-def delete_saved_view(view_id: str, db: Session = Depends(get_db)):
-    db.query(models.TaskSavedView).filter(models.TaskSavedView.id == view_id).delete()
+def delete_saved_view(view_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    # A saved view belongs to one person. Filtered to the caller's own task
+    # views - the same rows list_saved_views returns - so nobody can delete
+    # somebody else's by id, or a ticket view through this route (Sep 30 review).
+    db.query(models.TaskSavedView).filter(
+        models.TaskSavedView.id == view_id,
+        models.TaskSavedView.owner_email == user["email"].lower(),
+        models.TaskSavedView.scope != "ticket",
+    ).delete(synchronize_session=False)
     db.commit()
 
 
@@ -72,13 +92,16 @@ def delete_saved_view(view_id: str, db: Session = Depends(get_db)):
 def rule_to_dict(r: models.TaskAutomationRule) -> dict:
     return {"id": r.id, "name": r.name,
             "trigger": r.trigger if isinstance(r.trigger, dict) else {},
-            "actions": r.actions if isinstance(r.actions, list) else [], "enabled": bool(r.enabled)}
+            "conditions": r.conditions if isinstance(r.conditions, list) else [],
+            "actions": r.actions if isinstance(r.actions, list) else [], "enabled": bool(r.enabled),
+            "runCount": int(r.run_count or 0), "lastRunAt": r.last_run_at or ""}
 
 
 class RuleBody(BaseModel):
     id: Optional[str] = None
     name: Optional[str] = None   # optional so PATCH (e.g. enabled toggle) can send partial bodies; required on create (guarded below)
     trigger: Optional[dict] = None
+    conditions: Optional[list] = None
     actions: Optional[list] = None
     enabled: Optional[bool] = None
 
@@ -92,8 +115,11 @@ def list_rules(db: Session = Depends(get_db)):
 def create_rule(body: RuleBody, db: Session = Depends(get_db)):
     if not (body.name or "").strip():
         raise HTTPException(422, "Rule name is required")
+    # The engine (task_automation.py) runs whatever is stored, so a rule it
+    # cannot run is refused here rather than silently never firing.
+    task_automation.validate_rule(body.trigger, body.conditions, body.actions)
     r = models.TaskAutomationRule(id=body.id or gen_id(), name=body.name, trigger=body.trigger or {},
-                                  actions=body.actions or [],
+                                  conditions=body.conditions or [], actions=body.actions or [],
                                   enabled=True if body.enabled is None else bool(body.enabled),
                                   created_at=now_iso())
     db.add(r)
@@ -108,6 +134,9 @@ def update_rule(rule_id: str, body: RuleBody, db: Session = Depends(get_db)):
     if not r:
         raise HTTPException(404, "Rule not found")
     data = body.model_dump(exclude_unset=True, exclude={"id"})
+    if any(k in data for k in ("trigger", "conditions", "actions")):
+        task_automation.validate_rule(data.get("trigger", r.trigger), data.get("conditions", r.conditions),
+                                      data.get("actions", r.actions))
     for k, v in data.items():
         setattr(r, k, v)
     db.commit()
@@ -119,6 +148,32 @@ def update_rule(rule_id: str, body: RuleBody, db: Session = Depends(get_db)):
 def delete_rule(rule_id: str, db: Session = Depends(get_db)):
     db.query(models.TaskAutomationRule).filter(models.TaskAutomationRule.id == rule_id).delete()
     db.commit()
+
+
+@router.get("/task-automation-runs", dependencies=[Depends(require_manager)])
+def list_rule_runs(rule_id: str = "", limit: int = 50, user: dict = Depends(get_current_user),
+                   db: Session = Depends(get_db)):
+    """The Runs panel: what each rule actually did, newest first. Rows outlive
+    their rule (rule_name is captured on the row) so a deleted rule's history
+    still reads. Behind the company wall: a run row carries the task's title,
+    so a manager only sees runs on tasks their scope admits."""
+    import auth
+    from routers.task_util import wall_tasks
+    q = db.query(models.TaskAutomationRun)
+    if rule_id:
+        q = q.filter(models.TaskAutomationRun.rule_id == rule_id)
+    limit = max(1, min(int(limit or 50), 200))
+    rows = q.order_by(models.TaskAutomationRun.at.desc()).limit(limit * 4 if auth.company_scope(user, db) is not None else limit).all()
+    if auth.company_scope(user, db) is not None:
+        ids = {x.task_id for x in rows if x.task_id}
+        tasks = (db.query(models.Task).execution_options(include_deleted=True)
+                 .filter(models.Task.id.in_(ids)).all()) if ids else []
+        allowed = {t.id for t in wall_tasks(db, user, tasks)}
+        rows = [x for x in rows if x.task_id in allowed][:limit]
+    return [{"id": x.id, "ruleId": x.rule_id, "ruleName": x.rule_name, "taskId": x.task_id,
+             "taskCode": x.task_code, "taskTitle": x.task_title, "trigger": x.trigger_type,
+             "event": x.event, "actions": x.actions if isinstance(x.actions, list) else [],
+             "status": x.status, "detail": x.detail or "", "at": x.at} for x in rows]
 
 
 # ── Templates ────────────────────────────────────────────────────────────────
@@ -320,6 +375,36 @@ def field_applies_to(f: models.TaskCustomField, project_id: str) -> bool:
     return not ids or (project_id or "") in ids
 
 
+def field_required_in(f: models.TaskCustomField, project_id: str) -> bool:
+    """Must a new task in `project_id` carry a value for this field?
+
+    Yes when the field is a task field that applies to the project and is
+    required either everywhere (`required`) or in this project specifically
+    (`required_project_ids`, Oct 13 2026). A read-only field never is - it
+    can't be filled in."""
+    if f.read_only or "task" not in _parse_applies_to(f.applies_to):
+        return False
+    if not field_applies_to(f, project_id):
+        return False
+    if f.required:
+        return True
+    return bool(project_id) and project_id in [p for p in (f.required_project_ids or []) if p]
+
+
+def missing_required_fields(db: Session, project_id: str, values) -> list:
+    """The fields a new task in `project_id` still needs, given its (already
+    coerced) custom-field values. Empty = it can be created."""
+    have = values if isinstance(values, dict) else {}
+    out = []
+    for f in db.query(models.TaskCustomField).all():
+        if not field_required_in(f, project_id):
+            continue
+        v = have.get(f.id)
+        if v is None or v == "" or v == []:
+            out.append(f)
+    return out
+
+
 _APPLIES_TO_KINDS = ("task", "project")
 
 
@@ -353,19 +438,41 @@ def custom_field_to_dict(f: models.TaskCustomField) -> dict:
             "options": normalize_field_options(f.options if isinstance(f.options, list) else []),
             "projectIds": [p for p in (f.project_ids or []) if p],
             "required": bool(f.required), "readOnly": bool(f.read_only),
+            "requiredProjectIds": [p for p in (f.required_project_ids or []) if p],
             "appliesTo": _parse_applies_to(f.applies_to)}
 
 
 class CustomFieldBody(BaseModel):
     id: Optional[str] = None
-    name: str
+    name: Optional[str] = None   # optional so PATCH (e.g. adding a project) can send partial bodies; required on create (guarded below)
     description: Optional[str] = ""
     type: Optional[str] = "text"
     options: Optional[list] = None
     project_ids: Optional[list] = None
     required: Optional[bool] = None
+    required_project_ids: Optional[list] = None
     read_only: Optional[bool] = None
     applies_to: Optional[list] = None
+
+
+# Who may change a custom field (Oct 13 2026 review). These three routes took
+# no user at all: anyone with a tasks or tickets grant could rename, retype or
+# delete a field under every project that uses it. A field's DEFINITION (name,
+# type, options, required, read-only, what it applies to) is shared by every
+# project it is on, so it is a manager's, like the automation rules above. What
+# stays open is the list view's "+ Column" menu (richlist.jsx AddFieldMenu):
+# an editor of a project may make a field for that project, and put an existing
+# field on it or take it off - the project list is all they can send.
+def _require_field_projects(db: Session, user: dict, project_ids) -> None:
+    """403 unless `user` is at least editor on every project in `project_ids`.
+    An id that is not a project is refused too: require_project_role reads "no
+    project" as unrestricted, which is right for a standalone task and wrong
+    here."""
+    for pid in project_ids:
+        project = db.query(models.TaskProject).filter(models.TaskProject.id == pid).first()
+        if not project:
+            raise HTTPException(403, "You can only add a field to a project you can edit.")
+        require_project_role(db, user, project, "editor")
 
 
 @router.get("/task-custom-fields")
@@ -374,12 +481,26 @@ def list_custom_fields(db: Session = Depends(get_db)):
 
 
 @router.post("/task-custom-fields", status_code=201)
-def create_custom_field(body: CustomFieldBody, db: Session = Depends(get_db)):
+def create_custom_field(body: CustomFieldBody, user: dict = Depends(get_current_user),
+                        db: Session = Depends(get_db)):
+    if not (body.name or "").strip():
+        raise HTTPException(422, "Field name is required")
+    project_ids = [p for p in (body.project_ids or []) if p]
+    required_project_ids = [p for p in (body.required_project_ids or []) if p]
+    if not is_manager(user):
+        # No project scope = a column on every project's list.
+        if not project_ids:
+            raise HTTPException(403, "Only a manager can add a field to every project.")
+        if (body.required or body.read_only or required_project_ids
+                or _parse_applies_to(body.applies_to) != ["task"]):
+            raise HTTPException(403, "Only a manager can set that on a custom field.")
+        _require_field_projects(db, user, project_ids)
     f = models.TaskCustomField(id=body.id or gen_id(), name=body.name, description=body.description or "",
                                type=body.type or "text",
                                options=normalize_field_options(body.options or []),
-                               project_ids=[p for p in (body.project_ids or []) if p],
+                               project_ids=project_ids,
                                required=bool(body.required), read_only=bool(body.read_only),
+                               required_project_ids=required_project_ids,
                                applies_to=_dump_applies_to(body.applies_to))
     db.add(f)
     db.commit()
@@ -388,17 +509,34 @@ def create_custom_field(body: CustomFieldBody, db: Session = Depends(get_db)):
 
 
 @router.patch("/task-custom-fields/{field_id}")
-def update_custom_field(field_id: str, body: CustomFieldBody, db: Session = Depends(get_db)):
+def update_custom_field(field_id: str, body: CustomFieldBody, user: dict = Depends(get_current_user),
+                        db: Session = Depends(get_db)):
     f = db.query(models.TaskCustomField).filter(models.TaskCustomField.id == field_id).first()
     if not f:
         raise HTTPException(404, "Custom field not found")
     data = body.model_dump(exclude_unset=True, exclude={"id"})
+    if "name" in data and not (data["name"] or "").strip():
+        raise HTTPException(422, "Field name is required")
     if "options" in data:
         data["options"] = normalize_field_options(data["options"] or [])
     if "project_ids" in data:
         data["project_ids"] = [p for p in (data["project_ids"] or []) if p]
+    if "required_project_ids" in data:
+        data["required_project_ids"] = [p for p in (data["required_project_ids"] or []) if p]
     if "applies_to" in data:
         data["applies_to"] = _dump_applies_to(data["applies_to"])
+    if not is_manager(user):
+        if set(data) - {"project_ids"}:
+            raise HTTPException(403, "Only a manager can change a custom field. You can add it to "
+                                     "or remove it from a project you can edit.")
+        old = {p for p in (f.project_ids or []) if p}
+        new = set(data.get("project_ids", old))
+        # Empty on either side is "every project": scoping a company-wide field
+        # down, or emptying a scoped one, changes projects this person may not
+        # be on at all.
+        if not old or not new:
+            raise HTTPException(403, "Only a manager can change a field that is on every project.")
+        _require_field_projects(db, user, sorted(old ^ new))
     for k, v in data.items():
         setattr(f, k, v)
     db.commit()
@@ -406,7 +544,9 @@ def update_custom_field(field_id: str, body: CustomFieldBody, db: Session = Depe
     return custom_field_to_dict(f)
 
 
-@router.delete("/task-custom-fields/{field_id}", status_code=204)
+# Manager-only: it takes the field, and with it every value captured in it,
+# off every project at once.
+@router.delete("/task-custom-fields/{field_id}", status_code=204, dependencies=[Depends(require_manager)])
 def delete_custom_field(field_id: str, db: Session = Depends(get_db)):
     db.query(models.TaskCustomField).filter(models.TaskCustomField.id == field_id).delete()
     db.commit()
@@ -509,8 +649,10 @@ def task_ai_rephrase(body: RephraseBody):
 
 
 @router.post("/task-ocr")
-async def task_ocr(image: UploadFile = File(...)):
-    raw = await image.read()
+def task_ocr(image: UploadFile = File(...)):
+    # Plain `def` on purpose: Tesseract is seconds of CPU per image, and
+    # FastAPI runs a `def` endpoint in its threadpool, off the event loop.
+    raw = image.file.read()
     if not raw:
         raise HTTPException(400, "Empty image")
     try:
@@ -551,9 +693,13 @@ def list_notifications(user: dict = Depends(get_current_user), db: Session = Dep
 
 
 @router.post("/task-notifications/{notif_id}/read")
-def mark_notification_read(notif_id: str, db: Session = Depends(get_db)):
+def mark_notification_read(notif_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     n = db.query(models.TaskNotification).filter(models.TaskNotification.id == notif_id).first()
-    if not n:
+    # Only the person it was sent to (or an administrator, for one addressed to
+    # "admins") - the same targets mark_all_read uses. Somebody else's reads as
+    # not found (Sep 30 review).
+    targets = [user["email"].lower()] + (["admins"] if user["level"] >= 4 else [])
+    if not n or (n.for_email or "").lower() not in targets:
         raise HTTPException(404, "Notification not found")
     n.read = True
     db.commit()
@@ -575,7 +721,12 @@ def mark_all_read(user: dict = Depends(get_current_user), db: Session = Depends(
 # ── Changelog / What's New ───────────────────────────────────────────────────
 def changelog_entry_to_dict(e: models.TaskChangelogEntry) -> dict:
     payload = e.payload if isinstance(e.payload, dict) else {}
-    return {**payload, "id": e.id, "createdAt": e.created_at or "", "updatedAt": e.updated_at or ""}
+    out = {**payload, "id": e.id, "createdAt": e.created_at or "", "updatedAt": e.updated_at or ""}
+    # Stored entries keep the developer as GitHub named them; they are read
+    # out as the Nexus person (name + work email for the photo).
+    if isinstance(payload.get("developers"), list):
+        out["developers"] = [known_developer(d) for d in payload["developers"]]
+    return out
 
 
 def changelog_comment_to_dict(c: models.TaskChangelogComment) -> dict:
@@ -593,10 +744,27 @@ class ChangelogCommentBody(BaseModel):
     body: str
 
 
-@router.get("/task-changelog")
+@view_router.get("/task-changelog")
 def list_changelog(db: Session = Depends(get_db)):
     rows = db.query(models.TaskChangelogEntry).order_by(models.TaskChangelogEntry.created_at.desc()).all()
     return [changelog_entry_to_dict(e) for e in rows]
+
+
+def _seen_row(db: Session, email: str) -> models.ChangelogSeen:
+    """This person's ChangelogSeen row, created when missing. Several requests
+    can ask at once - on a first visit to What's New the header's /seen and the
+    New Feature bar's dismissal fire together - so an insert that loses the race
+    reads the winner's row instead of failing with a 500 (Oct 12 2026)."""
+    row = db.query(models.ChangelogSeen).filter(models.ChangelogSeen.email == email).first()
+    if row:
+        return row
+    try:
+        with db.begin_nested():
+            row = models.ChangelogSeen(email=email, last_seen_at="", banner_seen_at="")
+            db.add(row)
+    except IntegrityError:
+        row = db.query(models.ChangelogSeen).filter(models.ChangelogSeen.email == email).first()
+    return row
 
 
 def _mark_changelog_seen(db: Session, email: str) -> None:
@@ -605,12 +773,7 @@ def _mark_changelog_seen(db: Session, email: str) -> None:
     email = (email or "").lower().strip()
     if not email:
         return
-    row = db.query(models.ChangelogSeen).filter(models.ChangelogSeen.email == email).first()
-    now = now_iso()
-    if row:
-        row.last_seen_at = now
-    else:
-        db.add(models.ChangelogSeen(email=email, last_seen_at=now))
+    _seen_row(db, email).last_seen_at = now_iso()
 
 
 @router.post("/task-changelog", status_code=201)
@@ -640,7 +803,7 @@ def update_changelog(entry_id: str, body: ChangelogEntryBody, user: dict = Depen
     return changelog_entry_to_dict(e)
 
 
-@router.get("/task-changelog/unseen")
+@view_router.get("/task-changelog/unseen")
 def get_changelog_unseen(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Powers the red-dot eye icon next to the profile pill: true when a
     published (Released) entry exists that is newer than this user's last
@@ -661,11 +824,174 @@ def get_changelog_unseen(user: dict = Depends(get_current_user), db: Session = D
     return {"unseen": not seen or (seen.last_seen_at or "") < latest}
 
 
-@router.post("/task-changelog/seen")
+@view_router.post("/task-changelog/seen")
 def mark_changelog_seen(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     _mark_changelog_seen(db, user["email"])
+    # What's New is open: its bell entry has been read.
+    email = (user["email"] or "").lower()
+    for n in (db.query(models.NexusNotification)
+              .filter(models.NexusNotification.recipient == email,
+                      models.NexusNotification.ref_id == WHATS_NEW_NOTICE_REF).all()):
+        readers = [x for x in (n.read_by or "").split(",") if x]
+        if email not in readers:
+            n.read_by = ",".join(readers + [email])
     db.commit()
     return {"ok": True}
+
+
+# ── Update announcements (Neil, Oct 12 2026) ───────────────────────────────
+# A weekly full-width bar (frontend components/FeatureBanner.jsx), raised by a
+# New Feature, and the new-version popup's See What's New. Both speak in
+# categories only - "2 new features and 3 bug fixes" - and leave the details to
+# What's New itself.
+FEATURE_BANNER_DAYS = 7
+# A hand-written update used to carry the author's browser wall time with no
+# zone; the company's home zone is the best reading of those. New ones are
+# saved as instants (ChangelogView's AddUpdateModal), and merges always were.
+_CHANGELOG_LOCAL_TZ = ZoneInfo("America/Los_Angeles")
+
+
+def _changelog_instant(value):
+    """An update's time as an aware UTC datetime, or None."""
+    s = str(value or "").strip()
+    if not s:
+        return None
+    try:
+        at = datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if at.tzinfo is None:
+        at = at.replace(tzinfo=_CHANGELOG_LOCAL_TZ)
+    return at.astimezone(timezone.utc)
+
+
+# Parsed released updates, kept until the table changes. Every page load asks
+# for the bar and every stale tab asks what its new version brings, and the
+# payloads carry screenshot data URLs - so they are decoded once per change,
+# not per request. The change check is one cheap aggregate query.
+_released_cache: dict = {"key": None, "rows": []}
+
+
+def _released_updates(db: Session) -> list:
+    """Released updates, newest first, as {id, type, at, merged} - `at` the
+    release time, `merged` when the change merged (merges only)."""
+    E = models.TaskChangelogEntry
+    count, latest_edit, latest_new = db.query(func.count(E.id), func.max(E.updated_at), func.max(E.created_at)).one()
+    key = (count, latest_edit or "", latest_new or "")
+    if _released_cache["key"] == key:
+        return _released_cache["rows"]
+    rows = []
+    for e in db.query(E).all():
+        p = e.payload if isinstance(e.payload, dict) else {}
+        if p.get("status") != "Released":
+            continue
+        at = _changelog_instant(p.get("releasedAt") or e.created_at)
+        if at:
+            rows.append({"id": e.id, "type": p.get("type") or "Update", "at": at,
+                         "merged": _changelog_instant(p.get("mergedAt"))})
+    rows.sort(key=lambda r: r["at"], reverse=True)
+    _released_cache.update(key=key, rows=rows)
+    return rows
+
+
+def _category_counts(rows: list) -> dict:
+    return {"counts": dict(Counter(r["type"] for r in rows)), "total": len(rows)}
+
+
+# Category names are Title Case even mid-sentence (Neil, Oct 12 2026) - the
+# same words, in the same order, as frontend lib/changelogCategories.js.
+_CATEGORY_WORDS = [
+    ("New Feature", "New Feature", "New Features"), ("Improvement", "Improvement", "Improvements"),
+    ("Performance", "Performance Improvement", "Performance Improvements"),
+    ("Security Update", "Security Update", "Security Updates"), ("Bug Fix", "Bug Fix", "Bug Fixes"),
+    ("Hotfix", "Hotfix", "Hotfixes"), ("Maintenance", "Maintenance Update", "Maintenance Updates"),
+]
+
+
+def _summarize_categories(counts: dict) -> str:
+    known = {t for t, _, _ in _CATEGORY_WORDS}
+    parts = [f"{counts[t]} {one if counts[t] == 1 else many}" for t, one, many in _CATEGORY_WORDS if counts.get(t)]
+    other = sum(c for t, c in counts.items() if t not in known)
+    if other:
+        parts.append(f"{other} Other Update{'' if other == 1 else 's'}")
+    return parts[0] if len(parts) < 2 else f"{', '.join(parts[:-1])} and {parts[-1]}"
+
+
+# The week's news also lives in the notification bell (Neil, Oct 12 2026), so a
+# person who dismissed the bar can still find it. One row per person, updated
+# in place (CLAUDE.md: never one per release). While the bar is announcing it,
+# the bell copy is written already read - no toast or badge on top of the bar;
+# while the bar is away for the week, new releases come back unread so the bell
+# does the telling. Opening What's New marks it read (mark_changelog_seen).
+WHATS_NEW_NOTICE_REF = "whats-new"
+
+
+def _whats_new_notice(db: Session, email: str, counts: dict, announced: bool) -> None:
+    body = f"Updates this week, including {_summarize_categories(counts)}."
+    read_by = email if announced else ""
+    row = (db.query(models.NexusNotification)
+           .filter(models.NexusNotification.recipient == email,
+                   models.NexusNotification.ref_id == WHATS_NEW_NOTICE_REF)
+           .order_by(models.NexusNotification.created_at.desc()).first())
+    if row is not None and row.body == body:
+        return
+    if row is not None:
+        # New releases since: fresh text, back to the top, and out of Closed if
+        # the person had cleared last week's copy.
+        row.title, row.body, row.created_at, row.read_by, row.actioned = "New in Nexus", body, now_iso(), read_by, False
+        row.closed_by = ""
+        return
+    db.add(models.NexusNotification(
+        id=str(uuid.uuid4()), type="whats_new", recipient=email, title="New in Nexus", body=body,
+        ref_id=WHATS_NEW_NOTICE_REF, item_name="", requested_by="",
+        action=json.dumps({"view": "whats-new"}), actioned=False, read_by=read_by,
+        company=notification_company(db, email), created_at=now_iso()))
+
+
+@view_router.get("/task-changelog/feature-banner")
+def get_feature_banner(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Whether to show this person the weekly bar, and what it counts.
+
+    Raised only by a New Feature released in the last 7 days that they have
+    not seen (opened What's New since), and never within 7 days of their last
+    dismissal - once a week at most, on every device. When it shows it counts
+    every category released since they last looked, bug fixes included."""
+    email = user["email"].lower()
+    week_ago = datetime.now(timezone.utc) - timedelta(days=FEATURE_BANNER_DAYS)
+    row = db.query(models.ChangelogSeen).filter(models.ChangelogSeen.email == email).first()
+    seen_at = _changelog_instant(row.last_seen_at) if row else None
+    floor = max(week_ago, seen_at) if seen_at else week_ago
+    fresh = [r for r in _released_updates(db) if r["at"] > floor]
+    if not any(r["type"] == "New Feature" for r in fresh):
+        return {"show": False}
+    counts = _category_counts(fresh)
+    banner_at = _changelog_instant(row.banner_seen_at) if row else None
+    away_this_week = bool(banner_at and banner_at > week_ago)
+    # The bell copy, whether or not the bar shows (see _whats_new_notice).
+    _whats_new_notice(db, email, counts["counts"], announced=not away_this_week)
+    db.commit()
+    if away_this_week:
+        return {"show": False}
+    return {"show": True, **counts}
+
+
+@view_router.post("/task-changelog/feature-banner/dismiss")
+def dismiss_feature_banner(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Dismissed, or What's New opened: no bar for 7 days."""
+    _seen_row(db, user["email"].lower()).banner_seen_at = now_iso()
+    db.commit()
+    return {"ok": True}
+
+
+@view_router.get("/task-changelog/released-since")
+def get_released_since(since: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """What the version waiting for a stale tab brings, by category: Released
+    updates whose change came after `since` - the running build's time. A
+    merge is placed by when it merged, not when its update was published:
+    publishing trails the merge by minutes, and a build cut in between already
+    contains it. A hand-written update is placed by its release time."""
+    since_at = _changelog_instant(since) or (datetime.now(timezone.utc) - timedelta(days=1))
+    return _category_counts([r for r in _released_updates(db) if (r["merged"] or r["at"]) > since_at])
 
 
 @router.delete("/task-changelog/{entry_id}", status_code=204)
@@ -675,7 +1001,7 @@ def delete_changelog(entry_id: str, db: Session = Depends(get_db)):
     db.commit()
 
 
-@router.get("/task-changelog/{entry_id}/comments")
+@view_router.get("/task-changelog/{entry_id}/comments")
 def list_changelog_comments(entry_id: str, db: Session = Depends(get_db)):
     rows = db.query(models.TaskChangelogComment).filter(
         models.TaskChangelogComment.entry_id == entry_id).all()
@@ -770,9 +1096,15 @@ def generate_changelog_from_commits(db: Session, author_email: str = "") -> dict
 
     state = changelog_auto._read_state(db)
     skipped_before = [str(k) for k in (state.get("skipped_keys") or [])]
+    cursor = state.get("pr_cursor", "")
+    # When the skip rules change, look at the last few days once more with the
+    # new rules: forget the old skips and the cursor. Nothing is published
+    # twice - every published entry is known by its sourceKey.
+    if state.get("skip_rules") != changelog_prs.SKIP_RULES_VERSION:
+        skipped_before, cursor = [], ""
     try:
         prs, head = changelog_prs.fetch_merged_prs(
-            tracked_branch(), state.get("pr_cursor", ""), _known_changes(db) | set(skipped_before))
+            tracked_branch(), cursor, _known_changes(db) | set(skipped_before))
     except changelog_prs.GitHubError as e:
         print(f"[changelog] could not read merged PRs: {e}")
         return {"error": f"Could not read merged pull requests: {e}"}
@@ -829,6 +1161,7 @@ def generate_changelog_from_commits(db: Session, author_email: str = "") -> dict
     changelog_auto._write_state(db, {
         "pr_cursor": head,
         "skipped_keys": (skipped_before + [pr["key"] for pr in skipped])[-300:],
+        "skip_rules": changelog_prs.SKIP_RULES_VERSION,
         "last_polish_error": polish_note,
     })
     out = {"created": len(created), "scanned": len(prs), "skipped": len(skipped),

@@ -265,12 +265,32 @@ def mentioned_email(*, t: dict, base_url: str, logo_url: str, comment_body: str,
     return subject, html
 
 
-def commented_email(*, t: dict, base_url: str, logo_url: str, comment_body: str) -> tuple[str, str]:
-    subject = _task_subject(t, "New Comment")
+def comment_assigned_email(*, t: dict, base_url: str, logo_url: str, comment_body: str,
+                           actor_name: str = "") -> tuple[str, str]:
+    """A comment was assigned to this person as an action item (Oct 2026).
+    Like a mention it is addressed AT them, so the subject names who did it."""
+    who = actor_name or t.get("actorName") or t.get("actorEmail") or "Someone"
+    subject = _task_subject(t, f"{who} Assigned You a Comment")
     html = task_email_html(
         task_title=t["title"], status=t["status"],
-        heading="New comment on your task",
-        intro=f"{t.get('actorName') or t.get('actorEmail')} commented on this task.",
+        heading="A comment was assigned to you",
+        intro=f"{who} assigned you this comment on the task - resolve it in Nexus once it is handled.",
+        rows=[
+            ("Comment", rich_to_email_html(comment_body, 500)),
+            *_common_rows(t),
+        ],
+        cta_label="View Comment", cta_url=_task_url(base_url, t["id"]), logo_url=logo_url,
+    )
+    return subject, html
+
+
+def commented_email(*, t: dict, base_url: str, logo_url: str, comment_body: str,
+                    reply: bool = False) -> tuple[str, str]:
+    subject = _task_subject(t, "New Reply" if reply else "New Comment")
+    html = task_email_html(
+        task_title=t["title"], status=t["status"],
+        heading="New reply on your task" if reply else "New comment on your task",
+        intro=f"{t.get('actorName') or t.get('actorEmail')} {'replied in a comment thread' if reply else 'commented'} on this task.",
         rows=[
             ("Comment", rich_to_email_html(comment_body, 500)),
             *_common_rows(t),
@@ -380,7 +400,7 @@ def reminder_digest_email(*, items: list[dict], base_url: str, logo_url: str,
       {section("Due Soon", soon, "#b45309")}
     </td></tr>
     <tr><td style="padding:10px 28px 26px;text-align:center">
-      <a href="{escape((base_url or '#').rstrip('/') + '/tasks/mine')}" style="display:inline-block;background:{th.color('#248f4b')};color:#ffffff;text-decoration:none;font-size:13.5px;font-weight:700;padding:11px 28px;border-radius:8px">Open My Tasks</a>
+      <a href="{escape((base_url or '#').rstrip('/') + '/tasks/mine')}" style="display:inline-block;background:{th.color('#248f4b')};color:#ffffff;text-decoration:none;font-size:13.5px;font-weight:700;padding:11px 28px;border-radius:8px">Open Tasks</a>
     </td></tr>
     <tr><td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 28px;font-size:11.5px;color:#6b7280;line-height:1.5">
       You get one summary a day because of your email settings. Use the links under each task to act on it without opening Nexus.{th.footer_lines()}
@@ -429,7 +449,7 @@ def batch_email(*, items: list[dict], base_url: str, logo_url: str, recipient_na
       <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-top:10px">{trs}</table>
     </td></tr>
     <tr><td style="padding:10px 28px 26px;text-align:center">
-      <a href="{escape((base_url or '#').rstrip('/') + '/tasks/mine')}" style="display:inline-block;background:{th.color('#248f4b')};color:#ffffff;text-decoration:none;font-size:13.5px;font-weight:700;padding:11px 28px;border-radius:8px">Open My Tasks</a>
+      <a href="{escape((base_url or '#').rstrip('/') + '/tasks/mine')}" style="display:inline-block;background:{th.color('#248f4b')};color:#ffffff;text-decoration:none;font-size:13.5px;font-weight:700;padding:11px 28px;border-radius:8px">Open Tasks</a>
     </td></tr>
     <tr><td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 28px;font-size:11.5px;color:#6b7280;line-height:1.5">
       Task updates are gathered for up to {escape(window)} and sent together, so a run of changes arrives as one email. Mentions and urgent tasks still arrive right away.{th.footer_lines()}

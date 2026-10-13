@@ -48,7 +48,7 @@ function AnswerRow({ q, showFacility, onAnswer }) {
               }
             }}
             placeholder="Write a public answer..."
-            style={{ flex: 1, padding: '6px 10px', borderRadius: 6, border: '1px solid ' + C.gray200, fontSize: 12.5, outline: 'none' }}
+            style={{ flex: 1, padding: '6px 10px', borderRadius: 6, border: '1px solid ' + C.gray200, fontSize: 12.5 }}
           />
           <button
             onClick={() => {

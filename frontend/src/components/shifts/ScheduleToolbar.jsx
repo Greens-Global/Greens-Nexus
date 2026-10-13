@@ -276,8 +276,8 @@ export function ViewOptionsDialog({ prefs, onPrefs, query, onQuery, groupBy, onG
         <div style={{ display: 'grid', gap: 14, marginTop: 8 }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, border: '1px solid var(--line)', borderRadius: 8, padding: '5px 10px' }}>
             <Search size={13} color="var(--muted)" />
-            <input value={query} onChange={(e) => onQuery(e.target.value)} placeholder="Search people" aria-label="Search people"
-              style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 13, flex: 1, fontFamily: 'inherit', color: 'var(--ink)' }} />
+            <input className="nx-inline-edit" value={query} onChange={(e) => onQuery(e.target.value)} placeholder="Search people" aria-label="Search people"
+              style={{ border: 'none', fontSize: 13, flex: 1, fontFamily: 'inherit', color: 'var(--ink)' }} />
           </label>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             <label style={{ flex: 1, minWidth: 150 }}><div style={LBL}>Rows By</div>

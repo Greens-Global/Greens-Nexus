@@ -117,7 +117,9 @@ keep the diff minimal.
   for anonymous ones, tighter on credential-taking routes, plus a per-IP
   ceiling. In-process per worker, so it is a flood backstop. `/health` and
   `/version` are exempt; a new public probe endpoint goes in `EXEMPT_PREFIXES`
-  and a new credential-taking route in `SENSITIVE_PREFIXES`.
+  and a new credential-taking route in `SENSITIVE_PREFIXES` (30/min, always
+  per IP whatever headers it carries) - or in `SHARED_SOURCE_PREFIXES` when
+  its real callers share an address (Outlook's action servers, GitHub).
 
 ## Frontend conventions
 
@@ -213,6 +215,18 @@ keep the diff minimal.
   customer in that month - never key a payment into Nexus. A tenant who leaves
   is ENDED (`/replace`), never overwritten. Nothing is emailed to a tenant
   automatically.
+
+- Workforce Scorecard (Neil, Oct 10 2026, `workforce_scorecard.py`): hourly
+  staff are scored weekly on punched hours vs. expected hours. Expected =
+  published shift > shift preset > country standard day (US 8h, IN 9h, Mon-Fri,
+  full-time only; part-time with no shift = "No Schedule", never guessed).
+  Holidays and approved time off excuse the day; Sick / PTO punches are leave
+  that covers it; only days before the person's own local today are scored.
+  Access is the `workforce-scorecard` grant (viewer = DIRECT reports - Neil:
+  the default; editor = whole reporting line; full = company); the Monday
+  email goes to every grant holder with people in scope.
+  The screen and the email are built by the same `build_report` - never add a
+  second calculation path.
 
 ## Asana — removed (Sep 2026)
 

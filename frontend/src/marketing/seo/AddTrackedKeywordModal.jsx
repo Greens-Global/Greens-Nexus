@@ -29,7 +29,6 @@ export default function AddTrackedKeywordModal({ database, trackedKeywordNames, 
     border: `1px solid ${C.gray200}`,
     fontSize: 13,
     color: C.gray700,
-    outline: 'none',
     background: C.white,
     boxSizing: 'border-box',
   }

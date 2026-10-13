@@ -13,7 +13,6 @@
 // so every field below lives inside that payload; the server owns only id/createdAt/updatedAt.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { LoadingState } from '../components/AsyncState';
-import { createPortal } from 'react-dom';
 import {
   Sparkles, Clock, Tag, ClipboardCheck, Plus, X, ArrowRight, CheckCircle2, User,
   ImageIcon, Search, ChevronRight, ChevronDown, GitBranch, Layers, CalendarDays,
@@ -23,10 +22,12 @@ import {
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
-import { fmtDate, filesFromPaste } from './lib';
-import { formatTime as usFormatTime } from '../lib/datetime';
+import { filesFromPaste } from './lib';
+import { localDayKey, formatFullDate, formatTime, formatDateTime, relativeDayLabel, isWithinDays } from './changelogDates';
+import { useBackToClose } from '../lib/useBackToClose';
+import { canEditWhatsNew } from '../lib/whatsNewAccess';
 import { NX, FONT, chip, card, btn, input as inputStyle } from './theme';
-import { Avatar, Modal, usePeople, PersonSelect, useClickOutside } from './components';
+import { Avatar, Modal, usePeople, PersonSelect, useClickOutside, useIsMobile } from './components';
 
 // ── Change-type / environment / status metadata (ported from changelogMeta.ts) ──
 const CHANGE_TYPE_META = {
@@ -55,53 +56,7 @@ const STATUSES = ['Pending Review', 'Released', 'Scheduled', 'Draft'];
 const typeMeta = (t) => CHANGE_TYPE_META[t] || { label: t || 'Update', color: NX.dim, tint: NX.border2, icon: Sparkles };
 const envColor = (e) => (ENVIRONMENT_META[e] || {}).color || NX.green;
 
-// ── Date helpers (ported from changelogDateFormat.ts / relativeDay.ts) ─────────
-function toLocalDate(iso) {
-  if (!iso) return null;
-  const [datePart, timePart] = String(iso).split('T');
-  const [y, m, d] = datePart.split('-').map(Number);
-  if (!timePart) return new Date(y, (m || 1) - 1, d || 1);
-  const [hh, mm] = timePart.split(':').map(Number);
-  return new Date(y, (m || 1) - 1, d || 1, hh || 0, mm || 0);
-}
-function formatFullDate(iso) {
-  const d = toLocalDate(iso);
-  return d && !isNaN(d) ? fmtDate(d) : '';
-}
-function formatTime(iso) {
-  if (!iso || !String(iso).includes('T')) return '';
-  const d = toLocalDate(iso);
-  return d && !isNaN(d) ? usFormatTime(d, '') : '';
-}
-function formatDateTime(iso) {
-  const t = formatTime(iso);
-  return t ? `${formatFullDate(iso)}, ${t}` : formatFullDate(iso);
-}
-function dateKey(iso) {
-  return String(iso || '').split('T')[0];
-}
-function relativeDayLabel(iso) {
-  const day = toLocalDate(dateKey(iso));
-  if (!day || isNaN(day)) return '';
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const diff = Math.round((today.getTime() - day.getTime()) / 86_400_000);
-  if (diff === 0) return 'Today';
-  if (diff === 1) return 'Yesterday';
-  if (diff > 1 && diff < 7) return `${diff} days ago`;
-  return fmtDate(day);
-}
-function isWithinDays(iso, days) {
-  const day = toLocalDate(dateKey(iso));
-  if (!day || isNaN(day)) return false;
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const diff = Math.round((today.getTime() - day.getTime()) / 86_400_000);
-  return diff >= 0 && diff < days;
-}
-function nowLocalISO() {
-  const d = new Date();
-  const p = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
-}
+// Date helpers live in changelogDates.js (they read UTC release times right).
 
 // The server owns id/createdAt/updatedAt; everything else lives in the payload we author.
 function payloadOf(entry) {
@@ -145,13 +100,29 @@ function Badge({ label, color, tint }) {
 const TABS = [
   { key: 'whats-new', label: "What's New", icon: Sparkles },
   { key: 'timeline', label: 'Timeline', icon: Clock },
-  { key: 'version-history', label: 'Version History', icon: Tag },
+  { key: 'version-history', label: 'Version History', short: 'Versions', icon: Tag },
 ];
 
-export default function Changelog({ onClose }) {
-  const { myEmail, can } = useRole();
+// What's New is a normal Nexus view (Neil, Oct 12 2026): the sidebar and
+// header stay, and you navigate away like from any module. It used to cover
+// the whole app as an overlay with its own close button. It is mounted the way
+// Tasks and Tickets are - App.jsx gives it the full-height `viewport-flush`
+// and it fills that, so the Timeline's two panes scroll on their own. The
+// root is `.nx-tasks` (the module's phone styles), NOT `.nx-tasks-portal`:
+// lib/dialogGuard treats that class as a popup backdrop, and on a page every
+// filter change or comment keystroke would then read as unsaved work.
+export default function Changelog() {
+  const role = useRole();
+  const { myEmail, can } = role;
+  // Reading is everyone's; adding, editing, reviewing and commenting follow
+  // the server's grant (lib/whatsNewAccess.js), so nobody is offered a
+  // control that would only answer 403.
+  const canEdit = canEditWhatsNew(role);
+  // Phones (Neil, Oct 12 2026): a compact header, tabs that fit without
+  // icons, one column everywhere, details as a full-screen sheet.
+  const isMobile = useIsMobile();
   const nameOf = useNameResolver();
-  const isAdmin = !!can?.('manager');
+  const isAdmin = canEdit && !!can?.('manager');
 
   const [entries, setEntries] = useState([]);
   const [tab, setTab] = useState('whats-new');
@@ -203,12 +174,6 @@ export default function Changelog({ onClose }) {
     }
   };
 
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape' && !adding && !editing) onClose?.(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [adding, editing, onClose]);
-
   const sorted = useMemo(
     () => (entries || []).slice().sort(newestFirst),
     [entries],
@@ -224,32 +189,36 @@ export default function Changelog({ onClose }) {
     ? [...TABS, { key: 'manage', label: 'Manage', icon: ClipboardCheck, badge: pendingCount }]
     : TABS;
 
-  return createPortal(
-    <div className="nx-tasks-portal" style={{ position: 'fixed', inset: 0, zIndex: 3000, fontFamily: FONT, color: NX.ink, background: NX.canvas, display: 'flex', flexDirection: 'column', animation: 'fadeIn 0.13s ease' }}>
+  return (
+    <div className="nx-tasks" data-whats-new-view style={{ fontFamily: FONT, color: NX.ink, background: NX.canvas, display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface }}>
-        <Sparkles size={20} style={{ color: NX.blue, flexShrink: 0 }} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 10 : 12, padding: isMobile ? '10px 12px' : '14px 16px', borderBottom: `1px solid ${NX.border}`, background: NX.surface }}>
+        <Sparkles size={isMobile ? 18 : 20} style={{ color: NX.blue, flexShrink: 0 }} />
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 20, fontWeight: 700 }}>What&apos;s New</div>
-          <div style={{ fontSize: 13, color: NX.dim }}>Track all updates, releases and changes across Nexus.</div>
+          <div style={{ fontSize: isMobile ? 17 : 20, fontWeight: 700 }}>What&apos;s New</div>
+          {!isMobile && <div style={{ fontSize: 13, color: NX.dim }}>Track all updates, releases and changes across Nexus.</div>}
         </div>
-        <button style={{ ...btn('primary'), marginLeft: 'auto' }} onClick={() => setAdding(true)}><Plus size={15} />Add New Update</button>
-        <button onClick={onClose} title="Close" aria-label="Close" style={{ ...btn('ghost'), padding: 7, color: NX.dim }}><X size={18} /></button>
+        {canEdit && (
+          <button style={{ ...btn('primary'), marginLeft: 'auto', flexShrink: 0, ...(isMobile ? { minHeight: 36 } : null) }} onClick={() => setAdding(true)}
+            aria-label="Add New Update"><Plus size={15} />{isMobile ? 'Add' : 'Add New Update'}</button>
+        )}
       </div>
 
       {/* Tab strip */}
-      <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, overflowX: 'auto', whiteSpace: 'nowrap', borderBottom: `1px solid ${NX.border}`, background: NX.surface, padding: '0 12px' }}>
+      <div className="scroll-tabs" role="tablist" style={{ display: 'flex', alignItems: 'center', gap: isMobile ? 0 : 2, overflowX: 'auto', whiteSpace: 'nowrap', borderBottom: `1px solid ${NX.border}`, background: NX.surface, padding: isMobile ? '0 4px' : '0 16px' }}>
         {tabs.map((t) => {
           const active = tab === t.key;
           const Icon = t.icon;
           return (
-            <button key={t.key} onClick={() => setTab(t.key)} style={{
+            // border: none first - without it every tab wore the browser's
+            // default button border, a heavy box around each label.
+            <button key={t.key} role="tab" aria-selected={active} onClick={() => setTab(t.key)} style={{
               display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0, cursor: 'pointer',
-              borderBottom: `2px solid ${active ? NX.primary : 'transparent'}`, background: 'transparent',
-              padding: '12px 12px', fontSize: 14, fontWeight: 600, fontFamily: FONT,
+              border: 'none', borderBottom: `2px solid ${active ? NX.primary : 'transparent'}`, background: 'transparent',
+              padding: isMobile ? '12px 10px' : '12px 12px', fontSize: 14, fontWeight: 600, fontFamily: FONT,
               color: active ? NX.ink : NX.dim,
             }}>
-              <Icon size={16} />{t.label}
+              {!isMobile && <Icon size={16} />}{isMobile && t.short ? t.short : t.label}
               {t.badge > 0 && <Badge label={String(t.badge)} color="#d97706" tint="#fdefd7" />}
             </button>
           );
@@ -257,7 +226,7 @@ export default function Changelog({ onClose }) {
       </div>
 
       {/* Body */}
-      <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas }}>
+      <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas, paddingBottom: isMobile ? 'env(safe-area-inset-bottom)' : undefined }}>
         {tab === 'whats-new' && <WhatsNewTab entries={published} nameOf={nameOf} myEmail={myEmail} isAdmin={isAdmin} onSetStatus={setStatus} onEdit={setEditing} />}
         {tab === 'timeline' && <TimelineTab entries={published} nameOf={nameOf} myEmail={myEmail} isAdmin={isAdmin} onSetStatus={setStatus} onEdit={setEditing} />}
         {tab === 'version-history' && <VersionHistoryTab entries={published} nameOf={nameOf} myEmail={myEmail} isAdmin={isAdmin} onSetStatus={setStatus} onEdit={setEditing} />}
@@ -271,7 +240,7 @@ export default function Changelog({ onClose }) {
       {(adding || editing) && (
         <AddUpdateModal
           entry={editing}
-          submitLabel={editing ? 'Save changes' : (isAdmin ? 'Publish update' : 'Submit for review')}
+          submitLabel={editing ? 'Save Changes' : (isAdmin ? 'Publish Update' : 'Submit for Review')}
           myEmail={myEmail}
           onClose={() => { setAdding(false); setEditing(null); }}
           onSave={editing ? handleEditSave : handleAdd}
@@ -283,8 +252,7 @@ export default function Changelog({ onClose }) {
           background: toast.error ? NX.red : NX.primary, color: '#fff', padding: '10px 16px', borderRadius: 10, fontSize: 13, fontWeight: 500,
           boxShadow: '0 12px 32px rgba(0,0,0,0.28)', maxWidth: '90vw' }}>{toast.text}</div>
       )}
-    </div>,
-    document.body,
+    </div>
   );
 }
 
@@ -294,12 +262,6 @@ export default function Changelog({ onClose }) {
 // The day an entry went out, in the viewer's time zone. Server-published
 // entries carry a UTC timestamp, so the date part of the string alone would
 // put an evening release on the next day.
-function localDayKey(iso) {
-  const d = new Date(iso || '');
-  if (isNaN(d)) return dateKey(iso);
-  const p = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-}
 
 // What's New shows the whole latest release day, newest first. It showed one
 // entry, which was fine while updates were typed by hand - with every merged
@@ -313,29 +275,44 @@ function WhatsNewTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit })
   }, [entries]);
   const latest = latestDay[0];
   const [details, setDetails] = useState(null);
+  const isMobile = useIsMobile();
+  // One edge for everything (Neil, Oct 12 2026): the title, the day label and
+  // the cards start on the same 16px line as the header and the tab strip
+  // above; the update count ends on the Activity Summary's right edge; the
+  // summary's top is the first card's top. The day label used to live INSIDE
+  // the cards' column, which pushed the first card one label lower than the
+  // summary beside it, and the cards were centered at 1400px while the title
+  // stayed at the far left. The content fills the page, like other modules.
+  // "3 Updates" (Neil, Oct 12 2026): a count you can read at a glance, Title Case.
+  const count = `${latestDay.length} Update${latestDay.length === 1 ? '' : 's'}`;
+  // On a phone the page header already says What's New, so the tab skips its
+  // own title and puts the count beside the day instead.
   return (
-    <div style={{ padding: '20px 16px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: NX.ink }}>What's New</h1>
-          <p style={{ margin: '2px 0 0', fontSize: 13, color: NX.dim }}>Everything published on the latest release day.</p>
-        </div>
-        <span style={{ fontSize: 12, fontWeight: 600, color: NX.dim }}>{latestDay.length} update{latestDay.length === 1 ? '' : 's'}</span>
-      </div>
-
-      {latest ? (
-        <div style={{ maxWidth: 1400, margin: '0 auto', display: 'flex', flexWrap: 'wrap', gap: 20, alignItems: 'flex-start' }}>
-          <div style={{ minWidth: 0, flex: '1 1 520px' }}>
-            <div style={{ marginBottom: 8, fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4, color: NX.faint }}>{relativeDayLabel(localDayKey(releasedKey(latest)))}</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {latestDay.map((e) => <EntryCard key={e.id} entry={e} nameOf={nameOf} onViewDetails={() => setDetails(e)} />)}
-            </div>
+    <div style={{ padding: isMobile ? '14px 12px' : '20px 16px' }}>
+      {!isMobile && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+          <div>
+            <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: NX.ink }}>What's New</h1>
+            <p style={{ margin: '2px 0 0', fontSize: 13, color: NX.dim }}>Everything published on the latest release day.</p>
           </div>
-          <div style={{ width: '100%', maxWidth: 320, flex: '1 1 280px' }}>
+          <span style={{ fontSize: 15, fontWeight: 700, color: NX.ink }}>{count}</span>
+        </div>
+      )}
+
+      {latest ? (<>
+        <div style={{ marginBottom: isMobile ? 10 : 8, display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.4, color: NX.faint }}>
+          <span>{relativeDayLabel(releasedKey(latest))}</span>
+          {isMobile && <span style={{ textTransform: 'none', letterSpacing: 0, fontSize: 14, fontWeight: 700, color: NX.ink }}>{count}</span>}
+        </div>
+        <div data-whats-new-row style={{ display: 'flex', flexWrap: 'wrap', gap: isMobile ? 12 : 20, alignItems: 'flex-start' }}>
+          <div style={{ minWidth: 0, flex: '1 1 520px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {latestDay.map((e) => <EntryCard key={e.id} entry={e} nameOf={nameOf} onViewDetails={() => setDetails(e)} />)}
+          </div>
+          <div style={{ width: '100%', maxWidth: isMobile ? 'none' : 320, flex: '1 1 280px' }}>
             <StatsPanel entries={entries} />
           </div>
         </div>
-      ) : (
+      </>) : (
         <div style={{ borderRadius: 12, border: `1px dashed ${NX.border}`, padding: '64px 0', textAlign: 'center', fontSize: 13, color: NX.dim }}>
           No updates published yet.
         </div>
@@ -403,15 +380,16 @@ function EntryCard({ entry, nameOf, onViewDetails }) {
   const [preview, setPreview] = useState(false);
   const thumbnail = (entry.images && entry.images[0]) || entry.afterImageDataUrl;
   const whatsChanged = entry.whatsChanged || [];
+  const isMobile = useIsMobile();
   return (
     <div style={{ ...card, overflow: 'hidden', boxShadow: '0 1px 2px rgba(0,0,0,0.04)' }}>
-      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', gap: 20, padding: 20 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', gap: isMobile ? 14 : 20, padding: isMobile ? 16 : 20 }}>
         <div style={{ minWidth: 0, flex: '1 1 320px' }}>
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 8 }}>
             <span style={chip(meta.color, meta.tint)}><Icon size={12} />{meta.label}</span>
             {entry.module && <span style={{ fontSize: 12, fontWeight: 600, color: NX.dim }}>{entry.module}</span>}
           </div>
-          <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: NX.ink }}>{entry.title || 'Untitled'}</h3>
+          <h3 style={{ margin: 0, fontSize: isMobile ? 17 : 18, lineHeight: 1.3, fontWeight: 700, color: NX.ink }}>{entry.title || 'Untitled'}</h3>
           <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: NX.dim }}>
             {entry.version && <span style={{ fontFamily: 'monospace' }}>{entry.version}</span>}
             {entry.environment && (
@@ -446,7 +424,7 @@ function EntryCard({ entry, nameOf, onViewDetails }) {
           <div style={{ marginTop: 16, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, borderTop: `1px solid ${NX.border}`, paddingTop: 12, fontSize: 12, color: NX.dim }}>
             {entry.developers?.length ? (
               <>
-                {entry.developers.map((d) => <Avatar key={d.login} name={d.name || d.login} size={20} />)}
+                {entry.developers.map((d) => <Avatar key={d.login} email={d.email} name={d.name || d.login} size={20} />)}
                 <span>{entry.developers.map((d) => d.name || d.login).join(', ')}</span>
               </>
             ) : (
@@ -457,23 +435,31 @@ function EntryCard({ entry, nameOf, onViewDetails }) {
             )}
             {entry.ticketRef && (<><span>·</span><span>{entry.ticketRef}</span></>)}
             {entry.prRef && (<><span>·</span><span>{entry.prRef}</span></>)}
-            {onViewDetails && (
+            {onViewDetails && !isMobile && (
               <button onClick={onViewDetails} style={{ ...btn('ghost'), marginLeft: 'auto', color: NX.blue, padding: 0 }}>
-                View full details <ArrowRight size={13} />
+                View Full Details <ArrowRight size={13} />
               </button>
             )}
           </div>
+          {/* Phones: a full-width button, a real tap target, under the names. */}
+          {onViewDetails && isMobile && (
+            <button onClick={onViewDetails} style={{ ...btn('outline'), width: '100%', justifyContent: 'center', marginTop: 12, minHeight: 40, color: NX.blue }}>
+              View Full Details <ArrowRight size={14} />
+            </button>
+          )}
         </div>
 
-        <button onClick={() => thumbnail && setPreview(true)} aria-label={thumbnail ? 'View screenshot' : undefined} style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, width: 224, maxWidth: '100%',
+        {/* No screenshot: desktop keeps the placeholder that balances the card;
+            a phone drops it rather than spend a screen of height on an empty box. */}
+        {(thumbnail || !isMobile) && <button onClick={() => thumbnail && setPreview(true)} aria-label={thumbnail ? 'View screenshot' : undefined} style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, width: isMobile ? '100%' : 224, maxWidth: '100%',
           aspectRatio: '16 / 9', overflow: 'hidden', borderRadius: 10, border: `1px solid ${NX.border}`,
           background: NX.surface2, cursor: thumbnail ? 'zoom-in' : 'default', padding: 0,
         }}>
           {thumbnail
             ? <img src={thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top' }} />
             : <ImageIcon size={22} style={{ color: NX.faint }} />}
-        </button>
+        </button>}
       </div>
 
       {preview && thumbnail && (
@@ -518,7 +504,7 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit })
   const groups = useMemo(() => {
     const byDay = new Map();
     for (const e of filtered) {
-      const k = dateKey(releasedKey(e));
+      const k = localDayKey(releasedKey(e));
       if (!byDay.has(k)) byDay.set(k, []);
       byDay.get(k).push(e);
     }
@@ -526,28 +512,39 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit })
   }, [filtered]);
 
   const selected = filtered.find((e) => e.id === selectedId) || null;
-  const selStyle = { ...inputStyle, width: 'auto', minWidth: 150, cursor: 'pointer' };
+  const isMobile = useIsMobile();
+  // Phones: one list that scrolls with the page, and a tapped row opens as a
+  // full-screen sheet - the side-by-side panes left each row a sliver.
+  const [sheet, setSheet] = useState(null);
+  // Below 1100px the list column is too narrow for the desktop row (time
+  // column + thumbnail left an iPad's titles one letter wide), so it uses the
+  // two-line row too - the detail pane stays beside it on a tablet.
+  const compactRows = useIsMobile('(max-width: 1100px)');
+  const selStyle = { ...inputStyle, width: 'auto', minWidth: isMobile ? 0 : 150, cursor: 'pointer', flexShrink: 0 };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', padding: '20px 16px', height: '100%' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', padding: isMobile ? '14px 12px' : '20px 16px', height: isMobile ? 'auto' : '100%' }}>
       {/* Filters */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
-        <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 200 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: isMobile ? 12 : 16 }}>
+        <div style={{ position: 'relative', flex: '1 1 240px', minWidth: isMobile ? '100%' : 200 }}>
           <Search size={15} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: NX.faint, pointerEvents: 'none' }} />
           <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search updates, tags, work items…" style={{ ...inputStyle, paddingLeft: 30 }} />
         </div>
-        <select value={moduleFilter} onChange={(e) => setModuleFilter(e.target.value)} style={selStyle}>
-          <option value={ALL}>All Modules</option>
-          {modules.map((m) => <option key={m} value={m}>{m}</option>)}
-        </select>
-        <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} style={selStyle}>
-          <option value={ALL}>All Categories</option>
-          {CHANGE_TYPES.map((t) => <option key={t} value={t}>{CHANGE_TYPE_META[t].label}</option>)}
-        </select>
-        <select value={envFilter} onChange={(e) => setEnvFilter(e.target.value)} style={selStyle}>
-          <option value={ALL}>All Environments</option>
-          {ENVIRONMENTS.map((e2) => <option key={e2} value={e2}>{e2}</option>)}
-        </select>
+        {/* Phones: the three filters share one row that swipes sideways. */}
+        <div className={isMobile ? 'scroll-tabs' : undefined} style={isMobile ? { display: 'flex', gap: 8, overflowX: 'auto', width: '100%' } : { display: 'contents' }}>
+          <select value={moduleFilter} onChange={(e) => setModuleFilter(e.target.value)} style={selStyle} aria-label="Module">
+            <option value={ALL}>All Modules</option>
+            {modules.map((m) => <option key={m} value={m}>{m}</option>)}
+          </select>
+          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} style={selStyle} aria-label="Category">
+            <option value={ALL}>All Categories</option>
+            {CHANGE_TYPES.map((t) => <option key={t} value={t}>{CHANGE_TYPE_META[t].label}</option>)}
+          </select>
+          <select value={envFilter} onChange={(e) => setEnvFilter(e.target.value)} style={selStyle} aria-label="Environment">
+            <option value={ALL}>All Environments</option>
+            {ENVIRONMENTS.map((e2) => <option key={e2} value={e2}>{e2}</option>)}
+          </select>
+        </div>
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
@@ -555,9 +552,11 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit })
         <span style={{ fontSize: 12, fontWeight: 600, color: NX.dim }}>{filtered.length} entries</span>
       </div>
 
-      <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(min(320px, 100%), 1fr))', minHeight: 0, flex: 1 }}>
+      <div style={isMobile ? undefined : { display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(min(320px, 100%), 1fr))', minHeight: 0, flex: 1 }}>
         {/* Master list */}
-        <div className="nx-scroll" style={{ minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 20, paddingRight: 4 }}>
+        <div className="nx-scroll" style={isMobile
+          ? { display: 'flex', flexDirection: 'column', gap: 16 }
+          : { minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 20, paddingRight: 4 }}>
           {groups.map(([k, group]) => (
             <div key={k}>
               <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -566,7 +565,8 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit })
               </div>
               <div style={{ ...card, overflow: 'hidden' }}>
                 {group.map((entry) => (
-                  <TimelineRow key={entry.id} entry={entry} selected={entry.id === selectedId} onClick={() => { setSelectedId(entry.id); }} />
+                  <TimelineRow key={entry.id} entry={entry} compact={compactRows} selected={!isMobile && entry.id === selectedId}
+                    onClick={() => (isMobile ? setSheet(entry) : setSelectedId(entry.id))} />
                 ))}
               </div>
             </div>
@@ -578,8 +578,8 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit })
           )}
         </div>
 
-        {/* Detail pane */}
-        <div style={{ minHeight: 0 }}>
+        {/* Detail pane (wider screens; a phone opens the sheet below) */}
+        {!isMobile && <div style={{ minHeight: 0 }}>
           {selected && !expanded ? (
             <div style={{ height: '100%', overflow: 'hidden', borderRadius: 12, border: `1px solid ${NX.border}` }}>
               <DetailCard entry={selected} nameOf={nameOf} myEmail={myEmail} isAdmin={isAdmin}
@@ -591,8 +591,14 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit })
               Select an update to see details.
             </div>
           ) : null}
-        </div>
+        </div>}
       </div>
+
+      {isMobile && sheet && (
+        <SlideOver entry={sheet} nameOf={nameOf} myEmail={myEmail} isAdmin={isAdmin}
+          onClose={() => setSheet(null)} onSetStatus={onSetStatus}
+          onEdit={isAdmin ? () => { onEdit(sheet); setSheet(null); } : undefined} />
+      )}
 
       {expanded && selected && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 3200, background: NX.surface }}>
@@ -605,10 +611,32 @@ function TimelineTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onEdit })
   );
 }
 
-function TimelineRow({ entry, selected, onClick }) {
+function TimelineRow({ entry, selected, onClick, compact = false }) {
   const meta = typeMeta(entry.type);
   const Icon = meta.icon;
   const thumbnail = (entry.images && entry.images[0]) || entry.afterImageDataUrl;
+  if (compact) {
+    // Phones and tablets: the title gets the full width (two lines), the
+    // category, module and time sit under it - the desktop row's time column
+    // and thumbnail left the title one letter wide.
+    return (
+      <button onClick={onClick} style={{
+        display: 'flex', alignItems: 'center', gap: 12, width: '100%', textAlign: 'left', cursor: 'pointer',
+        border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '12px 14px', minHeight: 56,
+        background: selected ? 'rgba(37,99,235,0.10)' : 'transparent', fontFamily: FONT,
+      }}>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div className="nx-clamp-2" style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.35, color: NX.ink }}>{entry.title}</div>
+          <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, fontSize: 12, color: NX.dim }}>
+            <span style={{ ...chip(meta.color, meta.tint), fontSize: 11 }}><Icon size={11} />{meta.label}</span>
+            {entry.module && <span>{entry.module}</span>}
+            <span style={{ color: NX.faint }}>{formatTime(releasedKey(entry))}</span>
+          </div>
+        </div>
+        <ChevronRight size={16} style={{ flexShrink: 0, color: NX.faint }} />
+      </button>
+    );
+  }
   return (
     <button onClick={onClick} style={{
       display: 'flex', alignItems: 'center', gap: 16, width: '100%', textAlign: 'left', cursor: 'pointer',
@@ -662,9 +690,10 @@ function VersionHistoryTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onE
     for (const e of list) counts.set(e.type, (counts.get(e.type) || 0) + 1);
     return [...counts.entries()];
   };
+  const isMobile = useIsMobile();
 
   return (
-    <div style={{ padding: '20px 16px' }}>
+    <div style={{ padding: isMobile ? '14px 12px' : '20px 16px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
         <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: NX.ink }}>Release Versions</h2>
         <span style={{ fontSize: 12, fontWeight: 600, color: NX.dim }}>{groups.length} versions</span>
@@ -675,14 +704,15 @@ function VersionHistoryTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onE
           const isOpen = open === group.version;
           return (
             <div key={group.version} style={{ ...card, overflow: 'hidden' }}>
-              <button onClick={() => setOpen(isOpen ? null : group.version)} style={{
-                display: 'flex', alignItems: 'center', gap: 12, width: '100%', textAlign: 'left', cursor: 'pointer',
-                border: 'none', background: 'transparent', padding: '12px 16px', fontFamily: FONT,
+              <button onClick={() => setOpen(isOpen ? null : group.version)} aria-expanded={isOpen} style={{
+                display: 'flex', flexWrap: isMobile ? 'wrap' : 'nowrap', alignItems: 'center', gap: isMobile ? '6px 10px' : 12, width: '100%', textAlign: 'left', cursor: 'pointer',
+                border: 'none', background: 'transparent', padding: isMobile ? '12px 14px' : '12px 16px', fontFamily: FONT,
               }}>
                 {isOpen ? <ChevronDown size={16} style={{ color: NX.dim }} /> : <ChevronRight size={16} style={{ color: NX.dim }} />}
                 <span style={{ fontFamily: 'monospace', fontSize: 14, fontWeight: 700, color: NX.ink }}>{group.version}</span>
-                <span style={{ fontSize: 12, color: NX.dim }}>Released {dateKey(group.releasedAt)}</span>
-                <div style={{ marginLeft: 'auto', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 12, color: NX.dim }}>Released {formatFullDate(group.releasedAt)}</span>
+                {/* Phones: the counts get their own line under the version. */}
+                <div style={{ marginLeft: isMobile ? 26 : 'auto', flexBasis: isMobile ? '100%' : 'auto', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6 }}>
                   {summarize(group.entries).map(([type, count]) => {
                     const meta = typeMeta(type);
                     return <Badge key={type} label={`${count} ${meta.label}`} color={meta.color} tint={meta.tint} />;
@@ -697,6 +727,22 @@ function VersionHistoryTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onE
                     const st = statusOf(entry);
                     const sm = STATUS_META[st] || { color: NX.dim, tint: NX.border2 };
                     return (
+                      isMobile ? (
+                        <button key={entry.id} onClick={() => setSelected(entry)} style={{
+                          display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', cursor: 'pointer',
+                          border: 'none', borderTop: `1px solid ${NX.border2}`, background: 'transparent', padding: '12px 14px', minHeight: 56, fontFamily: FONT,
+                        }}>
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div className="nx-clamp-2" style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.35, color: NX.ink }}>{entry.title}</div>
+                            <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, fontSize: 12, color: NX.faint }}>
+                              <span style={chip(meta.color, meta.tint)}>{meta.label}</span>
+                              {entry.module && <span>{entry.module}</span>}
+                              <Badge label={st} color={sm.color} tint={sm.tint} />
+                            </div>
+                          </div>
+                          <ChevronRight size={16} style={{ flexShrink: 0, color: NX.faint }} />
+                        </button>
+                      ) : (
                       <button key={entry.id} onClick={() => setSelected(entry)} style={{
                         display: 'flex', alignItems: 'center', gap: 12, width: '100%', textAlign: 'left', cursor: 'pointer',
                         borderTop: `1px solid ${NX.border2}`, borderLeft: 'none', borderRight: 'none', borderBottom: 'none',
@@ -708,6 +754,7 @@ function VersionHistoryTab({ entries, nameOf, myEmail, isAdmin, onSetStatus, onE
                         {entry.ticketRef && <span style={{ flexShrink: 0, fontSize: 12, color: NX.faint }}>{entry.ticketRef}</span>}
                         <Badge label={st} color={sm.color} tint={sm.tint} />
                       </button>
+                      )
                     );
                   })}
                 </div>
@@ -787,26 +834,29 @@ function ManageTab({ entries, nameOf, myEmail, onSetStatus, onEdit, onAdd, onGen
   const rest = withStatus.filter((x) => x.status !== 'Pending Review');
 
   const [statusKey, setStatusKey] = useState(0);
+  const isMobile = useIsMobile();
+  const pendingBtn = isMobile ? { flex: 1, justifyContent: 'center', minHeight: 40 } : null;
   const generate = async () => {
     setGenerating(true);
     try { await onGenerate?.(); } finally { setGenerating(false); setStatusKey((k) => k + 1); }
   };
 
   return (
-    <div style={{ padding: '20px 16px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
-        <h1 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: NX.ink }}>Manage</h1>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+    <div style={{ padding: isMobile ? '14px 12px' : '20px 16px' }}>
+      {/* Phones: the title, then the two actions sharing a full-width row. */}
+      <div style={{ display: 'flex', flexWrap: isMobile ? 'wrap' : 'nowrap', alignItems: 'center', justifyContent: 'space-between', gap: isMobile ? 10 : 8, marginBottom: isMobile ? 10 : 4 }}>
+        <h1 style={{ margin: 0, fontSize: isMobile ? 18 : 20, fontWeight: 700, color: NX.ink }}>Manage</h1>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, ...(isMobile ? { width: '100%' } : null) }}>
           {onGenerate && (
-            <button style={{ ...btn('outline'), opacity: generating ? 0.6 : 1 }} disabled={generating} onClick={generate}>
+            <button style={{ ...btn('outline'), opacity: generating ? 0.6 : 1, ...(isMobile ? { flex: 1, justifyContent: 'center', minHeight: 40 } : null) }} disabled={generating} onClick={generate}>
               <GitBranch size={15} style={generating ? { animation: 'spin 0.9s linear infinite' } : undefined} />
               {generating ? 'Checking…' : 'Check for Updates'}
             </button>
           )}
-          <button style={btn('primary')} onClick={onAdd}><Plus size={15} />Add New Update</button>
+          <button style={{ ...btn('primary'), ...(isMobile ? { flex: 1, justifyContent: 'center', minHeight: 40 } : null) }} onClick={onAdd}><Plus size={15} />{isMobile ? 'Add Update' : 'Add New Update'}</button>
         </div>
       </div>
-      <p style={{ margin: '0 0 20px', fontSize: 13, color: NX.dim }}>
+      <p style={{ margin: '0 0 20px', fontSize: 13, lineHeight: 1.55, color: NX.dim }}>
         Everything merged into this site's branch - pull requests, branches merged by hand and commits pushed straight
         to it - is published to What's New automatically a few minutes after it lands. Edit or remove any of them below. <strong>Check for Updates</strong> runs that now instead of waiting. Updates you add here
         publish immediately; teammate submissions wait in Pending Review.
@@ -827,18 +877,23 @@ function ManageTab({ entries, nameOf, myEmail, onSetStatus, onEdit, onAdd, onGen
           {pending.map(({ entry }) => {
             const meta = typeMeta(entry.type);
             return (
-              <div key={entry.id} style={{ ...card, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12, padding: '12px 16px' }}>
-                <span style={chip(meta.color, meta.tint)}>{meta.label}</span>
-                <div style={{ minWidth: 0, flex: '1 1 200px' }}>
-                  <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, fontWeight: 600, color: NX.ink }}>{entry.title}</div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, fontSize: 12, color: NX.faint }}>
+              // Phones: the title across the top, the category in the line under
+              // it, and the three actions sharing one full-width row.
+              <div key={entry.id} style={{ ...card, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: isMobile ? 10 : 12, padding: isMobile ? '12px 14px' : '12px 16px' }}>
+                {!isMobile && <span style={chip(meta.color, meta.tint)}>{meta.label}</span>}
+                <div style={{ minWidth: 0, flex: isMobile ? '1 1 100%' : '1 1 200px' }}>
+                  <div className={isMobile ? 'nx-clamp-2' : undefined} style={isMobile
+                    ? { fontSize: 13.5, fontWeight: 600, lineHeight: 1.35, color: NX.ink }
+                    : { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, fontWeight: 600, color: NX.ink }}>{entry.title}</div>
+                  <div style={{ marginTop: isMobile ? 6 : 0, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, fontSize: 12, color: NX.faint }}>
+                    {isMobile && <span style={chip(meta.color, meta.tint)}>{meta.label}</span>}
                     <span>{entry.module}</span><span>·</span><span>{formatDateTime(releasedKey(entry))}</span>
                     {entry.prRef && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><GitPullRequest size={12} />{entry.prRef}</span>}
                   </div>
                 </div>
-                <button style={btn('outline')} onClick={() => setReviewing(entry)}><Eye size={13} />Review</button>
-                <button style={btn('outline')} onClick={() => onEdit(entry)}><Pencil size={13} />Edit</button>
-                <button style={btn('primary')} onClick={() => onSetStatus(entry, 'Released')}><CheckCircle2 size={13} />Publish</button>
+                <button style={{ ...btn('outline'), ...pendingBtn }} onClick={() => setReviewing(entry)}><Eye size={13} />Review</button>
+                <button style={{ ...btn('outline'), ...pendingBtn }} onClick={() => onEdit(entry)}><Pencil size={13} />Edit</button>
+                <button style={{ ...btn('primary'), ...pendingBtn }} onClick={() => onSetStatus(entry, 'Released')}><CheckCircle2 size={13} />Publish</button>
               </div>
             );
           })}
@@ -850,14 +905,33 @@ function ManageTab({ entries, nameOf, myEmail, onSetStatus, onEdit, onAdd, onGen
         {rest.map(({ entry, status }) => {
           const meta = typeMeta(entry.type);
           const sm = STATUS_META[status] || { color: NX.dim, tint: NX.border2 };
-          return (
+          // flexShrink: 0 on the icon buttons - a long title squeezed them to
+          // specks. Phones: the title on its own line, the rest beneath it,
+          // and 40px icon targets.
+          const iconBtn = { ...btn('ghost'), padding: 6, color: NX.faint, flexShrink: 0, ...(isMobile ? { width: 40, height: 40, justifyContent: 'center' } : null) };
+          const actions = (<>
+            <button onClick={() => onEdit(entry)} title="Edit" aria-label={`Edit ${entry.title}`} style={iconBtn}><Pencil size={isMobile ? 16 : 14} /></button>
+            <button onClick={() => onDelete(entry.id)} title="Delete" aria-label={`Delete ${entry.title}`} style={iconBtn}><Trash2 size={isMobile ? 16 : 14} /></button>
+          </>);
+          return isMobile ? (
+            <div key={entry.id} style={{ display: 'flex', alignItems: 'center', gap: 6, borderBottom: `1px solid ${NX.border2}`, padding: '10px 6px 10px 14px' }}>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div className="nx-clamp-2" style={{ fontSize: 13.5, fontWeight: 600, lineHeight: 1.35, color: NX.ink }}>{entry.title}</div>
+                <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, fontSize: 12, color: NX.faint }}>
+                  <span style={chip(meta.color, meta.tint)}>{meta.label}</span>
+                  {entry.module && <span>{entry.module}</span>}
+                  <Badge label={status} color={sm.color} tint={sm.tint} />
+                </div>
+              </div>
+              {actions}
+            </div>
+          ) : (
             <div key={entry.id} style={{ display: 'flex', alignItems: 'center', gap: 12, borderBottom: `1px solid ${NX.border2}`, padding: '10px 16px' }}>
               <span style={chip(meta.color, meta.tint)}>{meta.label}</span>
               <span style={{ minWidth: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, fontWeight: 600, color: NX.ink }}>{entry.title}</span>
               <span style={{ flexShrink: 0, fontSize: 12, color: NX.faint }}>{entry.module}</span>
               <Badge label={status} color={sm.color} tint={sm.tint} />
-              <button onClick={() => onEdit(entry)} title="Edit" style={{ ...btn('ghost'), padding: 6, color: NX.faint }}><Pencil size={14} /></button>
-              <button onClick={() => onDelete(entry.id)} title="Delete" style={{ ...btn('ghost'), padding: 6, color: NX.faint }}><Trash2 size={14} /></button>
+              {actions}
             </div>
           );
         })}
@@ -866,7 +940,7 @@ function ManageTab({ entries, nameOf, myEmail, onSetStatus, onEdit, onAdd, onGen
 
       {reviewing && (
         <div onMouseDown={(e) => e.target === e.currentTarget && setReviewing(null)} style={{ position: 'fixed', inset: 0, zIndex: 3200, display: 'flex', justifyContent: 'flex-end', background: 'rgba(0,0,0,0.4)' }}>
-          <div style={{ height: '100%', width: 'min(760px, 90vw)', boxShadow: '-8px 0 40px rgba(0,0,0,0.28)' }}>
+          <div style={{ height: '100%', width: isMobile ? '100%' : 'min(760px, 90vw)', boxShadow: '-8px 0 40px rgba(0,0,0,0.28)' }}>
             <DetailCard entry={reviewing} nameOf={nameOf} myEmail={myEmail} isAdmin
               onClose={() => setReviewing(null)} onSetStatus={onSetStatus}
               onEdit={() => { onEdit(reviewing); setReviewing(null); }} />
@@ -884,6 +958,8 @@ const DETAIL_TABS = ['Overview', 'Technical Details', 'Media', 'Related Links', 
 
 function DetailCard({ entry, nameOf, myEmail, isAdmin, onClose, expanded, onToggleExpand, onEdit, onSetStatus }) {
   const [tab, setTab] = useState('Overview');
+  // Everyone reads the comments; posting one is behind the same grant as editing.
+  const canComment = canEditWhatsNew(useRole());
   const [status, setStatusLocal] = useState(() => statusOf(entry));
   const [statusOpen, setStatusOpen] = useState(false);
   const statusRef = useRef(null);
@@ -915,11 +991,15 @@ function DetailCard({ entry, nameOf, myEmail, isAdmin, onClose, expanded, onTogg
   };
 
   const label11 = { fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.4, color: NX.faint };
+  const isMobile = useIsMobile();
+  const padX = isMobile ? 16 : 24;
+  // Phones: one column - two side by side left each half too narrow to read.
+  const twoCol = isMobile ? '1fr' : '1fr 1fr';
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden', background: NX.surface, fontFamily: FONT }}>
       {/* Top bar */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', padding: '18px 24px 0' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: isMobile ? `calc(12px + env(safe-area-inset-top)) ${padX}px 0` : `18px ${padX}px 0` }}>
         <span style={chip(meta.color, meta.tint)}>{meta.label}</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {onEdit && <button onClick={onEdit} style={btn('outline')}><Pencil size={13} />Edit</button>}
@@ -939,19 +1019,19 @@ function DetailCard({ entry, nameOf, myEmail, isAdmin, onClose, expanded, onTogg
           ) : (
             <span style={chip(statusMeta.color, statusMeta.tint)}>{status}</span>
           )}
-          {onToggleExpand && (
+          {onToggleExpand && !isMobile && (
             <button onClick={onToggleExpand} title={expanded ? 'Collapse' : 'Expand to full page'} style={{ ...btn('ghost'), padding: 6, color: NX.dim }}>
               {expanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
             </button>
           )}
-          {onClose && <button onClick={onClose} aria-label="Close" style={{ ...btn('ghost'), padding: 6, color: NX.dim }}><X size={16} /></button>}
+          {onClose && <button onClick={onClose} aria-label="Close" style={{ ...btn('ghost'), padding: 6, color: NX.dim, ...(isMobile ? { width: 40, height: 40, justifyContent: 'center' } : null) }}><X size={isMobile ? 20 : 16} /></button>}
         </div>
       </div>
 
       {/* Title + meta */}
-      <div style={{ padding: '8px 24px 16px' }}>
-        <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: NX.ink }}>{entry.title}</h2>
-        <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12, fontSize: 13, color: NX.dim }}>
+      <div style={{ padding: `8px ${padX}px ${isMobile ? 12 : 16}px` }}>
+        <h2 style={{ margin: 0, fontSize: isMobile ? 19 : 22, lineHeight: 1.3, fontWeight: 700, color: NX.ink }}>{entry.title}</h2>
+        <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: isMobile ? '6px 12px' : 12, fontSize: 13, color: NX.dim }}>
           {entry.module && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Layers size={13} style={{ color: NX.faint }} />{entry.module}</span>}
           {entry.version && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><GitBranch size={13} style={{ color: NX.faint }} /><span style={{ fontFamily: 'monospace' }}>{entry.version}</span></span>}
           {entry.environment && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><span style={{ width: 6, height: 6, borderRadius: '50%', background: envColor(entry.environment) }} />{entry.environment}</span>}
@@ -960,7 +1040,7 @@ function DetailCard({ entry, nameOf, myEmail, isAdmin, onClose, expanded, onTogg
       </div>
 
       {/* Sub-tabs */}
-      <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, overflowX: 'auto', whiteSpace: 'nowrap', borderBottom: `1px solid ${NX.border}`, padding: '0 24px' }}>
+      <div className="scroll-tabs" style={{ display: 'flex', alignItems: 'center', gap: 2, overflowX: 'auto', whiteSpace: 'nowrap', borderBottom: `1px solid ${NX.border}`, padding: `0 ${isMobile ? 6 : padX}px` }}>
         {DETAIL_TABS.map((t) => {
           const active = tab === t;
           const suffix = t === 'Media' ? ` (${media.length})` : t === 'Comments' ? ` (${commentList.length})` : '';
@@ -975,7 +1055,7 @@ function DetailCard({ entry, nameOf, myEmail, isAdmin, onClose, expanded, onTogg
       </div>
 
       {/* Sub-tab body */}
-      <div className="nx-scroll nx-gutter" style={{ minHeight: 0, flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
+      <div className="nx-scroll" style={{ minHeight: 0, flex: 1, overflowY: 'auto', padding: isMobile ? `16px ${padX}px calc(24px + env(safe-area-inset-bottom))` : `20px ${padX}px` }}>
         {tab === 'Overview' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
             <div>
@@ -1025,7 +1105,7 @@ function DetailCard({ entry, nameOf, myEmail, isAdmin, onClose, expanded, onTogg
               </div>
             )}
             {(entry.authorId || entry.developers?.length > 0 || entry.reviewerId || tags.length > 0) && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, borderTop: `1px solid ${NX.border}`, paddingTop: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: twoCol, gap: 16, borderTop: `1px solid ${NX.border}`, paddingTop: 16 }}>
                 <div style={{ display: 'flex', gap: 24 }}>
                   {entry.developers?.length > 0
                     ? <GithubDevelopers developers={entry.developers} />
@@ -1047,7 +1127,7 @@ function DetailCard({ entry, nameOf, myEmail, isAdmin, onClose, expanded, onTogg
         )}
 
         {tab === 'Technical Details' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: twoCol, gap: isMobile ? 12 : 16 }}>
             {[['Category', entry.type], ['Version', entry.version], ['Environment', entry.environment], ['Released', formatDateTime(releasedKey(entry))], ['Work Item', entry.ticketRef || '-'], ['Pull Request', entry.prRef || '-']].map(([k, v]) => (
               <div key={k}>
                 <div style={{ fontSize: 11, fontWeight: 600, color: NX.faint }}>{k}</div>
@@ -1111,10 +1191,12 @@ function DetailCard({ entry, nameOf, myEmail, isAdmin, onClose, expanded, onTogg
                 ))
               )}
             </div>
-            <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8, borderTop: `1px solid ${NX.border}`, paddingTop: 12 }}>
-              <input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') postComment(); }} placeholder="Add a comment…" style={inputStyle} />
-              <button onClick={postComment} disabled={!draft.trim()} aria-label="Post comment" style={{ ...btn('primary'), padding: 9, opacity: draft.trim() ? 1 : 0.4 }}><Send size={15} /></button>
-            </div>
+            {canComment && (
+              <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 8, borderTop: `1px solid ${NX.border}`, paddingTop: 12 }}>
+                <input value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') postComment(); }} placeholder="Add a comment…" style={inputStyle} />
+                <button onClick={postComment} disabled={!draft.trim()} aria-label="Post comment" style={{ ...btn('primary'), padding: 9, opacity: draft.trim() ? 1 : 0.4 }}><Send size={15} /></button>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1151,7 +1233,10 @@ function GithubDevelopers({ developers }) {
       {developers.map((d) => (
         <a key={d.login} href={d.url} target="_blank" rel="noreferrer" title={`@${d.login} on GitHub`}
           style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 6, textDecoration: 'none' }}>
-          <Avatar name={d.name || d.login} size={24} />
+          {/* `email` (set by the server for our own developers) brings the
+              profile photo. card={false}: this sits inside a GitHub link, and
+              the hover card's own click would open People on top of it. */}
+          <Avatar email={d.email} name={d.name || d.login} size={24} card={false} />
           <span style={{ fontSize: 13, fontWeight: 600, color: NX.ink }}>{d.name || d.login}</span>
         </a>
       ))}
@@ -1162,9 +1247,13 @@ function GithubDevelopers({ developers }) {
 // ── Slide-over wrapper (ported from ChangelogSlideOver) ───────────────────────
 function SlideOver({ entry, nameOf, myEmail, isAdmin, onClose, onSetStatus, onEdit }) {
   const [expanded, setExpanded] = useState(false);
+  const isMobile = useIsMobile();
+  // On a phone this is a screen of its own, so the phone's Back closes it
+  // rather than leaving What's New (the same hook the task sheets use).
+  useBackToClose(isMobile, onClose);
   return (
     <div onMouseDown={(e) => e.target === e.currentTarget && onClose()} style={{ position: 'fixed', inset: 0, zIndex: 3200, display: 'flex', justifyContent: 'flex-end', background: 'rgba(0,0,0,0.4)' }}>
-      <div style={{ height: '100%', width: expanded ? '100%' : 'min(760px, 92vw)', transition: 'width 0.18s ease', boxShadow: '-8px 0 40px rgba(0,0,0,0.28)' }}>
+      <div style={{ height: '100%', width: expanded || isMobile ? '100%' : 'min(760px, 92vw)', transition: 'width 0.18s ease', boxShadow: isMobile ? 'none' : '-8px 0 40px rgba(0,0,0,0.28)' }}>
         <DetailCard entry={entry} nameOf={nameOf} myEmail={myEmail} isAdmin={isAdmin}
           onClose={onClose} expanded={expanded} onToggleExpand={() => setExpanded((e) => !e)}
           onSetStatus={onSetStatus} onEdit={onEdit} />
@@ -1188,7 +1277,7 @@ function readAsDataUrl(file) {
 function ScreenshotDropzone({ label, value, onChange }) {
   const onPaste = async (e) => { const [f] = filesFromPaste(e); if (f) { e.preventDefault(); onChange(await readAsDataUrl(f)); } };
   return (
-    <div onPaste={onPaste} tabIndex={0} style={{ outline: 'none' }}>
+    <div onPaste={onPaste} tabIndex={0}>
       <div style={{ marginBottom: 4, fontSize: 11, fontWeight: 600, color: NX.faint }}>{label}</div>
       {value ? (
         <div style={{ position: 'relative' }}>
@@ -1247,7 +1336,9 @@ function AddUpdateModal({ entry, submitLabel, myEmail, onClose, onSave }) {
       module: module.trim(),
       version: version.trim(),
       environment,
-      releasedAt: p.releasedAt || nowLocalISO(),
+      // An instant, not browser wall time: the server compares release times
+      // across zones (the weekly bar, the update popup).
+      releasedAt: p.releasedAt || new Date().toISOString(),
       // A PR's developers come from GitHub; editing its wording must not make
       // the editor its developer (that put Neil on every update).
       authorId: p.authorId || (p.origin === 'pr' ? '' : myEmail),
@@ -1267,12 +1358,12 @@ function AddUpdateModal({ entry, submitLabel, myEmail, onClose, onSave }) {
   const footer = (
     <>
       <button onClick={onClose} style={btn('outline')}>Cancel</button>
-      <button onClick={save} disabled={!canSave} style={{ ...btn('primary'), opacity: canSave ? 1 : 0.5 }}>{submitLabel || (entry ? 'Save changes' : 'Publish update')}</button>
+      <button onClick={save} disabled={!canSave} style={{ ...btn('primary'), opacity: canSave ? 1 : 0.5 }}>{submitLabel || (entry ? 'Save Changes' : 'Publish Update')}</button>
     </>
   );
 
   return (
-    <Modal title={entry ? 'Edit update' : 'Add new update'} onClose={onClose} footer={footer}
+    <Modal title={entry ? 'Edit Update' : 'Add New Update'} onClose={onClose} footer={footer}
       isDirty={dirty} onSave={canSave ? save : undefined}>
       <Field label="Title">
         <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Fixed leave balance calculation" style={inputStyle} />

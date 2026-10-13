@@ -25,7 +25,7 @@ export default function ReviewsFeedCard({
     [reviews, statusFilter, platformFilter, ratingFilter, query],
   )
 
-  const selectStyle = { padding: '6px 10px', borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 12, color: C.gray600, outline: 'none' }
+  const selectStyle = { padding: '6px 10px', borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 12, color: C.gray600 }
 
   return (
     <div style={{ borderRadius: 12, border: '1px solid ' + C.gray200, background: C.white, padding: 16, boxShadow: '0 1px 2px 0 rgba(0,0,0,0.05)', height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -85,7 +85,7 @@ export default function ReviewsFeedCard({
               value={query}
               onChange={(e) => onQueryChange(e.target.value)}
               placeholder="Search reviews..."
-              style={{ paddingLeft: 32, paddingRight: 12, paddingTop: 6, paddingBottom: 6, borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 12.5, width: 176, outline: 'none' }}
+              style={{ paddingLeft: 32, paddingRight: 12, paddingTop: 6, paddingBottom: 6, borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 12.5, width: 176 }}
             />
           </div>
         </div>

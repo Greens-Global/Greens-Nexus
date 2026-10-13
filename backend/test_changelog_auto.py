@@ -102,9 +102,39 @@ class ScheduleTests(unittest.TestCase):
         self.assertEqual(result["created"], 2)
         self.assertEqual(len(self.calls), 1)
         nxt = datetime.fromisoformat(self._state()["next_run_at"])
-        # Default interval is 24h; allow slack for the clock between the two reads.
-        self.assertGreater(nxt, datetime.now(timezone.utc) + timedelta(hours=23))
-        self.assertLess(nxt, datetime.now(timezone.utc) + timedelta(hours=25))
+        # GitHub is checked every 15 minutes - publishing no longer needs the
+        # webhook to be fast. Slack for the clock between the two reads.
+        self.assertGreater(nxt, datetime.now(timezone.utc) + timedelta(minutes=14))
+        self.assertLess(nxt, datetime.now(timezone.utc) + timedelta(minutes=16))
+
+    def test_an_old_24_hour_setting_cannot_slow_it_down(self):
+        with mock.patch.dict(os.environ, {"NEXUS_CHANGELOG_INTERVAL_HOURS": "24"}):
+            self.assertEqual(changelog_auto._interval_hours(), 0.25)
+        with mock.patch.dict(os.environ, {"NEXUS_CHANGELOG_POLL_MINUTES": "5"}):
+            self.assertAlmostEqual(changelog_auto._interval_hours(), 5 / 60)
+
+    def test_a_due_time_left_by_the_old_24_hour_schedule_runs_now(self):
+        # Oct 13 2026: after the deploy that moved to a 15-minute poll, the
+        # saved next_run_at was still ~24h out, so nothing merged that day
+        # reached What's New until the next morning.
+        self._stub()
+        db = database.SessionLocal()
+        try:
+            changelog_auto._write_state(db, {"next_run_at": (datetime.now(timezone.utc) + timedelta(hours=20)).isoformat()})
+        finally:
+            db.close()
+        changelog_auto._sweep()
+        self.assertEqual(len(self.calls), 1)
+
+    def test_a_retry_backoff_is_still_honored(self):
+        self._stub()
+        db = database.SessionLocal()
+        try:
+            changelog_auto._write_state(db, {"next_run_at": (datetime.now(timezone.utc) + timedelta(minutes=50)).isoformat()})
+        finally:
+            db.close()
+        self.assertIsNone(changelog_auto._sweep())
+        self.assertEqual(len(self.calls), 0)
 
     def test_restart_inside_the_interval_does_not_regenerate(self):
         self._stub()
@@ -256,6 +286,24 @@ class PublishTests(unittest.TestCase):
         self._generate()
         self.assertIn("pr:457", self.fetched[1][2])                # not reconsidered next run
 
+    def test_new_skip_rules_recheck_the_last_few_days_once(self):
+        db = database.SessionLocal()
+        changelog_auto._write_state(db, {"pr_cursor": "oldhead", "skipped_keys": ["pr:484"], "skip_rules": 1})
+        db.close()
+        self.prs = [_pr(484)]
+        out = self._generate()
+        self.assertEqual(out["created"], 1)                         # #484 published after all
+        self.assertEqual(self.fetched[0][1], "")                    # read the last few days again
+        self.assertNotIn("pr:484", self.fetched[0][2])
+        self._generate()
+        self.assertEqual(self.fetched[1][1], "headsha1")            # once: back to the cursor
+        self.assertEqual(len(self._entries()), 1)
+
+    def test_the_skip_marker_counts_on_its_own_line_not_in_passing(self):
+        self.assertEqual(changelog_prs.skip_reason(_pr(1, body="Tidy up.\n\n[skip changelog]\n")),
+                         "marked [skip changelog]")
+        self.assertEqual(changelog_prs.skip_reason(_pr(1, body="- anything marked `[skip changelog]` is skipped")), "")
+
     def test_github_unreadable_is_the_only_error(self):
         with mock.patch.object(changelog_prs, "fetch_merged_prs",
                                side_effect=changelog_prs.GitHubError("GITHUB_TOKEN is not set on this server.")):
@@ -369,7 +417,7 @@ class PrReadingTests(unittest.TestCase):
                          "only CI, docs or tests")
         self.assertEqual(changelog_prs.skip_reason(_pr(1, files=("backend/test_x.py", "frontend/src/a.test.jsx"))),
                          "only CI, docs or tests")
-        self.assertEqual(changelog_prs.skip_reason(_pr(1, body="tidy [skip changelog]")), "marked [skip changelog]")
+        self.assertEqual(changelog_prs.skip_reason(_pr(1, title="Tidy [skip changelog]")), "marked [skip changelog]")
         self.assertEqual(changelog_prs.skip_reason(_pr(1, title="chore: bump deps")), "chore")
         self.assertEqual(changelog_prs.skip_reason(_pr(1)), "")
         self.assertEqual(changelog_prs.skip_reason(_pr(1, files=())), "")     # files unknown: publish
@@ -414,9 +462,10 @@ class PrReadingTests(unittest.TestCase):
                         {"commit": {"message": "a"}, "author": {"login": "pranshuup"}},
                         {"commit": {"message": "b"}, "author": {"login": "neilkadakia"}},
                         {"commit": {"message": "c"}, "author": {"login": "dependabot[bot]"}},
+                        {"commit": {"message": "e"}, "author": {"login": "outsider"}},
                         {"commit": {"message": "d"}, "author": None}]}
-                elif url.endswith("/users/neilkadakia"):
-                    body = {"name": "Neil Kadakia"}
+                elif url.endswith("/users/outsider"):
+                    body = {"name": "Out Sider"}
                 else:
                     return httpx.Response(404, json={}, request=req)
                 return httpx.Response(200, json=body, request=req)
@@ -424,10 +473,39 @@ class PrReadingTests(unittest.TestCase):
         names = {}
         pr = changelog_prs._details(Client(), {"kind": "pr", "key": "pr:480", "number": 480, "branch": "fix/x",
                                                "sha": "m", "parents": ["p0", "p1"], "message": "Merge"}, names)
-        self.assertEqual([(d["login"], d["name"]) for d in pr["developers"]],
-                         [("neilkadakia", "Neil Kadakia"), ("pranshuup", "pranshuup")])
-        changelog_prs._developers(Client(), ["neilkadakia"], names)     # cached: no second lookup
-        self.assertEqual(sum(u.endswith("/users/neilkadakia") for u in Client.calls), 1)
+        # Our developers are named from GITHUB_PEOPLE (with their work email,
+        # for the photo) and never looked up; anyone else keeps GitHub's name.
+        self.assertEqual([(d["login"], d["name"], d.get("email")) for d in pr["developers"]],
+                         [("neilkadakia", "Neil Kadakia", "neil@greensglobal.com"),
+                          ("pranshuup", "Pranshu Pandey", "pranshu.pandey@greensglobal.com"),
+                          ("outsider", "Out Sider", None)])
+        self.assertFalse(any("/users/neilkadakia" in u or "/users/pranshuup" in u for u in Client.calls))
+        changelog_prs._developers(Client(), ["outsider"], names)        # cached: no second lookup
+        self.assertEqual(sum(u.endswith("/users/outsider") for u in Client.calls), 1)
+
+    def test_every_developer_login_maps_to_its_nexus_person(self):
+        """Neil, Oct 12 2026: pranshuup is Pranshu Pandey, Vlow2k is Visesh
+        Lodha, sagargreensglobal is Sagar Shoundik, AnkushGG is Ankush
+        Narkhede. Logins match whatever case GitHub sends."""
+        got = {login: changelog_prs.known_developer({"login": login})
+               for login in ("pranshuup", "Vlow2k", "sagargreensglobal", "AnkushGG", "neilkadakia")}
+        self.assertEqual({k: (v["name"], v["email"]) for k, v in got.items()}, {
+            "pranshuup": ("Pranshu Pandey", "pranshu.pandey@greensglobal.com"),
+            "Vlow2k": ("Visesh Lodha", "visesh.lodha@greensglobal.com"),
+            "sagargreensglobal": ("Sagar Shoundik", "sagar.shoundik@greensglobal.com"),
+            "AnkushGG": ("Ankush Narkhede", "ankush.narkhede@greensglobal.com"),
+            "neilkadakia": ("Neil Kadakia", "neil@greensglobal.com"),
+        })
+        self.assertEqual(changelog_prs.known_developer({"login": "stranger", "name": "S"}), {"login": "stranger", "name": "S"})
+
+    def test_stored_entries_read_out_with_the_nexus_person(self):
+        """Updates published before the map existed carry GitHub's names
+        ("pranshuup", "viseshlodha1"); they are corrected on the way out."""
+        e = models.TaskChangelogEntry(id="x", payload={"title": "t", "developers": [
+            {"login": "Vlow2k", "name": "viseshlodha1", "url": "https://github.com/Vlow2k"}]})
+        d = task_config.changelog_entry_to_dict(e)["developers"][0]
+        self.assertEqual((d["name"], d["email"], d["url"]),
+                         ("Visesh Lodha", "visesh.lodha@greensglobal.com", "https://github.com/Vlow2k"))
 
     def test_default_polish_model(self):
         self.assertEqual(changelog_prs.polish_model(), os.getenv("NEXUS_CHANGELOG_MODEL") or "claude-sonnet-5-5")

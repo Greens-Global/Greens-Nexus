@@ -3,6 +3,7 @@ Audit middleware - logs every state-changing request (non-GET) to audit_logs.
 Generates a descriptive action string that includes the resource ID from the URL
 so logs read as "Approved requisition REQ-ABC" rather than just "Approved requisition".
 """
+import asyncio
 import json
 import os
 from datetime import datetime
@@ -368,6 +369,74 @@ async def _read_body_fields(request: Request, resource: str) -> dict:
         return {}
 
 
+def _write_denied(request: Request, path: str, method: str, resource: str,
+                  status: int, ip: str, stamp: str) -> None:
+    """The 401/403 security row. Runs in a worker thread (see dispatch): the
+    session is opened and closed here, never on the event loop."""
+    try:
+        user_email = _extract_email(request)
+        sec_action = "Authentication failed" if status == 401 else "Authorization denied"
+        db = SessionLocal()
+        try:
+            sec_details = {"path": path, "method": method, "status": status}
+            acting_as = _acting_as_target(request, user_email, db)
+            if acting_as:
+                sec_details["acting_as"] = acting_as
+            db.add(models.AuditLog(
+                timestamp=stamp,
+                user_email=user_email,
+                user_role="",
+                action=sec_action,
+                resource_type=resource,
+                resource_id="",
+                details=json.dumps(sec_details),
+                ip_address=ip,
+            ))
+            db.commit()
+        finally:
+            db.close()
+    except Exception:
+        pass
+
+
+def _write_change(request: Request, path: str, method: str, resource: str,
+                  status: int, created_id: str, body_fields: dict, ip: str,
+                  stamp: str) -> None:
+    """The ordinary audit row for a successful change. Same threading rule
+    as _write_denied."""
+    try:
+        action, resource_id = _describe(method, path, body_fields)
+        # Create endpoints have no id in the URL - they stamp the new id on the
+        # response (X-Created-Id) so the row records WHICH record was added.
+        if not resource_id:
+            resource_id = created_id
+        user_email = _extract_email(request)
+
+        details = {"path": path, "status": status}
+        details.update(body_fields)
+
+        db = SessionLocal()
+        try:
+            acting_as = _acting_as_target(request, user_email, db)
+            if acting_as:
+                details["acting_as"] = acting_as
+            db.add(models.AuditLog(
+                timestamp=stamp,
+                user_email=user_email,
+                user_role="",
+                action=action,
+                resource_type=resource,
+                resource_id=resource_id,
+                details=json.dumps(details),
+                ip_address=ip,
+            ))
+            db.commit()
+        finally:
+            db.close()
+    except Exception:
+        pass
+
+
 class AuditMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path     = request.url.path
@@ -395,31 +464,20 @@ class AuditMiddleware(BaseHTTPMiddleware):
         # Same helper as the rate limiter (client_ip.py), so both agree.
         ip = _client_ip(request)
 
+        # The write (and the session / Act As lookups that feed it) is blocking
+        # database work, so it runs in a thread - on the loop it froze every
+        # other request on this worker for as long as the database took
+        # (CLAUDE.md). Still awaited, so the row is in before the response
+        # goes out, exactly as before. The timestamp is taken here, on the
+        # loop, so rows keep the order their responses finished in.
+        stamp = datetime.utcnow().isoformat()
+
         # Log failed auth attempts (401 / 403) as security events so they
         # appear in the audit trail and can trigger alerts.
         if response.status_code in (401, 403):
             try:
-                user_email = _extract_email(request)
-                sec_action = "Authentication failed" if response.status_code == 401 else "Authorization denied"
-                db = SessionLocal()
-                try:
-                    sec_details = {"path": path, "method": method, "status": response.status_code}
-                    acting_as = _acting_as_target(request, user_email, db)
-                    if acting_as:
-                        sec_details["acting_as"] = acting_as
-                    db.add(models.AuditLog(
-                        timestamp=datetime.utcnow().isoformat(),
-                        user_email=user_email,
-                        user_role="",
-                        action=sec_action,
-                        resource_type=resource,
-                        resource_id="",
-                        details=json.dumps(sec_details),
-                        ip_address=ip,
-                    ))
-                    db.commit()
-                finally:
-                    db.close()
+                await asyncio.to_thread(_write_denied, request, path, method, resource,
+                                        response.status_code, ip, stamp)
             except Exception:
                 pass
             return response
@@ -428,34 +486,10 @@ class AuditMiddleware(BaseHTTPMiddleware):
             return response
 
         try:
-            action, resource_id = _describe(method, path, body_fields)
-            # Create endpoints have no id in the URL - they stamp the new id on the
-            # response (X-Created-Id) so the row records WHICH record was added.
-            if not resource_id:
-                resource_id = response.headers.get("x-created-id", "")
-            user_email = _extract_email(request)
-
-            details = {"path": path, "status": response.status_code}
-            details.update(body_fields)
-
-            db = SessionLocal()
-            try:
-                acting_as = _acting_as_target(request, user_email, db)
-                if acting_as:
-                    details["acting_as"] = acting_as
-                db.add(models.AuditLog(
-                    timestamp=datetime.utcnow().isoformat(),
-                    user_email=user_email,
-                    user_role="",
-                    action=action,
-                    resource_type=resource,
-                    resource_id=resource_id,
-                    details=json.dumps(details),
-                    ip_address=ip,
-                ))
-                db.commit()
-            finally:
-                db.close()
+            await asyncio.to_thread(_write_change, request, path, method, resource,
+                                    response.status_code,
+                                    response.headers.get("x-created-id", ""),
+                                    body_fields, ip, stamp)
         except Exception:
             pass
 

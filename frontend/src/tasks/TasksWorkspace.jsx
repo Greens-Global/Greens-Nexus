@@ -2,10 +2,10 @@
 // List and Board views + bulk action bar. Owns the shared view state, mirroring
 // the export's viewContext. Calendar/Timeline/Dashboard live in ./views/extras.
 import { useMemo, useState } from 'react';
-import { List, Columns3, Calendar as CalIcon, GanttChart, LayoutDashboard, Paperclip, Gauge, Plus, Search, CheckCircle2, Circle, FolderKanban, ArrowLeft, Copy, Pencil, LayoutTemplate, Star } from 'lucide-react';
+import { List, Columns3, Calendar as CalIcon, GanttChart, LayoutDashboard, Paperclip, Gauge, Plus, Search, CheckCircle2, Circle, FolderKanban, ArrowLeft, Copy, Pencil, LayoutTemplate, Star, Pin } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { useRole } from '../contexts/RoleContext';
-import { EMPTY_FILTER, matchesFilter, personScoped, sortTasks, groupTasks, taskStats, taskIdFromUrl, fieldsForProject, cfKey, projectToForm, taskAssignees, fmtDate, taskExportRows } from './lib';
+import { EMPTY_FILTER, matchesFilter, personScoped, sortTasks, groupTasks, taskStats, taskIdFromUrl, fieldsForProject, cfKey, projectToForm, taskAssignees, fmtDate, taskExportRows, projectTracksTime, taskTracksTime, effectiveProjectView, projectRoleOf, roleAtLeast } from './lib';
 import { NX, FONT, btn, CONTROL_H, CONTROL_FS, CONTROL_ICON, input as inputStyle, STATUS_ORDER, STATUS_META, PRIORITY_META, chip } from './theme';
 import { Avatar, StatusChip, PriorityChip, EmptyState, usePeople, useIsMobile, ProjectAccessButton, UnassignedAvatar, ExportMenu } from './components';
 import CreateTaskModal from './CreateTaskModal';
@@ -27,6 +27,7 @@ import BoardView from './views/board';
 // Same dialogs the Projects grid and the Templates tab use - see TemplatesView.
 import { SaveTemplateModal, DuplicateProjectModal } from './TemplatesView';
 import BulkActionBar from './BulkActionBar';
+import { useCustomSections } from './customSections';
 
 const VIEW_KINDS = [
   { key: 'list', label: 'List', icon: List },
@@ -37,7 +38,9 @@ const VIEW_KINDS = [
   { key: 'workload', label: 'Workload', icon: Gauge },
   { key: 'files', label: 'Files', icon: Paperclip },
 ];
-const GROUPS = ['status', 'priority', 'assignee', 'project', 'none'];
+// 'section' is the Custom grouping - sections people make themselves
+// (customSections.js). Labelled Custom below.
+const GROUPS = ['status', 'priority', 'assignee', 'project', 'section', 'none'];
 
 export default function TasksWorkspace({ lockedProjectId = null, mine = false, title = 'Tasks', onBack,
                                          initialFilters = null, initialSearch = '' }) {
@@ -58,8 +61,27 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
   const isMobile = useIsMobile();
   // Remembered per person, not per project: this is "how I like to look at a
   // task list", the same answer on every project I open.
-  const [view, setView] = useTableValue('richlist', 'view', 'list');
-  const [group, setGroup] = useTableValue('richlist', 'group', 'status');
+  const [globalView, setGlobalView] = useTableValue('richlist', 'view', 'list');
+  const [globalGroup, setGlobalGroup] = useTableValue('richlist', 'group', 'status');
+  // Inside a project (Oct 2026): the person's own choice IN this project wins,
+  // then the project's default view (set by its owner), then their general
+  // preference. Choices made inside a project are kept per project.
+  const [projViews, setProjViews] = useTableValue('projectViews', 'data', {});
+  const lockedProjectForView = lockedProjectId ? projectById(lockedProjectId) : null;
+  const eff = effectiveProjectView(projViews, lockedProjectForView, globalView, globalGroup);
+  const view = lockedProjectId ? eff.view : globalView;
+  const group = lockedProjectId ? eff.group : globalGroup;
+  const rememberInProject = (patch) => setProjViews((prev) => ({ ...(prev || {}), [lockedProjectId]: { ...((prev || {})[lockedProjectId] || {}), ...patch } }));
+  const setView = (next) => (lockedProjectId ? rememberInProject({ view: next }) : setGlobalView(next));
+  const setGroup = (next) => (lockedProjectId ? rememberInProject({ group: typeof next === 'function' ? next(group) : next }) : setGlobalGroup(next));
+  const canSetDefault = !!lockedProjectForView && roleAtLeast(projectRoleOf(lockedProjectForView, myEmail, canManage), 'owner');
+  const isProjectDefault = !!lockedProjectForView?.defaultView && lockedProjectForView.defaultView.view === view
+    && (!lockedProjectForView.defaultView.group || lockedProjectForView.defaultView.group === group);
+  const [defaultSaving, setDefaultSaving] = useState(false);
+  const makeDefault = async () => {
+    setDefaultSaving(true);
+    try { await store.updateProject(lockedProjectId, { defaultView: { view, group } }); } catch { /* the toolbar shows the old state */ } finally { setDefaultSaving(false); }
+  };
   const [search, setSearch] = useState(initialSearch || '');
   // Seeded, not forced: header search opens "everything assigned to X" through
   // this, and the user can then clear or widen it like any other filter.
@@ -83,6 +105,9 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
   const [templating, setTemplating] = useState(false);   // Save as Template dialog
   const [duplicating, setDuplicating] = useState(false);  // Duplicate Project dialog
   const [openId, setOpenId] = useState(taskIdFromUrl);
+  // The Custom grouping's sections: this project's own, shared by everyone on
+  // it (customSections.js).
+  const sec = useCustomSections(lockedProjectId || '');
   const [creating, setCreating] = useState(null); // full CreateTaskModal defaults (desktop / "Full details")
   const [quickCreate, setQuickCreate] = useState(null); // mobile Asana-style quick-add defaults
   // Mobile → lightweight quick-add sheet; desktop → the full form. Same context defaults either way.
@@ -143,12 +168,16 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
   });
   const ctx = { nameOf, projectName, teamName, customFields: activeFields, taskById: store.taskById };
   const lockedProject = lockedProjectId ? projectById(lockedProjectId) : null;
+  // Same rule as the list's Time / Actual columns (richlist): the project's
+  // time tracking setting, or any task on screen being time tracked.
+  const tracksTime = lockedProject ? projectTracksTime(lockedProject, store.tasks)
+    : visible.some((t) => taskTracksTime(t, store.projects, store.tasks));
   const isBookmarked = !!lockedProject && bookmarks?.has(lockedProject.id);
   // Only select fields can group or sort meaningfully - a free-text field would
   // make one group per distinct string.
   const groupableFields = activeFields.filter((f) => f.type === 'select');
   const groupOptions = [
-    ...GROUPS.map((g) => ({ key: g, label: g === 'none' ? 'None' : g[0].toUpperCase() + g.slice(1) })),
+    ...GROUPS.map((g) => ({ key: g, label: g === 'none' ? 'None' : g === 'section' ? 'Custom' : g[0].toUpperCase() + g.slice(1) })),
     ...groupableFields.map((f) => ({ key: cfKey(f.id), label: f.name })),
   ];
   const sortFieldOptions = activeFields
@@ -229,6 +258,12 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
             }}><v.icon size={15} />{v.label}</button>
           ))}
         </div>
+        {lockedProjectId && (view === 'list' || view === 'board') && (canSetDefault || isProjectDefault) && (
+          isProjectDefault
+            ? <span title="Everyone opens this project this way unless they pick another view" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: NX.faint, whiteSpace: 'nowrap' }}><Pin size={12} /> Project Default</span>
+            : <button type="button" onClick={makeDefault} disabled={defaultSaving} title="Everyone will open this project in this view and grouping unless they pick another"
+                style={{ ...btn('ghost'), padding: '4px 8px', fontSize: 11.5, color: NX.dim, whiteSpace: 'nowrap' }}><Pin size={12} /> Make Default View</button>
+        )}
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
           <div style={{ position: 'relative', width: 143 }}>
             <Search size={CONTROL_ICON} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: NX.faint }} />
@@ -247,6 +282,8 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
             <ListColumnControls
               hidden={hiddenCols} setHidden={setHiddenCols}
               customFields={fieldsForProject(store.customFields || [], lockedProjectId)} createCustomField={store.createCustomField}
+              allCustomFields={store.customFields} updateCustomField={store.updateCustomField}
+              tracksTime={tracksTime} canManageFields={canManage}
               lockedProjectId={lockedProjectId} teams={store.teams}
             />
           )}
@@ -282,11 +319,11 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
       {/* Body */}
       <div className="nx-scroll" style={{ flex: 1, minHeight: 0, overflow: 'auto', background: NX.canvas, paddingBottom: isMobile ? 88 : undefined }}>
         {view === 'list' ? (
-          <RichListView visible={visible} group={group} sort={sort} setSort={setSort} ctx={ctx} store={store} people={people} selected={selected} setSelected={setSelected} toggleSel={toggleSel} onOpen={setOpenId} onSelectAll={selectAll} lockedProjectId={lockedProjectId} hidden={hiddenCols} setHidden={setHiddenCols} />
+          <RichListView visible={visible} group={group} sort={sort} setSort={setSort} ctx={ctx} store={store} people={people} selected={selected} setSelected={setSelected} toggleSel={toggleSel} onOpen={setOpenId} onSelectAll={selectAll} lockedProjectId={lockedProjectId} hidden={hiddenCols} setHidden={setHiddenCols} onFullCreate={openCreate} customSections={sec} />
         ) : visible.length === 0 ? (
           <EmptyState icon={CheckCircle2} title="No Tasks Yet" hint="Create your first task to get going." />
         ) : view === 'board' ? (
-          <BoardView visible={visible} group={group} ctx={ctx} store={store} onOpen={setOpenId} lockedProjectId={lockedProjectId} />
+          <BoardView visible={visible} group={group} ctx={ctx} store={store} onOpen={setOpenId} lockedProjectId={lockedProjectId} onFullCreate={openCreate} />
         ) : view === 'calendar' ? (
           <CalendarView tasks={visible} onOpen={setOpenId} onCreate={(iso) => openCreate({ projectId: lockedProjectId || '', dueOn: iso })} />
         ) : view === 'timeline' ? (
@@ -301,7 +338,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
       </div>
 
       {/* Bulk bar */}
-      <BulkActionBar selected={selected} clearSel={clearSel} store={store} people={people} lockedProjectId={lockedProjectId} isMobile={isMobile} />
+      <BulkActionBar selected={selected} clearSel={clearSel} store={store} people={people} lockedProjectId={lockedProjectId} isMobile={isMobile} sections={sec} />
 
       {templating && lockedProject && (
         <SaveTemplateModal projectId={lockedProject.id} onClose={() => setTemplating(false)} />
@@ -326,7 +363,8 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
         />
       )}
 
-      {isMobile && (
+      {/* While tasks are selected the bulk bar takes this bar's place. */}
+      {isMobile && selected.size === 0 && (
         <MobileTaskBar
           views={viewKinds} view={view} setView={switchView}
           onCreate={() => openCreate({ projectId: lockedProjectId || '' })}
@@ -343,6 +381,8 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
                 <ListColumnControls
                   hidden={hiddenCols} setHidden={setHiddenCols}
                   customFields={fieldsForProject(store.customFields || [], lockedProjectId)} createCustomField={store.createCustomField}
+                  allCustomFields={store.customFields} updateCustomField={store.updateCustomField}
+              tracksTime={tracksTime} canManageFields={canManage}
                   lockedProjectId={lockedProjectId} teams={store.teams}
                 />
               ) : null}

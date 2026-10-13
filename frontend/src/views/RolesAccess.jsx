@@ -9,7 +9,8 @@ import { openPersonProfile } from '../lib/personNav';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { usePeopleDirectory } from '../lib/queries';
-import { matchPeople, onEnterPickFirst } from '../lib/peopleSearch';
+import { matchPeople } from '../lib/peopleSearch';
+import { useListNav } from '../lib/listNav';
 import { SkeletonBlocks, Spinner } from '../components/AsyncState';
 import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
 import { useNameResolver } from '../lib/useNameResolver';
@@ -211,9 +212,9 @@ function RoleMenu({ roles, companyName, placeholder, onPick, disabled = false })
         }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderBottom: '1px solid var(--line)' }}>
           <Search size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-          <input ref={searchRef} value={q} onChange={e => setQ(e.target.value)} placeholder="Search roles"
+          <input className="nx-inline-edit" ref={searchRef} value={q} onChange={e => setQ(e.target.value)} placeholder="Search roles"
             onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); const first = own[0] || shared[0]; if (first) pick(first); } }}
-            style={{ border: 'none', outline: 'none', background: 'transparent', flex: 1, fontSize: 13, color: 'var(--ink)', fontFamily: 'Inter,sans-serif' }} />
+            style={{ border: 'none', flex: 1, fontSize: 13, color: 'var(--ink)', fontFamily: 'Inter,sans-serif' }} />
         </div>
         <div style={{ maxHeight: 280, overflowY: 'auto', padding: 4 }}>
           {own.length === 0 && shared.length === 0 ? (
@@ -827,6 +828,8 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
   const pageCount = Math.max(1, Math.ceil(filtered.length / PEOPLE_PAGE_SIZE));
   const pageIdx = Math.min(page, pageCount - 1);
   const pageRows = filtered.slice(pageIdx * PEOPLE_PAGE_SIZE, (pageIdx + 1) * PEOPLE_PAGE_SIZE);
+  // Up / Down / Enter over the rows on screen (lib/listNav.js), once typed.
+  const peopleNav = useListNav(pageRows, { open: !!q.trim(), query: `${q}|${pageIdx}`, onPick: (p) => setPerson(p.email) });
 
   useEffect(() => {
     if (!person) { setEff(null); return; }
@@ -888,7 +891,7 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
           <div style={{ position: 'relative', flex: 1 }}>
             <Search size={15} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
             <input value={q} onChange={e => { setQ(e.target.value); setPage(0); }} placeholder="Search anyone…"
-              onKeyDown={onEnterPickFirst(filtered, (p) => setPerson(p.email))}
+              {...peopleNav.inputProps} onKeyDown={peopleNav.onKeyDown}
               style={{ ...input, paddingLeft: 34 }} />
           </div>
           <button className="secondary-btn" onClick={() => setInviteOpen(true)}
@@ -898,11 +901,11 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
           </button>
         </div>
         <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 6 }}>
-          {!people.length ? <ListSkeleton /> : filtered.length === 0 ? <Empty text="No matches." /> : pageRows.map(p => {
+          {!people.length ? <ListSkeleton /> : filtered.length === 0 ? <Empty text="No matches." /> : pageRows.map((p, i) => {
             const mem = membership[p.email];
             const active = person === p.email;
             return (
-              <button key={p.email} onClick={() => setPerson(p.email)}
+              <button key={p.email} {...peopleNav.optionProps(i)} onClick={() => setPerson(p.email)}
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 11px', borderRadius: 10, border: 'none', width: '100%', textAlign: 'left', background: active ? 'color-mix(in srgb, var(--ink) 8%, transparent)' : 'none', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
                 <Avatar name={p.name} src={p.photo} size={28} />
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -1765,6 +1768,8 @@ export function AssignModal({ role, onClose, onAssigned, onErr }) {
     return [...all.filter(p => p.company === roleCompany), ...all.filter(p => !p.company)];
   }, [dir, roleCompany]);
   const filtered = matchPeople(people, q);
+  const listed = filtered.slice(0, 60);
+  const nav = useListNav(listed, { open: !!q.trim(), query: q, onPick: (p) => assign(p) });
   const addedThisSitting = [...added].filter(e => !(role.members || []).map(m => (m || '').toLowerCase()).includes(e)).length;
 
   async function assign(p) {
@@ -1784,15 +1789,15 @@ export function AssignModal({ role, onClose, onAssigned, onErr }) {
       <div style={{ position: 'relative', marginBottom: 10 }}>
         <Search size={15} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
         <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search people…"
-          onKeyDown={onEnterPickFirst(filtered, assign)}
+          {...nav.inputProps} onKeyDown={nav.onKeyDown}
           style={{ ...input, paddingLeft: 34 }} />
       </div>
       <div style={{ maxHeight: 340, overflow: 'auto' }}>
         {!dir ? <ListSkeleton /> : filtered.length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 13, padding: 16, textAlign: 'center' }}>No matches.</div>
-          : filtered.slice(0, 60).map(p => {
+          : listed.map((p, i) => {
             const isAdded = added.has(p.email);
             return (
-              <button key={p.email} onClick={() => assign(p)} disabled={!!busy || isAdded}
+              <button key={p.email} {...nav.optionProps(i)} onClick={() => assign(p)} disabled={!!busy || isAdded}
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, border: '1px solid var(--line)', background: isAdded ? 'hsla(var(--color-green),0.07)' : 'var(--card)', width: '100%', textAlign: 'left', marginBottom: 7, cursor: isAdded ? 'default' : 'pointer', opacity: (busy && !isAdded && busy !== p.email) ? 0.6 : 1 }}>
                 <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 600, fontSize: 13 }}>{p.name}</div><div style={{ fontSize: 11, color: 'var(--muted)' }}>{p.email}{roleCompany && !p.company ? ' · No company set' : ''}</div></div>
                 {busy === p.email ? <Spinner size={15} />

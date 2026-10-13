@@ -179,7 +179,7 @@ function ReviewItem({ review, location, canReply, onChange }) {
               placeholder="Write a reply - it is posted publicly on Google as a response from the owner."
               style={{
                 width: '100%', padding: '8px 10px', borderRadius: 6, border: '1px solid ' + (tooLong ? C.red500 : C.gray200),
-                fontSize: 13, color: C.gray700, background: C.white, marginBottom: 8, outline: 'none', resize: 'vertical', fontFamily: 'inherit',
+                fontSize: 13, color: C.gray700, background: C.white, marginBottom: 8, resize: 'vertical', fontFamily: 'inherit',
               }}
             />
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -327,8 +327,8 @@ export default function GoogleReviewsPanel({ canReply, reloadKey = 0 }) {
             </select>
             <label style={{ ...btn, cursor: 'text' }}>
               <Search size={12} />
-              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search loaded reviews"
-                     style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 12, color: C.gray700, width: 160 }} />
+              <input className="nx-inline-edit" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search loaded reviews"
+                     style={{ border: 'none', fontSize: 12, color: C.gray700, width: 160 }} />
             </label>
           </div>
         </div>

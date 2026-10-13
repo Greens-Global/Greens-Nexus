@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, Search, X, Users, Check } from 'lucide-react';
 import { Spinner } from './AsyncState';
 import { api } from '../api';
+import { useListNav } from '../lib/listNav';
 import { Avatar } from './ShiftScheduleExtras';
 
 // Teams on the schedule grid (Neil, Sep 30 - Microsoft Teams Shifts parity):
@@ -60,8 +61,8 @@ export function TeamSwitcher({ groups, value, onChange }) {
           </div>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, margin: 8, border: '1px solid var(--line)', borderRadius: 8, padding: '4px 8px' }}>
             <Search size={12} color="var(--muted)" />
-            <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search groups" aria-label="Search groups" autoFocus
-              style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 12.5, flex: 1, fontFamily: 'inherit', color: 'var(--ink)' }} />
+            <input className="nx-inline-edit" value={q} onChange={e => setQ(e.target.value)} placeholder="Search groups" aria-label="Search groups" autoFocus
+              style={{ border: 'none', fontSize: 12.5, flex: 1, fontFamily: 'inherit', color: 'var(--ink)' }} />
           </label>
           <div role="listbox" aria-label="Groups" style={{ maxHeight: 300, overflowY: 'auto', paddingBottom: 6 }}>
             {tab !== 'archived' && !q.trim() && (
@@ -125,6 +126,8 @@ export function AddMembersModal({ team, busy, onAdd, onClose, onManage }) {
     .filter(p => !q.trim() || `${nameOf(p)} ${emailOf(p)}`.toLowerCase().includes(q.trim().toLowerCase()))
     .sort((a, b) => nameOf(a).localeCompare(nameOf(b)));
   const toggle = (em) => setPicked(ps => (ps.includes(em) ? ps.filter(x => x !== em) : [...ps, em]));
+  // Up / Down / Enter in the search box (lib/listNav.js), once typed.
+  const nav = useListNav(list, { open: !!q.trim(), query: q, onPick: p => toggle(emailOf(p)) });
   return (
     <div style={MODAL_BACK} onClick={e => e.target === e.currentTarget && onClose()}>
       <div role="dialog" aria-label="Add Members" style={MODAL_CARD}>
@@ -137,16 +140,17 @@ export function AddMembersModal({ team, busy, onAdd, onClose, onManage }) {
         </div>
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, border: '1px solid var(--line)', borderRadius: 8, padding: '5px 10px', marginBottom: 8 }}>
           <Search size={13} color="var(--muted)" />
-          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search people" aria-label="Search people to add" autoFocus
-            style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 13, flex: 1, fontFamily: 'inherit', color: 'var(--ink)' }} />
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search people" aria-label="Search people to add" autoFocus className="nx-inline-edit"
+            {...nav.inputProps} onKeyDown={nav.onKeyDown}
+            style={{ border: 'none', fontSize: 13, flex: 1, fontFamily: 'inherit', color: 'var(--ink)' }} />
         </label>
         <div style={{ maxHeight: 300, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 8 }}>
           {people === null && <div style={{ padding: 16, textAlign: 'center', color: 'var(--muted)' }}><Spinner size={16} /></div>}
           {people !== null && !list.length && <div style={{ padding: 12, fontSize: 12.5, color: 'var(--muted)' }}>Nobody else to add.</div>}
-          {list.map(p => {
+          {list.map((p, i) => {
             const em = emailOf(p);
             return (
-              <label key={em} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', cursor: 'pointer', borderBottom: '1px solid var(--line)' }}>
+              <label key={em} {...nav.optionProps(i)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', cursor: 'pointer', borderBottom: '1px solid var(--line)' }}>
                 <input type="checkbox" checked={picked.includes(em)} onChange={() => toggle(em)} aria-label={`Add ${nameOf(p)}`} />
                 <Avatar name={nameOf(p)} photoUrl={p.photoUrl || p.photo_url || ''} size={24} />
                 <span style={{ minWidth: 0 }}>

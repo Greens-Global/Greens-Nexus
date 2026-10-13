@@ -651,6 +651,12 @@ def insights(user: dict = Depends(get_current_user), db: Session = Depends(get_d
             }
         _safe_insight(modules, "accounting", "Accounting", "accounting", accounting_block)
 
+        # `drill`: whether /insights/drilldown below can answer "of what?" for
+        # this count. The board (dashboard/BiInsights.jsx) only offers a
+        # breakdown where one exists instead of a 404 after the click.
+        for m in modules:
+            for s in m["stats"]:
+                s["drill"] = s["key"] in DRILLABLE.get(m["id"], ())
         return {"modules": [m for m in modules if m["stats"] or m["breakdown"] or m.get("table") or m.get("trend") or m.get("funnel")]}
 
     out = cache.dashboard_insights.get_or_load((), _compute)
@@ -673,6 +679,24 @@ def insights(user: dict = Depends(get_current_user), db: Session = Depends(get_d
 # `insights()` above used to compute the count) and which field it groups or
 # lists by. Duplicating that predicate per metric is cheaper to keep honest
 # than a shared helper both endpoints would have to agree on forever.
+# Every (module, metric) the dispatch in insights_drilldown handles - keep
+# the two in step: a metric listed here but not handled below 404s on click,
+# one handled but not listed is offered nowhere.
+DRILLABLE = {
+    "tasks": {"overdue", "upcoming", "completed_7d", "open_total"},
+    "tickets": {"open", "unassigned", "sla_breached", "resolved", "closed"},
+    "attendance": {"clocked_in", "on_break", "not_clocked_in"},
+    "knowledge_base": {"pending_review", "changes_requested", "draft"},
+    "operations": {"pending_requisitions", "open_purchases", "pending_inventory"},
+    "documents": {"pending_signatures", "needs_attention", "signed_7d"},
+    "it": {"sites_down", "ssl_expiring", "warranties_expiring", "hw_unassigned"},
+    "construction": {"logs_pending", "overdue_rfis", "pending_submittals", "at_risk_milestones"},
+    "asset_management": {"warranties_expiring", "inspections_due"},
+    "people": {"open_candidates", "interviews_7d", "leave_pending", "docs_expiring"},
+    "credential_vault": {"breached", "weak", "rotation_overdue", "pending_shares"},
+}
+
+
 def _by_person(db, emails: list, title: str) -> dict:
     names = {(e.work_email or "").lower(): (e.display_name or e.work_email)
              for e in db.query(models.NexusEmployee.work_email, models.NexusEmployee.display_name).all()}
@@ -1048,9 +1072,19 @@ def agenda(start: str = "", end: str = "", tz: str = "UTC",
 # dashboard_birthdays - watches NexusEmployee, so an HR edit invalidates it).
 @router.get("/birthdays")
 def birthdays(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    # Company wall (auth.company_scope): None = every company, else only the
+    # caller's own - and the cache is kept per wall, as the contact directory's
+    # is, so one company's roster is never served to another.
+    scope = auth.company_scope(user, db)
+    key = "all" if scope is None else ("co:" + ",".join(sorted(scope)) if scope else "co:none")
+
     def _load() -> dict:
-        rows = (db.query(models.NexusEmployee)
-                .filter(models.NexusEmployee.status == "active").all())
+        q = db.query(models.NexusEmployee).filter(models.NexusEmployee.status == "active")
+        if scope is not None:
+            if not scope:
+                return {"birthdays": []}
+            q = q.filter(models.NexusEmployee.company.in_(scope))
+        rows = q.all()
         out = []
         for e in rows:
             dob = ((e.personal or {}).get("dob") or "").strip()
@@ -1063,7 +1097,7 @@ def birthdays(user: dict = Depends(get_current_user), db: Session = Depends(get_
             out.append({"name": name, "month": int(m.group(1)), "day": int(m.group(2))})
         return {"birthdays": out}
 
-    return {**cache.dashboard_birthdays.get_or_load((), _load), "at": _now()}
+    return {**cache.dashboard_birthdays.get_or_load(key, _load), "at": _now()}
 
 
 # The caller's OWN company's holiday calendar for the Calendar widget (Sep

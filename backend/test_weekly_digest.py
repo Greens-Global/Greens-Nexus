@@ -327,7 +327,7 @@ class ContentTests(_Case):
         self.assertNotIn("Daily Briefing", html)
         self.assertIn("Open My Briefing", html)
         self.assertIn("/briefing", html)
-        self.assertNotIn("Open My Tasks", html)
+        self.assertNotIn("Open Tasks", html)
 
     def test_outlook_desktop_gets_no_checkbox_or_arrow_and_real_buttons(self):
         """Oct 1: Outlook Classic (the Word engine) drew the open section's

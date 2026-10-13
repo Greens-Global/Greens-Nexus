@@ -17,6 +17,7 @@ import TaskDetailDrawer from './TaskDetailDrawer';
 // Shared US date/time helpers - no ad-hoc toLocale* calls (CLAUDE.md).
 import { formatDate, formatDateTime } from '../lib/datetime';
 import { NX, FONT, btn, input as inputStyle, card } from './theme';
+import SavedCheck from '../components/SavedCheck';
 
 const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
 const field = { marginBottom: 14 };
@@ -160,7 +161,7 @@ export default function TaskNotifySettings() {
               {/* The two reminder numbers above are the COMPANY DEFAULT: each
                   person can change their own in Email Settings (My Tasks).
                   This decides whether "Off" is one of their choices. */}
-              <Field label="Let People Turn Off Overdue Reminders" hint="Company settings above are everyone's default; each person can adjust their own in My Tasks, Email Settings. When this is off, the least anyone can choose is once a week or only once.">
+              <Field label="Let People Turn Off Overdue Reminders" hint="Company settings above are everyone's default; each person can adjust their own in Tasks, Email Settings. When this is off, the least anyone can choose is once a week or only once.">
                 <Toggle on={!!cfg.allowUserOverdueOff} onChange={() => set('allowUserOverdueOff', !cfg.allowUserOverdueOff)} />
               </Field>
 
@@ -183,7 +184,7 @@ export default function TaskNotifySettings() {
             <button style={{ ...btn('primary'), opacity: saving ? 0.6 : 1 }} onClick={save} disabled={saving}>
               <Save size={14} /> {saving ? 'Saving…' : 'Save Settings'}
             </button>
-            {saved && <span style={{ fontSize: 12.5, color: NX.green, fontWeight: 600 }}>Saved</span>}
+            <SavedCheck show={saved} />
           </div>
         </>
       ) : tab === 'log' ? (

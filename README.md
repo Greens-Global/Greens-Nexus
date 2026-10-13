@@ -1,23 +1,31 @@
-# Greens Internal Website
+# Greens Nexus
 
-This workspace contains a static site in `src/scratch/master-construction-portal`.
+Internal company portal for Greens Global: items and assignments, tasks, time
+clock, HR, e-signatures, accounting, property and operations in one place.
 
-## Deploying to GitHub Pages
+- `frontend/` - React 19 + Vite
+- `backend/` - FastAPI + SQLAlchemy
+- Supabase for Postgres, storage and realtime; Microsoft Entra ID (MSAL) for sign-in
 
-This repository includes a GitHub Actions workflow at `.github/workflows/deploy.yml` which will publish the `src/scratch/master-construction-portal` folder to the `gh-pages` branch when you push to `main`.
+## Run Locally
 
-Steps to publish:
+```
+# backend (terminal 1) - uses its own SQLite unless DATABASE_URL is set in backend/.env
+cd backend && uvicorn main:app --reload --port 8000
 
-1. Create a GitHub repository (via the web UI or `gh repo create`).
-2. From this repo root run:
-
-```powershell
-git init
-git add .
-git commit -m "Initial commit: add site and deployment workflow"
-git branch -M main
-git remote add origin git@github.com:<your-username>/<your-repo>.git
-git push -u origin main
+# frontend (terminal 2) - talks to localhost:8000 by default
+cd frontend && npm run dev
 ```
 
-3. After the push, the Actions workflow will run and deploy the site to the `gh-pages` branch. Pages will become available at `https://<your-username>.github.io/<your-repo>/` once GitHub finishes publishing.
+The frontend needs Node 22 (`frontend/.nvmrc`). On Windows, `start.bat` opens both.
+
+## Conventions
+
+See [CLAUDE.md](CLAUDE.md) for conventions: local sign-in setup, the checks to
+run before pushing, file ownership, and the backend, frontend and domain rules.
+
+## Branches And Deploys
+
+- `main` is production. `dev` is integration, and every merge to `dev` deploys by itself (frontend in about a minute, backend in about four).
+- One branch per task, cut from fresh `dev`, merged by pull request within a day or two, then deleted.
+- Never commit to `dev` or `main` directly, and never commit `.env` files.

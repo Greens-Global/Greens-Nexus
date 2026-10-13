@@ -57,6 +57,12 @@ const buildExtensions = (placeholder) => [
 function Btn({ icon: Icon, label, active, disabled, onClick }) {
   return (
     <button type="button" title={label} aria-label={label} disabled={disabled}
+      // Out of the Tab order: the toolbar's ~16 buttons were each a Tab stop,
+      // so tabbing from the Description to Project in Create a Task took
+      // sixteen presses (Oct 13 2026). They act on the text selection, so they
+      // are pointer tools; from the keyboard the editor's own shortcuts do the
+      // same (Ctrl+B / I / U, Ctrl+Shift+8 / 7 for lists, Ctrl+Z / Y).
+      tabIndex={-1}
       // onMouseDown-preventDefault keeps the selection alive: a plain onClick
       // blurs the editor first, so the command would apply to nothing.
       onMouseDown={(e) => { e.preventDefault(); if (!disabled) onClick(); }}

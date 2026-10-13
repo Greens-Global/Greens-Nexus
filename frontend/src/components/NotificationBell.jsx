@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Bell, CheckCircle, XCircle, Package, ShoppingCart, RotateCcw, Check, X, Trash2, AlertCircle, User, Clock, HelpCircle, Megaphone, AlertTriangle, ChevronDown, ChevronRight } from 'lucide-react';
+import { Bell, CheckCircle, XCircle, Package, ShoppingCart, RotateCcw, Check, X, Trash2, AlertCircle, User, Clock, HelpCircle, Megaphone, AlertTriangle, ChevronDown, ChevronRight, Sparkles } from 'lucide-react';
 import { useNotifications } from '../contexts/NotificationContext';
 import { useInventory }      from '../contexts/InventoryContext';
 import { useRequisitions }   from '../contexts/RequisitionContext';
@@ -65,6 +65,8 @@ const TYPE_META = {
   kb_course_recert:     { icon: RotateCcw,   label: 'Recertification due',   color: 'var(--color-orange)' },
   time_missed_out:      { icon: Clock,       label: 'Missing clock-out',    color: 'var(--color-orange)' },
   time_overtime:        { icon: Clock,       label: 'Overtime',             color: 'var(--color-orange)' },
+  // The week's What's New, kept here for anyone who dismissed the bar (Oct 12).
+  whats_new:            { icon: Sparkles,    label: "What's New",           color: 'var(--color-green)'  },
 };
 
 // Short stage labels/colors for chips on cards and the lifecycle "trail" strip
@@ -153,7 +155,7 @@ export function destinationFor(n) {
 }
 
 export default function NotificationBell({ onNavigate }) {
-  const { notifications: allNotifications, unreadCount, markRead, markAllRead, dismiss, restore, addNotification, markActioned, pendingApprovalId, clearPendingApproval, openPanelSignal } = useNotifications();
+  const { notifications: allNotifications, unreadCount, markRead, markAllRead, dismiss, restore, markActioned, pendingApprovalId, clearPendingApproval, openPanelSignal } = useNotifications();
   const { approveRequest, allocateItem, requests: invRequests, requestsLoading: invRequestsLoading, refreshRequests: refreshInvRequests } = useInventory();
   const { approveRequisition, rejectRequisition }   = useRequisitions();
   const { accounts } = useMsal();
@@ -477,16 +479,7 @@ export default function NotificationBell({ onNavigate }) {
     allocateItem(refId, myName).then(() => {
       markActioned(n.id);
       dismiss(n.id);
-      const invReq = invRequests.find(r => r.id === refId);
-      addNotification({
-        type:        'allocated',
-        recipient:   invReq?.requestedByEmail || invReq?.requestedBy || n.requestedBy || '',
-        refId,
-        itemName:    n.itemName ?? invReq?.itemName ?? 'the item',
-        title:       'Item allocated ✓',
-        body:        `Your ${n.itemName ?? invReq?.itemName ?? 'item'} has been allocated and is ready for collection. Please pick it up from your supervisor.`,
-        action:      { label: 'Track Request →', view: 'inventory', sub: 'my-requests' },
-      });
+      // The requester's bell entry is written by the server (items.py update_checkout).
     }).catch(() => {}).finally(() => setAllocatingId(null));
   }
 

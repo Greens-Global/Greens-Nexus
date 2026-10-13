@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
-import RichListView, { peopleStackLayout, taskProjectOptions, ListColumnControls } from './richlist';
+import RichListView, { peopleStackLayout, taskProjectOptions, ListColumnControls, addableFields } from './richlist';
+import { __setTablePrefsCache } from '../tableCols';
 
 // Render-smoke test for the task list. This is the exact guard that was missing
 // on 2026-08-02: a merge left an orphaned `g.renderTasks.length` reference, the
@@ -350,6 +351,49 @@ describe('RichListView range selection', () => {
     expect(ids()).toEqual([]);
   });
 
+  // Oct 13 2026: Ctrl+click did nothing in the real list. The tests above
+  // click the row element itself, but a real click lands in a cell, and every
+  // editable cell (Person, Due Date, Priority, a custom field) stops its own
+  // click - so only the title ever reached the row.
+  it('ctrl+click on an editable cell picks the row too', () => {
+    const onOpen = vi.fn();
+    renderSel(onOpen);
+    const cell = row('Bravo').querySelector('.rl-cell');
+    expect(cell).toBeTruthy();
+
+    fireEvent.click(cell, { ctrlKey: true });
+    fireEvent.click(row('Charlie').querySelector('.rl-cell'), { ctrlKey: true });
+
+    expect(ids()).toEqual(['b', 'c']);
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+
+  it('shift+click on an editable cell takes the range', () => {
+    renderSel();
+    fireEvent.click(row('Alpha').querySelector('.rl-cell'), { ctrlKey: true });
+    fireEvent.click(row('Charlie').querySelector('.rl-cell'), { shiftKey: true });
+    expect(ids()).toEqual(['a', 'b', 'c']);
+  });
+
+  it("a Mac's ctrl+click - which arrives as a right-click - picks the row", () => {
+    renderSel();
+    fireEvent.contextMenu(row('Alpha').querySelector('.rl-cell'), { ctrlKey: true });
+    expect(ids()).toEqual(['a']);
+  });
+
+  it('a plain right-click is left to the browser', () => {
+    renderSel();
+    fireEvent.contextMenu(row('Alpha'));
+    expect(ids()).toEqual([]);
+  });
+
+  it('the checkbox still picks exactly once with a modifier held', () => {
+    renderSel();
+    const box = row('Alpha').querySelector('button');
+    fireEvent.click(box, { ctrlKey: true });
+    expect(ids()).toEqual(['a']);
+  });
+
   it('leaves a plain arrow key alone, so the page still scrolls', () => {
     renderSel();
 
@@ -435,5 +479,208 @@ describe('Hide-columns menu', () => {
       { id: 'tm1', name: 'Team 1', projectIds: ['p1'] },
     ] });
     expect(screen.getByText('Team')).toBeInTheDocument();
+  });
+});
+
+// Completed is collapsed every time the list opens (Neil, Oct 12 2026). Its
+// state used to be part of the stored collapsed list, so one click in one
+// project left it open everywhere, for good. The stored list below is the
+// shape such a profile has: an empty list, meaning "nothing collapsed".
+describe('RichListView Completed group', () => {
+  const done = {
+    id: 't3', title: 'Finished task', status: 'completed', priority: 'low',
+    assigneeId: '', teamId: '', projectId: '', dueOn: '', startOn: '',
+    estimateHours: null, followerIds: [], subtaskIds: [], commentIds: [],
+    attachmentIds: [], tags: [], completed: true, code: 'T-3', customFieldValues: {},
+  };
+  const doneStore = {
+    ...store,
+    tasks: [...mockTasks, done],
+    taskById: { ...store.taskById, [done.id]: done },
+    statusOrder: ['not_started', 'in_progress', 'completed'],
+    statusMeta: { ...store.statusMeta, completed: { label: 'Completed', color: '#44aa44', tint: '#e8f5e8' } },
+  };
+  const open = (props = {}) => renderList({ visible: [...mockTasks, done], store: doneStore, ...props });
+
+  it('starts collapsed even when the profile says it was left open', () => {
+    __setTablePrefsCache({ richlist: { collapsed: [] } });
+    open();
+    expect(screen.getByText('First task')).toBeInTheDocument();
+    expect(screen.queryByText('Finished task')).not.toBeInTheDocument();
+    expect(screen.getByText('Completed')).toBeInTheDocument();
+  });
+
+  it('opens on a header click, without touching the stored list', () => {
+    __setTablePrefsCache({ richlist: { collapsed: ['in_progress'] } });
+    open();
+    expect(screen.queryByText('Second task')).not.toBeInTheDocument();   // stored collapse still honored
+    fireEvent.click(screen.getByText('Completed'));
+    expect(screen.getByText('Finished task')).toBeInTheDocument();
+    // Open, the row's own status cell also reads "Completed" - the header is first.
+    fireEvent.click(screen.getAllByText('Completed')[0]);
+    expect(screen.queryByText('Finished task')).not.toBeInTheDocument();
+  });
+
+  it('collapses again when the list moves to another project', () => {
+    __setTablePrefsCache({ richlist: {} });
+    const { rerender } = open({ lockedProjectId: 'p1' });
+    fireEvent.click(screen.getByText('Completed'));
+    expect(screen.getByText('Finished task')).toBeInTheDocument();
+    rerender(
+      <RichListView visible={[...mockTasks, done]} group="status" ctx={ctx} store={doneStore} people={[]}
+        selected={new Set()} toggleSel={() => {}} onOpen={() => {}} onSelectAll={() => {}}
+        lockedProjectId="p2" hidden={new Set()} setHidden={() => {}} />,
+    );
+    expect(screen.queryByText('Finished task')).not.toBeInTheDocument();
+  });
+});
+
+// + Column > Existing Fields: a field another project uses can be put on this
+// list from the menu (Neil, Oct 12 2026). Its own step, so the type grid
+// never grows with the workspace's field count.
+describe('+ Column > Existing Fields', () => {
+  const fields = [
+    { id: 'f1', name: 'Vendor', type: 'text', projectIds: ['p2'] },
+    { id: 'f2', name: 'Budget', type: 'number', projectIds: ['p2', 'p3'] },
+    { id: 'f3', name: 'Global', type: 'text', projectIds: [] },            // on every list already
+    { id: 'f4', name: 'Here', type: 'text', projectIds: ['p1'] },          // on this list already
+    { id: 'f5', name: 'Site', type: 'text', projectIds: ['p2'], appliesTo: ['project'] },   // not a task field
+  ];
+
+  it('offers only task fields scoped elsewhere, A-Z', () => {
+    expect(addableFields(fields, 'p1').map((f) => f.name)).toEqual(['Budget', 'Vendor']);
+    expect(addableFields(fields, '')).toEqual([]);   // outside a project there is nothing to add to
+  });
+
+  it('shows the row only when there is something to add', () => {
+    const { unmount } = render(<ListColumnControls hidden={new Set()} setHidden={() => {}} customFields={[]}
+      createCustomField={() => {}} lockedProjectId="p1" allCustomFields={[fields[3]]} />);
+    fireEvent.click(screen.getByText('Column'));
+    expect(screen.queryByText('Existing Fields')).not.toBeInTheDocument();
+    unmount();
+    render(<ListColumnControls hidden={new Set()} setHidden={() => {}} customFields={[]}
+      createCustomField={() => {}} lockedProjectId="p1" allCustomFields={fields} />);
+    fireEvent.click(screen.getByText('Column'));
+    expect(screen.getByText('Existing Fields')).toBeInTheDocument();
+    expect(screen.getByText('Recommended')).toBeInTheDocument();   // the type grid is still there
+  });
+
+  it('adds the picked field to this project and nothing else', () => {
+    const update = vi.fn(() => Promise.resolve({}));
+    render(<ListColumnControls hidden={new Set()} setHidden={() => {}} customFields={[]}
+      createCustomField={() => {}} lockedProjectId="p1" allCustomFields={fields} updateCustomField={update} />);
+    fireEvent.click(screen.getByText('Column'));
+    fireEvent.click(screen.getByText('Existing Fields'));
+    expect(screen.queryByText('Recommended')).not.toBeInTheDocument();
+    expect(screen.queryByText('Global')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('Budget'));
+    expect(update).toHaveBeenCalledWith('f2', { projectIds: ['p2', 'p3', 'p1'] });
+  });
+
+  // A new field made from a project's list is scoped to that project: the
+  // server refuses an unscoped (every-project) field from anyone below manager.
+  it('creates a new field on this project only', () => {
+    const create = vi.fn(() => Promise.resolve({}));
+    render(<ListColumnControls hidden={new Set()} setHidden={() => {}} customFields={[]}
+      createCustomField={create} lockedProjectId="p1" allCustomFields={[]} />);
+    fireEvent.click(screen.getByText('Column'));
+    fireEvent.click(screen.getAllByText('Checkbox')[0]);
+    fireEvent.click(screen.getByText('Add Column'));
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ type: 'checkbox', projectIds: ['p1'] }));
+  });
+
+  it('is not offered outside a project to someone who cannot add a field everywhere', () => {
+    const { unmount } = render(<ListColumnControls hidden={new Set()} setHidden={() => {}} customFields={[]}
+      createCustomField={() => {}} lockedProjectId="" canManageFields={false} />);
+    expect(screen.queryByText('Column')).not.toBeInTheDocument();
+    unmount();
+    render(<ListColumnControls hidden={new Set()} setHidden={() => {}} customFields={[]}
+      createCustomField={() => {}} lockedProjectId="p1" canManageFields={false} />);
+    expect(screen.getByText('Column')).toBeInTheDocument();
+  });
+
+  it('says so and stays open when the add fails', async () => {
+    const update = vi.fn(() => Promise.reject(Object.assign(new Error('API error 500'), { status: 500 })));
+    render(<ListColumnControls hidden={new Set()} setHidden={() => {}} customFields={[]}
+      createCustomField={() => {}} lockedProjectId="p1" allCustomFields={fields} updateCustomField={update} />);
+    fireEvent.click(screen.getByText('Column'));
+    fireEvent.click(screen.getByText('Existing Fields'));
+    fireEvent.click(screen.getByText('Budget'));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Budget could not be added. Try again.');
+    expect(screen.getByText('Vendor')).toBeInTheDocument();          // still open, so it can be retried
+    expect(screen.getByText('Budget').closest('button')).not.toBeDisabled();
+  });
+});
+
+
+// A project with a required custom field (Oct 13 2026): the "Add task…" row
+// cannot make a title-only task there - the server refuses it - so it opens
+// the full Create form with the title in, and only creates directly elsewhere.
+describe('Add task row in a project with a required field', () => {
+  const prop = { id: 'f-prop', name: 'Property', type: 'select', appliesTo: ['task'], options: [],
+    projectIds: ['p-it'], requiredProjectIds: ['p-it'] };
+  const addRow = (lockedProjectId, createTask, onFullCreate) => {
+    render(
+      <RichListView visible={mockTasks} group="status" ctx={ctx}
+        store={{ ...store, customFields: [prop], createTask }} people={[]} selected={new Set()}
+        toggleSel={() => {}} onOpen={() => {}} onSelectAll={() => {}} lockedProjectId={lockedProjectId}
+        hidden={new Set()} setHidden={() => {}} onFullCreate={onFullCreate} />,
+    );
+    const box = screen.getAllByPlaceholderText('Add task…')[0];
+    fireEvent.change(box, { target: { value: 'Replace badge reader' } });
+    fireEvent.keyDown(box, { key: 'Enter' });
+  };
+
+  it('opens the full Create form instead of creating', () => {
+    const createTask = vi.fn(() => Promise.resolve({}));
+    const onFullCreate = vi.fn();
+    addRow('p-it', createTask, onFullCreate);
+    expect(createTask).not.toHaveBeenCalled();
+    expect(onFullCreate).toHaveBeenCalledWith(expect.objectContaining({ title: 'Replace badge reader', projectId: 'p-it' }));
+  });
+
+  it('still creates straight away where nothing is required', () => {
+    const createTask = vi.fn(() => Promise.resolve({}));
+    const onFullCreate = vi.fn();
+    addRow('p-other', createTask, onFullCreate);
+    expect(createTask).toHaveBeenCalled();
+    expect(onFullCreate).not.toHaveBeenCalled();
+  });
+});
+
+// Oct 13 2026: the header checkbox of one section (Recurring) also ticked
+// every task in the next (Missed) - one header was shared by all sections.
+describe('a section header checkbox', () => {
+  const two = [
+    { ...mockTasks[0], id: 'r1', title: 'Add K1s', status: 'not_started' },
+    { ...mockTasks[0], id: 'r2', title: 'Tax Return - RJK', status: 'not_started' },
+    { ...mockTasks[0], id: 'm1', title: 'Tax Return', status: 'in_progress' },
+  ];
+  const twoStore = { ...store, tasks: two, taskById: Object.fromEntries(two.map((t) => [t.id, t])) };
+  let latest;
+  function Harness() {
+    const [selected, setSelected] = useState(new Set(['m1']));
+    latest = selected;
+    return (
+      <RichListView visible={two} group="status" ctx={ctx} store={twoStore} people={[]}
+        selected={selected} setSelected={setSelected} toggleSel={() => {}} onOpen={() => {}}
+        lockedProjectId="" hidden={new Set()} setHidden={() => {}} />
+    );
+  }
+
+  it('selects only its own section, keeping what else was picked', () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByLabelText('Select all in Not Started'));
+    expect([...latest].sort()).toEqual(['m1', 'r1', 'r2']);
+    fireEvent.click(screen.getByLabelText('Deselect all in Not Started'));
+    expect([...latest]).toEqual(['m1']);
+  });
+
+  it("does not touch another section's tasks", () => {
+    render(<Harness />);
+    fireEvent.click(screen.getByLabelText('Deselect all in In Progress'));
+    expect([...latest]).toEqual([]);
+    fireEvent.click(screen.getByLabelText('Select all in Not Started'));
+    expect([...latest].sort()).toEqual(['r1', 'r2']);
   });
 });

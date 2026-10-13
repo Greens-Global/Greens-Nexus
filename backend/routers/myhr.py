@@ -108,13 +108,17 @@ def save_profile(body: ProfileIn, user: dict = Depends(get_current_user), db: Se
 #    self-service path to a photo existed at all). ─────────────────────────
 
 @router.post("/profile/photo")
-async def upload_my_photo(file: UploadFile = File(...),
-                          user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def upload_my_photo(file: UploadFile = File(...),
+                    user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    # Plain `def` on purpose (as are the other uploads in this file): the
+    # storage POST and the queries are blocking, and FastAPI runs a `def`
+    # endpoint in its threadpool. As `async def` they froze the whole worker
+    # for the length of the upload (CLAUDE.md, the Aug 2 freeze class).
     e = _me(db, user["email"])
     ext = _IMAGE_TYPES.get(file.content_type or "")
     if not ext:
         raise HTTPException(400, "Photo must be JPEG, PNG, WebP or GIF")
-    data = await file.read()
+    data = file.file.read()
     if len(data) > _MAX_AVATAR_BYTES:
         raise HTTPException(400, "Photo must be under 5 MB")
     path = f"{e.id}/{uuid.uuid4()}.{ext}"
@@ -720,13 +724,13 @@ def save_my_signature(body: SignatureIn, user: dict = Depends(get_current_user),
 # writing e.signature_logo_url instead of e.photo_url. Nothing else in the
 # signature (name/role/email/address/socials/template) is touched by this.
 @router.post("/signature/logo")
-async def upload_my_signature_logo(file: UploadFile = File(...),
-                                   user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+def upload_my_signature_logo(file: UploadFile = File(...),
+                             user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     e = _me(db, user["email"])
     ext = _IMAGE_TYPES.get(file.content_type or "")
     if not ext:
         raise HTTPException(400, "Logo must be JPEG, PNG, WebP or GIF")
-    data = await file.read()
+    data = file.file.read()
     if len(data) > _MAX_AVATAR_BYTES:
         raise HTTPException(400, "Logo must be under 5 MB")
     path = f"{e.id}/signature-logo-{uuid.uuid4()}.{ext}"
@@ -950,11 +954,11 @@ class AskHrIn(BaseModel):
 
 
 @router.post("/requests/attachment")
-async def upload_request_attachment(file: UploadFile = File(...),
-                                    user: dict = Depends(get_current_user)):
+def upload_request_attachment(file: UploadFile = File(...),
+                              user: dict = Depends(get_current_user)):
     """Stage the document an employee wants HR to file - uploaded to the private
     hr-docs bucket, referenced by the request created right after."""
-    data = await file.read()
+    data = file.file.read()
     if len(data) > 15 * 1024 * 1024:
         raise HTTPException(400, "File too large (max 15 MB)")
     import re as _re
@@ -992,7 +996,7 @@ def create_request(body: AskHrIn, user: dict = Depends(get_current_user), db: Se
             id=str(uuid.uuid4()), type="hr_request", recipient=email,
             title=f"{_REQ_LABEL[body.type]} - {name}",
             body=msg[:300], ref_id=row.id, requested_by=name,
-            action="", actioned=False, read_by="", created_at=_now()))
+            action="", actioned=False, read_by="", company=e.company or "", created_at=_now()))
     db.commit()
     return _ser_req(row)
 

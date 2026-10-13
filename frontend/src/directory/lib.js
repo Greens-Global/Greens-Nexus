@@ -10,7 +10,9 @@ const TEAMS = 'https://teams.microsoft.com/l';
 export const teamsChat  = (email) => `${TEAMS}/chat/0/0?users=${encodeURIComponent(email)}`;
 export const teamsCall  = (email) => `${TEAMS}/call/0/0?users=${encodeURIComponent(email)}`;
 export const teamsVideo = (email) => `${TEAMS}/call/0/0?users=${encodeURIComponent(email)}&withVideo=true`;
-export const mailto     = (email) => `mailto:${email}`;
+// Email opens Outlook on the web in a new tab (Neil, 10/13): a mailto: link
+// handed to a web mail handler replaced the Nexus tab itself.
+export const mailto     = (email) => `https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent(email)}`;
 export const telHref    = (phone) => `tel:${String(phone || '').replace(/[^+\d]/g, '')}`;
 
 // ── Names and avatars ─────────────────────────────────────────────────────
@@ -41,7 +43,7 @@ export const isOffToday = (p) => ['off', 'holiday'].includes(p?.availability?.st
 
 // Teams presence (Graph availability/activity -> dot color + label), the
 // same colors Teams uses so a dot here means what it means there.
-const PRESENCE_COLOR = { green: '#16a34a', red: '#dc2626', amber: '#d97706', gray: '#9ca3af' };
+const PRESENCE_COLOR = { green: '#16a34a', red: '#dc2626', amber: '#d97706', gray: '#9ca3af', purple: '#a21caf' };
 const PRESENCE_BY_AVAILABILITY = {
   Available: ['green', 'Available'], AvailableIdle: ['green', 'Available'],
   Busy: ['red', 'Busy'], BusyIdle: ['red', 'Busy'], DoNotDisturb: ['red', 'Do Not Disturb'],
@@ -49,12 +51,14 @@ const PRESENCE_BY_AVAILABILITY = {
   Offline: ['gray', 'Offline'], PresenceUnknown: ['gray', 'Offline'],
 };
 const PRESENCE_ACTIVITY_LABEL = {
-  InACall: 'In a Call', InAConferenceCall: 'In a Call', InAMeeting: 'In a Meeting', Presenting: 'Presenting',
-  OutOfOffice: 'Out of Office', UrgentInterruptionsOnly: 'Urgent Only', OffWork: 'Off Work',
+  InACall: 'On a Call', InAConferenceCall: 'On a Call', InAMeeting: 'In a Meeting', Presenting: 'Presenting',
+  UrgentInterruptionsOnly: 'Urgent Only', OffWork: 'Off Work',
 };
 // {color, label} or null when Graph has nothing for the person.
 export function presenceOf(presence) {
   if (!presence?.availability) return null;
+  // Automatic replies on wins, as the purple mark does in Teams.
+  if (presence.outOfOffice || presence.activity === 'OutOfOffice') return { color: PRESENCE_COLOR.purple, label: 'Out of Office' };
   const [tone, label] = PRESENCE_BY_AVAILABILITY[presence.availability] || ['gray', presence.availability];
   return { color: PRESENCE_COLOR[tone], label: PRESENCE_ACTIVITY_LABEL[presence.activity] || label };
 }
@@ -90,26 +94,30 @@ export function searchPeople(people, query) {
 }
 
 // ── Grouping (Departments lens) ───────────────────────────────────────────
+// One list by department, across every company (Neil, 10/13: by department
+// only, never split by company), departments A-Z and the people in each A-Z
+// by the name as shown. Leads keep their badge, not a place at the top.
 export const NO_DEPARTMENT = 'No Department';
-const roleRank = (p) => (p.departmentRole === 'lead' ? 0 : p.departmentRole === 'backup' ? 1 : 2);
+const byName = (a, b) => (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
 export const byLastName = (a, b) => (a.lastName || a.name).localeCompare(b.lastName || b.name) || a.name.localeCompare(b.name);
 
 export function groupByDepartment(people) {
+  // Keyed case-insensitively so "Accounting" in two companies is one group.
   const groups = new Map();
+  const shown = new Map();
   for (const p of people) {
-    const key = (p.department || '').trim() || NO_DEPARTMENT;
-    if (!groups.has(key)) groups.set(key, []);
+    const label = (p.department || '').trim() || NO_DEPARTMENT;
+    const key = label.toLowerCase();
+    if (!groups.has(key)) { groups.set(key, []); shown.set(key, label); }
     groups.get(key).push(p);
   }
-  const names = [...groups.keys()].sort((a, b) => {
-    if (a === NO_DEPARTMENT) return 1;
-    if (b === NO_DEPARTMENT) return -1;
+  const none = NO_DEPARTMENT.toLowerCase();
+  const keys = [...groups.keys()].sort((a, b) => {
+    if (a === none) return 1;
+    if (b === none) return -1;
     return a.localeCompare(b);
   });
-  return names.map((name) => ({
-    name,
-    people: groups.get(name).sort((a, b) => roleRank(a) - roleRank(b) || byLastName(a, b)),
-  }));
+  return keys.map((key) => ({ name: shown.get(key), people: groups.get(key).sort(byName) }));
 }
 
 // ── Reporting tree (Reporting Line lens) ──────────────────────────────────
@@ -252,7 +260,6 @@ export function vCardOf(p) {
   if (p.mobile) lines.push(`TEL;TYPE=CELL,VOICE:${vEsc(p.mobile)}`);
   if (p.city || p.state || p.country) lines.push(`ADR;TYPE=WORK:;;;${vEsc(p.city)};${vEsc(p.state)};;${vEsc(p.country)}`);
   if (p.photoUrl) lines.push(`PHOTO;VALUE=URI:${p.photoUrl}`);
-  if (p.linkedinUrl) lines.push(`URL:${p.linkedinUrl}`);
   if (p.timeZone) lines.push(`TZ:${p.timeZone}`);
   lines.push(`REV:${new Date().toISOString()}`, 'END:VCARD');
   return lines.join('\r\n') + '\r\n';

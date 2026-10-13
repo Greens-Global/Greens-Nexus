@@ -25,6 +25,9 @@ const CACHE_NS = 'nx2';
 const BUILD_ID = process.env.VITE_BUILD_ID
   || process.env.CF_PAGES_COMMIT_SHA
   || 'dev';
+// When this build was cut. The update popup asks the API what came after it,
+// to say what the waiting version brings (lib/updateSignal.js).
+const BUILD_TIME = new Date().toISOString();
 
 // Emitted as a real file rather than only baked into the bundle, so it can be
 // fetched (no-store) by a running tab and by CI without parsing the bundle.
@@ -91,7 +94,10 @@ const stampUnhashedAssets = () => ({
 });
 
 export default defineConfig({
-  define: { 'import.meta.env.VITE_BUILD_ID': JSON.stringify(BUILD_ID) },
+  define: {
+    'import.meta.env.VITE_BUILD_ID': JSON.stringify(BUILD_ID),
+    'import.meta.env.VITE_BUILD_TIME': JSON.stringify(BUILD_TIME),
+  },
   plugins: [react(), versionManifest(), stampUnhashedAssets()],
   base: '/',
   // Automatic JSX runtime for BOTH build and Vitest transforms (source files
@@ -138,6 +144,9 @@ export default defineConfig({
           // shipped on first paint for every user of every module.
           if (id.includes('heic2any') || id.includes('libheif')) return 'vendor-heic';
           if (id.includes('exifr'))                   return 'vendor-exif';
+          // three.js (~700 KB) only loads for the 3D site model (Asset Management
+          // property page / the public unit finder) - keep it off first paint.
+          if (id.includes('node_modules/three/'))     return 'vendor-three';
           if (id.includes('node_modules'))            return 'vendor-react';
         },
       },

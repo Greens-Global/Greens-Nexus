@@ -33,9 +33,11 @@ const sheetRows = { current: [] };
 vi.mock('xlsx', () => ({ read: () => ({ SheetNames: ['S'], Sheets: { S: {} } }), utils: { sheet_to_json: () => sheetRows.current } }));
 vi.mock('../ui/dialog', () => ({ dialog: { confirm: (...a) => confirmAsk(...a), prompt: vi.fn() } }));
 vi.mock('../tasks/exporting', () => ({ exportExcel: (...a) => exportExcel(...a) }));
+const weatherCallScreen = vi.fn();
 vi.mock('../api', () => ({
   api: {
     timeSchedule: (...a) => timeSchedule(...a),
+    weatherCallScreen: (...a) => weatherCallScreen(...a),
     timeShiftAssign: (...a) => timeShiftAssign(...a),
     timeSchedDelete: (...a) => timeSchedDelete(...a),
     timeSchedDiscard: (...a) => timeSchedDiscard(...a),
@@ -711,6 +713,61 @@ describe('Views, options, export, drag', () => {
     await waitFor(() => expect(timeSchedule).toHaveBeenLastCalledWith(monday, plusDays(monday, 13)));
   });
 
+  // Weather Call (Oct 2026): a watched group with no work site cannot get a
+  // forecast - its managers see one line until a site is set, and can hide it.
+  it('tells managers which groups have no work site for the weather watch', async () => {
+    timeSchedule.mockResolvedValue({ ...data([shift({ groupId: 'g1' })]),
+      groups: [{ id: 'g1', name: 'Front', members: ['amy@greensglobal.com'], canEdit: true, workSiteId: 's1', siteLocated: true },
+        { id: 'g2', name: 'Yard Crew', members: ['bob@greensglobal.com'], canEdit: true, workSiteId: '' },
+        { id: 'g3', name: 'Office', members: [], canEdit: true, workSiteId: '', weatherAlerts: false }] });
+    render(<ShiftSchedule toastOk={toastOk} />);
+    await screen.findByText('Amy Adams');
+    const note = document.querySelector('[data-weather-setup]');
+    expect(note.textContent).toContain('Yard Crew has no work site, so weather alerts cannot watch it.');
+    expect(note.textContent).not.toContain('Office');          // the watch is off for it on purpose
+    fireEvent.click(screen.getByRole('button', { name: 'Hide the weather setup note' }));
+    expect(document.querySelector('[data-weather-setup]')).toBeNull();
+  });
+
+  // Weather Call (Oct 2026): the band the watch last wrote for a group-day
+  // shows on the day header - the worst band among the groups on screen,
+  // naming them - and quiet days carry nothing.
+  it('shows the weather band on the day header for the groups in view', async () => {
+    allTeams();
+    timeSchedule.mockResolvedValue({ ...data([shift({ groupId: 'g1' }), shift({ id: 's2', email: 'bob@greensglobal.com', groupId: 'g2' })]),
+      groups: [{ id: 'g1', name: 'Front', members: ['amy@greensglobal.com'], canEdit: true }, { id: 'g2', name: 'Yard', members: ['bob@greensglobal.com'], canEdit: true }],
+      weather: [
+        { groupId: 'g1', date: monday, band: 'heads_up', chance: 45, inches: 0.12, windowStart: '9:00 AM', windowEnd: '5:00 PM' },
+        { groupId: 'g2', date: monday, band: 'major', chance: 85, inches: 0.9, windowStart: '7:00 AM', windowEnd: '3:30 PM' },
+        { groupId: 'g2', date: plusDays(monday, 1), band: 'quiet', chance: 5, inches: 0 },
+      ] });
+    weatherCallScreen.mockReset().mockResolvedValue({ group: { id: 'g2', name: 'Yard', workSiteName: '', deciders: [] }, date: monday, outlook: {}, roster: [], decision: null, canDecide: true, smsDefault: true });
+    render(<ShiftSchedule toastOk={toastOk} />);
+    await screen.findByText('Amy Adams');
+    const chips = document.querySelectorAll('[data-weather]');
+    expect(chips.length).toBe(1);
+    expect(chips[0].getAttribute('data-weather')).toBe('major');
+    expect(chips[0].getAttribute('aria-label')).toBe('Major rain: 85% chance, 0.90 in during 7:00 AM - 3:30 PM (Front, Yard)');
+    // A manager's click opens the Weather Call for the worst band's group.
+    fireEvent.click(chips[0]);
+    expect(await screen.findByRole('dialog', { name: 'Weather Call' })).toBeTruthy();
+    await waitFor(() => expect(weatherCallScreen).toHaveBeenCalledWith('g2', monday));
+  });
+
+  it('shows a weather-cancelled shift struck through, unpaid', async () => {
+    timeSchedule.mockResolvedValue(data([shift({ weatherStatus: 'cancelled', paidMin: 0 }), shift({ id: 's2', email: 'bob@greensglobal.com', weatherStatus: 'delayed', start: '10:00' })]));
+    render(<ShiftSchedule toastOk={toastOk} />);
+    await screen.findByText('Amy Adams');
+    const gone = blockOf('s1');
+    expect(gone.getAttribute('data-weather-status')).toBe('cancelled');
+    expect(gone.querySelector('[data-shift-time]').style.textDecoration).toBe('line-through');
+    expect(gone.style.textDecoration).toBe('none');          // the "Weather - unpaid" tag is not struck
+    expect(gone.textContent).toContain('Weather - unpaid');
+    expect(gone.getAttribute('title')).toContain('Cancelled for weather (unpaid)');
+    expect(blockOf('s2').getAttribute('title')).toContain('Start delayed for weather');
+    expect(screen.getByText('Week · 7 Hrs')).toBeTruthy();   // Amy's cancelled day counts nothing; Bob's 10-5
+  });
+
   it('exports what is on screen with the group and unpaid activities', async () => {
     timeSchedule.mockResolvedValue({ ...data([shift({ breakMin: 30, groupId: 'g1', activities: [{ start: '12:00', end: '12:30', label: 'Lunch', paid: false }] })]),
       groups: [{ id: 'g1', name: 'Front', members: ['amy@greensglobal.com'], canEdit: true }] });
@@ -995,7 +1052,11 @@ describe('Groups on the grid', () => {
     unmount();
     timeSchedule.mockResolvedValue({ ...data([]), weekStart: 'sunday' });
     render(<ShiftSchedule toastOk={toastOk} />);
-    await waitFor(() => expect(timeSchedule).toHaveBeenLastCalledWith(plusDays(monday, -1), plusDays(monday, 5)));
+    // The Sunday-first week that holds TODAY: the Sunday before this
+    // week's Monday - except on a Sunday, when it is today (this used to
+    // say "Monday minus one" and failed every Sunday in CI).
+    const sunday = plusDays(monday, new Date().getDay() === 0 ? 6 : -1);
+    await waitFor(() => expect(timeSchedule).toHaveBeenLastCalledWith(sunday, plusDays(sunday, 6)));
   });
 });
 

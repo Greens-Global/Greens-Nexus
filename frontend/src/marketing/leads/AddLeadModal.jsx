@@ -11,7 +11,6 @@ const inputStyle = {
   borderRadius: 8,
   border: '1px solid ' + C.gray200,
   fontSize: 13,
-  outline: 'none',
   boxSizing: 'border-box',
 }
 

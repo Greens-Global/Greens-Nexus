@@ -280,6 +280,10 @@ _EXTERNAL_BASE_PREFIXES = (
     "/roles/me", "/notifications", "/groups", "/myhr/directory",
     "/branding", "/help", "/client-errors", "/policy", "/stepup", "/auth/",
     "/version", "/health",
+    # Reading What's New is every Nexus user's default, externals included
+    # (Neil, Oct 12 2026). The prefix only opens task_config.view_router's
+    # read routes: every write under it still needs the task family's grant.
+    "/task-changelog",
 )
 
 # Module id -> the API prefixes that module's grant opens for an EXTERNAL
@@ -302,7 +306,7 @@ MODULE_API_PREFIXES = {
     "sop":                ("/knowledge-base", "/sop-updates", "/lms-"),
     "it":                 ("/unifi",),
     "ops":                ("/construction",),
-    "operations":         ("/ops-projects", "/dev-projects"),
+    "operations":         ("/ops-projects", "/dev-projects", "/facility-ops"),
     "development":        ("/ops-projects", "/dev-projects"),
     "property-asset":     ("/property-assets",),
     "accounting":         ("/accounting",),
@@ -317,6 +321,7 @@ MODULE_API_PREFIXES = {
     "testing":            ("/qa",),
     "credvault":          ("/credvault",),
     "egnyte":             ("/egnyte",),
+    "workforce-scorecard": ("/workforce-scorecard",),   # endpoints self-gate on the grant + scope
 }
 
 

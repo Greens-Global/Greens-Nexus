@@ -62,7 +62,11 @@ def project_to_dict(p: models.TaskProject) -> dict:
         "status": p.status or "not_started", "startOn": _nz(p.start_on), "dueOn": _nz(p.due_on),
         "archived": bool(p.archived), "activityIds": p.activity_ids or [],
         "customFieldValues": p.custom_field_values or {},
+        "timeTracking": p.time_tracking or "",
         "createdAt": p.created_at or "", "modifiedAt": p.modified_at or "",
+        # Oct 2026 - see models.TaskProject.
+        "defaultView": p.default_view if isinstance(p.default_view, dict) else None,
+        "sharedCharts": p.shared_charts if isinstance(p.shared_charts, list) else [],
     }
 
 
@@ -192,6 +196,8 @@ class ProjectBody(BaseModel):
     due_on: Optional[str] = ""
     archived: Optional[bool] = None
     custom_field_values: Optional[dict] = None
+    # "" (automatic) | "on" | "off" - see models.TaskProject.time_tracking.
+    time_tracking: Optional[str] = None
     # A project's People-module department. Auto-resolved from the creator at
     # creation time, but editable afterwards - the creator's own department is a
     # guess, and a project raised by IT for Accounting belongs to Accounting.
@@ -199,6 +205,121 @@ class ProjectBody(BaseModel):
     # so the two can never disagree.
     hr_department_id: Optional[str] = None
     hr_department_name: Optional[str] = None
+    # Oct 2026. default_view: {view, group} or None to clear. shared_charts:
+    # the project's whole shared list (replaced, like the client's own charts).
+    default_view: Optional[dict] = None
+    shared_charts: Optional[list] = None
+
+
+VIEW_KINDS = ("list", "board", "calendar", "timeline", "dashboard", "workload", "files")
+GROUP_KINDS = ("status", "priority", "assignee", "project", "none", "due")
+MAX_SHARED_CHARTS = 24
+MAX_CHART_BYTES = 4 * 1024
+
+
+def clean_default_view(v) -> Optional[dict]:
+    """{view, group} with only known values kept; None when nothing usable."""
+    if not isinstance(v, dict):
+        return None
+    out = {}
+    view = str(v.get("view") or "").strip()
+    if view in VIEW_KINDS:
+        out["view"] = view
+    group = str(v.get("group") or "").strip()
+    # Grouping by a custom field travels as that field's id - any short string.
+    if group and (group in GROUP_KINDS or len(group) <= 64):
+        out["group"] = group
+    return out or None
+
+
+# The vocabulary views/charts.jsx draws (STYLE_OPTIONS / DIMENSIONS / METRICS).
+CHART_STYLES = ("bar", "lollipop", "line", "donut", "number")
+CHART_DIMENSIONS = ("status", "priority", "assignee", "project", "team")
+CHART_METRICS = ("count", "sum_estimate", "sum_actual")
+CHART_FILTERS = ("statuses", "priorities", "assigneeIds")
+
+
+def clean_shared_chart(c) -> dict:
+    """One chart in exactly the shape the Dashboard renders, nothing else. A
+    shared chart is drawn on every member's Dashboard, so a stray key or a
+    wrong type here would crash the screen for the whole project."""
+    import json as _json
+    if not isinstance(c, dict) or not str(c.get("id") or "").strip():
+        raise HTTPException(422, "Each shared chart needs an id")
+    style = c.get("style") or "bar"
+    dimension = c.get("dimension") or "status"
+    metric = c.get("metric") or "count"
+    if style not in CHART_STYLES or dimension not in CHART_DIMENSIONS or metric not in CHART_METRICS:
+        raise HTTPException(422, "That chart is not one the Dashboard can draw")
+    raw = c.get("filters") if isinstance(c.get("filters"), dict) else {}
+    filters = {}
+    for k in CHART_FILTERS:
+        vals = raw.get(k) or []
+        if not isinstance(vals, list) or len(vals) > 200 or any(not isinstance(v, str) for v in vals):
+            raise HTTPException(422, "A chart filter must be a list of ids")
+        filters[k] = vals
+    out = {"id": str(c["id"]).strip()[:64], "title": str(c.get("title") or "")[:120], "style": style,
+           "dimension": dimension, "metric": metric, "filters": filters,
+           "dataLabels": bool(c.get("dataLabels", True))}
+    if len(_json.dumps(out).encode("utf-8")) > MAX_CHART_BYTES:
+        raise HTTPException(422, "A shared chart is too large")
+    return out
+
+
+def clean_shared_charts(charts) -> list:
+    if not isinstance(charts, list):
+        raise HTTPException(422, "shared_charts must be a list")
+    if len(charts) > MAX_SHARED_CHARTS:
+        raise HTTPException(422, f"At most {MAX_SHARED_CHARTS} shared charts per project")
+    out, seen = [], set()
+    for c in charts:
+        clean = clean_shared_chart(c)
+        if clean["id"] in seen:
+            continue
+        seen.add(clean["id"])
+        out.append(clean)
+    return out
+
+
+@router.put("/task-projects/{project_id}/shared-charts/{chart_id}")
+def put_shared_chart(project_id: str, chart_id: str, body: dict,
+                     user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Share one chart onto the project, or save a shared one: an upsert by id
+    under a row lock, so two editors sharing at the same moment both land.
+    (PATCHing the whole list from the client was a read-modify-write that
+    dropped whichever landed first.) Editor work, like the tasks."""
+    p = db.query(models.TaskProject).filter(models.TaskProject.id == project_id).with_for_update().first()
+    if not p:
+        raise HTTPException(404, "Project not found")
+    require_project_role(db, user, p, "editor")
+    chart = clean_shared_chart({**(body or {}), "id": chart_id})
+    charts = [c for c in (p.shared_charts or []) if isinstance(c, dict)]
+    idx = next((i for i, c in enumerate(charts) if c.get("id") == chart["id"]), None)
+    if idx is None:
+        if len(charts) >= MAX_SHARED_CHARTS:
+            raise HTTPException(422, f"At most {MAX_SHARED_CHARTS} shared charts per project")
+        charts.append(chart)
+    else:
+        charts[idx] = chart
+    p.shared_charts = charts   # reassigned, not mutated - JSON column
+    p.modified_at = now_iso()
+    db.commit()
+    db.refresh(p)
+    return project_to_dict(p)
+
+
+@router.delete("/task-projects/{project_id}/shared-charts/{chart_id}")
+def delete_shared_chart(project_id: str, chart_id: str,
+                        user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    p = db.query(models.TaskProject).filter(models.TaskProject.id == project_id).with_for_update().first()
+    if not p:
+        raise HTTPException(404, "Project not found")
+    require_project_role(db, user, p, "editor")
+    p.shared_charts = [c for c in (p.shared_charts or []) if not (isinstance(c, dict) and c.get("id") == chart_id)]
+    p.modified_at = now_iso()
+    db.commit()
+    db.refresh(p)
+    return project_to_dict(p)
 
 
 @router.get("/task-projects/meta/departments")
@@ -257,6 +378,9 @@ def create_project(body: ProjectBody, user: dict = Depends(get_current_user), db
         archived=bool(body.archived),
         activity_ids=[], created_at=now, modified_at=now, created_by=user["email"],
         custom_field_values=coerce_custom_field_values(db, body.custom_field_values or {}),
+        time_tracking=body.time_tracking if body.time_tracking in ("on", "off") else "",
+        # The Create modal offers the same Default View control as Edit.
+        default_view=clean_default_view(body.default_view) if body.default_view is not None else None,
     )
     db.add(p)
     db.flush()   # the helper queries portfolios; the row must exist first
@@ -301,16 +425,23 @@ def update_project(project_id: str, body: ProjectBody, user: dict = Depends(get_
         raise HTTPException(404, "Project not found")
     # Renaming, archiving, changing access, or managing who's on the Share
     # panel are all project-settings actions - Asana's "Project admin" tier,
-    # not "Editor" (which only covers the tasks inside it).
-    require_project_role(db, user, p, "owner")
+    # not "Editor" (which only covers the tasks inside it). Curating the
+    # project's shared dashboard charts is editor work, like the tasks.
     data = body.model_dump(exclude_unset=True, exclude={"id"})
+    require_project_role(db, user, p, "editor" if set(data) <= {"shared_charts"} else "owner")
     for k, v in data.items():
+        if k == "default_view":
+            v = clean_default_view(v)
+        if k == "shared_charts":
+            v = clean_shared_charts(v)
         if k == "owner_email" and v is not None:
             v = (v or "").lower()
         if k == "member_roles" and v:
             v = {em.lower(): role for em, role in v.items()}
         if k == "custom_field_values":
             v = coerce_custom_field_values(db, v or {})
+        if k == "time_tracking":
+            v = v if v in ("on", "off") else ""
         setattr(p, k, v)
     # A role grant is also an access grant - keep member_emails (the flat
     # "has access at all" list every other visibility check relies on) a
@@ -901,10 +1032,24 @@ def create_team(body: TeamBody, user: dict = Depends(get_current_user),
     A non-manager gets `personal` whatever they send: the alternative is that
     anyone can mint a workspace-wide team, put themselves and a project in it,
     and read that project - approval would gate nothing.
+
+    A personal team hands its members an individual grant on each of its
+    projects (_sync_personal_team_grants), so a non-manager may only list
+    projects they OWN - the same rule _require_team_edit applies to a PATCH.
+    Without it the create path was the way around that check: make a team,
+    name somebody else's restricted project, become an editor on it
+    (Sep 30 review, item 1).
     """
     if not (body.name or "").strip():
         raise HTTPException(422, "Team name is required")
     personal = bool(body.personal) or (user.get("level") or 0) < 3
+    if not is_manager(user):
+        asked = body.project_ids if body.project_ids is not None else [body.project_id]
+        for pid in {(p or "").strip() for p in (asked or []) if (p or "").strip()}:
+            proj = db.query(models.TaskProject).filter(models.TaskProject.id == pid).first()
+            if not proj:
+                raise HTTPException(404, "Project not found")
+            require_project_role(db, user, proj, "owner")
     d = models.TaskTeam(id=body.id or gen_id(), name=body.name, color=body.color or "",
                         icon=body.icon or "", member_emails=body.member_emails or [],
                         created_at=now_iso(), created_by=user["email"],
@@ -1002,6 +1147,12 @@ def delete_team(team_id: str, user: dict = Depends(get_current_user),
          .filter(models.TaskTeam.id == team_id).first())
     if not t:
         raise HTTPException(404, "Team not found")
+    # Same people who may edit it: a manager any team, the creator their own
+    # unapproved one. Binning an approved team takes access from everybody it
+    # serves, so it is not something any signed-in person may do.
+    me = (user.get("email") or "").lower()
+    if not is_manager(user) and not (me and (t.created_by or "").lower() == me and not team_is_approved(t)):
+        raise HTTPException(403, "Only a manager or the team's creator can delete this team.")
     # An unapproved team's grants are its own doing, so they go when it does -
     # otherwise binning a personal team silently leaves everybody it added on
     # the project.
@@ -1265,11 +1416,21 @@ def _snapshot_project(db: Session, p: models.TaskProject, *, blueprint: bool,
         d = _iso_day(value) if (include_dates and anchor) else None
         return (d - anchor).days if d else None
 
+    # Checklist lines ride along as titles (never ticked, never assigned - a
+    # blueprint has no people in it).
+    checklist_by_task: dict[str, list] = {}
+    if keep:
+        for item in (db.query(models.TaskChecklistItem)
+                     .filter(models.TaskChecklistItem.task_id.in_(list(keep)))
+                     .order_by(models.TaskChecklistItem.position, models.TaskChecklistItem.created_at).all()):
+            checklist_by_task.setdefault(item.task_id, []).append(item.title or "")
+
     snap_tasks = []
     for t in rows:
         parent = t.parent_task_id or ""
         status = t.status or "not_started"
         snap_tasks.append({
+            "checklist": [x for x in checklist_by_task.get(t.id, []) if x],
             "key": task_key[t.id],
             # A kept subtask whose parent was filtered out is promoted to
             # top-level rather than dropped - losing the work would be worse
@@ -1667,6 +1828,16 @@ def _build_from_payload(db: Session, payload: dict, user: dict, *,
                                    or [spec.get("assigneeEmail") or ""])
             db.add(row)
             made.append((spec, row))
+
+        # Checklist lines, as captured.
+        for spec, row in made:
+            titles = [str(x).strip() for x in (spec.get("checklist") or []) if str(x or "").strip()]
+            for i, title in enumerate(titles, start=1):
+                db.add(models.TaskChecklistItem(id=gen_id(), task_id=row.id, title=title[:500], done=False,
+                                                assignee_email="", position=float(i),
+                                                created_at=now, created_by=user["email"]))
+            if titles:
+                row.checklist_total, row.checklist_done = len(titles), 0
 
         # Second pass: parent/subtask links and dependencies, now that every
         # payload key has a real id behind it.

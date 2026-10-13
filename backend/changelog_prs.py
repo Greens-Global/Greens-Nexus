@@ -42,6 +42,9 @@ import httpx
 
 GITHUB_API = "https://api.github.com"
 MAX_PRS_PER_RUN = 25
+SKIP_RULES_VERSION = 2      # bump when skip_reason changes: the next run re-checks
+                            # the last few days (2: #484 was skipped for mentioning
+                            # the [skip changelog] marker in its description)
 BACKFILL_DAYS = 3           # first run on a server with no cursor yet
 _POLISH_MAX_TOKENS = 12000
 
@@ -242,6 +245,34 @@ def _login(user) -> str:
     return "" if login.endswith("[bot]") else login
 
 
+# The Nexus developers' GitHub accounts, and who each one is in Nexus (Neil,
+# Oct 12 2026). GitHub only knows a login and whatever display name the person
+# set - "pranshuup", "viseshlodha1", or nothing - so What's New showed those.
+# Keyed by LOGIN, not name: the People list carries duplicate names (two
+# Pranshu Pandeys, three Visesh Lodhas, Sagar as "Sagar Kumar Shoundik"), so
+# matching on a name would pick the wrong person and the wrong photo. The
+# email is the Nexus work email the profile photo is keyed on. A new developer
+# is one more line here.
+GITHUB_PEOPLE = {
+    "neilkadakia": ("Neil Kadakia", "neil@greensglobal.com"),
+    "pranshuup": ("Pranshu Pandey", "pranshu.pandey@greensglobal.com"),
+    "vlow2k": ("Visesh Lodha", "visesh.lodha@greensglobal.com"),
+    "sagargreensglobal": ("Sagar Shoundik", "sagar.shoundik@greensglobal.com"),
+    "ankushgg": ("Ankush Narkhede", "ankush.narkhede@greensglobal.com"),
+}
+
+
+def known_developer(dev: dict) -> dict:
+    """A developer entry with its Nexus name and email when the login is one
+    of ours; anyone else is returned unchanged (GitHub name, no email). Used
+    when an update is drafted AND whenever entries are read, so updates
+    published before this existed show the right person too."""
+    if not isinstance(dev, dict):
+        return dev
+    who = GITHUB_PEOPLE.get((dev.get("login") or "").strip().lower())
+    return {**dev, "name": who[0], "email": who[1]} if who else dev
+
+
 def _developers(client, logins: list[str], names: dict) -> list[dict]:
     """[{login, name, url}] for GitHub accounts, in order, deduplicated. The
     name is the GitHub profile's display name (falls back to the login);
@@ -251,6 +282,9 @@ def _developers(client, logins: list[str], names: dict) -> list[dict]:
         if not login or login.lower() in seen:
             continue
         seen.add(login.lower())
+        if login.lower() in GITHUB_PEOPLE:     # one of ours: no GitHub lookup needed
+            out.append(known_developer({"login": login, "url": f"https://github.com/{login}"}))
+            continue
         if login not in names:
             try:
                 r = client.get(f"{GITHUB_API}/users/{login}")
@@ -342,7 +376,11 @@ def fetch_merged_prs(branch: str, cursor: str, known: set[str]) -> tuple[list[di
 
 def skip_reason(pr: dict) -> str:
     """Why a change is not worth a What's New entry, or "" when it is."""
-    if _SKIP_MARK_RE.search(pr.get("title", "")) or _SKIP_MARK_RE.search(pr.get("body", "")):
+    # The marker counts in the title, or as a line of its own in the
+    # description - not mentioned in passing: #484's description explained
+    # "anything marked `[skip changelog]`" and was skipped for it.
+    body_lines = [ln.strip() for ln in (pr.get("body") or "").splitlines()]
+    if _SKIP_MARK_RE.search(pr.get("title", "")) or any(_SKIP_MARK_RE.fullmatch(ln) for ln in body_lines):
         return "marked [skip changelog]"
     titles = pr.get("commits") if pr.get("kind") == "push" else [pr.get("title", "")]
     if titles and all(_CHORE_TITLE_RE.match(t or "") for t in titles):

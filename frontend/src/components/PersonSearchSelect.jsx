@@ -29,7 +29,7 @@ export default function PersonSearchSelect({ groups, onPick, placeholder = 'Sear
       <div className="form-input" onMouseDown={e => { if (e.target !== inputRef.current) { e.preventDefault(); inputRef.current?.focus(); openList(); } }}
         style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', cursor: 'text' }}>
         <Search size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-        <input ref={inputRef} value={q} placeholder={placeholder} role="combobox" aria-expanded={open} aria-autocomplete="list"
+        <input className="nx-inline-edit" ref={inputRef} value={q} placeholder={placeholder} role="combobox" aria-expanded={open} aria-autocomplete="list"
           onFocus={openList} onBlur={() => setTimeout(close, 150)}
           onChange={e => { setQ(e.target.value); setHi(0); openList(); }}
           onKeyDown={e => {
@@ -38,7 +38,7 @@ export default function PersonSearchSelect({ groups, onPick, placeholder = 'Sear
             else if (e.key === 'Enter' && open && flat[hi]) { e.preventDefault(); pick(flat[hi]); }
             else if (e.key === 'Escape') { close(); inputRef.current?.blur(); }
           }}
-          style={{ flex: 1, minWidth: 0, border: 'none', outline: 'none', background: 'transparent', fontSize: 'inherit', fontFamily: 'inherit', color: 'var(--ink)', padding: 0 }} />
+          style={{ flex: 1, minWidth: 0, border: 'none', fontSize: 'inherit', fontFamily: 'inherit', color: 'var(--ink)', padding: 0 }} />
         <ChevronDown size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />
       </div>
       <AnchoredMenu anchorRef={boxRef} open={open} onClose={close} role="listbox"

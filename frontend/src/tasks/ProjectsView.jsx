@@ -19,7 +19,7 @@ import { SaveTemplateModal, DuplicateProjectModal, todayIso } from './TemplatesV
 const EMPTY_FORM = {
   name: '', description: '', color: NX.blue, ownerId: null,
   portfolioId: '', accessLevel: 'restricted', status: 'not_started',
-  startOn: '', dueOn: '', archived: false, customFieldValues: {},
+  startOn: '', dueOn: '', archived: false, customFieldValues: {}, timeTracking: '',
 };
 
 const VISIBILITY_OPTS = [
@@ -877,6 +877,26 @@ export function ProjectModal({ form, setForm, people, portfolios, onClose, onSav
           </div>
         </div>
 
+        {/* How the project opens for everyone who has not picked a view inside
+            it (Oct 2026). Blank = each person's own general preference. */}
+        <div style={{ marginBottom: 14 }}>
+          <label style={label}>Default View</label>
+          <SearchSelect value={form.defaultView?.view || ''} placeholder="Each person's own preference"
+            buttonStyle={{ ...inputStyle, cursor: 'pointer', justifyContent: 'space-between' }}
+            options={[{ id: '', label: "Each person's own preference" }, { id: 'list', label: 'List' }, { id: 'board', label: 'Board' },
+                      { id: 'calendar', label: 'Calendar' }, { id: 'timeline', label: 'Timeline' }, { id: 'dashboard', label: 'Dashboard' }]}
+            onPick={(id) => set({ defaultView: id ? { view: id, group: form.defaultView?.group || 'status' } : null })} />
+          {form.defaultView?.view && (form.defaultView.view === 'list' || form.defaultView.view === 'board') && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, fontSize: 12.5, color: NX.dim }}>
+              grouped by
+              <select value={form.defaultView.group || 'status'} onChange={(e) => set({ defaultView: { ...form.defaultView, group: e.target.value } })}
+                style={{ ...inputStyle, width: 'auto', height: 30, padding: '0 8px', fontSize: 12.5 }}>
+                {[['status', 'Status'], ['priority', 'Priority'], ['assignee', 'Assignee'], ['none', 'Nothing']].map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+              </select>
+            </div>
+          )}
+        </div>
+
         {projectFields.map((f) => (
           <div key={f.id}>
             <label style={label}>{f.name}</label>
@@ -910,6 +930,22 @@ export function ProjectModal({ form, setForm, people, portfolios, onClose, onSav
               })}
             </div>
           )}
+        </div>
+
+        {/* Time / Actual columns, the task's Time Tracking section and the
+            create form's Estimated Time (Oct 13 2026). */}
+        <div>
+          <label style={label}>Time Tracking</label>
+          <select value={form.timeTracking || ''} onChange={(e) => set({ timeTracking: e.target.value })}
+            aria-label="Time Tracking" style={{ ...inputStyle, cursor: 'pointer' }}>
+            <option value="">Automatic - only once a task has time on it</option>
+            <option value="on">On - tasks in this project are time tracked</option>
+            <option value="off">Off - no time tracking in this project</option>
+          </select>
+          <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>
+            Shows the Time and Actual columns, each task's Time Tracking, and Estimated Time when creating a task.
+            Off hides them; time already entered on a task still shows on that task.
+          </div>
         </div>
 
         <div>

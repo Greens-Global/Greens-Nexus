@@ -192,7 +192,26 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // per role (#477, Neil 10/08, ~+120 KB). CI measured 11083 and 11143 KB
 // separately; together ~11200. No new dependency. Same lines in both PRs so
 // the second to merge does not conflict. Deliberate.
-const TOTAL_KB     = 11300;
+// Oct 12, 2026: 11300 -> 11500. dev itself went over after #489 (the
+// workforce scorecard): its own CI measured 11314 KB, so every PR on top
+// failed the budget. #517 (Tasks / Support / Shifts, Neil 10/12) and #518
+// (What's New, Neil 10/12) add a few KB each (a clean build: dev 11112 KB,
+// #518 11117 KB). CI measures ~200 KB more than a clean local build because
+// its VITE_SUPABASE_* variables keep the Supabase client in. No new
+// dependency. Same lines in both PRs so the second to merge does not
+// conflict. Deliberate.
+// Oct 12, 2026: 11500 -> 12000. Site Models (Neil): the to-scale 3D property
+// model (Asset Management property page + the public /map/{id} unit finder)
+// brings three.js, ~690 KB minified, in its own vendor-three chunk so it only
+// loads for those two screens. Measured 11576 KB total with it in. A whole
+// new capability, taken deliberately; the mammoth note above still names the
+// cheapest real lever if the total needs to come back down.
+// Oct 13, 2026: 12000 -> 12250. Nothing new here: the Site Models bump above
+// was measured before Operations (#525, recharts screens on live Cubby data)
+// reached dev, and this release also brings the Weather Call, Tasks (automation,
+// checklists, threads, timer) and Motion stacks. CI measured 12065 KB with all
+// of them together. No dependency beyond three.js. Deliberate.
+const TOTAL_KB     = 12250;
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a

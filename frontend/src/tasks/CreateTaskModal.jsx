@@ -6,10 +6,14 @@ import { useRef, useState } from 'react';
 import { Plus, X, Paperclip, ListChecks, CircleCheck, Save, Image as ImageIcon, ScanText, Camera, ImagePlus } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
-import { Modal, PersonSelect, PersonMultiSelect, usePeople, DateField, useIsMobile } from './components';
+import { Modal, PersonSelect, PersonMultiSelect, usePeople, DateField, useIsMobile, localTodayISO } from './components';
+import { monthRuleOf, yearRuleOf, firstDueOnOrAfter, upcomingDates, clampDays } from './recurrence';
+import { MonthDayControls, YearDayControls, PeriodicDaysControl } from './RecurrenceParts';
+import { fmtDate, isFieldRequiredIn, isBlankValue, fieldsForTask, requiredByProjectsOf, taskTracksTime } from './lib';
 import { ProjectCreateModal } from './ProjectsView';
+import { useFrequentCollaborators } from './frequentPeople';
 import { CustomFieldInput } from './TaskDetailDrawer';
-import { filesFromPaste, teamInProject, fieldsForProject, uploadTaskAttachment, taskAssignees, externalizeInlineImages } from './lib';
+import { filesFromPaste, teamInProject, uploadTaskAttachment, taskAssignees, externalizeInlineImages } from './lib';
 import ProjectPicker from './ProjectPicker';
 import RichDescription from './RichDescription';
 import AnchoredMenu from '../components/AnchoredMenu';
@@ -17,16 +21,16 @@ import { NX, FONT, input, btn, STATUS_META, PRIORITY_META, STATUS_ORDER, PRIORIT
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const DAY_LETTERS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
-// Common day-after-completion counts for Periodically's dropdown - covers the
-// realistic range (same-day chores through quarterly-ish) without forcing a
-// free-text field for what's usually a round number.
-const PERIODIC_DAY_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 10, 14, 21, 30, 45, 60, 90];
 const label = { fontSize: 12, fontWeight: 600, color: NX.dim, marginBottom: 5, display: 'block' };
 const field = { marginBottom: 0 };
 
 /** "On these days" - the S M T W T F S row Weekly and Custom(week) share. */
 function DaysOfWeekPicker({ value, onChange }) {
-  const toggle = (i) => onChange(value.includes(i) ? value.filter((d) => d !== i) : [...value, i].sort());
+  // Never down to no days - the rule would have nothing to land on (it used
+  // to fall back to Monday without saying so).
+  const toggle = (i) => onChange(value.includes(i)
+    ? (value.length > 1 ? value.filter((d) => d !== i) : value)
+    : [...value, i].sort((a, b) => a - b));
   return (
     <div style={{ display: 'flex', gap: 4 }}>
       {DAY_LETTERS.map((l, i) => {
@@ -44,10 +48,38 @@ function DaysOfWeekPicker({ value, onChange }) {
   );
 }
 
+/** The recurrence rule a form describes (null = does not repeat). */
+function buildRecurrence(form) {
+  if (form.recurFreq === 'none') return null;
+  const r = { freq: form.recurFreq };
+  if (form.recurFreq === 'weekly') {
+    r.daysOfWeek = form.recurDaysOfWeek.length ? form.recurDaysOfWeek : [1];
+  } else if (form.recurFreq === 'monthly') {
+    Object.assign(r, form.recurMonthRule);
+  } else if (form.recurFreq === 'yearly') {
+    Object.assign(r, form.recurYearRule);
+  } else if (form.recurFreq === 'periodic') {
+    // Completion-relative, not a calendar cadence - no `interval` here, see
+    // backend routers/tasks.py _spawn_next_occurrence.
+    r.daysAfterCompletion = clampDays(form.recurDaysAfter);
+  } else if (form.recurFreq === 'custom') {
+    r.unit = form.recurUnit;
+    r.interval = Math.max(1, Number(form.recurInterval) || 1);
+    if (form.recurUnit === 'week') r.daysOfWeek = form.recurDaysOfWeek.length ? form.recurDaysOfWeek : [1];
+    if (form.recurUnit === 'month') Object.assign(r, form.recurMonthRule);
+    if (form.recurUnit === 'year') Object.assign(r, form.recurYearRule);
+  }
+  if (form.recurFreq !== 'periodic' && form.recurFreq !== 'custom') r.interval = 1;
+  if (form.recurEnd === 'on' && form.recurUntil) r.until = form.recurUntil;
+  if (form.recurEnd === 'after' && form.recurCount) r.count = Math.max(1, Number(form.recurCount));
+  return r;
+}
+
 export default function CreateTaskModal({ onClose, defaults = {}, taskId, lockedProjectId = '' }) {
   const store = useTasks();
   const { createTask, updateTask, deleteTask, tasks, projects, teams, myEmail, customFields = [] } = store;
   const people = usePeople(true);   // assignee/collaborators - see TaskDetailDrawer
+  const frequent = useFrequentCollaborators();
   const fileRef = useRef(null);
   const editing = taskId ? store.taskById[taskId] : null;
   const isEdit = !!editing;
@@ -77,7 +109,12 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
     dueOn: editing?.dueOn ?? defaults.dueOn ?? '',
     estimateHrs: editing?.estimateHours ? String(Math.floor(editing.estimateHours)) : '',
     estimateMin: editing?.estimateHours && editing.estimateHours % 1 ? String(Math.round((editing.estimateHours % 1) * 60)) : '',
-    recurFreq: editing?.recurrence?.freq ?? 'none', recurDom: editing?.recurrence?.dayOfMonth ?? 1,
+    recurFreq: editing?.recurrence?.freq ?? 'none',
+    // The day a monthly rule names ({ dayOfMonth } or "the 4th Friday") and
+    // a yearly one ({} = same date, or "the 4th Thursday of November") - see
+    // recurrence.js.
+    recurMonthRule: monthRuleOf(editing?.recurrence),
+    recurYearRule: yearRuleOf(editing?.recurrence),
     // daysOfWeek is the real field; dayOfWeek (singular) is read as a one-item
     // fallback for a series created before multi-day weekly existed.
     recurDaysOfWeek: editing?.recurrence?.daysOfWeek
@@ -88,7 +125,8 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
     recurUntil: editing?.recurrence?.until ?? '', recurCount: editing?.recurrence?.count != null ? String(editing.recurrence.count) : '',
     followerIds: editing?.followerIds ?? defaults.followerIds ?? [],
     labels: editing?.tags ?? [],
-    customFieldValues: editing?.customFieldValues ?? {},
+    // Quick create's Full Details carries over what it already had.
+    customFieldValues: editing?.customFieldValues ?? defaults.customFieldValues ?? {},
   }));
   const [labelInput, setLabelInput] = useState('');
   const [subtaskInput, setSubtaskInput] = useState('');
@@ -142,34 +180,34 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
     finally { setOcrBusy(false); }
   };
 
-  const recurrence = () => {
-    if (form.recurFreq === 'none') return null;
-    const r = { freq: form.recurFreq };
-    if (form.recurFreq === 'weekly') {
-      r.daysOfWeek = form.recurDaysOfWeek.length ? form.recurDaysOfWeek : [1];
-    } else if (form.recurFreq === 'monthly') {
-      r.dayOfMonth = Number(form.recurDom);
-    } else if (form.recurFreq === 'periodic') {
-      // Completion-relative, not a calendar cadence - no `interval` here, see
-      // backend routers/tasks.py _spawn_next_occurrence.
-      r.daysAfterCompletion = Number(form.recurDaysAfter) || 1;
-    } else if (form.recurFreq === 'custom') {
-      r.unit = form.recurUnit;
-      r.interval = Math.max(1, Number(form.recurInterval) || 1);
-      if (form.recurUnit === 'week') r.daysOfWeek = form.recurDaysOfWeek.length ? form.recurDaysOfWeek : [1];
-      if (form.recurUnit === 'month') r.dayOfMonth = Number(form.recurDom);
-    }
-    if (form.recurFreq !== 'periodic' && form.recurFreq !== 'custom') r.interval = 1;
-    if (form.recurEnd === 'on' && form.recurUntil) r.until = form.recurUntil;
-    if (form.recurEnd === 'after' && form.recurCount) r.count = Math.max(1, Number(form.recurCount));
-    return r;
-  };
+  const recurrence = () => buildRecurrence(form);
   // Selecting a recurrence flips the task to the "Recurring" status; clearing it
   // back to "Does not repeat" reverts a still-recurring status to Not Started.
-  const setRecurFreq = (v) => setForm((f) => ({
-    ...f, recurFreq: v,
-    status: v !== 'none' ? 'recurring' : (f.status === 'recurring' ? 'not_started' : f.status),
-  }));
+  const setRecurFreq = (v) => setRecur({
+    recurFreq: v,
+    status: v !== 'none' ? 'recurring' : (form.status === 'recurring' ? 'not_started' : form.status),
+  });
+  // A rule that names a day ("the 4th Friday", "every Monday") fills in an
+  // empty Due Date with the first day it lands on, as Asana does - and keeps
+  // it in step while the rule is still being chosen. A date the person picked
+  // themselves is never touched.
+  // Worked out from the form as it stands, OUTSIDE the state updater: an
+  // updater must be pure (React runs it twice in development), and this one
+  // has to remember which date it filled in.
+  const seededDue = useRef('');
+  const setRecur = (changes) => {
+    const next = { ...form, ...changes };
+    const mine = !next.dueOn || next.dueOn === seededDue.current;
+    const first = mine && next.recurFreq !== 'none' ? firstDueOnOrAfter(buildRecurrence(next), localTodayISO()) : '';
+    // A rule that names no day (Daily, Periodically) leaves the date as it is.
+    if (first) {
+      seededDue.current = first;
+      next.dueOn = first;
+    }
+    setForm(next);
+  };
+  const recurPreview = form.recurFreq !== 'none' && form.recurFreq !== 'periodic'
+    ? upcomingDates(recurrence(), form.dueOn || localTodayISO(), 3) : [];
   const uploadAttachment = (parentId, f) => uploadTaskAttachment(parentId, f).catch(() => {});
 
   // Required on CREATE: Task Name, Assignee, Due Date. Editing is NOT gated -
@@ -182,15 +220,25 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
   ].filter(Boolean);
   // Only the fields that apply to the chosen project - a field scoped to
   // another project must not appear, let alone be required here.
-  const activeFields = fieldsForProject(customFields, lockedProjectId || form.projectId);
-  // A read-only field is calculated in Asana and can never be filled in here,
-  // so requiring one would make the form unsubmittable. List-shaped values
-  // (multiselect/people) are empty as [], which is not '' - checking only for ''
-  // let a required one through empty.
-  const isBlank = (v) => v == null || v === '' || (Array.isArray(v) && v.length === 0);
+  // Editing, the "also in" projects count too - the same fields the task
+  // drawer shows (fieldsForTask).
+  const fieldTask = { projectId: lockedProjectId || form.projectId, projectIds: editing?.projectIds || [] };
+  const activeFields = fieldsForTask(customFields, fieldTask);
+  // Required in THIS project - everywhere, or for this project only (Oct 13
+  // 2026) - per isFieldRequiredIn, the same rule the server refuses a create
+  // on. A read-only field never is; list values are blank as [].
+  const reqProject = lockedProjectId || form.projectId;
+  // Creating: what this project requires (and the server enforces). Editing:
+  // starred the same way when the task's projects require it, but not
+  // blocking Save - an older task must stay editable.
+  const fieldRequired = (f) => (isEdit ? requiredByProjectsOf(f, fieldTask).length > 0 : isFieldRequiredIn(f, reqProject));
   const missingFields = isEdit ? [] : activeFields.filter(
-    (f) => f.required && !f.readOnly && isBlank(form.customFieldValues[f.id]));
+    (f) => fieldRequired(f) && isBlankValue(form.customFieldValues[f.id]));
   const canSubmit = missing.length === 0 && missingFields.length === 0 && !busy;
+  const showEstimate = taskTracksTime(
+    { ...(editing || {}), projectId: lockedProjectId || form.projectId, projectIds: editing?.projectIds || [] },
+    projects, tasks,
+  );
   const req = <span style={{ color: NX.red }}>*</span>;
   const missStyle = (key) => (missing.includes(key) ? { borderColor: NX.red } : null);
 
@@ -215,7 +263,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
         const created = await createTask(core);
         parentId = created.id;
       }
-      for (const s of subtasks.filter((s) => !s.id)) await createTask({ title: s.title, parentTaskId: parentId, projectId: form.projectId || '', teamId: form.teamId || '', status: 'not_started', priority: 'medium', type: 'task' }).catch(() => {});
+      for (const s of subtasks.filter((s) => !s.id)) await createTask({ title: s.title, parentTaskId: parentId, projectId: form.projectId || '', teamId: form.teamId || '', followerIds: form.followerIds, status: 'not_started', priority: 'medium', type: 'task' }).catch(() => {});
       for (const f of attachments) await uploadAttachment(parentId, f);
       // Pictures pasted into the description are inline until the task exists;
       // now that it does, file them as attachments and point the description
@@ -260,7 +308,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
           </div>
         )}
         <button style={btn('ghost')} onClick={() => onClose(false)}>Cancel</button>
-        <button title={missing.length ? 'Fill in the required fields (marked *)' : undefined}
+        <button title={missing.length || missingFields.length ? `Fill in the required fields (marked *)${missingFields.length ? ` - ${missingFields.map((f) => f.name).join(', ')}` : ''}` : undefined}
           style={{ ...btn('primary'), opacity: !canSubmit ? 0.6 : 1 }} onClick={submit} disabled={!canSubmit}>
           {isEdit ? <><Save size={15} /> Save Changes</> : <><Plus size={15} /> Create Task</>}
         </button>
@@ -332,20 +380,38 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
           </div>
           <div style={field}>
             <label style={label}>Collaborators</label>
-            <PersonMultiSelect value={form.followerIds} onChange={(v) => set('followerIds', v)} people={people} placeholder="Add collaborators…" addTitle="Add collaborator" />
+            <PersonMultiSelect value={form.followerIds} onChange={(v) => set('followerIds', v)} people={people} frequent={frequent}
+              teams={store.teams} onSaveTeam={({ name, memberIds }) => store.createTeam({ name, memberIds, personal: true })}
+              placeholder="Add collaborators…" addTitle="Add collaborator" />
           </div>
-          {/* Start Date is optional and sits before Due Date, the order the
-              Timeline column reads them in. Left empty it fills itself in the
-              moment the task leaves Not Started (backend _autostamp_start), so
-              this field is for work with a KNOWN start - scheduled ahead, or
-              started before it was written down. */}
+          {/* Due Date | Start Date, Priority | Status, then Recurrence and the
+              rest of its rule (Sagar, Oct 13 2026). */}
+          <div style={field}>
+            <label style={label}>Due Date {!isEdit && req}</label>
+            <DateField value={form.dueOn} onChange={(v) => set('dueOn', v || '')} noPast placeholder="Pick a date" style={{ ...input, ...missStyle('due') }} />
+          </div>
+          {/* Start Date is optional and sits beside Due Date (Sagar, Oct 13
+              2026: Due Date first - it is required, Start Date is not). Left
+              empty it fills itself in the moment the task leaves Not Started
+              (backend _autostamp_start), so this field is for work with a
+              KNOWN start - scheduled ahead, or started before it was written down. */}
           <div style={field}>
             <label style={label}>Start Date</label>
             <DateField value={form.startOn} onChange={(v) => set('startOn', v || '')} placeholder="Optional - set when work begins" style={input} />
           </div>
           <div style={field}>
-            <label style={label}>Due Date {!isEdit && req}</label>
-            <DateField value={form.dueOn} onChange={(v) => set('dueOn', v || '')} noPast placeholder="Pick a date" style={{ ...input, ...missStyle('due') }} />
+            <label style={label}>Priority</label>
+            <select value={form.priority} onChange={(e) => set('priority', e.target.value)} style={sel}>
+              {PRIORITY_ORDER.map((p) => <option key={p} value={p}>{PRIORITY_META[p].label}</option>)}
+            </select>
+          </div>
+          <div style={field}>
+            <label style={label}>Status</label>
+            <select value={form.recurFreq !== 'none' ? 'recurring' : form.status} onChange={(e) => set('status', e.target.value)} disabled={form.recurFreq !== 'none'} style={{ ...sel, ...(form.recurFreq !== 'none' ? { opacity: 0.7, cursor: 'not-allowed' } : {}) }}>
+              {/* Follows the chosen project, same as activeFields above. */}
+              {(store.statusOrderFor ? store.statusOrderFor(lockedProjectId || form.projectId) : store.statusOrder).map((s) => <option key={s} value={s}>{store.statusMeta[s]?.label || s}</option>)}
+            </select>
+            {form.recurFreq !== 'none' && <span style={{ fontSize: 11, color: NX.faint, marginTop: 3 }}>Recurring tasks are always “Recurring”.</span>}
           </div>
           <div style={field}>
             <label style={label}>Recurrence</label>
@@ -362,23 +428,28 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
           {form.recurFreq === 'weekly' && (
             <div style={field}>
               <label style={label}>On These Days</label>
-              <DaysOfWeekPicker value={form.recurDaysOfWeek} onChange={(v) => set('recurDaysOfWeek', v)} />
+              <DaysOfWeekPicker value={form.recurDaysOfWeek} onChange={(v) => setRecur({ recurDaysOfWeek: v })} />
             </div>
           )}
           {form.recurFreq === 'monthly' && (
             <div style={field}>
-              <label style={label}>Day of Month</label>
-              <select value={form.recurDom} onChange={(e) => set('recurDom', e.target.value)} style={sel}>
-                {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => <option key={d} value={d}>Day {d}</option>)}
-              </select>
+              <label style={label}>Repeat On</label>
+              <MonthDayControls value={form.recurMonthRule} seedDate={form.dueOn} selectStyle={sel}
+                onChange={(v) => setRecur({ recurMonthRule: v })} />
+            </div>
+          )}
+          {form.recurFreq === 'yearly' && (
+            <div style={field}>
+              <label style={label}>Repeat On</label>
+              <YearDayControls value={form.recurYearRule} seedDate={form.dueOn} selectStyle={sel}
+                onChange={(v) => setRecur({ recurYearRule: v })} />
             </div>
           )}
           {form.recurFreq === 'periodic' && (
             <div style={field}>
               <label style={label}>Days After Completion</label>
-              <select value={form.recurDaysAfter} onChange={(e) => set('recurDaysAfter', e.target.value)} style={sel}>
-                {PERIODIC_DAY_OPTIONS.map((d) => <option key={d} value={d}>{d} day{d === 1 ? '' : 's'}</option>)}
-              </select>
+              <PeriodicDaysControl value={form.recurDaysAfter} onChange={(v) => set('recurDaysAfter', v)}
+                selectStyle={sel} inputStyle={input} />
             </div>
           )}
           {form.recurFreq === 'custom' && (
@@ -387,8 +458,8 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
                 <label style={label}>Every</label>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <input type="number" min="1" step="1" value={form.recurInterval}
-                    onChange={(e) => set('recurInterval', e.target.value)} style={{ ...input, width: 70 }} />
-                  <select value={form.recurUnit} onChange={(e) => set('recurUnit', e.target.value)} style={sel}>
+                    onChange={(e) => setRecur({ recurInterval: e.target.value })} style={{ ...input, width: 70 }} />
+                  <select value={form.recurUnit} onChange={(e) => setRecur({ recurUnit: e.target.value })} style={sel}>
                     <option value="day">Day{Number(form.recurInterval) === 1 ? '' : 's'}</option>
                     <option value="week">Week{Number(form.recurInterval) === 1 ? '' : 's'}</option>
                     <option value="month">Month{Number(form.recurInterval) === 1 ? '' : 's'}</option>
@@ -399,15 +470,21 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
               {form.recurUnit === 'week' && (
                 <div style={field}>
                   <label style={label}>On These Days</label>
-                  <DaysOfWeekPicker value={form.recurDaysOfWeek} onChange={(v) => set('recurDaysOfWeek', v)} />
+                  <DaysOfWeekPicker value={form.recurDaysOfWeek} onChange={(v) => setRecur({ recurDaysOfWeek: v })} />
                 </div>
               )}
               {form.recurUnit === 'month' && (
                 <div style={field}>
-                  <label style={label}>Day of Month</label>
-                  <select value={form.recurDom} onChange={(e) => set('recurDom', e.target.value)} style={sel}>
-                    {Array.from({ length: 31 }, (_, i) => i + 1).map((d) => <option key={d} value={d}>Day {d}</option>)}
-                  </select>
+                  <label style={label}>Repeat On</label>
+                  <MonthDayControls value={form.recurMonthRule} seedDate={form.dueOn} selectStyle={sel}
+                    onChange={(v) => setRecur({ recurMonthRule: v })} />
+                </div>
+              )}
+              {form.recurUnit === 'year' && (
+                <div style={field}>
+                  <label style={label}>Repeat On</label>
+                  <YearDayControls value={form.recurYearRule} seedDate={form.dueOn} selectStyle={sel}
+                    onChange={(v) => setRecur({ recurYearRule: v })} />
                 </div>
               )}
             </>
@@ -434,20 +511,21 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
               <input type="number" min="1" step="1" value={form.recurCount} onChange={(e) => set('recurCount', e.target.value)} placeholder="e.g. 10" style={input} />
             </div>
           )}
-          <div style={field}>
-            <label style={label}>Priority</label>
-            <select value={form.priority} onChange={(e) => set('priority', e.target.value)} style={sel}>
-              {PRIORITY_ORDER.map((p) => <option key={p} value={p}>{PRIORITY_META[p].label}</option>)}
-            </select>
-          </div>
-          <div style={field}>
-            <label style={label}>Status</label>
-            <select value={form.recurFreq !== 'none' ? 'recurring' : form.status} onChange={(e) => set('status', e.target.value)} disabled={form.recurFreq !== 'none'} style={{ ...sel, ...(form.recurFreq !== 'none' ? { opacity: 0.7, cursor: 'not-allowed' } : {}) }}>
-              {/* Follows the chosen project, same as activeFields above. */}
-              {(store.statusOrderFor ? store.statusOrderFor(lockedProjectId || form.projectId) : store.statusOrder).map((s) => <option key={s} value={s}>{store.statusMeta[s]?.label || s}</option>)}
-            </select>
-            {form.recurFreq !== 'none' && <span style={{ fontSize: 11, color: NX.faint, marginTop: 3 }}>Recurring tasks are always “Recurring”.</span>}
-          </div>
+          {/* What the rule will actually do, before it is saved - "the 4th
+              Friday" is easy to pick and easy to get wrong. */}
+          {form.recurFreq === 'periodic' && (
+            <div style={{ gridColumn: '1 / -1', fontSize: 12, color: NX.faint }}>
+              Each new task is due {clampDays(form.recurDaysAfter)} day{clampDays(form.recurDaysAfter) === 1 ? '' : 's'} after the one before it is completed.
+            </div>
+          )}
+          {recurPreview.length > 0 && (
+            <div data-testid="recur-preview" style={{ gridColumn: '1 / -1', fontSize: 12, color: NX.faint }}>
+              {form.dueOn ? `After ${fmtDate(form.dueOn)}, next due` : 'Next due'} {recurPreview.map((d) => fmtDate(d)).join(', ')}
+            </div>
+          )}
+          {/* Only where the project tracks time, or the task being edited
+              already has time on it (Oct 13 2026; taskTracksTime). */}
+          {showEstimate && (
           <div style={field}>
             <label style={label}>Estimated Time</label>
             <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
@@ -456,6 +534,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
               <input type="number" min="0" max="59" step="5" value={form.estimateMin} onChange={(e) => set('estimateMin', e.target.value)} placeholder="min" style={{ ...input, flex: 1, minWidth: 0 }} />
             </div>
           </div>
+          )}
           <div style={field}>
             <label style={label}>Task Owner</label>
             <PersonSelect value={form.ownerId} onChange={(v) => set('ownerId', v)} people={people} placeholder="No owner" />
@@ -467,7 +546,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
             same block rather than as an afterthought below Labels, where they
             used to sit under the fold and were routinely missed (Sagar, Aug
             2026). Which fields appear follows the chosen project, exactly as
-            Status does: fieldsForProject returns the workspace-wide ones plus
+            Status does: fieldsForTask returns the workspace-wide ones plus
             the ones scoped to this project, and nothing renders when a project
             has none. Same two-column grid and label styling as the properties
             above, so they look native rather than bolted on. */}
@@ -475,7 +554,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
             {activeFields.map((f) => (
               <div key={f.id} style={field}>
-                <label style={label}>{f.name} {!isEdit && f.required && req}</label>
+                <label style={label}>{f.name} {fieldRequired(f) && req}</label>
                 <CustomFieldInput field={f} value={form.customFieldValues[f.id]} onChange={(v) => set('customFieldValues', { ...form.customFieldValues, [f.id]: v })} />
                 {f.description && <span style={{ fontSize: 11, color: NX.faint, marginTop: 3 }}>{f.description}</span>}
               </div>
@@ -506,12 +585,12 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
             ))}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px dashed ${NX.border}`, borderRadius: 8, padding: '6px 10px' }}>
               <ListChecks size={15} style={{ color: NX.faint }} />
-              <input value={subtaskInput} onChange={(e) => setSubtaskInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSubtask(); } }} placeholder="Add subtask + Enter" style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontFamily: FONT, fontSize: 13 }} />
+              <input className="nx-inline-edit" value={subtaskInput} onChange={(e) => setSubtaskInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSubtask(); } }} placeholder="Add subtask + Enter" style={{ flex: 1, border: 'none', fontFamily: FONT, fontSize: 13 }} />
             </div>
           </div>
         </div>
 
-        <div onPaste={onPasteFiles} tabIndex={0} style={{ ...field, outline: 'none' }}>
+        <div onPaste={onPasteFiles} tabIndex={0} style={{ ...field }}>
           <label style={label}>Attachments</label>
           <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={(e) => { onFiles(e.target.files); e.target.value = ''; }} />
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>

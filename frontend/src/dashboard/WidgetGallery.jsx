@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { LoadingState } from '../components/AsyncState';
-import { X, Plus, Check } from 'lucide-react';
-import { WIDGETS, KPI_CATALOG, SHORTCUT_TARGETS, QUICK_ACTIONS, DEFAULT_QUICK_ACTIONS } from './widgets.jsx';
+import { X, Plus, Check, Search } from 'lucide-react';
+import { WIDGETS, KPI_CATALOG, SHORTCUT_TARGETS, QUICK_ACTIONS, DEFAULT_QUICK_ACTIONS, ACTION_CHOICES, DEFAULT_ACTION, sizeLabel } from './widgets.jsx';
 import { api } from '../api';
+import { useRole } from '../contexts/RoleContext';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
 import { useIsMobile } from '../lib/useIsMobile';
@@ -86,8 +87,44 @@ function LinksFolderFields({ config, onChange }) {
   );
 }
 
+// The Action Tile's picker (Oct 11): every choice as a tappable icon card, the
+// way a home screen offers its apps, not a dropdown. Its own component for the
+// role hook - the punch is left out for a time-tracking-exempt person, who has
+// no clock to punch (same rule as widgetHidden).
+function ActionFields({ config, onChange }) {
+  const { timeTrackingExempt } = useRole();
+  const choices = ACTION_CHOICES.filter(a => !(a.timeTracked && timeTrackingExempt === true));
+  const cur = config.action || DEFAULT_ACTION;
+  return (
+    <div>
+      <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 8 }}>What this tile does</label>
+      <div role="radiogroup" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 8 }}>
+        {choices.map(a => {
+          const on = a.key === cur;
+          return (
+            <button key={a.key} type="button" role="radio" aria-checked={on} onClick={() => onChange({ action: a.key })}
+              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 10, cursor: 'pointer', textAlign: 'left', fontFamily: 'var(--wk-font)',
+                background: on ? 'var(--wk-brand-tint, hsla(var(--color-blue),0.08))' : 'var(--card)',
+                border: `1.5px solid ${on ? 'var(--wk-brand, hsl(var(--color-blue)))' : 'var(--line)'}` }}>
+              <span className={`dk-chip dk-chip--${a.color}`} style={{ width: 30, height: 30, borderRadius: 9, flexShrink: 0 }}><a.Icon size={15} /></span>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: 'block', fontSize: 12.5, fontWeight: 600, color: 'var(--ink)', overflowWrap: 'anywhere' }}>{a.label}</span>
+                {a.hint && <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>{a.hint}</span>}
+              </span>
+              {on && <Check size={14} style={{ color: 'var(--wk-brand, hsl(var(--color-blue)))', flexShrink: 0 }} />}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // Config picker used both when adding a configurable widget and when editing one.
 function ConfigFields({ type, config, onChange }) {
+  if (type === 'action') {
+    return <ActionFields config={config} onChange={onChange} />;
+  }
   if (type === 'quick-actions') {
     const picked = new Set(Array.isArray(config.actions) && config.actions.length ? config.actions : DEFAULT_QUICK_ACTIONS);
     const toggle = (key) => {
@@ -153,14 +190,21 @@ export function configValid(type, config) {
   if (type === 'weather') return weatherConfigValid(config);
   if (type === 'links-folder') return !!config?.folderId;
   if (type === 'quick-actions') return !Array.isArray(config?.actions) || config.actions.length > 0;
+  if (type === 'action') return !!config?.action;
   return true;
 }
 
 export function WidgetGallery({ canSee, onAdd, onClose, layout = [] }) {
   const [picking, setPicking] = useState(null);   // { type, config, initial }
   const touch = useIsMobile('(pointer: coarse)');
+  // Search (Oct 11): the catalog passed thirty tiles - scrolling eight
+  // categories to find "weather" is not finding. Matches the title and the
+  // category; the groups below shrink to what matches.
+  const [q, setQ] = useState('');
+  const needle = q.trim().toLowerCase();
 
-  const entries = Object.entries(WIDGETS).filter(([, def]) => canSee(def) && !def.hidden);
+  const entries = Object.entries(WIDGETS).filter(([, def]) => canSee(def) && !def.hidden
+    && (!needle || def.title.toLowerCase().includes(needle) || def.cat.toLowerCase().includes(needle)));
   const cats = [...new Set(entries.map(([, d]) => d.cat))];
   // Which widget types are already on the view - the double-My-Agenda trap was
   // adding a widget the default layout already carried, with nothing saying so.
@@ -201,6 +245,14 @@ export function WidgetGallery({ canSee, onAdd, onClose, layout = [] }) {
   return (
     <Overlay onClose={onClose}>
       <Shell title="Add a Widget" sub={touch ? 'Tap to add - you can reorder it after' : 'Click to add - you can move and resize it after'} onClose={onClose}>
+        <div style={{ position: 'relative', marginBottom: 16 }}>
+          <Search size={15} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)', pointerEvents: 'none' }} />
+          <input type="search" className="form-input" value={q} onChange={e => setQ(e.target.value)} autoFocus={!touch}
+            placeholder="Search widgets…" aria-label="Search widgets" style={{ width: '100%', paddingLeft: 34 }} />
+        </div>
+        {entries.length === 0 && (
+          <p style={{ fontSize: 13, color: 'var(--muted)', textAlign: 'center', padding: '18px 0' }}>Nothing matches "{q.trim()}".</p>
+        )}
         {cats.map(cat => (
           <div key={cat} style={{ marginBottom: 18 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>{cat}</div>
@@ -215,7 +267,10 @@ export function WidgetGallery({ canSee, onAdd, onClose, layout = [] }) {
                           : def.configurable === 'links-folder' ? {}
                           : def.configurable === 'quick-actions' ? { actions: [...DEFAULT_QUICK_ACTIONS] }
                           : def.configurable === 'weather' ? { ...WEATHER_DEFAULT }
-                          : { ...SHORTCUT_TARGETS[0] };
+                          : def.configurable === 'action' ? { action: DEFAULT_ACTION }
+                          // Only what the select's onChange saves - the catalog
+                          // entry also carries its Icon component and color.
+                          : { view: SHORTCUT_TARGETS[0].view, sub: SHORTCUT_TARGETS[0].sub, label: SHORTCUT_TARGETS[0].label };
                         setPicking({ type, config: initial, initial });
                       } else { onAdd(type); onClose(); }
                     }}
@@ -229,6 +284,9 @@ export function WidgetGallery({ canSee, onAdd, onClose, layout = [] }) {
                         painted over it ("Notif", Sep 28). */}
                     <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
                       <span style={{ fontSize: 12.5, fontWeight: 600, overflowWrap: 'anywhere' }}>{def.title}</span>
+                      {/* The footprint in the iOS size vocabulary, so you know
+                          what you are adding before it lands on the board. */}
+                      <span style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 500 }}>{sizeLabel(def.size)}{def.limits?.minH === 1 ? ' · fits one row' : ''}</span>
                       {added && (
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10.5, fontWeight: 700, color: 'var(--wk-green, #00a25b)', background: 'var(--wk-green-bg, rgba(0,162,91,.1))', borderRadius: 999, padding: '2px 7px' }}>
                           <Check size={10} /> Added

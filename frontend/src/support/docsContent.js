@@ -213,7 +213,7 @@ export const DOCS = [
         title: 'Request Time Off',
         steps: [
           'Click the Time Off tab.',
-          'Pick the Reason (Personal, Sick, Vacation, Unpaid or Medical Appointment) and the From and To dates. Turn All day off to take part of one day.',
+          'Pick the Reason (Personal, Sick, Vacation or Medical Appointment) and the From and To dates. Turn All day off to take part of one day.',
           'Add a note if your approver should know more (optional), then click Request. It shows as Pending until your approver decides.',
         ],
       },
@@ -230,7 +230,7 @@ export const DOCS = [
       { name: 'Overview', desc: 'Opens with a greeting and three tiles: Hours This Week with your shift for today beside it (from Shifts - or No Shift Today), Time Off This Year (approved working days, Monday to Friday, a partial day counted as its share of 8 hours) and Time With Us (from the start date on your HR record - ask HR if it is wrong). Then the Time Clock, then your profile, contact and emergency details, assigned equipment and checkouts, My Documents (signed documents, the files HR keeps for you and your paystubs, by folder), upcoming time off, and Ask HR (New Request opens the form; your requests and the answers from HR are listed). Only you see this page.' },
       { name: 'Time Clock', desc: 'On Overview: Punch In, Start Break, End Break and Punch Out with a live dial for the shift you are on and where the punch was recorded. Beside it, your hours with a Today / This Week / Pay Period switch - the total, days worked, daily average and breaks, then the punches of the day on a timeline or daily bars against an 8-hour line. Time Sheet opens every punch, day by day.' },
       { name: 'Time Sheet', desc: 'Your hours this pay period, day by day. Sick, vacation and personal hours show on their own lines. To ask for missing time, click + add on the day, pick its Type - Regular, Break, Sick, Vacation or Personal - set the start and end, and give a reason. Times are in your own timezone. The request shows on its day as Not Yet Approved, with your reason, until your approver decides - it is not in your hours until then. The Notes column is yours: click a day to leave a note for your manager (they see it on your timecard; their own notes on your days are never shown to you).' },
-      { name: 'Time Off', desc: 'Request time off: a Reason (Personal, Sick, Vacation, Unpaid or Medical Appointment), the dates, and an optional Note. Keep this confidential shows your team only that you are out and the reason, never the note. Every request you have made is listed under My Requests as Pending, Approved, Rejected or Cancelled, and you can cancel one that is pending or approved.' },
+      { name: 'Time Off', desc: 'Request time off: a Reason (Personal, Sick, Vacation or Medical Appointment), the dates, and an optional Note. Keep this confidential shows your team only that you are out and the reason, never the note. Every request you have made is listed under My Requests as Pending, Approved, Rejected or Cancelled, and you can cancel one that is pending or approved.' },
       { name: 'Location Tag', desc: 'Each punch shows the location you were at when you punched, judged by where the punch was made, even if you move between several locations in a day. A punch inside any of your company locations shows that site; a punch away from all of them shows Out of Location, and that time is never billed to the nearest site. A punch from a device with no GPS (a desktop) often gets only a rough location and shows Approx. Location, because it is too rough to tell which site you were at - punch from your phone for a precise one. A rough location that is nowhere near any site still shows Out of Location. Remote staff can punch from anywhere, and their location is still recorded. Click a location on the timecard to see the punches of that shift on the map; a manager can also change the location of the punch from there.' },
     ],
     manager: {
@@ -249,9 +249,9 @@ export const DOCS = [
   },
   {
     id: 'workforce-analytics', name: 'Workforce Analytics', group: 'My Desk', icon: 'MonitorDot', view: 'employee-tracking',
-    tagline: 'Live coverage, activity, punch locations and company computers.',
+    tagline: 'Live coverage, activity, the weekly hours Scorecard, punch locations and company computers.',
     where: 'Left menu > Workforce Analytics',
-    access: 'IT Admin and Global Admin, or anyone given the Workforce Analytics grant',
+    access: 'IT Admin and Global Admin, or anyone given the Workforce Analytics grant. The Scorecard tab alone opens with the Workforce Scorecard grant.',
     purpose: 'Workforce Analytics is the disclosed monitoring dashboard. It shows who is working right now, where each person last punched from, activity on enrolled company computers and screenshots taken under the company policy. Employees are told about it before they first clock in.',
     gains: [
       'Know at a glance who is working, on break or not clocked in.',
@@ -268,6 +268,15 @@ export const DOCS = [
         ],
       },
       {
+        title: 'Score Last Week\'s Hours',
+        steps: [
+          'Click the Scorecard tab. It opens on the last full week; use the arrows to move between weeks.',
+          'Each hourly person shows their expected hours (published shift, else shift preset, else the standard day - US 8h, India 9h), the hours they punched, Sick / PTO leave, and a score with Absent, Short and Late day counts.',
+          'Click a row for the day-by-day breakdown: holidays, approved time off and missing punches are written on the day.',
+          'Click Email Me This Report to get the same scorecard in your inbox. Managers holding the grant also receive it automatically every week once Settings > Workforce Scorecard is live.',
+        ],
+      },
+      {
         title: 'Enroll a Company Computer',
         steps: [
           'Click the Computers tab.',
@@ -279,6 +288,7 @@ export const DOCS = [
     features: [
       { name: 'Coverage', desc: 'Live list of who is Working, On Break or Not Clocked In, with On Site and Out of Location tags.' },
       { name: 'Activity', desc: 'Time and activity per person across the day.' },
+      { name: 'Scorecard', desc: 'Punched hours against expected hours for each hourly person, by week: On Track, Below Expected, Well Below, Absent, with the days that were excused and why. The same report goes to managers by email.' },
       { name: 'Locations', desc: 'A map of where each person last punched from.' },
       { name: 'Computers', desc: 'Company computers with the desktop agent. Copy the install or uninstall command here.' },
       { name: 'Screenshots', desc: 'Screenshots captured under the policy, shown by day, with the capture interval.' },
@@ -288,6 +298,7 @@ export const DOCS = [
       points: [
         'A viewer grant lets you watch coverage, activity and locations.',
         'A full grant also allows remote control and managing devices and policies.',
+        'The Workforce Scorecard grant is separate: Viewer scores your direct reports, Editor your whole reporting line, Full the whole company. Its weekly email, standard day and thresholds live in Settings > Workforce Scorecard.',
         'The monitoring policy itself (what is captured and who is exempt) is set in People settings and Settings.',
       ],
     },
@@ -386,14 +397,14 @@ export const DOCS = [
       { name: 'Export and Print', desc: 'Download the schedule as a spreadsheet or print it.' },
       { name: 'Day Note', desc: 'A note on a day for everyone, e.g. "Inventory day - all hands".' },
       { name: 'Add Time Off', desc: 'Add time off for a person straight from the grid, approved now or left for Requests.' },
-      { name: 'Shift Types and Groups', desc: 'Settings > Global Settings > Shifts: shift types (time, unpaid break, grace, days, color, code, time zone), groups of people in the order they appear on the grid, and the shift settings (what staff may request and see, the team time zone, week start, reminders, time-off reasons).' },
+      { name: 'Shift Types and Groups', desc: 'Settings > Global Settings > Shifts: shift types (time, unpaid break, grace, days, color, code, time zone), groups of people in the order they appear on the grid, and the shift settings (what staff may request and see, the team time zone, week start, time-off reasons).' },
     ],
     manager: {
       title: 'Who Can Do What',
       points: [
         'Everyone sees their own shifts and their team\'s. The schedule itself is read-only for them.',
         'Managers and above see Schedule and Requests, and build and share schedules there.',
-        'Request settings (under Requests) decide whether staff can request open shifts, swap, offer shifts, see teammates\' shifts and request time off, and when shift reminders go out.',
+        'Request settings (under Requests) decide whether staff can request open shifts, swap, offer shifts, see teammates\' shifts and request time off.',
       ],
     },
     tips: [
@@ -422,7 +433,7 @@ export const DOCS = [
       {
         title: 'Add a Task in One Line',
         steps: [
-          'Open Tasks, then click the My Tasks tab.',
+          'Open Tasks. It opens on the Tasks tab, your own list.',
           'Click the one-line box at the top of the list and type a title.',
           'Press Enter. Set the due date right on that line if you need one.',
         ],
@@ -454,7 +465,7 @@ export const DOCS = [
     ],
     features: [
       { name: 'Home', desc: 'Your own dashboard of widgets (due soon, urgent, completed) for your day, week or month. Customize adds or removes widgets.' },
-      { name: 'My Tasks', desc: 'Everything assigned to you across every project, with comment, attachment and subtask counts on each row.' },
+      { name: 'Tasks', desc: 'Everything assigned to you across every project, with comment, attachment and subtask counts on each row.' },
       { name: 'Projects', desc: 'Related work in one place. You see a project if it is open to the company or you were added (directly or through a team).' },
       { name: 'Portfolios', desc: 'Groups of projects, so leads can follow progress across several at once.' },
       { name: 'Teams', desc: 'Named groups of people. Attach a team to a project to give everyone access in one move.' },
@@ -1249,29 +1260,40 @@ export const DOCS = [
   },
   {
     id: 'business-intelligence', name: 'Business Intelligence', group: 'Modules', icon: 'Gauge', view: 'bi',
-    tagline: 'Company-wide KPIs from every module, as charts you can arrange.',
+    tagline: 'Company-wide numbers from every module, with what needs attention first.',
     where: 'Left menu > Business Intelligence',
     access: 'Supervisors and above with the BI grant',
-    purpose: 'Business Intelligence pulls key numbers from across Nexus onto one board. Each card can be a chart, table or single number, and anything that needs attention is flagged at the top.',
+    purpose: 'Business Intelligence pulls the key numbers from across Nexus onto one board, counted exactly as each module counts them. Anything past its alert level - overdue, breached, unassigned, expiring - is listed first under Needs Attention; every module then gets its own card of counts. Click a count to see who or what is behind it.',
     gains: [
-      'Cross-module numbers in one place.',
-      'Download any card as CSV.',
+      'Cross-module numbers in one place, refreshed every 30 seconds.',
+      'What needs attention is at the top, worst first.',
+      'Any count opens its breakdown by person or by record.',
+      'Download the board or any card as CSV.',
     ],
     walkthroughs: [
       {
-        title: 'Arrange Your Board',
+        title: 'Find Out Who Is Behind a Number',
         steps: [
           'Open Business Intelligence.',
-          'Click Customize.',
-          'Pick each card\'s chart type (Bar, Line, Pie, Table, Card and more) and drag the cards into place.',
-          'Click Done. Click Reset Layout to start over.',
+          'Under Needs Attention, click a tile, or click any count on a module card.',
+          'The breakdown opens: a bar per person, or the records themselves when there is no "who".',
+          'Click Open to go to the module and act on it.',
+        ],
+      },
+      {
+        title: 'Narrow the Board',
+        steps: [
+          'Type in the Find a metric box to keep only matching counts.',
+          'Pick Critical, Warning or Good to keep only counts at that alert level.',
+          'Use Modules to hide the cards you do not read. The choice is remembered on this browser.',
         ],
       },
     ],
     features: [
-      { name: 'Cards', desc: 'Bar, Column, Stacked Bar, Line, Area, Pie, Donut, Funnel, Treemap, Table or a single number.' },
-      { name: 'Alerts', desc: 'Metrics past their alert level are flagged.' },
-      { name: 'Export', desc: 'Download any card as CSV.' },
+      { name: 'Needs Attention', desc: 'Every critical or warning count above zero, across every module, worst first.' },
+      { name: 'Module Cards', desc: 'Each module\'s counts in its alert colors, plus a breakdown bar, a 7-day attendance trend, or the hiring pipeline by stage where the module has one.' },
+      { name: 'Breakdown', desc: 'Click a count to see it by person, or the records themselves.' },
+      { name: 'Export', desc: 'Download the board or any card as CSV.' },
     ],
     manager: { title: 'Note', points: ['You only see numbers from modules you have access to.'] },
     tips: [],
@@ -1380,7 +1402,7 @@ export const DOCS = [
       { name: 'Submit a Ticket', desc: 'The same form the Tickets module uses, with routing and due dates set automatically.' },
       { name: 'Bug Report', desc: 'A ticket type in Submit a Ticket, for anything broken in Nexus itself.' },
       { name: 'On Behalf Of', desc: 'Raise a ticket for a colleague by picking them as the Requester. They get the updates; you can still see it.' },
-      { name: 'Contact Directory', desc: 'Reach anyone in the company: Teams chat, call or video, email, phone numbers, who they report to, and whether they are off today. Three lenses on the same people - Departments, Reporting Line, and Org Chart (the company as a tree of cards you pan and zoom, with Teams status on every card). Export PDF prints the people shown as a contact sheet with the reporting line.' },
+      { name: 'Contact Directory', desc: 'Reach anyone in the company: Teams chat, call or video, email (opens Outlook in a new tab), phone numbers and who they report to. Every person shows whether they are on shift (On Shift, On Break, Off Shift, Off Today) and their Teams status (Available, Busy, On a Call, Away, Out of Office, Offline). Three lenses on the same people - Departments (A-Z, across every company), Reporting Line, and Org Chart (the company as a tree of cards you pan and zoom). Export PDF prints the people shown as a contact sheet with the reporting line. HR and administrators get a Manage button that shows what is still missing (managers, titles, photos, phones).' },
       { name: 'Help Center', desc: 'The card with the question mark: opens the same help panel as the ? at the top of every page - search for help, ask a question, What\'s New, and help for the page you are on.' },
       { name: 'Legal', desc: 'The Privacy Policy and Terms & Conditions, one page with a tab each. Open it from Legal in the menu under your name (top right), or Legal in the phone menu.' },
       { name: 'Implementation Guide', desc: 'For administrators: how to set Nexus up for an organization, in 15 phases - Microsoft 365, branding, companies, job roles, people, time and pay, shifts, checklists, the modules, notifications, verification, go-live and running it after. Each phase has the decisions to make, steps with an Open button to each screen, checks that every administrator ticks off together, and pitfalls. Open it from Support or from the menu under your name.' },

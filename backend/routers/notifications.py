@@ -387,6 +387,7 @@ def send_alert(body: AlertIn, user: dict = Depends(get_current_user), db: Sessio
     # Auth tokens carry only the email - show a readable name, not the address
     _local = user["email"].split("@", 1)[0]
     sender_name = " ".join(p.capitalize() for p in _local.replace("_", ".").split(".") if p) or user["email"]
+    sender_company = company_of(user, db)
     for recipient_email in body.to:
         db.add(NexusNotification(
             id=str(uuid.uuid4()),
@@ -400,6 +401,7 @@ def send_alert(body: AlertIn, user: dict = Depends(get_current_user), db: Sessio
             action="",
             actioned=False,
             read_by="",
+            company=sender_company,   # company wall: sender's company
             created_at=now,
         ))
     db.commit()
