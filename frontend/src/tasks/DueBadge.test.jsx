@@ -7,11 +7,14 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 const confirmTaskDue = vi.fn((id) => Promise.resolve({ id, dueAgreement: 'accepted' }));
 const proposeTaskDue = vi.fn((id, dueOn) => Promise.resolve({ id, dueAgreement: 'proposed', dueProposal: { dueOn } }));
+const respondTaskDue = vi.fn((id) => Promise.resolve({ id }));
+const withdrawTaskDue = vi.fn((id) => Promise.resolve({ id, dueAgreement: 'accepted' }));
 vi.mock('../api', () => ({
   api: {
     confirmTaskDue: (...a) => confirmTaskDue(...a),
     proposeTaskDue: (...a) => proposeTaskDue(...a),
-    respondTaskDue: () => Promise.resolve({}),
+    respondTaskDue: (...a) => respondTaskDue(...a),
+    withdrawTaskDue: (...a) => withdrawTaskDue(...a),
     getPeopleDirectory: () => Promise.resolve([]),
   },
 }));
@@ -95,6 +98,34 @@ describe('DueNegotiation', () => {
     expect(screen.getByText('"Blocked on legal"')).toBeInTheDocument();
     fireEvent.click(screen.getByText('Suggest New Date'));
     expect(screen.getByText('Send Suggestion')).toBeDisabled();   // until a date is picked
+  });
+
+  // Oct 13 2026: the 3rd+ extension, or one more than a month out, waits.
+  const held = (extra = {}) => ({
+    ...pending, dueAgreement: 'extension_requested', dueExtensionCount: 2,
+    dueProposal: { dueOn: '2026-10-10', by: 'sagar@greensglobal.com', note: 'Vendor W9s', kind: 'extension',
+      number: 3, approvers: ['neil@greensglobal.com'], overMonth: false, baseline: '2026-09-19', ...extra },
+  });
+
+  it('asks an approver to approve or keep the date', async () => {
+    me = 'neil@greensglobal.com';
+    render(<DueNegotiation task={held()} />);
+    expect(screen.getByText(/asked to extend this from/)).toHaveTextContent('extension #3');
+    expect(screen.getByText('"Vendor W9s"')).toBeInTheDocument();
+    expect(screen.getByText('Keep 09/26/2026')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Approve 10/10/2026'));
+    await waitFor(() => expect(respondTaskDue).toHaveBeenCalledWith('t1', true, ''));
+  });
+
+  it('tells the assignee it is waiting, and lets them withdraw', async () => {
+    me = 'sagar@greensglobal.com';
+    render(<DueNegotiation task={held({ number: 1, overMonth: true })} />);
+    const line = screen.getByText(/asked to extend this to/);
+    expect(line).toHaveTextContent('more than a month past 09/19/2026');
+    expect(line).toHaveTextContent('Waiting for Neil; until then it stays due 09/26/2026.');
+    expect(screen.queryByText(/^Approve/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('Withdraw Request'));
+    await waitFor(() => expect(withdrawTaskDue).toHaveBeenCalledWith('t1'));
   });
 
   it('lists every move of the date', () => {

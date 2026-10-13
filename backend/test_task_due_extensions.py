@@ -149,17 +149,18 @@ class ExtensionCountTests(DueCase):
             models.TaskNotification.for_email == BOSS["email"]).all()
         self.assertEqual([x.kind for x in n], ["task_due_changed"])
 
-    def test_manager_is_belled_on_the_third_extension_only(self):
+    def test_manager_is_asked_on_the_third_extension(self):
+        # Oct 13 2026: the 3rd extension is no longer just a heads-up - it waits
+        # for the manager's approval (ExtensionApprovalTests).
         t = self._create(user=SAGAR, due_on="2026-09-20")
         for d in ("2026-09-21", "2026-09-22"):
             self._patch(t, due_on=d)
         mgr = lambda: self.db.query(models.TaskNotification).filter(  # noqa: E731
-            models.TaskNotification.for_email == MANAGER["email"]).count()
-        self.assertEqual(mgr(), 0)
+            models.TaskNotification.for_email == MANAGER["email"]).all()
+        self.assertEqual(mgr(), [])
         self._patch(t, due_on="2026-09-23")
-        self.assertEqual(mgr(), 1)
-        self._patch(t, due_on="2026-09-24")
-        self.assertEqual(mgr(), 1)
+        self.assertEqual([n.kind for n in mgr()], ["task_due_extension_requested"])
+        self.assertEqual((t.due_on, t.due_agreement), ("2026-09-22", task_due.REQUESTED))
 
 
 class NegotiationTests(DueCase):
@@ -229,6 +230,141 @@ class NegotiationTests(DueCase):
         t = self._create(user=SAGAR, due_on="2026-09-25")
         self._patch(t, user=BOSS, assignee_emails=["other@greensglobal.com"])
         self.assertEqual(t.due_agreement, "pending")
+
+
+class ExtensionApprovalTests(DueCase):
+    """Oct 13 2026: the 3rd+ extension, or one landing more than a calendar
+    month after the first agreed date, waits for the requester or an
+    assignee's manager. The task keeps its date until one of them says yes."""
+
+    def _agreed(self, due="2026-11-15"):
+        # Boss asks, Sagar confirms - the example everyone used.
+        t = self._create(due_on=due)
+        confirm_due(t.id, user=SAGAR, db=self.db)
+        self.db.refresh(t)
+        return t
+
+    def _bells(self, email, kind="task_due_extension_requested"):
+        return self.db.query(models.TaskNotification).filter(
+            models.TaskNotification.for_email == email, models.TaskNotification.kind == kind).count()
+
+    def test_first_two_small_extensions_just_happen(self):
+        t = self._agreed()
+        self._patch(t, due_on="2026-11-20")
+        self._patch(t, due_on="2026-11-25")
+        self.assertEqual((t.due_on, t.due_agreement, t.due_extension_count), ("2026-11-25", "accepted", 2))
+
+    def test_third_extension_waits_and_asks_requester_and_manager(self):
+        t = self._agreed()
+        self._patch(t, due_on="2026-11-20")
+        self._patch(t, due_on="2026-11-25")
+        self._patch(t, due_on="2026-12-02")
+        self.assertEqual((t.due_on, t.due_agreement, t.due_extension_count), ("2026-11-25", task_due.REQUESTED, 2))
+        self.assertEqual(t.due_proposal["dueOn"], "2026-12-02")
+        self.assertEqual(t.due_proposal["number"], 3)
+        self.assertEqual(sorted(t.due_proposal["approvers"]), sorted([BOSS["email"], MANAGER["email"]]))
+        self.assertEqual((self._bells(BOSS["email"]), self._bells(MANAGER["email"])), (1, 1))
+
+    def test_approval_moves_the_date_and_counts(self):
+        t = self._agreed()
+        for d in ("2026-11-20", "2026-11-25", "2026-12-02"):
+            self._patch(t, due_on=d)
+        respond_due(DueAnswer(accept=True), t.id, user=BOSS, db=self.db)
+        self.db.refresh(t)
+        self.assertEqual((t.due_on, t.due_agreement, t.due_proposal, t.due_extension_count),
+                         ("2026-12-02", "accepted", None, 3))
+        self.assertEqual(t.due_history[-1]["source"], "approved")
+        # The 4th needs approval again - every one from the 3rd on.
+        self._patch(t, due_on="2026-12-04")
+        self.assertEqual((t.due_on, t.due_agreement), ("2026-12-02", task_due.REQUESTED))
+
+    def test_decline_keeps_the_last_date(self):
+        t = self._agreed()
+        for d in ("2026-11-20", "2026-11-25", "2026-12-02"):
+            self._patch(t, due_on=d)
+        respond_due(DueAnswer(accept=False, note="Needed before month end"), t.id, user=MANAGER, db=self.db)
+        self.db.refresh(t)
+        self.assertEqual((t.due_on, t.due_agreement, t.due_proposal, t.due_extension_count),
+                         ("2026-11-25", "accepted", None, 2))
+        self.assertEqual(self._bells(SAGAR["email"], "task_due_answered"), 1)
+
+    def test_more_than_a_month_past_the_first_agreed_date_waits(self):
+        t = self._agreed("2026-11-20")
+        self._patch(t, due_on="2026-12-20")              # exactly a month: fine
+        self.assertEqual((t.due_on, t.due_extension_count), ("2026-12-20", 1))
+        self._patch(t, due_on="2026-12-21")              # past 12/20, only the 2nd
+        self.assertEqual((t.due_on, t.due_agreement), ("2026-12-20", task_due.REQUESTED))
+        self.assertTrue(t.due_proposal["overMonth"])
+        self.assertEqual(t.due_proposal["baseline"], "2026-11-20")
+
+    def test_the_month_counts_from_the_first_agreed_date_not_the_first_target(self):
+        # Boss set 11/15, Sagar proposed 11/20 and Boss accepted: 11/20 is the
+        # first agreed date, so 12/20 is still inside the month.
+        t = self._create(due_on="2026-11-15")
+        propose_due(DueProposal(due_on="2026-11-20"), t.id, user=SAGAR, db=self.db)
+        respond_due(DueAnswer(accept=True), t.id, user=BOSS, db=self.db)
+        self.db.refresh(t)
+        self._patch(t, due_on="2026-12-20")
+        self.assertEqual((t.due_on, t.due_agreement, t.due_extension_count), ("2026-12-20", "accepted", 1))
+
+    def test_an_approver_moving_it_is_not_asked(self):
+        t = self._agreed()
+        for d in ("2026-11-20", "2026-11-25"):
+            self._patch(t, due_on=d)
+        self._patch(t, user=BOSS, due_on="2026-12-30")
+        self.assertEqual((t.due_on, t.due_extension_count), ("2026-12-30", 3))
+        self.assertNotEqual(t.due_agreement, task_due.REQUESTED)
+
+    def test_nobody_to_ask_means_no_approval(self):
+        # Self-assigned, and no manager on file.
+        self.db.query(models.NexusEmployee).delete()
+        self.db.commit()
+        t = self._create(user=SAGAR, due_on="2026-11-01")
+        for d in ("2026-11-02", "2026-11-03", "2026-11-04", "2027-03-01"):
+            self._patch(t, due_on=d)
+        self.assertEqual((t.due_on, t.due_extension_count), ("2027-03-01", 4))
+
+    def test_self_created_task_asks_only_the_manager(self):
+        t = self._create(user=SAGAR, due_on="2026-11-01")
+        self._patch(t, due_on="2026-12-15")
+        self.assertEqual(t.due_proposal["approvers"], [MANAGER["email"]])
+
+    def test_a_new_ask_replaces_the_waiting_one(self):
+        t = self._agreed()
+        self._patch(t, due_on="2027-01-10")
+        self._patch(t, due_on="2027-01-20")
+        self.assertEqual((t.due_on, t.due_proposal["dueOn"]), ("2026-11-15", "2027-01-20"))
+        # Moving it inside the limits instead simply happens and drops the ask.
+        self._patch(t, due_on="2026-11-18")
+        self.assertEqual((t.due_on, t.due_agreement, t.due_proposal), ("2026-11-18", "accepted", None))
+
+    def test_the_assignee_cannot_approve_and_a_bystander_cannot_either(self):
+        t = self._agreed()
+        self._patch(t, due_on="2027-01-10")
+        for who in (SAGAR, {"email": "x@greensglobal.com", "level": 1}):
+            with self.assertRaises(HTTPException) as e:
+                respond_due(DueAnswer(accept=True), t.id, user=who, db=self.db)
+            self.assertEqual(e.exception.status_code, 403)
+
+    def test_withdraw(self):
+        from routers.tasks import withdraw_due
+        t = self._agreed()
+        self._patch(t, due_on="2027-01-10")
+        withdraw_due(t.id, user=SAGAR, db=self.db)
+        self.db.refresh(t)
+        self.assertEqual((t.due_on, t.due_agreement, t.due_proposal), ("2026-11-15", "accepted", None))
+
+    def test_bulk_holds_it_too_with_one_bell_per_approver(self):
+        a, b = self._agreed(), self._agreed()
+        bulk_update(BulkUpdate(ids=[a.id, b.id], patch={"due_on": "2027-02-01"}), user=SAGAR, db=self.db)
+        for t in (a, b):
+            self.db.refresh(t)
+            self.assertEqual((t.due_on, t.due_agreement), ("2026-11-15", task_due.REQUESTED))
+        self.assertEqual(self._bells(MANAGER["email"]), 1)
+
+    def test_add_month_stays_in_short_months(self):
+        self.assertEqual(task_due.add_month("2026-01-31"), "2026-02-28")
+        self.assertEqual(task_due.add_month("2026-12-15"), "2027-01-15")
 
 
 class PersonRecordTests(unittest.TestCase):
