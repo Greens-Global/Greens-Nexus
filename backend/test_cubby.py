@@ -143,3 +143,8 @@ def test_a_facility_carries_its_map_position_for_the_nearby_search():
     assert (f["lat"], f["lng"]) == (33.5, -117.15)
     bare = cubby.summarize_facility(FAC, _raw())
     assert bare["lat"] is None and bare["lng"] is None
+    # Cubby sends them as text. Anything that is not a real coordinate is no pin.
+    text = cubby.summarize_facility({**FAC, "latitude": "33.4936", "longitude": "-117.1484"}, _raw())
+    assert (text["lat"], text["lng"]) == (33.4936, -117.1484)
+    for bad in ("", "n/a", "912.5"):
+        assert cubby.summarize_facility({**FAC, "latitude": bad, "longitude": bad}, _raw())["lat"] is None
