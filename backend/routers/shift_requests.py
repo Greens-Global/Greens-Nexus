@@ -52,6 +52,7 @@ from sqlalchemy.orm import Session
 import models
 from auth import get_current_user
 from database import get_db
+from notify_company import notification_company
 from routers.timeclock import (require_schedule_write, require_shift_manage, SHIFT_MANAGE_LEVEL, _visible_emails,
                                _team_alert_recipients, _require_unscoped_team, _sched_dict, _hm12, _shift_local_now,
                                _shift_conflicts, _timeoff_dict, _availability, _company_holidays_for_employee,
@@ -237,7 +238,8 @@ def _bell(db: Session, recipient: str, title: str, body: str, ref: str, actor: s
     db.add(models.NexusNotification(
         id=str(uuid.uuid4()), type="custom_alert", recipient=recipient.lower(), title=title, body=body,
         ref_id=f"shift-request:{ref}", item_name="", requested_by=actor, action=json.dumps(action),
-        actioned=False, read_by="", created_at=datetime.now(timezone.utc).isoformat()))
+        actioned=False, read_by="", company=notification_company(db, actor, recipient),
+        created_at=datetime.now(timezone.utc).isoformat()))
 
 
 def _describe(r: models.ShiftRequest, names: dict) -> str:

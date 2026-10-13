@@ -17,6 +17,7 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 import models
 from database import get_db
+from notify_company import notification_company
 from auth import get_current_user, require_level, require_manager, require_any_module_grant
 from routers.task_util import now_iso, gen_id
 from changelog_prs import known_developer
@@ -844,7 +845,8 @@ def _whats_new_notice(db: Session, email: str, counts: dict, announced: bool) ->
     db.add(models.NexusNotification(
         id=str(uuid.uuid4()), type="whats_new", recipient=email, title="New in Nexus", body=body,
         ref_id=WHATS_NEW_NOTICE_REF, item_name="", requested_by="",
-        action=json.dumps({"view": "whats-new"}), actioned=False, read_by=read_by, created_at=now_iso()))
+        action=json.dumps({"view": "whats-new"}), actioned=False, read_by=read_by,
+        company=notification_company(db, email), created_at=now_iso()))
 
 
 @view_router.get("/task-changelog/feature-banner")

@@ -24,6 +24,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from database import get_db
+from notify_company import notification_company
 from auth import get_current_user, require_module_grant
 from models import (QaTestCase, QaRun, QaResult, QaBugReport, QaAssignment,
                     NexusNotification, NexusRole)
@@ -585,6 +586,7 @@ def create_assignment(body: AssignIn, user: dict = Depends(require_qa_write), db
     # Targeted bell (server-side only - employees can't POST notifications).
     db.add(NexusNotification(id=str(uuid.uuid4()), type="qa_assignment", recipient=email,
                              title=title, body=body_txt, ref_id=row.id,
+                             company=notification_company(db, user["email"], email),
                              created_at=_now()))
     db.commit()
 
