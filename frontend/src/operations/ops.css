@@ -163,3 +163,11 @@
 .ops-analysis ul { margin: 0; padding-left: 18px; }
 .ops-analysis li { margin-bottom: 4px; }
 .ops-analysis .ops-note { margin-top: 14px; }
+/* A competitor: its lines on the left, its actions on the right. */
+.ops-comp { align-items: flex-start; flex-wrap: wrap; }
+.ops-comp > div:first-child { flex: 1 1 260px; min-width: 0; }
+.ops-comp-line { font-size: 12.5px; color: var(--muted); margin-top: 5px; overflow-wrap: anywhere; }
+.ops-comp-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ops-comp-form { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.ops-comp-form .form-input { flex: 1 1 220px; min-width: 0; }
+.ops-watch { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 500; color: var(--muted); cursor: pointer; }

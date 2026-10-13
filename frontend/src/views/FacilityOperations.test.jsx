@@ -13,7 +13,13 @@ const facilityOpsLookup = vi.fn();
 const facilityOpsReport = vi.fn();
 const getOpsMarket = vi.fn();
 const recordOpsRate = vi.fn();
+const getOpsNearby = vi.fn();
+const addOpsCompetitor = vi.fn();
+const checkOpsCompetitor = vi.fn();
+const updateOpsCompetitor = vi.fn();
 vi.mock('../api', () => ({ api: {
+  getOpsNearby: (...a) => getOpsNearby(...a), addOpsCompetitor: (...a) => addOpsCompetitor(...a),
+  checkOpsCompetitor: (...a) => checkOpsCompetitor(...a), updateOpsCompetitor: (...a) => updateOpsCompetitor(...a),
   getFacilityOps: (...a) => getFacilityOps(...a), facilityOpsLookup: (...a) => facilityOpsLookup(...a),
   facilityOpsReport: (...a) => facilityOpsReport(...a), getOpsMarket: (...a) => getOpsMarket(...a),
   recordOpsRate: (...a) => recordOpsRate(...a),
@@ -60,7 +66,12 @@ const PAYLOAD = {
   facilities: [facility('fac_a', 'Temecula'), facility('fac_b', 'Murrieta', { units: { total: 50, rented: 45, vacant: 5, unavailable: 0 } })],
 };
 
-beforeEach(() => { getFacilityOps.mockReset().mockResolvedValue(PAYLOAD); });
+const NO_NEARBY = { facilityId: 'fac_a', radiusKm: 8, radiusMiles: 5, attribution: 'Nearby facilities from OpenStreetMap contributors', facilities: [], detail: '' };
+
+beforeEach(() => {
+  getFacilityOps.mockReset().mockResolvedValue(PAYLOAD);
+  getOpsNearby.mockReset().mockResolvedValue(NO_NEARBY);
+});
 
 describe('Operations module', () => {
   it('draws every tab from one read', async () => {
@@ -180,6 +191,65 @@ describe('Operations module', () => {
     expect(screen.getByText('$205')).toBeTruthy();
     expect(getOpsMarket).toHaveBeenCalledWith('fac_a');
     expect(screen.queryByLabelText('Period')).toBeNull();                     // a period does not apply here
+  });
+
+  it('shows rate moves, nearby facilities to add, and how each competitor was last read', async () => {
+    const competitor = { id: 'c1', name: 'Example Storage', distanceMiles: 1.2, website: 'https://www.example.com', ratesUrl: 'https://www.example.com/units',
+      watch: true, lastCheckedAt: '2026-10-13T16:05:00', lastStatus: 'ok', lastDetail: 'Read 6 rates',
+      rates: [{ id: 'r1', width: 10, depth: 10, parking: false, rate: 14500, promo: '', observedOn: '2026-10-13', source: 'web' }] };
+    const market = { facilityId: 'fac_a', facility: 'Temecula', asOf: '2026-10-13', freshDays: 120, minCompetitors: 2, rows: [],
+      engine: { connected: true, everyHours: 24 }, competitors: [competitor],
+      moves: [{ competitorId: 'c1', competitor: 'Example Storage', width: 10, depth: 10, parking: false, oldRate: 12900, newRate: 14500,
+        percent: 12.4, date: '2026-10-13', promo: '', source: 'web' }] };
+    const blocked = { ...competitor, id: 'c2', name: 'Sample Self Storage', lastStatus: 'blocked_by_robots', rates: [],
+      lastDetail: "The site's robots rules do not allow automated readers on this page", lastCheckedAt: '2026-10-13T16:10:00' };
+    getOpsMarket.mockResolvedValue(market);
+    getOpsNearby.mockResolvedValue({ ...NO_NEARBY, facilities: [
+      { osmId: 'way/2', name: 'Sample Self Storage', address: '100 Main St, Sampletown, CA 90000', website: 'https://sample.example.org', lat: 33.505, lng: -117.15, distanceMiles: 0.3 }] });
+    addOpsCompetitor.mockResolvedValue({ ...market, competitors: [competitor, blocked] });
+    checkOpsCompetitor.mockResolvedValue({ ...market, competitors: [{ ...competitor, lastDetail: 'Read 7 rates' }, blocked] });
+    render(<FacilityOperations activeSub="market" onSubChange={() => {}} />);
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Temecula' }))[0]);
+
+    // The move: $129 to $145, up 12.4%, seen 10/13.
+    const moves = (await screen.findByText('Rate Moves')).closest('.dash-card');
+    expect(moves.textContent).toContain('10% or more in the last 30 days');
+    expect([...moves.querySelectorAll('tbody td')].map((td) => td.textContent))
+      .toEqual(['Example Storage', '10 x 10', '$129', '$145', '+12.4%', '10/13/2026', 'Read From Website']);
+    expect(screen.getByText(/read once a day by an identified reader that follows the site's robots rules/)).toBeTruthy();
+
+    // The competitor: where its rates are read from and how the last read went.
+    const row = screen.getByRole('link', { name: 'www.example.com/units' }).closest('li');
+    expect(row.textContent).toContain('Rates Read Read 6 rates. Checked 10/13/2026, 4:05 PM.');
+    expect(row.textContent).toContain('Latest: 10 x 10 at $145 - Read From Website');
+    expect(row.querySelector('input[type="checkbox"]').checked).toBe(true);
+
+    // Nearby, with the OpenStreetMap credit, and Add sends what OpenStreetMap knew.
+    expect(await screen.findByText('Nearby facilities from OpenStreetMap contributors')).toBeTruthy();
+    expect(getOpsNearby).toHaveBeenCalledWith('fac_a');
+    expect(screen.getByText('0.3 miles away - 100 Main St, Sampletown, CA 90000')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Add Sample Self Storage' }));
+    expect(addOpsCompetitor).toHaveBeenCalledWith({ facility_id: 'fac_a', name: 'Sample Self Storage', address: '100 Main St, Sampletown, CA 90000',
+      website: 'https://sample.example.org', distance_miles: 0.3, lat: 33.505, lng: -117.15, osm_id: 'way/2' });
+    expect(await screen.findByText('Blocked by Robots Rules')).toBeTruthy();
+    expect(screen.getByText('No other storage facilities found within 5 miles.')).toBeTruthy();   // it left the nearby list
+
+    fireEvent.click(screen.getAllByRole('button', { name: /Check Now/ })[0]);
+    expect(await screen.findByText(/Read 7 rates\./)).toBeTruthy();
+    expect(checkOpsCompetitor).toHaveBeenCalledWith('c1');
+  });
+
+  it('keeps the Market tab standing when the nearby list cannot be loaded', async () => {
+    getOpsMarket.mockResolvedValue({ facilityId: 'fac_a', facility: 'Temecula', asOf: '2026-10-13', freshDays: 120, minCompetitors: 2, rows: [],
+      competitors: [], moves: [], engine: { connected: false, everyHours: 24 } });
+    getOpsNearby.mockRejectedValue(Object.assign(new Error('boom'), { status: 424 }));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    render(<FacilityOperations activeSub="market" onSubChange={() => {}} />);
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Temecula' }))[0]);
+    expect(await screen.findByText(/The nearby list could not be loaded just now/)).toBeTruthy();
+    expect(screen.getByText('Our Rates Against the Market')).toBeTruthy();
+    expect(screen.queryByText('Rate Moves')).toBeNull();
+    expect(screen.getByText(/The automatic reader is not connected on this server yet/)).toBeTruthy();
   });
 
   it('shows a message, not a blank screen, when Cubby cannot be read', async () => {

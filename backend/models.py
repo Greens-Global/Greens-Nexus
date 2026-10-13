@@ -5798,6 +5798,17 @@ class OpsCompetitor(Base):
     active         = Column(Boolean, default=True)
     created_by     = Column(String, default="")
     created_at     = Column(String, default="")
+    # Market engine (ops_market_engine.py, Oct 2026). Where it is, which
+    # OpenStreetMap entry it was added from ("node/123"), the public page its
+    # prices are read from, and how the last read went.
+    lat             = Column(Float)
+    lng             = Column(Float)
+    osm_id          = Column(String, default="")
+    rates_url       = Column(String, default="")    # defaults to the website; editable
+    last_checked_at = Column(String, default="")    # UTC ISO
+    last_status     = Column(String, default="")    # ok | no_rates_found | blocked_by_robots | blocked | unreachable | not_connected | error
+    last_detail     = Column(String, default="")
+    watch           = Column(Boolean, default=True) # read by the daily run
 
 
 class OpsCompetitorRate(Base):
@@ -5814,6 +5825,6 @@ class OpsCompetitorRate(Base):
     rate_cents    = Column(Integer, default=0)                    # per month
     promo         = Column(String, default="")                    # "First month free", as advertised
     observed_on   = Column(String, default="", index=True)        # YYYY-MM-DD
-    source        = Column(String, default="manual")              # manual | import
+    source        = Column(String, default="manual")              # manual | import | web (read from the competitor's page)
     entered_by    = Column(String, default="")
     created_at    = Column(String, default="")

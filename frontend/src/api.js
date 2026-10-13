@@ -1136,6 +1136,11 @@ export const api = {
   getOpsMarket: (facilityId) => req(`/facility-ops/market?facility_id=${encodeURIComponent(facilityId)}`),
   addOpsCompetitor: (data) => req("/facility-ops/market/competitors", { method: "POST", body: JSON.stringify(data) }),
   removeOpsCompetitor: (id) => req(`/facility-ops/market/competitors/${id}`, { method: "DELETE" }),
+  updateOpsCompetitor: (id, data) => req(`/facility-ops/market/competitors/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  // Reads the competitor's public rates page now (robots check, fetch, one model call), so it can take a while.
+  checkOpsCompetitor: (id) => req(`/facility-ops/market/competitors/${id}/check`, { method: "POST", timeoutMs: 180_000 }),
+  // Storage facilities around one of ours, from OpenStreetMap.
+  getOpsNearby: (facilityId) => req(`/facility-ops/market/nearby?facility_id=${encodeURIComponent(facilityId)}`, { timeoutMs: 45_000 }),
   recordOpsRate: (data) => req("/facility-ops/market/rates", { method: "POST", body: JSON.stringify(data) }),
   opsMarketAnalysis: (facilityId) => req(`/facility-ops/market/analysis?facility_id=${encodeURIComponent(facilityId)}`, { method: "POST" }),
 

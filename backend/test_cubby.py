@@ -136,3 +136,10 @@ def test_a_tenant_with_two_units_keeps_them_apart():
     f = cubby.summarize_facility(FAC, raw)
     assert f["pastDue"]["rows"][0]["autoPay"] is False          # A2's own setting, not A7's
     assert f["payments"]["failed"][0]["unit"] == "A2, A7"       # the payment row names the tenant only
+
+
+def test_a_facility_carries_its_map_position_for_the_nearby_search():
+    f = cubby.summarize_facility({**FAC, "latitude": 33.5, "longitude": -117.15}, _raw())
+    assert (f["lat"], f["lng"]) == (33.5, -117.15)
+    bare = cubby.summarize_facility(FAC, _raw())
+    assert bare["lat"] is None and bare["lng"] is None
