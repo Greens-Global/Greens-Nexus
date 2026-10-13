@@ -118,7 +118,9 @@ class TaskPermissionTests(unittest.TestCase):
         c = self._comment()
         with self.assertRaises(HTTPException) as ctx:
             edit_comment(c.id, CommentUpdate(body="<p>hijacked</p>"), BackgroundTasks(), user=OUTSIDER, db=self.db)
-        self.assertEqual(ctx.exception.status_code, 403)
+        # Refused either way: 404 when the task itself is hidden from the caller
+        # (_wall_task, Sep 30 review item 2), 403 when they can see it.
+        self.assertIn(ctx.exception.status_code, (403, 404))
         self.db.rollback()
         self.assertEqual(self.db.get(models.TaskComment, c.id).body, "<p>original</p>")
 
@@ -140,7 +142,7 @@ class TaskPermissionTests(unittest.TestCase):
         c = self._comment()
         with self.assertRaises(HTTPException) as ctx:
             edit_comment(c.id, CommentUpdate(pinned=True), BackgroundTasks(), user=OUTSIDER, db=self.db)
-        self.assertEqual(ctx.exception.status_code, 403)
+        self.assertIn(ctx.exception.status_code, (403, 404))
         self.db.rollback()
         edit_comment(c.id, CommentUpdate(pinned=True), BackgroundTasks(), user=MANAGER, db=self.db)
         self.assertTrue(self.db.get(models.TaskComment, c.id).pinned)
