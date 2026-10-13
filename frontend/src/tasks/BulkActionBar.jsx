@@ -45,13 +45,19 @@ export default function BulkActionBar({ selected, clearSel, store, people, locke
     if (failed.length) alert(`${failed.length} of ${picked.length} could not be duplicated:\n${failed.slice(0, 5).join('\n')}`);
     clearSel();
   };
+  // Phones: the bar takes the floating MobileTaskBar's slot (the parent hides
+  // that bar while anything is selected) - same offset above the module nav,
+  // one row that swipes sideways. It used to wrap into a three-row block
+  // pinned to the list's bottom with the task bar's "+" sitting on top of it.
+  const place = isMobile
+    ? { position: 'fixed', left: 12, right: 12, bottom: 'calc(64px + env(safe-area-inset-bottom) + 18px)', zIndex: 2500, padding: '8px 10px' }
+    : { position: 'absolute', left: '50%', bottom: 22, transform: 'translateX(-50%)', zIndex: 30, padding: '10px 14px', maxWidth: 'min(96vw, 1180px)' };
   return (
-    /* One row on desktop: the controls grew when Assign/Move To became
-       searchable pickers and the bar wrapped Delete onto a second line,
-       which reads as two bars. It scrolls sideways rather than wrapping if
-       it ever does run out of room, and still wraps on mobile where a
-       single row genuinely cannot fit. */
-    <div className="nx-scroll" style={{ position: 'absolute', left: '50%', bottom: 22, transform: 'translateX(-50%)', background: NX.primary, color: '#fff', borderRadius: 12, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8, boxShadow: '0 10px 30px rgba(0,0,0,0.28)', zIndex: 30, flexWrap: isMobile ? 'wrap' : 'nowrap', overflowX: isMobile ? 'visible' : 'auto', maxWidth: 'min(96vw, 1180px)' }}>
+    /* One row: the controls grew when Assign/Move To became searchable
+       pickers and the bar wrapped Delete onto a second line, which reads as
+       two bars. It scrolls sideways rather than wrapping when it runs out
+       of room. */
+    <div className="nx-scroll" style={{ ...place, background: NX.primary, color: '#fff', borderRadius: 12, display: 'flex', alignItems: 'center', gap: 8, boxShadow: '0 10px 30px rgba(0,0,0,0.28)', flexWrap: 'nowrap', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
       <span style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0 }}>{selected.size} selected</span>
       <select onChange={(e) => { if (e.target.value) { bulkUpdate([...selected], { status: e.target.value }); clearSel(); } }} defaultValue="" style={selStyle}>
         <option value="" disabled>Status…</option>

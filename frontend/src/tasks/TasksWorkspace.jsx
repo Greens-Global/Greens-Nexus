@@ -338,7 +338,8 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
         />
       )}
 
-      {isMobile && (
+      {/* While tasks are selected the bulk bar takes this bar's place. */}
+      {isMobile && selected.size === 0 && (
         <MobileTaskBar
           views={viewKinds} view={view} setView={switchView}
           onCreate={() => openCreate({ projectId: lockedProjectId || '' })}
