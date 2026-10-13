@@ -27,9 +27,9 @@
   50%  { stroke-dasharray: 86 126; stroke-dashoffset: -22; }
   100% { stroke-dasharray: 86 126; stroke-dashoffset: -125; }
 }
-.nxl-in { animation: nxl-in .28s cubic-bezier(.16, 1, .3, 1) both; }
+.nxl-in { animation: nxl-in .28s var(--ease-out) both; }
 @keyframes nxl-in { from { opacity: 0; transform: scale(.9); } to { opacity: 1; transform: none; } }
-.nx-rise { animation: nx-rise .44s cubic-bezier(.16, 1, .3, 1) both; animation-delay: calc(var(--i, 0) * 45ms); }
+.nx-rise { animation: nx-rise .44s var(--ease-out) both; animation-delay: calc(var(--i, 0) * 45ms); }
 @keyframes nx-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 .nx-skel { display: block; border-radius: 8px; background: linear-gradient(100deg, var(--skel) 36%, var(--skel-sheen) 50%, var(--skel) 64%); background-size: 320% 100%; animation: nx-sheen 1.7s ease-in-out infinite; animation-delay: calc(var(--i, 0) * 90ms); }
 @keyframes nx-sheen { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
@@ -90,6 +90,16 @@
   --transition-normal: 0.22s ease;
   --transition-slow:   0.38s cubic-bezier(.16,1,.3,1);
   --focus-ring: hsl(var(--color-blue));   /* keyboard focus outline, see the a11y block */
+
+  /* Motion vocabulary (Oct 11, 2026) - see the "Motion vocabulary" block and
+     lib/motion.js. New motion uses these; arriving eases out, leaving eases in. */
+  --dur-xs: 100ms;   /* press feedback, exits of small things */
+  --dur-sm: 150ms;   /* menus and popovers; exits of modals */
+  --dur-md: 220ms;   /* modals, sheets, content swaps */
+  --dur-lg: 320ms;   /* whole-surface moves (sidebars, full sheets) */
+  --ease-out: cubic-bezier(.16,1,.3,1);
+  --ease-in: cubic-bezier(.55,0,.85,.36);
+  --ease-standard: cubic-bezier(.2,.8,.2,1);
 
   /* color tokens for status badges only */
   --color-blue:   215,75%,45%;
@@ -756,6 +766,12 @@ h1,h2,h3,h4,h5,h6,
 
 /* â”€â”€ Viewport â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .viewport { padding: 32px 36px; overflow-y: auto; background: transparent; }
+/* Keyed per screen in App.jsx (Oct 11): a new screen fades in instead of
+   snapping. Opacity only - a transform here would re-anchor every fixed
+   overlay a screen opens while the animation runs. No fill mode either: a
+   fill keeps the screen a stacking context, and its inline modals would sit
+   under the header and sidebar (review, Oct 12). */
+.viewport { animation: nx-fade-in var(--dur-sm) ease-out; }
 
 /* Task module manages its own full-height flex layout + internal scrolling
    (fixed header/tabs, scrolling body per sub-view) - the default .viewport
@@ -952,8 +968,62 @@ input[type="checkbox"], input[type="radio"], input[type="range"], progress { acc
   max-height: 90vh;
   overflow-y: auto;
   box-shadow: 0 24px 80px rgba(0,0,0,0.2), 0 4px 16px rgba(0,0,0,0.1);
-  animation: fadeInUp 0.2s cubic-bezier(.16,1,.3,1) both;
+  animation: nx-pop-in var(--dur-md) var(--ease-out);
 }
+
+/* ── Motion vocabulary (Oct 11, 2026) ─────────────────────────────────────────
+   Tokens --dur-xs/sm/md/lg and --ease-out (arriving) / --ease-in (leaving) live
+   in :root. Exits run ~70% of their enter and are driven by lib/motion.js
+   (usePresence / useExit): the hook keeps the surface mounted while the
+   `.is-closing` class plays, then unmounts on a timer - never on animationend.
+   Everything here is transform/opacity. The reduced-motion rule further down
+   zeroes all of it and the hooks skip the wait too.
+   Enter animations carry NO fill mode: with no delay it buys nothing, and a
+   fill keeps the animation "in effect" forever, which acts like will-change -
+   a stacking context, and for transforms a containing block that traps
+   position:fixed children (review, Oct 12). Exits keep `forwards`. */
+@keyframes nx-fade-in  { from { opacity: 0; } }
+@keyframes nx-fade-out { to   { opacity: 0; } }
+@keyframes nx-pop-in   { from { opacity: 0; transform: scale(.96) translateY(8px); } }
+@keyframes nx-pop-out  { to   { opacity: 0; transform: scale(.97) translateY(6px); } }
+@keyframes nx-menu-in  { from { opacity: 0; transform: scale(.97) translateY(-4px); } }
+@keyframes nx-menu-out { to   { opacity: 0; transform: scale(.98) translateY(-2px); } }
+@keyframes nx-sheet-down { to { opacity: .5; transform: translateY(48px); } }
+
+/* The app-wide .modal-overlay / .modal-content pair: a call site that closes
+   through useExit() puts `is-closing` on the overlay and gets the exit. */
+.modal-overlay.is-closing { animation: nx-fade-out var(--dur-sm) ease-in forwards; pointer-events: none; }
+.modal-overlay.is-closing .modal-content { animation: nx-pop-out var(--dur-sm) var(--ease-in) forwards; }
+
+/* Inline-styled dialogs (tasks Modal, marketing Modal, DialogHost): the
+   overlay is .nx-overlay; its panel is .nx-panel (centered card) or
+   .nx-modal-sheet (the phone's full-height sheet). */
+.nx-overlay { animation: nx-fade-in var(--dur-sm) ease-out; }
+.nx-overlay > .nx-panel { animation: nx-pop-in var(--dur-md) var(--ease-out); }
+.nx-overlay > .nx-modal-sheet { animation: sheetUp var(--dur-md) var(--ease-out); }
+.nx-overlay.is-closing { animation: nx-fade-out var(--dur-sm) ease-in forwards; pointer-events: none; }
+.nx-overlay.is-closing > .nx-panel { animation: nx-pop-out var(--dur-sm) var(--ease-in) forwards; }
+.nx-overlay.is-closing > .nx-modal-sheet { animation: nx-sheet-down var(--dur-sm) var(--ease-in) forwards; }
+
+/* AnchoredMenu: grows out of its trigger corner and shrinks back into it. */
+.nx-anchored { animation: nx-menu-in var(--dur-sm) var(--ease-out); transform-origin: top left; }
+.nx-anchored[data-align="end"] { transform-origin: top right; }
+.nx-anchored[data-dir="up"] { transform-origin: bottom left; }
+.nx-anchored[data-dir="up"][data-align="end"] { transform-origin: bottom right; }
+.nx-anchored.is-closing { animation: nx-menu-out var(--dur-xs) var(--ease-in) forwards; pointer-events: none; }
+/* Change flash (ChangeFlash.jsx): a row or card whose status just changed
+   glows in that status's color and fades. An overlay, opacity only, so the
+   row's own background and hover state are untouched. */
+.nx-flash { position: absolute; inset: 0; border-radius: inherit; background: var(--flash, var(--wk-brand)); pointer-events: none; z-index: 1; animation: nx-flash-out 900ms var(--ease-out) both; }
+@keyframes nx-flash-out { from { opacity: .26; } to { opacity: 0; } }
+/* Saved cue (SavedCheck.jsx): the check draws itself while the word fades
+   in; the whole cue fades when the caller clears its flag. */
+.nx-saved { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 600; animation: nx-fade-in var(--dur-sm) ease-out both; }
+.nx-saved svg { flex: none; }
+.nx-saved path { stroke-dasharray: 15; stroke-dashoffset: 15; animation: nx-check-draw var(--dur-lg) var(--ease-out) forwards; }
+@keyframes nx-check-draw { to { stroke-dashoffset: 0; } }
+.nx-saved.is-closing { animation: nx-fade-out var(--dur-xs) ease-in forwards; }
+@media (prefers-reduced-motion: reduce) { .nx-saved, .nx-saved path { animation: none; } .nx-saved path { stroke-dashoffset: 0; } }
 
 .modal-header {
   display: flex;
@@ -1981,7 +2051,10 @@ html { overflow-x: hidden; }
 .mobile-menu {
   position: fixed;
   inset: 0;
-  z-index: 400;
+  /* Above the module floats (Tasks' MobileTaskBar / MobileFab at 2500, the
+     create "+" menu at 2600) - at 400 the task "+" sat on top of the open
+     menu. Below the gates (3000) and modals (3200+). */
+  z-index: 2700;
   background: var(--card);
   display: flex;
   flex-direction: column;
@@ -2344,6 +2417,7 @@ html { overflow-x: hidden; }
     max-height: 92vh;
     animation: sheetUp 0.26s cubic-bezier(.16,1,.3,1);
   }
+  .modal-overlay.is-closing .modal-content { animation: nx-sheet-down var(--dur-sm) var(--ease-in) forwards; }
 }
 
 /* PropertyAsset on phones: section tabs live in the bottom action bar */
@@ -3689,6 +3763,23 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
   box-shadow: none;
 }
 
+/* Tab ink (Oct 11, 2026 - components/TabInk.jsx): the header strip and the
+   phone strip draw the active highlight as ONE element that glides between
+   tabs. The active button keeps its color and aria-current; the ink carries
+   the pill (header) or the underline (phone). Width is the one non-transform
+   property in the transition: a single small element, and scaleX would warp
+   the pill's corners. */
+.hdr-tabs, .module-tabs-inline { position: relative; }
+.hdr-tab, .module-tab-inline-btn { position: relative; z-index: 1; }
+.tab-ink { position: absolute; left: 0; top: 0; z-index: 0; pointer-events: none; box-sizing: border-box; }
+.tab-ink--glide { transition: transform var(--dur-md) var(--ease-standard), width var(--dur-md) var(--ease-standard); }
+.tab-ink--pill { background: var(--wk-card); border: 1px solid var(--wk-line); border-radius: 9px; box-shadow: 0 1px 3px rgba(29,33,57,.08); }
+[data-theme="dark"] .tab-ink--pill { background: rgba(43,69,225,.18); border-color: var(--line); box-shadow: none; }
+.tab-ink--line { box-shadow: inset 0 -2.5px 0 var(--wk-brand); }
+.hdr-tabs:has(.tab-ink) .hdr-tab.active { background: none; border-color: transparent; box-shadow: none; }
+.module-tabs-inline:has(.tab-ink) .module-tab-inline-btn.active { box-shadow: none; }
+@media (prefers-reduced-motion: reduce) { .tab-ink--glide { transition: none; } }
+
 /* ── Work OS buttons - app-wide restyle of the shared button classes ──────
    Primary: brand-filled (was near-black --pine). Secondary: white with a real
    border (was a gray tint pill). Both Figtree, radius 8, quiet 150ms hovers. */
@@ -3717,6 +3808,25 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
   box-shadow: none;
 }
 [data-theme="dark"] .secondary-btn:hover, [data-theme="dark"] .btn-sm:hover { background: var(--mist); }
+
+/* Press feedback (Oct 11, 2026): every shared tappable answers the press at
+   once - a small scale, transform only, released over --dur-xs. The transition
+   lists restate each class's own properties because the shorthand replaces
+   them. Disabled controls stay still, and so does everything under reduced
+   motion. Dashboard tiles (.dk-action) and the phone nav already do this. */
+.primary-btn, .btn-primary { transition: background .15s, transform var(--dur-xs) var(--ease-standard); }
+.secondary-btn, .btn-sm { transition: background .15s, border-color .15s, transform var(--dur-xs) var(--ease-standard); }
+.icon-btn { transition: background var(--transition-fast), transform var(--dur-xs) var(--ease-standard); }
+.hdr-tab { transition: background .15s, color .15s, border-color .15s, transform var(--dur-xs) var(--ease-standard); }
+.module-tab-inline-btn { transition: color .15s, transform var(--dur-xs) var(--ease-standard); }
+.primary-btn:active:not(:disabled), .btn-primary:active:not(:disabled),
+.secondary-btn:active:not(:disabled), .btn-sm:active:not(:disabled) { transform: scale(.97); }
+.icon-btn:active:not(:disabled) { transform: scale(.92); }
+.hdr-tab:active, .module-tab-inline-btn:active { transform: scale(.96); }
+@media (prefers-reduced-motion: reduce) {
+  .primary-btn:active, .btn-primary:active, .secondary-btn:active, .btn-sm:active,
+  .icon-btn:active, .hdr-tab:active, .module-tab-inline-btn:active { transform: none; }
+}
 
 /* KPI card hover - Work OS depth: 1px lift, deeper shadow (the legacy rule's
    -5px jump reads as bouncy next to the quiet cards) */
@@ -3950,6 +4060,47 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
   width: 26px; height: 26px; padding: 5px;
 }
 [data-theme="dark"] .dk-stat--hero { background: linear-gradient(135deg, #3a4cd9, #2436b8); }
+
+/* Action Tile (Oct 11) - one action per tile, an app-icon face: the colored
+   chip large and centered with the name under it, the whole tile the button.
+   .dk-stat gives it the card chrome and hover lift; this centers it, grows the
+   chip to icon size and adds the press (scale down under the finger, the way
+   a home-screen icon answers a tap). One row tall (.dk-action--row) it is a
+   pill: chip beside the name, caption on one line. */
+.dk-action {
+  align-items: center; justify-content: center; text-align: center;
+  gap: 10px; padding: 12px 14px;
+  transition: box-shadow .15s ease, border-color .15s ease, transform .12s ease;
+}
+.dk-action:active { transform: scale(.97); box-shadow: var(--wk-shadow); }
+.dk-action:disabled { cursor: default; opacity: .72; }
+.dk-action:disabled:hover { transform: none; box-shadow: var(--wk-shadow); border-color: var(--wk-line2); }
+.dk-action .dk-action-chip { width: 46px; height: 46px; border-radius: 14px; flex-shrink: 0; }
+.dk-action .dk-action-chip svg { width: 22px; height: 22px; }
+.dk-action-text { display: flex; flex-direction: column; align-items: center; min-width: 0; max-width: 100%; gap: 2px; }
+.dk-action-label { font-size: 13px; font-weight: 700; color: var(--wk-ink); line-height: 1.2; overflow-wrap: anywhere; }
+.dk-action-sub {
+  font-size: 11.5px; color: var(--wk-faint); line-height: 1.3; font-weight: 500;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.dk-action-sub--on  { color: var(--wk-green); }
+.dk-action-sub--ok  { color: var(--wk-green); font-weight: 600; }
+.dk-action-sub--bad { color: var(--wk-red); font-weight: 600; }
+.dk-action--row { flex-direction: row; justify-content: flex-start; text-align: left; padding: 8px 14px; gap: 12px; }
+.dk-action--row .dk-action-chip { width: 34px; height: 34px; border-radius: 10px; }
+.dk-action--row .dk-action-chip svg { width: 17px; height: 17px; }
+.dk-action--row .dk-action-text { align-items: flex-start; }
+.dk-action--row .dk-action-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.dk-action--row .dk-action-sub { -webkit-line-clamp: 1; }
+[data-theme="dark"] .dk-action-label { color: var(--ink); }
+[data-theme="dark"] .dk-action-sub { color: var(--text-muted); }
+[data-theme="dark"] .dk-action-sub--on, [data-theme="dark"] .dk-action-sub--ok { color: #4ade80; }
+[data-theme="dark"] .dk-action-sub--bad { color: #f87171; }
+.dk-action[aria-disabled="true"] { cursor: default; opacity: .72; }
+.dk-action[aria-disabled="true"]:hover, .dk-action[aria-disabled="true"]:active { transform: none; box-shadow: var(--wk-shadow); border-color: var(--wk-line2); }
+/* The Action Tile's announcer: read by screen readers, never drawn. */
+.dk-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+@media (prefers-reduced-motion: reduce) { .dk-action:active { transform: none; } }
 
 /* main: queue + rail */
 .dk-main { display: grid; grid-template-columns: 1fr 330px; gap: 18px; align-items: start; }
@@ -4324,8 +4475,8 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 /* Motion: one vocabulary - menus and dialogs pop, revealed lists slide in.
    All of it sits behind prefers-reduced-motion. */
 @media (prefers-reduced-motion: no-preference) {
-  .egx-menu { animation: egxPop .14s cubic-bezier(.16, 1, .3, 1); transform-origin: top right; }
-  .egx-pop { animation: egxPop .16s cubic-bezier(.16, 1, .3, 1); }
+  .egx-menu { animation: egxPop .14s var(--ease-out); transform-origin: top right; }
+  .egx-pop { animation: egxPop .16s var(--ease-out); }
   .egx-overlay { animation: egxFade .15s ease; }
   .egx-tree-kids { animation: egxReveal .16s ease-out; }
   .egx-selbar { animation: egxReveal .15s ease-out; }
@@ -4850,8 +5001,8 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
    into "x" while its options are open. */
 .nx-fab {
   box-shadow: 0 6px 16px rgba(23, 26, 38, .18), 0 2px 4px rgba(23, 26, 38, .10);
-  transition: box-shadow .18s cubic-bezier(.16, 1, .3, 1),
-              transform .18s cubic-bezier(.16, 1, .3, 1),
+  transition: box-shadow .18s var(--ease-out),
+              transform .18s var(--ease-out),
               filter .18s ease;
 }
 .nx-fab:hover {
@@ -4864,7 +5015,7 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
   outline: 2px solid var(--wk-brand, #2b45e1);
   outline-offset: 3px;
 }
-.nx-fab-icon { transition: transform .2s cubic-bezier(.16, 1, .3, 1); }
+.nx-fab-icon { transition: transform .2s var(--ease-out); }
 
 /* Checkboxes in the Task module read as greyed out until they are ticked
    (Neil, Sept 8): an unchecked box is an offer, a checked one is a decision, and
@@ -4925,7 +5076,7 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
   white-space: nowrap;
   cursor: pointer;
   box-shadow: 0 4px 14px rgba(23, 26, 38, .14);
-  animation: nx-fab-in .26s cubic-bezier(.16, 1, .3, 1) both;
+  animation: nx-fab-in .26s var(--ease-out) both;
   transition: border-color .15s ease, transform .15s ease;
 }
 .nx-fab-item:hover { border-color: var(--wk-brand, #2b45e1); transform: translateX(-2px); }

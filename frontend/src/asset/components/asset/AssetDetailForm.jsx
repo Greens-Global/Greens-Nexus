@@ -9,6 +9,7 @@ import { ContactCell } from '../shared/ContactCell.jsx';
 import { MultiDateInput } from '../shared/FieldInput.jsx';
 import { PropertyMapLink } from './PropertyMapLink.jsx';
 import { PhotoGallery } from './PhotoGallery.jsx';
+import { SiteModelSection } from './SiteModelSection.jsx';
 
 const FLAG_REASONS = ['Appears Incorrect', 'Needs Verification', 'Outdated', 'Missing Info', 'Other'];
 
@@ -244,6 +245,11 @@ export function AssetDetailForm({ p: asset, onSaveImages, highlight, onSaveDetai
         {isProperty && (
           <div id="gt-map" style={{ scrollMarginTop: 108 }}>
             <PropertyMapLink p={asset} onSave={onSaveDetail} />
+          </div>
+        )}
+        {isProperty && (
+          <div id="gt-model" style={{ scrollMarginTop: 108 }}>
+            <SiteModelSection p={asset} />
           </div>
         )}
         <div id="gt-media" style={{ scrollMarginTop: 108 }}>

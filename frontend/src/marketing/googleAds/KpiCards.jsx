@@ -35,7 +35,7 @@ export default function KpiCards({ current, previous, previousRange, onSelectMet
               boxShadow: '0 1px 2px 0 rgba(0,0,0,0.05)',
               minWidth: 0,
               overflow: 'hidden',
-              transition: 'all .15s',
+              transition: 'border-color .15s, box-shadow .15s',
               cursor: 'pointer',
             }}
             onMouseEnter={(e) => {

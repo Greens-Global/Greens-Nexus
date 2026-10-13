@@ -40,7 +40,7 @@ export default function MarketingTabs({ active, onChange }) {
               background: 'none',
               border: 'none',
               borderBottom: '2px solid ' + (isActive ? C.gray900 : 'transparent'),
-              transition: 'all .15s',
+              transition: 'color .15s, border-color .15s',
               whiteSpace: 'nowrap',
               color,
               cursor: 'pointer',

@@ -25,18 +25,19 @@ here that the renderer would only strip later.
 """
 import hashlib
 import hmac
-import os
 import re
 import uuid
 from html import escape
 from html.parser import HTMLParser
 
+import secret_box
+
 # Same secret as the vault (secret_box.py's reasoning: one secret to manage on
 # Azure rather than two). The dev fallback is deterministic so a laptop can
 # round-trip an address without any setup - it protects nothing, which is fine
 # because a laptop's backend is not the sync worker and never reads the mailbox.
-_SECRET = (os.getenv("NEXUS_VAULT_KEY", "").strip()
-           or "nexus-task-reply-DEV-ONLY-key-set-NEXUS_VAULT_KEY").encode()
+# A laptop is the only place it applies (secret_box.signing_secret).
+_SECRET = secret_box.signing_secret("nexus-task-reply-DEV-ONLY-key-set-NEXUS_VAULT_KEY")
 
 _HEX32 = re.compile(r"^[0-9a-f]{32}$")
 _TOKEN = re.compile(r"^([0-9a-f]{32})\.([0-9a-f]{8})$")

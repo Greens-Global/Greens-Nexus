@@ -51,9 +51,12 @@ export const SUBMENUS = {
     { sub: 'construction-activity',  label: 'Site Activity' },
   ],
   operations: [
-    { sub: 'fms',        label: 'FMS Integration' },
-    { sub: 'reputation', label: 'Reputation Management' },
-    { sub: 'site-staff', label: 'Site Staff & Scheduling' },
+    { sub: 'overview',    label: 'Overview' },
+    { sub: 'collections', label: 'Collections' },
+    { sub: 'units',       label: 'Units & Pricing' },
+    { sub: 'worklist',    label: 'Worklist' },
+    { sub: 'market',      label: 'Market Rates' },
+    { sub: 'reports',     label: 'Reports' },
   ],
   hr: [
     { sub: 'hr-people', label: 'People' },

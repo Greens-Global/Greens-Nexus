@@ -6,7 +6,7 @@
 // the mobile and office numbers sit below them as plain copyable details.
 import { useEffect, useState } from 'react';
 import {
-  MessageSquare, Phone, Video, Mail, Copy, Check, Smartphone, Building2, MapPin, Clock, Link2,
+  MessageSquare, Phone, Video, Mail, Copy, Check, Smartphone, Building2, MapPin, Clock,
   Star, Download, User, ListTodo, Network, ArrowLeft, Users,
 } from 'lucide-react';
 import { NX, FONT } from '../tasks/theme';
@@ -68,6 +68,30 @@ export function AvailabilityChip({ availability, size = 'sm' }) {
       <span style={{ width: 7, height: 7, borderRadius: '50%', background: m.color, flexShrink: 0 }} />
       {availability.label}
       {big && availability.detail && <span style={{ fontWeight: 500, opacity: 0.9 }}>{availability.detail}</span>}
+    </span>
+  );
+}
+
+// The two things a list row says about someone right now (Neil, 10/13): are
+// they on shift (Nexus Time Clock / schedule / leave) and what Teams says.
+// Each half is left out when there is nothing to say - a person who never
+// punches has no shift state, and no Teams dots until Graph is allowed.
+export function StatusPills({ p }) {
+  const pr = presenceOf(p.presence);
+  const av = p.availability ? AVAILABILITY_META[p.availability.state] || AVAILABILITY_META.out : null;
+  if (!pr && !av) return null;
+  const pill = (color, tint, label, title) => (
+    <span title={title} style={{
+      display: 'inline-flex', alignItems: 'center', gap: 4, padding: '1px 7px', borderRadius: 999, fontSize: 10.5, fontWeight: 700,
+      background: tint, color, whiteSpace: 'nowrap', flexShrink: 0, lineHeight: '16px',
+    }}>
+      <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, flexShrink: 0 }} />{label}
+    </span>
+  );
+  return (
+    <span style={{ display: 'inline-flex', gap: 4, flexShrink: 0, alignItems: 'center' }}>
+      {av && pill(av.color, av.tint, p.availability.label, [p.availability.label, p.availability.detail].filter(Boolean).join(' - '))}
+      {pr && pill(pr.color, 'rgba(91,95,199,0.10)', pr.label, `Teams: ${pr.label}`)}
     </span>
   );
 }
@@ -189,7 +213,7 @@ export default function ProfilePanel({
                 background: 'rgba(91,95,199,0.12)', color: '#4b53bc',
               }}>
                 <span style={{ width: 8, height: 8, borderRadius: '50%', background: presenceOf(p.presence).color, flexShrink: 0 }} />
-                {presenceOf(p.presence).label}
+                <span style={{ fontWeight: 500, opacity: 0.85 }}>Teams:</span> {presenceOf(p.presence).label}
               </span>
             )}
             {p.availability
@@ -208,12 +232,12 @@ export default function ProfilePanel({
         <a href={teamsChat(p.email)} target="_blank" rel="noreferrer" style={PRIMARY} className="dir-action"><MessageSquare size={17} />Chat</a>
         <a href={teamsCall(p.email)} target="_blank" rel="noreferrer" style={PRIMARY} className="dir-action"><Phone size={17} />Call</a>
         <a href={teamsVideo(p.email)} target="_blank" rel="noreferrer" style={PRIMARY} className="dir-action"><Video size={17} />Video</a>
-        <a href={mailto(p.email)} style={SECONDARY} className="dir-action"><Mail size={17} />Email</a>
+        <a href={mailto(p.email)} target="_blank" rel="noreferrer" style={SECONDARY} className="dir-action"><Mail size={17} />Email</a>
       </div>
 
       <dl style={{ display: 'grid', gridTemplateColumns: mobile ? 'minmax(70px, auto) minmax(0, 1fr)' : 'minmax(96px, auto) minmax(0, 1fr)', gap: mobile ? '10px 8px' : '9px 14px', margin: '18px 0 0', alignItems: 'center' }}>
         <Row icon={Mail} label="Email">
-          <a href={mailto(p.email)} style={{ color: NX.ink, textDecoration: 'none', overflowWrap: 'anywhere', minWidth: 0, fontSize: mobile ? 12.5 : 13 }}>{p.email}</a>
+          <a href={mailto(p.email)} target="_blank" rel="noreferrer" style={{ color: NX.ink, textDecoration: 'none', overflowWrap: 'anywhere', minWidth: 0, fontSize: mobile ? 12.5 : 13 }}>{p.email}</a>
           <CopyButton value={p.email} label="email" />
         </Row>
         {p.officePhone && (
@@ -240,11 +264,6 @@ export default function ProfilePanel({
           </Row>
         )}
         {p.companyName && <Row icon={Building2} label="Company"><span>{p.companyName}</span></Row>}
-        {p.linkedinUrl && (
-          <Row icon={Link2} label="LinkedIn">
-            <a href={p.linkedinUrl} target="_blank" rel="noreferrer" style={{ color: NX.primary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.linkedinUrl.replace(/^https?:\/\/(www\.)?/, '')}</a>
-          </Row>
-        )}
       </dl>
 
       <Section icon={Network} title="Reports To">

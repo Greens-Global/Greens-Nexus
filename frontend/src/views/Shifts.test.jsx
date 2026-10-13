@@ -12,7 +12,7 @@ const shiftRequestsInbox = vi.fn();
 const timeOffList = vi.fn();
 vi.mock('../api', () => ({ api: { shiftRequestsInbox: (...a) => shiftRequestsInbox(...a), timeOffList: (...a) => timeOffList(...a) } }));
 vi.mock('../components/MyShifts', () => ({ default: () => <div>My week</div> }));
-vi.mock('../components/ShiftSchedule', () => ({ default: () => <div>Schedule grid</div> }));
+vi.mock('../components/ShiftSchedule', () => ({ default: ({ focus }) => <div>Schedule grid{focus ? ` at ${focus.date} for ${focus.groupId || 'all'}` : ''}</div> }));
 vi.mock('../components/ShiftRequestsPage', () => ({ default: ({ inbox, timeoff, error }) => <div>Requests page ({error ? 'error' : inbox ? `${inbox.pending.length} + ${timeoff.length}` : 'loading'})</div> }));
 
 const Shifts = (await import('./Shifts')).default;
@@ -37,6 +37,19 @@ describe('Shifts module', () => {
     rerender(<Shifts activeSub="requests" onSubChange={onSubChange} />);
     expect(screen.queryByText(/Requests page/)).toBeNull();
     expect(shiftRequestsInbox).not.toHaveBeenCalled();   // nothing of a manager's is fetched
+  });
+
+  // Weather Call (Oct 2026): a weather advisory's bell opens one day of
+  // one group - sub "schedule:YYYY-MM-DD:<group>" - and an employee, who
+  // has no Schedule tab, still lands on My Shifts.
+  it('lands a manager on the day and group a weather advisory points at', () => {
+    role.level = 3;
+    render(<Shifts activeSub="schedule:2026-10-16:g1" onSubChange={vi.fn()} />);
+    expect(screen.getByRole('tab', { name: /Schedule/ }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByText('Schedule grid at 2026-10-16 for g1')).toBeTruthy();
+    role.level = 1;
+    render(<Shifts activeSub="schedule:2026-10-16:g1" onSubChange={vi.fn()} />);
+    expect(screen.getByText('My week')).toBeTruthy();
   });
 
   it('gives a manager three tabs, with what waits counted on Requests', async () => {

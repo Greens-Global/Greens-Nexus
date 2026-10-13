@@ -405,6 +405,27 @@ class LeasingApiTests(unittest.TestCase):
         _as(LIMITED)
         self.assertEqual(self.client.get("/leasing/customers/C00272").status_code, 403)
 
+    def test_the_customer_list_is_held_to_the_callers_entities(self):
+        async def fake_get(path, params):
+            if path.endswith("/reports/locations"):
+                return {"ok": True, "entities": [{"code": "15000", "name": "Greens Escondido", "parent_code": None}, {"code": "12000", "name": "Greens Global", "parent_code": None}]}
+            return {"ok": True, "values": [{"code": "C00498", "name": "Greens Fairfield, LLC."}, {"code": "C00272", "name": "Dr. Azadeh Sham"},
+                                           {"code": "C00900", "name": "Family Trust Tenant"}]}
+        accounting._acct_get = fake_get
+        _as(MANAGER)
+        self.assertEqual(self.client.post("/leasing/leases", json=self._body()).status_code, 201)                                         # 15000
+        self.assertEqual(self.client.post("/leasing/leases", json=self._body(entityCode="12000", customerId="C00272", tenantName="Dr. Azadeh Sham")).status_code, 201)
+        codes = lambda: {c["code"] for c in self.client.get("/leasing/customers").json()["customers"]}     # noqa: E731
+        self.assertEqual(codes() & {"C00498", "C00272", "C00900"}, {"C00498", "C00272", "C00900"})        # not limited: every customer
+        _as(LIMITED)                                                                                       # entity 15000 only
+        r = self.client.get("/leasing/customers")
+        self.assertEqual(r.status_code, 200, r.text)
+        mine = {l["customerId"] for l in self.client.get("/leasing/leases").json()}
+        self.assertEqual(codes(), mine & {"C00498", "C00272", "C00900"})
+        self.assertIn("C00498", codes())
+        self.assertNotIn("C00272", codes())      # on a lease of an entity outside the limit
+        self.assertNotIn("C00900", codes())      # on no lease the caller may read
+
     def test_the_team_note(self):
         _as(EDITOR)
         lid = self.client.post("/leasing/leases", json=self._body()).json()["id"]

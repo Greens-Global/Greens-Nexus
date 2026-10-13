@@ -13,6 +13,7 @@ import { LoadingState } from '../components/AsyncState';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { NX, FONT, btn, card } from '../tasks/theme';
+import SavedCheck from '../components/SavedCheck';
 
 const ROLE_LABEL = { requester: 'Requester', agent: 'Agent', supervisor: 'Supervisor' };
 
@@ -164,7 +165,7 @@ export default function TicketDeskAccessSettings() {
           <Save size={14} /> {saving ? 'Saving…' : 'Save'}
         </button>
         {dirty && !saving && <span style={{ fontSize: 12.5, color: NX.amber, fontWeight: 600 }}>Unsaved changes</span>}
-        {saved && <span style={{ fontSize: 12.5, color: NX.green, fontWeight: 600 }}>Saved</span>}
+        <SavedCheck show={saved} />
         {err && <span style={{ fontSize: 12.5, color: NX.red, fontWeight: 600 }}>{err}</span>}
       </div>
     </div>

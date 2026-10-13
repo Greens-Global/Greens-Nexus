@@ -1,6 +1,7 @@
 // Task Module - shared UI atoms (inline-styled to match the export's light theme).
 import { useEffect, useLayoutEffect, useState, useRef, useId } from 'react';
 import { isBypassing, confirmDiscard } from '../lib/dialogGuard';
+import { useExit } from '../lib/motion';
 import { createPortal } from 'react-dom';
 import { X, Check, ChevronDown, ChevronLeft, ChevronRight, Plus,
   ListTree, MessageSquare, Paperclip, Download, CalendarDays, UserPlus,
@@ -124,7 +125,10 @@ export function Modal({ title, onClose, children, footer, width = 'clamp(520px, 
   const titleId = useId();
   // isBypassing(): a Discard already confirmed by the app-wide guard
   // (lib/dialogGuard.js) is replaying this close - do not ask twice.
-  const requestClose = () => { if (isDirty && !isBypassing()) setConfirmClose(true); else onClose(); };
+  // Exit motion (lib/motion.js): every close the Modal itself performs plays
+  // the exit first; a caller that closes from its own Save button is instant.
+  const [closing, exit] = useExit(onClose);
+  const requestClose = () => { if (isDirty && !isBypassing()) setConfirmClose(true); else exit(); };
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') requestClose(); };
     window.addEventListener('keydown', onKey);
@@ -137,10 +141,10 @@ export function Modal({ title, onClose, children, footer, width = 'clamp(520px, 
     if (confirmClose) { setConfirmClose(false); return; }
     if (isDirty && !isBypassing()) { setConfirmClose(true); return; }
     if (overlayRef.current?.hasAttribute('data-nx-dirty')) {
-      confirmDiscard().then((ok) => { if (ok) onClose(); });
+      confirmDiscard().then((ok) => { if (ok) exit(); });
       return;
     }
-    onClose();
+    exit();
   });
   // AFTER useBackToClose on purpose: its history entry must be pushed while
   // the page is still at its real scroll offset. Pushed under the lock, the
@@ -149,12 +153,12 @@ export function Modal({ title, onClose, children, footer, width = 'clamp(520px, 
   // the top on close).
   useScrollLock(isMobile);
   const saveAndClose = async () => {
-    if (!onSave) { setConfirmClose(false); onClose(); return; }
+    if (!onSave) { setConfirmClose(false); exit(); return; }
     setSaving(true);
     try { await onSave(); } finally { setSaving(false); setConfirmClose(false); }
   };
   return createPortal(
-    <div ref={overlayRef} className="nx-tasks-portal" onClick={requestClose} style={{
+    <div ref={overlayRef} className={`nx-tasks-portal nx-overlay${closing ? ' is-closing' : ''}`} onClick={requestClose} style={{
       position: 'fixed', background: 'rgba(17,24,39,0.45)', zIndex: 4000,
       ...(vv ? { left: 0, right: 0, top: vv.top, height: vv.height } : { inset: 0 }),
       display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
@@ -163,12 +167,12 @@ export function Modal({ title, onClose, children, footer, width = 'clamp(520px, 
       // vh: with the keyboard up a landscape phone shows ~120-150px, and 7vh
       // a side would leave the card too short for its header and footer.
       padding: isMobile ? 0 : vv ? `${vv.height < 300 ? 0 : Math.round(Math.min(0.07 * vv.height, 24))}px 16px` : '7vh 16px',
-      fontFamily: FONT, animation: 'fadeIn 0.13s ease',
+      fontFamily: FONT,
     }}>
       {/* role="dialog" sits on the panel. The phone bottom-sheet rules in
           style.css skip it via .nx-sheet - this one is shaped here. */}
       <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={trapTab}
-        onClick={(e) => e.stopPropagation()} className={isMobile ? 'nx-sheet nx-modal-sheet' : 'nx-sheet'} style={{
+        onClick={(e) => e.stopPropagation()} className={isMobile ? 'nx-sheet nx-modal-sheet' : 'nx-sheet nx-panel'} style={{
         background: NX.surface, display: 'flex', flexDirection: 'column', overflow: 'hidden',
         boxShadow: '0 24px 70px rgba(17,24,39,0.30)', border: `1px solid ${NX.border}`,
         // The sheet's height comes from .nx-modal-sheet, not from here: it needs
@@ -214,7 +218,7 @@ export function Modal({ title, onClose, children, footer, width = 'clamp(520px, 
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
               <button style={btn('ghost')} onClick={() => setConfirmClose(false)}>Keep Editing</button>
-              <button style={btn('ghost')} onClick={onClose}>Discard</button>
+              <button style={btn('ghost')} onClick={exit}>Discard</button>
               <button style={{ ...btn('primary'), opacity: saving ? 0.6 : 1, pointerEvents: saving ? 'none' : 'auto' }} onClick={saveAndClose}>
                 {saving ? 'Saving…' : 'Save Changes'}
               </button>
@@ -1645,6 +1649,47 @@ export function ExportMenu({ title, subtitle, columns, rows, filenameBase, compa
           {rows.length} row{rows.length === 1 ? '' : 's'}, as shown
         </div>
         {err && <div style={{ padding: '2px 9px 6px', fontSize: 11, color: NX.red }}>{err}</div>}
+      </AnchoredMenu>
+    </div>
+  );
+}
+
+// A person as a dot (Oct 2026): an avatar when someone is chosen, a dashed
+// circle when nobody is, opening a searchable people list. The checklist
+// line's assignee and a comment's "assign to" both use it - small enough to
+// sit at the end of a row, which PersonSelect's labelled button is not.
+export function PersonDot({ value, people = [], nameOf, onChange, disabled = false, size = 18, emptyTitle = 'Choose a person', nobodyLabel = 'Nobody' }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const [q, setQ] = useState('');
+  const shown = q ? people.filter((p) => (p.name || '').toLowerCase().includes(q.toLowerCase())) : people;
+  const name = value ? (nameOf?.(value) || value) : '';
+  const rowBtn = { display: 'flex', alignItems: 'center', gap: 8, width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', padding: '6px 8px', borderRadius: 6, fontFamily: FONT, fontSize: 12.5, color: NX.ink, textAlign: 'left' };
+  return (
+    <div ref={ref} style={{ display: 'inline-flex' }} onClick={(e) => e.stopPropagation()}>
+      <button type="button" disabled={disabled} onClick={() => setOpen((o) => !o)} aria-label={name ? `${name} - change` : emptyTitle}
+        title={name ? `${name} - change` : emptyTitle}
+        style={{ border: 'none', background: 'transparent', cursor: disabled ? 'default' : 'pointer', padding: 0, display: 'flex', alignItems: 'center' }}>
+        {value
+          ? <Avatar email={value} name={name} size={size} />
+          : <span style={{ width: size, height: size, borderRadius: '50%', border: `1px dashed ${NX.border}`, display: 'inline-block' }} />}
+      </button>
+      <AnchoredMenu anchorRef={ref} open={open} onClose={() => { setOpen(false); setQ(''); }}
+        style={{ width: 220, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)', padding: 4 }}>
+        <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people"
+          style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${NX.border}`, borderRadius: 7, padding: '6px 8px', fontFamily: FONT, fontSize: 12.5, marginBottom: 4 }} />
+        <div style={{ maxHeight: 240, overflowY: 'auto' }}>
+          <button type="button" onClick={() => { onChange(''); setOpen(false); }} style={rowBtn}>
+            {!value ? <Check size={13} /> : <span style={{ width: 13 }} />}<span>{nobodyLabel}</span>
+          </button>
+          {shown.map((p) => (
+            <button key={p.email} type="button" onClick={() => { onChange(p.email); setOpen(false); }} style={rowBtn}>
+              <Avatar email={p.email} name={p.name} size={16} card={false} />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+              {value === p.email && <Check size={13} style={{ marginLeft: 'auto' }} />}
+            </button>
+          ))}
+        </div>
       </AnchoredMenu>
     </div>
   );

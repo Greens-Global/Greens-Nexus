@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 
 import models
 from app_url import app_url
+from notify_company import notification_company
 
 _DEFAULT_TZ = "America/Los_Angeles"
 # My Shifts lives in the Shifts module now (Sep 29), not a Workday tab.
@@ -159,7 +160,8 @@ def _upsert_bell(db: Session, recipient: str, ref_id: str, title: str, body: str
     db.add(models.NexusNotification(
         id=str(uuid.uuid4()), type="custom_alert", recipient=recipient, title=title, body=body,
         ref_id=ref_id, item_name="", requested_by=actor,
-        action='{"view": "shifts", "sub": "mine"}', actioned=False, read_by="", created_at=now))
+        action='{"view": "shifts", "sub": "mine"}', actioned=False, read_by="",
+        company=notification_company(db, actor, recipient), created_at=now))
 
 
 def notify_published(db: Session, changes: list, actor_email: str, d0: str, d1: str, bt=None) -> int:

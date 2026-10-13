@@ -468,6 +468,21 @@ export const api = {
   addTaskComment: (id, data) => req(`/tasks/${id}/comments`, { method: "POST", body: JSON.stringify(data) }),
   editTaskComment: (cid, data) => req(`/tasks/comments/${cid}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteTaskComment: (cid) => req(`/tasks/comments/${cid}`, { method: "DELETE" }),
+  // Toggle one emoji reaction on a comment (Oct 2026). Answers with the comment.
+  reactTaskComment: (cid, emoji) => req(`/tasks/comments/${cid}/reactions`, { method: "POST", body: JSON.stringify({ emoji }) }),
+  // Move a task's dates and push what waits on it (Timeline drag, Oct 2026).
+  // Answers { task, moved: [tasks], skipped: [{id, title}] }.
+  rescheduleTask: (id, data) => req(`/tasks/${id}/reschedule`, { method: "POST", body: JSON.stringify(data) }),
+  // Time entries (Oct 2026): a timer per person plus typed-in minutes, rolled
+  // up into the task's actualHours. Writes answer with { entry, task }.
+  getTaskTime: (taskId) => req(`/tasks/${taskId}/time`),
+  addTaskTime: (taskId, data) => req(`/tasks/${taskId}/time`, { method: "POST", body: JSON.stringify(data) }),
+  startTaskTimer: (taskId) => req(`/tasks/${taskId}/time/start`, { method: "POST", body: "{}" }),
+  stopTaskTimer: (data = {}) => req("/tasks/time/stop", { method: "POST", body: JSON.stringify(data) }),
+  getRunningTaskTimer: () => req("/tasks/time/running"),
+  getMyTaskTime: (from = "", to = "") => req(`/tasks/time/mine?from=${from}&to=${to}`),
+  updateTaskTime: (entryId, data) => req(`/tasks/time/${entryId}`, { method: "PATCH", body: JSON.stringify(data) }),
+  deleteTaskTime: (entryId) => req(`/tasks/time/${entryId}`, { method: "DELETE" }),
   // Description editor's AI rephrase - returns a suggestion the user accepts or
   // discards; it never writes to the task.
   taskAiRephrase: (data) => req("/task-ai/rephrase", { method: "POST", body: JSON.stringify(data), timeoutMs: 120000 }),
@@ -476,6 +491,13 @@ export const api = {
   deleteTaskAttachment: (aid) => req(`/tasks/attachments/${aid}`, { method: "DELETE" }),
   ocrImage: (file) => { const fd = new FormData(); fd.append("image", file); return req("/task-ocr", { method: "POST", body: fd, timeoutMs: 60_000 }); },
   getTaskActivity: (id) => req(`/tasks/${id}/activity`),
+  // Checklist inside a task (Oct 2026). Writes answer with the task's fresh
+  // checklistTotal / checklistDone so the caller can hand it to the store.
+  getTaskChecklist: (taskId) => req(`/tasks/${taskId}/checklist`),
+  addTaskChecklistItems: (taskId, data) => req(`/tasks/${taskId}/checklist`, { method: "POST", body: JSON.stringify(data) }),
+  updateTaskChecklistItem: (itemId, data) => req(`/tasks/checklist/${itemId}`, { method: "PATCH", body: JSON.stringify(data) }),
+  deleteTaskChecklistItem: (itemId) => req(`/tasks/checklist/${itemId}`, { method: "DELETE" }),
+  reorderTaskChecklist: (taskId, ids) => req(`/tasks/${taskId}/checklist/order`, { method: "PUT", body: JSON.stringify({ ids }) }),
   getGlobalTaskActivity: () => req("/tasks/activity"),
   // Due-date negotiation (Sep 24) - the assignee confirms or proposes, the
   // requester answers. Each returns the updated task.
@@ -495,6 +517,9 @@ export const api = {
   getTaskProjects: () => req("/task-projects"),
   createTaskProject: (data) => req("/task-projects", { method: "POST", body: JSON.stringify(data) }),
   updateTaskProject: (id, data) => req(`/task-projects/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  // One shared dashboard chart at a time: upsert / remove by id (Oct 2026).
+  putTaskProjectChart: (id, chartId, chart) => req(`/task-projects/${id}/shared-charts/${encodeURIComponent(chartId)}`, { method: "PUT", body: JSON.stringify(chart) }),
+  deleteTaskProjectChart: (id, chartId) => req(`/task-projects/${id}/shared-charts/${encodeURIComponent(chartId)}`, { method: "DELETE" }),
   deleteTaskProject: (id) => req(`/task-projects/${id}`, { method: "DELETE" }),
   // Department names only, readable by anyone in the task module (the People
   // module's own listing needs HR access) - see list_project_departments.
@@ -557,6 +582,8 @@ export const api = {
   createTaskAutomationRule: (data) => req("/task-automation-rules", { method: "POST", body: JSON.stringify(data) }),
   updateTaskAutomationRule: (id, data) => req(`/task-automation-rules/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteTaskAutomationRule: (id) => req(`/task-automation-rules/${id}`, { method: "DELETE" }),
+  // What the rules actually did (task_automation.py run log), newest first. Manager-only.
+  getTaskAutomationRuns: (ruleId = "", limit = 50) => req(`/task-automation-runs?rule_id=${encodeURIComponent(ruleId)}&limit=${limit}`),
   getTaskTemplates: () => req("/task-templates"),
   createTaskTemplate: (data) => req("/task-templates", { method: "POST", body: JSON.stringify(data) }),
   deleteTaskTemplate: (id) => req(`/task-templates/${id}`, { method: "DELETE" }),
@@ -1143,6 +1170,21 @@ export const api = {
   // Ops
   getOpsProjects: () => req("/ops-projects"),
   createOpsProject: (data) => req("/ops-projects", { method: "POST", body: JSON.stringify(data) }),
+  // Operations (storage facilities): every figure on the screen, read from Cubby
+  getFacilityOps: (fresh) => req(`/facility-ops/summary${fresh ? "?fresh=1" : ""}`),
+  facilityOpsLookup: (q) => req(`/facility-ops/lookup?q=${encodeURIComponent(q)}`),
+  facilityOpsReport: (kind, facilityId) => req(`/facility-ops/report/${kind}${facilityId ? `?facility_id=${encodeURIComponent(facilityId)}` : ""}`),
+  // Operations -> Market Rates: competitors and their recorded rates, kept in Nexus
+  getOpsMarket: (facilityId) => req(`/facility-ops/market?facility_id=${encodeURIComponent(facilityId)}`),
+  addOpsCompetitor: (data) => req("/facility-ops/market/competitors", { method: "POST", body: JSON.stringify(data) }),
+  removeOpsCompetitor: (id) => req(`/facility-ops/market/competitors/${id}`, { method: "DELETE" }),
+  updateOpsCompetitor: (id, data) => req(`/facility-ops/market/competitors/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
+  // Reads the competitor's public rates page now (robots check, fetch, one model call), so it can take a while.
+  checkOpsCompetitor: (id) => req(`/facility-ops/market/competitors/${id}/check`, { method: "POST", timeoutMs: 180_000 }),
+  // Storage facilities around one of ours, from OpenStreetMap.
+  getOpsNearby: (facilityId) => req(`/facility-ops/market/nearby?facility_id=${encodeURIComponent(facilityId)}`, { timeoutMs: 45_000 }),
+  recordOpsRate: (data) => req("/facility-ops/market/rates", { method: "POST", body: JSON.stringify(data) }),
+  opsMarketAnalysis: (facilityId) => req(`/facility-ops/market/analysis?facility_id=${encodeURIComponent(facilityId)}`, { method: "POST" }),
 
   // Dev
   getDevProjects: () => req("/dev-projects"),
@@ -2030,6 +2072,16 @@ export const api = {
   createTicketWalkthrough: (body) => req('/ticket-walkthroughs', { method: 'POST', body: JSON.stringify(body) }),
   // A property's tickets for Asset Management > Maintenance, and Follow.
   getPropertyTickets:     (id) => req(`/property-assets/${encodeURIComponent(id)}/tickets`),
+
+  // Site Models (Neil, Oct 11 2026): to-scale 3D models of a property. The
+  // public customer page uses getPublicSiteModel (no login); owners get the
+  // full model plus markup pins through the property-asset grant.
+  getSiteModels:          () => req('/site-models'),
+  getSiteModel:           (id) => req(`/site-models/${encodeURIComponent(id)}`),
+  getSiteModelMarkups:    (id) => req(`/site-models/${encodeURIComponent(id)}/markups`),
+  addSiteModelMarkup:     (id, body) => req(`/site-models/${encodeURIComponent(id)}/markups`, { method: 'POST', body: JSON.stringify(body) }),
+  updateSiteModelMarkup:  (id, mid, body) => req(`/site-models/${encodeURIComponent(id)}/markups/${encodeURIComponent(mid)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteSiteModelMarkup:  (id, mid) => req(`/site-models/${encodeURIComponent(id)}/markups/${encodeURIComponent(mid)}`, { method: 'DELETE' }),
   followPropertyTicket:   (id, ticketId) => req(`/property-assets/${encodeURIComponent(id)}/tickets/${encodeURIComponent(ticketId)}/follow`, { method: 'POST' }),
   // Maintenance record + recurring services (Pranshu, 10/06).
   addMaintenanceRecord:   (id, ticketId, body) => req(`/property-assets/${encodeURIComponent(id)}/tickets/${encodeURIComponent(ticketId)}/maintenance-record`, { method: 'POST', body: JSON.stringify(body) }),
@@ -2137,8 +2189,30 @@ export const api = {
   forceResendWorkforceScorecard: (logId) => req(`/workforce-scorecard/log/${logId}`, { method: "DELETE" }),
   sendTestWorkforceScorecard: (managerEmail, weekStart) =>
     req("/workforce-scorecard/test-send", { method: "POST", body: JSON.stringify({ manager_email: managerEmail, week_start: weekStart || "" }) }),
+  // ── Weather Call (Oct 2026): the watch's settings, Check Now and the record of what was sent.
+  weatherWatchSettings:     ()     => req('/weather-watch/settings'),
+  weatherWatchSettingsSave: (data) => req('/weather-watch/settings', { method: 'PUT', body: JSON.stringify(data) }),
+  weatherWatchScan:         ()     => req('/weather-watch/scan', { method: 'POST' }),
+  weatherWatchAdvisories:   (groupId = '') => req(`/weather-watch/advisories${groupId ? `?group_id=${encodeURIComponent(groupId)}` : ''}`),
+  // The weather call itself: the screen, the decision, follow-up, acknowledging, a person's texts switch.
+  weatherCallScreen:    (groupId, date)       => req(`/weather-call/${encodeURIComponent(groupId)}/${date}`),
+  weatherCallDecide:    (groupId, date, data) => req(`/weather-call/${encodeURIComponent(groupId)}/${date}`, { method: 'POST', body: JSON.stringify(data) }),
+  weatherCallReinstate: (id)                  => req(`/weather-call/${encodeURIComponent(id)}/reinstate`, { method: 'POST' }),
+  weatherCallRemind:    (id)                  => req(`/weather-call/${encodeURIComponent(id)}/remind`, { method: 'POST' }),
+  weatherCallAck:       (id)                  => req(`/weather-call/${encodeURIComponent(id)}/ack`, { method: 'POST' }),
+  weatherCallMine:      ()                    => req('/weather-call/mine'),
+  weatherCallMyPrefs:   ()                    => req('/weather-call/my-prefs'),
+  weatherCallMyPrefsSave: (data)              => req('/weather-call/my-prefs', { method: 'PUT', body: JSON.stringify(data) }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
 // no MSAL involved, the token in the URL is the credential.
 export const API_BASE = BASE;
+
+// Public unit finder (/map/{propertyId}) - a customer looking for their unit
+// has no Nexus login, so this is a plain fetch of the customer-safe model.
+export async function fetchPublicSiteModel(id) {
+  const res = await fetch(`${BASE}/site-models/public/${encodeURIComponent(id)}`);
+  if (!res.ok) throw new Error(res.status === 404 ? 'No map for this property' : `Could not load the map (${res.status})`);
+  return res.json();
+}

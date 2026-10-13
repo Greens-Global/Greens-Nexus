@@ -10,9 +10,11 @@ Three layers:
 3. Grant enforcement: an employee with no role and no Access Group grant gets
    403 from a grant-gated module; an administrator passes.
 
-Runs against the local SQLite DB like the other test_*.py files:
+Runs against a throwaway SQLite file (see _testdb.py):
     python -m unittest test_auth_access
 """
+import _testdb  # noqa: F401 - FIRST import: throwaway DATABASE_URL (unittest skips conftest)
+
 import os
 import unittest
 
@@ -44,6 +46,7 @@ KNOWN_PUBLIC = {
     "/health/schema",
     "/auth/login", "/auth/callback",       # BFF login: OAuth flow can't require auth; callback is state+PKCE guarded
     "/auth/logout",                        # only clears the session cookie; harmless without a valid session
+    "/site-models/public/{pid}",           # customer unit finder (/map/<id>): geometry + unit numbers, never occupancy (routers/site_models.public_view)
     "/branding/config",                    # login screen needs it pre-auth
     "/stepup/config",                      # same posture
     # Boot-failure beacon from public/guard.js: fired while the app cannot
@@ -131,6 +134,11 @@ KNOWN_PUBLIC = {
     "/briefing-actions/page",
     # Outlook card version of the briefing: verified exactly like /mail-actions/card.
     "/briefing-actions/card",
+    # Weather Call acknowledgment link from a text or an email (Oct 2026,
+    # routers/weather_call.py). Same shape as /mail-actions/page: an
+    # HMAC-signed, expiring token binds one call to one person. GET only
+    # renders the Acknowledge button; the button's POST acknowledges.
+    "/weather-call/ack",
     # Google Business Profile OAuth return (Oct 2026, routers/marketing_gbp.py):
     # Google redirects a browser here, so no bearer token. The `state` is
     # sealed with secret_box, bound to the admin who started it and expires;
@@ -199,6 +207,13 @@ class TestGrantEnforcement(unittest.TestCase):
     (require_hr_read = require_module_grant('hr', 'viewer'))."""
 
     PROBE = "authprobe@greensglobal.com"
+
+    @classmethod
+    def setUpClass(cls):
+        # These tests write role and grant rows. The database is now an empty
+        # throwaway file (_testdb), so build the tables here instead of relying
+        # on test_app_boot's startup having run first in the same process.
+        models.Base.metadata.create_all(bind=database.engine)
 
     def setUp(self):
         self.client = TestClient(main.app)

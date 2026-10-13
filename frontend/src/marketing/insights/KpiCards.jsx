@@ -28,7 +28,7 @@ export default function KpiCards({ current, previous, previousRange, onSelectMet
           <button
             key={c.key}
             onClick={() => onSelectMetric(c.key, c.label, c.format)}
-            style={{ textAlign: 'left', ...card, padding: 16, minWidth: 0, overflow: 'hidden', transition: 'all .15s', cursor: 'pointer' }}
+            style={{ textAlign: 'left', ...card, padding: 16, minWidth: 0, overflow: 'hidden', transition: 'border-color .15s, box-shadow .15s', cursor: 'pointer' }}
             onMouseEnter={(e) => {
               e.currentTarget.style.borderColor = C.gray300
               e.currentTarget.style.boxShadow = shadowMd

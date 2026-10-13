@@ -244,9 +244,15 @@ def _shift_starts(db: Session, emails: list, today: str, team_tz: str) -> dict:
                       models.ScheduledShift.work_date == today,
                       models.ScheduledShift.published == 1)
               .order_by(models.ScheduledShift.start_hhmm).all())
+    # A day a weather call cancelled is not a shift to be late for, and the
+    # preset below must not stand in for it (Weather Call, Oct 12).
+    called_off = set()
+    for r in placed:
+        if (getattr(r, "weather_status", "") or "") == "cancelled":
+            called_off.add((r.employee_email or "").lower())
     for r in placed:
         em = (r.employee_email or "").lower()
-        if em in out:
+        if em in out or (getattr(r, "weather_status", "") or "") == "cancelled":
             continue
         p = presets.get(r.shift_id)
         tz = ((getattr(r, "timezone", "") or "").strip()
@@ -263,7 +269,7 @@ def _shift_starts(db: Session, emails: list, today: str, team_tz: str) -> dict:
         if p is None:
             continue
         assigned = True
-        if em in out:
+        if em in out or em in called_off:
             continue
         days = {d.strip() for d in (p.days or "").split(",") if d.strip()}
         if weekday not in days:
