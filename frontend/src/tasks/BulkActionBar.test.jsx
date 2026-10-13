@@ -77,3 +77,25 @@ describe('BulkActionBar - Set Field', () => {
     expect(screen.getByText('Apply').disabled).toBe(true);
   });
 });
+
+// Phone, Oct 13 2026: in the one-row bar the pickers' minWidth:0 wrappers
+// shrank to nothing and Assign / Move To / Duplicate painted over each other.
+describe('BulkActionBar - one row on a phone', () => {
+  it('keeps every picker from shrinking, and sits fixed above the module nav', () => {
+    const store = {
+      tasks, customFields: [property], bulkUpdate: vi.fn(), deleteTask: vi.fn(),
+      statusOrder: ['not_started'], statusMeta: { not_started: { label: 'Not Started' } }, projects: [],
+    };
+    const sections = { sections: [{ id: 's1', name: 'Annual' }], move: vi.fn(() => Promise.resolve()) };
+    const { container } = render(<BulkActionBar selected={new Set(['a'])} clearSel={vi.fn()} store={store}
+      people={[]} lockedProjectId="p-it" isMobile sections={sections} />);
+    const bar = container.firstChild;
+    expect(bar.style.position).toBe('fixed');
+    expect(bar.style.flexWrap).toBe('nowrap');
+    for (const label of ['Assign…', 'Move To…', 'Set Field…', 'Move to Section…']) {
+      const item = screen.getByText(label).closest('button').parentElement.parentElement;
+      expect(item.parentElement).toBe(bar);
+      expect(item.style.flexShrink).toBe('0');
+    }
+  });
+});
