@@ -76,7 +76,10 @@ describe('CustomChartsPanel persistence', () => {
     render(<CustomChartsPanel scopeKey="p1" tasks={tasks} store={store} />);
     expect(await screen.findByText('Team view')).toBeInTheDocument();
     expect(screen.getByText('Project Charts')).toBeInTheDocument();
-    await act(async () => { fireEvent.click(screen.getByLabelText('Share Open by status')); });
+    // Shared charts come with the project; the personal one arrives with the
+    // saved preferences a tick later - wait for it before clicking.
+    const share = await screen.findByLabelText('Share Open by status');
+    await act(async () => { fireEvent.click(share); });
     expect(store.shareProjectChart).toHaveBeenCalledWith('p1', chart);
     expect(saveTaskTablePrefs).toHaveBeenCalledWith('charts', { data: { p1: [] } });
   });
