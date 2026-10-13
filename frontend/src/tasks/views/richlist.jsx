@@ -613,7 +613,10 @@ function AddFieldMenu({ createCustomField, allCustomFields, updateCustomField, l
     if (!picked || !name.trim()) return;
     const needsOptions = picked.storage === 'select' || picked.storage === 'multiselect';
     const opts = needsOptions ? options.map((o) => o.trim()).filter(Boolean) : [];
-    createCustomField({ name: name.trim(), description: description.trim(), type: picked.storage, options: opts }).catch(() => {});
+    // Made from a project's list, the field belongs to that project - which is
+    // also all the server lets anyone below manager create (task_config.py).
+    createCustomField({ name: name.trim(), description: description.trim(), type: picked.storage, options: opts,
+      ...(lockedProjectId ? { projectIds: [lockedProjectId] } : {}) }).catch(() => {});
     reset(); close();
   };
 
@@ -1048,12 +1051,16 @@ export function useHiddenCols() {
 // inside the column-header row, which repeated them once per group.
 // `customFields` is what is ON this list (scoped to the project); `allCustomFields`
 // is the whole workspace's, which the + Column menu's Existing Fields step
-// draws from.
-export function ListColumnControls({ hidden, setHidden, customFields, createCustomField, lockedProjectId, teams, allCustomFields, updateCustomField, tracksTime = true }) {
+// draws from. Outside a project a new field lands on every project, which is
+// a manager's to add (`canManageFields`), so + Column is not offered there to
+// anyone else.
+export function ListColumnControls({ hidden, setHidden, customFields, createCustomField, lockedProjectId, teams, allCustomFields, updateCustomField, tracksTime = true, canManageFields = true }) {
   return (
     <>
       <HideColsMenu customFields={customFields} hidden={hidden} setHidden={setHidden} lockedProjectId={lockedProjectId} teams={teams} tracksTime={tracksTime} />
-      <AddFieldMenu createCustomField={createCustomField} allCustomFields={allCustomFields} updateCustomField={updateCustomField} lockedProjectId={lockedProjectId} />
+      {(lockedProjectId || canManageFields) && (
+        <AddFieldMenu createCustomField={createCustomField} allCustomFields={allCustomFields} updateCustomField={updateCustomField} lockedProjectId={lockedProjectId} />
+      )}
     </>
   );
 }

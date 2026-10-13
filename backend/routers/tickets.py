@@ -2380,9 +2380,11 @@ class TicketLinkBody(BaseModel):
 @router.post("/task-tickets/{ticket_id}/links", status_code=201, dependencies=[Depends(require_ticket_desk)])
 def add_ticket_link(ticket_id: str, body: TicketLinkBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     t = _ticket_or_404(db, ticket_id)
+    _require_ticket_participant(db, user, t)       # company wall: another company's ticket is 404
     if body.ticket_id == ticket_id:
         raise HTTPException(422, "A ticket cannot be linked to itself")
     other = _ticket_or_404(db, body.ticket_id)
+    _require_ticket_participant(db, user, other)   # a link writes to BOTH tickets
     typ = body.type if body.type in _LINK_INVERSE else "relates"
     t.links = [l for l in (t.links or []) if l.get("ticketId") != other.id] + [{"ticketId": other.id, "type": typ}]
     other.links = [l for l in (other.links or []) if l.get("ticketId") != t.id] + [{"ticketId": t.id, "type": _LINK_INVERSE[typ]}]
@@ -2394,12 +2396,21 @@ def add_ticket_link(ticket_id: str, body: TicketLinkBody, user: dict = Depends(g
 
 
 @router.delete("/task-tickets/{ticket_id}/links/{target_id}", dependencies=[Depends(require_ticket_desk)])
-def remove_ticket_link(ticket_id: str, target_id: str, db: Session = Depends(get_db)):
+def remove_ticket_link(ticket_id: str, target_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    # Sep 30 review: this took no user, so the desk grant alone let anyone
+    # unlink tickets in another company, and nothing recorded who did it.
     t = _ticket_or_404(db, ticket_id)
+    _require_ticket_participant(db, user, t)
+    had = any(l.get("ticketId") == target_id for l in (t.links or []))
     t.links = [l for l in (t.links or []) if l.get("ticketId") != target_id]
     other = db.query(models.TaskTicket).filter(models.TaskTicket.id == target_id).first()
     if other:
+        _require_ticket_participant(db, user, other)
         other.links = [l for l in (other.links or []) if l.get("ticketId") != ticket_id]
+    if had:
+        log_activity(db, type="unlinked", actor_email=user["email"], entity_kind="ticket",
+                     entity_id=t.id, entity_code=t.code, entity_title=t.subject,
+                     detail=f"unlinked {other.code if other else target_id}")
     db.commit()
     db.refresh(t)
     return ticket_to_dict(t)

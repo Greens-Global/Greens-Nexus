@@ -92,7 +92,7 @@ def _notify_manager(db, emp, hours: int, punch_id: str):
               f"{LONG_SESSION_HOURS}h are held off the timesheet until fixed. Open their "
               "timesheet and add the real clock-out, or ask them to."),
         ref_id=punch_id, action=json.dumps({"view": "timeclock", "sub": "timesheet"}),
-        created_at=_iso(_now())))
+        company=emp.company or "", created_at=_iso(_now())))
     db.commit()
 
 
@@ -146,7 +146,7 @@ def _scan_once():
                 body=("If you're still on the clock, carry on. If you forgot to punch out, "
                       "open Time Clock and use \"I forgot - fix my punch-out\" to set the real end time."),
                 ref_id=start.id, action=json.dumps({"view": "timeclock"}),
-                created_at=_iso(_now())))
+                company=(emp.company if emp else "") or "", created_at=_iso(_now())))
             db.commit()
             _email(db, email, h)
     finally:

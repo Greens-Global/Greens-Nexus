@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 import httpx
+import safe_fetch
 from database import get_db
 from auth import get_current_user, require_level_or_module, company_of
 from models import Item, ItemCheckout, ItemCartEntry, ItemAssignment, ItemCustomField, ItemType, NexusRole, NexusNotification, AuditLog, NexusEmployee
@@ -1436,6 +1437,31 @@ def update_checkout(checkout_id: str, body: CheckoutStatusUpdate, user: dict = D
     now = datetime.now(timezone.utc).isoformat()
     item = db.query(Item).filter(Item.id == row.item_id).first()
 
+    # Photos are evidence: the handover, the receipt and the return each need one,
+    # unless the item is flagged photo-optional (picture_required False, e.g. keys).
+    # Checked here, before anything is mutated. A handover photo already on the row
+    # counts. Not asked for:
+    #   - pending_receipt: the allocator chose "employee takes the photo", so the
+    #     evidence is the receipt photo the employee uploads on the next step;
+    #   - a lost item (nothing to photograph);
+    #   - a check-in on the holder's behalf with a reason (force return - the
+    #     holder is not there to photograph it; the reason is the record).
+    if not item or item.picture_required is None or item.picture_required:
+        def _has(*urls):
+            return any((u or "").strip() for u in urls)
+        if body.status == "allocated" and row.status != "pending_receipt" \
+                and not _has(body.checkout_photo_url, row.checkout_photo_url):
+            raise HTTPException(400, "A handover photo is required")
+        if body.status == "allocated" and row.status == "pending_receipt" \
+                and not _has(body.receipt_photo_url):
+            raise HTTPException(400, "A receipt photo is required")
+        if body.status == "returned" and not _has(body.return_photo_url):
+            lost = (body.condition or "ok").lower().strip() == "lost"
+            on_behalf = (row.requested_by_email or "").lower() != user["email"].lower() \
+                and _has(body.condition_note)
+            if not lost and not on_behalf:
+                raise HTTPException(400, "A return photo is required (unless the item is lost)")
+
     if body.status in ("approved", "rejected"):
         row.resolved_at = now
         row.resolved_by = body.resolved_by or ""
@@ -2060,64 +2086,63 @@ def _fetch_image_to_storage(img_url: str, item_id: str, _depth: int = 0) -> str:
     from urllib.parse import urljoin
     if _depth > 1 or not img_url:
         return ""
-    # verify=False ONLY for third-party product sites - many retail/manufacturer
-    # sites serve incomplete cert chains that strict validation rejects (browsers
-    # AIA-fetch the intermediates, Python doesn't). Risk is negligible here: the
-    # payload is a public stock photo, content-type and size validated below,
-    # and reviewed by a manager. Our Anthropic/Supabase calls keep strict TLS.
-    with httpx.Client(timeout=10, follow_redirects=True, verify=False) as client:
-        try:
-            resp = client.get(img_url, headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-                "Accept": "text/html,image/avif,image/webp,image/*,*/*;q=0.8",
+    # The URL came from a model (or from a page it pointed at), so it goes
+    # through safe_fetch: public hosts only, checked on every redirect and on
+    # the og:image hop below, strict TLS, size-capped while downloading. This
+    # used to run with verify=False because some retail/manufacturer sites
+    # serve an incomplete cert chain (browsers AIA-fetch the intermediates,
+    # Python doesn't); those sites now simply fail and the next candidate is
+    # tried - an unverified connection is not worth one more stock photo.
+    try:
+        resp = safe_fetch.fetch(img_url, max_bytes=8 * 1024 * 1024, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+            "Accept": "text/html,image/avif,image/webp,image/*,*/*;q=0.8",
+        })
+        if resp.status_code in (403, 429):
+            # Wikimedia (and friends) block fake browser UAs from datacenter
+            # IPs but serve honest, descriptive bot UAs per their policy
+            resp = safe_fetch.fetch(img_url, max_bytes=8 * 1024 * 1024, headers={
+                "User-Agent": "GreensNexusCatalogBot/1.0 (+https://nexus.greensglobal.com; internal asset catalog)",
+                "Accept": "image/*,text/html;q=0.5",
             })
-            if resp.status_code in (403, 429):
-                # Wikimedia (and friends) block fake browser UAs from datacenter
-                # IPs but serve honest, descriptive bot UAs per their policy
-                resp = client.get(img_url, headers={
-                    "User-Agent": "GreensNexusCatalogBot/1.0 (+https://nexus.greensglobal.com; internal asset catalog)",
-                    "Accept": "image/*,text/html;q=0.5",
-                })
-        except httpx.HTTPError:
-            return ""  # slow/dead host - fail fast, the caller tries the next candidate
-        if resp.status_code != 200:
-            return ""
-        ctype = resp.headers.get("content-type", "").split(";")[0].strip().lower()
-        if ctype.startswith("text/html"):
-            # Got a product page instead of an image - collect candidate images in
-            # quality order: JSON-LD product image, og:image, twitter:image. Skip
-            # obvious site chrome (logos, icons, .svg/.gif).
-            html = resp.text
-            candidates = []
-            for block in re.findall(r'<script[^>]+application/ld\+json[^>]*>(.*?)</script>', html, re.S):
-                m = re.search(r'"image"\s*:\s*\[?\s*"(https?://[^"]+)"', block)
-                if m:
-                    candidates.append(m.group(1))
-            for pat in (
-                r'<meta[^>]+property=["\']og:image(?::secure_url)?["\'][^>]+content=["\']([^"\']+)',
-                r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image(?::secure_url)?["\']',
-                r'<meta[^>]+name=["\']twitter:image["\'][^>]+content=["\']([^"\']+)',
-                r'<link[^>]+rel=["\']image_src["\'][^>]+href=["\']([^"\']+)',
-            ):
-                m = re.search(pat, html)
-                if m:
-                    candidates.append(m.group(1))
-            for cand in candidates:
-                resolved = urljoin(str(resp.url), cand)
-                if _looks_like_junk_image(resolved):
-                    continue
-                got = _fetch_image_to_storage(resolved, item_id, _depth + 1)
-                if got:
-                    return got
-            return ""
-        if ctype not in _IMG_CTYPES:
-            return ""
-        content = resp.content
-        if len(content) < 8 * 1024 or len(content) > 8 * 1024 * 1024:
-            return ""  # tracking pixel / logo-sized, or unreasonably large
-        path = f"item-photos/ai-{item_id}-{uuid.uuid4().hex[:6]}.{_IMG_CTYPES[ctype]}"
-    # Upload on a SEPARATE client with strict TLS - verify=False above is only
-    # for the third-party retail sites, never for our own infrastructure.
+    except (httpx.HTTPError, safe_fetch.FetchRefused):
+        return ""  # slow/dead/refused host - fail fast, the caller tries the next candidate
+    if resp.status_code != 200:
+        return ""
+    ctype = resp.headers.get("content-type", "").split(";")[0].strip().lower()
+    if ctype.startswith("text/html"):
+        # Got a product page instead of an image - collect candidate images in
+        # quality order: JSON-LD product image, og:image, twitter:image. Skip
+        # obvious site chrome (logos, icons, .svg/.gif).
+        html = resp.text
+        candidates = []
+        for block in re.findall(r'<script[^>]+application/ld\+json[^>]*>(.*?)</script>', html, re.S):
+            m = re.search(r'"image"\s*:\s*\[?\s*"(https?://[^"]+)"', block)
+            if m:
+                candidates.append(m.group(1))
+        for pat in (
+            r'<meta[^>]+property=["\']og:image(?::secure_url)?["\'][^>]+content=["\']([^"\']+)',
+            r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image(?::secure_url)?["\']',
+            r'<meta[^>]+name=["\']twitter:image["\'][^>]+content=["\']([^"\']+)',
+            r'<link[^>]+rel=["\']image_src["\'][^>]+href=["\']([^"\']+)',
+        ):
+            m = re.search(pat, html)
+            if m:
+                candidates.append(m.group(1))
+        for cand in candidates:
+            resolved = urljoin(str(resp.url), cand)
+            if _looks_like_junk_image(resolved):
+                continue
+            got = _fetch_image_to_storage(resolved, item_id, _depth + 1)
+            if got:
+                return got
+        return ""
+    if ctype not in _IMG_CTYPES:
+        return ""
+    content = resp.content
+    if len(content) < 8 * 1024 or len(content) > 8 * 1024 * 1024:
+        return ""  # tracking pixel / logo-sized, or unreasonably large
+    path = f"item-photos/ai-{item_id}-{uuid.uuid4().hex[:6]}.{_IMG_CTYPES[ctype]}"
     with httpx.Client(timeout=30) as upload_client:
         up = upload_client.post(
             f"{_SUPABASE_URL}/storage/v1/object/item-photos/{path}",

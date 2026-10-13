@@ -40,6 +40,7 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 
 from database import get_db
+from notify_company import notification_company
 from auth import (get_current_user, require_level_or_module, require_administrator,
                   require_module_grant, require_level_or_modules, _module_level, _LEVELS,
                   _MODULE_LEVEL_RANK)
@@ -1829,13 +1830,14 @@ def _notify_team_alert(db: Session, *, employee_email: str, actor_email: str, ti
     """One targeted bell row per recipient of _team_alert_recipients - never a
     broadcast. priority=1 = the bar across the top until acted on."""
     now = _now_iso()
+    company = notification_company(db, employee_email, actor_email)
     for recipient in _team_alert_recipients(db, employee_email, actor_email, owners_as_fallback=owners_as_fallback):
         db.add(NexusNotification(
             id=str(uuid.uuid4()), type="custom_alert", recipient=recipient,
             title=title, body=body, ref_id=ref_id, item_name="",
             requested_by=requested_by or actor_email,
             action=json.dumps(action) if action else "",
-            actioned=False, read_by="", created_at=now, priority=1 if priority else 0))
+            actioned=False, read_by="", company=company, created_at=now, priority=1 if priority else 0))
 
 
 def _timecard_action(db: Session, employee_email: str, local_date: str) -> dict:
@@ -8828,9 +8830,15 @@ def _sign_shot_rows(rows: list) -> dict:
 def list_screenshots(date: str = "", email: str = "",
                      user: dict = Depends(require_tracking), db: Session = Depends(get_db)):
     """Admin gallery. Without an email: per-person counts for the day. With one:
-    the frames themselves, each with a fresh signed URL."""
+    the frames themselves, each with a fresh signed URL. Limited to the people
+    the caller may see, exactly as /team-screenshots is."""
+    visible = _visible_emails(db, user)   # None = whole company (admin/HR grant)
     day = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
     q = db.query(TimeScreenshot).filter(TimeScreenshot.local_date == day)
+    if visible is not None:
+        if not visible:
+            return {"date": day, "people": []}
+        q = q.filter(TimeScreenshot.employee_email.in_(visible))
     if not email:
         counts = {}
         for s in q.all():
@@ -8840,6 +8848,8 @@ def list_screenshots(date: str = "", email: str = "",
         return {"date": day, "people": [
             {"email": em, "name": names.get(em) or em.split("@")[0].replace(".", " ").title(), "count": n}
             for em, n in sorted(counts.items())]}
+    if visible is not None and email.strip().lower() not in visible:
+        raise HTTPException(403, "That employee isn't on your team.")
     rows = q.filter(TimeScreenshot.employee_email == email.strip().lower()) \
             .order_by(TimeScreenshot.at).all()
     urls = _sign_shot_rows(rows)   # per-bucket signing (handles the migration in flight)

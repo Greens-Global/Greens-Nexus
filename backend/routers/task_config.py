@@ -17,8 +17,9 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 import models
 from database import get_db
+from notify_company import notification_company
 from auth import get_current_user, require_level, require_manager, require_any_module_grant
-from routers.task_util import now_iso, gen_id
+from routers.task_util import now_iso, gen_id, is_manager, require_project_role
 from changelog_prs import known_developer
 
 router = APIRouter(tags=["Tasks"],
@@ -73,8 +74,15 @@ def create_saved_view(body: SavedViewBody, user: dict = Depends(get_current_user
 
 
 @router.delete("/task-saved-views/{view_id}", status_code=204)
-def delete_saved_view(view_id: str, db: Session = Depends(get_db)):
-    db.query(models.TaskSavedView).filter(models.TaskSavedView.id == view_id).delete()
+def delete_saved_view(view_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    # A saved view belongs to one person. Filtered to the caller's own task
+    # views - the same rows list_saved_views returns - so nobody can delete
+    # somebody else's by id, or a ticket view through this route (Sep 30 review).
+    db.query(models.TaskSavedView).filter(
+        models.TaskSavedView.id == view_id,
+        models.TaskSavedView.owner_email == user["email"].lower(),
+        models.TaskSavedView.scope != "ticket",
+    ).delete(synchronize_session=False)
     db.commit()
 
 
@@ -400,7 +408,7 @@ def custom_field_to_dict(f: models.TaskCustomField) -> dict:
 
 class CustomFieldBody(BaseModel):
     id: Optional[str] = None
-    name: str
+    name: Optional[str] = None   # optional so PATCH (e.g. adding a project) can send partial bodies; required on create (guarded below)
     description: Optional[str] = ""
     type: Optional[str] = "text"
     options: Optional[list] = None
@@ -411,19 +419,52 @@ class CustomFieldBody(BaseModel):
     applies_to: Optional[list] = None
 
 
+# Who may change a custom field (Oct 13 2026 review). These three routes took
+# no user at all: anyone with a tasks or tickets grant could rename, retype or
+# delete a field under every project that uses it. A field's DEFINITION (name,
+# type, options, required, read-only, what it applies to) is shared by every
+# project it is on, so it is a manager's, like the automation rules above. What
+# stays open is the list view's "+ Column" menu (richlist.jsx AddFieldMenu):
+# an editor of a project may make a field for that project, and put an existing
+# field on it or take it off - the project list is all they can send.
+def _require_field_projects(db: Session, user: dict, project_ids) -> None:
+    """403 unless `user` is at least editor on every project in `project_ids`.
+    An id that is not a project is refused too: require_project_role reads "no
+    project" as unrestricted, which is right for a standalone task and wrong
+    here."""
+    for pid in project_ids:
+        project = db.query(models.TaskProject).filter(models.TaskProject.id == pid).first()
+        if not project:
+            raise HTTPException(403, "You can only add a field to a project you can edit.")
+        require_project_role(db, user, project, "editor")
+
+
 @router.get("/task-custom-fields")
 def list_custom_fields(db: Session = Depends(get_db)):
     return [custom_field_to_dict(f) for f in db.query(models.TaskCustomField).all()]
 
 
 @router.post("/task-custom-fields", status_code=201)
-def create_custom_field(body: CustomFieldBody, db: Session = Depends(get_db)):
+def create_custom_field(body: CustomFieldBody, user: dict = Depends(get_current_user),
+                        db: Session = Depends(get_db)):
+    if not (body.name or "").strip():
+        raise HTTPException(422, "Field name is required")
+    project_ids = [p for p in (body.project_ids or []) if p]
+    required_project_ids = [p for p in (body.required_project_ids or []) if p]
+    if not is_manager(user):
+        # No project scope = a column on every project's list.
+        if not project_ids:
+            raise HTTPException(403, "Only a manager can add a field to every project.")
+        if (body.required or body.read_only or required_project_ids
+                or _parse_applies_to(body.applies_to) != ["task"]):
+            raise HTTPException(403, "Only a manager can set that on a custom field.")
+        _require_field_projects(db, user, project_ids)
     f = models.TaskCustomField(id=body.id or gen_id(), name=body.name, description=body.description or "",
                                type=body.type or "text",
                                options=normalize_field_options(body.options or []),
-                               project_ids=[p for p in (body.project_ids or []) if p],
+                               project_ids=project_ids,
                                required=bool(body.required), read_only=bool(body.read_only),
-                               required_project_ids=[p for p in (body.required_project_ids or []) if p],
+                               required_project_ids=required_project_ids,
                                applies_to=_dump_applies_to(body.applies_to))
     db.add(f)
     db.commit()
@@ -432,11 +473,14 @@ def create_custom_field(body: CustomFieldBody, db: Session = Depends(get_db)):
 
 
 @router.patch("/task-custom-fields/{field_id}")
-def update_custom_field(field_id: str, body: CustomFieldBody, db: Session = Depends(get_db)):
+def update_custom_field(field_id: str, body: CustomFieldBody, user: dict = Depends(get_current_user),
+                        db: Session = Depends(get_db)):
     f = db.query(models.TaskCustomField).filter(models.TaskCustomField.id == field_id).first()
     if not f:
         raise HTTPException(404, "Custom field not found")
     data = body.model_dump(exclude_unset=True, exclude={"id"})
+    if "name" in data and not (data["name"] or "").strip():
+        raise HTTPException(422, "Field name is required")
     if "options" in data:
         data["options"] = normalize_field_options(data["options"] or [])
     if "project_ids" in data:
@@ -445,6 +489,18 @@ def update_custom_field(field_id: str, body: CustomFieldBody, db: Session = Depe
         data["required_project_ids"] = [p for p in (data["required_project_ids"] or []) if p]
     if "applies_to" in data:
         data["applies_to"] = _dump_applies_to(data["applies_to"])
+    if not is_manager(user):
+        if set(data) - {"project_ids"}:
+            raise HTTPException(403, "Only a manager can change a custom field. You can add it to "
+                                     "or remove it from a project you can edit.")
+        old = {p for p in (f.project_ids or []) if p}
+        new = set(data.get("project_ids", old))
+        # Empty on either side is "every project": scoping a company-wide field
+        # down, or emptying a scoped one, changes projects this person may not
+        # be on at all.
+        if not old or not new:
+            raise HTTPException(403, "Only a manager can change a field that is on every project.")
+        _require_field_projects(db, user, sorted(old ^ new))
     for k, v in data.items():
         setattr(f, k, v)
     db.commit()
@@ -452,7 +508,9 @@ def update_custom_field(field_id: str, body: CustomFieldBody, db: Session = Depe
     return custom_field_to_dict(f)
 
 
-@router.delete("/task-custom-fields/{field_id}", status_code=204)
+# Manager-only: it takes the field, and with it every value captured in it,
+# off every project at once.
+@router.delete("/task-custom-fields/{field_id}", status_code=204, dependencies=[Depends(require_manager)])
 def delete_custom_field(field_id: str, db: Session = Depends(get_db)):
     db.query(models.TaskCustomField).filter(models.TaskCustomField.id == field_id).delete()
     db.commit()
@@ -555,8 +613,10 @@ def task_ai_rephrase(body: RephraseBody):
 
 
 @router.post("/task-ocr")
-async def task_ocr(image: UploadFile = File(...)):
-    raw = await image.read()
+def task_ocr(image: UploadFile = File(...)):
+    # Plain `def` on purpose: Tesseract is seconds of CPU per image, and
+    # FastAPI runs a `def` endpoint in its threadpool, off the event loop.
+    raw = image.file.read()
     if not raw:
         raise HTTPException(400, "Empty image")
     try:
@@ -597,9 +657,13 @@ def list_notifications(user: dict = Depends(get_current_user), db: Session = Dep
 
 
 @router.post("/task-notifications/{notif_id}/read")
-def mark_notification_read(notif_id: str, db: Session = Depends(get_db)):
+def mark_notification_read(notif_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     n = db.query(models.TaskNotification).filter(models.TaskNotification.id == notif_id).first()
-    if not n:
+    # Only the person it was sent to (or an administrator, for one addressed to
+    # "admins") - the same targets mark_all_read uses. Somebody else's reads as
+    # not found (Sep 30 review).
+    targets = [user["email"].lower()] + (["admins"] if user["level"] >= 4 else [])
+    if not n or (n.for_email or "").lower() not in targets:
         raise HTTPException(404, "Notification not found")
     n.read = True
     db.commit()
@@ -844,7 +908,8 @@ def _whats_new_notice(db: Session, email: str, counts: dict, announced: bool) ->
     db.add(models.NexusNotification(
         id=str(uuid.uuid4()), type="whats_new", recipient=email, title="New in Nexus", body=body,
         ref_id=WHATS_NEW_NOTICE_REF, item_name="", requested_by="",
-        action=json.dumps({"view": "whats-new"}), actioned=False, read_by=read_by, created_at=now_iso()))
+        action=json.dumps({"view": "whats-new"}), actioned=False, read_by=read_by,
+        company=notification_company(db, email), created_at=now_iso()))
 
 
 @view_router.get("/task-changelog/feature-banner")

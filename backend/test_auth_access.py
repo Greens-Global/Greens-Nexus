@@ -10,9 +10,11 @@ Three layers:
 3. Grant enforcement: an employee with no role and no Access Group grant gets
    403 from a grant-gated module; an administrator passes.
 
-Runs against the local SQLite DB like the other test_*.py files:
+Runs against a throwaway SQLite file (see _testdb.py):
     python -m unittest test_auth_access
 """
+import _testdb  # noqa: F401 - FIRST import: throwaway DATABASE_URL (unittest skips conftest)
+
 import os
 import unittest
 
@@ -199,6 +201,13 @@ class TestGrantEnforcement(unittest.TestCase):
     (require_hr_read = require_module_grant('hr', 'viewer'))."""
 
     PROBE = "authprobe@greensglobal.com"
+
+    @classmethod
+    def setUpClass(cls):
+        # These tests write role and grant rows. The database is now an empty
+        # throwaway file (_testdb), so build the tables here instead of relying
+        # on test_app_boot's startup having run first in the same process.
+        models.Base.metadata.create_all(bind=database.engine)
 
     def setUp(self):
         self.client = TestClient(main.app)

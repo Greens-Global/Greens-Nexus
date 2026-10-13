@@ -40,7 +40,6 @@ export function ApprovalsPanel() {
   const { can } = useRole();
   const { requisitions, pendingManagerCount, approveRequisition, rejectRequisition } = useRequisitions();
   const { requests: invRequests, approveRequest: approveInvReq, rejectRequest: rejectInvReq } = useInventory();
-  const { addNotification } = useNotifications();
 
   const [rejectingId,     setRejectingId]     = useState(null);
   const [rejectReason,    setRejectReason]    = useState('');
@@ -66,13 +65,8 @@ export function ApprovalsPanel() {
     setApprovingBusy(true);
     approveInvReq(req.id, myName, chosen.email, chosen.name)
       .then(() => {
-        addNotification({
-          type: 'allocate_request', recipient: chosen.email, refId: req.id,
-          itemName: req.itemName, requestedBy: req.requestedBy,
-          title: 'Allocate an Item',
-          body: `${myName} approved ${req.requestedBy}'s request for ${req.itemName} and assigned it to you to hand over.`,
-          action: { label: 'Allocate Now →', kind: 'allocate' },
-        });
+        // The allocator's "Hand over" bell entry is written by the server
+        // (items.py update_checkout) - never post a second one from here.
         setApprovingInvId(null);
         setPickedAllocator('');
       })
@@ -238,7 +232,7 @@ export function WhoHasWhatPanel() {
   const { can } = useRole();
   const { requisitions, hwAssets } = useRequisitions();
   const { requests: invRequests, allocateItem } = useInventory();
-  const { sendOverdueAlert, addNotification } = useNotifications();
+  const { sendOverdueAlert } = useNotifications();
 
   const [dept,        setDept]        = useState('All');
   const [alertSent,   setAlertSent]   = useState({});
@@ -290,14 +284,8 @@ export function WhoHasWhatPanel() {
   function handleAllocate(row) {
     setAllocating(p => ({ ...p, [row.key]: true }));
     setAllocErrors(p => ({ ...p, [row.key]: null }));
-    allocateItem(row.reqId, myName).then(() => {
-      addNotification({
-        type: 'allocated', recipient: row.employeeEmail || row.employee,
-        title: 'Item Allocated ✓',
-        body: `Your ${row.item} has been allocated and is ready for collection. Please pick it up from your supervisor.`,
-        action: { label: 'Track Request →', view: 'inventory', sub: 'checkouts' },
-      });
-    }).catch(err => {
+    // The requester's bell entry is written by the server (items.py update_checkout).
+    allocateItem(row.reqId, myName).catch(err => {
       const msg = /409|stock/i.test(err?.message || '')
         ? `Not enough ${row.item} in stock to allocate right now.`
         : `Couldn't allocate ${row.item} - please try again.`;

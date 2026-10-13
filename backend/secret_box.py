@@ -62,6 +62,20 @@ def require_key_on_azure() -> None:
         sys.exit(1)
 
 
+def signing_secret(dev_fallback: str) -> bytes:
+    """HMAC secret for the signed task links and reply addresses
+    (task_mail_actions.py, task_inbound_parse.py), under the same rule as the
+    Fernet key above: the real key when it is set, the caller's in-repo value
+    on a laptop only. On Azure without the key it is random per process, so
+    nothing signed with the in-repo value verifies - the lifespan refuses to
+    start there, and this covers whatever imports those modules outside it."""
+    if _KEY:
+        return _KEY.encode()
+    if ON_AZURE:
+        return os.urandom(32)
+    return dev_fallback.encode()
+
+
 def _box() -> Fernet:
     if _fernet is None:
         raise RuntimeError("NEXUS_VAULT_KEY is not set on this deployed API")

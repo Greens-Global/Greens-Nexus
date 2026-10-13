@@ -9,6 +9,7 @@ AI bug→test-case conversion uses claude-haiku-4-5 - one small call per report
 the Graph sendMail app permission (notifications.py) + a targeted bell row; the
 Teams DM is posted client-side by the assigner via their delegated token.
 """
+import hmac
 import json
 import os
 import re
@@ -23,7 +24,9 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+import safe_fetch
 from database import get_db
+from notify_company import notification_company
 from auth import get_current_user, require_module_grant
 from models import (QaTestCase, QaRun, QaResult, QaBugReport, QaAssignment,
                     NexusNotification, NexusRole)
@@ -245,7 +248,8 @@ def generate_e2e(case_id: str, user: dict = Depends(require_qa_write), db: Sessi
 
 def _ci_auth(token: Optional[str]):
     expected = os.getenv("NEXUS_QA_CI_TOKEN", "")
-    if not _ENABLED or not expected or not token or token != expected:
+    if (not _ENABLED or not expected or not token
+            or not hmac.compare_digest(token.encode(), expected.encode())):
         raise HTTPException(404, "Not found")
 
 
@@ -585,6 +589,7 @@ def create_assignment(body: AssignIn, user: dict = Depends(require_qa_write), db
     # Targeted bell (server-side only - employees can't POST notifications).
     db.add(NexusNotification(id=str(uuid.uuid4()), type="qa_assignment", recipient=email,
                              title=title, body=body_txt, ref_id=row.id,
+                             company=notification_company(db, user["email"], email),
                              created_at=_now()))
     db.commit()
 
@@ -714,9 +719,11 @@ class _ThumbCache:
         try:
             from io import BytesIO
             from PIL import Image as PILImage
-            r = httpx.get(url, timeout=8, follow_redirects=True)
-            if r.is_success and r.headers.get("content-type", "").startswith("image"):
-                im = PILImage.open(BytesIO(r.content)).convert("RGB")
+            # Evidence lives in the app's own storage - nothing else is fetched
+            # (the URL is whatever a tester saved on the result). See safe_fetch.
+            raw = safe_fetch.own_image(url, timeout=8)
+            if raw:
+                im = PILImage.open(BytesIO(raw)).convert("RGB")
                 im.thumbnail((150, 110))
                 buf = BytesIO(); im.save(buf, format="PNG")
                 data = buf.getvalue()
@@ -902,12 +909,15 @@ def export_xlsx(run_id: str = Query(default=""), user: dict = Depends(require_qa
 
 
 @router.post("/import")
-async def import_xlsx(file: UploadFile = File(...), run_id: str = Query(default=""),
-                      user: dict = Depends(require_qa_write), db: Session = Depends(get_db)):
+def import_xlsx(file: UploadFile = File(...), run_id: str = Query(default=""),
+                user: dict = Depends(require_qa_write), db: Session = Depends(get_db)):
+    # Plain `def` on purpose: parsing the workbook and the per-row queries are
+    # blocking, and FastAPI runs a `def` endpoint in its threadpool - as
+    # `async def` a large import froze the whole worker (CLAUDE.md).
     _gate()
     from io import BytesIO
     from openpyxl import load_workbook
-    raw = await file.read()
+    raw = file.file.read()
     try:
         wb = load_workbook(BytesIO(raw), read_only=True, data_only=True)
     except Exception:

@@ -435,7 +435,7 @@ const DEFAULT_SUBS = {
   sop:               "index",
   it:                "network",
   ops:               "construction-dashboard",
-  operations:        "fms",
+  operations:        "overview",
   development:       "dev-permits",
   "property-asset":  "asset-portfolio",
   hr:                "hr-ms",

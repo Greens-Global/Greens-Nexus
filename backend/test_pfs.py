@@ -9,6 +9,7 @@ is never kept. The accounting service is replaced by a recorder.
 
     python -m unittest test_pfs
 """
+import json
 import os
 import unittest
 
@@ -275,6 +276,28 @@ class PfsTests(unittest.TestCase):
         finally:
             db.close()
         self.assertTrue({"pfs_profile_created", "pfs_line_added", "pfs_line_changed", "pfs_statement_produced", "pfs_statement_opened"} <= actions)
+
+    def test_reading_the_figures_is_on_record(self):
+        """The live statement and the list of kept ones (a net worth per row)
+        leave an audit row each - who, which profile, which date, no figure."""
+        pid = self._profile()["id"]
+        self._line(pid, section="asset", category="personal", label="Household", manualValue=50000)
+        _as(VIEWER)
+        self.assertEqual(self.client.get(f"/pfs/profiles/{pid}/statement?asof=2026-09-28").json()["totals"]["netWorth"], 50000.0)
+        self.client.post(f"/pfs/profiles/{pid}/statements", json={"asof": "2026-09-28"})
+        self.assertEqual(self.client.get(f"/pfs/profiles/{pid}/statements").json()[0]["netWorth"], 50000.0)
+        # A profile that does not exist is read by nobody: no row.
+        self.assertEqual(self.client.get("/pfs/profiles/no-such-profile/statement").status_code, 404)
+        db = database.SessionLocal()
+        try:
+            rows = db.query(models.AuditLog).filter(models.AuditLog.resource_type == "pfs", models.AuditLog.user_email == VIEWER).all()
+            by = {a.action: a for a in rows}
+            self.assertEqual((by["pfs_statement_viewed"].resource_id, json.loads(by["pfs_statement_viewed"].details)), (pid, {"as_of": "2026-09-28"}))
+            self.assertEqual((by["pfs_statements_listed"].resource_id, json.loads(by["pfs_statements_listed"].details)), (pid, {"count": 1}))
+            self.assertFalse(any(a.resource_id == "no-such-profile" for a in rows))
+            self.assertFalse(any("50000" in (a.details or "") for a in rows))
+        finally:
+            db.close()
 
     def test_bulk_setup_from_the_ledger(self):
         """One entity's accounts become one ledger line each, at the share

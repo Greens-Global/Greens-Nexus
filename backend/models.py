@@ -773,11 +773,11 @@ class ApprovalHistory(Base):
 class AuditLog(Base):
     __tablename__ = "audit_logs"
     id            = Column(Integer, primary_key=True, autoincrement=True)
-    timestamp     = Column(String, nullable=False)
+    timestamp     = Column(String, nullable=False, index=True)
     user_email    = Column(String, nullable=False)
     user_role     = Column(String, default="")
     action        = Column(String, nullable=False)
-    resource_type = Column(String, default="")
+    resource_type = Column(String, default="", index=True)
     resource_id   = Column(String, default="")
     details       = Column(String, default="")   # JSON string
     ip_address    = Column(String, default="")
@@ -794,7 +794,7 @@ class NexusEmployee(Base):
     employee_code   = Column(String, default="")               # GG-001 style, auto-assigned
     first_name      = Column(String, nullable=False)
     last_name       = Column(String, default="")
-    work_email      = Column(String, default="")               # empty until provisioned (Phase 4)
+    work_email      = Column(String, default="", index=True)   # empty until provisioned (Phase 4)
     personal_email  = Column(String, default="")
     phone           = Column(String, default="")
     job_title       = Column(String, default="")
@@ -1743,7 +1743,7 @@ class HrSignParty(Base):
     kind                 = Column(String, default="internal") # internal|external
     ordinal              = Column(Integer, default=1)         # signing order (matches request.current_order)
     status               = Column(String, default="waiting")  # waiting|notified|viewed|signed|approved|acknowledged|declined
-    token                = Column(String, default="")         # secrets.token_urlsafe(32) - the public-link credential
+    token                = Column(String, default="", index=True)  # secrets.token_urlsafe(32) - the public-link credential
     token_expires_at     = Column(String, default="")
     signature_kind       = Column(String, default="")         # drawn|typed
     signature_data       = Column(String, default="")         # PNG data-URL (drawn) or the typed name
@@ -2105,7 +2105,7 @@ class TimePunch(Base):
     kind           = Column(String, nullable=False)     # in|out|break_start|break_end
     at             = Column(String, nullable=False)     # UTC ISO - effective time (adjustments edit this)
     original_at    = Column(String, default="")         # frozen first value once adjusted
-    local_date     = Column(String, default="")         # YYYY-MM-DD in the puncher's timezone (grouping key)
+    local_date     = Column(String, default="", index=True)  # YYYY-MM-DD in the puncher's timezone (grouping key)
     tz_offset_min  = Column(Integer, default=0)         # JS getTimezoneOffset() at punch
     lat            = Column(String, default="")
     lng            = Column(String, default="")
@@ -5754,4 +5754,77 @@ class NexusWorkforceScorecardLog(Base):
     people_count  = Column(Integer, default=0)          # people on the scorecard
     absent_count  = Column(Integer, default=0)          # absent all week
     below_count   = Column(Integer, default=0)          # below expected + well below
+    created_at    = Column(String, default="")
+
+
+class CubbyDailySnapshot(Base):
+    """One row per storage facility per day, written by cubby.py each time the
+    Operations figures are pulled (Oct 2026). Cubby reports today only; this is
+    the history behind the trend charts. Counts and cents - no tenant details.
+    New table - create_all builds it; main._enable_rls_everywhere turns RLS on
+    at startup."""
+    __tablename__ = "cubby_daily_snapshots"
+    id                     = Column(String, primary_key=True)   # "<facility_id>:<YYYY-MM-DD>"
+    facility_id            = Column(String, index=True, nullable=False)
+    snapshot_date          = Column(String, index=True, nullable=False)  # facility-local day, YYYY-MM-DD
+    units_total            = Column(Integer, default=0)
+    units_rented           = Column(Integer, default=0)
+    units_vacant           = Column(Integer, default=0)
+    units_unavailable      = Column(Integer, default=0)
+    area_total             = Column(Integer, default=0)          # square feet
+    area_rented            = Column(Integer, default=0)
+    rent_roll_cents        = Column(BigInteger, default=0)
+    vacant_potential_cents = Column(BigInteger, default=0)
+    past_due_cents         = Column(BigInteger, default=0)
+    past_due_tenants       = Column(Integer, default=0)
+    autopay_count          = Column(Integer, default=0)
+    captured_at            = Column(String, default="")          # UTC iso of the last pull that day
+
+
+class OpsCompetitor(Base):
+    """A nearby storage facility whose rates one of ours is compared against
+    (Operations -> Market Rates, Oct 2026). `facility_id` is OUR Cubby facility
+    it competes with. Removing one sets `active` false - its recorded rates are
+    history and stay. New table - create_all builds it;
+    main._enable_rls_everywhere turns RLS on at startup."""
+    __tablename__ = "ops_competitors"
+    id             = Column(String, primary_key=True)   # uuid
+    facility_id    = Column(String, index=True, nullable=False)
+    name           = Column(String, default="")
+    address        = Column(String, default="")
+    distance_miles = Column(Float, default=0)
+    website        = Column(String, default="")
+    notes          = Column(Text, default="")
+    active         = Column(Boolean, default=True)
+    created_by     = Column(String, default="")
+    created_at     = Column(String, default="")
+    # Market engine (ops_market_engine.py, Oct 2026). Where it is, which
+    # OpenStreetMap entry it was added from ("node/123"), the public page its
+    # prices are read from, and how the last read went.
+    lat             = Column(Float)
+    lng             = Column(Float)
+    osm_id          = Column(String, default="")
+    rates_url       = Column(String, default="")    # defaults to the website; editable
+    last_checked_at = Column(String, default="")    # UTC ISO
+    last_status     = Column(String, default="")    # ok | no_rates_found | blocked_by_robots | blocked | unreachable | not_connected | error
+    last_detail     = Column(String, default="")
+    watch           = Column(Boolean, default=True) # read by the daily run
+
+
+class OpsCompetitorRate(Base):
+    """One observation of a competitor's rate for one unit size, with the day
+    it was seen. Rows are only ever added - the newest per competitor and size
+    is "the market", the rest is how it moved."""
+    __tablename__ = "ops_competitor_rates"
+    id            = Column(String, primary_key=True)   # uuid
+    competitor_id = Column(String, index=True, nullable=False)
+    facility_id   = Column(String, index=True, nullable=False)   # ours, copied from the competitor for one-table reads
+    width         = Column(Float, default=0)                      # feet
+    depth         = Column(Float, default=0)
+    parking       = Column(Boolean, default=False)                # parking and storage are separate markets
+    rate_cents    = Column(Integer, default=0)                    # per month
+    promo         = Column(String, default="")                    # "First month free", as advertised
+    observed_on   = Column(String, default="", index=True)        # YYYY-MM-DD
+    source        = Column(String, default="manual")              # manual | import | web (read from the competitor's page)
+    entered_by    = Column(String, default="")
     created_at    = Column(String, default="")

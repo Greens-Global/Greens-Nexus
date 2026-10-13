@@ -288,11 +288,27 @@ def _get_task(db: Session, task_id: str) -> models.Task:
 
 
 def _wall_task(db: Session, user: dict, task_id: str) -> models.Task:
-    """Fetch a task by id AND enforce the company wall - another company's task is
-    404 (never 403). Use in every per-task endpoint (sub-resources included)."""
+    """Fetch a task by id, enforce the company wall, and require that the caller
+    can see the task - 404 (never 403) on either, so a task the caller has no
+    business with is indistinguishable from one that is not there. Use in every
+    per-task endpoint (sub-resources included).
+
+    The visibility half (Sep 30 review, item 2) is the same rule the task lists
+    apply: managers see everything inside their wall, everybody else only what
+    task_is_visible admits. Without it a task hidden from somebody's lists still
+    gave up its comments, attachments and activity to anyone who had its id. A
+    subtask carries no project of its own, so it is also admitted through the
+    project its top-level ancestor sits in.
+    """
     import auth
     t = _get_task(db, task_id)
     auth.assert_company(getattr(t, "company_id", "") or auth.company_of(t.created_by or t.owner_email or "", db), user, db)
+    if not is_manager(user):
+        visible = visible_project_ids(db, user)
+        if not task_is_visible(t, user, visible):
+            proj = project_for_task(db, t) if not t.project_id else None
+            if not (proj and proj.id in visible):
+                raise HTTPException(404, "Task not found")
     return t
 
 

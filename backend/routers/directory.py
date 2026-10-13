@@ -82,9 +82,11 @@ _STATE_NAMES = {   # the M365 sync stores whatever the admin typed - names as we
     "massachusetts": "MA", "ohio": "OH", "michigan": "MI", "minnesota": "MN", "hawaii": "HI", "alaska": "AK",
 }
 # How a punch state and a shift read in the UI. The label is the whole story
-# on the card; the detail (a time) sits beside it on the profile.
+# on the card; the detail (a time) sits beside it on the profile. Worded as
+# on / off shift (Neil, 10/13: "clearly state if the person is active vs. off
+# shift"), the Teams status beside it says whether they are online.
 _PUNCH_STATE = {"in": "in", "break_end": "in", "break_start": "break", "out": "out"}
-_PUNCH_LABEL = {"in": "Clocked In", "break": "On Break", "out": "Clocked Out"}
+_PUNCH_LABEL = {"in": "On Shift", "break": "On Break", "out": "Off Shift"}
 _RECENT_PUNCH_DAYS = 30
 
 
@@ -191,7 +193,6 @@ def _roster(db: Session, scope) -> dict:
             "managerEmail": (e.manager_email or "").lower(),
             "managerName": _person_name(mgr) if mgr else "",
             "photoUrl": e.photo_url or "",
-            "linkedinUrl": e.linkedin_url or "",
             "status": e.status or "active",                    # onboarding | active | inactive
             "employmentType": e.employment_type or "",
             "_id": e.id,                                       # for the leave join; stripped before send
@@ -246,7 +247,7 @@ def _availability(db: Session, people: list) -> None:
             continue
         at = _in_zone(pu.at, p["timeZone"])
         p["availability"] = {"state": state, "label": _PUNCH_LABEL[state],
-                             "detail": f"since {at}" if state != "out" else f"at {at}"}
+                             "detail": f"since {at}" if state != "out" else f"clocked out at {at}"}
 
     # Scheduled shift today (published only) - fills in when there is no punch yet.
     shifts = (db.query(ScheduledShift)
@@ -255,8 +256,8 @@ def _availability(db: Session, people: list) -> None:
     for s in shifts:
         p = by_email.get((s.employee_email or "").lower())
         if p and s.work_date == p["today"] and p["availability"] is None:
-            p["availability"] = {"state": "scheduled", "label": "Scheduled",
-                                 "detail": f"{_hhmm_label(s.start_hhmm)} - {_hhmm_label(s.end_hhmm)}"}
+            p["availability"] = {"state": "scheduled", "label": "Off Shift",
+                                 "detail": f"scheduled {_hhmm_label(s.start_hhmm)} - {_hhmm_label(s.end_hhmm)}"}
 
     # Time off (Time module), approved, covering today. Confidential or not,
     # the directory only ever says "Time Off" - never the type or the note.
@@ -299,6 +300,12 @@ def _availability(db: Session, people: list) -> None:
         name = hol_by.get((p["company"], p["today"]))
         if name and (p["availability"] is None or p["availability"]["state"] == "out"):
             p["availability"] = {"state": "holiday", "label": "Company Holiday", "detail": name}
+
+    # Someone who punches the clock but has not today is off shift. People who
+    # never punch (salaried, no Time Clock) stay None - nothing is guessed.
+    for p in people:
+        if p["availability"] is None and p["email"] in last_punch:
+            p["availability"] = {"state": "out", "label": "Off Shift", "detail": ""}
 
 
 class _Emp:
@@ -389,8 +396,12 @@ def _fetch_presence(token: str, ids: list) -> dict:
         r = httpx.post(_GRAPH_PRESENCE, headers=headers, json={"ids": ids[i:i + _PRESENCE_BATCH]}, timeout=20)
         r.raise_for_status()
         for row in r.json().get("value", []):
-            out[(row.get("id") or "").lower()] = {"availability": row.get("availability") or "PresenceUnknown",
-                                                  "activity": row.get("activity") or ""}
+            v = {"availability": row.get("availability") or "PresenceUnknown", "activity": row.get("activity") or ""}
+            # Automatic replies on: Teams paints the purple Out of Office mark
+            # whatever the availability says, so the directory does too.
+            if (row.get("outOfOfficeSettings") or {}).get("isOutOfOffice"):
+                v["outOfOffice"] = True
+            out[(row.get("id") or "").lower()] = v
     return out
 
 

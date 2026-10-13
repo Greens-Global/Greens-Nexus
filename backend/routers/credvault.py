@@ -30,6 +30,7 @@ import graph_mail
 import models
 from database import get_db
 from auth import get_current_user, require_module_grant, _module_level, _MODULE_LEVEL_RANK
+from notify_company import notification_company
 
 router = APIRouter(
     prefix="/credvault",
@@ -375,9 +376,11 @@ def _log(db: Session, user: dict, action: str, cred_name: str, dept: str = "",
 
 
 def _notify(db: Session, *, type: str, recipient: str, title: str, body: str,
-            ref_id: str = "") -> None:
+            ref_id: str = "", actor: str = "") -> None:
     """Server-side bell notification (mirrors items.py). Empty recipient
-    broadcasts to all managers - used for credential-change announcements."""
+    broadcasts to all managers - used for credential-change announcements.
+    `actor` = who did it: their company is stamped on the row, so a broadcast
+    obeys the company wall (unstamped = Global Admins only once it is armed)."""
     db.add(models.NexusNotification(
         id=str(uuid.uuid4()),
         type=type,
@@ -390,6 +393,7 @@ def _notify(db: Session, *, type: str, recipient: str, title: str, body: str,
         action="",
         actioned=False,
         read_by="",
+        company=notification_company(db, actor, recipient),
         created_at=_now(),
     ))
 
@@ -498,7 +502,7 @@ def create_credential(body: CredentialIn, user: dict = Depends(get_current_user)
     _notify(db, type="vault_change", recipient="",
             title="Credential Vault",
             body=f"{row.name} ({row.dept}) was added by {_display_name(user['email'], db)}.",
-            ref_id=row.id)
+            ref_id=row.id, actor=user["email"])
     db.commit()
     return {"id": row.id, "ok": True}
 
@@ -541,7 +545,7 @@ def update_credential(cred_id: str, body: CredentialIn,
     _notify(db, type="vault_change", recipient="",
             title="Credential Vault",
             body=f"{c.name} ({c.dept}) was edited by {_display_name(user['email'], db)}.",
-            ref_id=c.id)
+            ref_id=c.id, actor=user["email"])
     db.commit()
     return {"ok": True}
 
@@ -558,7 +562,7 @@ def delete_credential(cred_id: str, user: dict = Depends(get_current_user), db: 
     _notify(db, type="vault_change", recipient="",
             title="Credential Vault",
             body=f"{c.name} ({c.dept}) was removed by {_display_name(user['email'], db)}.",
-            ref_id=c.id)
+            ref_id=c.id, actor=user["email"])
     db.commit()
     return {"ok": True}
 
@@ -581,7 +585,7 @@ def bulk_delete(body: BulkIds, user: dict = Depends(get_current_user), db: Sessi
         _log(db, user, "Removed", label, "-")
         _notify(db, type="vault_change", recipient="",
                 title="Credential Vault",
-                body=f"{label} removed by {_display_name(user['email'], db)}.")
+                body=f"{label} removed by {_display_name(user['email'], db)}.", actor=user["email"])
     db.commit()
     return {"deleted": count}
 
@@ -636,7 +640,7 @@ def reveal_credential(cred_id: str, user: dict = Depends(get_current_user),
         _notify(db, type="vault_access", recipient="",
                 title="Credential Vault - access request",
                 body=f"{_display_name(user['email'], db)} requested access to {c.name} ({c.dept}).",
-                ref_id=c.id)
+                ref_id=c.id, actor=user["email"])
         db.commit()
         return {"approvalRequired": True}
     secret = _dec(c.secret_enc)
@@ -686,7 +690,8 @@ def import_credentials(body: ImportIn, user: dict = Depends(get_current_user), d
         _log(db, user, "Imported", f"{created} credentials", "-")
         _notify(db, type="vault_change", recipient="",
                 title="Credential Vault",
-                body=f"{created} credentials were imported by {_display_name(user['email'], db)}.")
+                body=f"{created} credentials were imported by {_display_name(user['email'], db)}.",
+                actor=user["email"])
     db.commit()
     return {"imported": created}
 
@@ -720,7 +725,7 @@ def share_credential(cred_id: str, body: ShareIn, user: dict = Depends(get_curre
         _notify(db, type="vault_access", recipient=recipient,
                 title="Credential Vault - access granted",
                 body=f"{_display_name(user['email'], db)} shared {c.name} with you for {body.durationLabel}. Open the Credential Vault to view it.",
-                ref_id=c.id)
+                ref_id=c.id, actor=user["email"])
         db.commit()
         return {"granted": True}
     db.add(models.VaultShareRequest(
@@ -733,7 +738,7 @@ def share_credential(cred_id: str, body: ShareIn, user: dict = Depends(get_curre
     _notify(db, type="vault_access", recipient=(c.owner_email or "").lower(),
             title="Credential Vault - share request",
             body=f"{_display_name(user['email'], db)} wants to share {c.name} with {recipient} ({body.durationLabel}).",
-            ref_id=c.id)
+            ref_id=c.id, actor=user["email"])
     db.commit()
     return {"requested": True}
 
@@ -793,7 +798,7 @@ def approve_request(req_id: str, user: dict = Depends(get_current_user), db: Ses
     _notify(db, type="vault_access", recipient=recipient,
             title="Credential Vault - access approved",
             body=f"{_display_name(user['email'], db)} approved {r.duration_label or 'temporary'} access to {c.name}. Open the Credential Vault to view it.",
-            ref_id=c.id)
+            ref_id=c.id, actor=user["email"])
     db.commit()
     return {"ok": True}
 
