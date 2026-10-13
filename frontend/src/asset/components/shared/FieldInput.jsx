@@ -130,7 +130,7 @@ export function FieldInput({ f, value, onChange }) {
     return (
       <div className={f.full ? 'form-group form-group-full' : 'form-group'}>
         {label}
-        <div onPaste={handlePaste} tabIndex={0} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <div onPaste={handlePaste} tabIndex={0} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', outline: 'none' }}>
           <label className="secondary-btn" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, margin: 0 }}>
             <Upload size={14} /> {value ? 'Replace File' : 'Upload File'}
             <input

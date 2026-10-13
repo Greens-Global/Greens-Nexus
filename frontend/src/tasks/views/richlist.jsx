@@ -429,15 +429,15 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
         // estimate
         estimate: (
         <div className="rl-cell" style={{ ...editCell, gap: 2 }} onClick={(e) => e.stopPropagation()}>
-          <input type="number" className="rl-num" min={0} value={estH} placeholder="hrs" onChange={(e) => setEst(e.target.value, estM)} style={{ width: 30, textAlign: 'right', border: 'none', background: 'transparent', fontSize: 12, color: NX.dim, fontFamily: FONT }} />
+          <input type="number" className="rl-num nx-inline-edit" min={0} value={estH} placeholder="hrs" onChange={(e) => setEst(e.target.value, estM)} style={{ width: 30, textAlign: 'right', border: 'none', fontSize: 12, color: NX.dim, fontFamily: FONT }} />
           <span style={{ color: NX.faint, fontSize: 12 }}>:</span>
-          <input type="number" className="rl-num" min={0} max={59} step={5} value={estM} placeholder="min" onChange={(e) => setEst(estH, e.target.value)} style={{ width: 30, textAlign: 'left', border: 'none', background: 'transparent', fontSize: 12, color: NX.dim, fontFamily: FONT }} />
+          <input type="number" className="rl-num nx-inline-edit" min={0} max={59} step={5} value={estM} placeholder="min" onChange={(e) => setEst(estH, e.target.value)} style={{ width: 30, textAlign: 'left', border: 'none', fontSize: 12, color: NX.dim, fontFamily: FONT }} />
         </div>
         ),
         // actual
         actual: (
         <div className="rl-cell" style={{ ...editCell, gap: 3 }} onClick={(e) => e.stopPropagation()}>
-          <input type="number" className="rl-num" min={0} value={t.actualHours ?? ''} placeholder="0" onChange={(e) => store.updateTask(t.id, { actualHours: e.target.value === '' ? null : Number(e.target.value) })} style={{ width: 34, textAlign: 'right', border: 'none', background: 'transparent', fontSize: 12, color: NX.dim, fontFamily: FONT }} />
+          <input type="number" className="rl-num nx-inline-edit" min={0} value={t.actualHours ?? ''} placeholder="0" onChange={(e) => store.updateTask(t.id, { actualHours: e.target.value === '' ? null : Number(e.target.value) })} style={{ width: 34, textAlign: 'right', border: 'none', fontSize: 12, color: NX.dim, fontFamily: FONT }} />
           <span style={{ color: NX.faint, fontSize: 12 }}>h</span>
         </div>
         ),
@@ -732,8 +732,8 @@ function FieldCell({ field, value, onChange, people = [] }) {
     return <DateField value={value || ''} onChange={onChange} color={NX.dim} compact style={{ fontSize: 12, width: '100%' }} />;
   }
   if (field.type === 'number') {
-    return <input type="number" className="rl-num" value={value ?? ''} onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))} placeholder="-"
-      style={{ width: '100%', border: 'none', background: 'transparent', fontSize: 12.5, color: NX.dim, fontFamily: FONT }} />;
+    return <input type="number" className="rl-num nx-inline-edit" value={value ?? ''} onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))} placeholder="-"
+      style={{ width: '100%', border: 'none', fontSize: 12.5, color: NX.dim, fontFamily: FONT }} />;
   }
   return <input type="text" value={value || ''} onChange={(e) => onChange(e.target.value)} placeholder="-"
     style={{ width: '100%', border: 'none', background: 'transparent', fontSize: 12.5, color: NX.dim, fontFamily: FONT }} />;

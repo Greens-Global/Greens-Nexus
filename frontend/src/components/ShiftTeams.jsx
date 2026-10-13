@@ -137,8 +137,8 @@ export function AddMembersModal({ team, busy, onAdd, onClose, onManage }) {
         </div>
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, border: '1px solid var(--line)', borderRadius: 8, padding: '5px 10px', marginBottom: 8 }}>
           <Search size={13} color="var(--muted)" />
-          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search people" aria-label="Search people to add" autoFocus
-            style={{ border: 'none', background: 'transparent', fontSize: 13, flex: 1, fontFamily: 'inherit', color: 'var(--ink)' }} />
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search people" aria-label="Search people to add" autoFocus className="nx-inline-edit"
+            style={{ border: 'none', fontSize: 13, flex: 1, fontFamily: 'inherit', color: 'var(--ink)' }} />
         </label>
         <div style={{ maxHeight: 300, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 8 }}>
           {people === null && <div style={{ padding: 16, textAlign: 'center', color: 'var(--muted)' }}><Spinner size={16} /></div>}

@@ -621,7 +621,8 @@ function TitleInput({ value, completed, onCommit }) {
       onChange={(e) => setV(e.target.value)}
       onBlur={() => onCommit(v)}
       onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
-      style={{ width: '100%', border: 'none', background: 'transparent', fontFamily: FONT, fontSize: 20, fontWeight: 700, color: completed ? NX.faint : NX.ink, textDecoration: completed ? 'line-through' : 'none' }}
+      className="nx-inline-edit"
+      style={{ width: '100%', border: 'none', fontFamily: FONT, fontSize: 20, fontWeight: 700, color: completed ? NX.faint : NX.ink, textDecoration: completed ? 'line-through' : 'none' }}
     />
   );
 }

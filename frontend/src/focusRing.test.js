@@ -13,11 +13,20 @@ const SRC = __dirname;
 const css = fs.readFileSync(path.join(SRC, 'style.css'), 'utf8');
 
 // Visesh's files (CLAUDE.md "File ownership") still carry the reset; the CSS
-// attribute rule covers them. Drop an entry here once its owner removes it.
+// attribute rule covers them. The two asset/ files are his too by authorship
+// (Oct 12: left for him rather than edited here). Drop an entry once its
+// owner removes the reset.
 const OWNER_HELD = new Set([
   'views/InventoryManagement.jsx',
   'components/Assignments.jsx',
+  'asset/components/asset/AddAssetModal.jsx',
+  'asset/components/shared/FieldInput.jsx',
 ]);
+
+// Every spelling of an inline reset: outline 'none' / 0 / '0' / '0px', and
+// outlineStyle 'none'. An `outline: 0` is written as "outline: 0px" and the
+// attribute rule in style.css would not catch it, so it is banned outright.
+const INLINE_RESET = /\boutline:\s*(['"]none['"]|0(?![.\d])|['"]0(px)?['"])|\boutlineStyle:\s*['"]none['"]/;
 
 function walk(dir, out = []) {
   for (const name of fs.readdirSync(dir)) {
@@ -44,8 +53,17 @@ describe('keyboard focus ring', () => {
       const rel = path.relative(SRC, file);
       if (OWNER_HELD.has(rel)) continue;
       const text = fs.readFileSync(file, 'utf8');
-      if (/outline:\s*['"]none['"]/.test(text)) offenders.push(rel);
+      if (INLINE_RESET.test(text)) offenders.push(rel);
     }
     expect(offenders).toEqual([]);
+  });
+
+  it('the offender pattern catches every inline spelling and leaves real outlines alone', () => {
+    for (const bad of ["outline: 'none'", 'outline:"none"', 'outline: 0,', 'outline: 0 }', "outline: '0'", "outline: '0px'", "outlineStyle: 'none'"]) {
+      expect(INLINE_RESET.test(`style={{ ${bad} }}`), bad).toBe(true);
+    }
+    for (const ok of ["outline: '2px solid red'", 'outline: 0.5,', 'outlineOffset: 0', "outline: `1px solid ${c}`"]) {
+      expect(INLINE_RESET.test(`style={{ ${ok} }}`), ok).toBe(false);
+    }
   });
 });

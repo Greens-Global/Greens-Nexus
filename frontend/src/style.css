@@ -2518,6 +2518,17 @@ button, [role="button"], select { touch-action: manipulation; }
 :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 input:focus-visible, textarea:focus-visible, select:focus-visible, [contenteditable]:focus-visible { outline-offset: 0; }
 [style*="outline: none"]:focus-visible, [style*="outline:none"]:focus-visible { outline: 2px solid var(--focus-ring) !important; outline-offset: 1px; }
+/* Borderless inline-edit fields (task title, hours/minutes cells, the
+   "Search people" pills - Oct 12): text fields light :focus-visible on a
+   mouse click too, and a full blue box around a bare line of text read as
+   an error. They get a quieter indicator instead - still always visible:
+   a 2px underline in the ring color and a faint tint. Never drop it. */
+.nx-inline-edit { background: transparent; border-radius: 4px; }
+.nx-inline-edit:focus, .nx-inline-edit:focus-visible {
+  outline: none;
+  box-shadow: inset 0 -2px 0 var(--focus-ring);
+  background: color-mix(in srgb, var(--focus-ring) 8%, transparent);
+}
 
 /* Phone: comfortable thumb targets without blowing up dense desktop rows */
 @media (max-width: 640px) {
