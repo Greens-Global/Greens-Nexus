@@ -131,7 +131,8 @@ describe('Weather Call dialog', () => {
     weatherCallScreen.mockResolvedValue(base({ canDecide: false }));
     render(<WeatherCallDialog groupId="g1" date={DAY} onClose={vi.fn()} onChanged={onChanged} toastOk={toastOk} toastErr={toastErr} />);
     const dlg = await screen.findByRole('dialog', { name: 'Weather Call' });
-    expect(dlg.textContent).toContain('The weather call for this group is made by Mia X.');
+    // The dialog shell renders before the screen data lands: wait for the line.
+    await waitFor(() => expect(dlg.textContent).toContain('The weather call for this group is made by Mia X.'));
     expect(within(dlg).queryByRole('button', { name: /Make the Call/ })).toBeNull();
   });
 });
