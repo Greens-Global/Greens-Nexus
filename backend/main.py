@@ -941,6 +941,8 @@ def _run_migrations():
             "ALTER TABLE tasks ADD COLUMN subtask_order VARCHAR DEFAULT ''",
             # A project's time tracking on/off (Oct 13). models.TaskProject.time_tracking.
             "ALTER TABLE task_projects ADD COLUMN time_tracking VARCHAR DEFAULT ''",
+            # Sections made for the Custom grouping (Oct 13). models.TaskSection.custom.
+            "ALTER TABLE task_sections ADD COLUMN custom BOOLEAN DEFAULT 0",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2101,6 +2103,7 @@ def _run_migrations():
         "ALTER TABLE task_custom_fields ADD COLUMN IF NOT EXISTS required_project_ids JSONB DEFAULT '[]'::jsonb",
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS subtask_order VARCHAR DEFAULT ''",
         "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS time_tracking VARCHAR DEFAULT ''",
+        "ALTER TABLE task_sections ADD COLUMN IF NOT EXISTS custom BOOLEAN DEFAULT FALSE",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
