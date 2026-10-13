@@ -9,6 +9,7 @@ AI bug→test-case conversion uses claude-haiku-4-5 - one small call per report
 the Graph sendMail app permission (notifications.py) + a targeted bell row; the
 Teams DM is posted client-side by the assigner via their delegated token.
 """
+import hmac
 import json
 import os
 import re
@@ -245,7 +246,8 @@ def generate_e2e(case_id: str, user: dict = Depends(require_qa_write), db: Sessi
 
 def _ci_auth(token: Optional[str]):
     expected = os.getenv("NEXUS_QA_CI_TOKEN", "")
-    if not _ENABLED or not expected or not token or token != expected:
+    if (not _ENABLED or not expected or not token
+            or not hmac.compare_digest(token.encode(), expected.encode())):
         raise HTTPException(404, "Not found")
 
 

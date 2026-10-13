@@ -60,6 +60,21 @@ def security_log(action: str, detail: str, ip: str = "", email: str = "") -> Non
         print(f"[security] audit write skipped: {e}")
 
 
+def _evict(table, cap: int, stale) -> None:
+    """Trim a least-recently-touched-first table: drop entries from the old end
+    while they are stale or the table is over cap. The old end is where the
+    expired entries sit, so they go first and a caller still being counted
+    keeps its count - clearing the whole table (what this replaces) reset
+    every attacker at once. A few entries per call, never a scan."""
+    for _ in range(4):
+        if not table:
+            return
+        key = next(iter(table))
+        if len(table) <= cap and not stale(table[key]):
+            return
+        del table[key]
+
+
 def _client_ip(request) -> str:
     # The LAST trusted hop, or CF-Connecting-IP when that hop is Cloudflare -
     # never the first X-Forwarded-For entry, which the caller writes. Shared
@@ -106,11 +121,12 @@ class AuthFailureThrottle(BaseHTTPMiddleware):
     WINDOW_SEC = 300
     MAX_FAILURES = 150                 # per IP per window - generous headroom for a shared office NAT
     BLOCK_SEC = 120
+    MAX_IPS = 10000                    # bound memory under spoofed floods
 
     def __init__(self, app):
         super().__init__(app)
         self._lock = threading.Lock()
-        self._failures: dict = {}      # ip -> [timestamps]
+        self._failures = collections.OrderedDict()   # ip -> [timestamps], least recently failed first
         self._blocked: dict = {}       # ip -> unblock_at
 
     async def dispatch(self, request, call_next):
@@ -139,8 +155,8 @@ class AuthFailureThrottle(BaseHTTPMiddleware):
                 hits = [t for t in self._failures.get(ip, []) if now - t < self.WINDOW_SEC]
                 hits.append(now)
                 self._failures[ip] = hits
-                if len(self._failures) > 10000:      # bound memory under spoofed floods
-                    self._failures.clear()
+                self._failures.move_to_end(ip)
+                _evict(self._failures, self.MAX_IPS, lambda h: now - h[-1] >= self.WINDOW_SEC)
                 tripped = len(hits) > self.MAX_FAILURES and ip not in self._blocked
                 if tripped:
                     self._blocked[ip] = now + self.BLOCK_SEC
@@ -160,9 +176,17 @@ class RequestRateLimit(BaseHTTPMiddleware):
         keyed on a hash of that credential, so one person's runaway tab can never
         throttle a colleague on the same office NAT;
       * an anonymous caller - ANON_PER_MIN per IP;
-      * an anonymous caller on a credential-taking route (login, external codes,
-        e-sign public links, the boot beacon) - SENSITIVE_PER_MIN per IP, which
-        is what turns guessing into a slow, logged affair;
+      * anyone on a credential-taking route (login, external codes, e-sign
+        public links, the boot beacon) - SENSITIVE_PER_MIN per IP, which is
+        what turns guessing into a slow, logged affair. ALWAYS per IP: these
+        routes take their credential in the request itself, so an Authorization
+        header or session cookie there proves nothing and must not buy the
+        signed-in budget (a junk "Bearer x" used to, with a fresh bucket per
+        header value);
+      * anyone on a credential-taking route whose real callers share an address
+        (Outlook's action servers, GitHub's webhook senders, a whole office
+        opening the same briefing email) - SHARED_SOURCE_PER_MIN per IP, the
+        anonymous number, and likewise never lifted by a header;
       * everyone - IP_CEILING per IP as a backstop, so rotating fake tokens does
         not buy unlimited budget.
 
@@ -178,15 +202,22 @@ class RequestRateLimit(BaseHTTPMiddleware):
     IP_CEILING = int(os.getenv("NEXUS_RL_IP", "3000"))
     SENSITIVE_PREFIXES = ("/auth/login", "/auth/callback", "/external-auth/", "/esign/public/",
                           "/client-errors/boot", "/stepup/", "/pfs-access/",
-                          "/marketing/gbp/oauth/callback", "/marketing/ads/oauth/callback")
+                          "/marketing/gbp/oauth/callback", "/marketing/ads/oauth/callback",
+                          "/qa/ci-results", "/qa/e2e-specs",
+                          "/timeclock/agent/self-enroll", "/timeclock/agent/release")
+    SHARED_SOURCE_PER_MIN = int(os.getenv("NEXUS_RL_SHARED", "120"))
+    SHARED_SOURCE_PREFIXES = ("/mail-actions/", "/briefing-actions/", "/webhooks/github")
     EXEMPT_PREFIXES = ("/health", "/version")
     ENABLED = os.getenv("NEXUS_RATE_LIMIT", "on").strip().lower() not in ("off", "0", "false", "no")
+    MAX_KEYS = 20000                 # bound memory under spoofed floods
+    MAX_LOGGED = 5000
 
     def __init__(self, app):
         super().__init__(app)
         self._lock = threading.Lock()
-        self._hits: dict = {}        # key -> deque[timestamp]
-        self._logged: dict = {}      # key -> last security_log timestamp
+        # Both least recently touched first, which is the order _evict trims in.
+        self._hits = collections.OrderedDict()       # key -> deque[timestamp]
+        self._logged = collections.OrderedDict()     # key -> last security_log timestamp
 
     @staticmethod
     def _identity(request, ip: str):
@@ -203,6 +234,7 @@ class RequestRateLimit(BaseHTTPMiddleware):
         dq = self._hits.get(key)
         if dq is None:
             dq = self._hits[key] = collections.deque()
+        self._hits.move_to_end(key)      # a refused hit still marks the caller active
         while dq and now - dq[0] >= self.WINDOW:
             dq.popleft()
         if len(dq) >= limit:
@@ -217,24 +249,28 @@ class RequestRateLimit(BaseHTTPMiddleware):
         if path.startswith(self.EXEMPT_PREFIXES):
             return await call_next(request)
         ip = _client_ip(request) or "?"
-        key, authed = self._identity(request, ip)
-        if not authed and path.startswith(self.SENSITIVE_PREFIXES):
-            key, limit = "sens:" + ip, self.SENSITIVE_PER_MIN
+        # Credential-taking routes are keyed on the IP whatever headers came
+        # with the request - see the class docstring.
+        if path.startswith(self.SENSITIVE_PREFIXES):
+            key, limit, who = "sens:" + ip, self.SENSITIVE_PER_MIN, "sensitive route"
+        elif path.startswith(self.SHARED_SOURCE_PREFIXES):
+            key, limit, who = "shared:" + ip, self.SHARED_SOURCE_PER_MIN, "sensitive route"
         else:
+            key, authed = self._identity(request, ip)
             limit = self.AUTHED_PER_MIN if authed else self.ANON_PER_MIN
+            who = "signed-in" if authed else "anonymous"
         now = time.time()
         with self._lock:
             over = self._count(key, limit, now) or self._count("ceil:" + ip, self.IP_CEILING, now)
-            if len(self._hits) > 20000:              # bound memory under spoofed floods
-                self._hits.clear()
+            _evict(self._hits, self.MAX_KEYS, lambda dq: not dq or now - dq[-1] >= self.WINDOW)
             log_it = over and now - self._logged.get(key, 0) > 300
             if log_it:
                 self._logged[key] = now
-                if len(self._logged) > 5000:
-                    self._logged.clear()
+                self._logged.move_to_end(key)
+                _evict(self._logged, self.MAX_LOGGED, lambda t: now - t > 300)
         if over:
             if log_it:
-                security_log("rate_limited", f"over {limit}/min on {path[:80]} ({'signed-in' if authed else 'anonymous'})", ip=ip)
+                security_log("rate_limited", f"over {limit}/min on {path[:80]} ({who})", ip=ip)
             return Response(content=json.dumps({"detail": "Too many requests - slow down and try again in a moment."}),
                             status_code=429, media_type="application/json",
                             headers={"Retry-After": "10"})
