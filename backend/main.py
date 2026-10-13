@@ -2913,6 +2913,7 @@ async def _bff_csrf_guard(request, call_next):
     session cookie and are immune to CSRF, so they pass untouched. SameSite=Lax
     already blocks the common vector; this is defense in depth. Runs the DB check
     in a thread so it never blocks the event loop."""
+    import hmac
     import bff_session
     if (bff_session.configured()
             and request.method in ("POST", "PUT", "PATCH", "DELETE")
@@ -2928,7 +2929,8 @@ async def _bff_csrf_guard(request, call_next):
                 db = SessionLocal()
                 try:
                     row = db.query(ServerSession).filter(ServerSession.id == sid).first()
-                    return bool(row and hdr and hdr == row.csrf_token)
+                    return bool(row and hdr and hmac.compare_digest(
+                        hdr.encode(), (row.csrf_token or "").encode()))
                 finally:
                     db.close()
 
