@@ -1637,9 +1637,9 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
           style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 8, padding: 7, cursor: 'pointer', display: 'flex' }}>
           <X size={16} />
         </button>
-        <input value={title} onChange={e => setTitle(e.target.value)} onBlur={saveTitle}
+        <input className="nx-inline-edit" value={title} onChange={e => setTitle(e.target.value)} onBlur={saveTitle}
           onKeyDown={e => e.key === 'Enter' && e.target.blur()}
-          style={{ flex: '1 1 260px', fontSize: 16, fontWeight: 700, border: 'none', background: 'none', fontFamily: 'Inter, sans-serif', color: 'var(--ink)' }} />
+          style={{ flex: '1 1 260px', fontSize: 16, fontWeight: 700, border: 'none', fontFamily: 'Inter, sans-serif', color: 'var(--ink)' }} />
         <span style={{ fontSize: 11.5, color: saveStatus === 'error' ? 'hsl(var(--color-red))' : 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 70 }}>
           {saveStatus === 'saving' && <Spinner size={12} />}
           {saveStatus === 'saved' && <Check size={12} />}

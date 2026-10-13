@@ -47,7 +47,7 @@ export default function EmployeeCombobox({ people, value, onChange, labelFor, ti
       <div className="form-input" onMouseDown={e => { if (e.target !== inputRef.current) { e.preventDefault(); inputRef.current?.focus(); openList(); } }}
         style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', cursor: 'text', fontSize: 13, fontWeight: 700 }}>
         {open && <Search size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />}
-        <input ref={inputRef} role="combobox" aria-label="Employee" aria-expanded={open} aria-autocomplete="list"
+        <input className="nx-inline-edit" ref={inputRef} role="combobox" aria-label="Employee" aria-expanded={open} aria-autocomplete="list"
           value={open ? q : (current ? label(current) : '')}
           placeholder={open ? (current?.name || placeholder) : placeholder}
           onFocus={openList} onBlur={() => setTimeout(close, 150)}
@@ -58,7 +58,7 @@ export default function EmployeeCombobox({ people, value, onChange, labelFor, ti
             else if (e.key === 'Enter') { if (open && shown[hi]) { e.preventDefault(); pick(shown[hi]); } }
             else if (e.key === 'Escape') { e.preventDefault(); close(); inputRef.current?.blur(); }
           }}
-          style={{ flex: 1, minWidth: 0, border: 'none', background: 'transparent', fontSize: 'inherit', fontWeight: 'inherit', fontFamily: 'inherit', color: 'var(--ink)', padding: 0, textOverflow: 'ellipsis' }} />
+          style={{ flex: 1, minWidth: 0, border: 'none', fontSize: 'inherit', fontWeight: 'inherit', fontFamily: 'inherit', color: 'var(--ink)', padding: 0, textOverflow: 'ellipsis' }} />
         <ChevronDown size={14} style={{ color: 'var(--muted)', flexShrink: 0 }} />
       </div>
       <AnchoredMenu anchorRef={boxRef} open={open} onClose={close} role="listbox"

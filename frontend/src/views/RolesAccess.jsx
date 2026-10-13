@@ -211,9 +211,9 @@ function RoleMenu({ roles, companyName, placeholder, onPick, disabled = false })
         }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderBottom: '1px solid var(--line)' }}>
           <Search size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-          <input ref={searchRef} value={q} onChange={e => setQ(e.target.value)} placeholder="Search roles"
+          <input className="nx-inline-edit" ref={searchRef} value={q} onChange={e => setQ(e.target.value)} placeholder="Search roles"
             onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); const first = own[0] || shared[0]; if (first) pick(first); } }}
-            style={{ border: 'none', background: 'transparent', flex: 1, fontSize: 13, color: 'var(--ink)', fontFamily: 'Inter,sans-serif' }} />
+            style={{ border: 'none', flex: 1, fontSize: 13, color: 'var(--ink)', fontFamily: 'Inter,sans-serif' }} />
         </div>
         <div style={{ maxHeight: 280, overflowY: 'auto', padding: 4 }}>
           {own.length === 0 && shared.length === 0 ? (

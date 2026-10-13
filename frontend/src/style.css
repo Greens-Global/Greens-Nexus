@@ -2518,8 +2518,11 @@ button, [role="button"], select { touch-action: manipulation; }
 :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 input:focus-visible, textarea:focus-visible, select:focus-visible, [contenteditable]:focus-visible { outline-offset: 0; }
 [style*="outline: none"]:focus-visible, [style*="outline:none"]:focus-visible { outline: 2px solid var(--focus-ring) !important; outline-offset: 1px; }
-/* Borderless inline-edit fields (task title, hours/minutes cells, the
-   "Search people" pills - Oct 12): text fields light :focus-visible on a
+/* Borderless inline-edit fields (Oct 12) - every input that is a bare line
+   of text with no box of its own: the task title, hours/minutes cells, the
+   search pills and menu search rows, add-subtask / add-label / add-task
+   rows, tag inputs, the Notes widget, SOP tag names. A field with its own
+   visible border keeps the standard ring. Text fields light :focus-visible on a
    mouse click too, and a full blue box around a bare line of text read as
    an error. They get a quieter indicator instead - still always visible:
    a 2px underline in the ring color and a faint tint. Never drop it. */

@@ -506,7 +506,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
             ))}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px dashed ${NX.border}`, borderRadius: 8, padding: '6px 10px' }}>
               <ListChecks size={15} style={{ color: NX.faint }} />
-              <input value={subtaskInput} onChange={(e) => setSubtaskInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSubtask(); } }} placeholder="Add subtask + Enter" style={{ flex: 1, border: 'none', background: 'transparent', fontFamily: FONT, fontSize: 13 }} />
+              <input className="nx-inline-edit" value={subtaskInput} onChange={(e) => setSubtaskInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSubtask(); } }} placeholder="Add subtask + Enter" style={{ flex: 1, border: 'none', fontFamily: FONT, fontSize: 13 }} />
             </div>
           </div>
         </div>

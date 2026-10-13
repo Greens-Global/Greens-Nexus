@@ -746,9 +746,9 @@ function NotesWidget({ config, updateConfig }) {
   useEffect(() => { setText(config?.text || ''); }, [config?.text]);
   return (
     <DashCard title="Notes" action={<StickyNote size={15} style={{ color: C('orange') }} />}>
-      <textarea value={text} onChange={e => setText(e.target.value)} onBlur={() => updateConfig({ text })}
+      <textarea className="nx-inline-edit" value={text} onChange={e => setText(e.target.value)} onBlur={() => updateConfig({ text })}
         placeholder="Jot something down…"
-        style={{ width: '100%', height: '100%', minHeight: 60, resize: 'none', border: 'none', background: 'transparent', fontFamily: 'var(--wk-font)', fontSize: 13.5, color: 'var(--ink)', lineHeight: 1.6 }} />
+        style={{ width: '100%', height: '100%', minHeight: 60, resize: 'none', border: 'none', fontFamily: 'var(--wk-font)', fontSize: 13.5, color: 'var(--ink)', lineHeight: 1.6 }} />
     </DashCard>
   );
 }

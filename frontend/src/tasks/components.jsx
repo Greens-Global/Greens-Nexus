@@ -681,8 +681,8 @@ function TeamPicker({ teams, value, onChange, placeholder = 'Add a team…' }) {
       </button>
       {open && (
         <SelectMenu anchorRef={ref} onClose={() => setOpen(false)}>
-          <input autoFocus={!touch} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search teams…"
-            style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: touch ? 16 : 13, fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
+          <input className="nx-inline-edit" autoFocus={!touch} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search teams…"
+            style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: touch ? 16 : 13, fontFamily: FONT, boxSizing: 'border-box', color: NX.ink }} />
           {shown.length === 0 && <div style={{ padding: '10px 12px', fontSize: 12.5, color: NX.faint }}>No teams match.</div>}
           {shown.map((t) => (
             <div key={t.id} onClick={() => { onChange(t.id); setOpen(false); setQ(''); }}

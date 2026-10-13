@@ -124,7 +124,7 @@ export default function ProjectPicker({
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px',
           borderBottom: `1px solid ${NX.border2}` }}>
           <Search size={14} style={{ color: NX.faint, flexShrink: 0 }} />
-          <input
+          <input className="nx-inline-edit"
             ref={searchRef} value={q} onChange={(e) => setQ(e.target.value)}
             placeholder="Search projects"
             onKeyDown={(e) => {
@@ -134,7 +134,7 @@ export default function ProjectPicker({
                 if (first) pick(first.id);
               }
             }}
-            style={{ border: 'none', background: 'transparent', flex: 1,
+            style={{ border: 'none', flex: 1,
               fontSize: 13.5, color: NX.ink, fontFamily: FONT }} />
         </div>
 

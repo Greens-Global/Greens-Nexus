@@ -327,8 +327,8 @@ export default function GoogleReviewsPanel({ canReply, reloadKey = 0 }) {
             </select>
             <label style={{ ...btn, cursor: 'text' }}>
               <Search size={12} />
-              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search loaded reviews"
-                     style={{ border: 'none', background: 'transparent', fontSize: 12, color: C.gray700, width: 160 }} />
+              <input className="nx-inline-edit" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search loaded reviews"
+                     style={{ border: 'none', fontSize: 12, color: C.gray700, width: 160 }} />
             </label>
           </div>
         </div>
