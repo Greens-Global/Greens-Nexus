@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
-import RichListView, { peopleStackLayout, taskProjectOptions, ListColumnControls } from './richlist';
+import RichListView, { peopleStackLayout, taskProjectOptions, ListColumnControls, addableFields } from './richlist';
+import { __setTablePrefsCache } from '../tableCols';
 
 // Render-smoke test for the task list. This is the exact guard that was missing
 // on 2026-08-02: a merge left an orphaned `g.renderTasks.length` reference, the
@@ -437,3 +438,112 @@ describe('Hide-columns menu', () => {
     expect(screen.getByText('Team')).toBeInTheDocument();
   });
 });
+
+// Completed is collapsed every time the list opens (Neil, Oct 12 2026). Its
+// state used to be part of the stored collapsed list, so one click in one
+// project left it open everywhere, for good. The stored list below is the
+// shape such a profile has: an empty list, meaning "nothing collapsed".
+describe('RichListView Completed group', () => {
+  const done = {
+    id: 't3', title: 'Finished task', status: 'completed', priority: 'low',
+    assigneeId: '', teamId: '', projectId: '', dueOn: '', startOn: '',
+    estimateHours: null, followerIds: [], subtaskIds: [], commentIds: [],
+    attachmentIds: [], tags: [], completed: true, code: 'T-3', customFieldValues: {},
+  };
+  const doneStore = {
+    ...store,
+    tasks: [...mockTasks, done],
+    taskById: { ...store.taskById, [done.id]: done },
+    statusOrder: ['not_started', 'in_progress', 'completed'],
+    statusMeta: { ...store.statusMeta, completed: { label: 'Completed', color: '#44aa44', tint: '#e8f5e8' } },
+  };
+  const open = (props = {}) => renderList({ visible: [...mockTasks, done], store: doneStore, ...props });
+
+  it('starts collapsed even when the profile says it was left open', () => {
+    __setTablePrefsCache({ richlist: { collapsed: [] } });
+    open();
+    expect(screen.getByText('First task')).toBeInTheDocument();
+    expect(screen.queryByText('Finished task')).not.toBeInTheDocument();
+    expect(screen.getByText('Completed')).toBeInTheDocument();
+  });
+
+  it('opens on a header click, without touching the stored list', () => {
+    __setTablePrefsCache({ richlist: { collapsed: ['in_progress'] } });
+    open();
+    expect(screen.queryByText('Second task')).not.toBeInTheDocument();   // stored collapse still honored
+    fireEvent.click(screen.getByText('Completed'));
+    expect(screen.getByText('Finished task')).toBeInTheDocument();
+    // Open, the row's own status cell also reads "Completed" - the header is first.
+    fireEvent.click(screen.getAllByText('Completed')[0]);
+    expect(screen.queryByText('Finished task')).not.toBeInTheDocument();
+  });
+
+  it('collapses again when the list moves to another project', () => {
+    __setTablePrefsCache({ richlist: {} });
+    const { rerender } = open({ lockedProjectId: 'p1' });
+    fireEvent.click(screen.getByText('Completed'));
+    expect(screen.getByText('Finished task')).toBeInTheDocument();
+    rerender(
+      <RichListView visible={[...mockTasks, done]} group="status" ctx={ctx} store={doneStore} people={[]}
+        selected={new Set()} toggleSel={() => {}} onOpen={() => {}} onSelectAll={() => {}}
+        lockedProjectId="p2" hidden={new Set()} setHidden={() => {}} />,
+    );
+    expect(screen.queryByText('Finished task')).not.toBeInTheDocument();
+  });
+});
+
+// + Column > Existing Fields: a field another project uses can be put on this
+// list from the menu (Neil, Oct 12 2026). Its own step, so the type grid
+// never grows with the workspace's field count.
+describe('+ Column > Existing Fields', () => {
+  const fields = [
+    { id: 'f1', name: 'Vendor', type: 'text', projectIds: ['p2'] },
+    { id: 'f2', name: 'Budget', type: 'number', projectIds: ['p2', 'p3'] },
+    { id: 'f3', name: 'Global', type: 'text', projectIds: [] },            // on every list already
+    { id: 'f4', name: 'Here', type: 'text', projectIds: ['p1'] },          // on this list already
+    { id: 'f5', name: 'Site', type: 'text', projectIds: ['p2'], appliesTo: ['project'] },   // not a task field
+  ];
+
+  it('offers only task fields scoped elsewhere, A-Z', () => {
+    expect(addableFields(fields, 'p1').map((f) => f.name)).toEqual(['Budget', 'Vendor']);
+    expect(addableFields(fields, '')).toEqual([]);   // outside a project there is nothing to add to
+  });
+
+  it('shows the row only when there is something to add', () => {
+    const { unmount } = render(<ListColumnControls hidden={new Set()} setHidden={() => {}} customFields={[]}
+      createCustomField={() => {}} lockedProjectId="p1" allCustomFields={[fields[3]]} />);
+    fireEvent.click(screen.getByText('Column'));
+    expect(screen.queryByText('Existing Fields')).not.toBeInTheDocument();
+    unmount();
+    render(<ListColumnControls hidden={new Set()} setHidden={() => {}} customFields={[]}
+      createCustomField={() => {}} lockedProjectId="p1" allCustomFields={fields} />);
+    fireEvent.click(screen.getByText('Column'));
+    expect(screen.getByText('Existing Fields')).toBeInTheDocument();
+    expect(screen.getByText('Recommended')).toBeInTheDocument();   // the type grid is still there
+  });
+
+  it('adds the picked field to this project and nothing else', () => {
+    const update = vi.fn(() => Promise.resolve({}));
+    render(<ListColumnControls hidden={new Set()} setHidden={() => {}} customFields={[]}
+      createCustomField={() => {}} lockedProjectId="p1" allCustomFields={fields} updateCustomField={update} />);
+    fireEvent.click(screen.getByText('Column'));
+    fireEvent.click(screen.getByText('Existing Fields'));
+    expect(screen.queryByText('Recommended')).not.toBeInTheDocument();
+    expect(screen.queryByText('Global')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('Budget'));
+    expect(update).toHaveBeenCalledWith('f2', { projectIds: ['p2', 'p3', 'p1'] });
+  });
+
+  it('says so and stays open when the add fails', async () => {
+    const update = vi.fn(() => Promise.reject(Object.assign(new Error('API error 500'), { status: 500 })));
+    render(<ListColumnControls hidden={new Set()} setHidden={() => {}} customFields={[]}
+      createCustomField={() => {}} lockedProjectId="p1" allCustomFields={fields} updateCustomField={update} />);
+    fireEvent.click(screen.getByText('Column'));
+    fireEvent.click(screen.getByText('Existing Fields'));
+    fireEvent.click(screen.getByText('Budget'));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Budget could not be added. Try again.');
+    expect(screen.getByText('Vendor')).toBeInTheDocument();          // still open, so it can be retried
+    expect(screen.getByText('Budget').closest('button')).not.toBeDisabled();
+  });
+});
+

@@ -9200,13 +9200,15 @@ def bod_for_day(email: str, date: str, user: dict = Depends(get_current_user), d
 
 # "1/2 Day" is built in (Oct 2): 34 PROD rows carried it from Teams and no
 # list offered it. Type names compare case-insensitively (_check_timeoff_type).
-TIMEOFF_TYPES = ("vacation", "sick", "personal", "unpaid", "other", "1/2 Day")
+# "unpaid" left the list on Oct 12 2026 (Neil: Personal is unpaid anyway);
+# requests already filed under it keep the type and still display it.
+TIMEOFF_TYPES = ("vacation", "sick", "personal", "other", "1/2 Day")
 _TIMEOFF_REASONS_KEY = "timeoff_custom_reasons"
 _TIMEOFF_REASONS_MAX = 20
 
 
 # The reasons Greens Global had in Teams Shifts that the built-in five do not
-# cover (Vacation, Sick and Unpaid are already there). They are the list until
+# cover (Vacation and Sick are already there). They are the list until
 # someone saves their own in shift settings; after that the saved list is the
 # list, an empty one included.
 _TIMEOFF_DEFAULT_REASONS = ("Approved Time Off", "Off", "Holiday", "Parental Leave", "Closed",
@@ -9229,7 +9231,7 @@ def _custom_timeoff_types(db: Session) -> list:
 
 
 # The employee request form's fixed list (Neil, Oct 1): Personal, Sick,
-# Vacation, Unpaid and Medical Appointment. The first four are built in;
+# Vacation and Medical Appointment. The first three are built in;
 # Medical Appointment is accepted here too, so the form keeps working when an
 # admin's saved reason list leaves it out.
 _REQUEST_FORM_TYPES = ("Medical Appointment",)

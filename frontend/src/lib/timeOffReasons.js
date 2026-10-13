@@ -46,15 +46,16 @@ export function reasonLook(key, label = '') {
 }
 
 // The request form's whole list, in this order (Neil, Oct 1: "it should start
-// with Personal, then Sick, then Vacation, then Unpaid ... add in Medical
-// Appointment and that's it" - no Other, Holiday, Parental Leave, Off...).
+// with Personal, then Sick, then Vacation ... add in Medical Appointment and
+// that's it" - no Other, Holiday, Parental Leave, Off...). Unpaid went on
+// Oct 12 (Neil): Personal is unpaid anyway, so it said the same thing twice.
 // Other and Parental Leave are Personal; a holiday is Vacation. Stored keys
 // are what the server already accepts; older requests keep whatever type
-// they were filed under and still display it.
+// they were filed under and still display it (reasonLook above still knows
+// "unpaid" for that reason).
 export const REQUEST_TIMEOFF_TYPES = [
   ['personal', 'Personal'],
   ['sick', 'Sick'],
   ['vacation', 'Vacation'],
-  ['unpaid', 'Unpaid'],
   ['Medical Appointment', 'Medical Appointment'],
 ];

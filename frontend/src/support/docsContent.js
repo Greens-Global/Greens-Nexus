@@ -213,7 +213,7 @@ export const DOCS = [
         title: 'Request Time Off',
         steps: [
           'Click the Time Off tab.',
-          'Pick the Reason (Personal, Sick, Vacation, Unpaid or Medical Appointment) and the From and To dates. Turn All day off to take part of one day.',
+          'Pick the Reason (Personal, Sick, Vacation or Medical Appointment) and the From and To dates. Turn All day off to take part of one day.',
           'Add a note if your approver should know more (optional), then click Request. It shows as Pending until your approver decides.',
         ],
       },
@@ -230,7 +230,7 @@ export const DOCS = [
       { name: 'Overview', desc: 'Opens with a greeting and three tiles: Hours This Week with your shift for today beside it (from Shifts - or No Shift Today), Time Off This Year (approved working days, Monday to Friday, a partial day counted as its share of 8 hours) and Time With Us (from the start date on your HR record - ask HR if it is wrong). Then the Time Clock, then your profile, contact and emergency details, assigned equipment and checkouts, My Documents (signed documents, the files HR keeps for you and your paystubs, by folder), upcoming time off, and Ask HR (New Request opens the form; your requests and the answers from HR are listed). Only you see this page.' },
       { name: 'Time Clock', desc: 'On Overview: Punch In, Start Break, End Break and Punch Out with a live dial for the shift you are on and where the punch was recorded. Beside it, your hours with a Today / This Week / Pay Period switch - the total, days worked, daily average and breaks, then the punches of the day on a timeline or daily bars against an 8-hour line. Time Sheet opens every punch, day by day.' },
       { name: 'Time Sheet', desc: 'Your hours this pay period, day by day. Sick, vacation and personal hours show on their own lines. To ask for missing time, click + add on the day, pick its Type - Regular, Break, Sick, Vacation or Personal - set the start and end, and give a reason. Times are in your own timezone. The request shows on its day as Not Yet Approved, with your reason, until your approver decides - it is not in your hours until then. The Notes column is yours: click a day to leave a note for your manager (they see it on your timecard; their own notes on your days are never shown to you).' },
-      { name: 'Time Off', desc: 'Request time off: a Reason (Personal, Sick, Vacation, Unpaid or Medical Appointment), the dates, and an optional Note. Keep this confidential shows your team only that you are out and the reason, never the note. Every request you have made is listed under My Requests as Pending, Approved, Rejected or Cancelled, and you can cancel one that is pending or approved.' },
+      { name: 'Time Off', desc: 'Request time off: a Reason (Personal, Sick, Vacation or Medical Appointment), the dates, and an optional Note. Keep this confidential shows your team only that you are out and the reason, never the note. Every request you have made is listed under My Requests as Pending, Approved, Rejected or Cancelled, and you can cancel one that is pending or approved.' },
       { name: 'Location Tag', desc: 'Each punch shows the location you were at when you punched, judged by where the punch was made, even if you move between several locations in a day. A punch inside any of your company locations shows that site; a punch away from all of them shows Out of Location, and that time is never billed to the nearest site. A punch from a device with no GPS (a desktop) often gets only a rough location and shows Approx. Location, because it is too rough to tell which site you were at - punch from your phone for a precise one. A rough location that is nowhere near any site still shows Out of Location. Remote staff can punch from anywhere, and their location is still recorded. Click a location on the timecard to see the punches of that shift on the map; a manager can also change the location of the punch from there.' },
     ],
     manager: {
@@ -397,14 +397,14 @@ export const DOCS = [
       { name: 'Export and Print', desc: 'Download the schedule as a spreadsheet or print it.' },
       { name: 'Day Note', desc: 'A note on a day for everyone, e.g. "Inventory day - all hands".' },
       { name: 'Add Time Off', desc: 'Add time off for a person straight from the grid, approved now or left for Requests.' },
-      { name: 'Shift Types and Groups', desc: 'Settings > Global Settings > Shifts: shift types (time, unpaid break, grace, days, color, code, time zone), groups of people in the order they appear on the grid, and the shift settings (what staff may request and see, the team time zone, week start, reminders, time-off reasons).' },
+      { name: 'Shift Types and Groups', desc: 'Settings > Global Settings > Shifts: shift types (time, unpaid break, grace, days, color, code, time zone), groups of people in the order they appear on the grid, and the shift settings (what staff may request and see, the team time zone, week start, time-off reasons).' },
     ],
     manager: {
       title: 'Who Can Do What',
       points: [
         'Everyone sees their own shifts and their team\'s. The schedule itself is read-only for them.',
         'Managers and above see Schedule and Requests, and build and share schedules there.',
-        'Request settings (under Requests) decide whether staff can request open shifts, swap, offer shifts, see teammates\' shifts and request time off, and when shift reminders go out.',
+        'Request settings (under Requests) decide whether staff can request open shifts, swap, offer shifts, see teammates\' shifts and request time off.',
       ],
     },
     tips: [

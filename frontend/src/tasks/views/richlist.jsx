@@ -11,7 +11,7 @@ import {
   // The subtask/comment/attachment icons moved with their badges into
   // components.TaskCountBadges, which My Tasks renders too.
   Hash, List, Calendar, CheckSquare, ListOrdered, CircleDot, BarChart3, TrendingUp, Star, CalendarPlus, CalendarClock, Timer, ArrowLeft, EyeOff,
-  Lock, Users, ListChecks, CornerDownRight, ArrowUp, ArrowDown,
+  Lock, Users, ListChecks, CornerDownRight, ArrowUp, ArrowDown, ChevronRight, Search,
 } from 'lucide-react';
 import { groupTasks, matchesFilter, sortTasks, topLevel, groupAddDefaults, fieldsForProject, teamInProject, teamColumnApplies, rootParent, effectiveProjectId, cfKey, taskAssignees } from '../lib';
 import { NX, FONT, btn, input as inputStyle, PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER, colorForKey, isMissed, MISSED_TITLE } from '../theme';
@@ -53,7 +53,9 @@ const COL_SORT_KEY = {
 const HIDDEN_KEY = 'nexus.richlist.hiddenCols';   // pre-profile, migrated on read
 // Stable identities: a fresh [] each render would re-run every consumer's memo.
 const EMPTY_LIST = [];
-const DEFAULT_COLLAPSED = ['completed'];
+// The status-group key of finished work. Its collapse state is NOT part of the
+// stored collapsed list - see RichListView.
+const COMPLETED_KEY = 'completed';
 
 // Type picker for "+ Column" - matches the export's AddColumnMenu grid exactly
 // (grouped: Recommended / Basic / Planning-Status / Date). Nexus's backend only
@@ -518,9 +520,40 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
 // AddColumnMenu: pick a type from the grouped grid, then name/configure it.
 // New fields show up as columns immediately since every configured custom
 // field is rendered as one (see RichListView below).
-function AddFieldMenu({ createCustomField }) {
+// The icon a stored field kind wears in the Existing Fields list - the same
+// icons the type grid uses, keyed by what the field IS rather than by the
+// visual type it was created as (that is not stored).
+const STORAGE_ICON = { text: Hash, number: Hash, select: List, multiselect: ListChecks, people: Users, date: Calendar, checkbox: CheckSquare };
+
+// The workspace's custom fields that COULD be added to this project's list but
+// are not on it: task fields scoped to other projects. Fields scoped to no
+// project are already on every list, so they never qualify.
+export function addableFields(allFields, projectId) {
+  if (!projectId) return [];
+  return (allFields || [])
+    .filter((f) => (f.appliesTo || ['task']).includes('task'))
+    .filter((f) => { const ids = (f.projectIds || []).filter(Boolean); return ids.length > 0 && !ids.includes(projectId); })
+    .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base' }));
+}
+
+function AddFieldMenu({ createCustomField, allCustomFields, updateCustomField, lockedProjectId }) {
   const [open, setOpen] = useState(false);
-  const [step, setStep] = useState('pick'); // 'pick' | 'config'
+  const [step, setStep] = useState('pick'); // 'pick' | 'config' | 'existing'
+  // Existing Fields: a field defined for another project can be put on this
+  // one from here (Neil, Oct 12 2026) instead of a trip to Manage > Custom
+  // Fields. It is its own STEP, not a list in the pick panel - a workspace
+  // with forty fields would have pushed the type grid off the bottom - so the
+  // pick panel carries one row that opens it, and only when there is
+  // something to add.
+  const [fieldQuery, setFieldQuery] = useState('');
+  // The field being added, and why the last add failed. The menu waits for
+  // the save: closing at once made a refused or dropped save look like it
+  // worked, with no column and nothing said.
+  const [adding, setAdding] = useState('');
+  const [addError, setAddError] = useState('');
+  const addable = useMemo(() => addableFields(allCustomFields, lockedProjectId), [allCustomFields, lockedProjectId]);
+  const fq = fieldQuery.trim().toLowerCase();
+  const addableShown = fq ? addable.filter((f) => `${f.name} ${f.description || ''}`.toLowerCase().includes(fq)) : addable;
   const [picked, setPicked] = useState(null); // the TYPE_GROUPS entry chosen
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -530,7 +563,21 @@ function AddFieldMenu({ createCustomField }) {
   const close = () => setOpen(false);
   useClickOutside([ref, panelRef], close, open);
 
-  const reset = () => { setStep('pick'); setPicked(null); setName(''); setDescription(''); setOptions(['']); };
+  const reset = () => { setStep('pick'); setPicked(null); setName(''); setDescription(''); setOptions(['']); setFieldQuery(''); setAdding(''); setAddError(''); };
+  const addExisting = async (f) => {
+    if (!updateCustomField || adding) return;
+    const ids = (f.projectIds || []).filter(Boolean);
+    setAdding(f.id); setAddError('');
+    try {
+      await updateCustomField(f.id, { projectIds: [...ids, lockedProjectId] });
+      reset(); close();
+    } catch (e) {
+      setAdding('');
+      setAddError(e?.status === 403
+        ? `You can't add ${f.name} to this project.`
+        : `${f.name} could not be added. Try again.`);
+    }
+  };
   const pickType = (t) => { setPicked(t); setName(t.label); setStep('config'); };
   const create = () => {
     if (!picked || !name.trim()) return;
@@ -550,6 +597,17 @@ function AddFieldMenu({ createCustomField }) {
         <div style={{ maxHeight: '70vh', overflowY: 'auto', padding: 12 }}>
           {step === 'pick' ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {addable.length > 0 && (
+                <button onClick={() => setStep('existing')} title="Put a field another project already uses on this list" style={{
+                  display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, cursor: 'pointer', fontFamily: FONT,
+                  border: `1px solid ${NX.border}`, background: NX.surface2, fontSize: 13, color: NX.ink, textAlign: 'left', width: '100%',
+                }}>
+                  <Search size={14} style={{ color: NX.dim, flexShrink: 0 }} />
+                  <span style={{ flex: 1, fontWeight: 600 }}>Existing Fields</span>
+                  <span style={{ fontSize: 11.5, color: NX.faint, fontWeight: 500 }}>{addable.length}</span>
+                  <ChevronRight size={14} style={{ color: NX.faint, flexShrink: 0 }} />
+                </button>
+              )}
               {TYPE_GROUPS.map((g) => (
                 <div key={g.label}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: NX.faint, marginBottom: 6 }}>{g.label}</div>
@@ -567,6 +625,42 @@ function AddFieldMenu({ createCustomField }) {
                   </div>
                 </div>
               ))}
+            </div>
+          ) : step === 'existing' ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <button onClick={() => setStep('pick')} style={{ ...btn('ghost'), padding: 0, fontSize: 12, fontWeight: 600, color: NX.dim, justifyContent: 'flex-start' }}>
+                <ArrowLeft size={13} />Existing Fields
+              </button>
+              {/* A search box only once there are enough rows to need one. */}
+              {addable.length > 6 && (
+                <input autoFocus value={fieldQuery} onChange={(e) => setFieldQuery(e.target.value)} placeholder="Search fields…"
+                  style={{ ...inputStyle, fontSize: 13, padding: '6px 8px' }} />
+              )}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                {addError && (
+                  <div role="alert" style={{ padding: '6px 8px', marginBottom: 4, borderRadius: 8, fontSize: 12.5, color: NX.red, background: 'rgba(220,38,38,0.08)' }}>{addError}</div>
+                )}
+                {addableShown.map((f) => {
+                  const Icon = STORAGE_ICON[f.type] || Hash;
+                  const n = (f.projectIds || []).filter(Boolean).length;
+                  const busy = adding === f.id;
+                  return (
+                    <button key={f.id} onClick={() => addExisting(f)} title={f.description || f.name} disabled={!!adding} aria-busy={busy || undefined} style={{
+                      display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', borderRadius: 8, border: 'none',
+                      background: 'transparent', cursor: adding ? 'default' : 'pointer', fontSize: 13, color: NX.ink, textAlign: 'left', fontFamily: FONT, width: '100%',
+                      opacity: adding && !busy ? 0.5 : 1,
+                    }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = NX.hover; }} onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
+                      <Icon size={15} style={{ color: NX.dim, flexShrink: 0 }} />
+                      <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                      <span style={{ fontSize: 11, color: NX.faint, flexShrink: 0 }}>{busy ? 'Adding…' : `${n} project${n !== 1 ? 's' : ''}`}</span>
+                    </button>
+                  );
+                })}
+                {addableShown.length === 0 && (
+                  <div style={{ padding: '8px 8px', fontSize: 12.5, color: NX.faint }}>No fields match “{fieldQuery.trim()}”.</div>
+                )}
+              </div>
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -914,23 +1008,48 @@ export function useHiddenCols() {
 // The Hide + "+ Column" pair, for the workspace toolbar. Rendered there rather
 // than above the table so they cost no vertical space at all - they used to sit
 // inside the column-header row, which repeated them once per group.
-export function ListColumnControls({ hidden, setHidden, customFields, createCustomField, lockedProjectId, teams }) {
+// `customFields` is what is ON this list (scoped to the project); `allCustomFields`
+// is the whole workspace's, which the + Column menu's Existing Fields step
+// draws from.
+export function ListColumnControls({ hidden, setHidden, customFields, createCustomField, lockedProjectId, teams, allCustomFields, updateCustomField }) {
   return (
     <>
       <HideColsMenu customFields={customFields} hidden={hidden} setHidden={setHidden} lockedProjectId={lockedProjectId} teams={teams} />
-      <AddFieldMenu createCustomField={createCustomField} />
+      <AddFieldMenu createCustomField={createCustomField} allCustomFields={allCustomFields} updateCustomField={updateCustomField} lockedProjectId={lockedProjectId} />
     </>
   );
 }
 
 export default function RichListView({ visible, group, sort, setSort, ctx, store, people, selected, setSelected, toggleSel, onOpen, onSelectAll, lockedProjectId = '', hidden, setHidden }) {
-  // Completed ships collapsed: it is the one section that only grows, and on a
-  // real project it buried the work still to do under a few hundred finished
-  // rows. Opening it is remembered (an empty list is a stored value, not
-  // "unset"), so it stays open for anyone who wants it open.
-  const [collapsedList, setCollapsedList] = useTableSetting('richlist', 'collapsed', DEFAULT_COLLAPSED);
-  const collapsed = useMemo(() => new Set(collapsedList), [collapsedList]);
+  // Which groups the person folded away - remembered in their profile, as the
+  // other table settings are.
+  const [collapsedList, setCollapsedList] = useTableSetting('richlist', 'collapsed', EMPTY_LIST);
   const effGroup = group === 'none' ? 'status' : group;
+  // Completed is collapsed EVERY time a list opens (Neil, Oct 12 2026). It is
+  // the one section that only grows, and on a real project it buries the work
+  // still to do under a few hundred finished rows. Its state used to live in
+  // the stored list above, which meant opening it once, in any project, left
+  // it open in every project from then on - the default never applied again.
+  // So it is kept apart: a plain piece of state that starts collapsed, flips
+  // when the header is clicked, and resets when the list changes to another
+  // project (the component stays mounted across that switch) or is reopened.
+  // Any stale 'completed' entry in the stored list is ignored rather than
+  // migrated, so nobody's profile needs touching. Only the STATUS grouping has
+  // a Completed group; a custom-field option that happens to be keyed
+  // 'completed' is an ordinary group.
+  const completedGroup = effGroup === 'status';
+  const [completedOpen, setCompletedOpen] = useState(false);
+  // Reset-on-prop-change during render (the React-documented idiom), not an
+  // effect: an effect would paint one frame of the previous project's open
+  // section before closing it.
+  const [openedFor, setOpenedFor] = useState(lockedProjectId);
+  if (openedFor !== lockedProjectId) { setOpenedFor(lockedProjectId); setCompletedOpen(false); }
+  const collapsed = useMemo(() => {
+    if (!completedGroup) return new Set(collapsedList);
+    const n = new Set(collapsedList.filter((k) => k !== COMPLETED_KEY));
+    if (!completedOpen) n.add(COMPLETED_KEY);
+    return n;
+  }, [collapsedList, completedOpen, completedGroup]);
   // Inside a project every row has the same project, so the column is noise - and
   // the same is true of Team once the project has fewer than two of them. Both go
   // through the hidden SET: TaskRow gates cells on `hidden` while the header and
@@ -1142,7 +1261,8 @@ export default function RichListView({ visible, group, sort, setSort, ctx, store
   const allSel = visibleIds.length > 0 && visibleIds.every((id) => selected.has(id));
   const someSel = !allSel && visibleIds.some((id) => selected.has(id));
   const toggleGroup = (k) => {
-    const n = new Set(collapsed);
+    if (completedGroup && k === COMPLETED_KEY) { setCompletedOpen((o) => !o); return; }
+    const n = new Set(collapsedList);
     n.has(k) ? n.delete(k) : n.add(k);
     setCollapsedList([...n]);
   };

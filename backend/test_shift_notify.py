@@ -4,10 +4,6 @@ Shift notifications (Sep 28 2026) - shift_notify.py.
   - Publishing tells each affected person once (bell + email): grouped per
     person, never the publisher, never an open (unassigned) slot, and the
     email lists that person's own new / changed / removed shifts.
-  - A placed, published shift gets one bell reminder 60 minutes before it
-    starts, in the shift's own time zone - not earlier, not after it starts,
-    not for drafts, and not when the person is clocked in, on approved time
-    off or on a holiday.
 
 The clock is frozen at Monday 09/28/2026 15:10 UTC (8:10 AM Pacific, 8:40 PM
 India). Uses a throwaway sqlite file; no email is actually sent.
@@ -19,7 +15,6 @@ import tempfile
 import unittest
 from datetime import datetime, timezone
 from unittest import mock
-from zoneinfo import ZoneInfo
 
 _tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
 _tmp_db.close()
@@ -44,10 +39,6 @@ class _FrozenDT(datetime):
         return FIXED.astimezone(tz) if tz else FIXED.replace(tzinfo=None)
 
 
-def _local(tz):
-    return FIXED.astimezone(ZoneInfo(tz)).replace(tzinfo=None)
-
-
 class _Case(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -61,11 +52,9 @@ class _Case(unittest.TestCase):
         for em, first in ((AMY, "Amy"), (BOB, "Bob"), (BOSS, "Pat")):
             self.db.add(models.NexusEmployee(id=gen_id(), first_name=first, last_name="Lee", work_email=em))
         self.db.commit()
-        for p in (mock.patch.object(shift_notify, "datetime", _FrozenDT),
-                  mock.patch.object(shift_notify, "_local_now", _local),
-                  mock.patch("routers.timeclock._company_holidays_for_many", lambda *a, **k: {})):
-            p.start()
-            self.addCleanup(p.stop)
+        p = mock.patch.object(shift_notify, "datetime", _FrozenDT)
+        p.start()
+        self.addCleanup(p.stop)
 
     def tearDown(self):
         self.db.rollback()
@@ -126,96 +115,6 @@ class PublishTests(_Case):
                 BOSS, DAY, DAY, bt)
         self.assertEqual(bt.tasks, [])
         self.assertEqual(len(self._bells(AMY)), 1)   # the bell still goes
-
-
-class ReminderTests(_Case):
-    def _placed(self, start, *, email=AMY, published=1, tz="America/Los_Angeles", label="Front desk"):
-        sid = gen_id()
-        self.db.add(models.Shift(id=sid, name="Store", start_hhmm=start, end_hhmm="17:00", timezone=tz))
-        self.db.add(models.ScheduledShift(id=gen_id(), employee_email=email, work_date=DAY, shift_id=sid,
-                                          start_hhmm=start, end_hhmm="17:00", label=label, published=published))
-        self.db.commit()
-
-    def _scan(self):
-        return shift_notify.reminder_scan_once(self.db)
-
-    def test_one_reminder_within_the_hour_before_the_shift(self):
-        self._placed("09:00")                # 8:10 AM now -> within 60 minutes
-        self.assertEqual(self._scan(), 1)
-        bell = self._bells(AMY)[0]
-        self.assertEqual(bell.title, "Your shift starts at 9:00 AM")
-        self.assertEqual(bell.body, "Today, 09/28/2026 · 9:00 AM - 5:00 PM · Front desk.")
-        self.assertEqual(self._scan(), 0)    # once per shift
-
-    def _settings(self, **cfg):
-        import json
-        self.db.add(models.NexusSetting(key="shift_requests_config", value=json.dumps(cfg)))
-        self.db.commit()
-
-    def test_reminders_can_be_turned_off(self):
-        self._placed("09:00")
-        self._settings(reminders=False)
-        self.assertEqual(self._scan(), 0)
-
-    def test_the_lead_time_is_a_setting(self):
-        self._placed("09:30")                # 80 minutes away: too early at 60...
-        self.assertEqual(self._scan(), 0)
-        self._settings(reminderLeadMinutes=90)
-        self.assertEqual(self._scan(), 1)    # ...on time at 90
-
-    def test_not_too_early_and_not_after_the_start(self):
-        self._placed("09:30")                # 80 minutes away
-        self._placed("08:00", email=BOB)     # already started
-        self.assertEqual(self._scan(), 0)
-
-    def test_the_shifts_own_time_zone_is_used(self):
-        self._placed("21:00", tz="Asia/Kolkata")   # 8:40 PM IST now
-        self.assertEqual(self._scan(), 1)
-
-    def test_drafts_get_no_reminder(self):
-        self._placed("09:00", published=0)
-        self.assertEqual(self._scan(), 0)
-
-    def test_skipped_when_clocked_in_or_on_time_off_or_a_holiday(self):
-        self._placed("09:00")
-        self._placed("09:00", email=BOB)
-        self.db.add(models.TimePunch(id=gen_id(), employee_email=AMY, kind="in", at="2026-09-28T15:00:00Z"))
-        self.db.add(models.TimeOffRequest(id=gen_id(), employee_email=BOB, start_date=DAY, end_date=DAY,
-                                          status="approved"))
-        self.db.commit()
-        self.assertEqual(self._scan(), 0)
-        self.db.query(models.TimePunch).delete()
-        self.db.query(models.TimeOffRequest).delete()
-        self.db.commit()
-        with mock.patch("routers.timeclock._company_holidays_for_many",
-                        lambda db, people, s, e: {em: {DAY: {"name": "Holiday", "type": "mandatory"}} for em in people}):
-            self.assertEqual(self._scan(), 0)
-        self.assertEqual(self._scan(), 2)    # none of those left: both are reminded
-
-    # ── Oct 2 rebuild ─────────────────────────────────────────────────────
-
-    def test_a_shift_being_removed_gets_no_reminder(self):
-        self._placed("09:00")
-        self.db.query(models.ScheduledShift).update({"pending_delete": 1})
-        self.db.commit()
-        self.assertEqual(self._scan(), 0)
-
-    def test_a_moved_start_is_reminded_again(self):
-        """The dedupe key carries the start: after a publish moves the shift
-        the person hears about the new time too."""
-        self._placed("09:00")
-        self.assertEqual(self._scan(), 1)
-        self.db.query(models.ScheduledShift).update({"start_hhmm": "09:05"})
-        self.db.commit()
-        self.assertEqual(self._scan(), 1)
-        self.assertEqual([b.title for b in self._bells(AMY)],
-                         ["Your shift starts at 9:00 AM", "Your shift starts at 9:05 AM"])
-
-    def test_the_placements_own_zone_wins_over_the_presets(self):
-        self._placed("21:00", tz="America/Los_Angeles")      # the preset says Pacific: 12 hours away
-        self.db.query(models.ScheduledShift).update({"timezone": "Asia/Kolkata"})   # the placement says India
-        self.db.commit()
-        self.assertEqual(self._scan(), 1)
 
 
 class PublishDedupeTests(_Case):

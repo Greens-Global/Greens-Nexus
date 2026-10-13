@@ -750,12 +750,14 @@ def _queue_requester_teams_dm(db: Session, t: models.TaskTicket, actor_email: st
 @router.get("/task-tickets")
 def list_tickets(mine: bool = False, user: dict = Depends(get_current_user),
                  db: Session = Depends(get_db)):
-    """`mine=true` narrows to just the tickets THIS person raised - what the
-    Support page's "My Open Tickets" needs. Being cc'd on someone else's
-    ticket (mentioned in a comment, added as a watcher) does not make it
-    "mine": that list showing a ticket Ankush raised, just because Pranshu
-    was watching it, read as a gap in the requester scoping, not a feature
-    (Pranshu, Sep 10 2026).
+    """`mine=true` is the Support page's list: the tickets THIS person is
+    part of - raised for them, raised BY them for someone else, or that they
+    watch. The page sorts them itself (Neil, Oct 12 2026): only a ticket FOR
+    the person is under Open Tickets; one they filed for a colleague or were
+    added to sits under "Tickets I'm Following". (Pranshu, Sep 10 2026, had a
+    watched ticket showing under "My Open Tickets" and called it a scoping
+    gap - the Following tab is what keeps that true while still letting the
+    person reach what they follow.)
 
     Without `mine`, an employee who lacks the desk grant still gets scoped
     automatically rather than seeing the whole company's queue - but a little
@@ -777,10 +779,11 @@ def list_tickets(mine: bool = False, user: dict = Depends(get_current_user),
         rows = [t for t in rows if (t.company_id or "") in _cscope]
     me = (user.get("email") or "").lower()
     if mine:
-        # Raised by me, or raised by me on someone else's behalf (Oct 1) - the
-        # person who filed it still needs to find it. Being cc'd is not enough.
+        # For me, filed by me on someone else's behalf (Oct 1), or watched by
+        # me (Oct 12) - the page puts the last two under Following.
         rows = [t for t in rows if (t.requester_email or "").lower() == me
-                or (t.created_by_email or "").lower() == me]
+                or (t.created_by_email or "").lower() == me
+                or me in [(w or "").lower() for w in (t.watcher_emails or [])]]
     # Without the desk grant the scope is forced, not requested: the unscoped
     # list IS the agent queue, so honouring `mine` only when asked would leave
     # the whole company's tickets one query parameter away from any employee.

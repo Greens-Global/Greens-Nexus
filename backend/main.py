@@ -2664,11 +2664,6 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             print(f"[startup] workforce scorecard loop skipped: {e}")
         try:
-            from shift_notify import shift_reminder_loop
-            _tasks.append(_a.create_task(shift_reminder_loop()))
-        except Exception as e:
-            print(f"[startup] shift reminder loop skipped: {e}")
-        try:
             from routers.hr_interviews import interview_followup_loop
             _tasks.append(_a.create_task(interview_followup_loop()))
         except Exception as e:
