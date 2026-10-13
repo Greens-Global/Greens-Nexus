@@ -265,7 +265,7 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
   let kr = 0;               // keyboard row index across person and open rows
   const addRow = (size) => { rows.push(size); line += 1; return line; };
 
-  const cellStyle = (row, c, d, extra) => ({ gridRow: row, gridColumn: c + 2, borderLeft: LINE, borderBottom: LINE, minWidth: 0, position: 'relative', outline: 'none',
+  const cellStyle = (row, c, d, extra) => ({ gridRow: row, gridColumn: c + 2, borderLeft: LINE, borderBottom: LINE, minWidth: 0, position: 'relative',
     background: colBg(d, today), padding: compact ? 3 : PAD, display: 'flex', flexDirection: 'column', gap: 4, ...extra });
   const stickyLeft = (row, extra) => ({ gridRow: row, gridColumn: 1, position: 'sticky', left: 0, zIndex: 2, background: 'var(--card)', borderRight: LINE, borderBottom: LINE, minWidth: 0, ...extra });
 

@@ -100,7 +100,6 @@ export default function LeadDetailModal({ lead, onClose, onChangeStage, onAssign
             border: '1px solid ' + C.gray200,
             fontSize: 13,
             color: C.gray700,
-            outline: 'none',
             boxSizing: 'border-box',
           }}
         >
@@ -145,7 +144,6 @@ export default function LeadDetailModal({ lead, onClose, onChangeStage, onAssign
               borderRadius: 8,
               border: '1px solid ' + C.gray200,
               fontSize: 13,
-              outline: 'none',
               boxSizing: 'border-box',
             }}
           />

@@ -7,6 +7,7 @@ every picker uses - while a Global Admin still sees across all companies.
 """
 import os
 import unittest
+from datetime import datetime, timedelta, timezone
 
 os.environ.setdefault("NEXUS_SKIP_AUTH", "true")
 
@@ -224,11 +225,14 @@ class CompanyWallsTests(unittest.TestCase):
             db.close()
 
     def _mk_broadcast(self, nid, company):
+        # Recent: the bell lists only the last 30 days (routers/notifications
+        # retention_cutoff, Oct 1), so a fixed date ages out of the list.
+        made = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
         db = database.SessionLocal()
         try:
             db.add(models.NexusNotification(id=nid, type="req_pending", recipient="",
                                             title=f"B {nid}", body="x", company=company,
-                                            created_at="2026-08-28T00:00:00+00:00"))
+                                            created_at=made))
             db.commit()
         finally:
             db.close()

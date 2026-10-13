@@ -12,12 +12,14 @@ import { DOCS } from './docsContent';
 export function canReadDoc(doc, { can, myGrantedModules, isExternal }) {
   if (!doc) return false;
   if (!doc.view) return true;
-  // A menu item may open on another module's grant (its `grant` field) -
-  // read it the same way the left menu does.
+  // A menu item may open on another module's grant (its `grant` field) or
+  // on any of several (`grants`, Oct 10) - read it the same way the left
+  // menu does.
   const item = NAV.find((n) => n.view === doc.view);
-  const grant = item?.grant || doc.view;
-  if (isExternal) return !!myGrantedModules?.has(grant);
-  return !item?.minRole || !!can?.('administrator') || !!myGrantedModules?.has(grant);
+  const grants = item?.grants || [item?.grant || doc.view];
+  const granted = grants.some((g) => !!myGrantedModules?.has(g));
+  if (isExternal) return granted;
+  return !item?.minRole || !!can?.('administrator') || granted;
 }
 
 /** { allowed: DOCS this person can read, allow(docId) -> boolean }. */

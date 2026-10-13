@@ -298,7 +298,9 @@ function TimeOffForm({ email, name, date, busy, onSave, onClose }) {
   useEffect(() => {
     let live = true;
     api.timeOffTypes().then((r) => { if (live) setTypes(r); })
-      .catch(() => { if (live) setTypes({ builtIn: Object.keys(TIMEOFF_LABELS), custom: [] }); });
+      // Offline fallback. TIMEOFF_LABELS still names Unpaid so OLD requests
+      // display, but it is not offered: the server refuses it (Oct 12 2026).
+      .catch(() => { if (live) setTypes({ builtIn: Object.keys(TIMEOFF_LABELS).filter((k) => k !== 'unpaid'), custom: [] }); });
     return () => { live = false; };
   }, []);
   const [f, setF] = useState({ type: 'vacation', start: date, end: date, allDay: true, startTime: '09:00', endTime: '13:00', note: '', approve: true, confidential: false });

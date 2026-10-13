@@ -66,7 +66,7 @@ export default function CampaignTable({ campaigns, onToggleStatus, searchable, s
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search campaigns..."
-            style={{ width: '100%', padding: '8px 12px 8px 36px', borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 13, outline: 'none' }}
+            style={{ width: '100%', padding: '8px 12px 8px 36px', borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 13 }}
           />
         </div>
       )}

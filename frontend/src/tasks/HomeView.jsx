@@ -15,7 +15,7 @@ import TaskDetailDrawer from './TaskDetailDrawer';
 import AnchoredMenu from '../components/AnchoredMenu';
 
 const WIDGET_META = [
-  { key: 'my_tasks', label: 'My Tasks' },
+  { key: 'my_tasks', label: 'Tasks' },   // was "My Tasks" (Neil, Oct 13 2026); the key is what saved layouts store
   // Key stays 'projects' though the widget is now Bookmarks: it is what every
   // saved dashboard layout stores, and renaming it would drop the widget off
   // everyone's Home rather than change what it shows.
@@ -242,7 +242,7 @@ export default function HomeView({ onNavigate }) {
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             {!isMobile && <Avatar email={myEmail} name={nameOf(myEmail)} size={38} />}
-            <button onClick={() => onNavigate('mine')} style={{ ...btn('ghost'), padding: 0, fontSize: 16, fontWeight: 700, color: NX.ink }}>My Tasks</button>
+            <button onClick={() => onNavigate('mine')} style={{ ...btn('ghost'), padding: 0, fontSize: 16, fontWeight: 700, color: NX.ink }}>Tasks</button>
           </div>
           {moreBtn(() => onNavigate('mine'))}
         </div>
@@ -256,7 +256,7 @@ export default function HomeView({ onNavigate }) {
         {creating ? (
           <div style={{ position: 'relative', display: 'flex', alignItems: 'center', gap: 8, borderBottom: `2px solid ${NX.blue}`, padding: '6px 0', marginBottom: 4 }}>
             <Circle size={16} style={{ color: NX.faint, flexShrink: 0 }} />
-            <input autoFocus value={newTitle} onChange={(e) => setNewTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') commitCreate(false); if (e.key === 'Escape') cancelCreate(); }} onBlur={() => commitCreate(false)} placeholder="Write a task name" style={{ flex: 1, minWidth: 0, border: 'none', outline: 'none', background: 'transparent', fontFamily: FONT, fontSize: 13, color: NX.ink }} />
+            <input autoFocus value={newTitle} onChange={(e) => setNewTitle(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') commitCreate(false); if (e.key === 'Escape') cancelCreate(); }} onBlur={() => commitCreate(false)} placeholder="Write a task name" className="nx-inline-edit" style={{ flex: 1, minWidth: 0, border: 'none', fontFamily: FONT, fontSize: 13, color: NX.ink }} />
             {newDue && <span style={{ fontSize: 12, fontWeight: 500, color: dueColor(newDue, false) }}>{fmtUS(newDue)}</span>}
             <button onMouseDown={(e) => { e.preventDefault(); dateRef.current?.showPicker?.() ?? dateRef.current?.focus(); }} style={{ ...btn('ghost'), padding: 4, color: NX.faint }} title="Set due date"><CalendarDays size={16} /></button>
             <input ref={dateRef} type="date" value={newDue ?? ''} min={localTodayISO()} onChange={(e) => setNewDue(notPast(e.target.value) || null)} style={{ position: 'absolute', width: 0, height: 0, opacity: 0 }} tabIndex={-1} />
@@ -278,8 +278,7 @@ export default function HomeView({ onNavigate }) {
         ) : shown.length === 0 ? <p style={{ padding: '24px 0', textAlign: 'center', fontSize: 13, color: NX.faint }}>{tab === 'Completed' ? `Nothing completed ${rangeDef.key === 'day' ? 'today' : `in the last ${rangeDef.days} days`}.` : tab === 'Upcoming' ? `Nothing due ${rangeDef.key === 'day' ? 'today' : `in the next ${rangeDef.days} days`}.` : 'Nothing here.'}</p> : (
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {shown.map((t) => (
-              <div key={t.id} data-task-row onClick={() => setOpenId(t.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, borderTop: `1px solid ${NX.border2}`, padding: '8px 6px', margin: '0 -6px', borderRadius: 6, fontSize: 13, cursor: 'pointer', transition: 'background 0.12s' }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = NX.hover; }} onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
+              <div key={t.id} data-task-row onClick={() => setOpenId(t.id)} className="nx-row-hover" style={{ display: 'flex', alignItems: 'center', gap: 8, borderTop: `1px solid ${NX.border2}`, padding: '8px 6px', margin: '0 -6px', borderRadius: 6, fontSize: 13, cursor: 'pointer' }}>
                 <button onClick={(e) => { e.stopPropagation(); toggleComplete(t); }} style={{ ...btn('ghost'), padding: 0, color: t.completed ? NX.green : NX.faint }}>{t.completed ? <CheckCircle2 size={16} /> : <Circle size={16} />}</button>
                 <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none' }}>{t.title}</span>
                 {t.dueOn && <span style={{ fontSize: 12, fontWeight: 600, color: dueColor(t.dueOn, t.completed) }}>{fmtUS(t.dueOn)}</span>}
@@ -548,7 +547,7 @@ export default function HomeView({ onNavigate }) {
           composed group even at full-bleed width. */}
       <div style={{ ...card, borderRadius: 16, padding: 20, marginBottom: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', margin: '0 0 14px' }}>
-        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>My Tasks</h2>
+        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>Tasks</h2>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <div>
             <button ref={rangeRef} onClick={() => setRangeOpen((o) => !o)} style={{ ...btn('outline'), whiteSpace: 'nowrap', padding: '6px 12px', fontSize: 12.5 }}>{rangeDef.label} <ChevronDown size={14} style={{ color: NX.faint }} /></button>

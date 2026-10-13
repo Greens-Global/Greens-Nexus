@@ -546,7 +546,7 @@ export default function CredentialVaultApp() {
           <div style={{ position: "relative" }}>
             <Search size={15} style={{ position: "absolute", left: 11, top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)" }} />
             <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search credentials…"
-              style={{ borderRadius: 12, background: "var(--bg-secondary)", border: "1px solid transparent", padding: "8px 12px 8px 34px", fontSize: 13.5, outline: "none", width: 200, color: "var(--text-primary)", fontFamily: "inherit" }} />
+              style={{ borderRadius: 12, background: "var(--bg-secondary)", border: "1px solid transparent", padding: "8px 12px 8px 34px", fontSize: 13.5, width: 200, color: "var(--text-primary)", fontFamily: "inherit" }} />
           </div>
           {tab === "vault" && editMode && selectedIds.size > 0 && (
             <button onClick={deleteSelected} className="cv-btn" style={{ background: "var(--cv-rose-bg)", borderColor: "var(--cv-rose-line)", color: "var(--cv-rose)" }}>

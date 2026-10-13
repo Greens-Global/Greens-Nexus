@@ -280,6 +280,10 @@ _EXTERNAL_BASE_PREFIXES = (
     "/roles/me", "/notifications", "/groups", "/myhr/directory",
     "/branding", "/help", "/client-errors", "/policy", "/stepup", "/auth/",
     "/version", "/health",
+    # Reading What's New is every Nexus user's default, externals included
+    # (Neil, Oct 12 2026). The prefix only opens task_config.view_router's
+    # read routes: every write under it still needs the task family's grant.
+    "/task-changelog",
 )
 
 # Module id -> the API prefixes that module's grant opens for an EXTERNAL
@@ -317,6 +321,7 @@ MODULE_API_PREFIXES = {
     "testing":            ("/qa",),
     "credvault":          ("/credvault",),
     "egnyte":             ("/egnyte",),
+    "workforce-scorecard": ("/workforce-scorecard",),   # endpoints self-gate on the grant + scope
 }
 
 
@@ -691,6 +696,12 @@ def team_emails(db: Session, manager_email: str) -> set:
             if em not in seen and em != me:
                 seen.add(em)
                 todo.append(em)
+    # Plus the people `me` is Backup Manager for - THEM only, never the people
+    # who report to them: each of those has a backup of their own (by default
+    # their manager's manager), so covering Aarav must not open Aarav's team
+    # (Pranshu, Oct 13).
+    import backup_manager
+    seen |= backup_manager.backed_up_by(db, me) - {me}
     return seen
 
 

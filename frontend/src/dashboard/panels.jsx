@@ -573,7 +573,7 @@ export function CalendarPanel() {
   const yearOptions = Array.from({ length: 11 }, (_, i) => yearNow - 5 + i);
   const selectStyle = {
     border: 'none', background: 'transparent', color: 'var(--muted)', fontSize: 12, fontWeight: 600,
-    fontFamily: 'var(--wk-font)', cursor: 'pointer', padding: '2px 0', outline: 'none',
+    fontFamily: 'var(--wk-font)', cursor: 'pointer', padding: '2px 0',
   };
 
   return (

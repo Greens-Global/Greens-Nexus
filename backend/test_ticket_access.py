@@ -76,17 +76,19 @@ class TicketAccessTests(unittest.TestCase):
 
         self.assertEqual([r["subject"] for r in rows], ["my broken laptop"])
 
-    def test_mine_true_excludes_a_ticket_theyre_only_watching(self):
-        """Support's "My Open Tickets" is what THIS person raised, not
-        everything they're cc'd on - a ticket someone else filed showing up
-        there just because this person was a watcher on it read as a gap in
-        the requester scoping, not a feature (Pranshu, Sep 10 2026)."""
+    def test_mine_true_includes_a_watched_ticket_marked_as_someone_elses(self):
+        """Support lists what the person follows under its own tab (Neil,
+        Oct 12 2026), so ?mine=true carries a ticket they only watch - with
+        requesterId naming its owner, which is how the page keeps it out of
+        Open Tickets (Pranshu, Sep 10 2026, had it showing there)."""
         self._ticket("cc'd on someone else's", requester="other@greensglobal.com",
                      watchers=[EMPLOYEE["email"]])
 
         rows = T.list_tickets(mine=True, user=EMPLOYEE, db=self.db)
 
-        self.assertEqual([r["subject"] for r in rows], ["my broken laptop"])
+        self.assertEqual(sorted(r["subject"] for r in rows), ["cc'd on someone else's", "my broken laptop"])
+        watched = next(r for r in rows if r["subject"] == "cc'd on someone else's")
+        self.assertEqual(watched["requesterId"], "other@greensglobal.com")
 
     def test_watching_still_surfaces_the_ticket_without_a_grant_and_without_mine(self):
         """A different scope: the implicit fallback for someone with no desk

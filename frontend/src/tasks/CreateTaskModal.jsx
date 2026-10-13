@@ -8,6 +8,7 @@ import { api } from '../api';
 import { useTasks } from './TasksContext';
 import { Modal, PersonSelect, PersonMultiSelect, usePeople, DateField, useIsMobile } from './components';
 import { ProjectCreateModal } from './ProjectsView';
+import { useFrequentCollaborators } from './frequentPeople';
 import { CustomFieldInput } from './TaskDetailDrawer';
 import { filesFromPaste, teamInProject, fieldsForProject, uploadTaskAttachment, taskAssignees, externalizeInlineImages } from './lib';
 import ProjectPicker from './ProjectPicker';
@@ -48,6 +49,7 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
   const store = useTasks();
   const { createTask, updateTask, deleteTask, tasks, projects, teams, myEmail, customFields = [] } = store;
   const people = usePeople(true);   // assignee/collaborators - see TaskDetailDrawer
+  const frequent = useFrequentCollaborators();
   const fileRef = useRef(null);
   const editing = taskId ? store.taskById[taskId] : null;
   const isEdit = !!editing;
@@ -332,7 +334,9 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
           </div>
           <div style={field}>
             <label style={label}>Collaborators</label>
-            <PersonMultiSelect value={form.followerIds} onChange={(v) => set('followerIds', v)} people={people} placeholder="Add collaborators…" addTitle="Add collaborator" />
+            <PersonMultiSelect value={form.followerIds} onChange={(v) => set('followerIds', v)} people={people} frequent={frequent}
+              teams={store.teams} onSaveTeam={({ name, memberIds }) => store.createTeam({ name, memberIds, personal: true })}
+              placeholder="Add collaborators…" addTitle="Add collaborator" />
           </div>
           {/* Start Date is optional and sits before Due Date, the order the
               Timeline column reads them in. Left empty it fills itself in the
@@ -506,12 +510,12 @@ export default function CreateTaskModal({ onClose, defaults = {}, taskId, locked
             ))}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px dashed ${NX.border}`, borderRadius: 8, padding: '6px 10px' }}>
               <ListChecks size={15} style={{ color: NX.faint }} />
-              <input value={subtaskInput} onChange={(e) => setSubtaskInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSubtask(); } }} placeholder="Add subtask + Enter" style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontFamily: FONT, fontSize: 13 }} />
+              <input className="nx-inline-edit" value={subtaskInput} onChange={(e) => setSubtaskInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSubtask(); } }} placeholder="Add subtask + Enter" style={{ flex: 1, border: 'none', fontFamily: FONT, fontSize: 13 }} />
             </div>
           </div>
         </div>
 
-        <div onPaste={onPasteFiles} tabIndex={0} style={{ ...field, outline: 'none' }}>
+        <div onPaste={onPasteFiles} tabIndex={0} style={{ ...field }}>
           <label style={label}>Attachments</label>
           <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={(e) => { onFiles(e.target.files); e.target.value = ''; }} />
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>

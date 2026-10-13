@@ -328,7 +328,7 @@ function AddChartModal({ tasks, store, initial, onClose, onSave }) {
           {/* Preview */}
           <div className="nx-scroll" style={{ minWidth: 300, flex: '1 1 340px', overflow: 'auto', borderRight: `1px solid ${NX.border}`, padding: 24 }}>
             <input value={title} onChange={(e) => { setTitleTouched(true); patch({ title: e.target.value }); }}
-              style={{ marginBottom: 16, width: '100%', border: '1px solid transparent', borderRadius: 8, background: 'transparent', fontSize: 20, fontWeight: 700, color: NX.ink, outline: 'none', padding: '4px 6px', fontFamily: FONT }} />
+              style={{ marginBottom: 16, width: '100%', border: '1px solid transparent', borderRadius: 8, background: 'transparent', fontSize: 20, fontWeight: 700, color: NX.ink, padding: '4px 6px', fontFamily: FONT }} />
             <ChartRenderer cfg={{ ...cfg, title }} data={data} />
           </div>
           {/* Controls */}

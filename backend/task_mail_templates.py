@@ -380,7 +380,7 @@ def reminder_digest_email(*, items: list[dict], base_url: str, logo_url: str,
       {section("Due Soon", soon, "#b45309")}
     </td></tr>
     <tr><td style="padding:10px 28px 26px;text-align:center">
-      <a href="{escape((base_url or '#').rstrip('/') + '/tasks/mine')}" style="display:inline-block;background:{th.color('#248f4b')};color:#ffffff;text-decoration:none;font-size:13.5px;font-weight:700;padding:11px 28px;border-radius:8px">Open My Tasks</a>
+      <a href="{escape((base_url or '#').rstrip('/') + '/tasks/mine')}" style="display:inline-block;background:{th.color('#248f4b')};color:#ffffff;text-decoration:none;font-size:13.5px;font-weight:700;padding:11px 28px;border-radius:8px">Open Tasks</a>
     </td></tr>
     <tr><td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 28px;font-size:11.5px;color:#6b7280;line-height:1.5">
       You get one summary a day because of your email settings. Use the links under each task to act on it without opening Nexus.{th.footer_lines()}
@@ -429,7 +429,7 @@ def batch_email(*, items: list[dict], base_url: str, logo_url: str, recipient_na
       <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-top:10px">{trs}</table>
     </td></tr>
     <tr><td style="padding:10px 28px 26px;text-align:center">
-      <a href="{escape((base_url or '#').rstrip('/') + '/tasks/mine')}" style="display:inline-block;background:{th.color('#248f4b')};color:#ffffff;text-decoration:none;font-size:13.5px;font-weight:700;padding:11px 28px;border-radius:8px">Open My Tasks</a>
+      <a href="{escape((base_url or '#').rstrip('/') + '/tasks/mine')}" style="display:inline-block;background:{th.color('#248f4b')};color:#ffffff;text-decoration:none;font-size:13.5px;font-weight:700;padding:11px 28px;border-radius:8px">Open Tasks</a>
     </td></tr>
     <tr><td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 28px;font-size:11.5px;color:#6b7280;line-height:1.5">
       Task updates are gathered for up to {escape(window)} and sent together, so a run of changes arrives as one email. Mentions and urgent tasks still arrive right away.{th.footer_lines()}

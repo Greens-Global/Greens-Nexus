@@ -300,7 +300,9 @@ class TestGuestAccess(_ExternalBase):
         the flag - and the separate cache entry behind it - has to be what
         decides. Flagged `external` so a picker can label the row."""
         self._mk_guest()
-        self._as(ADMIN)
+        # An administrator: since Sep 22 the opt-in is honored only for callers
+        # who can assign work (manager and up, or a Tasks editor grant).
+        self._as_admin()
         r = self.client.get("/myhr/directory?include_external=true")
         self.assertEqual(r.status_code, 200, r.text)
         row = next((p for p in r.json() if p["email"] == GUEST), None)

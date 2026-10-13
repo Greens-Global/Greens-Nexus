@@ -281,9 +281,18 @@ def agree_blocker(db: Session, r: TimesheetReview) -> str:
 def waiting_on(db: Session, reviewer: str) -> list:
     """Timesheets submitted to `reviewer` that they have not decided yet,
     oldest first."""
+    import backup_manager
+    me = (reviewer or "").lower()
     rows = (db.query(TimesheetReview)
             .filter(TimesheetReview.status == "with_manager",
-                    TimesheetReview.manager_email == (reviewer or "").lower()).all())
+                    TimesheetReview.manager_email == me).all())
+    # ...and those of the people `reviewer` is Backup Manager for (Neil, Oct 13).
+    backed = backup_manager.backed_up_by(db, me)
+    if backed:
+        seen = {r.id for r in rows}
+        rows += [r for r in db.query(TimesheetReview)
+                 .filter(TimesheetReview.status == "with_manager",
+                         TimesheetReview.employee_email.in_(sorted(backed))).all() if r.id not in seen]
     return sorted(rows, key=lambda r: (r.updated_at or "", r.period_start))
 
 

@@ -929,6 +929,12 @@ def _run_migrations():
             "ALTER TABLE timecard_notes ADD COLUMN employee_note_at VARCHAR DEFAULT ''",
             # Where a job role came from (Neil, Oct 12). models.NexusGroup.created_from.
             "ALTER TABLE nexus_groups ADD COLUMN created_from VARCHAR DEFAULT ''",
+            # Backup Manager (Neil, Oct 13). models.NexusEmployee.backup_manager_email.
+            "ALTER TABLE nexus_employees ADD COLUMN backup_manager_email VARCHAR DEFAULT ''",
+            # The Type on an employee's punch request (Oct 13). models.PunchRequest.category.
+            "ALTER TABLE punch_requests ADD COLUMN category VARCHAR DEFAULT ''",
+            # The weekly New Feature bar's dismissal (Oct 12). models.ChangelogSeen.banner_seen_at.
+            "ALTER TABLE changelog_seen ADD COLUMN banner_seen_at VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2083,6 +2089,9 @@ def _run_migrations():
         "ALTER TABLE timecard_notes ADD COLUMN IF NOT EXISTS employee_note VARCHAR DEFAULT ''",
         "ALTER TABLE timecard_notes ADD COLUMN IF NOT EXISTS employee_note_at VARCHAR DEFAULT ''",
         "ALTER TABLE nexus_groups ADD COLUMN IF NOT EXISTS created_from VARCHAR DEFAULT ''",
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS backup_manager_email VARCHAR DEFAULT ''",
+        "ALTER TABLE punch_requests ADD COLUMN IF NOT EXISTS category VARCHAR DEFAULT ''",
+        "ALTER TABLE changelog_seen ADD COLUMN IF NOT EXISTS banner_seen_at VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -2653,10 +2662,10 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             print(f"[startup] weekly digest loop skipped: {e}")
         try:
-            from shift_notify import shift_reminder_loop
-            _tasks.append(_a.create_task(shift_reminder_loop()))
+            from workforce_scorecard import scorecard_loop
+            _tasks.append(_a.create_task(scorecard_loop()))
         except Exception as e:
-            print(f"[startup] shift reminder loop skipped: {e}")
+            print(f"[startup] workforce scorecard loop skipped: {e}")
         try:
             from routers.hr_interviews import interview_followup_loop
             _tasks.append(_a.create_task(interview_followup_loop()))
@@ -3143,6 +3152,7 @@ app.include_router(outlook_addin.router)
 app.include_router(hr_interviews.router)
 app.include_router(task_projects.router)  # Task Module: projects/portfolios/departments
 app.include_router(task_config.router)    # Task Module: views/rules/templates/notifications/changelog
+app.include_router(task_config.view_router)   # What's New, read side: every signed-in user (Oct 12)
 app.include_router(tickets_router.router) # Ticket Module: tickets, conversation, components, links, escalation
 app.include_router(credvault.router)      # Credential Vault: encrypted company/personal secrets ("credvault" grant)
 app.include_router(github_webhook.router) # PR/push merged to dev/main: public webhook receiver (verified by HMAC)
@@ -3156,6 +3166,8 @@ app.include_router(act_as.router)         # Act As: impersonate a lower-role emp
 app.include_router(branding.router)       # Branding settings: login-screen accent color
 app.include_router(daily_briefing_router.router)  # Daily Briefing admin config (mode/test recipients)
 app.include_router(weekly_digest_router.router)  # Weekly Digest admin config (mode/schedule/log)
+from routers import workforce_scorecard as workforce_scorecard_router  # noqa: E402
+app.include_router(workforce_scorecard_router.router)  # Workforce Scorecard: weekly expected-vs-actual hours per manager (Neil, 10/10)
 app.include_router(shift_requests_router.router)  # Shift swap/offer/open-shift requests + manager inbox
 app.include_router(egnyte.router)         # Egnyte: list/read/upload/search, one shared client
 from routers import client_errors          # noqa: E402

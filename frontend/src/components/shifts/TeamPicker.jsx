@@ -145,14 +145,14 @@ export default function TeamPicker({ teams = [], value, onChange, all = null, no
           {searchable && (
             <label style={{ display: 'flex', alignItems: 'center', gap: 7, margin: 8, border: '1px solid var(--line)', borderRadius: 8, padding: '6px 9px' }}>
               <Search size={13} color="var(--muted)" />
-              <input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={keys} placeholder="Search teams" aria-label="Search teams" autoFocus
+              <input className="nx-inline-edit" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={keys} placeholder="Search teams" aria-label="Search teams" autoFocus
                 aria-controls={listId} aria-activedescendant={options[active] ? `team-opt-${active}` : undefined}
-                style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 13, flex: 1, fontFamily: 'inherit', color: 'var(--ink)', minWidth: 0 }} />
+                style={{ border: 'none', fontSize: 13, flex: 1, fontFamily: 'inherit', color: 'var(--ink)', minWidth: 0 }} />
             </label>
           )}
           <div ref={listRef} id={listId} role="listbox" aria-label="Teams" tabIndex={searchable ? -1 : 0} onKeyDown={keys}
             aria-activedescendant={options[active] ? `team-opt-${active}` : undefined}
-            style={{ maxHeight: 'min(420px, 60vh)', overflowY: 'auto', padding: searchable ? '0 6px 6px' : 6, outline: 'none' }}>
+            style={{ maxHeight: 'min(420px, 60vh)', overflowY: 'auto', padding: searchable ? '0 6px 6px' : 6 }}>
             {options.map((o, i) => (o.kind === 'team' || o.kind === 'archived' ? row(o, i) : null))}
             {!options.length && <div style={{ padding: '10px 12px', fontSize: 12.5, color: 'var(--muted)' }}>No teams match.</div>}
             {options.some((o) => o.kind === 'all' || o.kind === 'none') && (

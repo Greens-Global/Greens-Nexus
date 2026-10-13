@@ -57,9 +57,11 @@ class ShiftBulkTests(unittest.TestCase):
                                             work_email=em, status="active", deleted_at=""))
             db.add(models.NexusGroup(id=GRANT, name="ShiftBulk grant", allowed_modules="hr:editor"))
             db.add(models.NexusGroupMember(group_id=GRANT, email=ADMIN))
-            # Changing shifts needs a manager (Sep 29); the hr:editor grant
-            # keeps the company-wide scope these tests exercise.
-            db.add(models.NexusRole(email=ADMIN, role="manager", assigned_by="test"))
+            # Changing shifts needs a manager (Sep 29). Since Oct 6 (People:
+            # the Manager tier sees only its own team) a manager's People grant
+            # is team-limited, so the company-wide scope these tests exercise
+            # is an administrator's.
+            db.add(models.NexusRole(email=ADMIN, role="administrator", assigned_by="test"))
             # a shift GROUP (scheduling group) with A and B
             db.add(models.ShiftGroup(id=GROUP, name="Bulk Team", created_at="2026-08-26T00:00:00"))
             db.add(models.ShiftGroupMember(id=str(uuid.uuid4()), group_id=GROUP, employee_email=A))

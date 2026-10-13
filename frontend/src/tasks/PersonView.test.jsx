@@ -86,6 +86,16 @@ describe('PersonView render-smoke', () => {
     expect(screen.getAllByText('Completed')).toHaveLength(2);
   });
 
+  it('every task row carries the whole-row hover class (Neil, 10/10)', async () => {
+    const { container } = render(<PersonView {...props} />);
+    expect(await screen.findByText('Open')).toBeInTheDocument();
+    // The same .nx-row-hover the Accounting ledger and the ticket list use:
+    // the brand tint fills the whole line so the eye can follow it across a
+    // wide screen - not an inline gray that stops at the text.
+    expect(container.querySelectorAll('.nx-row-hover').length).toBeGreaterThanOrEqual(1);
+    expect(container.querySelector('[onmouseenter]')).toBeNull();
+  });
+
   it('keeps finished work out of the way, in a collapsed Completed section', async () => {
     // 24 completed tasks used to push a person's open ones off the screen
     // (Neil, Sept 7). Open work is the list; done work is one line you can open.

@@ -439,9 +439,10 @@ class PrReadingTests(unittest.TestCase):
                         {"commit": {"message": "a"}, "author": {"login": "pranshuup"}},
                         {"commit": {"message": "b"}, "author": {"login": "neilkadakia"}},
                         {"commit": {"message": "c"}, "author": {"login": "dependabot[bot]"}},
+                        {"commit": {"message": "e"}, "author": {"login": "outsider"}},
                         {"commit": {"message": "d"}, "author": None}]}
-                elif url.endswith("/users/neilkadakia"):
-                    body = {"name": "Neil Kadakia"}
+                elif url.endswith("/users/outsider"):
+                    body = {"name": "Out Sider"}
                 else:
                     return httpx.Response(404, json={}, request=req)
                 return httpx.Response(200, json=body, request=req)
@@ -449,10 +450,39 @@ class PrReadingTests(unittest.TestCase):
         names = {}
         pr = changelog_prs._details(Client(), {"kind": "pr", "key": "pr:480", "number": 480, "branch": "fix/x",
                                                "sha": "m", "parents": ["p0", "p1"], "message": "Merge"}, names)
-        self.assertEqual([(d["login"], d["name"]) for d in pr["developers"]],
-                         [("neilkadakia", "Neil Kadakia"), ("pranshuup", "pranshuup")])
-        changelog_prs._developers(Client(), ["neilkadakia"], names)     # cached: no second lookup
-        self.assertEqual(sum(u.endswith("/users/neilkadakia") for u in Client.calls), 1)
+        # Our developers are named from GITHUB_PEOPLE (with their work email,
+        # for the photo) and never looked up; anyone else keeps GitHub's name.
+        self.assertEqual([(d["login"], d["name"], d.get("email")) for d in pr["developers"]],
+                         [("neilkadakia", "Neil Kadakia", "neil@greensglobal.com"),
+                          ("pranshuup", "Pranshu Pandey", "pranshu.pandey@greensglobal.com"),
+                          ("outsider", "Out Sider", None)])
+        self.assertFalse(any("/users/neilkadakia" in u or "/users/pranshuup" in u for u in Client.calls))
+        changelog_prs._developers(Client(), ["outsider"], names)        # cached: no second lookup
+        self.assertEqual(sum(u.endswith("/users/outsider") for u in Client.calls), 1)
+
+    def test_every_developer_login_maps_to_its_nexus_person(self):
+        """Neil, Oct 12 2026: pranshuup is Pranshu Pandey, Vlow2k is Visesh
+        Lodha, sagargreensglobal is Sagar Shoundik, AnkushGG is Ankush
+        Narkhede. Logins match whatever case GitHub sends."""
+        got = {login: changelog_prs.known_developer({"login": login})
+               for login in ("pranshuup", "Vlow2k", "sagargreensglobal", "AnkushGG", "neilkadakia")}
+        self.assertEqual({k: (v["name"], v["email"]) for k, v in got.items()}, {
+            "pranshuup": ("Pranshu Pandey", "pranshu.pandey@greensglobal.com"),
+            "Vlow2k": ("Visesh Lodha", "visesh.lodha@greensglobal.com"),
+            "sagargreensglobal": ("Sagar Shoundik", "sagar.shoundik@greensglobal.com"),
+            "AnkushGG": ("Ankush Narkhede", "ankush.narkhede@greensglobal.com"),
+            "neilkadakia": ("Neil Kadakia", "neil@greensglobal.com"),
+        })
+        self.assertEqual(changelog_prs.known_developer({"login": "stranger", "name": "S"}), {"login": "stranger", "name": "S"})
+
+    def test_stored_entries_read_out_with_the_nexus_person(self):
+        """Updates published before the map existed carry GitHub's names
+        ("pranshuup", "viseshlodha1"); they are corrected on the way out."""
+        e = models.TaskChangelogEntry(id="x", payload={"title": "t", "developers": [
+            {"login": "Vlow2k", "name": "viseshlodha1", "url": "https://github.com/Vlow2k"}]})
+        d = task_config.changelog_entry_to_dict(e)["developers"][0]
+        self.assertEqual((d["name"], d["email"], d["url"]),
+                         ("Visesh Lodha", "visesh.lodha@greensglobal.com", "https://github.com/Vlow2k"))
 
     def test_default_polish_model(self):
         self.assertEqual(changelog_prs.polish_model(), os.getenv("NEXUS_CHANGELOG_MODEL") or "claude-sonnet-5-5")

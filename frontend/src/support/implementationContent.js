@@ -386,7 +386,7 @@ export const IMPL_PHASES = [
     ],
     steps: [
       { title: 'Shift settings', where: 'Settings > Global Settings > Shifts > Shift Settings', view: 'admin-console', sub: 'global-shifts', items: [
-        'Time zone, week start, shift reminders and what staff may request or see.',
+        'Time zone, week start and what staff may request or see.',
       ]},
       { title: 'Shift types and groups', where: 'Settings > Global Settings > Shifts', view: 'admin-console', sub: 'global-shifts', items: [
         'Shift Types: name, code, color and times.',

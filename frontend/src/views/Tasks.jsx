@@ -1,6 +1,7 @@
 // Tasks view - shell for the ported Task Module. Mounts the module's data
 // provider and reproduces the export's chrome inside the Nexus shell:
-//   • module tabs Home · My Tasks · Projects · Portfolios · Teams - export's NexusModuleTabs
+//   • module tabs Home · Tasks · Projects · Portfolios · Teams - export's NexusModuleTabs
+//     (the second tab was "My Tasks" until Oct 13 2026, Neil; its key stays 'mine')
 //   • a Manage button for admin-only settings, plus a slot the active
 //     sub-view can portal its own page-level control into (Home's Customize)
 // Sub-view is driven by the host's activeSub/onSubChange so it round-trips through
@@ -41,7 +42,7 @@ const TASK_TOUR_ID = 'task';
 // via the "Templates" entry point on the Projects screen instead.
 const MODULE_TABS = [
   { key: 'home', label: 'Home', icon: Home },
-  { key: 'mine', label: 'My Tasks', icon: CheckCircle2 },
+  { key: 'mine', label: 'Tasks', icon: CheckCircle2 },
   { key: 'projects', label: 'Projects', icon: FolderKanban },
   { key: 'portfolios', label: 'Portfolios', icon: Briefcase },
   { key: 'teams', label: 'Teams', icon: Users },

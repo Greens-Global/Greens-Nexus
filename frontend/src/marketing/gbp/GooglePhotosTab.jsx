@@ -80,7 +80,7 @@ function AddPhoto({ location, onAdded, onCancel }) {
     <div
       onPaste={(e) => { const f = imageFromPaste(e); if (f) { e.preventDefault(); pick(f) } }}
       tabIndex={0}
-      style={{ border: '1px dashed ' + C.gray300, borderRadius: 10, padding: 12, marginBottom: 12, background: C.gray50, outline: 'none' }}
+      style={{ border: '1px dashed ' + C.gray300, borderRadius: 10, padding: 12, marginBottom: 12, background: C.gray50 }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         {preview

@@ -1,5 +1,6 @@
-// Task Module - My Tasks page (ported 1:1 from the export's MyTasksPage).
-// A dedicated personal view: avatar + "My tasks" header, List/Board/Calendar/
+// Task Module - Tasks page, the person's own list (ported 1:1 from the
+// export's MyTasksPage; the tab read "My Tasks" until Oct 13 2026).
+// A dedicated personal view: "Tasks" header, List/Board/Calendar/
 // Dashboard/Files tabs, and a List grouped into the four due-date buckets with
 // inline "Add task" rows, a "Task visibility" column, and "Add section".
 import { Fragment, useMemo, useRef, useState } from 'react';
@@ -20,6 +21,7 @@ import { useTableColumns, TableHead, ResetColumnsButton, useTableValue, useTable
 import { matchPeople, onEnterPickFirst } from '../lib/peopleSearch';
 import { selectionAfterClick } from './rowSelection';
 import BulkActionBar from './BulkActionBar';
+import TeamPicks, { pickableTeams, firstTeamPick, toggleRoster } from './teamPicks';
 import DueBadge from './DueBadge';
 import AnchoredMenu from '../components/AnchoredMenu';
 
@@ -87,9 +89,12 @@ function CollaboratorPicker({ value = [], people, onChange, anchor }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const ref = useRef(null);
+  const { teams, createTeam } = useTasks();
   const toggle = (email) => onChange(value.includes(email) ? value.filter((e) => e !== email) : [...value, email]);
   const filtered = q.trim() ? matchPeople(people, q)
     : people.slice().sort((a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base' }));
+  const teamRows = pickableTeams(teams, people, q).length;
+  const pickTeam = (next, adding) => { onChange(next); if (adding) setQ(''); };
   return (
     <div>
       <button ref={ref} onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }} title="Add collaborators" style={{ ...btn('ghost'), padding: '2px 6px', display: 'flex', alignItems: 'center', gap: 3 }}>
@@ -115,16 +120,25 @@ function CollaboratorPicker({ value = [], people, onChange, anchor }) {
           opening the task. */}
       <AnchoredMenu anchorRef={ref} open={open} onClose={() => setOpen(false)} role="dialog" onClick={(e) => e.stopPropagation()}
         style={{ width: 208, background: NX.surface, border: `1px solid ${NX.border}`, borderRadius: 10, boxShadow: '0 12px 32px rgba(0,0,0,0.16)' }}>
-        <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
-          onKeyDown={onEnterPickFirst(filtered, (u) => toggle(u.email))}
-          style={{ width: '100%', boxSizing: 'border-box', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '6px 8px', fontSize: 13, outline: 'none', fontFamily: FONT, background: 'transparent', color: NX.ink }} />
-        <div style={{ maxHeight: 200, overflowY: 'auto', padding: 4 }}>
+        <input className="nx-inline-edit" autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
+          onKeyDown={(e) => {
+            const team = (e.key === 'Enter' && !filtered.length) ? firstTeamPick(teams, people, q) : null;
+            if (team) { e.preventDefault(); const r = toggleRoster(value, team.roster); pickTeam(r.next, r.adding); return; }
+            onEnterPickFirst(filtered, (u) => toggle(u.email))(e);
+          }}
+          style={{ width: '100%', boxSizing: 'border-box', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '6px 8px', fontSize: 13, fontFamily: FONT, color: NX.ink }} />
+        <div style={{ maxHeight: 240, overflowY: 'auto', padding: 4 }}>
+          {/* Whole teams first (teamPicks.jsx), then people. */}
+          <TeamPicks teams={teams} people={people} selected={value} query={q} inset={8}
+            onSaveTeam={({ name, memberIds }) => createTeam({ name, memberIds, personal: true })}
+            onChange={pickTeam} />
+          {teamRows > 0 && filtered.length > 0 && <div role="presentation" style={{ padding: '9px 8px 4px', fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: NX.faint }}>People</div>}
           {filtered.map((u) => (
             <label key={u.email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 13, cursor: 'pointer' }}>
               <input type="checkbox" className="nx-check" checked={value.includes(u.email)} onChange={() => toggle(u.email)} /> {u.name}
             </label>
           ))}
-          {filtered.length === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>{people.length === 0 ? 'No people' : 'No match'}</div>}
+          {filtered.length === 0 && teamRows === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>{people.length === 0 ? 'No people' : 'No match'}</div>}
         </div>
       </AnchoredMenu>
     </div>
@@ -373,7 +387,7 @@ export default function MyTasksView({ onNavigate }) {
         {/* No avatar: you already know whose tasks these are, and no chevron -
             the title never opened a menu, so a decorative dropdown affordance
             is a lie (owner flag, Jul 28) */}
-        <div style={{ fontSize: isMobile ? 19 : 22, fontWeight: 700 }}>My Tasks</div>
+        <div style={{ fontSize: isMobile ? 19 : 22, fontWeight: 700 }}>Tasks</div>
         {/* How many tasks are actually on screen - so it tracks the filters and
             the completed-hidden default rather than reporting a total the view
             never shows. Board sorts the same rows through its own list, hence
@@ -388,7 +402,7 @@ export default function MyTasksView({ onNavigate }) {
             for it on Board and not finding it would be the odd one out. */}
         {!isMobile && (
           <ExportMenu
-            title="My Tasks" subtitle={`${exportRows.length} task${exportRows.length === 1 ? '' : 's'} including subtasks, as filtered`}
+            title="Tasks" subtitle={`${exportRows.length} task${exportRows.length === 1 ? '' : 's'} including subtasks, as filtered`}
             filenameBase="my-tasks" rows={exportRows} compact
             columns={MY_TASK_EXPORT_COLS(store, nameOf)}
           />

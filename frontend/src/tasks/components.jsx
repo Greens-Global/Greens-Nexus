@@ -21,6 +21,8 @@ import { useScrollLock } from '../lib/useScrollLock';
 import { useDialogFocus, trapTab } from '../lib/useDialogFocus';
 import { useBackToClose } from '../lib/useBackToClose';
 import { toDownloadUrl } from '../lib/storageView';
+import { frequentRows } from './frequentPeople';
+import TeamPicks, { pickableTeams, firstTeamPick, toggleRoster } from './teamPicks';
 
 // `card={false}` opts a call site out of the hover card - for avatars that are
 // already inside an interactive row (menu items, pickers), where a second click
@@ -166,7 +168,7 @@ export function Modal({ title, onClose, children, footer, width = 'clamp(520px, 
           style.css skip it via .nx-sheet - this one is shaped here. */}
       <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={trapTab}
         onClick={(e) => e.stopPropagation()} className={isMobile ? 'nx-sheet nx-modal-sheet' : 'nx-sheet'} style={{
-        background: NX.surface, display: 'flex', flexDirection: 'column', overflow: 'hidden', outline: 'none',
+        background: NX.surface, display: 'flex', flexDirection: 'column', overflow: 'hidden',
         boxShadow: '0 24px 70px rgba(17,24,39,0.30)', border: `1px solid ${NX.border}`,
         // The sheet's height comes from .nx-modal-sheet, not from here: it needs
         // `height:100vh` followed by `height:100dvh`, and one inline style object
@@ -681,8 +683,8 @@ function TeamPicker({ teams, value, onChange, placeholder = 'Add a team…' }) {
       </button>
       {open && (
         <SelectMenu anchorRef={ref} onClose={() => setOpen(false)}>
-          <input autoFocus={!touch} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search teams…"
-            style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: touch ? 16 : 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
+          <input className="nx-inline-edit" autoFocus={!touch} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search teams…"
+            style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: touch ? 16 : 13, fontFamily: FONT, boxSizing: 'border-box', color: NX.ink }} />
           {shown.length === 0 && <div style={{ padding: '10px 12px', fontSize: 12.5, color: NX.faint }}>No teams match.</div>}
           {shown.map((t) => (
             <div key={t.id} onClick={() => { onChange(t.id); setOpen(false); setQ(''); }}
@@ -1019,10 +1021,21 @@ export function SelectMenu({ anchorRef, onClose, children, minWidth = 0 }) {
 // zoom the page when it is tapped.
 const menuSearchStyle = (isMobile) => ({
   width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: isMobile ? '11px 12px' : '9px 12px',
-  fontSize: isMobile ? 16 : 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink,
+  fontSize: isMobile ? 16 : 13, fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink,
 });
 // Option rows: a 40px floor on phones, so each is a comfortable tap target.
 const menuRowTall = (isMobile) => (isMobile ? { minHeight: 40, boxSizing: 'border-box' } : null);
+
+// A group caption inside a picker menu ("Frequent", "All") - the same small
+// caps SearchSelect's group headers use. Not clickable, not a row.
+export function MenuCaption({ children, inset = 12 }) {
+  return (
+    <div role="presentation" style={{
+      padding: `9px ${inset}px 4px`, fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em',
+      textTransform: 'uppercase', color: NX.faint, cursor: 'default', userSelect: 'none',
+    }}>{children}</div>
+  );
+}
 
 export function PersonSelect({ value, onChange, people, placeholder = 'Unassigned', disabled = false }) {
   const [open, setOpen] = useState(false);
@@ -1070,7 +1083,14 @@ export function PersonSelect({ value, onChange, people, placeholder = 'Unassigne
 // Multi-select sibling of PersonSelect - same directory, search and avatars, but
 // picks stay selected and the menu stays open so several people can be added in
 // one go. `value` is an array of emails; onChange receives a new array.
-export function PersonMultiSelect({ value, onChange, people, placeholder = 'Select people', addTitle = 'Add people' }) {
+// `frequent` (emails, best first) puts a "Frequent" group above an "All" group
+// while nothing is typed - the Collaborators field passes it; a search is one
+// flat ranked list, as before.
+// `teams` (the module's teams) adds a "Teams" group whose rows add or remove a
+// whole roster at once - see teamPicks.jsx; `onSaveTeam` lets the current
+// selection be kept as a team. Both are for the Collaborators field; an
+// assignee list leaves them off.
+export function PersonMultiSelect({ value, onChange, people, placeholder = 'Select people', addTitle = 'Add people', frequent = null, teams = null, onSaveTeam = null }) {
   const [open, setOpen] = useState(false);
   // Phones: the menu is a panel over the form, so it hides the very field it
   // just wrote to - close it once a name is picked. Desktop keeps it open,
@@ -1090,18 +1110,39 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
   // query to rank against; the alphabetical fallback lives here.
   const filtered = q ? matchPeople(people, q)
     : people.slice().sort((a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base' }));
+  const top = q ? [] : frequentRows(people, frequent);
+  const teamRows = teams ? pickableTeams(teams, people, q).length : 0;
   const toggle = (em) => onChange(emails.includes(em) ? emails.filter((x) => x !== em) : [...emails, em]);
   // Removing a chip leaves the menu up - you're still editing the list; only
   // adding a name is the "done, get out of the way" moment.
-  const pick = (em) => {
-    const adding = !emails.includes(em);
-    toggle(em);
+  const afterPick = (adding) => {
     if (!adding) return;
     // The name is on the trigger now, so the query that found it is spent -
     // clear it (and take focus back) so the next name can just be typed.
     setQ('');
     if (isMobile) setOpen(false);
     else if (!touch) queryRef.current?.focus();
+  };
+  const pick = (em) => {
+    const adding = !emails.includes(em);
+    toggle(em);
+    afterPick(adding);
+  };
+  // One row; a Frequent person also appears under All, so the key carries
+  // which group it is in.
+  const personRow = (p, keyPrefix) => {
+    const on = emails.includes(p.email);
+    return (
+      <div key={keyPrefix + p.email} className="nx-menu-row" onClick={() => pick(p.email)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, background: on ? NX.hover : 'transparent', ...menuRowTall(isMobile) }}>
+        <Avatar email={p.email} name={p.name} size={22} card={false} />
+        <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+        {/* Externals are offered here, so say which they are - putting a
+            partner on a task is a different decision from putting a
+            colleague on it. */}
+        {p.external && <ExternalTag />}
+        {on && <Check size={14} style={{ color: NX.blue }} />}
+      </div>
+    );
   };
   return (
     <div ref={ref} style={{ position: 'relative' }}>
@@ -1147,23 +1188,21 @@ export function PersonMultiSelect({ value, onChange, people, placeholder = 'Sele
       {open && (
         <SelectMenu anchorRef={ref} onClose={() => setOpen(false)}>
           <input ref={queryRef} autoFocus={!touch} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
-            onKeyDown={onEnterPickFirst(filtered, (p) => pick(p.email))}
+            onKeyDown={(e) => {
+              // Enter takes the first person; when the search matches a team
+              // and nobody, it takes that team instead of doing nothing.
+              const team = (e.key === 'Enter' && !top.length && !filtered.length && teams) ? firstTeamPick(teams, people, q) : null;
+              if (team) { e.preventDefault(); const r = toggleRoster(emails, team.roster); onChange(r.next); afterPick(r.adding); return; }
+              onEnterPickFirst(top.length ? top : filtered, (p) => pick(p.email))(e);
+            }}
             style={menuSearchStyle(touch)} />
-          {filtered.map((p) => {
-            const on = emails.includes(p.email);
-            return (
-              <div key={p.email} className="nx-menu-row" onClick={() => pick(p.email)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, background: on ? NX.hover : 'transparent', ...menuRowTall(isMobile) }}>
-                <Avatar email={p.email} name={p.name} size={22} card={false} />
-                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
-                {/* Externals are offered here, so say which they are - putting a
-                    partner on a task is a different decision from putting a
-                    colleague on it. */}
-                {p.external && <ExternalTag />}
-                {on && <Check size={14} style={{ color: NX.blue }} />}
-              </div>
-            );
-          })}
-          {filtered.length === 0 && (
+          {teams && <TeamPicks teams={teams} people={people} selected={emails} query={q} inset={12} rowPad="8px 12px"
+            onSaveTeam={onSaveTeam} onChange={(next, adding) => { onChange(next); afterPick(adding); }} />}
+          {top.length > 0 && <MenuCaption>Frequent</MenuCaption>}
+          {top.map((p) => personRow(p, 'f:'))}
+          {top.length > 0 ? <MenuCaption>All</MenuCaption> : (teamRows > 0 && filtered.length > 0 && <MenuCaption>People</MenuCaption>)}
+          {filtered.map((p) => personRow(p, ''))}
+          {filtered.length === 0 && teamRows === 0 && (
             <div style={{ padding: '10px 12px', fontSize: 12.5, color: NX.faint }}>
               {q ? `No people match “${q}”.` : 'No people in the directory.'}
             </div>

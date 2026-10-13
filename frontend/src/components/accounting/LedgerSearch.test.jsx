@@ -238,7 +238,10 @@ describe('LedgerSearch grid', () => {
     render(<LedgerSearch term="amazon" entities={[]} initialEntry={{ id: 'e1', no: 'IA-1293173' }} onEntryClosed={onEntryClosed} onClose={() => {}} onClearDrill={() => {}} />);
     const dialog = await screen.findByRole('dialog');
     expect(api.getAccountingEntry).toHaveBeenCalledWith('e1');
-    expect(within(dialog).getByText('Supplies')).toBeTruthy();
+    // The dialog opens on a loading skeleton and fills in once the entry
+    // arrives - wait for it, as the test above does (a slow CI runner still
+    // had the skeleton up when this read it synchronously; PR #513).
+    expect(await within(dialog).findByText('Supplies')).toBeTruthy();
     // The lines are still behind it.
     expect(await screen.findByText('Amazon Marketplace Pay - Mop stainless steel')).toBeTruthy();
     fireEvent.click(within(dialog).getByRole('button', { name: /close/i }));

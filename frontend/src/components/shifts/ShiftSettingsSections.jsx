@@ -1,7 +1,7 @@
 // Settings > Global Settings > Shifts (Charmi, 09/30: "these settings should
 // not be here, this should be in our global settings module"). Three
 // sections, each self-contained: the shift settings (switches, team time
-// zone, week start, reminders, time-off reasons), the Shift Types (the
+// zone, week start, time-off reasons), the Shift Types (the
 // presets that used to be Shifts > Presets & Teams) and the Groups (who is
 // scheduled together, who schedules them, their Teams chat). Registered in
 // views/AdminConsole.jsx GLOBAL_CATEGORIES / GLOBAL_SECTIONS.
@@ -91,15 +91,6 @@ export function ShiftSettingsPanel({ toastOk, toastErr }) {
               </select>
               <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>The first column of every schedule grid.</span>
             </label>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, flexWrap: 'wrap' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-              <input type="checkbox" checked={cfg.reminders !== false} onChange={(e) => save({ ...cfg, reminders: e.target.checked })} /> Remind staff before a scheduled shift
-            </label>
-            <select className="form-input" aria-label="Reminder lead time" disabled={cfg.reminders === false} value={cfg.reminderLeadMinutes || 60}
-              onChange={(e) => save({ ...cfg, reminderLeadMinutes: Number(e.target.value) })} style={{ width: 'auto', fontSize: 12.5, padding: '3px 30px 3px 8px' }}>
-              {[15, 30, 45, 60, 90, 120, 180, 240].map((m) => <option key={m} value={m}>{m < 60 ? `${m} min` : `${m / 60} ${m === 60 ? 'hour' : 'hours'}`} before</option>)}
-            </select>
           </div>
           <TimeOffReasons toastOk={toastOk} toastErr={toastErr} />
         </div>
@@ -236,7 +227,7 @@ export function ShiftTypesPanel({ toastOk, toastErr }) {
                 <label style={{ fontSize: 11, color: 'var(--muted)', display: 'grid', gap: 4 }}>
                   Time zone this shift runs on
                   <ZonePick label="Shift type time zone" value={form.timezone} onChange={(v) => setForm({ ...form, timezone: v })} />
-                  <span style={{ fontSize: 10.5, fontWeight: 400 }}>Start and end above are this zone's local time - reminders, the daily briefing and Late status fire against it.</span>
+                  <span style={{ fontSize: 10.5, fontWeight: 400 }}>Start and end above are this zone's local time - the daily briefing and Late status fire against it.</span>
                 </label>
                 <div>
                   <div style={LBL}>Days</div>
@@ -376,7 +367,7 @@ export function ShiftGroupsPanel({ toastOk, toastErr }) {
               </div>
               <label style={{ display: 'flex', alignItems: 'center', gap: 6, border: '1px solid var(--line)', borderRadius: 8, padding: '4px 10px', marginBottom: 6 }}>
                 <Search size={13} color="var(--muted)" />
-                <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people" aria-label="Search people to add" style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 13, flex: 1, fontFamily: 'inherit', color: 'var(--ink)' }} />
+                <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people" aria-label="Search people to add" className="nx-inline-edit" style={{ border: 'none', fontSize: 13, flex: 1, fontFamily: 'inherit', color: 'var(--ink)' }} />
               </label>
               <div style={{ flex: 1, minHeight: 120, maxHeight: 220, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 10 }}>
                 {directory.length === 0 && <div style={{ padding: 12, fontSize: 12, color: 'var(--muted)' }}>No people available.</div>}

@@ -36,7 +36,9 @@ with database.engine.connect() as _c:
 
 EMP = "conf.emp@greensglobal.com"        # reports to MGR
 MGR = "conf.mgr@greensglobal.com"        # EMP's manager (level 3)
-PEER = "conf.peer@greensglobal.com"      # another manager with an unscoped People editor grant
+PEER = "conf.peer@greensglobal.com"      # sees everyone, approves nobody here: an administrator
+                                         # (a manager's People grant covers only their own team
+                                         # since Oct 6, so a manager-tier PEER would not see EMP)
 HRG = "conf.hrg@greensglobal.com"        # plain employee with a People editor grant
 HRC = "conf.hrc@greensglobal.com"        # HR contact of CO
 ADM = "conf.adm@greensglobal.com"        # administrator
@@ -64,7 +66,7 @@ class _Base(unittest.TestCase):
                                             last_name="Test", work_email=em, manager_email=mgr, company=co,
                                             status="active", deleted_at=""))
             db.add(models.NexusRole(email=MGR, role="manager"))
-            db.add(models.NexusRole(email=PEER, role="manager"))
+            db.add(models.NexusRole(email=PEER, role="administrator"))
             db.add(models.NexusRole(email=ADM, role="administrator"))
             db.add(models.NexusGroup(id=GRANT, name="conf-ed", allowed_modules="hr:editor"))
             for em in (PEER, HRG, HRC):

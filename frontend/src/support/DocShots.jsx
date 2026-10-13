@@ -182,9 +182,9 @@ const SHOTS = {
     ),
   },
   tasks: {
-    legend: ['My Tasks tab - everything assigned to you', 'One-line box - type a task name', 'Press Enter to add it', 'Create - the full task form'],
+    legend: ['Tasks tab - everything assigned to you', 'One-line box - type a task name', 'Press Enter to add it', 'Create - the full task form'],
     render: () => (
-      <Frame title="Tasks" tabs={['Home', 'My Tasks', 'Projects', 'Portfolios', 'Teams']} active="My Tasks" activeRail={2} tabMark={1}
+      <Frame title="Tasks" tabs={['Home', 'Tasks', 'Projects', 'Portfolios', 'Teams']} active="Tasks" activeRail={2} tabMark={1}
         headerMark={<Mark n={4}><Btn primary icon={Plus}>Create</Btn></Mark>}>
         <Col gap={0}>
           <Mark n={2} block style={{ marginBottom: 8 }}>

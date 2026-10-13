@@ -43,7 +43,7 @@ function PropertyTable({ rows, searchable, onSelectProperty }) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search properties..."
-            style={{ width: '100%', paddingLeft: 36, paddingRight: 12, paddingTop: 8, paddingBottom: 8, borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 13, outline: 'none' }}
+            style={{ width: '100%', paddingLeft: 36, paddingRight: 12, paddingTop: 8, paddingBottom: 8, borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 13 }}
           />
         </div>
       )}

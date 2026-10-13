@@ -18,8 +18,10 @@ import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, parseImportedAuthor
 // Drawer shows an em-dash for an unset date rather than an empty cell.
 const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '-');
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER, isMissed, MISSED_TITLE } from './theme';
-import { Avatar, PersonSelect, PersonMultiSelect, usePeople, useIsMobile, DateField, AttachmentViewer, ExternalTag, useImageZoom, localTodayISO, notPast } from './components';
+import { Avatar, PersonSelect, PersonMultiSelect, usePeople, useIsMobile, DateField, AttachmentViewer, ExternalTag, useImageZoom, localTodayISO, notPast, MenuCaption } from './components';
 import { matchPeople, onEnterPickFirst } from '../lib/peopleSearch';
+import { useFrequentCollaborators, frequentRows } from './frequentPeople';
+import TeamPicks, { pickableTeams, firstTeamPick, toggleRoster } from './teamPicks';
 import RichDescription, { isEmptyDoc } from './RichDescription';
 import ProjectPicker from './ProjectPicker';
 import DueBadge from './DueBadge';
@@ -147,9 +149,9 @@ function DependencyPickerBody({ candidates, onPick }) {
     : candidates;
   return (
     <div>
-      <input
+      <input className="nx-inline-edit"
         autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Find a task…"
-        style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '7px 9px', marginBottom: 4, fontSize: 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }}
+        style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '7px 9px', marginBottom: 4, fontSize: 13, fontFamily: FONT, boxSizing: 'border-box', color: NX.ink }}
       />
       <div style={{ maxHeight: 230, overflowY: 'auto' }}>
         {filtered.length ? filtered.slice(0, 40).map((c) => (
@@ -483,34 +485,58 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
 // Shared by MembersMenu below and the Properties tab's own Collaborators row -
 // they were two copies of the same unfiltered checkbox list, easy to miss a
 // search box on one and not the other. One body, used by both triggers.
-function CollaboratorMenuBody({ people, selected, onToggle }) {
+// `onChange(nextEmails, adding)` gets the whole list: a Teams row (teamPicks)
+// adds or removes several people in one click, so a per-email toggle no
+// longer fits. `adding` is what the phone callers close the menu on.
+function CollaboratorMenuBody({ people, selected, onChange }) {
   const [q, setQ] = useState('');
   const queryRef = useRef(null);
+  const frequent = useFrequentCollaborators();
+  const { teams, createTeam } = useTasks();
+  // A team saved from here is the person's own (personal) until a manager
+  // approves it - see TaskTeam.approval_status.
+  const saveTeam = ({ name, memberIds }) => createTeam({ name, memberIds, personal: true });
   const filtered = q.trim() ? matchPeople(people, q) : people;
+  // Nothing typed: the people you share the most tasks with first, then
+  // everyone (the create window's Collaborators field does the same).
+  const top = q.trim() ? [] : frequentRows(people, frequent);
+  const teamRows = pickableTeams(teams, people, q).length;
   // Same as the assignee picker: once a name is checked, the query that found
   // it has done its job - reset it and put the cursor back so the next name
   // can be typed straight away.
+  const pickTeam = (next, adding) => { onChange(next, adding); if (adding) { setQ(''); queryRef.current?.focus(); } };
   const pick = (email) => {
     const adding = !selected.includes(email);
-    onToggle(email);
+    onChange(adding ? [...selected, email] : selected.filter((e) => e !== email), adding);
     if (adding) { setQ(''); queryRef.current?.focus(); }
   };
+  const row = (u, keyPrefix) => (
+    <label key={keyPrefix + u.email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 13, cursor: 'pointer' }}>
+      <input type="checkbox" checked={selected.includes(u.email)} onChange={() => pick(u.email)} />
+      <Avatar email={u.email} name={u.name} size={20} card={false} />
+      <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.name}</span>
+      {u.external && <ExternalTag />}
+    </label>
+  );
   return (
     <div>
       <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, padding: '4px 6px' }}>Collaborators</div>
-      <input ref={queryRef} autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
-        onKeyDown={onEnterPickFirst(filtered, (u) => pick(u.email))}
-        style={{ width: '100%', boxSizing: 'border-box', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '6px 8px', fontSize: 13, outline: 'none', fontFamily: FONT, background: 'transparent', color: NX.ink }} />
-      <div className="nx-scroll" style={{ maxHeight: 220, overflowY: 'auto' }}>
-        {filtered.map((u) => (
-          <label key={u.email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 13, cursor: 'pointer' }}>
-            <input type="checkbox" checked={selected.includes(u.email)} onChange={() => pick(u.email)} />
-            <Avatar email={u.email} name={u.name} size={20} card={false} />
-            <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.name}</span>
-            {u.external && <ExternalTag />}
-          </label>
-        ))}
-        {filtered.length === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>{people.length === 0 ? 'No people' : 'No match'}</div>}
+      <input className="nx-inline-edit" ref={queryRef} autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people…"
+        onKeyDown={(e) => {
+          // Enter takes the first person; a search that matches a team and
+          // nobody takes that team instead of doing nothing.
+          const team = (e.key === 'Enter' && !top.length && !filtered.length) ? firstTeamPick(teams, people, q) : null;
+          if (team) { e.preventDefault(); const r = toggleRoster(selected, team.roster); pickTeam(r.next, r.adding); return; }
+          onEnterPickFirst(top.length ? top : filtered, (u) => pick(u.email))(e);
+        }}
+        style={{ width: '100%', boxSizing: 'border-box', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '6px 8px', fontSize: 13, fontFamily: FONT, color: NX.ink }} />
+      <div className="nx-scroll" style={{ maxHeight: 260, overflowY: 'auto' }}>
+        <TeamPicks teams={teams} people={people} selected={selected} query={q} onSaveTeam={saveTeam} onChange={pickTeam} />
+        {top.length > 0 && <MenuCaption inset={8}>Frequent</MenuCaption>}
+        {top.map((u) => row(u, 'f:'))}
+        {top.length > 0 ? <MenuCaption inset={8}>All</MenuCaption> : (teamRows > 0 && filtered.length > 0 && <MenuCaption inset={8}>People</MenuCaption>)}
+        {filtered.map((u) => row(u, ''))}
+        {filtered.length === 0 && teamRows === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>{people.length === 0 ? 'No people' : 'No match'}</div>}
       </div>
     </div>
   );
@@ -528,8 +554,8 @@ function ProjectMenuBody({ projects, exclude, onPick }) {
   return (
     <div>
       <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, padding: '4px 6px' }}>Also in Project</div>
-      <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search projects…"
-        style={{ width: '100%', boxSizing: 'border-box', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '6px 8px', fontSize: 13, outline: 'none', fontFamily: FONT, background: 'transparent', color: NX.ink }} />
+      <input className="nx-inline-edit" autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search projects…"
+        style={{ width: '100%', boxSizing: 'border-box', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '6px 8px', fontSize: 13, fontFamily: FONT, color: NX.ink }} />
       <div className="nx-scroll" style={{ maxHeight: 220, overflowY: 'auto' }}>
         {filtered.map((p) => (
           <button key={p.id} type="button" onClick={() => onPick(p.id)} style={{ display: 'flex', width: '100%', textAlign: 'left', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 13, border: 'none', background: 'transparent', cursor: 'pointer', color: NX.ink, fontFamily: FONT }}>
@@ -545,7 +571,6 @@ function ProjectMenuBody({ projects, exclude, onPick }) {
 function MembersMenu({ task, people, nameOf, patch }) {
   const isMobile = useIsMobile();
   const followers = task.followerIds || [];
-  const toggle = (email) => patch({ followerIds: followers.includes(email) ? followers.filter((e) => e !== email) : [...followers, email] });
   return (
     <div style={{ display: 'flex', alignItems: 'center' }}>
       {followers.slice(0, 3).map((em, i) => <span key={em} style={{ marginLeft: i ? -6 : 0 }}><Avatar email={em} name={nameOf(em)} size={24} /></span>)}
@@ -553,7 +578,7 @@ function MembersMenu({ task, people, nameOf, patch }) {
         <button onClick={t} title="Collaborators" style={{ ...btn('ghost'), padding: 5, marginLeft: followers.length ? 2 : 0, color: NX.faint }}><UserPlus size={16} /></button>
       )}>
         {(close) => <CollaboratorMenuBody people={people} selected={followers}
-          onToggle={(em) => { const adding = !followers.includes(em); toggle(em); if (isMobile && adding) close(); }} />}
+          onChange={(next, adding) => { patch({ followerIds: next }); if (isMobile && adding) close(); }} />}
       </Pop>
     </div>
   );
@@ -621,7 +646,8 @@ function TitleInput({ value, completed, onCommit }) {
       onChange={(e) => setV(e.target.value)}
       onBlur={() => onCommit(v)}
       onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
-      style={{ width: '100%', border: 'none', background: 'transparent', outline: 'none', fontFamily: FONT, fontSize: 20, fontWeight: 700, color: completed ? NX.faint : NX.ink, textDecoration: completed ? 'line-through' : 'none' }}
+      className="nx-inline-edit"
+      style={{ width: '100%', border: 'none', fontFamily: FONT, fontSize: 20, fontWeight: 700, color: completed ? NX.faint : NX.ink, textDecoration: completed ? 'line-through' : 'none' }}
     />
   );
 }
@@ -706,7 +732,7 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
           {/* Same as the assignee picker: on a phone the menu covers the form,
               so adding a name closes it. Unchecking one keeps it open. */}
           {(close) => <CollaboratorMenuBody people={people} selected={followers}
-            onToggle={(em) => { const adding = !followers.includes(em); toggleFollower(em); if (isMobile && adding) close(); }} />}
+            onChange={(next, adding) => { patch({ followerIds: next }); if (isMobile && adding) close(); }} />}
         </Pop>
       </Row>
 
@@ -1433,7 +1459,7 @@ function AttachmentsTab({ task, refresh }) {
   return (
     <div onPaste={onPaste} onDragEnter={onDragEnter} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}
       tabIndex={0} style={{
-        marginTop: 14, outline: 'none', borderRadius: 10, transition: 'background-color .12s ease',
+        marginTop: 14, borderRadius: 10, transition: 'background-color .12s ease',
         ...(dragOver ? { background: NX.hover || NX.border2, boxShadow: `0 0 0 2px ${NX.primary} inset` } : {}),
       }}>
       <input ref={fileRef} type="file" multiple style={{ display: 'none' }} onChange={onFile} />
@@ -1539,8 +1565,7 @@ function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub
       {!hideHeading && <div style={{ fontSize: 13, fontWeight: 700, color: NX.ink, marginBottom: 10 }}>{subtasks.length ? `Subtasks ${done}/${subtasks.length}` : 'Subtasks'}</div>}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 10 }}>
         {subtasks.map((s) => (
-          <div key={s.id} onClick={() => onOpenSub(s.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 6px', borderRadius: 8, cursor: 'pointer' }}
-            onMouseEnter={(e) => (e.currentTarget.style.background = NX.hover)} onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}>
+          <div key={s.id} onClick={() => onOpenSub(s.id)} className="nx-row-hover" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 6px', borderRadius: 8, cursor: 'pointer' }}>
             <button onClick={(e) => { e.stopPropagation(); updateTask(s.id, { completed: !s.completed }); }} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, display: 'flex', padding: 0 }}>
               {s.completed ? <CheckCircle2 size={15} style={{ color: NX.green }} /> : <Circle size={15} />}
             </button>
@@ -1553,8 +1578,8 @@ function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px dashed ${NX.border}`, borderRadius: 8, padding: '6px 10px' }}>
         <Plus size={14} style={{ color: NX.faint, flexShrink: 0 }} />
-        <input value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} placeholder="Add subtask"
-          style={{ flex: 1, minWidth: 0, border: 'none', outline: 'none', background: 'transparent', fontFamily: FONT, fontSize: 13 }} />
+        <input className="nx-inline-edit" value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} placeholder="Add subtask"
+          style={{ flex: 1, minWidth: 0, border: 'none', fontFamily: FONT, fontSize: 13 }} />
         {dueOn && <span style={{ fontSize: 11, color: NX.faint }}>{fmtDate(dueOn)}</span>}
         <button onClick={() => dateRef.current?.showPicker?.() ?? dateRef.current?.focus()} title="Due Date" style={{ ...btn('ghost'), padding: 4, color: NX.faint }}><CalendarDays size={15} /></button>
         <input ref={dateRef} type="date" value={dueOn} min={localTodayISO()} onChange={(e) => setDueOn(notPast(e.target.value))} style={{ position: 'absolute', width: 0, height: 0, opacity: 0 }} tabIndex={-1} />
@@ -1671,8 +1696,8 @@ function LabelsEditor({ tags, onChange }) {
           <button onClick={() => onChange(tags.filter((x) => x !== t))} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, padding: 0, display: 'flex' }}><X size={11} /></button>
         </span>
       ))}
-      <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }} onBlur={add}
-        placeholder="Add label…" style={{ border: 'none', outline: 'none', background: 'transparent', fontFamily: FONT, fontSize: 12, width: 100, color: NX.ink }} />
+      <input className="nx-inline-edit" value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }} onBlur={add}
+        placeholder="Add label…" style={{ border: 'none', fontFamily: FONT, fontSize: 12, width: 100, color: NX.ink }} />
     </span>
   );
 }

@@ -20,7 +20,7 @@ vi.mock('../api', () => {
     shiftRequestsInbox: { pending: [], recent: [], settings: {} },
     timeOffList: [],
     timeOffMine: [],
-    timeOffTypes: { builtIn: ['vacation', 'sick', 'personal', 'unpaid', 'other'], custom: [], requestsOn: true },
+    timeOffTypes: { builtIn: ['vacation', 'sick', 'personal', 'other'], custom: [], requestsOn: true },
   };
   const api = new Proxy({}, {
     get: (_, key) => (...args) => {
@@ -105,7 +105,7 @@ describe('request form totals and types (Neil, Sep 30)', () => {
     render(<TimeClock initialTab="timeoff" activeSub="timeoff" onSubChange={() => {}} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Reason: Personal' }));
     expect(screen.getAllByRole('option').map((o) => o.textContent))
-      .toEqual(['Personal', 'Sick', 'Vacation', 'Unpaid', 'Medical Appointment']);
+      .toEqual(['Personal', 'Sick', 'Vacation', 'Medical Appointment']);
     fireEvent.click(screen.getByRole('option', { name: /Sick/ }));
     expect(screen.getByRole('button', { name: 'Reason: Sick' })).toBeTruthy();
   }, SLOW);

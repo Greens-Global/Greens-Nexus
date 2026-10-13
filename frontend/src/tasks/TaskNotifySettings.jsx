@@ -160,7 +160,7 @@ export default function TaskNotifySettings() {
               {/* The two reminder numbers above are the COMPANY DEFAULT: each
                   person can change their own in Email Settings (My Tasks).
                   This decides whether "Off" is one of their choices. */}
-              <Field label="Let People Turn Off Overdue Reminders" hint="Company settings above are everyone's default; each person can adjust their own in My Tasks, Email Settings. When this is off, the least anyone can choose is once a week or only once.">
+              <Field label="Let People Turn Off Overdue Reminders" hint="Company settings above are everyone's default; each person can adjust their own in Tasks, Email Settings. When this is off, the least anyone can choose is once a week or only once.">
                 <Toggle on={!!cfg.allowUserOverdueOff} onChange={() => set('allowUserOverdueOff', !cfg.allowUserOverdueOff)} />
               </Field>
 
@@ -368,15 +368,13 @@ function RepliesLog({ replyTo, enabled }) {
             // that silently does nothing is worse than no click at all.
             const task = r.taskId ? taskById[r.taskId] : null;
             return (
-              <div key={r.id} onClick={task ? () => setOpenId(r.taskId) : undefined}
+              <div className={task ? 'nx-row-hover' : undefined} key={r.id} onClick={task ? () => setOpenId(r.taskId) : undefined}
                 title={task ? `Open ${task.code || 'this task'}` : undefined}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px',
                   borderBottom: `1px solid ${NX.border2}`, fontSize: 12.5,
                   cursor: task ? 'pointer' : 'default',
-                }}
-                onMouseEnter={(e) => { if (task) e.currentTarget.style.background = NX.hover; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}>
+                }}>
                 <meta.Icon size={14} style={{ color: meta.color, flexShrink: 0 }} />
                 <span style={{ fontWeight: 700, flexShrink: 0, width: 78, color: task ? NX.blue : NX.faint }}
                   title={task?.title}>

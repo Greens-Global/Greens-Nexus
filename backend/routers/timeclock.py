@@ -169,8 +169,10 @@ def _visible_emails(db: Session, user: dict):
         return None if base is None else base | set(extra)
     if user.get("level", 0) >= 4:
         return None
-    directs = {(e.work_email or "").lower() for e in db.query(NexusEmployee)
-               .filter(NexusEmployee.manager_email == user["email"]).all() if e.work_email}
+    # Direct reports, plus anyone the caller is Backup Manager for - the
+    # backup has the manager's rights over them (Neil, Oct 13).
+    import backup_manager
+    directs = backup_manager.managed_directly(db, user["email"])
     directs.add(user["email"])
     if _module_level(user["email"], "hr", db) >= 1:
         scope = hr_scope(user, db)
@@ -2728,6 +2730,7 @@ def _pr_dict(r: PunchRequest) -> dict:
         "targetPunchId": r.target_punch_id, "reason": r.reason, "status": r.status,
         "decidedBy": r.decided_by, "decidedAt": r.decided_at, "decisionNote": r.decision_note,
         "appliedPunchId": r.applied_punch_id, "createdAt": r.created_at,
+        "category": r.category or "",
     }
 
 
@@ -2738,6 +2741,7 @@ class PunchRequestIn(BaseModel):
     target_punch_id: Optional[str] = ""  # for remove
     reason:         str = ""
     tz_offset_min:  Optional[int] = 0
+    category:       Optional[str] = ""   # add, clock-in only: the Type - '' Regular, Sick / Vacation / Personal
 
 
 @router.post("/punch-requests")
@@ -2795,10 +2799,13 @@ def create_punch_request(body: PunchRequestIn, user: dict = Depends(get_current_
                            extra=pending)
     emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
     name = f"{emp.first_name} {emp.last_name}".strip() if emp else email.split("@")[0].replace(".", " ").title()
+    category = ((body.category or "").strip()[:80]
+                if action == "add" and (body.punch_kind or "in") == "in" else "")
     req = PunchRequest(id=str(uuid.uuid4()), employee_email=email, employee_name=name,
                        action=action, punch_kind=body.punch_kind or "in", at=at_utc,
                        local_date=local_date, tz_offset_min=body.tz_offset_min or 0,
-                       target_punch_id=target_id, reason=reason, status="pending", created_at=now)
+                       target_punch_id=target_id, reason=reason, status="pending", created_at=now,
+                       category=category)
     db.add(req)
     # Notify the approver - the employee's manager, or ALL managers if none is set,
     # so a no-manager employee's request still reaches someone.
@@ -2807,6 +2814,8 @@ def create_punch_request(body: PunchRequestIn, user: dict = Depends(get_current_
     # the fix is about, so the approver reads it without opening the request.
     if action == "add":
         what = f"add a {_kind_label(body.punch_kind)} punch at {_us_time(at_utc, body.tz_offset_min or 0)}"
+        if category:
+            what += f" as {category}"
     else:
         what = f"remove their {_kind_label(tp.kind)} punch at {_us_time(tp.at, tp.tz_offset_min or 0)}"
     # Open lands on the request itself - People > Time > Punch requests with
@@ -3088,6 +3097,7 @@ def _apply_add_chain(db: Session, reqs: list, user: dict, now: str) -> list:
         tp = TimePunch(id=str(uuid.uuid4()), employee_email=q.employee_email, kind=q.punch_kind,
                        at=q.at, local_date=q.local_date, tz_offset_min=q.tz_offset_min or 0,
                        geo_status="no_location", source="manual", note=(q.reason or "")[:300],
+                       category=(q.category or "") if q.punch_kind == "in" else "",
                        created_by=user["email"], created_at=now,
                        adjust_note=f"Approved punch-fix request by {user['email']}")
         db.add(tp)
@@ -3121,6 +3131,23 @@ def _pending_partners(db: Session, r) -> list:
             seen.add(key)
             out.append(p)
     return out
+
+
+_REQUEST_MATE = {"in": "out", "break_start": "break_end", "out": "in", "break_end": "break_start"}
+
+
+def _request_mate(chain: list, r):
+    """The other half of `r` in a time-ordered run of pending requests: the
+    request right after an opener (clock-in / break start) when it is its
+    closer, or right before a closer when it is its opener. None otherwise."""
+    i = next((k for k, p in enumerate(chain) if p.id == r.id), None)
+    if i is None:
+        return None
+    want = _REQUEST_MATE.get(r.punch_kind)
+    j = i + 1 if r.punch_kind in ("in", "break_start") else i - 1
+    if 0 <= j < len(chain) and chain[j].punch_kind == want:
+        return chain[j]
+    return None
 
 
 @router.patch("/punch-requests/{req_id}")
@@ -3182,7 +3209,20 @@ def decide_punch_request(req_id: str, body: PunchRequestDecision,
                 except HTTPException as chain_err:
                     if chain_err.status_code != 409:
                         raise
+                    # One stray request in the run (a clock-in asked for with
+                    # no clock-out) sank every pair around it, and the request
+                    # alone fails too - nothing could be approved (Pranshu,
+                    # Oct 13). Try the request with just its own other half.
+                    mate = _request_mate(chain, r)
                     partners = []
+                    if mate is not None:
+                        try:
+                            voided_strays = _apply_add_chain(db, sorted([mate, r], key=lambda p: (p.at, _KIND_RANK.get(p.punch_kind, 9))),
+                                                             user, now)
+                            partners = [mate]
+                        except HTTPException as pair_err:
+                            if pair_err.status_code != 409:
+                                raise
             if voided_strays is None:
                 voided_strays = _apply_add_chain(db, [r], user, now)
             if partners:
@@ -9160,13 +9200,15 @@ def bod_for_day(email: str, date: str, user: dict = Depends(get_current_user), d
 
 # "1/2 Day" is built in (Oct 2): 34 PROD rows carried it from Teams and no
 # list offered it. Type names compare case-insensitively (_check_timeoff_type).
-TIMEOFF_TYPES = ("vacation", "sick", "personal", "unpaid", "other", "1/2 Day")
+# "unpaid" left the list on Oct 12 2026 (Neil: Personal is unpaid anyway);
+# requests already filed under it keep the type and still display it.
+TIMEOFF_TYPES = ("vacation", "sick", "personal", "other", "1/2 Day")
 _TIMEOFF_REASONS_KEY = "timeoff_custom_reasons"
 _TIMEOFF_REASONS_MAX = 20
 
 
 # The reasons Greens Global had in Teams Shifts that the built-in five do not
-# cover (Vacation, Sick and Unpaid are already there). They are the list until
+# cover (Vacation and Sick are already there). They are the list until
 # someone saves their own in shift settings; after that the saved list is the
 # list, an empty one included.
 _TIMEOFF_DEFAULT_REASONS = ("Approved Time Off", "Off", "Holiday", "Parental Leave", "Closed",
@@ -9189,7 +9231,7 @@ def _custom_timeoff_types(db: Session) -> list:
 
 
 # The employee request form's fixed list (Neil, Oct 1): Personal, Sick,
-# Vacation, Unpaid and Medical Appointment. The first four are built in;
+# Vacation and Medical Appointment. The first three are built in;
 # Medical Appointment is accepted here too, so the form keeps working when an
 # admin's saved reason list leaves it out.
 _REQUEST_FORM_TYPES = ("Medical Appointment",)
