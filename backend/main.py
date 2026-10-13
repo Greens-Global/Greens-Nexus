@@ -2512,35 +2512,71 @@ def _enable_rls_everywhere(conn):
 # but nothing seeds fake data on fresh DBs anymore.
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Refuse to start if NEXUS_SKIP_AUTH is set while running on Azure App
-    # Service - the env var is for local development only and must never reach
-    # a deployed instance (dev or prod).
-    import sys as _sys
-    if os.getenv("NEXUS_SKIP_AUTH", "").lower() in ("1", "true", "yes"):
-        if os.getenv("WEBSITE_SITE_NAME"):
-            print(
-                "FATAL: NEXUS_SKIP_AUTH must not be set on Azure App Service. "
-                "Remove it from the application settings and restart.",
-                file=_sys.stderr,
-            )
-            _sys.exit(1)
-    # Same rule for the session/token encryption key: no repo-known fallback
-    # on a deployed instance (secret_box.py, Sep 30 review).
-    import secret_box as _secret_box
-    _secret_box.require_key_on_azure()
+def _schema_fingerprint() -> str:
+    """What the schema work IS for this build: this file (both migration lists,
+    the repair/RLS passes, the startup seeds) + every model table.column.
+    NEXUS_REBUILD_TABLES is folded in so setting it is acted on once. Nothing
+    on the box carries a build sha (/version is a constant), hence a hash."""
+    import schema_guard
+    with open(__file__, "rb") as f:
+        source = f.read()
+    return schema_guard.compute_fingerprint(source, models.Base.metadata,
+                                            os.getenv("NEXUS_REBUILD_TABLES", ""))
 
+
+def _schema_work() -> bool:
+    """create_all + migrations + startup seeds - what every worker start used to
+    do. Now run by ONE process per deploy, under schema_guard's advisory lock.
+    True only when it all went through and no model column is still missing;
+    anything less and the fingerprint is not stored, so the next start retries."""
+    ok = True
     try:
         models.Base.metadata.create_all(bind=engine)
         print("[startup] DB tables ready")
     except Exception as e:
+        ok = False
         print(f"[startup] DB not ready: {e}")
     try:
         _run_migrations()
         print("[startup] migrations applied")
     except Exception as e:
+        ok = False
         print(f"[startup] migrations skipped: {e}")
+    _startup_seeds()
+    return ok and not SCHEMA_GAPS
+
+
+def _ensure_schema() -> str:
+    """Schema work once per deploy (schema_guard.py). If the guard itself
+    breaks, run the work exactly as before - never skip it over bookkeeping."""
+    ran = []
+
+    def _work():
+        ran.append(1)
+        return _schema_work()
+    try:
+        import schema_guard
+        outcome = schema_guard.run_once_per_deploy(
+            engine, DATABASE_URL.startswith("sqlite"), _schema_fingerprint, _work)
+    except Exception as e:
+        print(f"[startup] schema: *** once-per-deploy guard failed: {e}")
+        if not ran:
+            _schema_work()
+            print("[startup] schema: applied (fingerprint unavailable, guard failed)")
+        return "applied"
+    if outcome == "skipped":
+        # /health/schema's slotPressure is per process and was filled by the
+        # migration pass this worker just skipped - one read-only catalog scan.
+        try:
+            with engine.connect() as conn:
+                _measure_slot_pressure(conn)
+        except Exception as e:
+            print(f"[schema] slot-pressure scan skipped: {e}")
+    return outcome
+
+
+def _startup_prepare():
+    _ensure_schema()
     try:
         from auth import _fetch_jwks, SKIP_AUTH
         if not SKIP_AUTH:
@@ -2556,6 +2592,12 @@ async def lifespan(app: FastAPI):
         print("[startup] DB connection pool warmed")
     except Exception as e:
         print(f"[startup] DB pool warm-up skipped: {e}")
+
+
+def _startup_seeds():
+    """Check-then-insert seeds and one-time backfills. Called from _schema_work
+    only, so one process runs them (two workers used to pass the same "is it
+    there?" check and both insert). A new startup seed goes in HERE."""
     # One shared Documents-module letterhead (Greens Global logo + brand name)
     # so a Knowledge Base "Full Editor" SOP has something real to auto-attach
     # instead of a blank/manual setup. Idempotent by name - safe to run every
@@ -2733,6 +2775,28 @@ async def lifespan(app: FastAPI):
             db.close()
     except Exception as e:
         print(f"[startup] monitoring_policy company backfill skipped: {e}")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Refuse to start if NEXUS_SKIP_AUTH is set while running on Azure App
+    # Service - the env var is for local development only and must never reach
+    # a deployed instance (dev or prod).
+    import sys as _sys
+    if os.getenv("NEXUS_SKIP_AUTH", "").lower() in ("1", "true", "yes"):
+        if os.getenv("WEBSITE_SITE_NAME"):
+            print(
+                "FATAL: NEXUS_SKIP_AUTH must not be set on Azure App Service. "
+                "Remove it from the application settings and restart.",
+                file=_sys.stderr,
+            )
+            _sys.exit(1)
+    # Same rule for the session/token encryption key: no repo-known fallback
+    # on a deployed instance (secret_box.py, Sep 30 review).
+    import secret_box as _secret_box
+    _secret_box.require_key_on_azure()
+    _startup_prepare()
+    _leader_task = None
     # Background jobs - HR reminders, ticket/task notification retries + due-date
     # reminders, the long-session nudge - run on a SINGLE elected leader instance so
     # scaling out to multiple web instances can't double-send. See leader.py.
@@ -3004,12 +3068,26 @@ async def lifespan(app: FastAPI):
     try:
         import asyncio as _asyncio
         import leader
-        _asyncio.create_task(leader.elect_and_run(_start_background_jobs))
+        _leader_task = _asyncio.create_task(leader.elect_and_run(_start_background_jobs))
         print("[startup] background-jobs leader election started")
     except Exception as e:
         print(f"[startup] leader election unavailable, running jobs directly: {e}")
         _start_background_jobs()
-    yield
+    try:
+        yield
+    finally:
+        # Hand the leader lease back so another worker takes over on its next
+        # heartbeat instead of waiting out the 45 s staleness window. Off the
+        # event loop and time-boxed; shutdown never fails because of it.
+        try:
+            import asyncio as _asyncio
+            import leader
+            if _leader_task is not None:
+                _leader_task.cancel()
+            if await _asyncio.wait_for(_asyncio.to_thread(leader.release_lease), timeout=5):
+                print("[shutdown] leader lease released")
+        except Exception as e:  # noqa: BLE001 - a timeout or a DB error
+            print(f"[shutdown] leader lease release skipped: {e!r}")
 
 
 app = FastAPI(title="Nexus API", lifespan=lifespan)
