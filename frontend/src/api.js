@@ -1293,6 +1293,14 @@ export const api = {
   retryLifeEventApply: (id)       => req(`/hr/life-events/${id}/retry-apply`, { method: 'POST' }),
   previewPromotion:    (eid, data) => req(`/hr/employees/${eid}/promotion/preview`, { method: 'POST', body: JSON.stringify(data) }),
   sendPromotion:       (eid, data) => req(`/hr/employees/${eid}/promotion`, { method: 'POST', body: JSON.stringify(data) }),
+  // Role change without a promotion: asks the manager / HR, who approve (Pranshu, Oct 13).
+  requestRoleChange:   (data)      => req('/hr/role-change-requests', { method: 'POST', body: JSON.stringify(data) }),
+  getRoleChangeRequests: ({ employeeId = '', email = '' } = {}) =>
+    req(`/hr/role-change-requests?employee_id=${encodeURIComponent(employeeId)}&email=${encodeURIComponent(email)}`),
+  getRoleChangeRequest: (id)       => req(`/hr/role-change-requests/${id}`),
+  approveRoleChange:   (id)        => req(`/hr/role-change-requests/${id}/approve`, { method: 'POST' }),
+  declineRoleChange:   (id, note)  => req(`/hr/role-change-requests/${id}/decline`, { method: 'POST', body: JSON.stringify({ note }) }),
+  cancelRoleChange:    (id)        => req(`/hr/role-change-requests/${id}/cancel`, { method: 'POST' }),
   previewOffboard:     (eid, data) => req(`/hr/employees/${eid}/offboard/preview`, { method: 'POST', body: JSON.stringify(data) }),
   offboard:            (eid, data) => req(`/hr/employees/${eid}/offboard`, { method: 'POST', body: JSON.stringify(data) }),
   cancelOffboarding:   (id)        => req(`/hr/life-events/${id}/cancel-offboarding`, { method: 'POST' }),

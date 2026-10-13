@@ -5,12 +5,13 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 import hr_life_events as hle
-from auth import hr_scope
+import role_change as rc
+from auth import get_current_user, hr_scope
 from database import get_db
 from models import HrCandidate, HrEntity, HrLifeEvent, HrPacketSetting, HrSignTemplate, NexusEmployee
 from routers.hr import _has_comp, require_hr_read, require_hr_write
@@ -357,6 +358,129 @@ def send_promotion(eid: str, body: HirePacketIn, request: Request,
     out = hle.ser_event(db, ev, show_pay=_has_comp(user, db))
     out["senderPartyId"] = hle.sender_party_id(db, ev, user["email"])
     return out
+
+
+class RoleChangeIn(BaseModel):
+    role_id:     str
+    reason:      Optional[str] = ""
+    employee_id: Optional[str] = ""
+    email:       Optional[str] = ""     # Settings > Access knows the person by email
+
+
+class RoleDecisionIn(BaseModel):
+    note: Optional[str] = ""
+
+
+def _rc_raise(db: Session, e: rc.RoleChangeError):
+    db.rollback()
+    raise HTTPException(e.status, str(e))
+
+
+def _hr_editor(user: dict, db: Session) -> bool:
+    try:
+        require_hr_write(user=user, db=db)
+        return True
+    except HTTPException:
+        return False
+
+
+def _hr_reader(user: dict, db: Session, company: str = None) -> bool:
+    """HR who may read People - and, given a company, read THAT company's
+    people (a company-scoped HR admin sees only their own)."""
+    try:
+        require_hr_read(user=user, db=db)
+    except HTTPException:
+        return False
+    if company is None:
+        return True
+    scope = hr_scope(user, db)
+    return scope is None or (company or "") in scope
+
+
+def _rc_employee(db: Session, user: dict, employee_id: str = "", email: str = "") -> NexusEmployee:
+    q = db.query(NexusEmployee)
+    emp = (q.filter(NexusEmployee.id == employee_id).first() if employee_id
+           else q.filter(NexusEmployee.work_email == (email or "").strip().lower()).first() if email else None)
+    scope = hr_scope(user, db)
+    if not emp or (scope is not None and (emp.company or "") not in scope):
+        raise HTTPException(404, "Employee not found")
+    return emp
+
+
+@router.post("/role-change-requests")
+def request_role_change(body: RoleChangeIn, background: BackgroundTasks,
+                        user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """Role change without a promotion (Pranshu, Oct 13): asks the employee's
+    manager or HR - the role changes only when one of them approves
+    (role_change.py). A promotion goes through /promotion."""
+    emp = _rc_employee(db, user, body.employee_id or "", body.email or "")
+    try:
+        req, warning, emails = rc.request_change(db, user, emp, body.role_id, body.reason or "")
+    except rc.RoleChangeError as e:
+        _rc_raise(db, e)
+    db.commit()
+    background.add_task(rc.send_emails, emails)
+    return {**rc.ser(db, req, user["email"], True), "warning": warning}
+
+
+@router.get("/role-change-requests")
+def list_role_change_requests(employee_id: str = "", email: str = "", user: dict = Depends(get_current_user),
+                              db: Session = Depends(get_db)):
+    """The PENDING request on one person, for their Access tab - shown to HR
+    and to whoever can decide or cancel it."""
+    from models import HrRoleChangeRequest
+    q = db.query(HrRoleChangeRequest).filter(HrRoleChangeRequest.status == rc.PENDING)
+    if employee_id:
+        q = q.filter(HrRoleChangeRequest.employee_id == employee_id)
+    elif email:
+        q = q.filter(HrRoleChangeRequest.employee_email == email.strip().lower())
+    else:
+        raise HTTPException(400, "Say whose requests")
+    editor = _hr_editor(user, db)
+    return [rc.ser(db, r, user["email"], editor) for r in q.order_by(HrRoleChangeRequest.created_at.desc()).all()
+            if rc.can_see(db, r, user["email"], _hr_reader(user, db, r.company))]
+
+
+@router.get("/role-change-requests/{rid}")
+def get_role_change_request(rid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    from models import HrRoleChangeRequest
+    req = db.query(HrRoleChangeRequest).filter(HrRoleChangeRequest.id == rid).first()
+    if not req or not rc.can_see(db, req, user["email"], _hr_reader(user, db, req.company)):
+        raise HTTPException(404, "Role change request not found")
+    return rc.ser(db, req, user["email"], _hr_editor(user, db))
+
+
+def _decide(rid: str, approve: bool, note: str, background: BackgroundTasks, user: dict, db: Session):
+    try:
+        req, emails = rc.decide(db, user, rid, approve, note)
+    except rc.RoleChangeError as e:
+        _rc_raise(db, e)
+    db.commit()
+    background.add_task(rc.send_emails, emails)
+    return rc.ser(db, req, user["email"], _hr_editor(user, db))
+
+
+@router.post("/role-change-requests/{rid}/approve")
+def approve_role_change(rid: str, background: BackgroundTasks, user: dict = Depends(get_current_user),
+                        db: Session = Depends(get_db)):
+    """The employee's manager or HR contact - the role changes now."""
+    return _decide(rid, True, "", background, user, db)
+
+
+@router.post("/role-change-requests/{rid}/decline")
+def decline_role_change(rid: str, body: RoleDecisionIn, background: BackgroundTasks,
+                        user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    return _decide(rid, False, body.note or "", background, user, db)
+
+
+@router.post("/role-change-requests/{rid}/cancel")
+def cancel_role_change(rid: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    try:
+        req = rc.cancel(db, user, rid, _hr_editor(user, db))
+    except rc.RoleChangeError as e:
+        _rc_raise(db, e)
+    db.commit()
+    return rc.ser(db, req, user["email"], True)
 
 
 # ── offboarding ──────────────────────────────────────────────────────────────

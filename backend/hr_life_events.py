@@ -34,6 +34,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
+from currency import is_currency, money_prefix
 from models import (HrCandidate, HrEntity, HrLifeEvent, HrPacketSetting, HrSignParty,
                     HrSignRequest, HrSignTemplate, HrStageEvent, NexusEmployee)
 
@@ -46,7 +47,6 @@ DEFAULT_SUBFOLDERS = {"hire": "Hiring Documents", "promotion": "Promotion Docume
                       "separation": "Separation Documents"}
 PAY_BASES = ("hourly", "salary")
 PAY_FREQUENCIES = ("weekly", "biweekly", "semimonthly", "monthly", "annual")
-CURRENCIES = ("USD", "INR")
 # Minutes to wait before each filing retry; past the end the event is marked
 # failed and HR is told (a missing entity folder needs a person, not a retry).
 FILING_BACKOFF_MIN = (1, 5, 15, 60, 180, 360)
@@ -129,7 +129,7 @@ def pay_text(pay: dict) -> str:
     """'$85,000.00 per year' / '$32.50 per hour' - the {{salary}} a letter shows."""
     if not pay or pay.get("base") in (None, ""):
         return ""
-    sym = {"USD": "$", "INR": "₹"}.get(pay.get("currency") or "USD", "")
+    sym = money_prefix(pay.get("currency") or "USD")
     try:
         amount = f"{sym}{float(pay['base']):,.2f}"
     except (TypeError, ValueError):
@@ -180,9 +180,9 @@ def clean_pay(pay: Optional[dict]) -> dict:
     freq = pay.get("frequency") or ("annual" if basis == "salary" else "")
     if basis == "salary" and freq not in PAY_FREQUENCIES:
         raise ValueError(f"Pay frequency must be one of {', '.join(PAY_FREQUENCIES)}.")
-    cur = pay.get("currency") or "USD"
-    if cur not in CURRENCIES:
-        raise ValueError(f"Currency must be one of {', '.join(CURRENCIES)}.")
+    cur = str(pay.get("currency") or "USD").strip().upper()
+    if not is_currency(cur):
+        raise ValueError("Pick a currency from the list.")
     return {"base": base, "payBasis": basis, "frequency": freq if basis == "salary" else "",
             "currency": cur}
 

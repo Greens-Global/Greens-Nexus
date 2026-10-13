@@ -553,6 +553,7 @@ PROMO_BODY = [
 ]
 ERIN = "erin.emp@greensglobal.com"
 HR_ONLY = {"email": HR, "level": 2, "role": "employee"}    # a People editor who is not an IT/Global Admin
+ADMIN_U = {"email": "ada.admin@greensglobal.com", "level": 4, "role": "administrator"}
 
 
 class PromotionTests(LifeEventCase):
@@ -561,7 +562,8 @@ class PromotionTests(LifeEventCase):
 
     def setUp(self):
         super().setUp()
-        for m in (models.NexusGroup, models.NexusGroupMember, models.NexusRole, models.TimeApproval):
+        for m in (models.NexusGroup, models.NexusGroupMember, models.NexusRole, models.TimeApproval,
+                  models.HrRoleChangeRequest):
             self.db.query(m).delete()
         self.db.add(models.HrEntity(id="ent-x", name="Elsewhere"))
         self.db.query(models.HrEntity).filter_by(id=ENTITY).update({"hr_contact_email": HR})
@@ -651,6 +653,115 @@ class PromotionTests(LifeEventCase):
     def test_role_change_without_pay_flags_nothing(self):
         ev = self._promote(inputs={"change_type": "role_change", "salary_text": "unchanged"}, pay=None)
         self.assertEqual(ev.flags, [])
+
+    # Change Role without a promotion (Pranshu, Oct 13): nothing changes until
+    # the employee's manager or HR approves - either one is enough.
+    def _ask(self, user=None, role="jr-2", reason="Moving to the platform team"):
+        import role_change as rc
+        emp = self.db.query(models.NexusEmployee).filter_by(id="id-erin").first()
+        req, warning, emails = rc.request_change(self.db, user or ADMIN_U, emp, role, reason)
+        self.db.commit()
+        return req, emails
+
+    def _role_of_erin(self):
+        return [m.group_id for m in self.db.query(models.NexusGroupMember).filter_by(email=ERIN).all()]
+
+    def test_role_change_waits_for_approval_then_applies(self):
+        import role_change as rc
+        req, emails = self._ask()
+        self.assertEqual(self._role_of_erin(), ["jr-1"])                            # nothing changed yet
+        self.assertEqual({a["email"] for a in req.approvers}, {MGR, HR})
+        self.assertEqual({e[0] for e in emails}, {MGR, HR})
+        self.assertIn("Moving to the platform team", emails[0][2])                  # the reason is in the email
+        bells = self.db.query(models.NexusNotification).filter_by(ref_id=req.id).all()
+        self.assertEqual({(b.recipient, b.priority) for b in bells}, {(MGR, 1), (HR, 1)})
+        self.assertIn("Reason: Moving to the platform team", bells[0].body)
+        rc.decide(self.db, {"email": HR, "level": 2, "role": "employee"}, req.id, True)
+        self.db.commit()
+        self.assertEqual(self._role_of_erin(), ["jr-2"])
+        emp = self.db.query(models.NexusEmployee).filter_by(id="id-erin").first()
+        self.assertEqual((emp.job_title, emp.department), ("IT Dev Associate II", "IT"))
+        self.assertEqual(self.db.query(models.HrRoleChangeRequest).get(req.id).status, "approved")
+        open_bells = self.db.query(models.NexusNotification).filter_by(ref_id=req.id, priority=1, actioned=False).count()
+        self.assertEqual(open_bells, 0)                                             # off the yellow bar for both
+        titles = {(n.recipient, n.title) for n in self.db.query(models.NexusNotification).filter_by(ref_id=req.id)}
+        self.assertIn((ADMIN_U["email"], "Role change approved - Erin Lee"), titles)
+        self.assertIn((ERIN, "Your role changed"), titles)
+        with self.assertRaises(rc.RoleChangeError) as e:                            # decided once
+            rc.decide(self.db, {"email": MGR, "level": 2, "role": "employee"}, req.id, False, "no")
+        self.assertEqual(e.exception.status, 409)
+
+    def test_declined_changes_nothing_and_tells_the_requester(self):
+        import role_change as rc
+        req, _ = self._ask()
+        _, emails = rc.decide(self.db, {"email": MGR, "level": 2, "role": "employee"}, req.id, False, "Not yet")
+        self.db.commit()
+        self.assertEqual(self._role_of_erin(), ["jr-1"])
+        self.assertEqual(self.db.query(models.HrRoleChangeRequest).get(req.id).decision_note, "Not yet")
+        self.assertEqual([e[0] for e in emails], [ADMIN_U["email"]])
+        self.assertIn("Not yet", emails[0][2])
+
+    def test_the_requester_never_approves_their_own(self):
+        import role_change as rc
+        req, _ = self._ask(user=HR_ONLY)                                            # HR asks -> only the manager
+        self.assertEqual([a["email"] for a in req.approvers], [MGR])
+        with self.assertRaises(rc.RoleChangeError) as e:
+            rc.decide(self.db, HR_ONLY, req.id, True)
+        self.assertEqual(e.exception.status, 403)
+        with self.assertRaises(rc.RoleChangeError) as e:                            # someone else entirely
+            rc.decide(self.db, {"email": "nobody@greensglobal.com", "level": 4, "role": "administrator"}, req.id, True)
+        self.assertEqual(e.exception.status, 403)
+
+    def test_nobody_to_approve_is_refused_up_front(self):
+        import role_change as rc
+        self.db.query(models.NexusEmployee).filter_by(id="id-erin").update({"manager_email": ""})
+        self.db.commit()
+        with self.assertRaises(rc.RoleChangeError) as e:
+            self._ask(user=HR_ONLY)                                                 # HR asking, no manager
+        self.assertEqual(e.exception.status, 409)
+
+    def test_reason_role_guard_and_one_at_a_time(self):
+        import role_change as rc
+        with self.assertRaises(rc.RoleChangeError):
+            self._ask(reason="  ")
+        with self.assertRaises(rc.RoleChangeError) as e:
+            self._ask(user=HR_ONLY, role="jr-admin")                                # HR cannot hand out admin
+        self.assertEqual(e.exception.status, 403)
+        with self.assertRaises(rc.RoleChangeError):
+            self._ask(role="jr-1")                                                  # already their role
+        req, _ = self._ask()
+        with self.assertRaises(rc.RoleChangeError) as e:
+            self._ask()
+        self.assertEqual(e.exception.status, 409)
+        rc.cancel(self.db, ADMIN_U, req.id, can_manage=False)
+        self.db.commit()
+        self._ask()                                                                 # canceled -> can ask again
+
+    def test_role_change_over_http(self):
+        self.db.add(models.NexusRole(email=HR, role="administrator"))              # the signed-in HTTP user
+        self.db.commit()
+        auth.invalidate_role_cache(HR)
+        r = self.client.post("/hr/role-change-requests",
+                             json={"employee_id": "id-erin", "role_id": "jr-2", "reason": "Team move"})
+        self.assertEqual(r.status_code, 200, r.text)
+        body = r.json()
+        self.assertEqual([a["email"] for a in body["approvers"]], [MGR])           # HR asked -> the manager decides
+        self.assertEqual((body["canDecide"], body["canCancel"]), (False, True))
+        listed = self.client.get("/hr/role-change-requests?employee_id=id-erin").json()
+        self.assertEqual([x["id"] for x in listed], [body["id"]])
+        self.assertEqual(self.client.post(f"/hr/role-change-requests/{body['id']}/approve").status_code, 403)
+        self.assertEqual(self._role_of_erin(), ["jr-1"])
+        r = self.client.post(f"/hr/role-change-requests/{body['id']}/cancel")
+        self.assertEqual(r.json()["status"], "canceled")
+
+    def test_direct_assign_cannot_swap_a_role_without_approval(self):
+        from fastapi import HTTPException
+        from routers.jobroles import AssignBody, assign_job_role
+        with self.assertRaises(HTTPException) as e:
+            assign_job_role("jr-2", AssignBody(email=ERIN), ADMIN_U, self.db)
+        self.assertEqual(e.exception.status_code, 409)
+        assign_job_role("jr-2", AssignBody(email=ERIN), {**ADMIN_U, "role": "owner", "level": 5}, self.db)
+        self.assertEqual(self._role_of_erin(), ["jr-2"])                            # a Global Admin still can
 
 
 SEP_BODY = ["{{full_name}}: your last day is {{last_day}} ({{separation_type}}).",
@@ -922,6 +1033,12 @@ class SharedHireAndPayTests(LifeEventCase):
         self.assertEqual(hle.pay_text({"base": 32.5, "payBasis": "hourly", "currency": "USD"}), "$32.50 per hour")
         self.assertEqual(hle.pay_text({"base": 600000, "payBasis": "salary", "frequency": "annual",
                                        "currency": "INR"}), "₹600,000.00 per year")
+        # Any currency (Pranshu, Oct 13): the code where a symbol would mislead.
+        self.assertEqual(hle.pay_text({"base": 5000, "payBasis": "salary", "frequency": "monthly",
+                                       "currency": "CAD"}), "CAD 5,000.00 per month")
+        self.assertEqual(hle.clean_pay({"base": 10, "payBasis": "hourly", "currency": "eur"})["currency"], "EUR")
+        with self.assertRaises(ValueError):
+            hle.clean_pay({"base": 10, "payBasis": "hourly", "currency": "dollars"})
 
 
 if __name__ == "__main__":

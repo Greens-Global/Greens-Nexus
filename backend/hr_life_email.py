@@ -29,12 +29,12 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
+from currency import money_prefix
 from models import HrEntity, HrLifeEvent, HrSignParty, HrSignRequest, NexusEmployee
 
 FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"
 INK, MUTED, LINE, SOFT = "#111827", "#6b7280", "#e5e7eb", "#f9fafb"
 EMPLOYMENT = {"full_time": "Full-Time", "part_time": "Part-Time", "contractor": "Contractor", "intern": "Intern"}
-SYMBOL = {"USD": "$", "INR": "₹"}
 
 
 # ── formatting ───────────────────────────────────────────────────────────────
@@ -56,7 +56,7 @@ def _short(iso: str) -> str:
 
 
 def _money(amount: float, currency: str = "USD", cents: bool = False) -> str:
-    sym = SYMBOL.get(currency or "USD", "")
+    sym = money_prefix(currency or "USD")
     return f"{sym}{amount:,.2f}" if cents else f"{sym}{amount:,.0f}"
 
 

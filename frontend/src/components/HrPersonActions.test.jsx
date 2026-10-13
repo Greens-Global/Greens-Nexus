@@ -13,16 +13,18 @@ const preview = {
   salaryText: '$40.00 per hour', unresolved: [], signedPeriods: [{ label: '09/06/2026 - 09/19/2026' }],
 };
 const send = vi.fn(() => Promise.resolve({ id: 'ev1' }));
+const requestRoleChange = vi.fn(() => Promise.resolve({ id: 'rq1', approvers: [{ email: 'max@x.com', name: 'Max', as: 'manager' }], warning: '' }));
 vi.mock('../api', () => ({
   api: {
     hiringOptions: () => Promise.resolve({ roles: [{ id: 'jr-2', name: 'IT Dev Associate II', department: 'IT' }] }),
     previewPromotion: () => Promise.resolve(preview),
     sendPromotion: (...a) => send(...a),
+    requestRoleChange: (...a) => requestRoleChange(...a),
   },
 }));
 vi.mock('./ESign', () => ({ SignModal: () => null, AttachmentPlacer: () => null, MERGE_FIELDS: [['salary', 'Salary']] }));
 
-const { PromoteModal } = await import('./HrPersonActions');
+const { PromoteModal, RoleChangeModal } = await import('./HrPersonActions');
 const erin = { id: 'e1', firstName: 'Erin', lastName: 'Lee', company: 'c1', jobTitle: 'IT Dev Associate I' };
 
 describe('PromoteModal', () => {
@@ -43,9 +45,41 @@ describe('PromoteModal', () => {
     expect(send.mock.calls[0][1].inputs.change_type).toBe('promotion');
   });
 
-  it('Change Role mode', () => {
-    render(<PromoteModal employee={erin} mode="role_change" canSeePay={false} onClose={() => {}} onSent={() => {}} toastErr={() => {}} />);
-    expect(screen.getByText('Change Role - Erin Lee')).toBeTruthy();
+  it('without pay access asks for the pay as written', () => {
+    render(<PromoteModal employee={erin} canSeePay={false} onClose={() => {}} onSent={() => {}} toastErr={() => {}} />);
+    expect(screen.getByText('Promote - Erin Lee')).toBeTruthy();
     expect(screen.getByPlaceholderText(/unchanged/)).toBeTruthy();
+  });
+
+  it('offers any currency, not only USD and INR', () => {
+    render(<PromoteModal employee={erin} canSeePay onClose={() => {}} onSent={() => {}} toastErr={() => {}} />);
+    expect(screen.getByRole('option', { name: /^EUR/ })).toBeTruthy();
+    expect(screen.getByRole('option', { name: /^AUD/ })).toBeTruthy();
+  });
+});
+
+// Change Role asks first (Pranshu, Oct 13): without a promotion it sends a
+// request, with a reason, for the manager or HR to approve; Promotion hands
+// over to the letter.
+describe('RoleChangeModal', () => {
+  it('asks for approval, with a reason, when it is not a promotion', async () => {
+    const onChanged = vi.fn();
+    render(<RoleChangeModal employee={erin} onClose={() => {}} onPromote={() => {}} onChanged={onChanged} toastErr={() => {}} />);
+    fireEvent.click(screen.getByText('Role Change Without Promotion'));
+    await waitFor(() => expect(screen.getByText(/IT Dev Associate II - IT/)).toBeTruthy());
+    const btn = screen.getByRole('button', { name: /Send For Approval/ });
+    fireEvent.change(screen.getByDisplayValue('- pick a role -'), { target: { value: 'jr-2' } });
+    expect(btn).toBeDisabled();                                       // the reason is required
+    fireEvent.change(screen.getByPlaceholderText(/Accounting team/), { target: { value: 'Covers month-end' } });
+    fireEvent.click(btn);
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+    expect(requestRoleChange).toHaveBeenCalledWith({ employee_id: 'e1', email: '', role_id: 'jr-2', reason: 'Covers month-end' });
+  });
+
+  it('Promotion goes to the promotion letter', () => {
+    const onPromote = vi.fn();
+    render(<RoleChangeModal employee={erin} onClose={() => {}} onPromote={onPromote} onChanged={() => {}} toastErr={() => {}} />);
+    fireEvent.click(screen.getByText('Promotion'));
+    expect(onPromote).toHaveBeenCalled();
   });
 });

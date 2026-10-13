@@ -14,6 +14,7 @@ from database import get_db
 from notify_company import notification_company
 from auth import require_module_grant, hr_scope, is_team_scope, get_current_user, hr_team_limited
 from routers.stepup import require_stepup
+from currency import is_currency
 from models import NexusEmployee, PayrollRate, HrRemovedIdentity, PayrollRateHistory
 from services import logo_video
 
@@ -3898,7 +3899,7 @@ def sync_rate_from_comp(db: Session, emp: NexusEmployee) -> None:
                           overtime_rule=default_overtime_rule(db, emp))
         db.add(row)
     cur = comp.get("currency") or ""
-    if cur in ("USD", "INR"):
+    if is_currency(cur):
         row.currency = cur
     if basis == "hourly":
         row.pay_type, row.hourly_rate, row.monthly_salary = "hourly", base, 0.0

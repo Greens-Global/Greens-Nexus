@@ -2210,6 +2210,8 @@ def _run_migrations():
         # Time entries (Oct 2026). models.Task.time_entry_count.
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS time_entry_count INTEGER DEFAULT 0",
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_task_time_running ON task_time_entries (person_email) WHERE ended_at = ''",
+        # Role change approvals (Pranshu, Oct 13). New table - RLS per CLAUDE.md. models.HrRoleChangeRequest.
+        "ALTER TABLE hr_role_change_requests ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
