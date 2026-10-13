@@ -4,7 +4,7 @@ import { api } from '../api';
 import { RUNNING_SINCE, setReleaseSummary, useUpdateSignal } from '../lib/updateSignal';
 import { categoryParts, partJoiner } from '../lib/changelogCategories';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
-import { prefersReducedMotion } from './shifts/motion';
+import { prefersReducedMotion } from '../lib/reducedMotion';
 
 // The weekly "New in Nexus" bar (Neil, Oct 12 2026): a full-width Nexus-green
 // strip across the top of the page, raised by a New Feature, linking to
@@ -33,12 +33,15 @@ const RECHECK_MS = 30 * 60 * 1000;
 const RELEASE_POLL_MS = 2 * 60 * 1000;
 // Updates publish within minutes of the merge; ~20 minutes of asking covers it.
 const RELEASE_MAX_CHECKS = 10;
-const CLOSE_MS = 300;   // matches .feature-banner.is-closing in style.css
+// Removal follows the fold's own animationend; this only catches a browser
+// that never sends one (an animation turned off another way).
+const CLOSE_FALLBACK_MS = 1000;
 
 export default function FeatureBanner({ activeView, onNavigate }) {
   const [banner, setBanner] = useState(null);
   const [closing, setClosing] = useState(false);
   const ref = useRef(null);
+  const rowRef = useRef(null);
   const closeTimer = useRef(null);
   // One dismissal per session, however the bar goes away (its X, its link,
   // or opening What's New another way) - and a recheck answering "show"
@@ -71,10 +74,12 @@ export default function FeatureBanner({ activeView, onNavigate }) {
 
   // The full-height views (Tasks, Tickets, What's New, PDF Tools) size
   // themselves to the viewport under the header; --nx-announce-h takes this
-  // bar's height off them too - live, so they follow it as it opens and folds.
+  // bar's height off them too. It is measured on the ROW - its natural
+  // height, which does not animate - so the heavy views relayout once when
+  // the bar arrives and once when it goes, not on every frame of the fold.
   useLayoutEffect(() => {
     const root = document.documentElement;
-    const el = ref.current;
+    const el = rowRef.current;
     if (!visible || !el) return undefined;
     const set = () => root.style.setProperty('--nx-announce-h', `${el.offsetHeight}px`);
     set();
@@ -104,7 +109,9 @@ export default function FeatureBanner({ activeView, onNavigate }) {
   }, [stale]);
 
   if (!visible) return null;
+  const parts = categoryParts(banner.counts);
 
+  const finishClose = () => { clearTimeout(closeTimer.current); setBanner(null); setClosing(false); };
   const close = () => {
     if (closing) return;
     if (!dismissed.current) {
@@ -113,20 +120,25 @@ export default function FeatureBanner({ activeView, onNavigate }) {
     }
     if (prefersReducedMotion()) { setBanner(null); return; }
     setClosing(true);
-    closeTimer.current = setTimeout(() => { setBanner(null); setClosing(false); }, CLOSE_MS);
+    closeTimer.current = setTimeout(finishClose, CLOSE_FALLBACK_MS);
   };
+  // The bar's own fold ending (not the sheen's, which is on ::after).
+  const onAnimationEnd = (e) => {
+    if (closing && e.target === e.currentTarget && !e.pseudoElement) finishClose();
+  };
+  const message = `Updates this week, including ${parts.map((p, i) => `${p.count} ${p.label}${partJoiner(i, parts.length)}`).join('')}`;
 
-  const parts = categoryParts(banner.counts);
   return (
-    <div ref={ref} role="region" aria-label="New in Nexus" className={`feature-banner${closing ? ' is-closing' : ''}`}>
+    <div ref={ref} role="region" aria-label="New in Nexus" onAnimationEnd={onAnimationEnd}
+      className={`feature-banner${closing ? ' is-closing' : ''}`}>
       <div className="feature-banner-clip">
-        <div className="feature-banner-row">
+        <div className="feature-banner-row" ref={rowRef}>
           <Sparkles size={17} className="feature-banner-icon" aria-hidden="true" />
           <span className="feature-banner-label">New in Nexus</span>
           <span className="feature-banner-rule" aria-hidden="true" />
           {/* The message opens What's New too - a bigger target than the
               button; the button stays the keyboard and screen-reader way in. */}
-          <p className="feature-banner-text" onClick={() => onNavigate?.('whats-new')}>
+          <p className="feature-banner-text" title={message} onClick={() => onNavigate?.('whats-new')}>
             {/* Phones start at "Including" - the lead-in pushed the last
                 category out of two lines. */}
             <span className="feature-banner-lead">Updates this week, including </span>

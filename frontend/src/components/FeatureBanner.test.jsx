@@ -34,6 +34,8 @@ describe('the weekly New in Nexus bar', () => {
     render(<FeatureBanner activeView="tasks" onNavigate={() => {}} />);
     const region = await screen.findByRole('region', { name: 'New in Nexus' });
     expect(region.querySelector('.feature-banner-text').textContent).toMatch(/2 New Features and 3 Bug Fixes$/);
+    // The whole sentence is the hover title, so a clipped line can still be read.
+    expect(region.querySelector('.feature-banner-text').title).toBe('Updates this week, including 2 New Features and 3 Bug Fixes');
     // The lead-in: the full one, and the short one phones show instead (CSS).
     expect(region.querySelector('.feature-banner-lead').textContent).toBe('Updates this week, including ');
     expect(region.querySelector('.feature-banner-lead-short').textContent).toBe('Including ');
@@ -65,7 +67,9 @@ describe('the weekly New in Nexus bar', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss for this week' }));
     expect(api.dismissFeatureBanner).toHaveBeenCalledTimes(1);
     expect(region.className).toMatch(/is-closing/);
-    await waitFor(() => expect(bar()).toBeNull());
+    expect(bar()).not.toBeNull();                       // still folding...
+    fireEvent.animationEnd(region);                     // ...until its own animation ends
+    expect(bar()).toBeNull();
   });
 
   it('stays quiet when the server says so', async () => {
@@ -80,6 +84,7 @@ describe('the weekly New in Nexus bar', () => {
     await screen.findByRole('region', { name: 'New in Nexus' });
     expect(document.documentElement.style.getPropertyValue('--nx-announce-h')).toMatch(/px$/);
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss for this week' }));
+    fireEvent.animationEnd(screen.getByRole('region', { name: 'New in Nexus' }));
     await waitFor(() => expect(document.documentElement.style.getPropertyValue('--nx-announce-h')).toBe(''));
   });
 });
@@ -125,7 +130,33 @@ describe('the new-version popup', () => {
     render(<UpdateBanner />);
     const popup = screen.getByRole('status');
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));   // a double click is one dismissal
     expect(popup.className).toMatch(/is-leaving/);
-    await waitFor(() => expect(screen.queryByRole('status')).toBeNull());
+    fireEvent.animationEnd(popup);
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+});
+
+describe('the popup after Reload', () => {
+  it('gives the buttons back if the reload never happens (a cancelled "Leave site?")', async () => {
+    vi.useFakeTimers();
+    try {
+      build.stale = true;
+      const reload = vi.fn();
+      const original = window.location;
+      Object.defineProperty(window, 'location', { configurable: true, value: { ...original, reload } });
+      try {
+        render(<UpdateBanner />);
+        fireEvent.click(screen.getByRole('button', { name: /Reload/ }));
+        expect(reload).toHaveBeenCalled();
+        expect(screen.getByRole('button', { name: /Reloading/ }).disabled).toBe(true);
+        await act(async () => { vi.advanceTimersByTime(4000); });
+        expect(screen.getByRole('button', { name: /^\s*Reload$/ }).disabled).toBe(false);
+      } finally {
+        Object.defineProperty(window, 'location', { configurable: true, value: original });
+      }
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

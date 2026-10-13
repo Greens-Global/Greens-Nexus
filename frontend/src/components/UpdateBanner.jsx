@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useBuildVersion } from '../lib/useBuildVersion';
 import { setBuildStale, useUpdateSignal } from '../lib/updateSignal';
 import { hasNewFeature, summarizeCategories } from '../lib/changelogCategories';
-import { prefersReducedMotion } from './shifts/motion';
+import { prefersReducedMotion } from '../lib/reducedMotion';
 
 // Non-blocking "a newer Nexus is live" prompt.
 //
@@ -26,7 +26,12 @@ import { prefersReducedMotion } from './shifts/motion';
 // Motion (style.css "Update popup"): it rises in, its icon pops again when the
 // answer arrives, Reload spins while the page reloads, and it drops away when
 // dismissed. Reduced motion: none of it.
-const LEAVE_MS = 220;   // matches .update-banner.is-leaving
+// Removal follows the slide-out's own animationend; this only catches a
+// browser that never sends one.
+const LEAVE_FALLBACK_MS = 1000;
+// A reload the person cancelled at the browser's "Leave site?" prompt
+// (unsaved work elsewhere) never unloads the page: the buttons come back.
+const RELOAD_RECOVER_MS = 4000;
 
 export default function UpdateBanner() {
   const stale = useBuildVersion();
@@ -42,19 +47,30 @@ export default function UpdateBanner() {
   const summary = release ? summarizeCategories(release.counts) : '';
   const features = hasNewFeature(release?.counts);
   const dismiss = () => {
+    if (leaving) return;
     if (prefersReducedMotion()) { setHidden(true); return; }
     setLeaving(true);
-    timer.current = setTimeout(() => setHidden(true), LEAVE_MS);
+    timer.current = setTimeout(() => setHidden(true), LEAVE_FALLBACK_MS);
   };
-  const reload = () => { setReloading(true); window.location.reload(); };
+  const onAnimationEnd = (e) => {
+    if (leaving && e.target === e.currentTarget) { clearTimeout(timer.current); setHidden(true); }
+  };
+  const go = (navigate) => {
+    setReloading(true);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => setReloading(false), RELOAD_RECOVER_MS);
+    navigate();
+  };
+  const reload = () => go(() => window.location.reload());
   // A full load (not in-app navigation): the new version, opened on What's New.
-  const seeWhatsNew = () => { setReloading(true); window.location.assign('/whats-new'); };
+  const seeWhatsNew = () => go(() => window.location.assign('/whats-new'));
 
   // `.update-banner` (style.css): centered and sized to its text on desktop;
   // on a phone it spans the screen (12px gutters), the message on top and the
   // buttons sharing the row under it.
   return (
-    <div role="status" className={`update-banner${features ? ' has-features' : ''}${leaving ? ' is-leaving' : ''}`}>
+    <div role="status" onAnimationEnd={onAnimationEnd}
+      className={`update-banner${features ? ' has-features' : ''}${leaving ? ' is-leaving' : ''}`}>
       {/* Keyed so the icon pops again when the answer arrives. */}
       <span key={summary ? 'known' : 'unknown'} className="update-banner-icon" aria-hidden="true">
         {features ? <Sparkles size={18} /> : <RefreshCw size={17} />}
