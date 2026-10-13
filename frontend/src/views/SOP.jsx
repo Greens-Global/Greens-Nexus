@@ -3187,7 +3187,7 @@ export default function SOP({ activeSub, onSubChange }) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {tagList.map(t => (
               <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, padding: '9px 14px' }}>
-                <input defaultValue={t.name} key={t.id + t.name} style={{ flex: 1, fontSize: '0.88rem', border: 'none', background: 'transparent', color: t.active ? 'var(--text-primary)' : 'var(--text-muted)', outline: 'none' }}
+                <input className="nx-inline-edit" defaultValue={t.name} key={t.id + t.name} style={{ flex: 1, fontSize: '0.88rem', border: 'none', color: t.active ? 'var(--text-primary)' : 'var(--text-muted)' }}
                   onBlur={async e => {
                     const v = e.target.value.trim();
                     if (!v || v === t.name) { e.target.value = t.name; return; }

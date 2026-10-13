@@ -86,7 +86,7 @@ export default function QuickCreateTask({ defaults = {}, onClose, onFullDetails 
 
   return (
     <BottomSheet title="New Task" onClose={onClose}>
-      <div onPaste={onPaste} tabIndex={0} style={{ display: 'flex', flexDirection: 'column', gap: 14, fontFamily: FONT, outline: 'none' }}>
+      <div onPaste={onPaste} tabIndex={0} style={{ display: 'flex', flexDirection: 'column', gap: 14, fontFamily: FONT }}>
         <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
           placeholder="Task name *" style={{ ...inputStyle, fontSize: 17, fontWeight: 600, padding: '10px 12px' }} />

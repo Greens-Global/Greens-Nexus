@@ -113,7 +113,7 @@ export default function CreatePostModal({ facilities, defaultFacility, platform,
     : !!(text.trim() || imageUrl.trim() || ctaLabel || ctaUrl.trim())
 
   const labelStyle = { display: 'block', fontSize: 12, fontWeight: 500, color: C.gray600, marginBottom: 6 }
-  const inputStyle = { width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 13, outline: 'none' }
+  const inputStyle = { width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 13 }
   const previewChipStyle =
     type === 'OFFER'
       ? { color: C.amber600, background: C.amber50 }
@@ -179,7 +179,7 @@ export default function CreatePostModal({ facilities, defaultFacility, platform,
               style={{ ...inputStyle, resize: 'none' }}
             />
           </div>
-          <div onPaste={handlePaste} tabIndex={0} style={{ outline: 'none' }}>
+          <div onPaste={handlePaste} tabIndex={0}>
             <label style={labelStyle}>Photo (optional)</label>
             <div style={{ display: 'flex', gap: 8 }}>
               <input
@@ -187,7 +187,7 @@ export default function CreatePostModal({ facilities, defaultFacility, platform,
                 onChange={(e) => setImageUrl(e.target.value)}
                 onPaste={handlePaste}
                 placeholder={imageUrl.startsWith('data:') ? 'Photo uploaded from device' : 'Paste an image URL...'}
-                style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 13, outline: 'none' }}
+                style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 13 }}
               />
               <button
                 onClick={() => fileInputRef.current?.click()}

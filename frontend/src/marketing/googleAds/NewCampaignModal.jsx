@@ -6,7 +6,7 @@ import { C } from '../theme'
 export const GOOGLE_CHANNELS = ['Google Search', 'Google Display', 'Google Shopping', 'Google Remarketing', 'Google Local', 'YouTube Ads']
 
 const labelStyle = { display: 'block', fontSize: 12.5, fontWeight: 500, color: C.gray600, marginBottom: 6 }
-const fieldStyle = { width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 13, outline: 'none' }
+const fieldStyle = { width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid ' + C.gray200, fontSize: 13 }
 
 export default function NewCampaignModal({ onClose, onCreate, defaultFacility }) {
   const channels = GOOGLE_CHANNELS

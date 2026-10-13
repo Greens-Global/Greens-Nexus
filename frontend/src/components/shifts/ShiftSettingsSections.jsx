@@ -367,7 +367,7 @@ export function ShiftGroupsPanel({ toastOk, toastErr }) {
               </div>
               <label style={{ display: 'flex', alignItems: 'center', gap: 6, border: '1px solid var(--line)', borderRadius: 8, padding: '4px 10px', marginBottom: 6 }}>
                 <Search size={13} color="var(--muted)" />
-                <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people" aria-label="Search people to add" style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 13, flex: 1, fontFamily: 'inherit', color: 'var(--ink)' }} />
+                <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search people" aria-label="Search people to add" className="nx-inline-edit" style={{ border: 'none', fontSize: 13, flex: 1, fontFamily: 'inherit', color: 'var(--ink)' }} />
               </label>
               <div style={{ flex: 1, minHeight: 120, maxHeight: 220, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 10 }}>
                 {directory.length === 0 && <div style={{ padding: 12, fontSize: 12, color: 'var(--muted)' }}>No people available.</div>}

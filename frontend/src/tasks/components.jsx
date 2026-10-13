@@ -167,7 +167,7 @@ export function Modal({ title, onClose, children, footer, width = 'clamp(520px, 
           style.css skip it via .nx-sheet - this one is shaped here. */}
       <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onKeyDown={trapTab}
         onClick={(e) => e.stopPropagation()} className={isMobile ? 'nx-sheet nx-modal-sheet' : 'nx-sheet'} style={{
-        background: NX.surface, display: 'flex', flexDirection: 'column', overflow: 'hidden', outline: 'none',
+        background: NX.surface, display: 'flex', flexDirection: 'column', overflow: 'hidden',
         boxShadow: '0 24px 70px rgba(17,24,39,0.30)', border: `1px solid ${NX.border}`,
         // The sheet's height comes from .nx-modal-sheet, not from here: it needs
         // `height:100vh` followed by `height:100dvh`, and one inline style object
@@ -682,8 +682,8 @@ function TeamPicker({ teams, value, onChange, placeholder = 'Add a team…' }) {
       </button>
       {open && (
         <SelectMenu anchorRef={ref} onClose={() => setOpen(false)}>
-          <input autoFocus={!touch} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search teams…"
-            style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: touch ? 16 : 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
+          <input className="nx-inline-edit" autoFocus={!touch} value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search teams…"
+            style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '9px 12px', fontSize: touch ? 16 : 13, fontFamily: FONT, boxSizing: 'border-box', color: NX.ink }} />
           {shown.length === 0 && <div style={{ padding: '10px 12px', fontSize: 12.5, color: NX.faint }}>No teams match.</div>}
           {shown.map((t) => (
             <div key={t.id} onClick={() => { onChange(t.id); setOpen(false); setQ(''); }}
@@ -1020,7 +1020,7 @@ export function SelectMenu({ anchorRef, onClose, children, minWidth = 0 }) {
 // zoom the page when it is tapped.
 const menuSearchStyle = (isMobile) => ({
   width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: isMobile ? '11px 12px' : '9px 12px',
-  fontSize: isMobile ? 16 : 13, outline: 'none', fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink,
+  fontSize: isMobile ? 16 : 13, fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink,
 });
 // Option rows: a 40px floor on phones, so each is a comfortable tap target.
 const menuRowTall = (isMobile) => (isMobile ? { minHeight: 40, boxSizing: 'border-box' } : null);
