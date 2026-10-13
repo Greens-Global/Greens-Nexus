@@ -19,10 +19,15 @@ describe('directory helpers', () => {
     expect(searchPeople(ALL, '')).toBe(ALL);
   });
 
-  it('groups by department, lead first, no-department last', () => {
+  it('groups by department A-Z, people A-Z by name (leads too), no-department last', () => {
     const g = groupByDepartment(ALL);
     expect(g.map((x) => x.name)).toEqual(['Accounting', 'IT', NO_DEPARTMENT]);
     expect(g[0].people.map((p) => p.email)).toEqual(['bo@x', 'sam@x']);
+    const zed = P('zed@x', 'Zed Able', 'accounting', '', 'lead');          // a lead, and another company's casing
+    const amy = P('amy@x', 'Amy Zulu', 'Accounting');
+    const g2 = groupByDepartment([...ALL, zed, amy]);
+    expect(g2[0].name).toBe('Accounting');
+    expect(g2[0].people.map((p) => p.email)).toEqual(['amy@x', 'bo@x', 'sam@x', 'zed@x']);
   });
 
   it('builds the reporting tree and survives a manager cycle', () => {
@@ -66,7 +71,10 @@ describe('directory helpers', () => {
 
   it('maps Teams presence to a dot and a label', () => {
     expect(presenceOf({ availability: 'Available', activity: 'Available' })).toEqual({ color: '#16a34a', label: 'Available' });
-    expect(presenceOf({ availability: 'Busy', activity: 'InACall' })).toEqual({ color: '#dc2626', label: 'In a Call' });
+    expect(presenceOf({ availability: 'Busy', activity: 'InACall' })).toEqual({ color: '#dc2626', label: 'On a Call' });
+    expect(presenceOf({ availability: 'Available', activity: 'Available', outOfOffice: true }).label).toBe('Out of Office');
+    expect(presenceOf({ availability: 'Offline', activity: 'OutOfOffice' }).label).toBe('Out of Office');
+    expect(presenceOf({ availability: 'DoNotDisturb', activity: 'Presenting' }).label).toBe('Presenting');
     expect(presenceOf({ availability: 'Away', activity: 'Away' }).label).toBe('Away');
     expect(presenceOf({ availability: 'PresenceUnknown' }).label).toBe('Offline');
     expect(presenceOf(null)).toBeNull();
