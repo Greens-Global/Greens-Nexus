@@ -30,7 +30,7 @@ import models
 
 models.Base.metadata.create_all(bind=database.engine)
 
-BOSS = "wfv.boss@greensglobal.com"          # level 3 manager: sees directs + self
+BOSS = "wfv.boss@greensglobal.com"          # level 3 manager: sees directs, those they back up, + self
 LEAD = "wfv.lead@greensglobal.com"          # reports to BOSS, manages AMY
 AMY = "wfv.amy@greensglobal.com"            # reports to LEAD (BOSS's indirect)
 BEN = "wfv.ben@greensglobal.com"            # reports to BOSS, Sales
@@ -108,9 +108,11 @@ class WorkforceViewTests(unittest.TestCase):
         self.assertEqual(v["emails"], [BEN])
 
     def test_a_department_resolves_inside_scope_only(self):
-        # BOSS sees directs (LEAD, BEN) + self; OUT is in Ops but out of scope.
+        # BOSS sees directs (LEAD, BEN) + self, plus AMY: as her manager's
+        # manager BOSS is her default Backup Manager, with a manager's rights
+        # over her (backup_manager.py, Oct 13). OUT is in Ops but out of scope.
         v = self._create(departments=["WFV Ops"])
-        self.assertEqual(set(v["emails"]), {BOSS, LEAD})
+        self.assertEqual(set(v["emails"]), {BOSS, LEAD, AMY})
 
     def test_the_same_view_shows_more_to_someone_who_can_see_more(self):
         self._as(ADMIN)
