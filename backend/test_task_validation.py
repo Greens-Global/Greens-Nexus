@@ -257,12 +257,12 @@ class TaskActivityFeedTests(unittest.TestCase):
         self.db.close()
 
     def test_the_sync_marker_is_hidden_from_a_tasks_own_activity(self):
-        out = task_activity(self.t.id, db=self.db)
+        out = task_activity(self.t.id, user=USER, db=self.db)
 
         self.assertNotIn("synced_from_asana", [a["type"] for a in out])
 
     def test_real_entries_are_untouched(self):
-        details = [a["detail"] for a in task_activity(self.t.id, db=self.db)]
+        details = [a["detail"] for a in task_activity(self.t.id, user=USER, db=self.db)]
 
         self.assertIn("changed the due date to Aug 22", details)
         self.assertIn("completed this task", details)

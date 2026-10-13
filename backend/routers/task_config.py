@@ -73,8 +73,15 @@ def create_saved_view(body: SavedViewBody, user: dict = Depends(get_current_user
 
 
 @router.delete("/task-saved-views/{view_id}", status_code=204)
-def delete_saved_view(view_id: str, db: Session = Depends(get_db)):
-    db.query(models.TaskSavedView).filter(models.TaskSavedView.id == view_id).delete()
+def delete_saved_view(view_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    # A saved view belongs to one person. Filtered to the caller's own task
+    # views - the same rows list_saved_views returns - so nobody can delete
+    # somebody else's by id, or a ticket view through this route (Sep 30 review).
+    db.query(models.TaskSavedView).filter(
+        models.TaskSavedView.id == view_id,
+        models.TaskSavedView.owner_email == user["email"].lower(),
+        models.TaskSavedView.scope != "ticket",
+    ).delete(synchronize_session=False)
     db.commit()
 
 
@@ -597,9 +604,13 @@ def list_notifications(user: dict = Depends(get_current_user), db: Session = Dep
 
 
 @router.post("/task-notifications/{notif_id}/read")
-def mark_notification_read(notif_id: str, db: Session = Depends(get_db)):
+def mark_notification_read(notif_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     n = db.query(models.TaskNotification).filter(models.TaskNotification.id == notif_id).first()
-    if not n:
+    # Only the person it was sent to (or an administrator, for one addressed to
+    # "admins") - the same targets mark_all_read uses. Somebody else's reads as
+    # not found (Sep 30 review).
+    targets = [user["email"].lower()] + (["admins"] if user["level"] >= 4 else [])
+    if not n or (n.for_email or "").lower() not in targets:
         raise HTTPException(404, "Notification not found")
     n.read = True
     db.commit()
