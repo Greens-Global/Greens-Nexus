@@ -174,7 +174,9 @@ def summarize_facility(fac: dict, raw: dict) -> dict:
     for r in rr:
         name = (r.get("pricingGroupName") or "Other").strip()
         g = groups.setdefault(name, {"name": name, "total": 0, "rented": 0, "vacant": 0, "unavailable": 0,
-                                     "street": r.get("standardRate") or 0, "rentSum": 0, "vacantPotential": 0})
+                                     "street": r.get("standardRate") or 0, "rentSum": 0, "vacantPotential": 0,
+                                     "width": r.get("width") or 0, "depth": r.get("depth") or 0,
+                                     "parking": "parking" in name.lower()})
         g["total"] += 1
         if r.get("status") == "RENTED":
             g["rented"] += 1
@@ -399,13 +401,15 @@ def load_trend(days: int = 120) -> list[dict]:
 # ── Cached read ───────────────────────────────────────────────────────────────
 
 _cache: tuple[float, dict] | None = None
+_pulled: dict | None = None     # the raw rows behind _cache, for lookup and the report exports
 _lock = threading.Lock()
 STALE_OK = 12 * 3600.0       # past this, a reader waits for a pull instead of seeing old figures
 
 
 def _refresh() -> dict:
-    global _cache
-    payload = build(pull())
+    global _cache, _pulled
+    pulled = pull()
+    payload = build(pulled)
     try:
         save_snapshots(payload)
         payload["trend"] = load_trend()
@@ -413,6 +417,7 @@ def _refresh() -> dict:
         print(f"[cubby] snapshot skipped: {type(e).__name__}")
         payload["trend"] = []
     _cache = (time.monotonic(), payload)
+    _pulled = pulled
     return payload
 
 
@@ -449,6 +454,103 @@ def summary(fresh: bool = False) -> dict:
         if hit and time.monotonic() - hit[0] < (30.0 if fresh else CACHE_TTL):
             return hit[1]
         return _refresh()
+
+
+# ── Lookup and report exports (read from the same pull the screen shows) ─────
+
+def _rows() -> list[tuple[dict, dict]]:
+    """[(facility, raw rows)] behind the cached summary. Blocking."""
+    summary()
+    return list(zip(_pulled["facilities"], _pulled["raw"])) if _pulled else []
+
+
+def _short(fac: dict) -> str:
+    return (fac.get("name") or "").replace("Greens Storage", "").strip() or (fac.get("name") or "")
+
+
+def _us(iso: str) -> str:
+    """YYYY-MM-DD -> MM/DD/YYYY, for an export a person reads."""
+    return f"{iso[5:7]}/{iso[8:10]}/{iso[:4]}" if len(iso or "") >= 10 else ""
+
+
+def _dollars(cents) -> str:
+    return f"{(cents or 0) / 100:.2f}"
+
+
+def lookup(q: str, limit: int = 12) -> list[dict]:
+    """Find a unit or a tenant across every facility - the question staff open
+    Cubby for most ("is B211 paid?", "what does this tenant rent?"). Blocking."""
+    q = (q or "").strip().lower()
+    if len(q) < 2:
+        return []
+    out = []
+    for fac, raw in _rows():
+        owed = {e.get("unitId"): e.get("totalAmount") or 0 for e in raw["receivables"]}
+        for r in raw["rent_roll"]:
+            unit = (r.get("unitName") or "").strip()
+            tenant = r.get("customerName") or ""
+            # A unit number is matched from its start ("b2" finds B211, not AB21); a name anywhere.
+            rank = 0 if unit.lower() == q else 1 if unit.lower().startswith(q) else 2 if q in tenant.lower() else None
+            if rank is None:
+                continue
+            rented = r.get("status") == "RENTED"
+            out.append((rank, unit, {
+                "facility": _short(fac), "facilityId": fac["facilityId"], "unit": unit,
+                "type": (r.get("pricingGroupName") or "").strip(),
+                "status": "rented" if rented else "vacant" if r.get("status") == "VACANT" else "off-market",
+                "street": r.get("standardRate") or 0,
+                "tenant": tenant if rented else "", "rent": r.get("monthlyRentalAmount") or 0 if rented else 0,
+                "balance": owed.get(r["unitId"], 0) if rented else 0,
+                "paidThrough": r.get("paidThroughDate") or "" if rented else "",
+                "moveIn": r.get("moveInDate") or "" if rented else "",
+                "autoPay": bool(r.get("autoPayEnabled")) if rented else False,
+                "overlocked": bool(r.get("overlockApplied")),
+                "url": _tenant_url(r.get("customerId")) if rented else "",
+            }))
+    out.sort(key=lambda t: (t[0], t[1]))
+    return [row for _, _, row in out[:limit]]
+
+
+REPORTS = {"rent-roll": "Rent Roll", "aged-receivables": "Aged Receivables"}
+
+
+def report(kind: str, facility_id: str = "") -> dict:
+    """A Cubby report as columns and rows, ready to save as a spreadsheet.
+    Tenant name, unit and money only - the same line the screen draws: no
+    phone, email or address leaves here. Blocking."""
+    cols: list[str] = []
+    rows: list[list] = []
+    as_of = ""
+    for fac, raw in _rows():
+        if facility_id and fac["facilityId"] != facility_id:
+            continue
+        as_of = raw["today"].isoformat()
+        name = _short(fac)
+        if kind == "rent-roll":
+            cols = ["Facility", "Unit", "Unit Type", "Width", "Depth", "Status", "Tenant", "Company", "Move-In Date",
+                    "Street Rate", "Monthly Rent", "Rent vs Street", "Paid Through", "Autopay", "Overlocked", "Balance Due"]
+            owed = {e.get("unitId"): e.get("totalAmount") or 0 for e in raw["receivables"]}
+            for r in sorted(raw["rent_roll"], key=lambda r: (r.get("unitName") or "")):
+                rented = r.get("status") == "RENTED"
+                rows.append([
+                    name, (r.get("unitName") or "").strip(), (r.get("pricingGroupName") or "").strip(),
+                    r.get("width") or "", r.get("depth") or "", (r.get("status") or "").title(),
+                    r.get("customerName") or "", r.get("companyName") or "", _us(r.get("moveInDate") or ""),
+                    _dollars(r.get("standardRate")), _dollars(r.get("monthlyRentalAmount")) if rented else "",
+                    _dollars((r.get("monthlyRentalAmount") or 0) - (r.get("standardRate") or 0)) if rented else "",
+                    _us(r.get("paidThroughDate") or ""), ("Yes" if r.get("autoPayEnabled") else "No") if rented else "",
+                    "Yes" if r.get("overlockApplied") else "No", _dollars(owed.get(r["unitId"], 0)) if rented else "",
+                ])
+        elif kind == "aged-receivables":
+            cols = ["Facility", "Unit", "Unit Type", "Tenant", "Total Due"] + ["0-30 Days", "31-60 Days", "61-90 Days", "91-120 Days", "120+ Days"]
+            for e in sorted(raw["receivables"], key=lambda e: -(e.get("totalAmount") or 0)):
+                by = {x.get("range"): x.get("amount") or 0 for x in e.get("ranges", [])}
+                rows.append([name, (e.get("unitName") or "").strip(), (e.get("pricingGroupName") or "").strip(),
+                             e.get("customerName") or "", _dollars(e.get("totalAmount"))]
+                            + [_dollars(by.get(k)) for k in AGING[:5]])
+        else:
+            raise CubbyError(404, "No such report")
+    return {"title": REPORTS[kind], "asOf": as_of, "columns": cols, "rows": rows}
 
 
 async def cubby_snapshot_loop():

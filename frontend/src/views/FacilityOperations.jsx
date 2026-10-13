@@ -6,7 +6,7 @@
 // is instant. Nexus only reads - payments, leases and tenant edits stay in
 // Cubby, and each tenant row links there.
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { LayoutDashboard, HandCoins, Warehouse, ListChecks, RefreshCw } from 'lucide-react';
+import { LayoutDashboard, HandCoins, Warehouse, ListChecks, Scale, FileSpreadsheet, RefreshCw } from 'lucide-react';
 import ModuleTabs from '../components/ModuleTabs';
 import { ErrorBanner, LoadingState } from '../components/AsyncState';
 import { api } from '../api';
@@ -14,6 +14,9 @@ import { formatDate, formatDateTime } from '../lib/datetime';
 import { combine, PERIODS, periodRange } from '../operations/model';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { Overview, Collections, Units, Worklist } from '../operations/OpsTabs';
+import Market from '../operations/Market';
+import Reports from '../operations/Reports';
+import Lookup from '../operations/Lookup';
 import '../operations/ops.css';
 
 const TABS = [
@@ -21,7 +24,11 @@ const TABS = [
   { key: 'collections', label: 'Collections',     Icon: HandCoins },
   { key: 'units',       label: 'Units & Pricing', Icon: Warehouse },
   { key: 'worklist',    label: 'Worklist',        Icon: ListChecks },
+  { key: 'market',      label: 'Market Rates',    Icon: Scale },
+  { key: 'reports',     label: 'Reports',         Icon: FileSpreadsheet },
 ];
+// Market Rates keeps its own records and compares one facility at a time, so
+// the period and the "as of today" note do not apply to it.
 const TAB_KEYS = new Set(TABS.map((t) => t.key));
 
 export default function FacilityOperations({ activeSub, onSubChange }) {
@@ -120,21 +127,30 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
                 <button type="button" key={f.id} className="ops-pill" aria-pressed={picked === f.id} onClick={() => setPicked(f.id)}>{f.shortName}</button>
               ))}
             </div>
-            <label className="ops-period">
-              <span>Period</span>
-              <select value={period} onChange={(e) => setPeriod(e.target.value)}>
-                {PERIODS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
-              </select>
-            </label>
+            <div className="ops-bar-right">
+              <Lookup />
+              {sub !== 'market' && (
+                <label className="ops-period">
+                  <span>Period</span>
+                  <select value={period} onChange={(e) => setPeriod(e.target.value)}>
+                    {PERIODS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+                  </select>
+                </label>
+              )}
+            </div>
           </div>
-          <p className="ops-note">
-            Occupancy, rent and balances are as of today. Move-ins, collections and failed payments cover {range.label.toLowerCase()} ({formatDate(range.from)} - {formatDate(range.to)}).
-          </p>
+          {sub !== 'market' && (
+            <p className="ops-note">
+              Occupancy, rent and balances are as of today. Move-ins, collections and failed payments cover {range.label.toLowerCase()} ({formatDate(range.from)} - {formatDate(range.to)}).
+            </p>
+          )}
 
           {sub === 'overview' && <Overview data={data} facilities={facilities} scope={scope} many={many} range={range} focus={focus} go={go} onPick={setPicked} onJump={jump} />}
           {sub === 'collections' && <Collections data={data} scope={scope} trend={state.data.trend} many={many} range={range} focus={focus} go={go} />}
           {sub === 'units' && <Units data={data} many={many} focus={focus} go={go} />}
           {sub === 'worklist' && <Worklist data={data} many={many} focus={focus} go={go} />}
+          {sub === 'market' && <Market facility={scope.length === 1 ? scope[0] : null} facilities={facilities} onPick={setPicked} />}
+          {sub === 'reports' && <Reports data={data} facilities={facilities} scope={scope} range={range} />}
         </div>
       )}
     </div>

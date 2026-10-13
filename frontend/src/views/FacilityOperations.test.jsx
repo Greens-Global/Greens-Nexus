@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { toCsv, csvName } from '../operations/csv';
 import { combine, attentionItems, pastDueTrend, periodRange, periodStats, historyWindow, collectionSeries } from '../operations/model';
 
 // Operations (storage facilities, Oct 2026): the screen reads Cubby through one
@@ -8,7 +9,17 @@ import { combine, attentionItems, pastDueTrend, periodRange, periodStats, histor
 // shows a message instead of a blank screen.
 
 const getFacilityOps = vi.fn();
-vi.mock('../api', () => ({ api: { getFacilityOps: (...a) => getFacilityOps(...a) } }));
+const facilityOpsLookup = vi.fn();
+const facilityOpsReport = vi.fn();
+const getOpsMarket = vi.fn();
+const recordOpsRate = vi.fn();
+vi.mock('../api', () => ({ api: {
+  getFacilityOps: (...a) => getFacilityOps(...a), facilityOpsLookup: (...a) => facilityOpsLookup(...a),
+  facilityOpsReport: (...a) => facilityOpsReport(...a), getOpsMarket: (...a) => getOpsMarket(...a),
+  recordOpsRate: (...a) => recordOpsRate(...a),
+} }));
+const downloadCsv = vi.fn();
+vi.mock('../operations/csv', async (orig) => ({ ...(await orig()), downloadCsv: (...a) => downloadCsv(...a) }));
 vi.mock('../components/ModuleTabs', () => ({
   default: ({ tabs, active, onChange }) => (
     <div role="tablist">{tabs.map((t) => <button key={t.key} role="tab" aria-selected={t.key === active} onClick={() => onChange(t.key)}>{t.label}</button>)}</div>
@@ -132,6 +143,45 @@ describe('Operations module', () => {
     expect(card().textContent).toContain('1-1 of 1 (30 in all)');
   });
 
+  it('finds a unit from the lookup box', async () => {
+    facilityOpsLookup.mockResolvedValue({ results: [{ facility: 'Temecula', facilityId: 'fac_a', unit: 'B211', type: "10' x 20'", status: 'rented',
+      street: 20000, tenant: 'Pat Example', rent: 18000, balance: 14450, paidThrough: '2026-09-30', moveIn: '2025-01-15', autoPay: false, overlocked: true, url: 'https://app.cubbystorage.com/tenants/cust_1' }] });
+    render(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
+    await screen.findByText('Facility Scorecard');
+    fireEvent.change(screen.getByLabelText('Find a unit or tenant across every facility'), { target: { value: 'b211' } });
+    expect(await screen.findByText('$144.50')).toBeTruthy();
+    expect(screen.getByText('09/30/2026')).toBeTruthy();
+    expect(facilityOpsLookup).toHaveBeenCalledWith('b211');
+  });
+
+  it('exports a list from the screen and a report from Cubby', async () => {
+    facilityOpsReport.mockResolvedValue({ title: 'Rent Roll', asOf: '2026-10-13', columns: ['Unit'], rows: [['A12']] });
+    render(<FacilityOperations activeSub="reports" onSubChange={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Download Tenants Past Due as a spreadsheet' }));
+    expect(downloadCsv.mock.calls[0][0]).toBe('Tenants Past Due - All Facilities - 10-13-2026.csv');
+    expect(downloadCsv.mock.calls[0][2]).toHaveLength(2);
+    fireEvent.click(screen.getByRole('button', { name: 'Download Rent Roll as a spreadsheet' }));
+    await waitFor(() => expect(downloadCsv).toHaveBeenCalledTimes(2));
+    expect(facilityOpsReport).toHaveBeenCalledWith('rent-roll', '');
+    expect(downloadCsv.mock.calls[1].slice(1)).toEqual([['Unit'], [['A12']]]);
+  });
+
+  it('compares one facility against its market, and asks for one when all are chosen', async () => {
+    const row = { name: "10' x 20' Drive-Up", width: 10, depth: 20, parking: false, total: 100, rented: 70, vacant: 30, street: 20000, averageRent: 19000,
+      competitors: 2, marketLow: 21000, marketMedian: 22000, marketHigh: 23000, lowestBy: 'StorQuest', newestObservation: '2026-10-01',
+      suggested: 20500, why: '70% occupied: some vacancy, so sit just under the market to fill it.', change: 500, monthlyImpact: 15000 };
+    getOpsMarket.mockResolvedValue({ facilityId: 'fac_a', facility: 'Temecula', asOf: '2026-10-13', freshDays: 120, minCompetitors: 2, rows: [row],
+      competitors: [{ id: 'c1', name: 'StorQuest', distanceMiles: 1.2, rates: [{ observedOn: '2026-10-01' }] }] });
+    render(<FacilityOperations activeSub="market" onSubChange={() => {}} />);
+    expect(await screen.findByText('Choose a Facility')).toBeTruthy();
+    expect(getOpsMarket).not.toHaveBeenCalled();
+    fireEvent.click(screen.getAllByRole('button', { name: 'Temecula' })[0]);
+    expect(await screen.findByText('9% Below')).toBeTruthy();                 // $200 against a $220 median
+    expect(screen.getByText('$205')).toBeTruthy();
+    expect(getOpsMarket).toHaveBeenCalledWith('fac_a');
+    expect(screen.queryByLabelText('Period')).toBeNull();                     // a period does not apply here
+  });
+
   it('shows a message, not a blank screen, when Cubby cannot be read', async () => {
     getFacilityOps.mockRejectedValue(Object.assign(new Error('boom'), { status: 424 }));
     vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -182,6 +232,12 @@ describe('Operations figures', () => {
     expect(collectionSeries(daily, periodRange('last-30', '2026-10-13'))).toHaveLength(30);
     const yearly = collectionSeries(daily, periodRange('this-year', '2026-10-13'));
     expect(yearly.at(-1)).toMatchObject({ date: '2026-10', collected: 1300 });
+  });
+
+  it('writes a csv a spreadsheet opens safely', () => {
+    expect(toCsv(['Unit', 'Tenant', 'Gap'], [['A1', 'Smith, Pat', '-20.00'], ['A2', '=HYPERLINK("x")', '5']]))
+      .toBe('Unit,Tenant,Gap\r\nA1,"Smith, Pat",-20.00\r\nA2,"\'=HYPERLINK(""x"")",5');
+    expect(csvName('Rent Roll', 'Temecula', '2026-10-13')).toBe('Rent Roll - Temecula - 10-13-2026.csv');
   });
 
   it('only draws a trend day once every chosen facility has a row for it', () => {

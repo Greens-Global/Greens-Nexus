@@ -5779,3 +5779,41 @@ class CubbyDailySnapshot(Base):
     past_due_tenants       = Column(Integer, default=0)
     autopay_count          = Column(Integer, default=0)
     captured_at            = Column(String, default="")          # UTC iso of the last pull that day
+
+
+class OpsCompetitor(Base):
+    """A nearby storage facility whose rates one of ours is compared against
+    (Operations -> Market Rates, Oct 2026). `facility_id` is OUR Cubby facility
+    it competes with. Removing one sets `active` false - its recorded rates are
+    history and stay. New table - create_all builds it;
+    main._enable_rls_everywhere turns RLS on at startup."""
+    __tablename__ = "ops_competitors"
+    id             = Column(String, primary_key=True)   # uuid
+    facility_id    = Column(String, index=True, nullable=False)
+    name           = Column(String, default="")
+    address        = Column(String, default="")
+    distance_miles = Column(Float, default=0)
+    website        = Column(String, default="")
+    notes          = Column(Text, default="")
+    active         = Column(Boolean, default=True)
+    created_by     = Column(String, default="")
+    created_at     = Column(String, default="")
+
+
+class OpsCompetitorRate(Base):
+    """One observation of a competitor's rate for one unit size, with the day
+    it was seen. Rows are only ever added - the newest per competitor and size
+    is "the market", the rest is how it moved."""
+    __tablename__ = "ops_competitor_rates"
+    id            = Column(String, primary_key=True)   # uuid
+    competitor_id = Column(String, index=True, nullable=False)
+    facility_id   = Column(String, index=True, nullable=False)   # ours, copied from the competitor for one-table reads
+    width         = Column(Float, default=0)                      # feet
+    depth         = Column(Float, default=0)
+    parking       = Column(Boolean, default=False)                # parking and storage are separate markets
+    rate_cents    = Column(Integer, default=0)                    # per month
+    promo         = Column(String, default="")                    # "First month free", as advertised
+    observed_on   = Column(String, default="", index=True)        # YYYY-MM-DD
+    source        = Column(String, default="manual")              # manual | import
+    entered_by    = Column(String, default="")
+    created_at    = Column(String, default="")

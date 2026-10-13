@@ -9,7 +9,7 @@ import {
   FileSpreadsheet, Landmark, BarChart3,
   Users, LogIn, PenTool, Files, Megaphone, ExternalLink,
   Settings, ChevronLeft, ChevronRight,
-  HelpCircle, Store, Calendar, Package, Contact, HandCoins, Warehouse, ListChecks,
+  HelpCircle, Store, Calendar, Package, Contact, HandCoins, Warehouse, ListChecks, Scale,
   FlaskConical,
   KeyRound,
   Briefcase, FileSignature, ArrowDownToLine, ArrowUpFromLine,
@@ -119,6 +119,8 @@ export const NAV = [
       { subview: "collections", label: "Collections",     icon: HandCoins },
       { subview: "units",       label: "Units & Pricing", icon: Warehouse },
       { subview: "worklist",    label: "Worklist",        icon: ListChecks },
+      { subview: "market",      label: "Market Rates",    icon: Scale },
+      { subview: "reports",     label: "Reports",         icon: FileSpreadsheet },
     ],
   },
   // Development was removed from the nav (Neil, Aug 11) - the module isn't

@@ -125,3 +125,41 @@
 .ops-pager { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-top: 10px; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .ops-pager-btns { display: inline-flex; gap: 6px; }
 .ops-pager-btns .secondary-btn { display: inline-flex; align-items: center; padding: 6px 9px; }
+
+/* Lookup: one box, results in a panel under the bar. */
+.ops-bar-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.ops-lookup { position: relative; }
+.ops-lookup-box { margin-bottom: 0; width: 250px; border-radius: 999px; }
+.ops-x { background: none; border: none; padding: 2px; color: var(--muted); cursor: pointer; display: inline-flex; }
+.ops-lookup-panel { position: absolute; right: 0; top: calc(100% + 8px); z-index: 30; width: min(640px, calc(100vw - 48px)); max-height: 60vh; overflow-y: auto; padding: 8px 14px; }
+.ops-hits { list-style: none; margin: 0; padding: 0; }
+.ops-hit { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.ops-hit:last-child { border-bottom: none; }
+.ops-hit-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ops-hit-unit { font-weight: 700; font-size: 15px; color: var(--ink); }
+.ops-hit-where { font-size: 12.5px; color: var(--muted); }
+.ops-hit-facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px 14px; margin: 10px 0 0; }
+.ops-hit-facts dt { font-size: 11px; color: var(--muted); }
+.ops-hit-facts dd { margin: 2px 0 0; font-size: 13.5px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+@media (max-width: 700px) { .ops-lookup, .ops-lookup-box { width: 100%; } .ops-lookup-panel { left: 0; right: auto; } }
+
+/* Reports and competitor lists: a title, a line about it, one action. */
+.ops-reports { list-style: none; margin: 0; padding: 0; }
+.ops-report { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.ops-report:last-child { border-bottom: none; }
+.ops-report-title { font-weight: 600; font-size: 13.5px; color: var(--ink); display: flex; align-items: center; gap: 8px; }
+.ops-report-about { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+
+/* Market Rates */
+.ops-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 12px; align-items: end; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+.ops-form label { display: flex; flex-direction: column; gap: 5px; font-size: 12px; font-weight: 500; color: var(--muted); }
+.ops-form .form-input { width: 100%; }
+.ops-form-error { grid-column: 1 / -1; margin: 0; font-size: 12.5px; color: hsl(var(--color-red)); }
+.ops-delta { font-size: 12px; color: var(--muted); font-weight: 500; }
+.ops-why { font-size: 12.5px; color: var(--muted); min-width: 220px; white-space: normal; }
+.ops-analysis { font-size: 13.5px; line-height: 1.55; color: var(--ink); }
+.ops-analysis-head { font-weight: 600; font-size: 14.5px; margin: 0 0 10px; }
+.ops-analysis h4 { font-size: 12px; font-weight: 600; color: var(--muted); margin: 14px 0 6px; }
+.ops-analysis ul { margin: 0; padding-left: 18px; }
+.ops-analysis li { margin-bottom: 4px; }
+.ops-analysis .ops-note { margin-top: 14px; }
