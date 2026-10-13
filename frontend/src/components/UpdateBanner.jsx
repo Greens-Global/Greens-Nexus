@@ -1,7 +1,8 @@
-import { RefreshCw, Sparkles, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { RefreshCw, Sparkles, ArrowRight, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { useBuildVersion } from '../lib/useBuildVersion';
 import { setBuildStale, useUpdateSignal } from '../lib/updateSignal';
+import { prefersReducedMotion } from './shifts/motion';
 
 // Non-blocking "a newer Nexus is live" prompt.
 //
@@ -19,31 +20,56 @@ import { setBuildStale, useUpdateSignal } from '../lib/updateSignal';
 // straight onto What's New. Whether it does is answered by FeatureBanner from
 // inside the signed-in app (lib/updateSignal.js) - this popup sits outside the
 // sign-in gate and cannot ask the API itself.
+//
+// Motion (style.css "Update popup"): it rises in, its icon pops again if the
+// news turns into new features while it is up, Reload spins while the page
+// reloads, and it drops away when dismissed. Reduced motion: none of it.
+const LEAVE_MS = 220;   // matches .update-banner.is-leaving
+
 export default function UpdateBanner() {
   const stale = useBuildVersion();
   const { newFeature } = useUpdateSignal();
   useEffect(() => { setBuildStale(stale); }, [stale]);
   const [hidden, setHidden] = useState(false);
+  const [leaving, setLeaving] = useState(false);
+  const [reloading, setReloading] = useState(false);
+  const timer = useRef(null);
+  useEffect(() => () => clearTimeout(timer.current), []);
   if (!stale || hidden) return null;
 
+  const dismiss = () => {
+    if (prefersReducedMotion()) { setHidden(true); return; }
+    setLeaving(true);
+    timer.current = setTimeout(() => setHidden(true), LEAVE_MS);
+  };
+  const reload = () => { setReloading(true); window.location.reload(); };
+  // A full load (not in-app navigation): the new version, opened on What's New.
+  const seeWhatsNew = () => { setReloading(true); window.location.assign('/whats-new'); };
+
   // `.update-banner` (style.css): centered and sized to its text on desktop;
-  // on a phone it spans the screen (12px gutters) so the message reads on one
-  // or two lines instead of wrapping into a narrow column (Oct 3).
+  // on a phone it spans the screen (12px gutters), the message on top and the
+  // buttons sharing the row under it.
   return (
-    <div role="status" className="update-banner">
-      <span className="update-banner-text">
-        {newFeature ? 'A new version of Nexus is available, with new features' : 'A new version of Nexus is available'}
+    <div role="status" className={`update-banner${newFeature ? ' has-features' : ''}${leaving ? ' is-leaving' : ''}`}>
+      {/* Keyed so the icon pops again when the news becomes "new features". */}
+      <span key={newFeature ? 'features' : 'version'} className="update-banner-icon" aria-hidden="true">
+        {newFeature ? <Sparkles size={18} /> : <RefreshCw size={17} />}
+      </span>
+      <span className="update-banner-copy">
+        <span className="update-banner-text">A New Version of Nexus Is Available</span>
+        <span className="update-banner-sub">
+          {newFeature ? 'It comes with new features.' : 'Reload when it suits you.'}
+        </span>
       </span>
       {newFeature && (
-        // A full load (not in-app navigation): the new version, opened on What's New.
-        <button onClick={() => window.location.assign('/whats-new')} className="update-banner-whatsnew">
-          <Sparkles size={13} /> See What&apos;s New
+        <button onClick={seeWhatsNew} disabled={reloading} className="update-banner-whatsnew">
+          See What&apos;s New <ArrowRight size={14} className="update-banner-arrow" aria-hidden="true" />
         </button>
       )}
-      <button onClick={() => window.location.reload()} className={newFeature ? 'update-banner-reload update-banner-reload-quiet' : 'update-banner-reload'}>
-        <RefreshCw size={13} /> Reload
+      <button onClick={reload} disabled={reloading} className={newFeature ? 'update-banner-reload update-banner-reload-quiet' : 'update-banner-reload'}>
+        <RefreshCw size={13} className={reloading ? 'update-banner-spin' : undefined} aria-hidden="true" /> {reloading ? 'Reloading…' : 'Reload'}
       </button>
-      <button onClick={() => setHidden(true)} aria-label="Dismiss" className="update-banner-close">
+      <button onClick={dismiss} aria-label="Dismiss" className="update-banner-close">
         <X size={16} />
       </button>
     </div>
