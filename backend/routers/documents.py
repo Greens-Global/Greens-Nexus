@@ -1257,6 +1257,8 @@ def delete_template(tid: str, user: dict = Depends(get_current_user), db: Sessio
     # block it instead of silently orphaning those documents.
     if db.query(Document).filter(Document.template_id == tid).first():
         raise HTTPException(409, "Cannot delete a template that has generated documents - archive it instead")
+    # Its saved versions are only reachable through the template.
+    db.query(DocTemplateVersion).filter(DocTemplateVersion.template_id == tid).delete(synchronize_session=False)
     db.delete(row); db.commit()
     return {"ok": True}
 
@@ -1340,6 +1342,16 @@ def delete_letterhead(lid: str, user: dict = Depends(get_current_user), db: Sess
     if row:
         if user["level"] < _ADMIN_LEVEL and row.created_by != user["email"]:
             raise HTTPException(403, "You can only delete letterheads you created")
+        # Same story as delete_template above: letterhead_id is a plain string
+        # with no FK, and a template or document left pointing at a deleted
+        # letterhead exports with no letterhead at all.
+        templates = db.query(DocTemplate).filter(DocTemplate.letterhead_id == lid).count()
+        documents = db.query(Document).filter(Document.letterhead_id == lid).count()
+        if templates or documents:
+            used = " and ".join(f"{n} {one if n == 1 else many}" for n, one, many in
+                                ((templates, "template", "templates"), (documents, "document", "documents")) if n)
+            raise HTTPException(409, f"Cannot delete a letterhead that is still used by {used} - "
+                                     "switch them to another letterhead first")
         db.delete(row); db.commit()
     return {"ok": True}
 
