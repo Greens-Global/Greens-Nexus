@@ -117,7 +117,7 @@ class TaskPermissionTests(unittest.TestCase):
     def test_only_the_author_may_edit_a_comment_body(self):
         c = self._comment()
         with self.assertRaises(HTTPException) as ctx:
-            edit_comment(c.id, CommentUpdate(body="<p>hijacked</p>"), user=OUTSIDER, db=self.db)
+            edit_comment(c.id, CommentUpdate(body="<p>hijacked</p>"), BackgroundTasks(), user=OUTSIDER, db=self.db)
         self.assertEqual(ctx.exception.status_code, 403)
         self.db.rollback()
         self.assertEqual(self.db.get(models.TaskComment, c.id).body, "<p>original</p>")
@@ -127,22 +127,22 @@ class TaskPermissionTests(unittest.TestCase):
         another person's words is different in kind from access."""
         c = self._comment()
         with self.assertRaises(HTTPException):
-            edit_comment(c.id, CommentUpdate(body="<p>edited by boss</p>"), user=MANAGER, db=self.db)
+            edit_comment(c.id, CommentUpdate(body="<p>edited by boss</p>"), BackgroundTasks(), user=MANAGER, db=self.db)
         self.db.rollback()
         self.assertEqual(self.db.get(models.TaskComment, c.id).body, "<p>original</p>")
 
     def test_the_author_can_edit_their_own_comment(self):
         c = self._comment()
-        edit_comment(c.id, CommentUpdate(body="<p>fixed a typo</p>"), user=AUTHOR, db=self.db)
+        edit_comment(c.id, CommentUpdate(body="<p>fixed a typo</p>"), BackgroundTasks(), user=AUTHOR, db=self.db)
         self.assertEqual(self.db.get(models.TaskComment, c.id).body, "<p>fixed a typo</p>")
 
     def test_pinning_requires_editor_not_authorship(self):
         c = self._comment()
         with self.assertRaises(HTTPException) as ctx:
-            edit_comment(c.id, CommentUpdate(pinned=True), user=OUTSIDER, db=self.db)
+            edit_comment(c.id, CommentUpdate(pinned=True), BackgroundTasks(), user=OUTSIDER, db=self.db)
         self.assertEqual(ctx.exception.status_code, 403)
         self.db.rollback()
-        edit_comment(c.id, CommentUpdate(pinned=True), user=MANAGER, db=self.db)
+        edit_comment(c.id, CommentUpdate(pinned=True), BackgroundTasks(), user=MANAGER, db=self.db)
         self.assertTrue(self.db.get(models.TaskComment, c.id).pinned)
 
     def test_an_outsider_cannot_delete_a_comment(self):

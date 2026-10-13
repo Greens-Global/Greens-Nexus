@@ -114,6 +114,15 @@ class Task(Base):
     due_history       = Column(JSON, default=list)
     due_agreement     = Column(String, default="")
     due_proposal      = Column(JSON, nullable=True)
+    # Checklist counters (Oct 2026) - denormalized from task_checklist_items
+    # by routers/tasks._recount_checklist so every list row and board card can
+    # print "3/5" without a query per task. Never written anywhere else.
+    checklist_total   = Column(Integer, default=0)
+    checklist_done    = Column(Integer, default=0)
+    # Time entries (Oct 2026, task_time_entries). While a task has entries,
+    # actual_hours is their rolled-up total (routers/tasks._recount_time) and
+    # cannot be typed over; with none, actual_hours stays the old free number.
+    time_entry_count  = Column(Integer, default=0)
 
 
 class PurchaseRequest(Base):
@@ -2939,6 +2948,13 @@ class TaskProject(Base):
     # retention window, then purged by task_trash.trash_purge_loop.
     deleted_at    = Column(String, default="", index=True)
     deleted_by    = Column(String, default="")
+    # How the project opens for everyone who has not chosen otherwise in it
+    # (Oct 2026): {view: list|board|..., group: status|...}. Set by the owner.
+    default_view  = Column(JSON, nullable=True)
+    # Dashboard charts the project shares with everyone who can see it
+    # ([chart configs], same shape as a person's own charts in their
+    # task_table_prefs "charts" document). Editors curate.
+    shared_charts = Column(JSON, default=list)
 
 
 class TaskPortfolio(Base):
@@ -3088,6 +3104,15 @@ class TaskComment(Base):
     edited_at    = Column(String, default="")
     pinned       = Column(Boolean, default=False)
     internal     = Column(Boolean, default=False)   # ticket notes only: agent-visible, not shared with the requester
+    # Threads, reactions and action items (Oct 2026). A reply carries the ROOT
+    # comment's id in parent_id (one level: a reply to a reply joins the same
+    # thread). reactions is {emoji: [emails]}. An assigned comment names the
+    # person who has to act on it; resolving it closes the item.
+    parent_id      = Column(String, default="", index=True)
+    reactions      = Column(JSON, default=dict)
+    assignee_email = Column(String, default="")
+    resolved_at    = Column(String, default="")
+    resolved_by    = Column(String, default="")
 
 
 class TaskAttachment(Base):
@@ -3156,10 +3181,17 @@ class TaskAutomationRule(Base):
     __tablename__ = "task_automation_rules"
     id         = Column(String, primary_key=True)
     name       = Column(String, nullable=False)
-    trigger    = Column(JSON, default=dict)              # {type, value?}
-    actions    = Column(JSON, default=list)              # [{type, value}]
+    trigger    = Column(JSON, default=dict)              # {type, value?} - see task_automation.TRIGGER_TYPES
+    actions    = Column(JSON, default=list)              # [{type, value}] - task_automation.ACTION_TYPES
     enabled    = Column(Boolean, default=True)
     created_at = Column(String, default="")
+    # Engine (Oct 2026, task_automation.py). Until then rules were stored and
+    # never run. `conditions` narrows a trigger ([{field, op, value}] - project,
+    # status, priority, tag, assignee, team; is / is_not); the counters feed
+    # the Runs panel.
+    conditions  = Column(JSON, default=list)
+    run_count   = Column(Integer, default=0)
+    last_run_at = Column(String, default="")
 
 
 class TaskTemplate(Base):
@@ -5968,3 +6000,75 @@ class NexusPersonPref(Base):
     email       = Column(String, primary_key=True)
     weather_sms = Column(Integer, default=1)
     updated_at  = Column(String, default="")
+
+
+class TaskAutomationRun(Base):
+    """One firing of a task automation rule (task_automation.py, Oct 2026):
+    what rule, on which task, what it did - the Runs panel under Manage >
+    Automation Rules, and the once-per-rule-per-task-per-date dedupe for the
+    scheduled "due date arrives" trigger (`dedupe_key` = rule:task:date, blank
+    for edit-driven runs). New table - create_all builds it;
+    main._enable_rls_everywhere turns RLS on at startup."""
+    __tablename__ = "task_automation_runs"
+    id           = Column(String, primary_key=True)
+    rule_id      = Column(String, default="", index=True)
+    rule_name    = Column(String, default="")           # captured so the log reads after the rule is deleted
+    task_id      = Column(String, default="", index=True)
+    task_code    = Column(String, default="")
+    task_title   = Column(String, default="")
+    trigger_type = Column(String, default="")
+    event        = Column(String, default="")           # created|updated|bulk|scheduled
+    actions      = Column(JSON, default=list)           # human lines, one per action applied
+    status       = Column(String, default="applied")    # applied|error
+    detail       = Column(String, default="")           # the error, when status is error
+    dedupe_key   = Column(String, default="", index=True)
+    at           = Column(String, default="", index=True)
+
+
+class TaskChecklistItem(Base):
+    """One line of a task's checklist (Oct 2026): the small steps inside a
+    task that do not deserve to be subtasks - "call the vendor", "attach the
+    photo". Flat, ordered, each line can be ticked and can name a person.
+    Task.checklist_total / checklist_done are kept in step by
+    routers/tasks._recount_checklist. New table - create_all builds it;
+    main._enable_rls_everywhere turns RLS on at startup."""
+    __tablename__ = "task_checklist_items"
+    id             = Column(String, primary_key=True)
+    task_id        = Column(String, default="", index=True)
+    title          = Column(String, nullable=False)
+    done           = Column(Boolean, default=False)
+    done_at        = Column(String, default="")
+    done_by        = Column(String, default="")
+    assignee_email = Column(String, default="")
+    position       = Column(Float, default=0)
+    created_at     = Column(String, default="")
+    created_by     = Column(String, default="")
+
+
+class TaskTimeEntry(Base):
+    """One stretch of time a person spent on a task (Oct 2026): a timer they
+    started and stopped, or minutes they typed in afterwards. Deliberately
+    NOT a Time Clock punch: punches are attendance and payroll
+    (timeclock.py); this is effort against a task, and nothing here touches a
+    timesheet. One running entry (ended_at blank) per person at a time.
+    New table - create_all builds it; main._enable_rls_everywhere turns RLS on
+    at startup."""
+    __tablename__ = "task_time_entries"
+    id           = Column(String, primary_key=True)
+    task_id      = Column(String, default="", index=True)
+    person_email = Column(String, default="", index=True)
+    started_at   = Column(String, default="")          # UTC iso; for a manual entry, the day it was for (noon UTC)
+    ended_at     = Column(String, default="", index=True)   # blank while the timer runs
+    minutes      = Column(Integer, default=0)          # whole minutes, set when stopped or typed
+    note         = Column(String, default="")
+    billable     = Column(Boolean, default=False)
+    source       = Column(String, default="timer")     # timer|manual
+    created_at   = Column(String, default="")
+    # One running entry per person, enforced by the database: two Starts at
+    # the same moment (double-click, second tab) cannot both land. Partial
+    # unique index - SQLite and Postgres both support the WHERE. Existing
+    # databases get it from main.py's migration lists.
+    __table_args__ = (
+        Index("ux_task_time_running", "person_email", unique=True,
+              sqlite_where=(ended_at == ""), postgresql_where=(ended_at == "")),
+    )

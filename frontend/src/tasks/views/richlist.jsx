@@ -348,6 +348,11 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
           </button>
           {t.isMilestone && <Diamond size={12} style={{ color: NX.purple, flexShrink: 0 }} />}
           <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: t.completed ? NX.faint : NX.ink, textDecoration: t.completed ? 'line-through' : 'none' }}>{t.title}</span>
+          {t.checklistTotal > 0 && (
+            <span title={`Checklist ${t.checklistDone || 0} of ${t.checklistTotal} done`} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, fontWeight: 600, flexShrink: 0, color: t.checklistDone === t.checklistTotal ? NX.green : NX.faint }}>
+              <ListChecks size={12} />{t.checklistDone || 0}/{t.checklistTotal}
+            </span>
+          )}
           {/* A subtask only appears as its own row in a person-scoped list (My
               Tasks mode / assignee filter). Say whose subtask it is, and let the
               parent open on click - otherwise it reads as a stray task. */}
@@ -449,7 +454,10 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
         // actual
         actual: (
         <div className="rl-cell" style={{ ...editCell, gap: 3 }} onClick={(e) => e.stopPropagation()}>
-          <input type="number" className="rl-num nx-inline-edit" min={0} value={t.actualHours ?? ''} placeholder="0" onChange={(e) => store.updateTask(t.id, { actualHours: e.target.value === '' ? null : Number(e.target.value) })} style={{ width: 34, textAlign: 'right', border: 'none', fontSize: 12, color: NX.dim, fontFamily: FONT }} />
+          <input type="number" className="rl-num nx-inline-edit" min={0} value={t.actualHours ?? ''} placeholder="0"
+            readOnly={t.timeEntryCount > 0} title={t.timeEntryCount > 0 ? `From ${t.timeEntryCount} time ${t.timeEntryCount === 1 ? 'entry' : 'entries'} - edit them in the task` : undefined}
+            onChange={(e) => { if (t.timeEntryCount > 0) return; store.updateTask(t.id, { actualHours: e.target.value === '' ? null : Number(e.target.value) }); }}
+            style={{ width: 34, textAlign: 'right', border: 'none', fontSize: 12, color: NX.dim, fontFamily: FONT, cursor: t.timeEntryCount > 0 ? 'default' : 'text' }} />
           <span style={{ color: NX.faint, fontSize: 12 }}>h</span>
         </div>
         ),

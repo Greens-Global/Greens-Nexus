@@ -972,6 +972,27 @@ def _run_migrations():
             "ALTER TABLE scheduled_shifts ADD COLUMN original_end_hhmm VARCHAR DEFAULT ''",
             "ALTER TABLE scheduled_shifts ADD COLUMN original_label VARCHAR DEFAULT ''",
             "ALTER TABLE scheduled_shifts ADD COLUMN original_work_date VARCHAR DEFAULT ''",
+            # Automation engine (Oct 2026). models.TaskAutomationRule conditions + run counters.
+            "ALTER TABLE task_automation_rules ADD COLUMN conditions JSON DEFAULT '[]'",
+            "ALTER TABLE task_automation_rules ADD COLUMN run_count INTEGER DEFAULT 0",
+            "ALTER TABLE task_automation_rules ADD COLUMN last_run_at VARCHAR DEFAULT ''",
+            # Checklists (Oct 2026). models.Task.checklist_total / checklist_done.
+            "ALTER TABLE tasks ADD COLUMN checklist_total INTEGER DEFAULT 0",
+            "ALTER TABLE tasks ADD COLUMN checklist_done INTEGER DEFAULT 0",
+            # Comment threads, reactions, assigned comments (Oct 2026). models.TaskComment.
+            "ALTER TABLE task_comments ADD COLUMN parent_id VARCHAR DEFAULT ''",
+            "ALTER TABLE task_comments ADD COLUMN reactions JSON DEFAULT '{}'",
+            "ALTER TABLE task_comments ADD COLUMN assignee_email VARCHAR DEFAULT ''",
+            "ALTER TABLE task_comments ADD COLUMN resolved_at VARCHAR DEFAULT ''",
+            "ALTER TABLE task_comments ADD COLUMN resolved_by VARCHAR DEFAULT ''",
+            # index=True on the model only applies at create_all; existing tables need it here.
+            "CREATE INDEX IF NOT EXISTS ix_task_comments_parent_id ON task_comments (parent_id)",
+            # Project default view + shared dashboard charts (Oct 2026). models.TaskProject.
+            "ALTER TABLE task_projects ADD COLUMN default_view JSON",
+            "ALTER TABLE task_projects ADD COLUMN shared_charts JSON DEFAULT '[]'",
+            # Time entries (Oct 2026). models.Task.time_entry_count.
+            "ALTER TABLE tasks ADD COLUMN time_entry_count INTEGER DEFAULT 0",
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_task_time_running ON task_time_entries (person_email) WHERE ended_at = ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2169,6 +2190,26 @@ def _run_migrations():
         "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS original_end_hhmm VARCHAR DEFAULT ''",
         "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS original_label VARCHAR DEFAULT ''",
         "ALTER TABLE scheduled_shifts ADD COLUMN IF NOT EXISTS original_work_date VARCHAR DEFAULT ''",
+        # Automation engine (Oct 2026). models.TaskAutomationRule conditions + run counters.
+        "ALTER TABLE task_automation_rules ADD COLUMN IF NOT EXISTS conditions JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE task_automation_rules ADD COLUMN IF NOT EXISTS run_count INTEGER DEFAULT 0",
+        "ALTER TABLE task_automation_rules ADD COLUMN IF NOT EXISTS last_run_at VARCHAR DEFAULT ''",
+        # Checklists (Oct 2026). models.Task.checklist_total / checklist_done.
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS checklist_total INTEGER DEFAULT 0",
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS checklist_done INTEGER DEFAULT 0",
+        # Comment threads, reactions, assigned comments (Oct 2026). models.TaskComment.
+        "ALTER TABLE task_comments ADD COLUMN IF NOT EXISTS parent_id VARCHAR DEFAULT ''",
+        "ALTER TABLE task_comments ADD COLUMN IF NOT EXISTS reactions JSONB DEFAULT '{}'::jsonb",
+        "ALTER TABLE task_comments ADD COLUMN IF NOT EXISTS assignee_email VARCHAR DEFAULT ''",
+        "ALTER TABLE task_comments ADD COLUMN IF NOT EXISTS resolved_at VARCHAR DEFAULT ''",
+        "ALTER TABLE task_comments ADD COLUMN IF NOT EXISTS resolved_by VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_task_comments_parent_id ON task_comments (parent_id)",
+        # Project default view + shared dashboard charts (Oct 2026). models.TaskProject.
+        "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS default_view JSONB",
+        "ALTER TABLE task_projects ADD COLUMN IF NOT EXISTS shared_charts JSONB DEFAULT '[]'::jsonb",
+        # Time entries (Oct 2026). models.Task.time_entry_count.
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS time_entry_count INTEGER DEFAULT 0",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_task_time_running ON task_time_entries (person_email) WHERE ended_at = ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
