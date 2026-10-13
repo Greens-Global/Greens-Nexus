@@ -1128,6 +1128,16 @@ export const api = {
   // Ops
   getOpsProjects: () => req("/ops-projects"),
   createOpsProject: (data) => req("/ops-projects", { method: "POST", body: JSON.stringify(data) }),
+  // Operations (storage facilities): every figure on the screen, read from Cubby
+  getFacilityOps: (fresh) => req(`/facility-ops/summary${fresh ? "?fresh=1" : ""}`),
+  facilityOpsLookup: (q) => req(`/facility-ops/lookup?q=${encodeURIComponent(q)}`),
+  facilityOpsReport: (kind, facilityId) => req(`/facility-ops/report/${kind}${facilityId ? `?facility_id=${encodeURIComponent(facilityId)}` : ""}`),
+  // Operations -> Market Rates: competitors and their recorded rates, kept in Nexus
+  getOpsMarket: (facilityId) => req(`/facility-ops/market?facility_id=${encodeURIComponent(facilityId)}`),
+  addOpsCompetitor: (data) => req("/facility-ops/market/competitors", { method: "POST", body: JSON.stringify(data) }),
+  removeOpsCompetitor: (id) => req(`/facility-ops/market/competitors/${id}`, { method: "DELETE" }),
+  recordOpsRate: (data) => req("/facility-ops/market/rates", { method: "POST", body: JSON.stringify(data) }),
+  opsMarketAnalysis: (facilityId) => req(`/facility-ops/market/analysis?facility_id=${encodeURIComponent(facilityId)}`, { method: "POST" }),
 
   // Dev
   getDevProjects: () => req("/dev-projects"),

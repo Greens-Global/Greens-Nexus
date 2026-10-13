@@ -25,6 +25,7 @@ from routers import directory as directory_router  # Contact Directory (Support,
 from routers import github_webhook  # PR/push merged to dev/main -> admin notification + What's New drafts (Sep 2026)
 from routers import egnyte_oauth as egnyte_oauth_router  # Per-user Egnyte connection (browse as yourself)
 from routers import construction  # Construction module - jobsite daily logs, media, weekly reports
+from routers import facility_ops  # Operations: storage facility figures read from Cubby (Oct 2026)
 from routers import jobroles  # Roles & Access redesign (Jul 2026)
 from routers import access_scopes  # row-level scopes for external users (Jul 2026)
 from routers import hr_life_events as hr_life_events_router  # hiring packet / promotion / separation via Nexus Sign (Oct 2026)
@@ -2804,6 +2805,18 @@ async def lifespan(app: FastAPI):
                 print("[startup] Google Ads sync skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] Google Ads sync skipped: {e}")
+        # Cubby sync (Operations, Oct 2026): re-reads the facilities every 15
+        # minutes and keeps one snapshot row per facility per day. Deployed
+        # worker only.
+        try:
+            from leader import is_deployed_worker
+            if is_deployed_worker():
+                from cubby import cubby_snapshot_loop
+                _tasks.append(_a.create_task(cubby_snapshot_loop()))
+            else:
+                print("[startup] Cubby snapshot loop skipped (not the deployed worker)")
+        except Exception as e:
+            print(f"[startup] Cubby snapshot loop skipped: {e}")
         try:
             # One-shot: drains task attachments inlined as data: URLs into
             # Supabase Storage (5.7 GB of the prod DB), then exits. Idempotent.
@@ -3136,6 +3149,7 @@ app.include_router(accounting_saved.router)   # Accounting: memorized reports, p
 app.include_router(pfs.router)                # Personal Financial Statements (owners + explicit grant only)
 app.include_router(leasing.router)            # Leasing: tenants, rent over time, expected vs received
 app.include_router(operations.router)
+app.include_router(facility_ops.router)       # Operations: occupancy, collections, pricing, worklist
 app.include_router(unifi.router)
 app.include_router(dashboard.router)
 app.include_router(dashboards_router.router)
