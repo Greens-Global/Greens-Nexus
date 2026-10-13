@@ -258,7 +258,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
               hidden={hiddenCols} setHidden={setHiddenCols}
               customFields={fieldsForProject(store.customFields || [], lockedProjectId)} createCustomField={store.createCustomField}
               allCustomFields={store.customFields} updateCustomField={store.updateCustomField}
-              tracksTime={tracksTime}
+              tracksTime={tracksTime} canManageFields={canManage}
               lockedProjectId={lockedProjectId} teams={store.teams}
             />
           )}
@@ -356,7 +356,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
                   hidden={hiddenCols} setHidden={setHiddenCols}
                   customFields={fieldsForProject(store.customFields || [], lockedProjectId)} createCustomField={store.createCustomField}
                   allCustomFields={store.customFields} updateCustomField={store.updateCustomField}
-              tracksTime={tracksTime}
+              tracksTime={tracksTime} canManageFields={canManage}
                   lockedProjectId={lockedProjectId} teams={store.teams}
                 />
               ) : null}

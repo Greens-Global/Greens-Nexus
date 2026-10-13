@@ -907,10 +907,24 @@ def create_team(body: TeamBody, user: dict = Depends(get_current_user),
     A non-manager gets `personal` whatever they send: the alternative is that
     anyone can mint a workspace-wide team, put themselves and a project in it,
     and read that project - approval would gate nothing.
+
+    A personal team hands its members an individual grant on each of its
+    projects (_sync_personal_team_grants), so a non-manager may only list
+    projects they OWN - the same rule _require_team_edit applies to a PATCH.
+    Without it the create path was the way around that check: make a team,
+    name somebody else's restricted project, become an editor on it
+    (Sep 30 review, item 1).
     """
     if not (body.name or "").strip():
         raise HTTPException(422, "Team name is required")
     personal = bool(body.personal) or (user.get("level") or 0) < 3
+    if not is_manager(user):
+        asked = body.project_ids if body.project_ids is not None else [body.project_id]
+        for pid in {(p or "").strip() for p in (asked or []) if (p or "").strip()}:
+            proj = db.query(models.TaskProject).filter(models.TaskProject.id == pid).first()
+            if not proj:
+                raise HTTPException(404, "Project not found")
+            require_project_role(db, user, proj, "owner")
     d = models.TaskTeam(id=body.id or gen_id(), name=body.name, color=body.color or "",
                         icon=body.icon or "", member_emails=body.member_emails or [],
                         created_at=now_iso(), created_by=user["email"],
@@ -1008,6 +1022,12 @@ def delete_team(team_id: str, user: dict = Depends(get_current_user),
          .filter(models.TaskTeam.id == team_id).first())
     if not t:
         raise HTTPException(404, "Team not found")
+    # Same people who may edit it: a manager any team, the creator their own
+    # unapproved one. Binning an approved team takes access from everybody it
+    # serves, so it is not something any signed-in person may do.
+    me = (user.get("email") or "").lower()
+    if not is_manager(user) and not (me and (t.created_by or "").lower() == me and not team_is_approved(t)):
+        raise HTTPException(403, "Only a manager or the team's creator can delete this team.")
     # An unapproved team's grants are its own doing, so they go when it does -
     # otherwise binning a personal team silently leaves everybody it added on
     # the project.

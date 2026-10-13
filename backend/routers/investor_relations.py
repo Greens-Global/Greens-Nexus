@@ -35,6 +35,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from database import get_db
+from notify_company import notification_company
 from auth import (require_level_or_module, scoped_ids, invalidate_role_cache,
                   get_current_user, _module_level, _MODULE_LEVEL_RANK)
 from models import (
@@ -156,7 +157,7 @@ def _fmt_money(x: float) -> str:
 
 
 def _notify(db: Session, *, type: str, recipient: str, title: str, body: str,
-            ref_id: str = "") -> None:
+            ref_id: str = "", actor: str = "") -> None:
     """Server-side notification row (employees get 403 on the notifications POST
     API, so this is the ONLY reliable channel). No commit here - the calling
     endpoint commits once at the end. One notification per issue action; never
@@ -173,6 +174,8 @@ def _notify(db: Session, *, type: str, recipient: str, title: str, body: str,
         action="",
         actioned=False,
         read_by="",
+        # Company wall: stamped from `actor` (who issued it), else the recipient.
+        company=notification_company(db, actor, recipient),
         created_at=_now_iso(),
     )
     db.add(row)
@@ -1221,7 +1224,7 @@ def update_capital_call(call_id: str, body: CapitalCallUpdate,
                               f"{' (' + call.title + ')' if call.title else ''} for "
                               f"{_fmt_money(call.total_amount)} has been issued"
                               f"{', due ' + call.due_date if call.due_date else ''}."),
-                        ref_id=call.id)
+                        ref_id=call.id, actor=user["email"])
 
     call.updated_at = _now_iso()
     db.commit()
@@ -1399,7 +1402,7 @@ def update_distribution(distribution_id: str, body: DistributionUpdate,
                               f"{' (' + dist.title + ')' if dist.title else ''} for "
                               f"{_fmt_money(dist.total_amount)} is now {new_status}"
                               f"{', dated ' + dist.distribution_date if dist.distribution_date else ''}."),
-                        ref_id=dist.id)
+                        ref_id=dist.id, actor=user["email"])
 
     dist.updated_at = _now_iso()
     db.commit()

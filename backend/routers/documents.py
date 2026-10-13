@@ -182,6 +182,30 @@ def _us_date(iso: str) -> str:
         return ""
 
 
+_ISO_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+_CLOCK_RE = re.compile(r"([01]\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?")
+# The built-in variables that are dates (services/merge_fields.py). A template
+# declares no type for these; one that does declare them wins.
+_BUILTIN_DATE_TOKENS = ("start_date", "template.last_updated")
+
+
+def _display_value(ftype: str, raw: str) -> str:
+    """A date or time value as a generated document prints it: MM/DD/YYYY and
+    12-hour AM/PM, the app-wide format (CLAUDE.md). What is stored and
+    validated stays ISO - only the render changes. A value that is not a
+    clean ISO date / HH:MM clock comes back as it was: words a person typed
+    are theirs."""
+    s = (raw or "").strip()
+    if ftype == "date" and _ISO_DATE_RE.fullmatch(s):
+        return _us_date(s) or raw
+    if ftype == "time":
+        m = _CLOCK_RE.fullmatch(s)
+        if m:
+            h = int(m.group(1))
+            return f"{h % 12 or 12}:{m.group(2)} {'PM' if h >= 12 else 'AM'}"
+    return raw
+
+
 def _sign_statuses(db: Session, docs: list) -> dict:
     """Read-only batch lookup of HrSignRequest.status for whichever documents
     have a sign_request_id - no polling/webhook sync needed, always accurate
@@ -1257,6 +1281,8 @@ def delete_template(tid: str, user: dict = Depends(get_current_user), db: Sessio
     # block it instead of silently orphaning those documents.
     if db.query(Document).filter(Document.template_id == tid).first():
         raise HTTPException(409, "Cannot delete a template that has generated documents - archive it instead")
+    # Its saved versions are only reachable through the template.
+    db.query(DocTemplateVersion).filter(DocTemplateVersion.template_id == tid).delete(synchronize_session=False)
     db.delete(row); db.commit()
     return {"ok": True}
 
@@ -1340,6 +1366,16 @@ def delete_letterhead(lid: str, user: dict = Depends(get_current_user), db: Sess
     if row:
         if user["level"] < _ADMIN_LEVEL and row.created_by != user["email"]:
             raise HTTPException(403, "You can only delete letterheads you created")
+        # Same story as delete_template above: letterhead_id is a plain string
+        # with no FK, and a template or document left pointing at a deleted
+        # letterhead exports with no letterhead at all.
+        templates = db.query(DocTemplate).filter(DocTemplate.letterhead_id == lid).count()
+        documents = db.query(Document).filter(Document.letterhead_id == lid).count()
+        if templates or documents:
+            used = " and ".join(f"{n} {one if n == 1 else many}" for n, one, many in
+                                ((templates, "template", "templates"), (documents, "document", "documents")) if n)
+            raise HTTPException(409, f"Cannot delete a letterhead that is still used by {used} - "
+                                     "switch them to another letterhead first")
         db.delete(row); db.commit()
     return {"ok": True}
 
@@ -1762,6 +1798,15 @@ def _export_prep(db: Session, did: str, user: dict):
                 token, ftype = fd.get("token"), fd.get("type")
                 if ftype in _RESERVED_FIELD_TYPES and not merge.get(token):
                     merge[token] = f"[{kind_label.get(ftype, 'Field')}: {fd.get('label') or token}]"
+    # Dates and times print the way the rest of the app shows them, never as
+    # the stored ISO string: the fields the template declares as date / time,
+    # and the built-in date variables.
+    ftypes = {t: "date" for t in _BUILTIN_DATE_TOKENS}
+    ftypes.update({fd.get("token"): fd.get("type") for fd in ((source_tpl.field_defs if source_tpl else None) or [])
+                   if isinstance(fd, dict)})
+    for token, ftype in ftypes.items():
+        if ftype in ("date", "time") and merge.get(token):
+            merge[token] = _display_value(ftype, merge[token])
     content = row.content if isinstance(row.content, dict) else {}
     header_blocks = tiptap_to_blocks(content.get("header"), merge)
     footer_blocks = tiptap_to_blocks(content.get("footer"), merge)
@@ -1826,6 +1871,15 @@ def _egnyte_configured() -> bool:
 # folders included. They now take the same access as the Documents screen they
 # serve (administrator+, or an Access Group grant on "documents" - App.jsx
 # ProtectedView), and only reach paths under the configured import roots.
+#
+# Oct 13 review asked for the template-manager rule here instead. Not applied:
+# the picker (EgnyteBrowser.jsx) is not a template tool. Every Documents user
+# reaches it from New Document ("Browse Egnyte"), from the builder's Import on
+# their own document, and from Nexus Sign ("Choose from Egnyte") - none of
+# which a department head's role gates - so that rule would take all three
+# away from the people they were built for. What bounds the service token is
+# the import roots: keep documents.import-roots to folders any Documents user
+# may read.
 _require_documents_access = require_module_grant("documents", "viewer")
 
 
