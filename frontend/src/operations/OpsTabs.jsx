@@ -417,6 +417,7 @@ export function Worklist({ data, many, focus, go }) {
         <Card id="leads" focus={focus} title="Open Leads" sub="Longest wait first">
           <Rows limit={6} label="leads" empty="No open leads." rows={data.leads.rows} columns={[
             { head: 'Status', cell: (r) => badge(r.status === 'NEW' ? 'status-pending' : r.status === 'RESERVATION' ? 'status-approved' : 'pill-muted', LEAD_STATUS[r.status] || 'Open') },
+            { head: 'Name', cell: (r) => <Tenant row={r} /> },
             { head: 'Source', cell: (r) => tidy(r.source) || '-' },
             facilityCol(many),
             { head: 'Waiting', num: true, cell: (r) => (r.ageDays === 1 ? '1 day' : `${count(r.ageDays)} days`) },
