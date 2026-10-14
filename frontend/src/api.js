@@ -2224,6 +2224,12 @@ export const api = {
   weatherCallMine:      ()                    => req('/weather-call/mine'),
   weatherCallMyPrefs:   ()                    => req('/weather-call/my-prefs'),
   weatherCallMyPrefsSave: (data)              => req('/weather-call/my-prefs', { method: 'PUT', body: JSON.stringify(data) }),
+  // ── Documents: signature blocks + Publish (Oct 14) ──────────────────────────
+  // The document as Nexus Sign gets it: {fileName, pdf (base64), fields, roles},
+  // with a field on every signature line the template drew.
+  documentSigningPdf: (id) => req(`/documents/${id}/signing-pdf`),
+  // Release a template's current wording to the HR packets that use it.
+  publishDocTemplate: (id, note = '') => req(`/documents/templates/${id}/publish`, { method: 'POST', body: JSON.stringify({ note }) }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

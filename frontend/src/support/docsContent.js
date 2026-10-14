@@ -716,6 +716,25 @@ export const DOCS = [
           'Save it to a folder, or send it for signature.',
         ],
       },
+      {
+        title: 'Add a Signature Block',
+        steps: [
+          'Open a template (or a document) and go to the Insert tab.',
+          'Click the pen icon (Signature Block).',
+          'Pick Who Signs Here - or type a new signer, such as Manager, and click Add Signer.',
+          'Add a caption if you want one (it can use variables, like For {{company_legal}}), and choose whether to include the Name and Date lines.',
+          'Click Insert Signature Block. When the document is sent for signature, that signer\'s signature, name and date fields are already on the line - nobody places boxes by hand.',
+        ],
+      },
+      {
+        title: 'Publish Template Changes',
+        steps: [
+          'Edits to a template save as you type, but HR packets keep printing the last PUBLISHED version, so a half-finished edit never reaches a candidate.',
+          'When the wording is final, click Publish Changes at the top of the template (a template that was never published shows Publish).',
+          'Every HR packet that has not been sent yet switches to the new wording. Documents already out for signature never change.',
+          'In the Templates list, Not Published and Unpublished Changes show which templates still need a Publish.',
+        ],
+      },
     ],
     features: [
       { name: 'Dashboard', desc: 'Shortcuts to New Document, New Template and Send for Signature, plus what is waiting.' },

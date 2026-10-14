@@ -999,6 +999,11 @@ def _run_migrations():
             "CREATE UNIQUE INDEX IF NOT EXISTS ux_task_time_running ON task_time_entries (person_email) WHERE ended_at = ''",
             # Pay-printing envelopes need Pay & Benefits to download (Oct 14). models.HrSignRequest.prints_pay.
             "ALTER TABLE hr_sign_requests ADD COLUMN prints_pay INTEGER DEFAULT 0",
+            # Template Publish (Oct 14). models.DocTemplate.published_*.
+            "ALTER TABLE doc_templates ADD COLUMN published_version INTEGER DEFAULT 0",
+            "ALTER TABLE doc_templates ADD COLUMN published_meta JSON DEFAULT '{}'",
+            "ALTER TABLE doc_templates ADD COLUMN published_by VARCHAR DEFAULT ''",
+            "ALTER TABLE doc_templates ADD COLUMN published_at VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2224,6 +2229,11 @@ def _run_migrations():
         "ALTER TABLE hr_role_change_requests ENABLE ROW LEVEL SECURITY",
         # Pay-printing envelopes need Pay & Benefits to download (Oct 14). models.HrSignRequest.prints_pay.
         "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS prints_pay INTEGER DEFAULT 0",
+        # Template Publish (Oct 14). models.DocTemplate.published_*.
+        "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS published_version INTEGER DEFAULT 0",
+        "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS published_meta JSONB DEFAULT '{}'::jsonb",
+        "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS published_by VARCHAR DEFAULT ''",
+        "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS published_at VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

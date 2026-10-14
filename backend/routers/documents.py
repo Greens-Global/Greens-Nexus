@@ -18,6 +18,7 @@ Design notes:
   templates); a Personal-folder document is only visible to its owner. Only the
   owner or an administrator (level >= 4) may edit/archive/delete a document.
 """
+import base64
 import copy
 import re
 import uuid
@@ -529,6 +530,44 @@ def _template_tokens(t: DocTemplate) -> list:
     return sorted(tk for tk in found if tk != "today" and not is_auto_token(tk))
 
 
+def signature_roles(content) -> set:
+    """Every signer key a signature block in this content signs as (body pages,
+    header and footer). A signature block is where a signer signs, carried by
+    the template itself, so nobody places boxes by hand at send time."""
+    found = set()
+
+    def walk(node):
+        if isinstance(node, dict):
+            if node.get("type") == "signatureBlock":
+                role = str((node.get("attrs") or {}).get("role") or "").strip().lower()
+                if role:
+                    found.add(role)
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+
+    walk(content if isinstance(content, dict) else {})
+    return found
+
+
+def _publish_meta(t: DocTemplate) -> dict:
+    """What a publish freezes besides the content (DocTemplateVersion holds
+    content only)."""
+    return {"fieldDefs": copy.deepcopy(t.field_defs or []),
+            "signerRoles": list(t.signer_roles or []),
+            "mergeOverrides": dict(t.merge_overrides or {}),
+            "letterheadId": t.letterhead_id or "",
+            "requiresLetterhead": bool(t.requires_letterhead)}
+
+
+def _has_unpublished_changes(t: DocTemplate) -> bool:
+    if not t.published_version:
+        return False                       # "Not Published" is its own state
+    return (t.version or 0) > t.published_version or _publish_meta(t) != (t.published_meta or {})
+
+
 def _ser_template(t: DocTemplate) -> dict:
     return {"id": t.id, "name": t.name, "category": t.category, "tags": t.tags or [],
             "content": t.content, "requiresLetterhead": t.requires_letterhead,
@@ -538,7 +577,11 @@ def _ser_template(t: DocTemplate) -> dict:
             "department": t.department or "",
             "docType": t.doc_type or "document",
             "signerRoles": t.signer_roles or [],
+            "signatureRoles": sorted(signature_roles(t.content)),
             "status": t.status, "version": t.version,
+            "publishedVersion": t.published_version or 0,
+            "publishedAt": t.published_at or "", "publishedBy": t.published_by or "",
+            "hasUnpublishedChanges": _has_unpublished_changes(t),
             "createdBy": t.created_by, "createdAt": t.created_at,
             "updatedBy": t.updated_by, "updatedAt": t.updated_at}
 
@@ -805,6 +848,10 @@ def create_template(body: TemplateIn, user: dict = Depends(get_current_user), db
     db.add(row); db.flush()
     db.add(DocTemplateVersion(id=str(uuid.uuid4()), template_id=row.id, version_no=1, content=content,
                               edited_by=user["email"], edited_at=now, note="Created"))
+    if status == "active":
+        # Created to be used: what the author submitted is the released text.
+        db.flush()
+        _publish(db, row, user["email"])
     db.commit(); db.refresh(row)
     return _ser_template(row)
 
@@ -1184,13 +1231,22 @@ def seed_starter_templates(user: dict = Depends(get_current_user), db: Session =
             continue
         body = content_fn() if content_fn else {"type": "doc", "content": [{"type": "paragraph"}]}
         extras = _STARTER_EXTRAS.get(name, {})
-        db.add(DocTemplate(id=str(uuid.uuid4()), name=name, category=category, tags=list(extras.get("tags") or []),
-                            content={"pages": [{"id": str(uuid.uuid4()), "json": body}], "header": None, "footer": None},
-                            requires_letterhead=requires_lh, letterhead_id=lh_id,
-                            field_defs=_clean_field_defs(extras.get("field_defs") or []),
-                            signer_roles=_clean_signer_roles(extras.get("signer_roles") or []),
-                            status="active", version=1, created_by=user["email"], created_at=now,
-                            updated_by=user["email"], updated_at=now))
+        content = {"pages": [{"id": str(uuid.uuid4()), "json": body}], "header": None, "footer": None}
+        row = DocTemplate(id=str(uuid.uuid4()), name=name, category=category, tags=list(extras.get("tags") or []),
+                          content=content,
+                          requires_letterhead=requires_lh, letterhead_id=lh_id,
+                          field_defs=_clean_field_defs(extras.get("field_defs") or []),
+                          signer_roles=_clean_signer_roles(extras.get("signer_roles") or []),
+                          status="active", version=1, created_by=user["email"], created_at=now,
+                          updated_by=user["email"], updated_at=now)
+        db.add(row); db.flush()
+        # Starter text is reviewed product text, not a half-typed draft: it is
+        # born with its version row and published.
+        db.add(DocTemplateVersion(id=str(uuid.uuid4()), template_id=row.id, version_no=1,
+                                  content=copy.deepcopy(content), edited_by=user["email"], edited_at=now,
+                                  note="Starter"))
+        db.flush()
+        _publish(db, row, user["email"])
         added += 1
     db.commit()
     return {"added": added}
@@ -1208,6 +1264,7 @@ def get_template(tid: str, user: dict = Depends(get_current_user), db: Session =
 def update_template(tid: str, body: TemplateUpdate, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     row = _get_template(db, tid)
     _require_template_manager(db, user, row.department)
+    was_status = row.status
     if body.department is not None and not _same_department(body.department, row.department):
         # Moving approved language between departments needs rights over BOTH
         # ends, or a department head could annex another department's template.
@@ -1249,8 +1306,89 @@ def update_template(tid: str, body: TemplateUpdate, user: dict = Depends(get_cur
         db.add(DocTemplateVersion(id=str(uuid.uuid4()), template_id=row.id, version_no=row.version,
                                   content=body.content, edited_by=user["email"], edited_at=_now_iso(),
                                   note=(body.note or "").strip()))
+    if was_status != "active" and row.status == "active" and not row.published_version:
+        # First activation releases the text. An autosave never publishes.
+        db.flush()
+        _publish(db, row, user["email"], "Activated")
     row.updated_by = user["email"]
     row.updated_at = _now_iso()
+    db.commit(); db.refresh(row)
+    return _ser_template(row)
+
+
+# ── Publish (Oct 14) ─────────────────────────────────────────────────────────
+# Editing is not releasing. The editor autosaves an active template every
+# 1.5 s and each save bumps `version`, so HR packets never read the live
+# content - they read the version someone deliberately published. Generic
+# document generation (create_document) still uses the live content, as before.
+
+class TemplateNotPublished(Exception):
+    """A template a packet needs has no usable published version."""
+
+
+def _publish(db: Session, tpl: DocTemplate, by: str, note: str = "") -> int:
+    """Release the template's CURRENT content as its published version. Never
+    assumes a version row exists (templates seeded or duplicated before
+    publishing existed have none): tpl.content IS version tpl.version, because
+    update_template is the only writer of template content and it bumps
+    version on every write. The caller flushes pending rows first
+    (autoflush is off) and commits."""
+    v = (db.query(DocTemplateVersion)
+           .filter(DocTemplateVersion.template_id == tpl.id,
+                   DocTemplateVersion.version_no == tpl.version).first())
+    if v is None:
+        v = DocTemplateVersion(id=str(uuid.uuid4()), template_id=tpl.id, version_no=tpl.version,
+                               content=copy.deepcopy(tpl.content or {}), edited_by=by,
+                               edited_at=_now_iso(), note="")
+        db.add(v)
+    v.note = ((v.note or "") + " (published)" + (f" - {note}" if note else "")).strip()
+    tpl.published_version = tpl.version
+    tpl.published_meta = _publish_meta(tpl)
+    tpl.published_by, tpl.published_at = by, _now_iso()
+    return tpl.version
+
+
+def published_snapshot(db: Session, tpl: DocTemplate) -> tuple:
+    """(content, meta, version) of what the template last PUBLISHED - what
+    every HR packet prints. Raises TemplateNotPublished rather than ever
+    returning empty content."""
+    if not tpl.published_version:
+        raise TemplateNotPublished(f'"{tpl.name}" has not been published yet - open it in '
+                                   f'Documents > Templates and click Publish.')
+    v = (db.query(DocTemplateVersion)
+           .filter(DocTemplateVersion.template_id == tpl.id,
+                   DocTemplateVersion.version_no == tpl.published_version).first())
+    if v is None:
+        raise TemplateNotPublished(f'The published version of "{tpl.name}" is missing - publish it again.')
+    return copy.deepcopy(v.content or {}), dict(tpl.published_meta or {}), tpl.published_version
+
+
+class PublishIn(BaseModel):
+    note: Optional[str] = ""
+
+
+@router.post("/templates/{tid}/publish")
+def publish_template(tid: str, body: PublishIn, user: dict = Depends(get_current_user),
+                     db: Session = Depends(get_db)):
+    """Release the template's current wording. Every packet not yet sent picks
+    it up; documents already out for signature never change."""
+    row = db.query(DocTemplate).filter(DocTemplate.id == tid).with_for_update().first()
+    if not row:
+        raise HTTPException(404, "Template not found")
+    _require_template_manager(db, user, row.department)
+    if row.status != "active":
+        raise HTTPException(409, f'"{row.name}" is {row.status} - activate it before publishing.')
+    # A signature block for a signer the template does not list yet: add the
+    # signer rather than refuse, so the Signers list always covers the blocks.
+    keys = {r.get("key") for r in (row.signer_roles or [])}
+    missing = sorted(signature_roles(row.content) - keys)
+    if missing:
+        roles = list(row.signer_roles or [])
+        for k in missing:
+            roles.append({"key": k, "label": k.replace("_", " ").title(), "order": len(roles) + 1})
+        row.signer_roles = _clean_signer_roles(roles)
+    _publish(db, row, user["email"], (body.note or "").strip()[:200])
+    row.updated_by, row.updated_at = user["email"], _now_iso()
     db.commit(); db.refresh(row)
     return _ser_template(row)
 
@@ -1301,7 +1439,14 @@ def duplicate_template(tid: str, user: dict = Depends(get_current_user), db: Ses
                        field_defs=copy.deepcopy(src.field_defs) if src.field_defs else [],
                        status="active", version=1, created_by=user["email"], created_at=now,
                        updated_by=user["email"], updated_at=now)
-    db.add(row); db.commit(); db.refresh(row)
+    db.add(row); db.flush()
+    # A copy exists to be edited: it gets its first version row but stays Not
+    # Published until someone clicks Publish, so a half-finished copy never
+    # reaches an HR packet.
+    db.add(DocTemplateVersion(id=str(uuid.uuid4()), template_id=row.id, version_no=1,
+                              content=copy.deepcopy(row.content or {}), edited_by=user["email"],
+                              edited_at=now, note=f'Copied from "{src.name}"'))
+    db.commit(); db.refresh(row)
     return _ser_template(row)
 
 
@@ -1512,6 +1657,9 @@ def _clean_field_defs(defs: list) -> list:
             "default": str(d.get("default") or "")[:2000],
             "validation": {k: v for k, v in validation.items()
                           if k in ("maxLength", "regex", "min", "max", "minDate", "maxDate")},
+            # Pay (Restricted): the value is pay, so HR packets keep it out of
+            # the document row and show it only to Pay & Benefits holders.
+            "pay": bool(d.get("pay")) or ftype == "currency",
         }
         if ftype in ("dropdown", "radio"):
             clean["options"] = [str(o)[:200] for o in (d.get("options") or []) if str(o).strip()][:50]
@@ -1773,6 +1921,32 @@ def _content_disposition(title: str, ext: str) -> str:
     return f'attachment; filename="{ascii_name}.{ext}"; filename*=UTF-8\'\'{quote(f"{name}.{ext}")}'
 
 
+def display_merge(merge: dict, field_defs) -> dict:
+    """The print pass over resolved merge values, shared by export and the HR
+    packets so both print the same thing."""
+    merge = dict(merge or {})
+    defs = [fd for fd in (field_defs or []) if isinstance(fd, dict)]
+    # Template Builder (Phase 13) - a signature/initials/image/file field is
+    # never filled through the Generate-Document form (reserved for E-Sign /
+    # a fast-follow upload path); render its label as a visible placeholder
+    # instead of a raw "{{token}}" or a silent blank so whoever reviews the
+    # export knows exactly what's still missing.
+    kind_label = {"signature": "Signature", "initials": "Initials", "image": "Image", "file": "Attachment"}
+    for fd in defs:
+        token, ftype = fd.get("token"), fd.get("type")
+        if ftype in _RESERVED_FIELD_TYPES and not merge.get(token):
+            merge[token] = f"[{kind_label.get(ftype, 'Field')}: {fd.get('label') or token}]"
+    # Dates and times print the way the rest of the app shows them, never as
+    # the stored ISO string: the fields the template declares as date / time,
+    # and the built-in date variables.
+    ftypes = {t: "date" for t in _BUILTIN_DATE_TOKENS}
+    ftypes.update({fd.get("token"): fd.get("type") for fd in defs})
+    for token, ftype in ftypes.items():
+        if ftype in ("date", "time") and merge.get(token):
+            merge[token] = _display_value(ftype, merge[token])
+    return merge
+
+
 def _export_prep(db: Session, did: str, user: dict):
     """Shared setup for both export endpoints: load the document (same
     visibility as GET /{did} - read access, not ownership: anyone who may open
@@ -1785,28 +1959,13 @@ def _export_prep(db: Session, did: str, user: dict):
                   if row.template_id else None)
     merge = resolve_merge_data(db, employee_id=row.employee_id, entity_id=row.entity_id,
                                overrides=row.merge_overrides or {}, template=source_tpl)
-    # Template Builder (Phase 13) - a signature/initials/image/file field is
-    # never filled through the Generate-Document form (reserved for E-Sign /
-    # a fast-follow upload path); render its label as a visible placeholder
-    # instead of a raw "{{token}}" or a silent blank so whoever reviews the
-    # export knows exactly what's still missing.
-    if row.template_id:
-        tpl = db.query(DocTemplate).filter(DocTemplate.id == row.template_id).first()
-        if tpl and tpl.field_defs:
-            kind_label = {"signature": "Signature", "initials": "Initials", "image": "Image", "file": "Attachment"}
-            for fd in tpl.field_defs:
-                token, ftype = fd.get("token"), fd.get("type")
-                if ftype in _RESERVED_FIELD_TYPES and not merge.get(token):
-                    merge[token] = f"[{kind_label.get(ftype, 'Field')}: {fd.get('label') or token}]"
-    # Dates and times print the way the rest of the app shows them, never as
-    # the stored ISO string: the fields the template declares as date / time,
-    # and the built-in date variables.
-    ftypes = {t: "date" for t in _BUILTIN_DATE_TOKENS}
-    ftypes.update({fd.get("token"): fd.get("type") for fd in ((source_tpl.field_defs if source_tpl else None) or [])
-                   if isinstance(fd, dict)})
-    for token, ftype in ftypes.items():
-        if ftype in ("date", "time") and merge.get(token):
-            merge[token] = _display_value(ftype, merge[token])
+    merge = display_merge(merge, source_tpl.field_defs if source_tpl else [])
+    return (row, *render_parts(db, row, merge))
+
+
+def render_parts(db: Session, row: Document, merge: dict) -> tuple:
+    """(header_blocks, pages_blocks, footer_blocks, letterhead, page_setup) of a
+    document with `merge` already resolved by the caller."""
     content = row.content if isinstance(row.content, dict) else {}
     header_blocks = tiptap_to_blocks(content.get("header"), merge)
     footer_blocks = tiptap_to_blocks(content.get("footer"), merge)
@@ -1827,7 +1986,46 @@ def _export_prep(db: Session, did: str, user: dict):
         lh = db.query(DocLetterhead).filter(DocLetterhead.id == row.letterhead_id).first()
         if lh:
             letterhead = _ser_letterhead(lh)
-    return row, header_blocks, pages_blocks, footer_blocks, letterhead, page_setup
+    return header_blocks, pages_blocks, footer_blocks, letterhead, page_setup
+
+
+def render_document(db: Session, row: Document, merge: dict, anchors: list = None) -> bytes:
+    """The PDF of a document with the caller's merge (HR packets pass their
+    own). `anchors` receives where each signature block's boxes landed."""
+    header_blocks, pages_blocks, footer_blocks, letterhead, page_setup = render_parts(db, row, merge)
+    return render_pdf(row.title, header_blocks, pages_blocks, footer_blocks, letterhead, page_setup,
+                      anchors=anchors)
+
+
+def signing_fields(anchors: list) -> list:
+    """Nexus Sign fields from a render's signature-block anchors: the box sits
+    exactly on the line the template drew, for the signer the block names."""
+    out = []
+    for i, a in enumerate(a for a in (anchors or []) if a.get("role")):
+        out.append({"id": f"sb{i + 1}", "role": a["role"], "type": a["type"], "page": a["page"],
+                    "x": round(a["x"], 5), "y": round(a["y"], 5), "w": round(a["w"], 5),
+                    "h": round(a["h"], 5), "required": a["type"] == "sign"})
+    return out
+
+
+@router.get("/{did}/signing-pdf")
+def signing_pdf(did: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The document as a PDF ready for Nexus Sign: rendered once, so the bytes
+    and the field boxes always match. Same read gate as export."""
+    row, header_blocks, pages_blocks, footer_blocks, letterhead, page_setup = _export_prep(db, did, user)
+    anchors = []
+    pdf_bytes = render_pdf(row.title, header_blocks, pages_blocks, footer_blocks, letterhead, page_setup,
+                           anchors=anchors)
+    fields = signing_fields(anchors)
+    tpl = (db.query(DocTemplate).filter(DocTemplate.id == row.template_id).first()
+           if row.template_id else None)
+    used = list(dict.fromkeys(f["role"] for f in fields))
+    roles = [r for r in ((tpl.signer_roles if tpl else None) or []) if r.get("key") in used]
+    roles += [{"key": k, "label": k.replace("_", " ").title(), "order": len(roles) + 1}
+              for k in used if k not in {r.get("key") for r in roles}]
+    name = re.sub(r'[\\/:*?"<>|]+', " ", row.title or "Document").strip()[:80] or "Document"
+    return {"fileName": f"{name}.pdf", "pdf": base64.b64encode(pdf_bytes).decode("ascii"),
+            "fields": fields, "roles": roles}
 
 
 @router.get("/{did}/export/pdf")

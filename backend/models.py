@@ -2043,6 +2043,18 @@ class DocTemplate(Base):
     created_at          = Column(String, default="")
     updated_by          = Column(String, default="")
     updated_at          = Column(String, default="")
+    # Publish (Oct 14). The editor autosaves every 1.5 s and each save bumps
+    # `version`, so "the latest version" is routinely half a sentence. HR
+    # packets read the PUBLISHED version instead: a finished edit is released
+    # on purpose with Publish, and packets pick it up from that moment.
+    # 0 = never published. The content lives in the DocTemplateVersion row with
+    # version_no == published_version; published_meta freezes what that table
+    # does not hold: {fieldDefs, signerRoles, mergeOverrides, letterheadId,
+    # requiresLetterhead}.
+    published_version   = Column(Integer, default=0)
+    published_meta      = Column(JSON, default=dict)
+    published_by        = Column(String, default="")
+    published_at        = Column(String, default="")
 
 
 class Document(Base):

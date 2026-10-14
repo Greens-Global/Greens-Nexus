@@ -335,6 +335,17 @@ export default function DocumentTemplates({ openCreateSignal, toastOk, toastErr 
                           : t.status === 'draft' ? 'rgba(245,158,11,0.13)' : 'var(--mist)' }}>
                       {t.status === 'active' ? 'Active' : t.status === 'draft' ? 'Draft' : 'Archived'}
                     </span>
+                    {/* HR packets print the PUBLISHED version (Oct 14) - these
+                        say which active templates still need a Publish. */}
+                    {t.status === 'active' && (!t.publishedVersion || t.hasUnpublishedChanges) && (
+                      <span title={t.publishedVersion
+                          ? 'Edited since it was last published - HR packets still print the published version. Open it and click Publish Changes.'
+                          : 'Never published - HR packets cannot use it yet. Open it and click Publish.'}
+                        style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 800,
+                          color: 'hsl(var(--color-orange))', background: 'hsla(var(--color-orange),0.12)' }}>
+                        {t.publishedVersion ? 'Unpublished Changes' : 'Not Published'}
+                      </span>
+                    )}
                     <span title={t.department
                         ? `Maintained by ${t.department}. Department heads of ${t.department}, and administrators, can edit it.`
                         : 'Company-wide template - only an administrator can edit it.'}
