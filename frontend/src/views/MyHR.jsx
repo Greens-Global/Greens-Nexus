@@ -391,10 +391,9 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, clock = null }) {
           color: toast.ok ? 'hsl(var(--color-green))' : '#b91c1c' }}>{toast.t}</div>
       )}
 
-      {/* Top of the page, in reading order (Oct 2): the greeting, the summary
-          tiles, then the clock card. The clock never waits on the HR profile -
+      {/* Top of the page, in reading order (Oct 2, greeting dropped Oct 14):
+          the summary tiles, then the clock card. The clock never waits on the HR profile -
           only the tiles do, and they hold their place with a skeleton. */}
-      {clockParts?.intro}
       {profile ? (
         <>
           {/* ── Stat tiles ── each opens what it counts. Hours hidden for

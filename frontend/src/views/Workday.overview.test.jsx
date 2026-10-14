@@ -97,14 +97,15 @@ describe('Workday Overview with the Time Clock', () => {
     expect(await screen.findByRole('button', { name: 'Reason: Personal' })).toBeTruthy();
   }, SLOW);
 
-  it("greets by first name with today's shift, and shows the week Monday to Sunday", async () => {
+  it("shows today's shift in the Hours tile with no greeting line, and the week Monday to Sunday", async () => {
     const d = new Date();
     const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     globalThis.__answers.timeMySchedule = { scheduled: [{ id: 's1', date: today, start: '09:00', end: '17:30', label: 'Front Desk' }] };
     await renderWorkday('overview');
-    expect(await screen.findByText(/, Amy$/)).toBeTruthy();
     // Today's shift sits in the Hours tile, beside this week's hours.
     expect(await screen.findByText('9:00 AM - 5:30 PM')).toBeTruthy();
+    expect(screen.queryByText(/^Good (Morning|Afternoon|Evening), Amy$/)).toBeNull();   // no greeting (Oct 14)
+    expect(screen.queryByText('Your clock, hours, documents and time off - only you see this')).toBeNull();   // no header band
     expect(screen.getByText('Front Desk')).toBeTruthy();
     expect(screen.getByText("Today's Shift")).toBeTruthy();
   }, SLOW);
