@@ -14,7 +14,7 @@
 //                            who raised it and who approved or signed.
 //
 // What each viewer may do comes from the server (canDecide / canCancel).
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { X, Shield, ArrowRight, Check, Ban, Clock } from 'lucide-react';
 import { api } from '../api';
 import { Spinner } from './AsyncState';
@@ -116,6 +116,33 @@ export function RoleChangeRequestCard({ employeeId = '', email = '', refreshKey,
         </div>
       ))}
     </div>
+  );
+}
+
+// The bell's and the email's "Review Request" land on People at
+// hr-role-change-<id>. An approver who cannot open People - a manager above
+// the tier that gets a team view, a supervisor named as someone's manager -
+// hit Access Restricted there and never saw the dialog (Oct 13 release
+// review). App renders this for that one address instead: the decision on
+// its own, a note on the outcome, then back to the dashboard.
+export function RoleChangeDeepLinkFallback({ requestId, onDone }) {
+  const [note, setNote] = useState(null);
+  const [open, setOpen] = useState(true);
+  const timer = useRef(null);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  const decided = () => { setOpen(false); timer.current = setTimeout(onDone, 1800); };
+  return (
+    <>
+      {open && <RoleChangeDecisionModal requestId={requestId} onClose={onDone} onDecided={decided}
+        toastOk={(msg) => setNote({ kind: 'ok', msg })} toastErr={(msg) => setNote({ kind: 'error', msg })} />}
+      {note && (
+        <div role={note.kind === 'error' ? 'alert' : 'status'} style={{
+          position: 'fixed', left: '50%', bottom: 28, transform: 'translateX(-50%)', zIndex: 1300,
+          background: note.kind === 'error' ? 'hsl(var(--color-red))' : 'var(--ink)', color: 'var(--paper)',
+          padding: '10px 16px', borderRadius: 10, fontSize: 13, fontWeight: 600, boxShadow: 'var(--shadow-md)', fontFamily: 'Inter,sans-serif',
+        }}>{note.msg}</div>
+      )}
+    </>
   );
 }
 

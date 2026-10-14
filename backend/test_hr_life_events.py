@@ -795,6 +795,46 @@ class PromotionTests(LifeEventCase):
         self.assertEqual(sorted((x["kind"], x["statusLabel"]) for x in log),
                          [("direct", "Changed In People"), ("request", "Canceled")])
 
+    # Release review (Oct 13): the employee's manager - the first approver -
+    # usually holds the Manager tier, which keeps People to their own team
+    # (auth.team_people_gate). None of the role-change routes were on that
+    # tier's allowlist, so the headline approver got 403 on every one of them.
+    def test_manager_tier_approver_decides_over_http(self):
+        import role_change as rc
+        self.db.add(models.NexusRole(email=HR, role="manager"))                   # the signed-in HTTP user, Manager tier
+        self.db.add(models.NexusEmployee(id="id-omar", work_email="omar@greensglobal.com", first_name="Omar",
+                                         last_name="Test", company="ent-x", status="active",
+                                         manager_email="someone.else@greensglobal.com", job_title="Analyst"))
+        self.db.add(models.NexusGroup(id="jr-shared", name="Analyst II", department="", is_job_role=1,
+                                      tier="employee", company_id=""))                 # a shared role, any company
+        self.db.commit()
+        auth.invalidate_role_cache(HR)
+        req, _ = self._ask()                                                        # Erin: HR (hana) is an approver
+        omar = self.db.query(models.NexusEmployee).filter_by(id="id-omar").first()
+        other, _, _ = rc.request_change(self.db, ADMIN_U, omar, "jr-shared", "Not hana's call")   # ent-x: no HR contact
+        self.db.commit()
+        r = self.client.get(f"/hr/role-change-requests/{req.id}")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertTrue(r.json()["canDecide"])
+        listed = self.client.get("/hr/role-change-requests").json()                # no person named
+        self.assertEqual([x["id"] for x in listed], [req.id])                      # only what she may decide
+        self.assertEqual(self.client.get(f"/hr/role-change-requests/{other.id}").status_code, 404)
+        # The editor routes stay off this tier's allowlist.
+        self.assertEqual(self.client.post("/hr/employees/id-erin/role", json={"role_id": "jr-2"}).status_code, 403)
+        self.assertEqual(self.client.post("/hr/role-change-requests",
+                                          json={"employee_id": "id-erin", "role_id": "jr-2"}).status_code, 403)
+        r = self.client.post(f"/hr/role-change-requests/{req.id}/approve")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self._role_of_erin(), ["jr-2"])
+
+    def test_a_people_editor_cannot_change_their_own_role_directly(self):
+        import role_change as rc
+        hana = self.db.query(models.NexusEmployee).filter_by(id="id-Hana").first()
+        with self.assertRaises(rc.RoleChangeError) as e:
+            rc.change_now(self.db, HR_ONLY, hana, "jr-2")
+        self.assertEqual(e.exception.status, 403)
+        self.assertEqual(self.db.query(models.NexusGroupMember).filter_by(email=HR).count(), 0)
+
     def test_role_history_logs_requests_direct_changes_and_promotions(self):
         import role_change as rc
         req, _ = self._ask(reason="Covers month-end")

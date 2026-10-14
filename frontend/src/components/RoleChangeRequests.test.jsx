@@ -32,7 +32,30 @@ vi.mock('../api', () => ({
   },
 }));
 
-const { RoleChangeRequestCard, RoleChangeDecisionModal, RoleHistory } = await import('./RoleChangeRequests');
+const { RoleChangeRequestCard, RoleChangeDecisionModal, RoleHistory, RoleChangeDeepLinkFallback } = await import('./RoleChangeRequests');
+
+describe('RoleChangeDeepLinkFallback', () => {
+  it('shows the decision on its own, notes the outcome, then hands back', async () => {
+    row = { ...base, canDecide: true, canCancel: false };
+    const onDone = vi.fn();
+    render(<RoleChangeDeepLinkFallback requestId="rq1" onDone={onDone} />);
+    await waitFor(() => expect(screen.getByText('Covers month-end close')).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: /^Approve/ }));
+    await waitFor(() => expect(approve).toHaveBeenCalledWith('rq1'));
+    await waitFor(() => expect(screen.getByRole('status')).toBeTruthy());
+    expect(screen.queryByRole('dialog')).toBeNull();                 // the dialog is done
+    await waitFor(() => expect(onDone).toHaveBeenCalled(), { timeout: 3000 });
+  });
+
+  it('closing without deciding hands back at once', async () => {
+    row = { ...base, canDecide: true, canCancel: false };
+    const onDone = vi.fn();
+    render(<RoleChangeDeepLinkFallback requestId="rq1" onDone={onDone} />);
+    await waitFor(() => expect(screen.getByText('Covers month-end close')).toBeTruthy());
+    fireEvent.click(screen.getByLabelText('Close'));
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe('RoleChangeRequestCard', () => {
   beforeEach(() => { approve.mockClear(); decline.mockClear(); });
