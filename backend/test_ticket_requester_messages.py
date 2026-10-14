@@ -3,7 +3,10 @@ What a ticket's requester is EMAILED and messaged on TEAMS about (Neil, Oct 1
 2026). Ankush: "whenever I open this ticket she gets a message on Teams".
 Neil: only three things reach the requester outside the bell -
 
-  * the ticket was ASSIGNED ("...has been assigned to Ankush Narkhede"),
+  * the ticket was ASSIGNED - told BY the assignees, never by whoever
+    clicked Assign (Neil, 10/14): "...assigned to me and is being worked on";
+    on a reassignment the old assignee says who has it and the new one says
+    it is theirs,
   * a public REPLY from someone else, with the reply's text in the message,
   * the ticket was RESOLVED or CLOSED (with the resolution note).
 
@@ -111,19 +114,37 @@ class _Base(unittest.TestCase):
 class TeamsMessageTests(_Base):
     """Which saves put a Teams message in the requester's queue, and what it says."""
 
-    def test_assigning_sends_one_message_naming_the_assignee(self):
+    def test_assigning_is_told_by_the_assignee_not_the_admin(self):
         emails, dms = self._save(AGENT, assignee_email=OTHER)
         self.assertEqual(len(dms), 1)
-        self.assertIn('Ticket #27 "Printer jam" has been assigned to Olive Agent.', dms[0].html)
+        self.assertIn('Ticket #27 "Printer jam" has been assigned to me and is being worked on.', dms[0].html)
         self.assertEqual(dms[0].requester_email, REQUESTER["email"])
-        self.assertEqual(dms[0].agent_email, AGENT["email"])   # posted as the agent
+        self.assertEqual(dms[0].agent_email, OTHER)   # posted as the assignee
         self.assertEqual([e.args[1] for e in emails], ["assigned"])
 
     def test_self_assigning_counts_as_assigned(self):
         # "Opened" by the desk = an agent picking it up.
         _, dms = self._save(AGENT, assignee_email=AGENT["email"])
         self.assertEqual(len(dms), 1)
-        self.assertIn("has been assigned to Ankush Narkhede.", dms[0].html)
+        self.assertEqual(dms[0].agent_email, AGENT["email"])
+        self.assertIn("has been assigned to me", dms[0].html)
+
+    def test_reassigning_is_told_by_both_assignees_and_never_the_admin(self):
+        # Neil, 10/14: A -> B by an admin - A says it moved to B, B says it is theirs.
+        bea = "bea.builder@greensglobal.com"
+        self.db.add(models.NexusEmployee(id="e-bea", first_name="Bea", last_name="Builder",
+                                         work_email=bea, status="active", deleted_at=""))
+        self._set(status="in_progress", assignee_email=OTHER)
+        _, dms = self._save(AGENT, assignee_email=bea)
+        by = {d.agent_email: d.html for d in dms}
+        self.assertEqual(set(by), {OTHER, bea})
+        self.assertIn("has been reassigned to Bea Builder.", by[OTHER])
+        self.assertIn("has been reassigned to me.", by[bea])
+
+    def test_reassigning_to_the_requester_leaves_only_the_old_assignee(self):
+        self._set(status="in_progress", assignee_email=OTHER)
+        _, dms = self._save(AGENT, assignee_email=REQUESTER["email"])
+        self.assertEqual([d.agent_email for d in dms], [OTHER])
 
     def test_a_public_reply_sends_the_reply_text(self):
         emails, dms = self._save(AGENT, comment="<p>Can you send a photo of the tray?</p>")
@@ -146,14 +167,14 @@ class TeamsMessageTests(_Base):
         self.assertEqual(len(dms), 1)
         self.assertIn("has been closed.", dms[0].html)
 
-    def test_assign_and_reply_in_one_save_is_one_message_with_both(self):
+    def test_assign_and_reply_in_one_save_each_come_from_their_own_sender(self):
         emails, dms = self._save(AGENT, assignee_email=OTHER, priority="high",
                                  comment="<p>Olive will swap the toner today.</p>")
-        self.assertEqual(len(dms), 1)
-        html = dms[0].html
-        self.assertIn("has been assigned to Olive Agent.", html)
-        self.assertIn("Ankush Narkhede replied:", html)
-        self.assertIn("Olive will swap the toner today.", html)
+        by = {d.agent_email: d.html for d in dms}
+        self.assertEqual(set(by), {OTHER, AGENT["email"]})
+        self.assertIn("has been assigned to me", by[OTHER])
+        self.assertIn("Ankush Narkhede replied on", by[AGENT["email"]])
+        self.assertIn("Olive will swap the toner today.", by[AGENT["email"]])
         self.assertEqual(len(emails), 1)
         self.assertEqual(emails[0].args[1], "assigned")
         self.assertIn("swap the toner", emails[0].kwargs["latest_comment"])
@@ -281,7 +302,7 @@ class TemplateTests(unittest.TestCase):
         self.assertEqual(tmpl.requester_teams_dm_html(code="000027", subject="x", link=LINK, comment="<p></p>"), "")
 
     def test_subject_is_escaped(self):
-        html = tmpl.requester_teams_dm_html(code="000027", subject='<b>"x"</b>', link=LINK, assigned_to="A")
+        html = tmpl.assignment_teams_dm_html(code="000027", subject='<b>"x"</b>', link=LINK, handed_to="A")
         self.assertNotIn("<b>\"x\"</b>", html)
         self.assertIn("&lt;b&gt;", html)
 

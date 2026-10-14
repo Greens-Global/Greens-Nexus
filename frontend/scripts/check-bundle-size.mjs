@@ -211,7 +211,11 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // reached dev, and this release also brings the Weather Call, Tasks (automation,
 // checklists, threads, timer) and Motion stacks. CI measured 12065 KB with all
 // of them together. No dependency beyond three.js. Deliberate.
-const TOTAL_KB     = 12250;
+// Oct 14, 2026: 12250 -> 12350. dev itself measured 12226 KB on CI, so any
+// feature tipped it; #561 (task templates, recurring subtasks, the shared
+// Repeat menu, ticket collaborators, tasks from tickets) measured 12252 KB.
+// All app code, no new dependency. Deliberate.
+const TOTAL_KB     = 12350;
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a

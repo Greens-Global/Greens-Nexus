@@ -117,6 +117,7 @@ describe('Workday Overview with the Time Clock', () => {
     const clock = screen.getByRole('region', { name: 'Time Clock' });
     const tabs = within(clock).getAllByRole('tab').map((t) => t.textContent);
     expect(tabs).toEqual(['Today', 'This Week', 'Pay Period']);
+    expect(within(clock).getByText('Worked today')).toBeTruthy();           // Today by default (Neil, Oct 14)
     // The week: seven days against the 8-hour line.
     fireEvent.click(within(clock).getByRole('tab', { name: 'This Week' }));
     expect(within(clock).getAllByRole('listitem').length).toBe(7);
