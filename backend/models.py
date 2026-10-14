@@ -6198,3 +6198,126 @@ class HrRoleChangeRequest(Base):
     decided_by        = Column(String, default="")                  # approver / decliner / whoever canceled
     decided_at        = Column(String, default="")
     decision_note     = Column(String, default="")                  # why it was declined
+
+
+# ── Cubby -> Supabase (Operations, Oct 15 2026) ──────────────────────────────
+# cubby_sync.py copies what the Operations screen uses from Cubby into these
+# tables every 15 minutes; the screen, the unit lookup and the report exports
+# read only from here (cubby.py). Keyed "<facility_id>:<cubby id>". `data` is
+# the Cubby row as summarize_facility reads it, with phone, email, address,
+# date of birth and ID numbers stripped before it is written - never stored.
+# New tables - create_all builds them; RLS per CLAUDE.md (main.py list + the
+# startup sweep).
+
+class CubbyFacility(Base):
+    """One Cubby facility. `enabled` false = no longer in Cubby's list (its rows stay)."""
+    __tablename__ = "cubby_facilities"
+    facility_id             = Column(String, primary_key=True)
+    organization            = Column(String, default="")
+    name                    = Column(String, default="")
+    time_zone               = Column(String, default="")
+    enabled                 = Column(Boolean, default=True)
+    data                    = Column(JSON, default=dict)     # facilityId, name, internalName, timeZone, latitude, longitude
+    synced_at               = Column(String, default="")     # UTC iso of this facility's last good sync
+    payments_synced_through = Column(String, default="")     # YYYY-MM-DD; '' = payments not backfilled yet
+
+
+class CubbyUnit(Base):
+    """A unit: its rent-roll line (status, rates, tenant name) and its units/search row (rentability)."""
+    __tablename__ = "cubby_units"
+    id          = Column(String, primary_key=True)          # "<facility_id>:<unitId>"
+    facility_id = Column(String, index=True, nullable=False)
+    unit_id     = Column(String, default="")
+    unit_name   = Column(String, default="")
+    status      = Column(String, default="")                # RENTED | VACANT | ...
+    customer_id = Column(String, default="", index=True)
+    data        = Column(JSON, default=dict)                # {"rentRoll": {...} | null, "unit": {...} | null}
+
+
+class CubbyRental(Base):
+    """A tenancy (Cubby lease), past or current."""
+    __tablename__ = "cubby_rentals"
+    id            = Column(String, primary_key=True)        # "<facility_id>:<leaseId>"
+    facility_id   = Column(String, index=True, nullable=False)
+    lease_id      = Column(String, default="")
+    unit_id       = Column(String, default="")
+    customer_id   = Column(String, default="", index=True)
+    move_in_date  = Column(String, default="", index=True)  # YYYY-MM-DD
+    move_out_date = Column(String, default="")
+    data          = Column(JSON, default=dict)
+
+
+class CubbyCustomer(Base):
+    """A customer's NAME only (leads/search returns an id, the screen shows the name)."""
+    __tablename__ = "cubby_customers"
+    id          = Column(String, primary_key=True)          # "<facility_id>:<customerId>"
+    facility_id = Column(String, index=True, nullable=False)
+    customer_id = Column(String, default="")
+    name        = Column(String, default="")
+
+
+class CubbyPayment(Base):
+    """A payment. Kept incrementally: each sync re-reads the last 45 days."""
+    __tablename__ = "cubby_payments"
+    id           = Column(String, primary_key=True)         # "<facility_id>:<paymentId>"
+    facility_id  = Column(String, index=True, nullable=False)
+    payment_id   = Column(String, default="")
+    customer_id  = Column(String, default="", index=True)
+    payment_date = Column(String, default="", index=True)   # the date Cubby's payments/search filters on, YYYY-MM-DD
+    status       = Column(String, default="")
+    amount_cents = Column(BigInteger, default=0)
+    data         = Column(JSON, default=dict)
+    __table_args__ = (Index("ix_cubby_payments_facility_date", "facility_id", "payment_date"),)
+
+
+class CubbyLead(Base):
+    __tablename__ = "cubby_leads"
+    id          = Column(String, primary_key=True)          # "<facility_id>:<leadId>"
+    facility_id = Column(String, index=True, nullable=False)
+    lead_id     = Column(String, default="")
+    customer_id = Column(String, default="")
+    status      = Column(String, default="")
+    created_at  = Column(String, default="")                # Cubby's createdAt
+    data        = Column(JSON, default=dict)
+
+
+class CubbyReceivable(Base):
+    """One aged-receivables line: what a tenant owes on a unit, by age."""
+    __tablename__ = "cubby_receivables"
+    id          = Column(String, primary_key=True)          # "<facility_id>:<unitId>:<customerId>"
+    facility_id = Column(String, index=True, nullable=False)
+    unit_id     = Column(String, default="")
+    customer_id = Column(String, default="")
+    total_cents = Column(BigInteger, default=0)
+    data        = Column(JSON, default=dict)
+
+
+class CubbyTask(Base):
+    """An OPEN Cubby task (the worklist)."""
+    __tablename__ = "cubby_tasks"
+    id          = Column(String, primary_key=True)          # "<facility_id>:<taskId>"
+    facility_id = Column(String, index=True, nullable=False)
+    task_id     = Column(String, default="")
+    unit_id     = Column(String, default="")
+    due_date    = Column(String, default="")
+    data        = Column(JSON, default=dict)
+
+
+class CubbySyncRun(Base):
+    """One Cubby -> database sync. At most one is `running` at a time (the
+    partial unique index is the lock, so it holds across workers and instances).
+    `facilities` = {facility_id: {name, status, counts, error}}. Error text
+    never carries the key or tenant data."""
+    __tablename__ = "cubby_sync_runs"
+    id           = Column(String, primary_key=True)         # uuid
+    trigger      = Column(String, default="")               # schedule | manual | first-read
+    requested_by = Column(String, default="")               # staff email for a manual run
+    started_at   = Column(String, default="", index=True)   # UTC iso
+    finished_at  = Column(String, default="")
+    status       = Column(String, default="running")        # running | ok | partial | failed
+    facilities   = Column(JSON, default=dict)
+    error        = Column(Text, default="")
+    __table_args__ = (
+        Index("ux_cubby_sync_running", "status", unique=True,
+              sqlite_where=(status == "running"), postgresql_where=(status == "running")),
+    )

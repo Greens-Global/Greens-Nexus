@@ -2322,6 +2322,16 @@ def _run_migrations():
         "ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS account_number VARCHAR DEFAULT ''",
         "ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS account_details VARCHAR DEFAULT ''",
         "ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS contact_info VARCHAR DEFAULT ''",
+        # Cubby -> Supabase (Operations, Oct 15). New tables - RLS per CLAUDE.md. models.Cubby*.
+        "ALTER TABLE cubby_facilities ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE cubby_units ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE cubby_rentals ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE cubby_customers ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE cubby_payments ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE cubby_leads ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE cubby_receivables ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE cubby_tasks ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE cubby_sync_runs ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
