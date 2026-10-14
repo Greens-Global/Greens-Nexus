@@ -131,9 +131,28 @@ export function setUserBooks(list) {
   userBooks = (Array.isArray(list) ? list : []).filter((b) => b && isUserBook(String(b.key || '').toLowerCase()))
     .map((b) => ({ key: String(b.key).toLowerCase(), label: String(b.label || b.key).trim() || String(b.key).toUpperCase() }));
 }
-/** The Book selector's options: Accrual, Cash, the user books, then Accrual and Cash. */
-export const bookOptions = () => [BOOKS[0], BOOKS[1], ...userBooks, BOOKS[2]];
+/**
+ * The Book selector's options: Accrual, Cash, the user books, then Accrual and
+ * Cash - the last only where a report can lay two books side by side (Income
+ * Statement, Balance Sheet, Trial Balance).
+ */
+export function bookOptions(config = null) {
+  return [BOOKS[0], BOOKS[1], ...userBooks, ...(!config || canBothBooks(config) ? [BOOKS[2]] : [])];
+}
 export const bookLabel = (key) => BOOKS.find((b) => b.key === key)?.label || userBooks.find((b) => b.key === key)?.label || (isUserBook(key) ? key.toUpperCase() : 'Accrual');
+/** The book in words for a title: "Accrual Book", "Fair Market Journal Book", "Accrual and Cash Books". */
+export const bookTitle = (key) => (key === 'both' ? 'Accrual and Cash Books' : `${bookLabel(key)} Book`);
+/**
+ * A report's title with its book (Charmi / Urmi, 10/15: "different books in
+ * Intacct" - which book a figure came from is part of its name): on the
+ * screen, in Excel, the PDF, the CSV and an email. "Income Statement (Cash Book)".
+ */
+export function reportTitle(config, name = '') {
+  const label = name || reportDef(config?.report).label;
+  if (!config || !canPickBook(config)) return label;
+  const suffix = `(${bookTitle(config.book)})`;
+  return label.endsWith(suffix) ? label : `${label} ${suffix}`;
+}
 
 // The dimensions a report can be narrowed by, in the order Charmi listed
 // them. Entities have their own dropdown; every other dimension, department
@@ -281,6 +300,10 @@ export function resolveConfig(config, now = new Date()) {
   if (c.from > c.to) c.to = c.from;
   if (c.asofToday !== false || !ISO.test(c.asof || '')) { c.asof = iso(now); c.asofToday = c.asofToday !== false; }
   c.book = BOOKS.some((b) => b.key === c.book) || userBooks.some((b) => b.key === c.book) ? c.book : 'accrual';
+  // Two books side by side are one read per book; a report that cannot lay
+  // them out reads Accrual rather than say "Accrual and Cash" over one book
+  // (the API refuses book=both on a single read).
+  if (c.book === 'both' && !canBothBooks(c)) c.book = 'accrual';
   c.entities = Array.isArray(c.entities) ? c.entities.filter((x) => typeof x === 'string' && x) : [];
   c.accounts = Array.isArray(c.accounts) ? c.accounts.filter((x) => typeof x === 'string' && x) : [];
   // Zero balances are hidden unless asked for (Charmi, 09/29 call: "the
@@ -312,10 +335,16 @@ export function resolveConfig(config, now = new Date()) {
 }
 
 /** The layout in force: two books side by side leave no room for columns. */
-export const activeColumns = (config) => (config.book === 'both' && canPickBook(config) ? 'total' : config.cols);
+export const activeColumns = (config) => (config.book === 'both' && canBothBooks(config) ? 'total' : config.cols);
 // The Statement of Cash Flows ties to Cash Position, which reads the accrual
 // book for whole entities - so neither a book nor the dimension filters apply.
-export const canPickBook = (config) => config.report !== 'cash-position' && config.report !== 'cash-flow';
+// Oct 15 (Charmi, Urmi: "different books in Intacct"): every financial
+// report reads the book picked - the Statement of Cash Flows reads its income
+// statement and balance sheets from it, Cash Position its bank and cash
+// balances (see cashPosition), Flux and Actual vs Budget their actuals.
+export const canPickBook = (config) => REPORTS.some((r) => r.key === config?.report);
+/** The reports that can lay Accrual and Cash side by side. */
+export const canBothBooks = (config) => ['pnl', 'balance-sheet', 'trial-balance'].includes(config?.report);
 // Actual vs Budget: a budget is kept per entity and account, never per
 // department or vendor, so the other filters would narrow only one side.
 export const canUseDims = (config) => config.report !== 'cash-position' && config.report !== 'cash-flow' && config.report !== 'budget';
@@ -817,16 +846,16 @@ function layout(config, read) {
  */
 export async function runReport(api, config, entities = []) {
   const def = reportDef(config.report);
-  const both = canPickBook(config) && config.book === 'both';
-  const book = both ? 'accrual' : config.book;
+  const both = canBothBooks(config) && config.book === 'both';
+  const book = both || config.book === 'both' ? 'accrual' : config.book;
   const base = { config, def, org: '', generatedAt: '', mode: 'single', otherLabel: '', summary: [], pickable: [] };
   const drillCur = { from: def.period === 'asof' ? '' : config.from, to: def.period === 'asof' ? config.asof : config.to, book };
 
   if (config.report === 'cash-position') {
-    const a = await fetchStatement(api, config, { asof: config.asof }, 'accrual');
+    const a = await cashPosition(api, config, config.asof, book);
     const rows = (a.accounts || []).map((x) => ({ kind: 'account', code: x.gl_code, title: x.account_name, values: [x.balance, x.last_activity ? formatDate(x.last_activity) : ''] }));
     rows.push({ kind: 'grand', label: `Total Cash as of ${formatDate(config.asof)}`, tone: true, values: [a.total, ''] });
-    return { ...base, org: a.org || '', generatedAt: a.generated_at || '', columns: [{ key: 'balance', label: 'Balance', type: 'amount', drill: { ...drillCur, book: 'accrual' } }, { key: 'last', label: 'Last Activity', type: 'date' }], rows };
+    return { ...base, org: a.org || '', generatedAt: a.generated_at || '', columns: [{ key: 'balance', label: 'Balance', type: 'amount', drill: drillCur }, { key: 'last', label: 'Last Activity', type: 'date' }], rows, ...(a.note ? { notes: [a.note] } : {}) };
   }
 
   if (config.report === 'trial-balance') {
@@ -1358,15 +1387,16 @@ export function cashFlowFigures({ pnl, bsBegin, bsEnd, cashBegin = null, cashEnd
   };
 }
 async function cashFlowReport(api, config) {
-  const book = 'accrual';
+  // The book picked (10/15); two books side by side are not a cash flow.
+  const book = config.book && config.book !== 'both' ? config.book : 'accrual';
   const begin = dayBefore(config.from);
   const cfg = { ...config, dims: { ...EMPTY_DIMS } };
   const [pnl, bsBegin, bsEnd, cashBegin, cashEnd] = await Promise.all([
     fetchStatement(api, { ...cfg, report: 'pnl' }, { from: config.from, to: config.to }, book),
     fetchStatement(api, { ...cfg, report: 'balance-sheet' }, { asof: begin }, book),
     fetchStatement(api, { ...cfg, report: 'balance-sheet' }, { asof: config.to }, book),
-    fetchStatement(api, { ...cfg, report: 'cash-position' }, { asof: begin }, book).catch(() => null),
-    fetchStatement(api, { ...cfg, report: 'cash-position' }, { asof: config.to }, book).catch(() => null),
+    cashPosition(api, cfg, begin, book).catch(() => null),
+    cashPosition(api, cfg, config.to, book).catch(() => null),
   ]);
   const f = cashFlowFigures({ pnl, bsBegin, bsEnd, cashBegin, cashEnd });
   const drill = { from: config.from, to: config.to, book };
@@ -1390,6 +1420,27 @@ async function cashFlowReport(api, config) {
   const notes = [`Indirect method. The ending cash ties to Cash Position as of ${formatDate(config.to)}${cashEnd ? '' : ' (Cash Position could not be read - cash is the cash and bank accounts on the balance sheet)'}. Accounts are sorted into operating, investing and financing by type and title (v1).`];
   if (Math.abs(f.unexplained) >= 0.005) notes.push('Not Explained by the Balance Sheet: cash moved by more (or less) than the balance sheet accounts did - an entity or book difference to look into.');
   return { org: pnl?.org || '', generatedAt: pnl?.generated_at || '', mode: 'single', columns, rows, summary, notes, cashFlow: f };
+}
+
+// ── Cash Position in a book (Charmi, Urmi, 10/15) ───────────────────────────
+// The accounting app's cash position reads the accrual book. A bank or cash
+// account holds the same balance on the cash basis (the bases differ in
+// receivables and payables, never in cash), so Cash reads it as it is. In a
+// user-defined book (FMV, KJE ...) the bank and cash accounts it lists keep
+// their names and last activity, and take their balances from that book's
+// balance sheet as of the same date (an account the book does not carry
+// reads zero).
+export async function cashPosition(api, config, asof, book = 'accrual') {
+  const cp = await fetchStatement(api, { ...config, report: 'cash-position' }, { asof }, 'accrual');
+  if (!isUserBook(book)) return cp;
+  const bs = await fetchStatement(api, { ...config, report: 'balance-sheet', dims: { ...EMPTY_DIMS } }, { asof }, book);
+  const inBook = new Map();
+  (bs?.sections || []).filter((s) => s.key === 'asset').forEach((s) => (s.accounts || []).forEach((x) => { if (x.account_no) inBook.set(x.account_no, round2((inBook.get(x.account_no) || 0) + (x.amount || 0))); }));
+  const accounts = (cp?.accounts || []).map((x) => ({ ...x, balance: inBook.get(x.gl_code) ?? 0 }));
+  return {
+    ...cp, accounts, total: round2(accounts.reduce((s, x) => s + (x.balance || 0), 0)),
+    note: `Balances from the ${bookTitle(book)} balance sheet as of ${formatDate(asof)}; the accounts and their last activity from the ledger.`,
+  };
 }
 
 // ── Inactive accounts (item 34) ──────────────────────────────────────────────
@@ -1589,7 +1640,7 @@ export function cellText(row, column, value, raw = false) {
 // The table as it is shown, for the CSV: one header row, then every row.
 export function csvRows(result, entities = []) {
   const { config, def, columns } = result;
-  const out = [[def.label], [entityText(config, entities)], [periodText(config)], [`Book: ${bookLabel(config.book)}`], [], ['Section', 'Account', 'Title', ...columns.map((c) => c.label)]];
+  const out = [[reportTitle(config, def.label)], [entityText(config, entities)], [periodText(config)], [`Book: ${bookLabel(config.book)}`], [], ['Section', 'Account', 'Title', ...columns.map((c) => c.label)]];
   const cells = (r) => columns.map((c, i) => cellText(r, c, r.values[i], true));
   // A section's total follows its accounts, the way the statement reads.
   let open = null;
@@ -1627,7 +1678,9 @@ export function reportFileName(result, entities = [], format = 'pdf') {
   const when = def.period === 'asof' ? `as of ${d(config.asof)}` : `${d(config.from)} to ${d(config.to)}`;
   const safe = (s) => String(s || '').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
   const ext = format === 'excel' ? 'xlsx' : format === 'csv' ? 'csv' : 'pdf';
-  return `${safe(def.label)} - ${safe(entityText(config, entities))} - ${when}.${ext}`;
+  // A book other than Accrual is in the name, so two books never overwrite each other (10/15).
+  const book = config.book && config.book !== 'accrual' ? ` - ${safe(bookTitle(config.book))}` : '';
+  return `${safe(def.label)} - ${safe(entityText(config, entities))} - ${when}${book}.${ext}`;
 }
 
 const csvCell = (v) => {

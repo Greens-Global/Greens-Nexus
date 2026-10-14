@@ -19,8 +19,8 @@ import {
   SavedReportsMenu, control,
 } from './reportControls';
 import {
-  EMPTY_DIMS, FLUX_AMOUNT_TARGETS, FLUX_STATUS_FILTERS, NUM_OPS, POPOVER_DIMS, REPORTS, activeColumns, bookLabel, bookOptions, canPickAccounts, canPickBook, canUseDims, cellText, columnModes, columnsForPicks, csvFileName, csvRows,
-  defaultConfig, downloadBlob, downloadCsv, entityText, filterChips, filterFlux, fluxAmountOn, fluxNoteOf, hideInactive, iso, numberFilterHit, periodText, presetLabel, reportDef, reportPages, resolveConfig, runReport, setUserBooks, withFluxNotes,
+  EMPTY_DIMS, FLUX_AMOUNT_TARGETS, FLUX_STATUS_FILTERS, NUM_OPS, POPOVER_DIMS, REPORTS, activeColumns, bookOptions, canBothBooks, canPickAccounts, canPickBook, canUseDims, cellText, columnModes, columnsForPicks, csvFileName, csvRows,
+  reportTitle, defaultConfig, downloadBlob, downloadCsv, entityText, filterChips, filterFlux, fluxAmountOn, fluxNoteOf, hideInactive, iso, numberFilterHit, periodText, presetLabel, reportDef, reportPages, resolveConfig, runReport, setUserBooks, withFluxNotes,
 } from './reportModel';
 
 // Accounting -> Reports. Pull any statement for any entity straight from the
@@ -137,12 +137,13 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
 
   // Books the accounting app lists (item 35: Fair Market, KJE ...), and
   // whether it lists its journals - the Journals filter hides until it does.
-  const [books, setBooks] = useState(() => bookOptions());
+  // `booksListed` re-reads the options once the app's list arrives.
+  const [booksListed, setBooksListed] = useState(0);
   const [journalsOn, setJournalsOn] = useState(true);
   useEffect(() => {
     let alive = true;
     api.getAccountingBooks?.()
-      .then((d) => { if (alive && d?.available) { setUserBooks(d.books); setBooks(bookOptions()); } })
+      .then((d) => { if (alive && d?.available) { setUserBooks(d.books); setBooksListed((n) => n + 1); } })
       .catch(() => { /* Accrual / Cash / both, as before */ });
     api.getAccountingJournals?.()
       .then((d) => { if (alive) setJournalsOn(d?.available !== false); })
@@ -297,7 +298,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
     try {
       // pdf-lib is large; it loads only when a PDF is asked for.
       const { buildPackagePdf } = await import('./reportPdf');
-      const title = activeSaved?.name || r.def.label;
+      const title = reportTitle(r.config, activeSaved?.name || r.def.label);
       const bytes = await buildPackagePdf({ name: title, statements: [{ title: r.def.label, result: r, entities }], cover: false });
       downloadBlob(csvFileName(r).replace(/\.csv$/, '.pdf'), new Blob([bytes], { type: 'application/pdf' }));
     } catch (e) {
@@ -353,7 +354,8 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
   const def = reportDef(config.report);
   const cols = activeColumns(config);
   const modes = columnModes(config.report, config);
-  const showColumns = modes.length > 1 && config.book !== 'both';
+  const showColumns = modes.length > 1 && !(config.book === 'both' && canBothBooks(config));
+  const books = useMemo(() => bookOptions(config), [config.report, config.book, booksListed]); // eslint-disable-line react-hooks/exhaustive-deps
   const chips = filterChips(config, entities, dimNames);
   const entityLabel = entityText(config, entities);
   // A column of one entity drills into that entity, whatever the report covers.
@@ -645,7 +647,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
           onClose={() => setSending(null)} onDone={(text, url) => { setSending(null); setSent({ text, url }); }} />
       )}
       {sending && !searching && shown && (
-        <SendReportDialog mode={sending} result={shown} entities={entities} title={activeSaved?.name || def.label} config={storable(config)}
+        <SendReportDialog mode={sending} result={shown} entities={entities} title={reportTitle(config, activeSaved?.name || def.label)} config={storable(config)}
           onClose={() => setSending(null)} onDone={(text, url) => { setSending(null); setSent({ text, url }); }} />
       )}
 
@@ -673,9 +675,9 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
         <div style={{ ...card, padding: 10 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', minWidth: 0 }}>
-              <h3 style={{ fontSize: '0.98rem', margin: 0 }}>{def.label}</h3>
+              <h3 style={{ fontSize: '0.98rem', margin: 0 }}>{reportTitle(config)}</h3>
               <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
-                {[shown.org, entityLabel, periodText(config), shown.mode === 'compare' ? `vs ${shown.otherLabel}` : '', cols !== 'total' && shown.mode !== 'compare' ? modes.find((m) => m.key === cols)?.label : '', canPickBook(config) ? bookLabel(config.book) : ''].filter(Boolean).join(' · ')}
+                {[shown.org, entityLabel, periodText(config), shown.mode === 'compare' ? `vs ${shown.otherLabel}` : '', cols !== 'total' && shown.mode !== 'compare' ? modes.find((m) => m.key === cols)?.label : ''].filter(Boolean).join(' · ')}
                 {loading ? ' · updating' : ''}
               </span>
             </div>

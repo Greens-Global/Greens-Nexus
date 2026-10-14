@@ -382,7 +382,7 @@ describe('export', () => {
     const api = fakeApi({ pnl: () => stmt([{ account_no: '41000', title: 'Rental Income', amount: 1000 }, { account_no: '41100', title: 'Parking', amount: 500 }]) });
     const r = await runReport(api, resolveConfig({ ...defaultConfig(NOW), entities: ['15000'] }, NOW));
     const rows = csvRows(r, [{ code: '15000', name: 'Greens Escondido, LLC.' }]);
-    expect(rows.slice(0, 4)).toEqual([['Income Statement'], ['Greens Escondido, LLC. (15000)'], [`Year-to-Date ${String.fromCharCode(0xb7)} 01/01/2026 - 09/28/2026`], ['Book: Accrual']]);
+    expect(rows.slice(0, 4)).toEqual([['Income Statement (Accrual Book)'], ['Greens Escondido, LLC. (15000)'], [`Year-to-Date ${String.fromCharCode(0xb7)} 01/01/2026 - 09/28/2026`], ['Book: Accrual']]);
     expect(rows[5]).toEqual(['Section', 'Account', 'Title', 'YTD Actual']);
     expect(rows.slice(6, 10)).toEqual([
       ['Revenue', '41000', 'Rental Income', 1000],

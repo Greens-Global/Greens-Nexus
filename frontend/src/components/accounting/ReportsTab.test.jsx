@@ -198,7 +198,7 @@ describe('ReportsTab controls', () => {
     expect(screen.queryByText('Profit & Loss')).toBeNull();
     expect(screen.queryByRole('button', { name: /refresh/i })).toBeNull();
     expect(screen.queryByText(/add filter/i)).toBeNull();
-    expect(screen.getByRole('heading', { name: 'Income Statement' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Income Statement (Accrual Book)' })).toBeTruthy();
   });
 
   it('opens the statement picked in the Reporting menu and tells the menu when another is picked here (Oct 14)', async () => {

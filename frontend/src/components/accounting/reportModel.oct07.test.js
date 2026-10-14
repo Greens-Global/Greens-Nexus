@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   bookLabel, bookOptions, cashFlowFigures, defaultConfig, glGroupOf, glLineParams, hideInactive, lineMatchesDims, numberFilterHit, parseFigure,
   reportPages, resolveConfig, runReport, setUserBooks, withFluxNotes, filterFlux, fluxStatus, filterChips, fluxAmountText, csvRows, canUseDims, canPickAccounts,
+  canBothBooks, canPickBook, reportTitle, reportFileName,
 } from './reportModel';
 
 // Accounting > Reports, Oct 7 batch (Charmi, Neil): the General Ledger's
@@ -311,6 +312,70 @@ describe('books (item 35)', () => {
     setUserBooks([]);
   });
 
+  it('offers a book on every financial report, two side by side only where they can be drawn (Charmi, Urmi, 10/15)', () => {
+    setUserBooks([{ key: 'kje', label: 'KJECA - Greens Global' }]);
+    const keys = (report) => bookOptions({ report }).map((b) => b.key);
+    ['pnl', 'balance-sheet', 'trial-balance'].forEach((r) => expect(keys(r)).toEqual(['accrual', 'cash', 'kje', 'both']));
+    ['general-ledger', 'cash-position', 'cash-flow', 'flux', 'budget'].forEach((r) => {
+      expect(canPickBook({ report: r })).toBe(true);
+      expect(canBothBooks({ report: r })).toBe(false);
+      expect(keys(r)).toEqual(['accrual', 'cash', 'kje']);
+      // "Accrual and Cash" carried over from an Income Statement reads Accrual here.
+      expect(resolveConfig({ report: r, book: 'both' }, NOW).book).toBe('accrual');
+      expect(resolveConfig({ report: r, book: 'kje' }, NOW).book).toBe('kje');
+    });
+    expect(resolveConfig({ report: 'pnl', book: 'both' }, NOW).book).toBe('both');
+    // The book is in the title, the export and the file name.
+    expect(reportTitle({ report: 'pnl', book: 'cash' })).toBe('Income Statement (Cash Book)');
+    expect(reportTitle({ report: 'flux', book: 'kje' })).toBe('Flux Analysis (KJECA - Greens Global Book)');
+    expect(reportTitle({ report: 'balance-sheet', book: 'both' }, 'Lender Package')).toBe('Lender Package (Accrual and Cash Books)');
+    expect(reportTitle({ report: 'pnl', book: 'cash' }, 'Income Statement (Cash Book)')).toBe('Income Statement (Cash Book)');
+    const result = { config: resolveConfig({ report: 'pnl', book: 'cash', preset: 'custom', from: '2026-01-01', to: '2026-09-30' }, NOW), def: { label: 'Income Statement', period: 'range' } };
+    expect(reportFileName(result, [], 'excel')).toBe('Income Statement - All entities - 01-01-2026 to 09-30-2026 - Cash Book.xlsx');
+    expect(reportFileName({ ...result, config: { ...result.config, book: 'accrual' } }, [], 'pdf')).toBe('Income Statement - All entities - 01-01-2026 to 09-30-2026.pdf');
+    setUserBooks([]);
+  });
+
+  it('reads every report in the book picked, and drills into that book (10/15)', async () => {
+    setUserBooks([{ key: 'fmv', label: 'Fair Market Journal' }]);
+    const pnl = { sections: [{ key: 'revenue', accounts: [{ account_no: '41000', title: 'Rental Income', amount: 1200 }] }] };
+    const bs = { sections: [{ key: 'asset', accounts: [{ account_no: '10100', title: 'Chase Operating', amount: 4321 }] }] };
+    const api = {
+      getAccountingPnl: vi.fn(async () => pnl),
+      getAccountingBalanceSheet: vi.fn(async () => bs),
+      getAccountingCashPosition: vi.fn(async () => ({ accounts: [{ gl_code: '10100', account_name: 'Chase Operating', balance: 5000, last_activity: '2026-10-01' }, { gl_code: '10200', account_name: 'Petty Cash', balance: 10 }], total: 5010 })),
+      readAccountingReport: vi.fn(async (kind) => (kind === 'pnl' ? pnl : bs)),
+      getAccountingReportBudget: vi.fn(async () => ({ available: false, rows: [] })),
+      getAccountingBudget: vi.fn(async () => ({ source: 'none', rows: [] })),
+    };
+    // Flux: both periods from the cash book; its amounts drill into the cash book.
+    const flux = await runReport(api, resolveConfig({ ...defaultConfig(NOW), report: 'flux', book: 'cash' }, NOW));
+    expect(api.getAccountingPnl.mock.calls.map((c) => c[4])).toEqual(['cash', 'cash']);
+    expect(flux.columns[0].drill.book).toBe('cash');
+    // Actual vs Budget: the Actual from the book.
+    await runReport(api, resolveConfig({ ...defaultConfig(NOW), report: 'budget', book: 'cash' }, NOW));
+    expect(api.getAccountingPnl.mock.calls.at(-1)[4]).toBe('cash');
+    // Cash Flows: the income statement and balance sheets from the book.
+    await runReport(api, resolveConfig({ ...defaultConfig(NOW), report: 'cash-flow', book: 'cash' }, NOW));
+    expect(api.getAccountingBalanceSheet.mock.calls.at(-1)[3]).toBe('cash');
+    // Cash Position: the cash book's bank balances are the accrual ones; a
+    // user book's come from its balance sheet, with a note saying so.
+    const cashBook = await runReport(api, resolveConfig({ ...defaultConfig(NOW), report: 'cash-position', book: 'cash' }, NOW));
+    expect(cashBook.rows.at(-1).values[0]).toBe(5010);
+    expect(cashBook.columns[0].drill.book).toBe('cash');
+    const fmv = await runReport(api, resolveConfig({ ...defaultConfig(NOW), report: 'cash-position', book: 'fmv' }, NOW));
+    expect(api.readAccountingReport).toHaveBeenLastCalledWith('balance-sheet', expect.objectContaining({ book: 'fmv' }));
+    expect(fmv.rows.map((r) => r.values[0])).toEqual([4321, 0, 4321]);
+    expect(fmv.rows[0].values[1]).toBe('10/01/2026');
+    expect(fmv.notes[0]).toMatch(/Fair Market Journal Book balance sheet/);
+    expect(fmv.columns[0].drill.book).toBe('fmv');
+    // General Ledger: "both" never reaches a single read.
+    const glApi = { getAccountingTrialBalance: vi.fn(async () => ({ rows: [], totals: {} })), searchAccountingLedger: vi.fn(async () => ({ rows: [], total: 0 })) };
+    await runReport(glApi, { ...resolveConfig({ ...defaultConfig(NOW), report: 'general-ledger' }, NOW), book: 'both' });
+    expect(glApi.getAccountingTrialBalance.mock.calls[0][4]).toBe('accrual');
+    setUserBooks([]);
+  });
+
   it('reads a user book through the generic report read', async () => {
     setUserBooks([{ key: 'fmv', label: 'Fair Market Journal' }]);
     const api = { readAccountingReport: vi.fn(async () => ({ sections: [] })), getAccountingPnl: vi.fn() };
@@ -383,7 +448,7 @@ describe('Actual vs Budget (item 43)', () => {
     expect(r.notes[0]).toMatch(/saved in Nexus/);
     // The export carries the Budget column, filled.
     const csv = csvRows(r);
-    expect(csv[0]).toEqual(['Actual vs Budget']);
+    expect(csv[0]).toEqual(['Actual vs Budget (Accrual Book)']);
     const head = csv.find((row) => row[0] === 'Section');
     expect(head.slice(3)).toEqual(['Actual', 'Budget (Nexus)', 'Variance $', 'Variance %']);
     expect(csv.find((row) => row[1] === '62500').slice(3)).toEqual([0, 250, -250, '(100.0%)']);
