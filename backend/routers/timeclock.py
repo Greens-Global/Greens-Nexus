@@ -9009,6 +9009,29 @@ class BodIn(BaseModel):
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 
+def _where_label(geo: dict, ctx: dict) -> str:
+    """Where-from tag beside the time in a BOD/EOD post (Pranshu, 10/14).
+    Remote people read Remote wherever they are. Otherwise it is the site
+    only when it is one of the person's allowed sites ([] = any company
+    site), else Off-Site Punch - stricter than the timecard on purpose.
+    No fix / too rough to judge = no tag rather than a guess."""
+    if ctx.get("remote"):
+        return "Remote"
+    s = geo.get("geo_status")
+    mine = ctx.get("mine") or set()
+    if s == "in_fence" and (not mine or geo.get("work_site_id") in mine):
+        return geo.get("work_site_name") or ""
+    return "Off-Site Punch" if s in ("in_fence", "out_of_fence", "no_site") else ""
+
+
+@router.get("/where")
+def where_label(lat: str = "", lng: str = "", accuracy_m: int = 0,
+                user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The BOD/EOD composer's location tag for the caller's current position."""
+    ctx = _geo_context(db, user["email"])
+    return {"label": _where_label(_geofence(db, lat, lng, accuracy_m, ctx=ctx), ctx)}
+
+
 @router.post("/bod")
 def record_bod(body: BodIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     now = _now_iso()
