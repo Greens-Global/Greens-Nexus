@@ -125,6 +125,7 @@ class EmployeeUpdate(BaseModel):
     personal:        Optional[dict] = None
     compliance:      Optional[dict] = None
     notes:           Optional[str] = None
+    external_company: Optional[str] = None   # guest / external rows only: the outside company they belong to
 
 
 def _validate(employment_type: Optional[str], status: Optional[str], identity_type: Optional[str] = None) -> None:
@@ -230,6 +231,9 @@ def _serialize(e: NexusEmployee) -> dict:
         "updatedAt":      e.updated_at,
         "deletedAt":      e.deleted_at or "",
         "deletedBy":      e.deleted_by or "",
+        # Guest / external rows: the outside company (the org chart shows it
+        # as the card's company line, Oct 14 2026).
+        "externalCompany": getattr(e, "external_company", "") or "",
     }
 
 

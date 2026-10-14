@@ -617,3 +617,27 @@ class TestInviteFlow(_ExternalBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestOrgChartExternals(_ExternalBase):
+    """The org chart can show external users (Neil, Oct 14 2026): the People
+    API sends their outside company as `externalCompany`, and the same PATCH
+    that moves anyone's reporting line moves theirs - company included."""
+
+    def test_people_api_carries_the_external_company(self):
+        self._mk_guest()
+        self._as_admin()
+        r = self.client.get("/hr/employees")
+        self.assertEqual(r.status_code, 200, r.text)
+        row = next(e for e in r.json() if e["workEmail"] == GUEST)
+        self.assertEqual(row["identityType"], "guest")
+        self.assertEqual(row["externalCompany"], "Acme Construction")
+
+    def test_patch_moves_an_external_and_renames_their_company(self):
+        self._mk_guest()
+        self._as_admin()
+        r = self.client.patch("/hr/employees/ext-test-guest",
+                              json={"manager_email": ADMIN.upper(), "external_company": " Acme Builders "})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["managerEmail"], ADMIN)
+        self.assertEqual(r.json()["externalCompany"], "Acme Builders")
