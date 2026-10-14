@@ -5228,6 +5228,13 @@ class RecurringExpense(Base):
     created_at       = Column(String, default="")
     updated_by       = Column(String, default="")
     updated_at       = Column(String, default="")
+    # Oct 14 (Charmi, Urmi, Neil): Custom frequency's period in months, the
+    # match tolerance (0-50 in steps of 5), and the vendor-side details.
+    frequency_months = Column(Integer, default=0)                # frequency == 'custom': every N months
+    variance_pct     = Column(Integer, default=0)                # paid within this % of expected counts as Paid
+    account_number   = Column(String, default="")                # the account number with the vendor (e.g. utility account)
+    account_details  = Column(String, default="")
+    contact_info     = Column(String, default="")                # name / phone / email
 
 
 class PfsAffiliate(Base):
