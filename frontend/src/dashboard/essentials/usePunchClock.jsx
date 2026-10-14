@@ -19,6 +19,7 @@ import BodModal from '../../components/BodModal';
 import { pollWhileVisible } from '../../lib/pollWhileVisible';
 import { punchDurable, replayPending, readPending } from '../../lib/punchQueue';
 import { punchPosition } from '../../lib/geoPosition';
+import { applyPunch, withPunch } from '../../lib/useTimeStatus';
 import { pairLocalAgent } from '../../lib/agentPair';
 import { formatTime } from '../../lib/datetime';
 
@@ -109,6 +110,10 @@ export function usePunchClock() {
   const [eodOpen, setEodOpen] = useState(false);
   const alive = useRef(true);
   const clickedAt = useRef('');                       // when Punch In was pressed, carried through the gate
+  // The location fix for the punch, started the moment the button is pressed
+  // so it runs under the screen picker and the message prompt instead of
+  // after them (up to 9s cold for a clock-in - most of the "lag" after Play).
+  const posRef = useRef(null);
   const noteTimer = useRef(null);
   // Set for the whole of a tap's flow (share, gates, punch) - a second tap
   // before React re-renders the button busy must not start a second flow.
@@ -152,6 +157,7 @@ export function usePunchClock() {
 
   async function runAct(kind) {
     setNote(null);
+    posRef.current = punchPosition(kind);
     // Screen share for a clock-in / back-from-break, started from within this
     // click: the browser only grants sharing on a user gesture. start()
     // resolves true when a stream is live or capture isn't required here, so
@@ -211,8 +217,10 @@ export function usePunchClock() {
           return;
         }
       }
+      const posP = posRef.current || punchPosition(kind);
+      posRef.current = null;
       const [pos, pairNonce] = await Promise.all([
-        punchPosition(kind),
+        posP,
         kind === 'in' ? pairLocalAgent() : Promise.resolve(''),
       ]);
       const res = await punchDurable({
@@ -225,6 +233,9 @@ export function usePunchClock() {
       if (res.ok) {
         clickedAt.current = '';
         const p = res.punch || {};
+        // Every surface flips now - the re-read below only confirms it.
+        applyPunch(p);
+        if (alive.current) setStatus((s) => withPunch(s, p));
         const where = p.geoStatus === 'in_fence' ? ` at ${p.workSiteName}`
           : p.geoStatus === 'out_of_fence' ? ' - out of location, flagged for review'
           : p.geoStatus === 'remote' ? ' - remote'

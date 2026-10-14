@@ -8,7 +8,7 @@ import { render, screen, fireEvent, waitFor, cleanup, act } from '@testing-libra
 
 const punchMock = vi.hoisted(() => ({ punchDurable: vi.fn(), replayPending: vi.fn(async () => null), readPending: vi.fn(() => null) }));
 const timeStatus = vi.hoisted(() => ({ status: null }));
-vi.mock('../lib/useTimeStatus', () => ({ useTimeStatus: () => ({ status: timeStatus.status, reload: vi.fn() }) }));
+vi.mock('../lib/useTimeStatus', () => ({ useTimeStatus: () => ({ status: timeStatus.status, reload: vi.fn() }), applyPunch: vi.fn() }));
 vi.mock('../lib/punchQueue', () => punchMock);
 vi.mock('../lib/geoPosition', () => ({ punchPosition: vi.fn(async () => ({ lat: 1, lng: 2, accuracy_m: 5 })), keepPositionWarm: vi.fn() }));
 vi.mock('../lib/bodQueue', () => ({ replayPendingBods: vi.fn(async () => {}) }));
