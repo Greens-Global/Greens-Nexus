@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 import cubby
+import cubby_sync
 import models
 import ops_market
 import ops_market_engine
@@ -65,6 +66,30 @@ async def report(kind: str, facility_id: str = ""):
     if kind not in cubby.REPORTS:
         raise HTTPException(status_code=404, detail="No such report")
     return await _from_cubby(cubby.report, kind, facility_id)
+
+
+# ── Cubby sync (Oct 15 2026): the screen reads the database; Refresh asks for a sync ──
+
+@router.get("/sync")
+async def sync_status():
+    """Is a Cubby sync running, how did the last one go. The screen polls this
+    after Refresh, then re-reads the summary."""
+    return await asyncio.to_thread(cubby_sync.status)
+
+
+@router.post("/sync")
+async def sync_start(user: dict = Depends(get_current_user)):
+    """Start a Cubby -> database sync in the background. Same door as the rest
+    of the screen (the old Refresh pulled Cubby for anyone who could open it);
+    one at a time across every worker, and at most one per few minutes."""
+    _require_cubby()
+    run_id, why = await asyncio.to_thread(cubby_sync.start_manual, user.get("email") or "")
+    if why == "running":
+        raise HTTPException(status_code=409, detail="A Cubby sync is already running. The figures will update when it finishes.")
+    if why == "too-soon":
+        raise HTTPException(status_code=429, detail="Cubby was synced moments ago. Try again in a few minutes.")
+    cubby_sync.run_in_background(run_id)
+    return {"started": True, "runId": run_id}
 
 
 # ── Market Rates ──────────────────────────────────────────────────────────────

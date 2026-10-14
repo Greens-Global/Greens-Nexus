@@ -9,7 +9,11 @@ docs/api/). Two things bite:
   - every search must be scoped to ONE organization or facility. An unscoped
     search answers 403 "Access Denied", which reads like a bad key and is not.
   - there is no paging and no webhook, so a refresh is a full pull: seven calls
-    per facility, run ten at a time and cached (see `summary`).
+    per facility, run ten at a time.
+
+Since Oct 15 2026 that pull is cubby_sync.py's job: it copies Cubby into the
+cubby_* tables every 15 minutes, and the screen, lookup and reports here read
+the tables (`summary`). pull() is still used once, when the tables are empty.
 
 Money is integer cents end to end, as Cubby sends it; the screen formats it.
 
@@ -419,63 +423,154 @@ def load_trend(days: int = 120) -> list[dict]:
 
 # ── Cached read ───────────────────────────────────────────────────────────────
 
+# Cubby -> database -> screen (Oct 15 2026). cubby_sync.py writes the cubby_*
+# tables; everything below reads them and rebuilds the same `pulled` shape
+# pull() returns, so summarize_facility / build stay the only calculation.
+# The in-process cache only spares the database a re-read on every request.
+
+READ_TTL = 60.0              # a worker re-reads the tables at most once a minute
+KICK_EVERY = 600.0           # an empty database kicks a sync at most this often per worker
+
 _cache: tuple[float, dict] | None = None
 _pulled: dict | None = None     # the raw rows behind _cache, for lookup and the report exports
+_live: tuple[float, dict] | None = None   # a live pull, only while the tables are still empty
+_last_kick = 0.0
 _lock = threading.Lock()
-STALE_OK = 12 * 3600.0       # past this, a reader waits for a pull instead of seeing old figures
 
 
-def _refresh() -> dict:
-    global _cache, _pulled
-    pulled = pull()
-    payload = build(pulled)
+def _from_db() -> dict | None:
+    """The `pulled` structure, read from the cubby_* tables, or None when no
+    facility has been synced yet. Blocking."""
+    import models as m
+    from database import SessionLocal
+    db = SessionLocal()
     try:
-        save_snapshots(payload)
+        facs = db.query(m.CubbyFacility).filter(m.CubbyFacility.enabled.is_(True)).all()
+        if not facs:
+            return None
+        ids = [f.facility_id for f in facs]
+        by: dict[str, dict] = {fid: {"rent_roll": [], "units": [], "receivables": [], "leases": [], "leads": [],
+                                     "customers": [], "tasks": [], "payments": []} for fid in ids}
+
+        def rows(model, *extra):
+            return db.query(model).filter(model.facility_id.in_(ids), *extra).all()
+
+        for u in rows(m.CubbyUnit):
+            d = u.data or {}
+            if d.get("rentRoll"):
+                by[u.facility_id]["rent_roll"].append(d["rentRoll"])
+            if d.get("unit"):
+                by[u.facility_id]["units"].append(d["unit"])
+        for model, key in ((m.CubbyReceivable, "receivables"), (m.CubbyRental, "leases"),
+                           (m.CubbyLead, "leads"), (m.CubbyTask, "tasks")):
+            for r in rows(model):
+                by[r.facility_id][key].append(r.data or {})
+        for c in rows(m.CubbyCustomer):
+            by[c.facility_id]["customers"].append({"customerId": c.customer_id, "name": c.name})
+        since = (datetime.now(timezone.utc).date() - timedelta(days=ACTIVITY_DAYS + 1)).isoformat()
+        for p in rows(m.CubbyPayment, m.CubbyPayment.payment_date >= since):
+            by[p.facility_id]["payments"].append(p.data or {})
+        for raw in by.values():
+            raw["rent_roll"].sort(key=lambda r: (r.get("unitName") or ""))
+            raw["payments"].sort(key=lambda p: (p.get("createdAt") or ""))
+
+        facilities = [{**(f.data or {}), "facilityId": f.facility_id, "name": f.name or (f.data or {}).get("name") or "",
+                       "timeZone": f.time_zone or (f.data or {}).get("timeZone") or DEFAULT_TZ} for f in facs]
+        synced = {f.facility_id: f.synced_at or "" for f in facs}
+        order = sorted(range(len(facs)), key=lambda i: (facilities[i].get("internalName") or facilities[i]["name"] or "").strip())
+        facilities = [facilities[i] for i in order]
+        raws = [{**by[f["facilityId"]], "today": _facility_today(f)} for f in facilities]
+        R = m.CubbySyncRun
+        last = db.query(R).filter(R.status != "running").order_by(R.started_at.desc()).first()
+        running = db.query(R.id).filter(R.status == "running").first() is not None
+        stamps = [synced[f["facilityId"]] for f in facilities]
+        return {"organization": facs[0].organization or "", "facilities": facilities, "raw": raws,
+                "syncedAt": min(stamps) if all(stamps) else "",
+                "facilitySyncedAt": synced,
+                "syncStatus": last.status if last else "ok", "syncRunning": running}
+    finally:
+        db.close()
+
+
+def _kick_sync() -> None:
+    """Start a sync in the background (an empty database on first deploy)."""
+    global _last_kick
+    if time.monotonic() - _last_kick < KICK_EVERY and _last_kick:
+        return
+    _last_kick = time.monotonic()
+    import cubby_sync
+
+    def go():
+        try:
+            cubby_sync.sync_all("first-read")
+        except Exception as e:  # noqa: BLE001
+            print(f"[cubby] first sync failed: {type(e).__name__}")
+    threading.Thread(target=go, daemon=True, name="cubby-first-sync").start()
+
+
+def _load() -> dict:
+    global _cache, _pulled, _live
+    try:
+        pulled = _from_db()
+    except Exception as e:  # noqa: BLE001 - a missing table or a database blip falls back to Cubby
+        print(f"[cubby] database read failed: {type(e).__name__}")
+        pulled = None
+    if pulled is None:
+        # Nothing synced yet (first deploy): read Cubby live once, kick a sync,
+        # and keep showing that pull until the tables fill.
+        if _live is None or time.monotonic() - _live[0] > CACHE_TTL:
+            _live = (time.monotonic(), pull())
+        _kick_sync()
+        pulled = {**_live[1], "syncedAt": "", "syncStatus": "live", "syncRunning": True}
+    payload = build(pulled)
+    payload["fetchedAt"] = pulled["syncedAt"] or payload["fetchedAt"]
+    payload["syncedAt"] = pulled["syncedAt"]
+    payload["syncStatus"] = pulled["syncStatus"]
+    payload["syncRunning"] = pulled["syncRunning"]
+    for f in payload["facilities"]:
+        f["syncedAt"] = (pulled.get("facilitySyncedAt") or {}).get(f["id"], "")
+    try:
         payload["trend"] = load_trend()
     except Exception as e:  # noqa: BLE001 - history is a bonus; today's figures still show
-        print(f"[cubby] snapshot skipped: {type(e).__name__}")
+        print(f"[cubby] trend skipped: {type(e).__name__}")
         payload["trend"] = []
     _cache = (time.monotonic(), payload)
     _pulled = pulled
     return payload
 
 
-def _refresh_quietly() -> None:
-    if not _lock.acquire(blocking=False):
-        return   # a pull is already running
-    try:
-        _refresh()
-    except Exception as e:  # noqa: BLE001 - the reader already has the older answer
-        print(f"[cubby] background refresh failed: {type(e).__name__}: {getattr(e, 'message', '')}")
-    finally:
-        _lock.release()
-
-
 def summary(fresh: bool = False) -> dict:
-    """The module's payload. Blocking (Cubby HTTP + DB) - call it in a thread.
-
-    A full pull takes several seconds, so a reader never waits for one when
-    there is an answer to show: under 10 minutes old it is served as is; older
-    than that it is still served, and a pull starts behind it for the next
-    reader. Only an empty cache, a very old one, or Refresh waits. One pull at
-    a time - a second caller waits for the first and shares its answer."""
+    """The module's payload, read from the database (cubby_sync.py fills it).
+    Blocking (DB) - call it in a thread. `fresh` re-reads the tables now
+    instead of serving this worker's copy (at most a minute old); it never
+    calls Cubby. One read at a time per worker - a second caller shares it."""
     hit = _cache
-    age = time.monotonic() - hit[0] if hit else None
-    if hit and not fresh:
-        if age < CACHE_TTL:
-            return hit[1]
-        if age < STALE_OK:
-            threading.Thread(target=_refresh_quietly, daemon=True).start()
-            return hit[1]
+    if hit and not fresh and time.monotonic() - hit[0] < READ_TTL:
+        return hit[1]
     with _lock:
         hit = _cache
-        # 30s floor on a forced refresh, so a held-down button cannot hammer Cubby.
-        if hit and time.monotonic() - hit[0] < (30.0 if fresh else CACHE_TTL):
+        if hit and time.monotonic() - hit[0] < (2.0 if fresh else READ_TTL):
             return hit[1]
-        return _refresh()
+        return _load()
 
 
-# ── Lookup and report exports (read from the same pull the screen shows) ─────
+def forget() -> None:
+    """Drop this worker's copy, so the next read sees a sync that just finished."""
+    global _cache, _live
+    _cache = None
+    _live = None
+
+
+def after_sync() -> None:
+    """Called by cubby_sync after a run that saved at least one facility: write
+    today's history row from the DATABASE and drop this worker's copy."""
+    forget()
+    pulled = _from_db()
+    if pulled:
+        save_snapshots(build(pulled))
+
+
+# ── Lookup and report exports (read from the same rows the screen shows) ─────
 
 def _rows() -> list[tuple[dict, dict]]:
     """[(facility, raw rows)] behind the cached summary. Blocking."""
@@ -573,15 +668,17 @@ def report(kind: str, facility_id: str = "") -> dict:
 
 
 async def cubby_snapshot_loop():
-    """Started from main.py on the deployed API only. Re-reads Cubby every 15
-    minutes, so the screen is current without anybody pressing Refresh and the
-    daily history keeps going on days nobody opens it. Blocking work runs in a
-    thread (CLAUDE.md: never on the event loop)."""
+    """Started from main.py on the deployed API only. Copies Cubby into the
+    database every 15 minutes (cubby_sync.sync_all), so the screen is current
+    without anybody pressing Refresh, then writes the day's history row from
+    the database (cubby_sync calls after_sync) on days nobody opens it.
+    Blocking work runs in a thread (CLAUDE.md: never on the event loop)."""
+    import cubby_sync
     await asyncio.sleep(180)
     while True:
         try:
             if configured():
-                await asyncio.to_thread(summary, True)
+                await asyncio.to_thread(cubby_sync.sync_all, "schedule")
         except Exception as e:  # noqa: BLE001
             print(f"[cubby] loop error: {type(e).__name__}: {getattr(e, 'message', '')}")
         await asyncio.sleep(SYNC_EVERY_SEC)
