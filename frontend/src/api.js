@@ -2258,6 +2258,10 @@ export const api = {
   signOnceStatus:      (sid, entityId = '') => req(`/hr/packets/${sid}/sign-once?entity_id=${encodeURIComponent(entityId)}`),
   signOnceCode:        (sid, data) => req(`/hr/packets/${sid}/sign-once/code`, { method: 'POST', body: JSON.stringify(data) }),
   signOnce:            (sid, data) => req(`/hr/packets/${sid}/sign-once`, { method: 'POST', body: JSON.stringify(data) }),
+  // Accounting > Reporting > Profitability and Employee Compensation (10/15).
+  getProfitability:      (from, to, { locations = [], book = 'accrual', expand = false, compare = true } = {}) => req(`/accounting/profitability?from=${from}&to=${to}${locations.length ? `&locations=${encodeURIComponent(locations.join(','))}` : ''}${book && book !== 'accrual' ? `&book=${encodeURIComponent(book)}` : ''}${expand ? '&expand=true' : ''}${compare ? '' : '&compare=false'}`, { timeoutMs: 120_000 }),
+  getCompensationPeople: (from, to) => req(`/accounting/compensation/people?from=${from}&to=${to}`, { timeoutMs: 180_000 }),
+  getCompensationLedger: (from, to, by = 'department') => req(`/accounting/compensation/ledger?from=${from}&to=${to}&by=${by}`, { timeoutMs: 120_000 }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

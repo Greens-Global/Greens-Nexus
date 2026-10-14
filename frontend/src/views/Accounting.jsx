@@ -28,6 +28,10 @@ import AllocationsTab from '../components/accounting/AllocationsTab';
 import AmaTab from '../components/accounting/AmaTab';
 import { Calculator, Handshake, Split, Users } from 'lucide-react';
 import { ArrowLeftRight, BookOpen, PieChart, Scale } from 'lucide-react';
+// Oct 15 (Charmi + Neil): Profitability and Employee Compensation under Reporting.
+import { ChartColumn, HandCoins } from 'lucide-react';
+import ProfitabilityReport from '../components/accounting/ProfitabilityReport';
+import CompensationReport from '../components/accounting/CompensationReport';
 
 // Accounting in Nexus reads the Nexus Accounting ledger (a one-way Intacct ->
 // Supabase mirror; Intacct stays the source of truth and nothing is written
@@ -89,6 +93,10 @@ const TABS = [
     { key: 'mre', label: 'MRE', Icon: Receipt },
     // Oct 7 (Priyanka): Asset Management Agreements, billed read from the ledger.
     { key: 'ama', label: 'AMA', Icon: Handshake },
+    // Oct 15: per-entity NOI / net income / debt service vs prior year, and
+    // wages and hours per employee (Full level on Accounting only).
+    { key: 'profitability', label: 'Profitability', Icon: ChartColumn },
+    { key: 'compensation', label: 'Employee Compensation', Icon: HandCoins },
   ] },
   // Oct 2 (Neil and Charmi): loans set up from the ledger and reviewed per
   // month - balances, principal and interest paid, NOI, DSCR against the
@@ -114,7 +122,7 @@ const TABS = [
     { key: 'imports', label: 'Import Hub', Icon: Upload },
   ] },
 ];
-const LIMITED_TABS = ['reports', ...REPORT_SHORTCUTS.map((r) => `rpt-${r.report}`), 'packages', 'mri', 'mre', 'loans', 'budget', 'partners', 'imports', 'ama'];
+const LIMITED_TABS = ['reports', ...REPORT_SHORTCUTS.map((r) => `rpt-${r.report}`), 'packages', 'mri', 'mre', 'loans', 'budget', 'partners', 'imports', 'ama', 'profitability'];
 // Links made before a rename still land; a group's own key opens its first item.
 const ALIAS = { leasing: 'mri', financing: 'loans' };
 const leafKeys = (tabs) => tabs.flatMap((t) => (t.items ? t.items.map((i) => i.key) : [t.key]));
@@ -161,7 +169,7 @@ export default function Accounting({ activeSub, onSubChange }) {
   const dashDensity = dashDensityOf(prefs);
   // Data, Intercompany and Investments are the editable reference grids (editors and up).
   const allowed = (key) => (key === 'pfs' ? canPfs : limited ? LIMITED_TABS.includes(key)
-    : (!['data', 'intercompany', 'investments'].includes(key) || canEdit) && (key !== 'access' || canManage));
+    : (!['data', 'intercompany', 'investments'].includes(key) || canEdit) && (key !== 'access' || canManage) && (key !== 'compensation' || canManage));
   // Groups keep only the items this person may open; an empty group goes, and
   // a group left with one item is a plain tab under the group's name.
   const tabs = TABS.map((t) => (t.items ? { ...t, items: t.items.filter((i) => allowed(i.key)) } : t))
@@ -230,6 +238,8 @@ export default function Accounting({ activeSub, onSubChange }) {
     mre: 'Monthly recurring expenses - what posts every month, by vendor and entity',
     imports: 'Turn a bank or brokerage statement into an Intacct journal entry import file',
     ama: 'Asset management agreements - the fee per managed entity, billed against expected',
+    profitability: 'Revenue, NOI, net income and cash flow after debt service per entity, against the prior year',
+    compensation: 'Hours and gross wages per employee from Time Clock, with payroll expense on the ledger',
   }[isReports(sub) ? 'reports' : sub];
   // Every tab has the same one-line header (10/02): the statement still
   // starts high on the page (Neil, Sep 25; Charmi, 10/02) and nothing moves
@@ -288,6 +298,7 @@ export default function Accounting({ activeSub, onSubChange }) {
           {sub === 'mre' && <MreTab canEdit={canEdit} canDelete={canManage} />}
           {sub === 'imports' && <ImportHub />}
           {sub === 'ama' && <AmaTab canEdit={canEdit} />}
+          {sub === 'profitability' && <ProfitabilityReport limited />}
         </div>
       ) : (
         <DashProvider>
@@ -312,6 +323,8 @@ export default function Accounting({ activeSub, onSubChange }) {
               {sub === 'mre' && <MreTab canEdit={canEdit} canDelete={canManage} />}
               {sub === 'imports' && <ImportHub />}
               {sub === 'ama' && <AmaTab canEdit={canEdit} />}
+              {sub === 'profitability' && <ProfitabilityReport />}
+              {sub === 'compensation' && canManage && <CompensationReport />}
             </div>
           </DashNav.Provider>
         </DashProvider>

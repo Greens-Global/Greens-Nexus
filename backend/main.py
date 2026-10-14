@@ -3586,3 +3586,6 @@ app.include_router(my_work.router)                 # Dashboard > My Work tile: t
 app.include_router(my_team.router)                 # Dashboard > My Team tile: direct reports today + their overdue work, supervisor+ (Oct 7)
 from routers import implementation  # noqa: E402
 app.include_router(implementation.router)          # Support > Implementation Guide: the shared setup checklist (Neil, 10/06)
+from routers import accounting_profitability, accounting_compensation  # noqa: E402
+app.include_router(accounting_profitability.router)  # Accounting > Reporting > Profitability: per-entity NOI, net income, debt service vs prior year (Charmi + Neil, 10/15)
+app.include_router(accounting_compensation.router)   # Accounting > Reporting > Employee Compensation: wages and hours per employee, payroll on the ledger (Neil, 10/15)
