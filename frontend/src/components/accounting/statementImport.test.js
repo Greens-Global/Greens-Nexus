@@ -49,18 +49,22 @@ describe('statement import', () => {
     const rows = buildIntacctRows([
       { date: { y: 2026, m: 10, d: 1 }, description: 'Dividend', memo: 'SPAXX', reference: '', amount: 100 },
       { date: { y: 2026, m: 10, d: 3 }, description: 'Transfer out', memo: '', reference: 'T9', amount: -40.5 },
-    ], { journal: 'GJ', cashAccount: '10100', offsetAccount: '40500', location: '15000', state: 'Draft' });
+    ], { journal: 'GJCA', cashAccount: '10100', offsetAccount: '40500', location: '15000' });
     const [head, ...lines] = rows;
-    expect(head.slice(0, 12)).toEqual(['JOURNAL', 'DATE', 'DESCRIPTION', 'REFERENCE_NO', 'LINE_NO', 'ACCT_NO', 'LOCATION_ID', 'DEPT_ID', 'DOCUMENT', 'MEMO', 'DEBIT', 'CREDIT']);
+    expect(head).toEqual(['DONOTIMPORT', 'JOURNAL', 'DATE', 'REVERSEDATE', 'DESCRIPTION', 'REFERENCE_NO', 'LINE_NO', 'ACCT_NO', 'LOCATION_ID', 'DEPT_ID', 'DOCUMENT', 'MEMO', 'DEBIT', 'CREDIT', 'SOURCEENTITY']);
     const col = (name) => head.indexOf(name);
     expect(lines).toHaveLength(4);
+    // Line 1 the offset, line 2 the cash account; each entry balances.
     expect(lines.map((l) => [l[col('LINE_NO')], l[col('ACCT_NO')], l[col('DEBIT')], l[col('CREDIT')]])).toEqual([
-      ['1', '10100', '100.00', ''], ['2', '40500', '', '100.00'],
-      ['1', '10100', '', '40.50'], ['2', '40500', '40.50', ''],
+      ['1', '40500', '', '100.00'], ['2', '10100', '100.00', ''],
+      ['1', '40500', '40.50', ''], ['2', '10100', '', '40.50'],
     ]);
+    expect(lines[0][col('JOURNAL')]).toBe('GJCA');
     expect(lines[0][col('DATE')]).toBe('10/01/2026');
+    expect(lines[1][col('DATE')]).toBe('');
     expect(lines[0][col('LOCATION_ID')]).toBe('15000');
+    expect(lines[1][col('SOURCEENTITY')]).toBe('15000');
     expect(lines[2][col('REFERENCE_NO')]).toBe('T9');
-    expect(toCsv(rows).startsWith('JOURNAL,DATE')).toBe(true);
+    expect(toCsv(rows).startsWith('DONOTIMPORT,JOURNAL,DATE')).toBe(true);
   });
 });

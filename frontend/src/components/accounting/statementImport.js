@@ -151,28 +151,33 @@ export function readTransactions(rows, map, { flip = false } = {}) {
   return { transactions: out, skipped };
 }
 
-/** The columns of Intacct's General Ledger journal entry import template. */
-export const INTACCT_JE_COLUMNS = ['JOURNAL', 'DATE', 'DESCRIPTION', 'REFERENCE_NO', 'LINE_NO', 'ACCT_NO', 'LOCATION_ID', 'DEPT_ID', 'DOCUMENT', 'MEMO', 'DEBIT', 'CREDIT', 'STATE'];
+/** The columns of Intacct's General Ledger journal entry import template -
+ * the same header the stand-alone Import Hub's Fidelity export writes. */
+export const INTACCT_JE_COLUMNS = ['DONOTIMPORT', 'JOURNAL', 'DATE', 'REVERSEDATE', 'DESCRIPTION', 'REFERENCE_NO', 'LINE_NO', 'ACCT_NO', 'LOCATION_ID', 'DEPT_ID', 'DOCUMENT', 'MEMO', 'DEBIT', 'CREDIT', 'SOURCEENTITY'];
 
 const money = (n) => (n ? n.toFixed(2) : '');
 
 /**
- * One balanced journal entry per transaction, two lines each: the cash (or
- * brokerage) account and the offset. Money in debits cash and credits the
- * offset; money out the other way round. Returns rows including the header.
+ * One balanced journal entry per transaction, two lines each, laid out like
+ * the stand-alone Import Hub's export: line 1 the offset account, line 2 the
+ * cash (or brokerage) account; the entry's journal, date, description and
+ * reference sit on line 1 only. Money in debits cash and credits the offset;
+ * money out the other way round. Returns rows including the header.
  */
-export function buildIntacctRows(transactions, { journal, cashAccount, offsetAccount, location = '', department = '', state = 'Draft', prefix = '' }) {
+export function buildIntacctRows(transactions, { journal, cashAccount, offsetAccount, location = '', department = '' }) {
   const rows = [INTACCT_JE_COLUMNS];
-  transactions.forEach((t, i) => {
+  transactions.forEach((t) => {
     const date = usDate(t.date);
     const description = (t.description || t.memo || 'Statement transaction').slice(0, 400);
-    const reference = t.reference || (prefix ? `${prefix}-${i + 1}` : '');
     const memo = [t.description, t.memo].filter(Boolean).join(' - ').slice(0, 1000);
     const amt = Math.abs(t.amount);
-    const cashDebit = t.amount > 0;
-    const line = (no, acct, debit, credit) => [journal, date, description, reference, String(no), acct, location, department, '', memo, money(debit), money(credit), state];
-    rows.push(line(1, cashAccount, cashDebit ? amt : 0, cashDebit ? 0 : amt));
-    rows.push(line(2, offsetAccount, cashDebit ? 0 : amt, cashDebit ? amt : 0));
+    const cashIn = t.amount > 0;
+    const line = (no, acct, debit, credit) => [
+      '', no === 1 ? journal || '' : '', no === 1 ? date : '', '', no === 1 ? description : '', no === 1 ? t.reference || '' : '',
+      String(no), acct, location, department, '', memo, money(debit), money(credit), location,
+    ];
+    rows.push(line(1, offsetAccount, cashIn ? 0 : amt, cashIn ? amt : 0));
+    rows.push(line(2, cashAccount, cashIn ? amt : 0, cashIn ? 0 : amt));
   });
   return rows;
 }

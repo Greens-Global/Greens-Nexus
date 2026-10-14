@@ -43,7 +43,7 @@ export default function ImportHub() {
   const [map, setMap] = useState(null);
   const [flip, setFlip] = useState(false);
   const [entities, setEntities] = useState([]);
-  const [setup, setSetup] = useState({ journal: 'GJ', cashAccount: '', offsetAccount: '', location: '', department: '', state: 'Draft' });
+  const [setup, setSetup] = useState({ journal: 'GJCA', cashAccount: '', offsetAccount: '', location: '', department: '' });
   const set = (p) => setSetup((s) => ({ ...s, ...p }));
 
   useEffect(() => {
@@ -89,7 +89,7 @@ export default function ImportHub() {
   const download = () => {
     const rows = buildIntacctRows(transactions, {
       journal: setup.journal.trim(), cashAccount: setup.cashAccount.trim(), offsetAccount: setup.offsetAccount.trim(),
-      location: setup.location, department: setup.department.trim(), state: setup.state,
+      location: setup.location, department: setup.department.trim(),
     });
     const base = (file.name || 'statement').replace(/\.[^.]+$/, '').replace(/[^\w.-]+/g, '_');
     downloadBlob(`${base}_intacct_je_import.csv`, new Blob([toCsv(rows)], { type: 'text/csv;charset=utf-8' }));
@@ -161,7 +161,7 @@ export default function ImportHub() {
           <div>
             <h3 style={{ margin: '0 0 8px', fontSize: '0.86rem' }}>Journal Entry</h3>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))', gap: 10 }}>
-              <label style={label}>Journal<input value={setup.journal} onChange={(e) => set({ journal: e.target.value })} placeholder="GJ" style={{ ...control, width: '100%' }} /></label>
+              <label style={label}>Journal<input value={setup.journal} onChange={(e) => set({ journal: e.target.value })} placeholder="GJCA" style={{ ...control, width: '100%' }} /></label>
               <label style={label}>Cash Account<input value={setup.cashAccount} onChange={(e) => set({ cashAccount: e.target.value })} placeholder="e.g. 10100" style={{ ...control, width: '100%' }} /></label>
               <label style={label}>Offset Account<input value={setup.offsetAccount} onChange={(e) => set({ offsetAccount: e.target.value })} placeholder="e.g. 12000" style={{ ...control, width: '100%' }} /></label>
               <div style={label}>
@@ -169,16 +169,9 @@ export default function ImportHub() {
                 <EntityPicker entities={entities} value={setup.location} onChange={(code) => set({ location: code })} noneLabel="None" ariaLabel="Entity" style={{ width: '100%', maxWidth: 'none' }} />
               </div>
               <label style={label}>Department<input value={setup.department} onChange={(e) => set({ department: e.target.value })} placeholder="Optional" style={{ ...control, width: '100%' }} /></label>
-              <label style={label}>
-                State
-                <select value={setup.state} onChange={(e) => set({ state: e.target.value })} aria-label="State" style={{ ...control, width: '100%' }}>
-                  <option value="Draft">Draft</option>
-                  <option value="Posted">Posted</option>
-                </select>
-              </label>
             </div>
             <p style={{ margin: '8px 0 0', fontSize: '0.74rem', color: 'var(--text-muted)' }}>
-              Money in debits the cash account and credits the offset; money out credits cash and debits the offset. One balanced entry per statement line.
+              Money in debits the cash account and credits the offset; money out credits cash and debits the offset. One balanced entry per statement line, in the column layout of Intacct's journal entry import template.
             </p>
           </div>
 
