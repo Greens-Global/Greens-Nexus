@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { Sunrise, Sunset, Coffee, Play, X, Send, MessageSquare } from 'lucide-react';
 import { api } from '../api';
 import { bodDurable, newBodId } from '../lib/bodQueue';
 import { msalInstance } from '../msalInstance';
 import { formatTime } from '../lib/datetime';
+import { punchPosition } from '../lib/geoPosition';
 import { useRole } from '../contexts/RoleContext';
 import { cleanName, emailToName } from '../lib/utils';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
@@ -180,6 +181,14 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
   // id, and the server records it at most once (bodQueue.js).
   const [msgId] = useState(() => _draft0.id || newBodId());
   const [isMobile, setIsMobile] = useState(isMobileViewport);
+  // Location tag beside the time (Pranshu, 10/14): Remote / the site / Off-Site
+  // Punch. Started on open so the GPS wait overlaps the typing, not the send.
+  const whereRef = useRef(null);
+  useEffect(() => {
+    if (mode !== 'bod' && mode !== 'eod') return;
+    whereRef.current = punchPosition(mode === 'eod' ? 'out' : 'in')
+      .then((pos) => api.timeWhere(pos)).then((r) => r?.label || '').catch(() => '');
+  }, [mode]);
 
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 640px)');
@@ -249,7 +258,7 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
     return () => { live = false; };
   }, [mode]);
 
-  function buildHtml() {
+  function buildHtml(where = '') {
     // The message itself stays first-person as the EMPLOYEE ("I'm on a
     // break…") - that's whose punch this is. This line must therefore name
     // who actually typed it, not read as if the admin were the one on break.
@@ -272,7 +281,7 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
     const numbered = (lines) => lines.map((t, i) => `${i + 1}. ${esc(t)}`).join('<br/>');
     const taskLines = normalize(tasks);
     const pendingLines = mode === 'eod' ? normalize(pending) : [];
-    return `<b>${M.title}</b><br/>${dateStr}<br/>${timeStr}${onBehalf}<br/><br/>${esc(message)}`
+    return `<b>${M.title}</b><br/>${dateStr}<br/>${timeStr}${where ? ` (${esc(where)})` : ''}${onBehalf}<br/><br/>${esc(message)}`
       + (taskLines.length ? `<br/><br/><b>${M.tasksHead}</b><br/>${numbered(taskLines)}` : '')
       + (pendingLines.length ? `<br/><br/><b>Pending Tasks</b><br/>${numbered(pendingLines)}` : '');
   }
@@ -281,6 +290,7 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
     if (busy) return;
     if (!message.trim() && !M.optionalMessage) { toastErr(M.reasonOnly ? 'Add a short reason.' : `Write a short ${M.title.toLowerCase()} message.`); return; }
     setBusy(true);
+    const where = whereRef.current ? await whereRef.current : '';
     const targetId = bound?.id || '';
     const targetName = bound?.name || '';
     // The browser only COMPOSES; the SERVER delivers (teams_post.py) using the
@@ -298,7 +308,7 @@ export default function BodModal({ mode = 'bod', required = false, onSent, onSki
       // ALWAYS send the composed message. If our chat lookup blipped (targetId
       // empty), the SERVER resolves the person's bound chat and posts it - a
       // transient client failure can no longer silently drop the Teams post.
-      html: buildHtml(),
+      html: buildHtml(where),
       sent: false, send_error: '',
       tz_offset_min: new Date().getTimezoneOffset(),
     });

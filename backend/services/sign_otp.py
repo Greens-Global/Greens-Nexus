@@ -369,6 +369,13 @@ def summary_for_certificate(db: Session, party) -> dict:
            .filter(HrSignOtpChallenge.party_id == party.id,
                    HrSignOtpChallenge.consumed_at != "")
            .order_by(HrSignOtpChallenge.consumed_at.desc()).first())
+    if row is None and (getattr(party, "auth_method", "") or "") == "saved_signature":
+        # A Signs Once signature: the code was verified when it was adopted -
+        # read that challenge row, never assume one.
+        cid = next((str(f).split(":", 1)[1] for f in (getattr(party, "auth_factors", None) or [])
+                    if str(f).startswith("otp_challenge:")), "")
+        row = (db.query(HrSignOtpChallenge)
+               .filter(HrSignOtpChallenge.id == cid, HrSignOtpChallenge.consumed_at != "").first()) if cid else None
     if row is None:
         return {}
     return {

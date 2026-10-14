@@ -2320,6 +2320,22 @@ export function templateAskFields(t) {
   return [...defs, ...loose];
 }
 
+// GET /documents/{id}/signing-pdf -> what the send wizard holds: the File, one
+// recipient per signer the blocks name (fields belong to people through _rk,
+// never to a typed role string), and the fields re-pointed at those people.
+function signingPdfToWizard(out, newRk) {
+  const bytes = Uint8Array.from(atob(out?.pdf || ''), c => c.charCodeAt(0));
+  const file = new File([bytes], out?.fileName || 'document.pdf', { type: 'application/pdf' });
+  const rk = {};
+  const parties = (out?.roles || []).map(r => {
+    rk[r.key] = newRk();
+    return { _rk: rk[r.key], name: '', email: '', kind: 'internal', party_role: 'signer',
+             access_code: '', phone: '', roleLabel: r.label || r.key };
+  });
+  const fields = (out?.fields || []).filter(f => rk[f.role]).map(f => ({ ...f, role: rk[f.role] }));
+  return { file, fields, parties };
+}
+
 function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed, onClose, onSent, toastOk, toastErr }) {
   const { myEmail } = useRole() || {};
   const [boxRef, boxH] = useFillHeight();
@@ -2572,19 +2588,22 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
         ...(emp ? { employeeId: emp } : {}),
         ...(entityId ? { entityId } : {}),
         ...(Object.keys(values).length ? { fillValues: values } : {}) });
-      const { blob, filename } = await api.exportDocumentPdf(doc.id);
-      const file = new File([blob], (filename || `${t.name}.pdf`).replace(/\.pdf$/i, '') + '.pdf',
-                            { type: 'application/pdf' });
-      await pickFile(file);
+      // Rendered once with its signature blocks measured, so a template that
+      // carries them arrives with every box already on its line.
+      const out = await api.documentSigningPdf(doc.id);
+      const placed = signingPdfToWizard(out, newRk);
+      await pickFile(placed.file, placed.fields.length ? placed : null);
       setDocTemplateId(t.id);
       setTitle(t.name);
-      if ((t.signerRoles || []).length) {
+      if (!placed.fields.length && (t.signerRoles || []).length) {
         setParties((t.signerRoles || []).map(r => ({
           _rk: newRk(), name: '', email: '', kind: 'internal', party_role: 'signer',
           access_code: '', phone: '', roleLabel: r.label || r.key,
         })));
       }
-      toastOk(`Generated from "${t.name}" - add recipients and place the fields.`);
+      toastOk(placed.fields.length
+        ? `Generated from "${t.name}" - the signature fields are placed. Add each recipient.`
+        : `Generated from "${t.name}" - add recipients and place the fields.`);
       return true;
     } catch (e) {
       toastErr(e?.message || `Could not generate a document from "${t.name}"`);
@@ -2606,7 +2625,9 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
   const [egnyteOpen, setEgnyteOpen] = useState(false);
   const [converting, setConverting] = useState(false);
   const newRk = () => `p${++rkCounter.current}`;
-  async function pickFile(fl) {
+  // `placed` (optional): {fields, parties} from a document whose signature
+  // blocks already say where everyone signs - kept instead of cleared.
+  async function pickFile(fl, placed = null) {
     if (!fl) return;
     if (isDocx(fl)) {
       // A Word file is converted on the SERVER, by a real Word layout engine,
@@ -2631,8 +2652,9 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
       }
       setConverting(false);
     } else if (fl.type !== 'application/pdf') { toastErr('Choose a PDF or Word (.docx) file.'); return; }
-    setFile(fl); setSource('pdf'); setTemplateId(''); setFields([]);
+    setFile(fl); setSource('pdf'); setTemplateId(''); setFields(placed?.fields || []);
     setTitle(t => t || fl.name.replace(/\.pdf$/i, ''));
+    if (placed?.parties?.length) { setParties(placed.parties); return; }
     // Switching INTO pdf mode: fields belong to people via _rk. Parties carried
     // over from a template pick or candidate prefill have no _rk - without one,
     // placeField no-ops and role_key sends as undefined. Backfill it here.
@@ -2654,7 +2676,11 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
   // this component's state initializers have already read it) means a remount
   // finds nothing to re-apply.
   useEffect(() => {
-    if (prefill?.file) pickFile(prefill.file);
+    if (prefill?.signing) {
+      // Documents' Send for Signature: the PDF arrives with its fields placed.
+      const placed = signingPdfToWizard(prefill.signing, newRk);
+      pickFile(placed.file, placed.fields.length ? placed : null);
+    } else if (prefill?.file) pickFile(prefill.file);
     if (prefill) onPrefillConsumed?.();
   }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -3497,6 +3523,10 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
 }
 
 // ── Envelope detail: parties progress + audit timeline + actions ──────────────
+// An envelope whose documents print pay (offer / promotion letters): only
+// Pay & Benefits holders download it or hand out its links (the API 403s).
+const PAY_LOCKED_HINT = 'Needs Pay & Benefits access - this envelope shows pay';
+
 function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toastErr }) {
   const [req, setReq] = useState(null);
   const [busy, setBusy] = useState('');
@@ -3566,7 +3596,7 @@ function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toastErr }
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
               {req.status === 'pending' && <button className="secondary-btn" disabled={!!busy} onClick={() => act('remind', () => api.remindSign(requestId), r => `Reminded ${r.reminded}.`)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Bell size={12} /> Remind</button>}
               {req.status === 'pending' && <button className="secondary-btn" disabled={!!busy} onClick={() => act('void', () => api.voidSign(requestId), 'Voided.')} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, color: 'hsl(var(--color-red))' }}><Ban size={12} /> Void</button>}
-              {req.hasFinalPdf && <button className="secondary-btn" disabled={!!busy} onClick={download} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={12} /> Sealed PDF</button>}
+              {req.hasFinalPdf && <button className="secondary-btn" disabled={!!busy || req.payLocked} onClick={download} title={req.payLocked ? PAY_LOCKED_HINT : undefined} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={12} /> Sealed PDF</button>}
               {req.hasFinalPdf && <button className="secondary-btn" disabled={!!busy} onClick={() => act('verify', () => api.verifySign(requestId), r => {
                 const doc = r.valid ? 'Document untampered' : '⚠ HASH MISMATCH - document was modified!';
                 const chain = !r.chainAvailable ? 'audit chain unavailable (pre-dates this feature)'
@@ -3591,11 +3621,11 @@ function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toastErr }
                       <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{p.email}{p.declineReason && ` - "${p.declineReason}"`}</div>
                     </div>
                     {fixable && p.kind === 'external' && !cc && (
-                      <button className="secondary-btn" disabled={!!busy} onClick={() => copyLink(p)} title="Copy their signing link"
+                      <button className="secondary-btn" disabled={!!busy || req.payLocked} onClick={() => copyLink(p)} title={req.payLocked ? PAY_LOCKED_HINT : 'Copy their signing link'}
                         style={{ fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px' }}><Copy size={11} /> Link</button>
                     )}
                     {fixable && (
-                      <button className="secondary-btn" disabled={!!busy} title="Fix their name, email or access code"
+                      <button className="secondary-btn" disabled={!!busy || req.payLocked} title={req.payLocked ? PAY_LOCKED_HINT : 'Fix their name, email or access code'}
                         onClick={() => { setEditPid(editPid === p.id ? null : p.id); setPf({ name: p.name, email: p.email, access_code: '' }); }}
                         style={{ fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px' }}><Pencil size={11} /> Edit</button>
                     )}

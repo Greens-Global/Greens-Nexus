@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, lazy, Suspense } from "react";
+import { PATH_TO_VIEW, VIEW_TO_PATH } from './lib/routes';
 import { AuthenticatedTemplate, UnauthenticatedTemplate, useMsal } from "@azure/msal-react";
 import { InteractionStatus } from "@azure/msal-browser";
 import { loginRequest } from "./authConfig";
@@ -13,6 +14,7 @@ import TopHeader from "./components/TopHeader";
 import { HeaderTabsProvider } from "./components/ModuleTabs";
 import NotificationToasts from "./components/NotificationToasts";
 import PriorityBar from "./components/PriorityBar";
+import { RoleChangeDeepLinkFallback } from "./components/RoleChangeRequests";
 import TimeclockWidget from "./components/TimeclockWidget";
 import { StepUpOverlay } from "./stepup/StepUp";
 import GlobalSearch from "./components/GlobalSearch";
@@ -21,6 +23,7 @@ import UpdateBanner from "./components/UpdateBanner";
 import FeatureBanner from "./components/FeatureBanner";
 import AssistantWidget from "./components/AssistantWidget";
 import ViewErrorBoundary from "./components/ViewErrorBoundary";
+import WidgetBoundary, { NavFallback } from "./components/WidgetBoundary";
 import { Spinner, ViewLoading } from "./components/AsyncState";
 import { onBackendHealth, isBackendDown } from "./api";
 import { applyBrandAccent } from "./lib/brandAccent";
@@ -65,6 +68,7 @@ const Support             = lazy(() => import("./views/Support"));
 const Placeholder         = lazy(() => import("./views/Placeholder"));
 const Directory           = lazy(() => import("./views/Directory"));   // Contact Directory (Support, Oct 2026)
 const PublicSign          = lazy(() => import("./views/PublicSign"));
+const PublicIntake        = lazy(() => import("./views/PublicIntake"));
 const PublicVerify        = lazy(() => import("./views/PublicVerify"));
 const PublicUnitFinder    = lazy(() => import("./views/PublicUnitFinder"));
 const ExternalActivate    = lazy(() => import("./views/ExternalActivate"));
@@ -331,6 +335,14 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     if (isExternal && !hasAccess && firstGranted) onNavigate(firstGranted);
   }, [isExternal, hasAccess, firstGranted, onNavigate]);
 
+  // A role-change approver sent here by the bell or the email, who cannot
+  // open People itself: the decision dialog alone, then the dashboard (see
+  // RoleChangeDeepLinkFallback). The API decides whether they may act.
+  const roleLink = !isExternal && activeView === 'hr' ? String(activeSub || '').match(/^hr-role-change-(.+)$/) : null;
+  if (!hasAccess && roleLink) {
+    return <RoleChangeDeepLinkFallback requestId={roleLink[1]} onDone={() => onNavigate('dashboard')} />;
+  }
+
   if (!hasAccess) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', gap: 16, textAlign: 'center', padding: '0 24px' }}>
@@ -378,7 +390,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "timeclock":          return <TimeClock initialTab="overview" activeSub={activeSub} onSubChange={onSubChange} />;
     case "myhr":               return <TimeClock initialTab="overview" activeSub={activeSub} onSubChange={onSubChange} />;
     case "testing":            return <Testing />;
-    case "credvault":          return <CredentialVault />;
+    case "credvault":          return <CredentialVault activeSub={activeSub} onSubChange={onSubChange} />;
     case "egnyte":             return <Egnyte activeSub={activeSub} onSubChange={onSubChange} />;
     case "employee-tracking":  return <EmployeeTracking initialSub={activeSub} module />;
     case "shifts":             return <Shifts activeSub={activeSub} onSubChange={onSubChange} />;
@@ -401,8 +413,10 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
 // UI (Sidebar, MODULES) but the internal view id stayed 'ops' from before the
 // rename, so the address bar read /ops instead of /construction. Old /ops
 // links still resolve to the same view so nothing breaks.
-const PATH_TO_VIEW = { itemmanagement: 'inventory', inventory: 'inventory', construction: 'ops', ops: 'ops' };
-const VIEW_TO_PATH = { inventory: 'itemmanagement', ops: 'construction' };
+// And 'myhr' (Oct 14 2026, Neil): the module has been Workday since Sep 3
+// but the address still read /myhr - it now reads /workday; old /myhr links
+// (bells, emails, bookmarks) still land on the same view.
+// The tables live in lib/routes.js so the briefing's link map reads the same ones.
 
 function parsePath() {
   const segs = window.location.pathname.split('/').filter(Boolean);
@@ -467,6 +481,16 @@ export default function App() {
     return (
       <Suspense fallback={<ViewLoading minHeight="100dvh" />}>
         <PublicSign token={token} />
+      </Suspense>
+    );
+  }
+  // A candidate's details page (/intake/{token}, Oct 14) - same reasoning as
+  // /sign/{token}: the candidate has no login; the emailed token is the credential.
+  if (parsePath().view === 'intake') {
+    const token = window.location.pathname.split('/').filter(Boolean)[1] || '';
+    return (
+      <Suspense fallback={<ViewLoading minHeight="100dvh" />}>
+        <PublicIntake token={token} />
       </Suspense>
     );
   }
@@ -713,6 +737,9 @@ function MainApp() {
   }, [activeView, activeSub]);
 
 
+  // A crashed shell widget gets another try on the next navigation (WidgetBoundary).
+  const widgetKey = `${activeView}/${activeSub}`;
+
   return (
     <>
       <AuthStuckOverlay />
@@ -723,13 +750,13 @@ function MainApp() {
         <RoleGate>
         <RequisitionProvider>
         <InventoryProvider>
-        <NotificationToasts onNavigate={navigate} />
-        <StepUpOverlay />
-        <TimeclockWidget />
-        <GlobalSearch onNavigate={navigate} />
+        <WidgetBoundary name="toasts" resetKey={widgetKey}><NotificationToasts onNavigate={navigate} /></WidgetBoundary>
+        <WidgetBoundary name="step-up" resetKey={widgetKey}><StepUpOverlay /></WidgetBoundary>
+        <WidgetBoundary name="timeclock-widget" resetKey={widgetKey}><TimeclockWidget /></WidgetBoundary>
+        <WidgetBoundary name="global-search" resetKey={widgetKey}><GlobalSearch /></WidgetBoundary>
         <AssistantWidget />
-        <PullToRefresh />
-        <TaskPrefetch />
+        <WidgetBoundary name="pull-to-refresh" resetKey={widgetKey}><PullToRefresh /></WidgetBoundary>
+        <WidgetBoundary name="task-prefetch" resetKey={widgetKey}><TaskPrefetch /></WidgetBoundary>
         {activeView === 'sso' && activeSub === 'accounting' && (
           <Suspense fallback={<ViewLoading />}>
             <AccountingHandoff next={new URLSearchParams(window.location.search).get('next') || undefined} />
@@ -748,6 +775,8 @@ function MainApp() {
           </div>
         )}
         <div className="app-container" style={backendDown ? { paddingTop: 34 } : undefined}>
+          <WidgetBoundary name="sidebar" resetKey={widgetKey}
+            fallback={<NavFallback as="aside" className={`sidebar${sidebarCollapsed ? " collapsed" : ""}`} />}>
           <Sidebar
             ref={sidebarRef}
             activeView={activeView}
@@ -758,22 +787,30 @@ function MainApp() {
             collapsed={sidebarCollapsed}
             onToggleCollapse={() => setSidebarCollapsed(c => !c)}
           />
+          </WidgetBoundary>
           {/* App-style mobile chrome - phones only (CSS-gated ≤900px):
               bottom tab bar + adidas-style full-screen menu */}
+          <WidgetBoundary name="mobile-nav" resetKey={widgetKey} fallback={<NavFallback as="nav" className="mobile-nav" />}>
           <MobileNav activeView={activeView} activeSub={activeSub} onNavigate={navigate} />
+          </WidgetBoundary>
+          <WidgetBoundary name="mobile-menu" resetKey={widgetKey}
+            fallback={mobileMenuOpen ? <NavFallback className="mobile-menu" /> : null}>
           <MobileMenu open={mobileMenuOpen} onClose={() => setMobileMenuOpen(false)}
             onNavigate={navigate} activeView={activeView}
             theme={theme} onThemeToggle={() => setTheme(t => t === "dark" ? "light" : "dark")} />
+          </WidgetBoundary>
           {/* HeaderTabsProvider: modules publish their tab strip into the header
               center via <ModuleTabs> (Work OS shell - Stella-style layout) */}
           <HeaderTabsProvider>
           <main className={`main-content${sidebarCollapsed ? " main-collapsed" : ""}`}>
             {/* The weekly "New in Nexus" bar - across the top of the page,
                 above the header (components/FeatureBanner.jsx). */}
-            <FeatureBanner activeView={activeView} onNavigate={navigate} />
+            <WidgetBoundary name="feature-banner" resetKey={widgetKey}><FeatureBanner activeView={activeView} onNavigate={navigate} /></WidgetBoundary>
             {/* PDF Editor is a full-bleed workspace with its own toolbar — hide
                 the Nexus top header so it gets the whole viewport height. */}
             {!pdfHasDoc && (
+            <WidgetBoundary name="top-header" resetKey={widgetKey}
+              fallback={<NavFallback as="header" className="top-header" label="The header hit a snag." />}>
             <TopHeader
               title={viewLabel(activeView)}
               activeView={activeView}
@@ -787,9 +824,10 @@ function MainApp() {
               onNavigate={navigate}
               prevLabel={prevLabel}
             />
+            </WidgetBoundary>
             )}
             {/* Priority notices (Neil, 09/29): the yellow bar that stays until acted on. */}
-            {!pdfHasDoc && <PriorityBar onNavigate={navigate} />}
+            {!pdfHasDoc && <WidgetBoundary name="priority-bar" resetKey={widgetKey}><PriorityBar onNavigate={navigate} /></WidgetBoundary>}
             {/* viewport-desk: the Work OS canvas (soft gray --wk-bg) for the
                 dashboard surfaces - see the Work OS section in style.css */}
             {/* pdf-editor is flush for the same reason tasks is: it owns its

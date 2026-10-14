@@ -28,6 +28,7 @@ import { api } from '../api';
 import { SkeletonBlocks, LoadingState } from '../components/AsyncState';
 import { navigate } from './widgets.jsx';
 import { formatTime } from '../lib/datetime';
+import { pollWhileVisible } from '../lib/pollWhileVisible';
 import {
   TONE_COLOR, TONE_LABEL, moduleMeta, attentionRows, worstTone, alertCount,
   visibleModule, csvText, boardCsvRows, cardCsvRows, loadHidden, saveHidden,
@@ -398,8 +399,8 @@ export default function BiInsights() {
   useEffect(() => {
     alive.current = true;
     load();
-    const t = setInterval(load, REFRESH_MS);
-    return () => { alive.current = false; clearInterval(t); };
+    const stop = pollWhileVisible(load, REFRESH_MS);
+    return () => { alive.current = false; stop(); };
   }, [load]);
 
   const attention = useMemo(() => attentionRows(state.modules), [state.modules]);

@@ -78,7 +78,8 @@ const LIST_COLS_WIDE = [
   // gaps (~98px). At 64 the row's icons overflowed their track to the LEFT
   // (justifyContent: flex-end), spilling across the Status divider so they no
   // longer lined up with any header (Sagar, Aug 27).
-  { key: 'actions',  label: '',                           width: 104, fixed: true },
+  // Titled (Neil, Oct 13 2026): a headerless column read as an oversight.
+  { key: 'actions',  label: 'Actions',                    width: 104, fixed: true },
 ];
 
 export default function ProjectsView({ onNavigate }) {

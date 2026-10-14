@@ -146,7 +146,9 @@ def eligible_targets(user: dict = Depends(_act_as_gate), db: Session = Depends(g
         # email - matches external_users.py's _serialize so the same person
         # reads with the same name everywhere.
         fallback = f"{e.first_name} {e.last_name}".strip()
-        out.append({"email": email, "name": _display_name(email, e.display_name or fallback)})
+        out.append({"email": email, "name": _display_name(email, e.display_name or fallback),
+                    # The People photo, so the picker shows faces (Neil, Oct 13 2026).
+                    "photoUrl": e.photo_url or ""})
     return out
 
 

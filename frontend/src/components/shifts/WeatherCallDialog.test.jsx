@@ -58,10 +58,20 @@ beforeEach(() => {
   toastOk.mockReset(); toastErr.mockReset(); onChanged.mockReset();
 });
 
+// The dialog shell (role=dialog, skeleton inside) is on screen before the
+// screen data resolves, so waiting for the role alone raced the mocked fetch
+// and lost on a slow CI runner (Oct 13: "Unable to find a label with the text
+// of: Delay the Start"). Wait for the loaded title, which only the data draws.
+async function openDialog() {
+  const dlg = await screen.findByRole('dialog', { name: 'Weather Call' });
+  await within(dlg).findByText(/Weather Call - /);
+  return dlg;
+}
+
 describe('Weather Call dialog', () => {
   it('picks everyone by default, lets the decider uncheck, asks once, then posts the call', async () => {
     render(<WeatherCallDialog groupId="g1" date={DAY} onClose={vi.fn()} onChanged={onChanged} toastOk={toastOk} toastErr={toastErr} />);
-    const dlg = await screen.findByRole('dialog', { name: 'Weather Call' });
+    const dlg = await openDialog();
     expect(dlg.textContent).toContain('Weather Call - Yard Crew');
     expect(dlg.textContent).toContain('85% chance · 0.90 in during 7:00 AM - 3:30 PM');
     expect(within(dlg).getByLabelText('Apply to Ann X').checked).toBe(true);
@@ -86,7 +96,7 @@ describe('Weather Call dialog', () => {
   it('a delay carries its time, and a declined confirm posts nothing', async () => {
     confirmAsk.mockResolvedValue(false);
     render(<WeatherCallDialog groupId="g1" date={DAY} onClose={vi.fn()} onChanged={onChanged} toastOk={toastOk} toastErr={toastErr} />);
-    const dlg = await screen.findByRole('dialog', { name: 'Weather Call' });
+    const dlg = await openDialog();
     fireEvent.click(within(dlg).getByLabelText('Delay the Start'));
     fireEvent.change(within(dlg).getByLabelText('New start time'), { target: { value: '10:30' } });
     fireEvent.change(within(dlg).getByLabelText('Reason'), { target: { value: 'Rain until mid-morning' } });
@@ -105,7 +115,7 @@ describe('Weather Call dialog', () => {
   it('shows who acknowledged, a phone number beside who is waiting, and reinstates', async () => {
     weatherCallScreen.mockResolvedValue(decided());
     render(<WeatherCallDialog groupId="g1" date={DAY} onClose={vi.fn()} onChanged={onChanged} toastOk={toastOk} toastErr={toastErr} />);
-    const dlg = await screen.findByRole('dialog', { name: 'Weather Call' });
+    const dlg = await openDialog();
     expect(dlg.textContent).toContain('Day cancelled for weather (unpaid)');
     expect(dlg.textContent).toContain('1 of 2 acknowledged · 1 waiting');
     const ann = dlg.querySelector('[data-ack-row="ann@x.com"]');
@@ -130,7 +140,7 @@ describe('Weather Call dialog', () => {
   it('tells a manager who is not a decider who makes the call', async () => {
     weatherCallScreen.mockResolvedValue(base({ canDecide: false }));
     render(<WeatherCallDialog groupId="g1" date={DAY} onClose={vi.fn()} onChanged={onChanged} toastOk={toastOk} toastErr={toastErr} />);
-    const dlg = await screen.findByRole('dialog', { name: 'Weather Call' });
+    const dlg = await openDialog();
     // The dialog shell renders before the screen data lands: wait for the line.
     await waitFor(() => expect(dlg.textContent).toContain('The weather call for this group is made by Mia X.'));
     expect(within(dlg).queryByRole('button', { name: /Make the Call/ })).toBeNull();

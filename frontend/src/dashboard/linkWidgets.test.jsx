@@ -38,7 +38,7 @@ vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ myEmail: 'neil@gre
 vi.mock('@azure/msal-react', () => ({ useMsal: () => ({ accounts: [{ name: 'Neil Kadakia', username: 'neil@greensglobal.com' }] }) }));
 vi.mock('../contexts/NotificationContext.jsx', () => ({ useNotifications: () => ({ openPanel: vi.fn() }) }));
 
-import { WIDGETS, DEFAULT_QUICK_ACTIONS, QUICK_ACTIONS, resolveQuickActions } from './widgets.jsx';
+import { WIDGETS, DEFAULT_QUICK_ACTIONS, QUICK_ACTIONS, resolveQuickActions, clampToLimits } from './widgets.jsx';
 import { configValid } from './WidgetGallery.jsx';
 
 const mount = (type, config = {}) => {
@@ -106,10 +106,65 @@ describe('Quick Actions tile', () => {
     expect(screen.queryByText('Add Personal Link')).toBeNull();
   });
 
-  it('shows only the picked actions, in catalog order', () => {
+  it('shows only the picked actions, in the order they were picked', () => {
+    // The picker reorders (Oct 13): the config order is the display order.
     mount('quick-actions', { actions: ['kb', 'personal-link'] });
     const rows = screen.getAllByRole('button').map(b => b.textContent.trim());
-    expect(rows).toEqual(['Add Personal Link', 'Knowledge Base']);
+    expect(rows).toEqual(['Knowledge Base', 'Add Personal Link']);
+  });
+
+  it('Icons Only draws bare icons, one per cell, and folds the overflow into +N', () => {
+    // 2x1 = two cells for three actions: the first icon, then "+2" for the rest.
+    const Comp = WIDGETS['quick-actions'].render;
+    const { container, unmount } = render(<Comp config={{ style: 'icons', actions: ['task', 'event', 'email'] }} size={{ w: 2, h: 1 }} updateConfig={vi.fn()} kpis={{}} />);
+    expect(container.querySelector('.dash-card')).toBeNull();               // no card chrome
+    expect(container.querySelector('.qa-dock').style.gridTemplateColumns).toContain('repeat(2');
+    expect(screen.getByRole('button', { name: 'New Task' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'New Event' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '2 more quick actions' }));
+    expect(screen.getByText('New Event')).toBeTruthy();                      // the sheet lists the rest
+    expect(screen.getByText('New Email')).toBeTruthy();
+    // Six cells for five actions: every icon on the board, no +N.
+    unmount();
+    render(<Comp config={{ style: 'icons', actions: DEFAULT_QUICK_ACTIONS }} size={{ w: 3, h: 2 }} updateConfig={vi.fn()} kpis={{}} />);
+    expect(screen.queryByRole('button', { name: /more quick actions/ })).toBeNull();
+    expect(screen.getAllByRole('button', { name: 'Request an Item' }).length).toBeGreaterThan(0);
+  });
+
+  it('Icons + Names draws a named tile per action inside a headerless card', () => {
+    const Comp = WIDGETS['quick-actions'].render;
+    const { container } = render(<Comp config={{ style: 'tiles', actions: ['task', 'ticket'] }} size={{ w: 4, h: 2 }} updateConfig={vi.fn()} kpis={{}} />);
+    expect(container.querySelector('.dash-card.qa-tiles-card')).toBeTruthy();
+    expect(screen.queryByText('Quick Actions')).toBeNull();
+    expect(screen.getByRole('button', { name: 'New Task' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'New Ticket' })).toBeTruthy();
+  });
+
+  it('draws a quiet note, never a blank patch, when nothing applies to this person', () => {
+    const Comp = WIDGETS['quick-actions'].render;
+    // 'credvault' needs a grant the mocked role lacks.
+    render(<Comp config={{ style: 'icons', actions: ['credvault'] }} size={{ w: 2, h: 1 }} updateConfig={vi.fn()} kpis={{}} />);
+    expect(screen.getByText(/No quick actions apply to you/)).toBeTruthy();
+  });
+
+  it('on a phone the dock is one strip with every icon, told so by the grid', () => {
+    const Comp = WIDGETS['quick-actions'].render;
+    const { container } = render(<Comp config={{ style: 'icons', actions: ['task', 'event', 'email'] }} size={{ w: 2, h: 1 }} phone updateConfig={vi.fn()} kpis={{}} />);
+    expect(container.querySelector('.qa-dock--row')).toBeTruthy();
+    expect(screen.getAllByRole('button').length).toBe(3);
+    expect(screen.queryByRole('button', { name: /more quick actions/ })).toBeNull();
+  });
+
+  it('size and limits follow the style, and a dock is one row on a phone', () => {
+    const def = WIDGETS['quick-actions'];
+    // The load-time clamp honors the style's bounds: an 8x1 dock survives a reload.
+    expect(clampToLimits({ type: 'quick-actions', x: 0, y: 0, w: 8, h: 1, config: { style: 'icons' } })).toMatchObject({ w: 8, h: 1 });
+    expect(clampToLimits({ type: 'quick-actions', x: 0, y: 0, w: 8, h: 1, config: { style: 'tiles' } })).toMatchObject({ w: 8, h: 2 });
+    expect(def.sizeWhen({ style: 'icons' })).toEqual({ w: 3, h: 2 });
+    expect(def.limitsWhen({ style: 'icons' }).minH).toBe(1);
+    expect(def.limitsWhen({ actions: ['task'] }).minH).toBe(2);              // a saved list tile keeps its bounds
+    expect(def.phoneRowsWhen({ style: 'icons' })).toBe(1);
+    expect(def.phoneRowsWhen({ style: 'list' })).toBeUndefined();
   });
 
   it('config helpers: unknown keys are dropped and an empty pick is invalid', () => {

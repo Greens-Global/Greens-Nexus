@@ -673,6 +673,15 @@ async def reminders_loop():
             await asyncio.to_thread(maintenance_services.run_daily)
         except Exception as e:
             print(f"[reminders] maintenance services loop error: {e}")
+        # Credential Vault: rotation due / overdue and hard expiry, to the owner
+        # and backup owner, once a day (routers/credvault.py). Replaces the
+        # old once-a-day check the browser did only when the owner opened the
+        # screen.
+        try:
+            from routers import credvault
+            await asyncio.to_thread(credvault.run_daily_rotation_reminders)
+        except Exception as e:
+            print(f"[reminders] credential vault loop error: {e}")
         now = datetime.now(timezone.utc)
         nxt = now.replace(hour=_SCAN_HOUR_UTC, minute=0, second=0, microsecond=0)
         if nxt <= now:

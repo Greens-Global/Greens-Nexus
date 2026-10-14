@@ -54,6 +54,7 @@ from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, Tim
 from routers.hr import company_sites, allowed_site_ids as _allowed_site_ids, _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET, _SHOT_BUCKET, sync_comp_from_rate
 from routers.esign import _client_meta
 from routers.stepup import require_stepup
+from currency import is_currency
 from shift_day import shift_day as _shift_day, shift_bounds_by_day as _shift_bounds_by_day
 
 router = APIRouter(prefix="/timeclock", tags=["timeclock"])
@@ -8701,7 +8702,7 @@ class RateIn(BaseModel):
     hourly_rate: Optional[float] = None
     overtime_rule: Optional[str] = None      # ca | federal | none (unchanged if omitted)
     pay_type: Optional[str] = None           # hourly | fixed
-    currency: Optional[str] = None           # USD | INR
+    currency: Optional[str] = None           # any ISO 4217 code (currency.py)
     monthly_salary: Optional[float] = None   # fixed pay: gross per month
     weekend_ot_amount: Optional[float] = None
     full_day_hours: Optional[float] = None
@@ -8810,7 +8811,7 @@ def set_payroll_rate(body: RateIn, user: dict = Depends(require_team_write),
         row.overtime_rule = body.overtime_rule
     if body.pay_type in ("hourly", "fixed"):
         row.pay_type = body.pay_type
-    if body.currency in ("USD", "INR"):
+    if is_currency(body.currency):
         row.currency = body.currency
     if body.monthly_salary is not None:
         row.monthly_salary = max(0.0, float(body.monthly_salary or 0))
@@ -9006,6 +9007,29 @@ class BodIn(BaseModel):
 
 
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+
+
+def _where_label(geo: dict, ctx: dict) -> str:
+    """Where-from tag beside the time in a BOD/EOD post (Pranshu, 10/14).
+    Remote people read Remote wherever they are. Otherwise it is the site
+    only when it is one of the person's allowed sites ([] = any company
+    site), else Off-Site Punch - stricter than the timecard on purpose.
+    No fix / too rough to judge = no tag rather than a guess."""
+    if ctx.get("remote"):
+        return "Remote"
+    s = geo.get("geo_status")
+    mine = ctx.get("mine") or set()
+    if s == "in_fence" and (not mine or geo.get("work_site_id") in mine):
+        return geo.get("work_site_name") or ""
+    return "Off-Site Punch" if s in ("in_fence", "out_of_fence", "no_site") else ""
+
+
+@router.get("/where")
+def where_label(lat: str = "", lng: str = "", accuracy_m: int = 0,
+                user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The BOD/EOD composer's location tag for the caller's current position."""
+    ctx = _geo_context(db, user["email"])
+    return {"label": _where_label(_geofence(db, lat, lng, accuracy_m, ctx=ctx), ctx)}
 
 
 @router.post("/bod")
