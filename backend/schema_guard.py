@@ -153,6 +153,22 @@ def store_fingerprint(conn, fingerprint: str) -> None:
     ), {"fp": fingerprint, "by": f"{os.getenv('WEBSITE_INSTANCE_ID', 'local')[:20]}:{os.getpid()}"})
 
 
+# Supabase's transaction-mode pooler (Supavisor, port 6543) hands each
+# statement to whichever server connection is free, so a SESSION advisory
+# lock taken there lands on one server connection and is never released when
+# the client closes - every later worker start would wait out lock_timeout
+# before falling back (leader.py and code_sequence.py note the same trap).
+# Session mode (port 5432) and a direct connection hold the lock as intended.
+TRANSACTION_POOLER_PORT = 6543
+
+
+def transaction_pooled(engine) -> bool:
+    try:
+        return int(getattr(getattr(engine, "url", None), "port", 0) or 0) == TRANSACTION_POOLER_PORT
+    except (TypeError, ValueError):
+        return False
+
+
 def run_once_per_deploy(engine, is_sqlite: bool, fingerprint_fn, work) -> str:
     """Run `work()` unless another process already ran it for this fingerprint.
 
@@ -161,6 +177,13 @@ def run_once_per_deploy(engine, is_sqlite: bool, fingerprint_fn, work) -> str:
     if is_sqlite:
         work()
         print("[startup] schema: applied (SQLite - no once-per-deploy guard)")
+        return "applied"
+    if transaction_pooled(engine):
+        # The pre-guard behavior: every worker runs the (idempotent) work.
+        work()
+        print(f"[startup] schema: applied (DATABASE_URL is on the transaction pooler, port "
+              f"{TRANSACTION_POOLER_PORT} - a session lock would not hold, so no once-per-deploy guard; "
+              f"use the session pooler or a direct connection to get it)")
         return "applied"
 
     fingerprint = None
