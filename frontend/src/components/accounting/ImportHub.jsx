@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Download, FileSpreadsheet, Upload, X } from 'lucide-react';
+import { ArrowRightLeft, Clock, Download, FileSpreadsheet, Landmark, Upload, X } from 'lucide-react';
 import { api } from '../../api';
 import { EntityPicker, control } from './reportControls';
-import { buildIntacctRows, findHeaderRow, guessColumns, parseCsv, readTransactions, toCsv, usDate } from './statementImport';
+import { buildIntacctRows, findHeaderRow, guessColumns, readSheetFile, readTransactions, toCsv, usDate } from './statementImport';
+import { PayrollHoursToQb, QbPayrollToIntacct } from './PayrollImport';
 import { downloadBlob } from './reportModel';
 
 // Tools > Import Hub (Neil, 10/14: "Import Hub was intended to allow for a
@@ -18,25 +19,25 @@ import { downloadBlob } from './reportModel';
 // statement line. Everything happens in the browser - nothing is uploaded to
 // Nexus or written to Intacct; the file is imported in Intacct by hand.
 //
-// Payroll export to QuickBooks (also on Neil's list) is not built yet.
+// Payroll (Neil, 10/15: "Payroll export to QB is not there"): two more
+// tools, in PayrollImport.jsx - time-sheet hours out to QuickBooks (IIF) and
+// Intacct's statistical hours journal, and a QuickBooks payroll report in to
+// Intacct's payroll journal. The three tools are cards across the top; the
+// one picked is remembered per browser.
+
+const TOOLS = [
+  { key: 'statement', title: 'Bank Statement to Intacct', text: 'A bank or brokerage statement as a journal entry import.', Icon: Landmark },
+  { key: 'hours', title: 'Payroll Hours to QuickBooks', text: 'Approved time sheet hours as a QuickBooks time import.', Icon: Clock },
+  { key: 'qb-payroll', title: 'QuickBooks Payroll to Intacct', text: 'A QuickBooks payroll report as the Intacct payroll entry.', Icon: ArrowRightLeft },
+];
+const TOOL_KEY = 'nexus.importhub.tool';
 
 const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
 const label = { display: 'grid', gap: 4, fontSize: '0.74rem', fontWeight: 600, color: 'var(--text-secondary)' };
 const fmt = (n) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const PREVIEW = 50;
 
-async function readFile(file) {
-  const name = (file.name || '').toLowerCase();
-  if (/\.(xlsx|xls)$/.test(name)) {
-    const XLSX = await import('xlsx');
-    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: false });
-    const sheet = wb.Sheets[wb.SheetNames[0]];
-    return XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' }).map((r) => r.map((c) => String(c ?? '').trim()));
-  }
-  return parseCsv(await file.text());
-}
-
-export default function ImportHub() {
+function StatementToIntacct() {
   const [file, setFile] = useState(null);         // { name, rows }
   const [error, setError] = useState('');
   const [headerRow, setHeaderRow] = useState(0);
@@ -56,7 +57,7 @@ export default function ImportHub() {
     if (!f) return;
     setError('');
     try {
-      const rows = (await readFile(f)).filter((r) => r.some((c) => c !== ''));
+      const rows = (await readSheetFile(f)).filter((r) => r.some((c) => c !== ''));
       if (!rows.length) { setError('That file has no rows.'); return; }
       const h = findHeaderRow(rows);
       setFile({ name: f.name, rows });
@@ -209,6 +210,36 @@ export default function ImportHub() {
         </div>
       )}
       {error && <div role="alert" style={{ fontSize: '0.8rem', color: 'var(--danger, #dc2626)' }}>{error}</div>}
+    </div>
+  );
+}
+
+export default function ImportHub() {
+  const [tool, setTool] = useState(() => {
+    try { const t = localStorage.getItem(TOOL_KEY); return TOOLS.some((x) => x.key === t) ? t : 'statement'; } catch { return 'statement'; }
+  });
+  const pick = (t) => { setTool(t); try { localStorage.setItem(TOOL_KEY, t); } catch { /* per-browser convenience */ } };
+  return (
+    <div style={{ display: 'grid', gap: 14 }}>
+      <div className="scroll-tabs" role="tablist" aria-label="Import Tools" style={{ display: 'grid', gridAutoFlow: 'column', gridAutoColumns: 'minmax(220px, 1fr)', gap: 10 }}>
+        {TOOLS.map(({ key, title, text, Icon }) => {
+          const on = key === tool;
+          return (
+            <button key={key} type="button" role="tab" aria-selected={on} onClick={() => pick(key)}
+              style={{ ...card, padding: '12px 14px', display: 'flex', gap: 10, alignItems: 'flex-start', textAlign: 'left', cursor: 'pointer', font: 'inherit', color: 'inherit',
+                borderColor: on ? 'var(--wk-brand, #2b45e1)' : 'var(--border-color)', boxShadow: on ? '0 0 0 1px var(--wk-brand, #2b45e1)' : card.boxShadow }}>
+              <span style={{ display: 'inline-flex', padding: 8, borderRadius: 9, background: 'var(--wk-brand-tint, #e8ecfd)', color: 'var(--wk-brand, #2b45e1)', flexShrink: 0 }}><Icon size={16} /></span>
+              <span style={{ display: 'grid', gap: 2 }}>
+                <strong style={{ fontSize: '0.84rem' }}>{title}</strong>
+                <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>{text}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      {tool === 'statement' && <StatementToIntacct />}
+      {tool === 'hours' && <PayrollHoursToQb />}
+      {tool === 'qb-payroll' && <QbPayrollToIntacct />}
     </div>
   );
 }

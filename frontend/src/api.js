@@ -1987,6 +1987,13 @@ export const api = {
   // QuickBooks IIF on the team timecard.
   timeExportIntacct:    (start, end, { journal = 'PYRJ', expense = '', clearing = '', location = '' } = {}) =>
     reqBlob(`/timeclock/export-intacct.csv?start=${start || ''}&end=${end || ''}&journal=${encodeURIComponent(journal)}&expense=${encodeURIComponent(expense)}&clearing=${encodeURIComponent(clearing)}&location=${encodeURIComponent(location)}`),
+  // Accounting > Import Hub, Payroll Hours card (Neil, 10/15): the period's
+  // hours by pay class (no pay) for one company, optionally approved time
+  // sheets only, and the QuickBooks IIF with the same filters.
+  timeExportHours:      (start, end, { company = '', approvedOnly = false } = {}) =>
+    req(`/timeclock/export-hours?start=${start || ''}&end=${end || ''}&company=${encodeURIComponent(company)}&approved_only=${approvedOnly ? 'true' : 'false'}`, { timeoutMs: 120_000 }),
+  timeExportIifFor:     (start, end, { company = '', approvedOnly = false } = {}) =>
+    reqBlob(`/timeclock/export.iif?start=${start || ''}&end=${end || ''}&company=${encodeURIComponent(company)}&approved_only=${approvedOnly ? 'true' : 'false'}`, { timeoutMs: 120_000 }),
   // Accounting > Loans & Financing (Oct 2): loans proposed from the ledger's
   // liability accounts, the ledger-driven review (balances, principal and
   // interest paid, NOI, DSCR) for a month, and the typed fields (rate,
