@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, lazy, Suspense } from "react";
+import { PATH_TO_VIEW, VIEW_TO_PATH } from './lib/routes';
 import { AuthenticatedTemplate, UnauthenticatedTemplate, useMsal } from "@azure/msal-react";
 import { InteractionStatus } from "@azure/msal-browser";
 import { loginRequest } from "./authConfig";
@@ -414,8 +415,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
 // And 'myhr' (Oct 14 2026, Neil): the module has been Workday since Sep 3
 // but the address still read /myhr - it now reads /workday; old /myhr links
 // (bells, emails, bookmarks) still land on the same view.
-const PATH_TO_VIEW = { itemmanagement: 'inventory', inventory: 'inventory', construction: 'ops', ops: 'ops', workday: 'myhr', myhr: 'myhr' };
-const VIEW_TO_PATH = { inventory: 'itemmanagement', ops: 'construction', myhr: 'workday' };
+// The tables live in lib/routes.js so the briefing's link map reads the same ones.
 
 function parsePath() {
   const segs = window.location.pathname.split('/').filter(Boolean);

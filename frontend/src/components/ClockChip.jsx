@@ -59,7 +59,10 @@ function captureTitle(capture) {
 }
 
 // Our own tooltip: a dark pill that rises in, a bold line and a quiet one.
-function Tip({ title, sub, edge = '', children }) {
+// `native`: the browser's own tooltip instead (the folded rail sits in an
+// overflow-hidden sidebar that would clip ours).
+function Tip({ title, sub, edge = '', native = false, children }) {
+  if (native) return <span className="sbtt" title={sub ? `${title} - ${sub}` : title}>{children}</span>;
   return (
     <span className={`sbtt${edge ? ` sbtt--${edge}` : ''}`}>
       {children}
@@ -126,13 +129,13 @@ export default function ClockChip({ vm, variant = 'wide', onAfterAction, leaving
   const transport = (
     <div className={`sbtr sbtr--${tone}`} role="group" aria-label="Punch">
       <span className="sbtr-lit" key={`${tone}-${lit}`} style={{ transform: vertical ? `translateY(${lit * 100}%)` : `translateX(${lit * 100}%)` }} aria-hidden="true" />
-      <Tip title={play.label} sub={play.sub} edge={vertical ? '' : 'start'}>
+      <Tip title={play.label} sub={play.sub} edge={vertical ? '' : 'start'} native={vertical}>
         <button type="button" className={`sbtr-btn sbtr-btn--play${play.lit ? ' is-lit' : ''}${play.next ? ' is-next' : ''}${!play.onClick ? ' is-inert' : ''}`}
           onClick={play.onClick || undefined} disabled={busyAny} aria-disabled={!play.onClick || undefined} aria-pressed={play.lit && !off ? true : undefined} aria-label={play.label}>
           {vm.busy === 'in' ? <Spinner size={12} /> : <Play />}
         </button>
       </Tip>
-      <Tip title={pause.label} sub={pause.sub}>
+      <Tip title={pause.label} sub={pause.sub} native={vertical}>
         <button type="button" className={`sbtr-btn sbtr-btn--pause${pause.lit ? ' is-lit' : ''}${pause.dim ? ' is-dim' : ''}${!pause.onClick ? ' is-inert' : ''}`}
           onClick={pause.onClick || undefined} disabled={busyAny} aria-disabled={!pause.onClick || undefined} aria-pressed={pause.lit ? true : undefined} aria-label={pause.label}>
           {vm.breakBusy ? <Spinner size={12} /> : <Pause />}
@@ -141,7 +144,7 @@ export default function ClockChip({ vm, variant = 'wide', onAfterAction, leaving
           )}
         </button>
       </Tip>
-      <Tip title={stop.label} sub={stop.sub} edge={vertical ? '' : 'end'}>
+      <Tip title={stop.label} sub={stop.sub} edge={vertical ? '' : 'end'} native={vertical}>
         <button type="button" className={`sbtr-btn sbtr-btn--stop${stop.dim ? ' is-dim' : ''}${!stop.onClick ? ' is-inert' : ''}`}
           onClick={stop.onClick || undefined} disabled={busyAny} aria-disabled={!stop.onClick || undefined} aria-label={stop.label}>
           {vm.busy === true || vm.busy === 'out' ? <Spinner size={12} /> : <Square />}
@@ -151,23 +154,30 @@ export default function ClockChip({ vm, variant = 'wide', onAfterAction, leaving
   );
 
   if (variant === 'rail') {
-    const ringLabel = `${stateLabel}${live ? ` · ${vm.timer}` : ''}${alert ? ` · ${alert}` : ''} - ${shareAlert ? 'share your screen' : 'open the time clock'}`;
+    const ringLabel = `${stateLabel}${live ? ` · ${vm.timer}` : ''}${alert ? ` · ${alert}` : ''} - open the time clock`;
     return (
       <div className={`sbclock-rail sbclock-rail--${tone}${leaving ? ' is-leaving' : ''}`} role="group" aria-label="Time clock">
         {alert && <span role="status" className="dk-sr-only">{alert}</span>}
-        <Tip title={stateLabel} sub={live ? `${vm.timer} today · ${vm.sinceLabel}` : vm.sinceLabel}>
-          <button type="button" className="sbclock-ringbtn" onClick={shareAlert ? a.startCapture : a.openClock} aria-label={ringLabel}>
+        <Tip title={stateLabel} sub={`${live ? `${vm.timer} today · ` : ''}${vm.sinceLabel}${alert ? ` · ${alert}` : ''}`} native>
+          <button type="button" className="sbclock-ringbtn" onClick={a.openClock} aria-label={ringLabel}>
             <ClockRing pct={pct} tone={tone} alert={!!alert} sweep={flourish === 'sweep'} size={36} stroke={3} ticks={tickCount} />
           </button>
         </Tip>
         {transport}
+        {/* A share the policy needs (dropped, or a second screen): a fifth
+            circle, red, only while it is needed - the fix without unfolding. */}
+        {shareAlert && (
+          <Tip title={capture.missing ? 'Share your second screen' : 'Share your screen again'} sub="Pick it when your browser asks" native>
+            <button type="button" className="sbtr-btn sbtr-btn--share" onClick={a.startCapture} aria-label={capture.missing ? 'Share your second screen' : 'Share your screen again'}><MonitorX /></button>
+          </Tip>
+        )}
       </div>
     );
   }
 
   return (
     <section className={`sbclock sbclock--${tone}${leaving ? ' is-leaving' : ''}`} aria-label="Time clock">
-      <button type="button" className="sbclock-head" onClick={shareAlert ? a.startCapture : a.openClock} title={shareAlert ? 'Share your screen' : 'Open Time Clock'}>
+      <button type="button" className="sbclock-head" onClick={a.openClock} title="Open Time Clock">
         <ClockRing pct={pct} tone={tone} alert={!!alert} sweep={flourish === 'sweep'} size={38} ticks={tickCount} />
         <span className="sbclock-text">
           <span className="sbclock-line">

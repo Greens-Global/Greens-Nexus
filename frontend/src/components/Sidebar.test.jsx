@@ -15,7 +15,7 @@ vi.mock('../api', () => ({ api: { qaEnabled: () => Promise.resolve({ enabled: fa
 // Off the clock the sidebar draws Punch In from the Punch tile's hook.
 const punch = vi.hoisted(() => ({ act: vi.fn(async () => {}) }));
 vi.mock('../dashboard/essentials/usePunchClock.jsx', () => ({
-  usePunchClock: () => ({ status: { lastPunch: { kind: 'out', at: '2026-10-13T23:30:00' } }, vm: { state: 'out', exempt: false, lastOutLabel: 'Last clocked out at 4:30 PM' }, busy: '', note: null, act: punch.act, modals: null }),
+  usePunchClock: () => ({ busy: '', note: null, act: punch.act, modals: null }),
 }));
 
 let PHONE = false;

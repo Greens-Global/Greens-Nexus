@@ -56,3 +56,6 @@ export function useTimeclockClaimed() {
 
 // Minutes as H:MM - no seconds (Neil, Oct 14 2026: "very distracting").
 export const fmtHM = (min) => `${Math.floor(min / 60)}:${String(min % 60).padStart(2, '0')}`;
+
+// The one way every clock surface opens the Time Clock page.
+export const openTimeClock = () => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'timeclock' } }));

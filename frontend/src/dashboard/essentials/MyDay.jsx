@@ -14,6 +14,7 @@
 // screen that owns it. DashCard / navigate come from widgets.jsx, Row /
 // noteStyle from workdayWidgets.jsx, so this tile reads like every other one.
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { PATH_TO_VIEW } from '../../lib/routes';
 import { AlertCircle, ArrowRight, CalendarCheck, CalendarClock, CheckSquare, ClipboardCheck, Clock, FileSignature, LifeBuoy, Package, Timer } from 'lucide-react';
 
 import { api } from '../../api';
@@ -43,7 +44,7 @@ const KIND_ICON = {
 // the briefing emits: /tasks/mine?task=, /tickets?ticket=, /support?ticket=,
 // /timeclock[/timesheet], /documents/documents-esign, /hr/hr-time-requests,
 // /shifts/mine|schedule, /itemmanagement).
-const PATH_TO_VIEW = { itemmanagement: 'inventory', inventory: 'inventory', construction: 'ops', ops: 'ops', workday: 'myhr', myhr: 'myhr' };
+
 export function targetFor(path) {
   if (!path) return null;
   let p = path;

@@ -10,8 +10,8 @@ import { punchPosition, keepPositionWarm } from '../lib/geoPosition';
 import { replayPendingBods } from '../lib/bodQueue';
 import { useRole } from '../contexts/RoleContext';
 import { rememberTimeExempt } from '../lib/timeTracking';
-import { publishTimeclock, useTimeclockClaimed, fmtHM } from '../lib/timeclockStore';
-import { deriveMyTime } from '../dashboard/essentials/usePunchClock.jsx';
+import { publishTimeclock, useTimeclockClaimed, fmtHM, openTimeClock } from '../lib/timeclockStore';
+import { deriveMyTime, localKey } from '../dashboard/essentials/usePunchClock.jsx';
 import ClockChip, { ClockRing } from './ClockChip';
 
 // Whether a desktop agent covers THIS machine is detected per-machine by asking
@@ -462,25 +462,23 @@ export default function TimeclockWidget() {
       punchOut: quickPunchOut,
       startCapture: () => startCapture(),
       stopCapture,
-      openClock: () => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'timeclock' } })),
+      openClock: openTimeClock,
     },
   };
   useEffect(() => { publishTimeclock(vm); });
   // Unmounted (a boundary reset, sign-out): the surfaces must not keep
   // drawing a shift whose actions belong to a dead instance.
   useEffect(() => () => publishTimeclock({ state: 'unknown' }), []);
-  const todayLocal = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  const todayLocal = localKey(new Date());
   useEffect(() => {
     if (!live) return undefined;
     let alive = true;
     api.timeMySchedule(todayLocal, todayLocal)
       .then((r) => {
         if (!alive) return;
-        const toMin = (t) => { const [h, m] = String(t || '').split(':').map(Number); return Number.isFinite(h) ? h * 60 + (m || 0) : null; };
-        const total = (r?.scheduled || []).filter((x) => x.date === todayLocal).reduce((sum, x) => {
-          const a = toMin(x.start), b = toMin(x.end);
-          return a != null && b != null && b > a ? sum + (b - a) : sum;
-        }, 0);
+        // The server's paid minutes per placed shift (unpaid break out,
+        // overnight handled); a weather-cancelled shift does not count.
+        const total = (r?.scheduled || []).filter((x) => x.weatherStatus !== 'cancelled').reduce((sum, x) => sum + (Number(x.paidMin) || 0), 0);
         setShiftMin(total > 0 ? total : null);
       })
       .catch(() => { if (alive) setShiftMin(null); });
@@ -524,7 +522,7 @@ export default function TimeclockWidget() {
       )}
       <button type="button" className={`tc-pill${onBreak ? ' is-break' : ''}`} onClick={() => setExpanded(v => !v)} aria-expanded={expanded}
         title={expanded ? 'Collapse' : 'Time clock - tap for controls'}>
-        <ClockRing pct={(vm.todayMin || 0) / 480} tone={onBreak ? 'break' : 'in'} size={20} stroke={3} />
+        <ClockRing pct={(vm.todayMin || 0) / (vm.targetMin || 480)} tone={onBreak ? 'break' : 'in'} size={20} stroke={3} ticks={Math.round((vm.targetMin || 480) / 60)} />
         <span className="tc-pill-time">{onBreak ? `On Break · ${vm.timer}` : vm.timer}</span>
         <ChevronUp size={13} style={{ color: 'var(--muted)', transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
       </button>

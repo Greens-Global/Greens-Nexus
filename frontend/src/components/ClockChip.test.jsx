@@ -101,12 +101,15 @@ describe('ClockChip', () => {
     expect(container.querySelector('.sbclock-rail .sbtr')).toBeTruthy();
   });
 
-  it('a dropped share in the rail: the dial carries the alert and re-opens the picker', () => {
+  it('a dropped share in the rail: the dial carries the alert, a red share circle opens the picker, the dial still opens the clock', () => {
     const vm = working({ capture: { screens: 0, paused: false, needed: true } });
-    render(<ClockChip vm={vm} variant="rail" />);
-    fireEvent.click(screen.getByRole('button', { name: /Screen sharing stopped/ }));
+    const { container } = render(<ClockChip vm={vm} variant="rail" />);
+    expect(container.querySelector('.sbring-alert')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Share your screen again' }));
     expect(vm.actions.startCapture).toHaveBeenCalledTimes(1);
-    expect(vm.actions.openClock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: /Screen sharing stopped/ }));
+    expect(vm.actions.openClock).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('.sbclock-rail .sbtt[title]')).toBeTruthy();   // the rail uses native titles (ours would clip)
   });
 
   it('onAfterAction fires once the punch resolved, and not when the engine blocked it', async () => {

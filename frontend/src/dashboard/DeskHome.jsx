@@ -179,8 +179,8 @@ export function DeskGreeting({ summary = null, right = null, menu = null }) {
             title="Open time clock"
             style={{ flexShrink: 0, whiteSpace: 'nowrap' }}
           >
-            <span className={`dk-dot ${clockedIn ? 'dk-dot--up' : 'dk-dot--off'}`} />
-            {clockedIn ? <>Clocked in · <b>{fmtHM(mine.todayMin)}</b></> : <>Clocked out<span className="dk-session-long"> · Open time clock</span></>}
+            <span className={`dk-dot ${clockedIn ? 'dk-dot--up' : mine.exempt ? 'dk-dot--na' : 'dk-dot--off'}`} />
+            {clockedIn ? <>Clocked In · <b>{fmtHM(mine.todayMin)}</b></> : <>Clocked Out<span className="dk-session-long"> · Open time clock</span></>}
           </button>
           {/* "…" view menu: its own distinct button, at the far right corner
               after the session chip - not merged with it (Pranshu, Sep 15
