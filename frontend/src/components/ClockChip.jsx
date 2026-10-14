@@ -119,7 +119,7 @@ export default function ClockChip({ vm, variant = 'wide', onAfterAction, leaving
   const pause = off
     ? { label: 'Start Break', sub: 'Punch in first', onClick: null, dim: true }
     : onBreak
-      ? { label: 'On Break', sub: 'Press Play to resume', onClick: null, lit: true }
+      ? { label: 'On Break', sub: 'Press Play to Punch Back In', onClick: null, lit: true }
       : { label: 'Start Break', sub: 'Your working time pauses', onClick: after(a.toggleBreak), lit: false };
   const stop = off
     ? { label: 'Punch Out', sub: 'You are off the clock', onClick: null, dim: true }

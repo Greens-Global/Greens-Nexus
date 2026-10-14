@@ -1334,11 +1334,11 @@ export const DOCS = [
     tips: [],
   },
   {
-    id: 'business-intelligence', name: 'Business Intelligence', group: 'Modules', icon: 'Gauge', view: 'bi',
+    id: 'business-intelligence', name: 'Insights', group: 'Modules', icon: 'Gauge', view: 'bi',
     tagline: 'Company-wide numbers from every module, with what needs attention first.',
-    where: 'Left menu > Business Intelligence',
+    where: 'Left menu > Insights',
     access: 'Supervisors and above with the BI grant',
-    purpose: 'Business Intelligence pulls the key numbers from across Nexus onto one board, counted exactly as each module counts them. Anything past its alert level - overdue, breached, unassigned, expiring - is listed first under Needs Attention; every module then gets its own card of counts. Click a count to see who or what is behind it.',
+    purpose: 'Insights pulls the key numbers from across Nexus onto one board, counted exactly as each module counts them. Anything past its alert level - overdue, breached, unassigned, expiring - is listed first under Needs Attention; every module then gets its own card of counts. Click a count to see who or what is behind it.',
     gains: [
       'Cross-module numbers in one place, refreshed every 30 seconds.',
       'What needs attention is at the top, worst first.',
@@ -1349,7 +1349,7 @@ export const DOCS = [
       {
         title: 'Find Out Who Is Behind a Number',
         steps: [
-          'Open Business Intelligence.',
+          'Open Insights.',
           'Under Needs Attention, click a tile, or click any count on a module card.',
           'The breakdown opens: a bar per person, or the records themselves when there is no "who".',
           'Click Open to go to the module and act on it.',
