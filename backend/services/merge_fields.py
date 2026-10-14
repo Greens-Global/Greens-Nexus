@@ -118,6 +118,10 @@ BUILTIN_VARIABLES = [
     ("responsibilities", "Responsibilities", "HR Packet"),
     ("last_day", "Last day", "HR Packet"),
     ("separation_type", "Separation type", "HR Packet"),
+    # The emergency contact every hiring packet asks for (Oct 14).
+    ("emergency_name", "Emergency contact name", "HR Packet"),
+    ("emergency_relationship", "Emergency contact relationship", "HR Packet"),
+    ("emergency_phone", "Emergency contact phone", "HR Packet"),
     # Whoever the packet's signing order puts in a signer slot: {{signer.company}}
     # prints the name of the person who actually signs for the company.
     ("signer.company", "Signer - company (name)", "Signers"),

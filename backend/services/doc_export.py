@@ -141,7 +141,13 @@ def _walk_blocks(nodes, merge: dict) -> list:
                            "spacingAfter": attrs.get("spacingAfter")})
         elif t in ("bulletList", "orderedList"):
             items = [_walk_blocks(li.get("content"), merge) for li in (n.get("content") or [])]
-            blocks.append({"type": t, "items": items})
+            # A numbered list that continues an earlier one (Word's "2." after
+            # a paragraph) keeps its number - it used to restart at 1.
+            try:
+                start = max(1, int((n.get("attrs") or {}).get("start") or 1))
+            except (TypeError, ValueError):
+                start = 1
+            blocks.append({"type": t, "items": items, "start": start})
         elif t == "table":
             rows = []
             for row in n.get("content") or []:
@@ -377,6 +383,20 @@ def _pdf_inline_image_markup(image: dict) -> str:
         return ""
 
 
+# Characters the built-in PDF fonts (WinAnsi) do not have print as a black box.
+# An India offer letter's "₹45,000 per month" printed "■45,000" (Oct 14), and a
+# Word form's ☐ checkboxes did too - print the plain equivalent instead.
+_PDF_FALLBACKS = {"₹": "Rs. ", "☐": "[  ]", "☑": "[X]", "☒": "[X]", "✓": "[X]",
+                  "✔": "[X]", "✗": "X", "→": "->", "←": "<-", "≤": "<=",
+                  "≥": ">=", "−": "-", " ": " ", " ": " ", "​": ""}
+_PDF_FALLBACK_RE = re.compile("|".join(map(re.escape, _PDF_FALLBACKS)))
+
+
+def _pdf_text(text: str) -> str:
+    out = _PDF_FALLBACK_RE.sub(lambda m: _PDF_FALLBACKS[m.group(0)], text or "")
+    return out.replace("Rs.  ", "Rs. ")
+
+
 def _runs_to_markup(runs: list) -> str:
     parts = []
     for r in runs or []:
@@ -385,7 +405,7 @@ def _runs_to_markup(runs: list) -> str:
             if markup:
                 parts.append(markup)
             continue
-        t = _esc(r.get("text") or "").replace("\n", "<br/>")
+        t = _esc(_pdf_text(r.get("text") or "")).replace("\n", "<br/>")
         if r.get("bold"):
             t = f"<b>{t}</b>"
         if r.get("italic"):
@@ -602,7 +622,10 @@ def _blocks_to_flow(blocks: list, body_style, styles, content_width: float, anch
             for item_blocks in b["items"]:
                 sub = _blocks_to_flow(item_blocks, body_style, styles, content_width, anchors) or [Paragraph("", body_style)]
                 items.append(ListItem(sub))
-            flow.append(ListFlowable(items, bulletType="bullet" if t == "bulletList" else "1"))
+            if t == "bulletList":
+                flow.append(ListFlowable(items, bulletType="bullet"))
+            else:
+                flow.append(ListFlowable(items, bulletType="1", start=b.get("start") or 1))
         elif t == "table":
             rows = b["rows"]
             if rows:

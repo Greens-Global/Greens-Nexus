@@ -23,6 +23,7 @@ import { usePeopleDirectory } from '../lib/queries';
 import { Spinner } from './AsyncState';
 import PersonSearchSelect from './PersonSearchSelect';
 import { SignModal } from './ESign';
+import DetailsFormFields from './DetailsFormFields';
 import { PacketEditor, describeRoles } from './PacketTemplates';
 import { DocumentsPacketEditor } from './DocumentsPacketEditor';
 import PacketReview from './PacketReview';
@@ -372,6 +373,7 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
     api.getDocTemplates({ category: 'job_description', status: 'active' }).then(r => setJds(r || [])).catch(() => setJds([]));
   }, []);
   const setD = (k, v) => setDetails(p => ({ ...p, [k]: v }));
+  const [answers, setAnswers] = useState({});        // the packet's own Details Form (Oct 14)
   const [pay, setPay] = useState({ base: '', payBasis: 'salary', frequency: 'annual', currency: 'USD' });
   const [extra, setExtra] = useState({});          // fields the template needs that Nexus can't fill
   const [preview, setPreview] = useState(null);
@@ -415,7 +417,7 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
         inputs: { ...b.inputs, ...timing, jd_template_id: jdId },
         pay: b.pay,
         pay_values: canSeePay && payText.trim() ? { salary: payText.trim() } : null,
-        details: fills === 'hr' ? details : {},
+        details: fills === 'hr' ? { ...details, answers } : {},
       });
       onSent(fills === 'hr' ? { ...ev, openReview: true } : ev);
     } catch (e) { toastErr(e?.message || 'Could not start the packet.'); setBusy(''); }
@@ -588,6 +590,15 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
                   <div key={k}><label style={lbl}>{l}</label><input className="form-input" style={{ width: '100%' }} value={details[k]} onChange={e => setD(k, e.target.value)} /></div>
                 ))}
               </div>}
+              {fills === 'hr' && (chosen?.detailsForm || []).length > 0 && (
+                // The packet's own Details Form (Oct 14). Anything left empty
+                // shows on the review, and a required one blocks sending.
+                <DetailsFormFields form={chosen.detailsForm} values={answers} onChange={setAnswers}
+                  className="form-input" labelStyle={lbl} gridMin={200} idPrefix="hp" />
+              )}
+              {fills === 'candidate' && (chosen?.detailsForm || []).length > 0 && (
+                <div style={hint}>The link also asks for: {chosen.detailsForm.filter(f => f.type !== 'heading').map(f => f.label).join(', ')}.</div>
+              )}
             </div>
           </>
         )}

@@ -32,6 +32,7 @@ vi.mock('../api', () => ({
     packetDocumentPdf: () => Promise.resolve({ blob: new Blob(['%PDF']) }),
   },
 }));
+vi.mock('./ESign', () => ({ SignaturePad: () => null }));
 const { default: PacketReview } = await import('./PacketReview');
 const noop = () => {};
 
@@ -51,6 +52,22 @@ describe('PacketReview', () => {
     fireEvent.click(send);
     await waitFor(() => expect(onSignNow).toHaveBeenCalledWith('p1'));
     expect(verify.mock.calls[0][1]).toEqual({ excluded_ack: true, seen: { d1: 1 } });
+  });
+
+  it("shows the Details Form answers (Sensitive locked) and asks the new HR to sign once", async () => {
+    review = { ...base, canVerify: false, isVerifier: true, packetId: 's1', entityId: 'co', companyName: 'Greens India',
+      answers: [{ key: '', label: 'Bank Details', type: 'heading' },
+                { key: 'ifsc_code', label: 'IFSC Code', type: 'text', value: 'HDFC0001234', locked: false },
+                { key: 'pan_number', label: 'PAN Number', type: 'text', sensitive: true, value: '', locked: true }],
+      signOnce: [{ key: 'company', roleLabel: 'HR', name: 'Charmi Shah', email: 'charmi@x.com', signed: false, isMe: true }],
+      problems: ['Charmi Shah (HR) signs this packet once before it can be sent.'] };
+    render(<PacketReview eventId="ev1" onClose={noop} onChanged={noop} onSignNow={noop} toastOk={noop} toastErr={noop} />);
+    await waitFor(() => expect(screen.getByText('HDFC0001234')).toBeTruthy());
+    expect(screen.getByText('Bank Details')).toBeTruthy();
+    expect(screen.getAllByText('Pay & Benefits access needed').length).toBeGreaterThan(0);
+    expect(screen.getByText('Company Signature')).toBeTruthy();
+    fireEvent.click(screen.getByText('Sign Once', { selector: 'button' }));
+    await waitFor(() => expect(screen.getByText('Sign Once - Analyst Hiring')).toBeTruthy());
   });
 
   it('anyone else sees who it is waiting for, and no pay', async () => {

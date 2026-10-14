@@ -3,6 +3,7 @@ import { CheckCircle, AlertTriangle, Send } from 'lucide-react';
 import { fetchPublicIntake, submitPublicIntake } from '../api';
 import { formatDate } from '../lib/datetime';
 import { Spinner } from '../components/AsyncState';
+import DetailsFormFields from '../components/DetailsFormFields';
 
 // ── A candidate's details page - /intake/{token} (Oct 14) ───────────────────
 // "Hey, tell me your name, your address ... You fill it all in. Then it
@@ -96,6 +97,13 @@ export default function PublicIntake({ token }) {
           </div>
         ))}
       </div>
+      {(page.form || []).length > 0 && (
+        // The packet's own Details Form (Oct 14) - whatever this company asks for.
+        <DetailsFormFields form={page.form} values={v.answers} idPrefix="a"
+          onChange={answers => setV(p => ({ ...p, answers }))}
+          inputStyle={input} labelStyle={lbl} gridMin={240}
+          headingStyle={{ fontSize: 15, color: 'var(--ink, #111827)', marginTop: 20 }} />
+      )}
       {problem && (
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'hsla(30,80%,48%,0.1)', color: 'hsl(30,80%,40%)', borderRadius: 10, padding: '9px 12px', fontSize: 13, marginTop: 14 }}>
           <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: 1 }} /><span>{problem}</span>

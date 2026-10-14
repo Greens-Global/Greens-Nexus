@@ -9,10 +9,12 @@
 // template was published meanwhile) this screen asks for one regenerate and
 // reloads - it never treats the read as a writer.
 import { useEffect, useRef, useState } from 'react';
-import { X, FileText, Eye, Send, Ban, CheckCircle, AlertTriangle, Pencil, Lock, RefreshCw, Copy, Mail } from 'lucide-react';
+import { X, FileText, Eye, Send, Ban, CheckCircle, AlertTriangle, Pencil, Lock, RefreshCw, Copy, Mail, PenTool } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, formatHHMM } from '../lib/datetime';
 import { Spinner } from './AsyncState';
+import DetailsFormFields from './DetailsFormFields';
+import SignOnceModal from './SignOnceModal';
 
 const lbl = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', margin: '0 0 4px', textTransform: 'uppercase', letterSpacing: '.04em' };
 const section = { border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', marginTop: 12 };
@@ -68,6 +70,7 @@ export default function PacketReview({ eventId, onClose, onChanged, onSignNow, t
   const [form, setForm] = useState({});
   const [checked, setChecked] = useState(false);
   const [ack, setAck] = useState(false);
+  const [signing, setSigning] = useState(null);        // a Signs Once step being signed (Oct 14)
   const regenerated = useRef(false);
 
   const load = () => api.getPacketReview(eventId).then(setData).catch(e => { toastErr?.(e?.message || 'Could not load the packet.'); onClose(); });
@@ -95,7 +98,7 @@ export default function PacketReview({ eventId, onClose, onChanged, onSignNow, t
 
   const startEdit = (what) => {
     setEditing(what);
-    if (what === 'details') setForm({ ...d });
+    if (what === 'details') setForm({ ...d, answers: Object.fromEntries((data.answers || []).filter(a => a.key).map(a => [a.key, a.value])) });
     else setForm({ start_date: o.startDate || '', offer_expires: o.offerExpires || '', work_start: o.workStart || '', work_end: o.workEnd || '',
       work_days: o.workDays || [], timings_text: o.timingsText || '', pay_text: data.payValues?.salary || '' });
   };
@@ -227,6 +230,12 @@ export default function PacketReview({ eventId, onClose, onChanged, onSignNow, t
                 {field('Emergency Contact', 'emergency_name')}
                 {field('Relationship', 'emergency_relationship')}
                 {field('Emergency Phone', 'emergency_phone')}
+                {(data.answers || []).length > 0 && (
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <DetailsFormFields form={data.answers} values={form.answers} onChange={answers => set('answers', answers)}
+                      className="form-input" labelStyle={lbl} gridMin={200} idPrefix="rv" />
+                  </div>
+                )}
               </div>
             ) : (
               <>
@@ -236,6 +245,11 @@ export default function PacketReview({ eventId, onClose, onChanged, onSignNow, t
                 <Row k="Address" v={d.address} />
                 {d.permanent_address && <Row k="Permanent Address" v={d.permanent_address} />}
                 <Row k="Emergency Contact" v={d.emergency_name && `${d.emergency_name}${d.emergency_relationship ? ` (${d.emergency_relationship})` : ''}${d.emergency_phone ? ` - ${d.emergency_phone}` : ''}`} />
+                {(data.answers || []).map((a, i) => a.type === 'heading'
+                  ? <div key={`h-${i}`} style={{ fontSize: 12, fontWeight: 800, marginTop: 8 }}>{a.label}</div>
+                  : <Row key={a.key} k={a.label} v={a.locked
+                    ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--muted)' }}><Lock size={12} /> Pay & Benefits access needed</span>
+                    : a.value} />)}
               </>
             )}
           </div>
@@ -287,6 +301,26 @@ export default function PacketReview({ eventId, onClose, onChanged, onSignNow, t
           </div>
         </div>
 
+        {(data.signOnce || []).length > 0 && (
+          <div style={section}>
+            <b style={{ fontSize: 13 }}>Company Signature</b>
+            {data.signOnce.map(s => (
+              <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', fontSize: 12.5, flexWrap: 'wrap' }}>
+                <PenTool size={14} style={{ color: s.signed ? 'hsl(var(--color-green))' : 'hsl(var(--color-orange))' }} />
+                <span style={{ flex: 1, minWidth: 200 }}>
+                  {s.signed ? `${s.name} (${s.roleLabel}) signed this packet once on ${formatDate(s.adoptedAt)} - it goes on automatically.`
+                    : `${s.name} (${s.roleLabel}) signs this packet once before it can be sent.`}
+                </span>
+                {!s.signed && s.isMe && (
+                  <button type="button" className="primary-btn" onClick={() => setSigning(s)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                    <PenTool size={12} /> Sign Once
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
         {(data.problems || []).map(p => <Problem key={p}>{p}</Problem>)}
 
         {inReview && data.isVerifier && (
@@ -321,6 +355,11 @@ export default function PacketReview({ eventId, onClose, onChanged, onSignNow, t
         )}
       </div>
       {preview && <DocPreview eventId={eventId} doc={preview} onClose={() => setPreview(null)} toastErr={toastErr} />}
+      {signing && (
+        <SignOnceModal packetId={data.packetId} entityId={data.entityId} step={signing} packetName={data.packetName}
+          companyName={data.companyName} toastErr={toastErr} onClose={() => setSigning(null)}
+          onDone={() => { setSigning(null); toastOk?.('Signed once - your signature now goes on this packet automatically.'); load(); }} />
+      )}
     </Shell>
   );
 }

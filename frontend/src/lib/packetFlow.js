@@ -12,6 +12,12 @@ export function defaultRoleFor(key, printsSignatory = false) {
   if (['hr', 'it', 'payroll', 'equipment', 'finance'].includes(k)) return k;
   return 'hr';
 }
+// "PAN Number" -> pan_number: the {{variable}} a Details Form field fills
+// (the server's hr_packet_docs.form_key).
+export const formKey = (label) => {
+  const k = String(label || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60).replace(/_+$/, '');
+  return !k || /^[a-z]/.test(k) ? k : `f_${k}`;
+};
 export const keyLabel = (k) => String(k || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 
 /** The signing order after documents change: every signer key a document's
