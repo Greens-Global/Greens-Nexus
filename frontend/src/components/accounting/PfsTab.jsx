@@ -201,8 +201,29 @@ export default function PfsTab({ canEdit = false }) {
     return m;
   }, [statement]);
 
+  // Resolves with the profile as the server kept it, so a form can take it.
   const saveProfile = (patch) => api.updatePfsProfile(profile.id, { name: profile.name, kind: profile.kind, ...patch })
-    .then(() => Promise.all([loadProfiles(), refresh(profile.id, asOf)]));
+    .then((kept) => Promise.all([loadProfiles(), refresh(profile.id, asOf)]).then(() => kept));
+  // Statement Type, in the bar at the top (Neil, 10/14: "so it doesn't get
+  // lost in the borrower's area"); saved as soon as it is picked.
+  const [kindBusy, setKindBusy] = useState(false);
+  const changeKind = (kind) => {
+    if (!profile || kind === profile.kind) return;
+    setKindBusy(true);
+    setError('');
+    saveProfile({ kind })
+      .catch((e) => setError(e?.message || 'Could not change the statement type.'))
+      .finally(() => setKindBusy(false));
+  };
+  // The guarantor dropdown's order (Neil, 10/14: "move Guarantors up and
+  // down"): shown at once, kept on the server, read back.
+  const reorderProfiles = (ids) => {
+    const rank = new Map(ids.map((id, i) => [id, i]));
+    setProfiles((list) => (list ? [...list].sort((a, b) => (rank.get(a.id) ?? 1e9) - (rank.get(b.id) ?? 1e9)) : list));
+    return api.reorderPfsProfiles(ids)
+      .catch((e) => setError(e?.message || 'Could not keep the new order.'))
+      .finally(() => loadProfiles());
+  };
 
   // The file for a statement: the PDF, or the Excel workbook (Neil, 10/01:
   // "in excel also"). pdf-lib and jszip are large; each loads only when asked for.
@@ -302,7 +323,15 @@ export default function PfsTab({ canEdit = false }) {
         {/* Oct 7 (Neil): one bar - the guarantor, Lock Now, As of, Export; then the tabs with the Access Log beside them. */}
         <div style={{ ...card, padding: '8px 10px', display: 'grid', gap: 8 }}>
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-            <GuarantorPicker profiles={profiles || []} current={current} canEdit={canEdit} locks={locks} onPick={pickFile} onNew={() => setCreating(true)} />
+            <GuarantorPicker profiles={profiles || []} current={current} canEdit={canEdit} locks={locks} onPick={pickFile} onNew={() => setCreating(true)} onReorder={reorderProfiles} />
+            {profile && fileOpen && (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                <span aria-hidden="true">Statement Type</span>
+                <select aria-label="Statement Type" value={profile.kind || 'individual'} disabled={!canEdit || kindBusy} onChange={(e) => changeKind(e.target.value)} style={control}>
+                  {Object.entries(KINDS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                </select>
+              </span>
+            )}
             {profile && fileOpen && (
               <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 {locks.untilOf(profile.id) && <PfsLockNow fileId={profile.id} until={locks.untilOf(profile.id)} onLocked={locks.markLocked} />}
@@ -410,7 +439,7 @@ export default function PfsTab({ canEdit = false }) {
 // lock; archived files dimmed; search matches either person; "+ New
 // Guarantor" for editors. Works before any file is unlocked.
 const fileName = (p) => p.displayName || p.name || 'Unnamed';
-function GuarantorPicker({ profiles, current, canEdit, locks, onPick, onNew }) {
+function GuarantorPicker({ profiles, current, canEdit, locks, onPick, onNew, onReorder }) {
   const [open, setOpen, ref] = usePopover();
   const [q, setQ] = useState('');
   const nameOf = fileName;
@@ -440,16 +469,36 @@ function GuarantorPicker({ profiles, current, canEdit, locks, onPick, onNew }) {
         )}
         <div role="listbox" aria-label="Guarantor files" style={{ display: 'grid', gap: 1, maxHeight: 'min(480px, calc(100vh - 220px))', overflowY: 'auto' }}>
           {!profiles.length && <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', padding: '6px 4px' }}>Nobody is set up yet. A guarantor is a person, a couple filing jointly, or a trust.</div>}
-          {shown.map((p) => (
-            <button key={p.id} type="button" role="option" aria-selected={p.id === current?.id} onClick={() => { setOpen(false); onPick(p.id); }} title={nameOf(p)}
-              style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', border: 'none', borderRadius: 6, padding: '6px 8px', font: 'inherit', cursor: 'pointer', color: 'var(--text-primary)', background: p.id === current?.id ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', opacity: p.archived ? 0.55 : 1 }}>
-              {lock(p)}
-              <span style={{ flex: 1, minWidth: 0 }}>
-                <span style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, whiteSpace: 'normal' }}>{nameOf(p)}</span>
-                <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>{KINDS[p.kind] || 'Individual'}{p.archived ? ' · Archived' : ''}</span>
-              </span>
-            </button>
-          ))}
+          {shown.map((p) => {
+            // Oct 14 (Neil): Move Up / Move Down, within the full list (archived
+            // files stay last on the server), not while a search narrows it.
+            const at = profiles.findIndex((x) => x.id === p.id);
+            const sameShelf = (j) => profiles[j] && !!profiles[j].archived === !!p.archived;
+            const moveTo = (j) => {
+              const ids = profiles.map((x) => x.id);
+              [ids[at], ids[j]] = [ids[j], ids[at]];
+              onReorder(ids);
+            };
+            const arrows = canEdit && onReorder && !q.trim() && profiles.length > 1;
+            return (
+              <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 2, borderRadius: 6, background: p.id === current?.id ? 'var(--wk-brand-tint, #e8ecfd)' : 'none' }}>
+                <button type="button" role="option" aria-selected={p.id === current?.id} onClick={() => { setOpen(false); onPick(p.id); }} title={nameOf(p)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, textAlign: 'left', border: 'none', borderRadius: 6, padding: '6px 8px', font: 'inherit', cursor: 'pointer', color: 'var(--text-primary)', background: 'none', opacity: p.archived ? 0.55 : 1 }}>
+                  {lock(p)}
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, whiteSpace: 'normal' }}>{nameOf(p)}</span>
+                    <span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>{KINDS[p.kind] || 'Individual'}{p.archived ? ' · Archived' : ''}</span>
+                  </span>
+                </button>
+                {arrows && (
+                  <>
+                    <button type="button" style={{ ...icon, opacity: sameShelf(at - 1) ? 1 : 0.3 }} disabled={!sameShelf(at - 1)} aria-label={`Move ${nameOf(p)} up`} title="Move Up" onClick={() => moveTo(at - 1)}><ChevronUp size={14} /></button>
+                    <button type="button" style={{ ...icon, opacity: sameShelf(at + 1) ? 1 : 0.3 }} disabled={!sameShelf(at + 1)} aria-label={`Move ${nameOf(p)} down`} title="Move Down" onClick={() => moveTo(at + 1)}><ChevronDown size={14} /></button>
+                  </>
+                )}
+              </div>
+            );
+          })}
           {profiles.length > 0 && !shown.length && <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', padding: 6 }}>No guarantor matches.</div>}
         </div>
         {canEdit && (
@@ -707,9 +756,28 @@ function PhotoField({ title, value, onChange, canEdit, alt, own = false }) {
   );
 }
 
+// A form's values as the server keeps them, for "is anything unsaved?"
+// (Neil, 10/14: Save, and it still said Unsaved Changes). The server drops
+// blank fields and an empty co-borrower, and Postgres hands JSON keys back in
+// its own order - so blanks are dropped and keys sorted on both sides before
+// they are compared.
+const canon = (v) => {
+  if (Array.isArray(v)) return v.map(canon);
+  if (v && typeof v === 'object') {
+    const out = {};
+    Object.keys(v).sort().forEach((k) => {
+      const x = canon(v[k]);
+      if (x === '' || x == null || (typeof x === 'object' && !Array.isArray(x) && !Object.keys(x).length)) return;
+      out[k] = x;
+    });
+    return out;
+  }
+  return typeof v === 'number' ? String(v) : v;
+};
+const same = (a, b) => JSON.stringify(canon(a)) === JSON.stringify(canon(b));
+
 function Borrower({ profile, canEdit, onSave }) {
   const [name, setName] = useState(profile.name);
-  const [kind, setKind] = useState(profile.kind);
   // The details as the Oct 7 form reads them (pfsAddress.js): an old combined
   // City, State, ZIP is split and an old spouse name is the co-borrower's; it
   // is saved that way on the next save, and only a real edit makes it dirty.
@@ -719,7 +787,8 @@ function Borrower({ profile, canEdit, onSave }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
-  const dirty = JSON.stringify([name, kind, details, photo]) !== JSON.stringify([profile.name, profile.kind, baseDetails, profile.photo || '']);
+  // Statement Type is chosen in the bar at the top (Neil, 10/14) and saved there.
+  const dirty = !same({ name: name.trim(), details, photo }, { name: profile.name, details: baseDetails, photo: profile.photo || '' });
   // The form follows the profile it shows - but never over what is being
   // typed. A statement refresh behind this form (the date, a line, a second
   // tab) used to hand back a new profile object and reset every field
@@ -731,7 +800,7 @@ function Borrower({ profile, canEdit, onSave }) {
   useEffect(() => {
     if (shownId.current === profile.id && dirtyRef.current) return;
     shownId.current = profile.id;
-    setName(profile.name); setKind(profile.kind); setDetails(normalizePfsDetails(profile.details)); setPhoto(profile.photo || ''); setError('');
+    setName(profile.name); setDetails(normalizePfsDetails(profile.details)); setPhoto(profile.photo || ''); setError('');
   }, [profile]);
   const members = details.members || [];
   const set = (k, v) => setDetails((d) => ({ ...d, [k]: v }));
@@ -746,8 +815,16 @@ function Borrower({ profile, canEdit, onSave }) {
     setBusy(true);
     setError('');
     setSaved(false);
-    onSave({ name, kind, details, photo })
-      .then(() => { dirtyRef.current = false; setSaved(true); })
+    onSave({ name, details, photo })
+      .then((kept) => {
+        // The form takes what the server kept (a ZIP formatted, a blank
+        // dropped), so a successful save always leaves it clean.
+        dirtyRef.current = false;
+        if (kept && typeof kept === 'object' && kept.id === profile.id) {
+          setName(kept.name ?? name); setDetails(normalizePfsDetails(kept.details)); setPhoto(kept.photo || '');
+        }
+        setSaved(true);
+      })
       .catch((e) => setError(e?.message || 'Could not save.'))
       .finally(() => setBusy(false));
   };
@@ -780,22 +857,19 @@ function Borrower({ profile, canEdit, onSave }) {
   };
   return (
     <div style={{ ...card, padding: 14, display: 'grid', gap: 12 }} onPaste={onPaste}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 2fr) minmax(140px, 1fr)', gap: 10 }}>
-        <div>
-          <label style={label} htmlFor="pfs-name">Name on the Statement</label>
-          <input id="pfs-name" type="text" value={name} disabled={!canEdit} maxLength={160} onChange={(e) => setName(e.target.value)} style={{ ...control, width: '100%' }} />
+      {/* Oct 14 (Neil): the main borrower's block looks just like the
+          co-borrower's - the name sits in the same grid as the address, not
+          on a row of its own - and "Name on the Statement" reads "Borrower". */}
+      <div role="group" aria-label="Borrower details" style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 12, display: 'grid', gap: 10 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
+          <div>
+            <label style={label} htmlFor="pfs-name">Borrower</label>
+            <input id="pfs-name" type="text" value={name} disabled={!canEdit} maxLength={160} onChange={(e) => setName(e.target.value)} style={{ ...control, width: '100%' }} />
+          </div>
+          {DETAILS.map(([k, text, type]) => field(k, text, type, details[k], (v) => set(k, v), 'pfs-'))}
         </div>
-        <div>
-          <label style={label} htmlFor="pfs-kind">Statement Type</label>
-          <select id="pfs-kind" value={kind} disabled={!canEdit} onChange={(e) => setKind(e.target.value)} style={{ ...control, width: '100%' }}>
-            {Object.entries(KINDS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-          </select>
-        </div>
+        <PhotoField title="Photo on the Cover" value={photo} onChange={setPhoto} canEdit={canEdit} alt={`${name} as shown on the cover`} />
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
-        {DETAILS.map(([k, text, type]) => field(k, text, type, details[k], (v) => set(k, v), 'pfs-'))}
-      </div>
-      <PhotoField title="Photo on the Cover" value={photo} onChange={setPhoto} canEdit={canEdit} alt={`${name} as shown on the cover`} />
       <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, padding: 12, display: 'grid', gap: 10 }}>
         <div>
           <div style={{ ...label, marginBottom: 2 }}>Co-Borrower</div>
@@ -806,7 +880,7 @@ function Borrower({ profile, canEdit, onSave }) {
         </div>
         <PhotoField title="Co-Borrower Photo on the Cover" own value={details.coBorrower?.photo || ''} onChange={(v) => setCo('photo', v)} canEdit={canEdit} alt={`${coName} as shown on the cover`} />
       </div>
-      {kind !== 'individual' && (
+      {profile.kind !== 'individual' && (
         <div>
           <div style={label}>Parties to This Statement</div>
           <div style={{ display: 'grid', gap: 6 }}>
@@ -826,7 +900,7 @@ function Borrower({ profile, canEdit, onSave }) {
       {canEdit && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <button type="button" className="primary-btn" onClick={save} disabled={!dirty || busy || !name.trim() || zipBad} style={{ fontSize: '0.8rem' }}>{busy ? 'Saving...' : 'Save Changes'}</button>
-          {dirty && <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Unsaved changes</span>}
+          {dirty && <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Unsaved Changes</span>}
         </div>
       )}
     </div>
@@ -840,7 +914,7 @@ function History({ profile, canEdit, onSave }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   useEffect(() => { setHistory(profile.history || []); }, [profile]);
-  const dirty = JSON.stringify(history) !== JSON.stringify(profile.history || []);
+  const dirty = !same(history, profile.history || []);
   const set = (i, patch) => setHistory((h) => h.map((x, k) => (k === i ? { ...x, ...patch } : x)));
   const save = () => {
     setBusy(true);
@@ -867,7 +941,7 @@ function History({ profile, canEdit, onSave }) {
       {canEdit && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <button type="button" className="primary-btn" onClick={save} disabled={!dirty || busy} style={{ fontSize: '0.8rem' }}>{busy ? 'Saving...' : 'Save Changes'}</button>
-          {dirty && <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Unsaved changes</span>}
+          {dirty && <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Unsaved Changes</span>}
         </div>
       )}
     </div>
@@ -1635,7 +1709,7 @@ function NewGuarantor({ onClose, onCreate }) {
             {picker('pfs-new-person', 'first', 'Pick a person...')}
           </div>
           <div>
-            <label style={label} htmlFor="pfs-new-name">Name on the Statement</label>
+            <label style={label} htmlFor="pfs-new-name">Borrower</label>
             <input id="pfs-new-name" type="text" value={name} maxLength={160} autoFocus onChange={(e) => setName(e.target.value)} style={{ ...control, width: '100%' }} />
           </div>
           {kind === 'joint' && (
@@ -1645,7 +1719,7 @@ function NewGuarantor({ onClose, onCreate }) {
                 {picker('pfs-new-second-person', 'second', 'Pick the second person...')}
               </div>
               <div>
-                <label style={label} htmlFor="pfs-new-second">Second Name on the Statement</label>
+                <label style={label} htmlFor="pfs-new-second">Co-Borrower</label>
                 <input id="pfs-new-second" type="text" value={second} maxLength={160} placeholder="Printed with the first, as in Rajesh J. Kadakia and Darshana R. Kadakia" onChange={(e) => setSecond(e.target.value)} style={{ ...control, width: '100%' }} />
               </div>
             </div>

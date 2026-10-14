@@ -4865,6 +4865,9 @@ class PfsProfile(Base):
     created_at        = Column(String, default="")
     updated_by        = Column(String, default="")
     updated_at        = Column(String, default="")
+    # The place in the guarantor dropdown (Neil, 10/14: "move Guarantors up and
+    # down"); 0 = never placed, listed by name after the placed ones.
+    sort_order        = Column(Integer, default=0)
 
 
 class PfsLine(Base):

@@ -1124,6 +1124,8 @@ export const api = {
     req(`/pfs/profiles/${encodeURIComponent(id)}/lines/${encodeURIComponent(lineId)}/move`, { method: "PATCH", body: JSON.stringify({ section, category }) }),
   // The order of lines within a section, kept per guarantor (Charmi, 10/04).
   reorderPfsLines: (id, ids) => req(`/pfs/profiles/${encodeURIComponent(id)}/line-order`, { method: "PUT", body: JSON.stringify({ ids }) }),
+  // The order of the guarantor dropdown (Neil, Oct 14).
+  reorderPfsProfiles: (ids) => req("/pfs/profile-order", { method: "PUT", body: JSON.stringify({ ids }) }),
   // Leasing: tenants, the rent as it changes, and each month's expected
   // against what the ledger received.
   getLeasingRentRoll: (year) => req(`/leasing/rent-roll?year=${year}`),
