@@ -5306,7 +5306,7 @@ class PfsAccessChallenge(Base):
     session (Charmi, 10/04: "it should ask for OTP to the file and not to the
     module"). The code is never stored: `code_hash` is sha256 over
     "id:code", salted with an id the caller never sees. A used code becomes
-    the grant: `granted_until` is when the file closes again (30 minutes).
+    the grant: `granted_until` is when the file closes again (90 minutes).
     `session_hash` is a hash of the tab's X-Pfs-Session id. Read only by
     routers/pfs_access.py. New table - RLS by the startup sweep and main.py."""
     __tablename__ = "pfs_access_challenges"
