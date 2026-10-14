@@ -879,10 +879,11 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     window.addEventListener('nexus:timeclock-changed', refresh);
     return () => window.removeEventListener('nexus:timeclock-changed', refresh);
   }, [tab]);
-  // Which hours the clock card shows - Today / This Week / Pay Period. A
-  // per-viewer convenience, so it is remembered in this browser only.
+  // Which hours the clock card shows - Today / This Week / Pay Period. Today
+  // by default (Neil, Oct 14 2026); a pick is a per-viewer convenience, so it
+  // is remembered in this browser only.
   const [hoursView, setHoursView] = useState(() => {
-    try { return localStorage.getItem('nx-wd-hours-view') || 'week'; } catch { return 'week'; }
+    try { return localStorage.getItem('nx-wd-hours-view') || 'today'; } catch { return 'today'; }
   });
   const pickHoursView = (v) => {
     setHoursView(v);
