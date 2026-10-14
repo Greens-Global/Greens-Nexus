@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useIsMobile } from '../lib/useIsMobile';
 import {
-  Clock, LogIn, LogOut, Coffee, Play, MapPin, MapPinOff, AlertTriangle,
+  LogIn, LogOut, Coffee, Play, MapPin, MapPinOff, AlertTriangle,
   CheckCircle, Plus, X, CalendarDays, Monitor, Lock,
   ChevronDown, Check, ArrowRight,
 } from 'lucide-react';
