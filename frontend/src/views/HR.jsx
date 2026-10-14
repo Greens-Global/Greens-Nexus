@@ -3363,7 +3363,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
   // Pydantic's exclude_unset leaves whatever a company already has in the DB
   // untouched (still rendered in signatures); this form just stops offering
   // a way to view/set it.
-  const blank = { name: '', legal_name: '', country: '', tax_id: '', physical_address: '', mailing_address: '', signatory: '', notes: '', domains: '', manager_emails: [], hr_contact_email: '', logo_url: '', website: '', main_phone: '', main_phone_type: 'phone', main_phone_country: 'US', facebook_url: '', twitter_url: '', instagram_url: '' };
+  const blank = { name: '', legal_name: '', country: '', tax_id: '', physical_address: '', mailing_address: '', signatory: '', signatory_email: '', notes: '', domains: '', manager_emails: [], hr_contact_email: '', logo_url: '', website: '', main_phone: '', main_phone_type: 'phone', main_phone_country: 'US', facebook_url: '', twitter_url: '', instagram_url: '' };
   const [mode, setMode] = useState(null);   // null = list · 'new' · <id> editing
   const [tab, setTab] = useState('overview');
   const { can } = useRole();
@@ -3412,7 +3412,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
     }
     const seeded = { name: en.name, legal_name: en.legalName || '', country: en.country || '', tax_id: en.taxId || '',
       physical_address: en.physicalAddress || '', mailing_address: en.mailingAddress || '',
-      signatory: en.signatory || '', notes: en.notes || '', domains: en.domains || '',
+      signatory: en.signatory || '', signatory_email: en.signatoryEmail || '', notes: en.notes || '', domains: en.domains || '',
       manager_emails: en.managerEmails && en.managerEmails.length ? en.managerEmails : (en.managerEmail ? [en.managerEmail] : []),
       hr_contact_email: en.hrContactEmail || '',
       logo_url: en.logoUrl || '', website: en.website || '', main_phone: phoneNumber, main_phone_type: phoneType, main_phone_country: phoneCountry, facebook_url: en.facebookUrl || '', twitter_url: en.twitterUrl || '', instagram_url: en.instagramUrl || '' };
@@ -3506,6 +3506,24 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                 </div>
                 {field('TAX ID (EIN / GSTIN)', 'tax_id')}
                 {field('AUTHORIZED SIGNATORY', 'signatory', { placeholder: 'name, title' })}
+                {/* Who signs when an HR packet's signing order says Authorized
+                    Signatory (Oct 14). The text above is what a letter prints
+                    ({{signatory}}); this is the person who actually signs. */}
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label style={FL}>AUTHORIZED SIGNATORY (PERSON)</label>
+                  <select className="form-input" style={{ width: '100%' }} value={f.signatory_email || ''}
+                    onChange={e => set('signatory_email', e.target.value)}>
+                    <option value="">- not set -</option>
+                    {people.map(p => <option key={p.email} value={p.email}>{p.name} ({p.email})</option>)}
+                  </select>
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Signs HR packets for the company when a packet's signing order says Authorized Signatory.</div>
+                  {f.signatory_email && f.signatory.trim() && personName(f.signatory_email)
+                    && !f.signatory.toLowerCase().includes((personName(f.signatory_email).split(' ')[0] || '').toLowerCase()) && (
+                    <div style={{ fontSize: 11.5, color: 'hsl(var(--color-orange))', marginTop: 4 }}>
+                      Letters print "{f.signatory}" as the signatory, but {personName(f.signatory_email)} signs - make the two match.
+                    </div>
+                  )}
+                </div>
                 <div style={{ gridColumn: '1 / -1' }}>
                   <label style={FL}>COMPANY MANAGER(S)</label>
                   {f.manager_emails.length > 0 && (

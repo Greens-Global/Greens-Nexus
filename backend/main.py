@@ -1004,6 +1004,16 @@ def _run_migrations():
             "ALTER TABLE doc_templates ADD COLUMN published_meta JSON DEFAULT '{}'",
             "ALTER TABLE doc_templates ADD COLUMN published_by VARCHAR DEFAULT ''",
             "ALTER TABLE doc_templates ADD COLUMN published_at VARCHAR DEFAULT ''",
+            # HR packets built from Documents (Oct 14). models.HrPacketSetting / HrEntity.signatory_email.
+            "ALTER TABLE hr_packet_settings ADD COLUMN name VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_packet_settings ADD COLUMN engine VARCHAR DEFAULT 'pdf'",
+            "ALTER TABLE hr_packet_settings ADD COLUMN doc_template_ids JSON DEFAULT '[]'",
+            "ALTER TABLE hr_packet_settings ADD COLUMN flow JSON DEFAULT '[]'",
+            "ALTER TABLE hr_packet_settings ADD COLUMN verify_role VARCHAR DEFAULT 'hr'",
+            "ALTER TABLE hr_packet_settings ADD COLUMN verify_distinct INTEGER DEFAULT 0",
+            "ALTER TABLE hr_packet_settings ADD COLUMN letterhead_id VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_packet_settings ADD COLUMN pay_mode VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_entities ADD COLUMN signatory_email VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2234,6 +2244,16 @@ def _run_migrations():
         "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS published_meta JSONB DEFAULT '{}'::jsonb",
         "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS published_by VARCHAR DEFAULT ''",
         "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS published_at VARCHAR DEFAULT ''",
+        # HR packets built from Documents (Oct 14). models.HrPacketSetting / HrEntity.signatory_email.
+        "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS name VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS engine VARCHAR DEFAULT 'pdf'",
+        "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS doc_template_ids JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS flow JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS verify_role VARCHAR DEFAULT 'hr'",
+        "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS verify_distinct INTEGER DEFAULT 0",
+        "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS letterhead_id VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS pay_mode VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS signatory_email VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

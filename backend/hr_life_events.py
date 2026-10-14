@@ -200,6 +200,17 @@ def compensation_from_pay(pay: dict, effective: str) -> dict:
 
 # ── packet settings ──────────────────────────────────────────────────────────
 
+def _sendable():
+    """A packet row that can go out: an uploaded-PDF packet with its template,
+    or a packet built from Documents (Oct 14)."""
+    from sqlalchemy import or_
+    return or_(HrPacketSetting.template_id != "", HrPacketSetting.engine == "documents")
+
+
+def is_documents(s: Optional[HrPacketSetting]) -> bool:
+    return bool(s is not None and (s.engine or "pdf") == "documents")
+
+
 def resolve_setting(db: Session, entity_id: str, event: str, worker_type: str,
                     role_id: str = "") -> Optional[HrPacketSetting]:
     """The packet a company sends for an event. A packet made for the
@@ -214,7 +225,7 @@ def resolve_setting(db: Session, entity_id: str, event: str, worker_type: str,
     for ent in ((entity_id or ""), ""):
         levels.append((db.query(HrPacketSetting)
                        .filter(HrPacketSetting.entity_id == ent, HrPacketSetting.event == event,
-                               HrPacketSetting.template_id != "").all()))
+                               _sendable()).all()))
     if role_id:
         for rows in levels:
             for r in rows:
@@ -234,7 +245,7 @@ def packet_choices(db: Session, entity_id: str, event: str) -> list:
     for every company, with a template. HR may pick any of them in place
     of the one Nexus resolves (Pranshu, Oct 8)."""
     rows = (db.query(HrPacketSetting)
-            .filter(HrPacketSetting.event == event, HrPacketSetting.template_id != "",
+            .filter(HrPacketSetting.event == event, _sendable(),
                     HrPacketSetting.entity_id.in_([entity_id or "", ""])).all())
     return sorted(rows, key=lambda r: (r.entity_id == "", not (r.role_ids or []),
                                        (r.worker_type or "any") == "any"))
@@ -263,6 +274,9 @@ def setting_problems(db: Session, s: HrPacketSetting) -> list:
         return [f"Event must be one of {', '.join(EVENTS)}."]
     if s.worker_type not in WORKER_TYPES:
         return [f"Worker type must be one of {', '.join(WORKER_TYPES)}."]
+    if is_documents(s):
+        import hr_packet_docs as hpd
+        return hpd.config_problems(db, s)
     tpl = db.query(HrSignTemplate).filter(HrSignTemplate.id == s.template_id).first() if s.template_id else None
     if not tpl:
         return ["Pick the Nexus Sign template this packet sends."]
@@ -285,11 +299,29 @@ def setting_problems(db: Session, s: HrPacketSetting) -> list:
 
 def ser_setting(db: Session, s: HrPacketSetting) -> dict:
     from models import NexusGroup
-    tpl = db.query(HrSignTemplate).filter(HrSignTemplate.id == s.template_id).first() if s.template_id else None
     role_ids = [r for r in (s.role_ids or []) if r]
     names = ({g.id: g.name for g in db.query(NexusGroup).filter(NexusGroup.id.in_(role_ids)).all()}
              if role_ids else {})
-    return {"id": s.id, "entityId": s.entity_id or "", "event": s.event, "workerType": s.worker_type,
+    if is_documents(s):
+        # A packet built from Documents (Oct 14): templates + a signing order
+        # by role. templateName/signers keep the packet list's columns working.
+        import hr_packet_docs as hpd
+        docs = hpd.ser_documents(db, s)
+        flow = hpd.ser_flow(db, s)
+        return {"id": s.id, "engine": "documents", "entityId": s.entity_id or "", "event": s.event,
+                "workerType": s.worker_type, "name": s.name or "", "templateId": "",
+                "templateName": s.name or "Unnamed packet",
+                "roleIds": role_ids, "roleNames": [names.get(r, "a role that no longer exists") for r in role_ids],
+                "docTemplateIds": list(s.doc_template_ids or []), "docTemplates": docs,
+                "documents": [d["name"] for d in docs], "hasLetter": False,
+                "flow": flow, "signers": [f"{f['roleLabel']} ({f['actionLabel']})" for f in flow],
+                "verifyRole": s.verify_role or "hr", "verifyDistinct": bool(s.verify_distinct),
+                "letterheadId": s.letterhead_id or "", "payMode": s.pay_mode or "",
+                "emailMessage": s.email_message or "", "egnyteSubfolder": s.egnyte_subfolder or "",
+                "effectiveSubfolder": (s.egnyte_subfolder or "").strip() or DEFAULT_SUBFOLDERS.get(s.event, ""),
+                "problems": setting_problems(db, s), "updatedBy": s.updated_by or "", "updatedAt": s.updated_at or ""}
+    tpl = db.query(HrSignTemplate).filter(HrSignTemplate.id == s.template_id).first() if s.template_id else None
+    return {"id": s.id, "engine": "pdf", "entityId": s.entity_id or "", "event": s.event, "workerType": s.worker_type,
             "templateId": s.template_id or "", "templateName": tpl.name if tpl else "",
             "roleIds": role_ids, "roleNames": [names.get(r, "a role that no longer exists") for r in role_ids],
             "signers": [r.get("label") or r.get("key") for r in template_roles(tpl)] if tpl else [],
@@ -540,6 +572,22 @@ def reroute_hire_packet(db: Session, cand: HrCandidate, new_email: str, by: str)
     return True
 
 
+def hire_ctx(db: Session, cand: HrCandidate, details: dict, entity: Optional[HrEntity], sender: str) -> dict:
+    """Who each role of a documents hiring packet is, for this candidate: the
+    candidate signs from their personal email (external), Manager is the
+    supervisor on the offer (else the role's default manager)."""
+    import hr_checklists as hc
+    manager = (details.get("manager_email") or "").strip().lower()
+    if not manager and details.get("role_id"):
+        from models import NexusGroup
+        role = db.query(NexusGroup).filter(NexusGroup.id == details["role_id"]).first()
+        manager = (role.default_manager_email or "").strip().lower() if role else ""
+    return {"subject_email": (cand.email or "").strip().lower(), "subject_emails": [cand.email or ""],
+            "subject_name": f"{cand.first_name} {cand.last_name}".strip(), "subject_kind": "external",
+            "manager_email": manager, "entity": entity, "owners": hc.role_owners(db, cand.company or ""),
+            "sender": (sender or "").lower(), "verifier_role": details.get("verifier_role") or ""}
+
+
 def plan_hire(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[dict], scope,
               lock: bool = False) -> dict:
     """Everything a hiring-packet send would do, without doing it - the
@@ -576,6 +624,18 @@ def plan_hire(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[dic
     if not setting:
         raise PacketError(f"No hiring packet is set up for {company} yet - add one under "
                           f"People > Hiring > Packets.", 409)
+    name = f"{cand.first_name} {cand.last_name}".strip()
+    if is_documents(setting):
+        # Built from Documents (Oct 14): previewed here; it goes out through
+        # Start Hiring Packet, review and Verify And Send.
+        import hr_packet_docs as hpd
+        dp = hpd.plan(db, setting, ctx=hire_ctx(db, cand, details, entity, user["email"]),
+                      overrides=hpd.event_values(db, "hire", details), pay=clean, can_see_pay=bool(clean),
+                      candidate_id=cand.id, entity_id=cand.company or "")
+        return {"candidate": cand, "details": details, "pay": clean, "setting": setting, "template": None,
+                "docplan": dp, "merge": {}, "unresolved": [], "parties": [], "subjectName": name,
+                "title": f"{EVENT_TITLES['hire']} - {name}", "company": company, "former": former,
+                "subfolder": (setting.egnyte_subfolder or "").strip() or DEFAULT_SUBFOLDERS["hire"]}
     problems = setting_problems(db, setting)
     if problems:
         raise PacketError(f"The {company} hiring packet needs fixing: {problems[0]}", 409)
@@ -584,7 +644,6 @@ def plan_hire(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[dic
     from routers.esign import resolve_template
     _snapshot, unresolved = resolve_template(db, tpl, candidate_id=cand.id,
                                              entity_id=cand.company, overrides=merge)
-    name = f"{cand.first_name} {cand.last_name}".strip()
     sender = {"name": person_name(db, user["email"]), "email": user["email"].lower()}
     parties = _parties_for(tpl, setting.subject_role or "employee", name, cand.email.strip().lower(),
                            "external", sender)
@@ -611,6 +670,20 @@ def rehire_record(db: Session, cand: HrCandidate) -> Optional[NexusEmployee]:
 
 def preview_out(plan: dict) -> dict:
     tpl, former = plan["template"], plan.get("former")
+    rehire = ({"employeeId": former.id, "employeeCode": former.employee_code or "",
+               "name": f"{former.first_name} {former.last_name}".strip(), "status": former.status or ""}
+              if former is not None else None)
+    if plan.get("docplan") is not None:
+        dp = plan["docplan"]
+        return {"engine": "documents", "title": plan["title"], "company": plan["company"],
+                "packetName": plan["setting"].name or "", "documents": [d["name"] for d in dp["documents"]],
+                "documentDetails": dp["documents"], "recipients": dp["recipients"], "verifier": dp["verifier"],
+                "problems": dp["problems"], "printsPay": dp["printsPay"],
+                "unresolved": sorted({t for d in dp["documents"] for t in d["unresolved"]}),
+                "emailMessage": plan["setting"].email_message or "", "egnyteSubfolder": plan["subfolder"],
+                "startDate": plan["details"]["start_date"], "expiresOn": plan["details"]["offer_expires"],
+                "jobTitle": plan["details"]["job_title"], "newRole": plan["details"]["new_role_name"],
+                "rehire": rehire}
     return {
         "title": plan["title"], "company": plan["company"],
         "templateId": tpl.id, "templateName": tpl.name,
@@ -635,6 +708,11 @@ def send_hire(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[dic
     candidate is invited the moment HR has signed, and signs last."""
     plan = plan_hire(db, user, cid, inputs, pay, scope, lock=True)
     cand = plan["candidate"]
+    if plan.get("docplan") is not None:
+        # Never sent unverified: a packet built from Documents goes out only
+        # through Start Hiring Packet -> review -> Verify And Send.
+        raise PacketError("This packet is built from Documents - use Start Hiring Packet; it is sent once "
+                          "HR has verified it.", 409)
     if plan["unresolved"]:
         raise PacketError("Fill in: " + ", ".join(plan["unresolved"]) + ".")
     busy = (db.query(HrLifeEvent)

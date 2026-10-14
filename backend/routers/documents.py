@@ -187,7 +187,9 @@ _ISO_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _CLOCK_RE = re.compile(r"([01]\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?")
 # The built-in variables that are dates (services/merge_fields.py). A template
 # declares no type for these; one that does declare them wins.
-_BUILTIN_DATE_TOKENS = ("start_date", "template.last_updated")
+_BUILTIN_DATE_TOKENS = ("start_date", "template.last_updated",
+                        # HR packet dates travel as ISO (Oct 14).
+                        "offer_expires", "effective_date", "last_day")
 
 
 def _display_value(ftype: str, raw: str) -> str:
@@ -1419,6 +1421,13 @@ def delete_template(tid: str, user: dict = Depends(get_current_user), db: Sessio
     # block it instead of silently orphaning those documents.
     if db.query(Document).filter(Document.template_id == tid).first():
         raise HTTPException(409, "Cannot delete a template that has generated documents - archive it instead")
+    # An HR packet sends it (Oct 14): deleting it would break every hire,
+    # promotion or separation that packet covers.
+    from models import HrPacketSetting
+    using = [s.name or "an HR packet" for s in db.query(HrPacketSetting).filter(HrPacketSetting.engine == "documents").all()
+             if tid in (s.doc_template_ids or [])]
+    if using:
+        raise HTTPException(409, f"{using[0]} uses this template - take it out of the packet first, or archive it instead")
     # Its saved versions are only reachable through the template.
     db.query(DocTemplateVersion).filter(DocTemplateVersion.template_id == tid).delete(synchronize_session=False)
     db.delete(row); db.commit()

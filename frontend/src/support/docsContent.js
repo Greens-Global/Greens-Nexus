@@ -1136,10 +1136,13 @@ export const DOCS = [
       {
         title: 'Set Up a Hiring Packet',
         steps: [
-          'In People > Hiring, click Packets. Pick the company, or leave All Companies to see every packet with its company and add one that every company shares. Under Hiring Packet click Add Packet.',
-          'Name the packet and pick the job role it is for from the dropdown, which lists every role the company has - IT gets one packet, Accounting another. A packet made for a role is always used for that role, even when the company also has an "Every role" packet; "Every role" covers the roles that have no packet of their own. A role can be in one packet only.',
-          "Upload your hiring packet PDF - the merged offer letter, NDA and other documents are fine as one file, or add several. Click Place Fields: drop a Signature box where each signer signs, and an Offer Field on the blank salary line (pick Salary). An Offer Field is printed from the offer every time the packet is sent, so one packet serves every pay; Start Date, Job Title and the others work the same way.",
-          'Check the signers (Company Representative, then Employee / Candidate - the new hire signs last), write the welcome note for the email, set the Egnyte subfolder (blank uses Hiring Documents), and click Save Packet.',
+          'First write each document once in Documents > Templates - the offer letter, the NDA, each addendum, a Job Description per role - each its own template. Use variables for whatever changes per person ({{first_name}}, {{job_title}}, {{salary}}, {{start_date}}, {{work_schedule}}...), insert a Signature Block wherever someone signs (Company, Employee...), and click Publish.',
+          'In People > Hiring, click Packets. Pick the company, or leave All Companies to add one that every company shares. Under Hiring Packet click Add Packet.',
+          'Name the packet and pick the job role it is for - IT gets one packet, Accounting another. A packet made for a role is always used for that role; "Every role" covers the roles that have no packet of their own. A role can be in one packet only.',
+          'Add the documents from the template list, in order. Preview shows each one filled with a sample person; Open In Documents takes you to the wording. A template must be published to be used, and the packet always prints its published version - edit and Publish Changes in Documents, and every packet that has not been sent yet updates.',
+          'Check the Signing Order. Each signer the documents' signature blocks name gets a step, set by ROLE: HR, Manager, Authorized Signatory, IT, Payroll... - the same roles People > Checklists uses - with who holds it today shown beside it. The new hire signs last. A step can also Approve or just Get A Copy.',
+          'Pick who verifies the packet (normally HR), the letterhead for templates that need one, write the welcome note and set the Egnyte subfolder (blank uses Hiring Documents). Click Save Packet - anything that would stop it from going out is listed for you to fix.',
+          'A letter that prints {{signatory}} must be signed by the Authorized Signatory (set the person in People > Companies); a letter HR signs should print {{signer.company}} instead, which always names whoever actually signs.',
         ],
       },
       {

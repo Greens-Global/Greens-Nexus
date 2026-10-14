@@ -24,6 +24,7 @@ import { Spinner } from './AsyncState';
 import PersonSearchSelect from './PersonSearchSelect';
 import { SignModal } from './ESign';
 import { PacketEditor, describeRoles } from './PacketTemplates';
+import { DocumentsPacketEditor } from './DocumentsPacketEditor';
 
 const ENABLED_EVENTS = ['hire', 'promotion', 'separation'];
 const OTHER_ROLE = '__other__';
@@ -157,6 +158,7 @@ function PacketRow({ row, onEdit, onRemoved, toastErr, companyName }) {
         {companyName !== undefined && <td style={{ ...TD, whiteSpace: 'nowrap' }}>{companyName || <span style={{ color: 'var(--muted)' }}>Every company</span>}</td>}
         <td style={TD}>
           <div style={{ fontWeight: 700 }}>{row.templateName || 'Unnamed packet'}</div>
+          {row.engine === 'pdf' && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>Uploaded PDFs - rebuild it from Documents</div>}
           {(row.problems || []).map(p => <div key={p} style={{ color: 'hsl(var(--color-orange))', fontSize: 11.5, marginTop: 3 }}>{p}</div>)}
         </td>
         <td style={TD}>
@@ -273,7 +275,7 @@ export function PacketsModal({ onClose, toastOk, toastErr }) {
                   {inherited.length
                     ? `${company} uses the default: ${inherited.map(s => `${s.templateName} (${describeRoles(s.roleNames)})`).join(', ')}. Add a packet to give it its own.`
                     : companyId ? `${company} cannot send one until a packet is added here or for every company.`
-                      : 'Add a packet: upload the PDF, place the signature boxes and an Offer Field for the salary, and save. A packet added here, with no company picked, is for every company.'}
+                      : 'Add a packet: pick its documents from Documents > Templates and set who signs, by role. A packet added here, with no company picked, is for every company.'}
                 </div>
                 <button type="button" className="primary-btn" onClick={() => setEditing({ event: ev, row: null })} style={{ fontSize: 12.5, marginTop: 14, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                   <Plus size={13} /> Add Packet
@@ -305,7 +307,16 @@ export function PacketsModal({ onClose, toastOk, toastErr }) {
           </>
         )}
       </div>
-      {editing && (
+      {editing && (editing.row ? editing.row.engine === 'documents' : true) && (
+        <DocumentsPacketEditor packet={editing.row || editing.seed || null} event={editing.event.key} eventLabel={editing.event.label}
+          catalog={data}
+          companyId={editing.row ? (editing.row.entityId || '') : (editing.companyId ?? companyId)}
+          companyName={editing.row ? (entityName(editing.row.entityId) || 'Every company') : (editing.companyId ? (entityName(editing.companyId) || 'This company') : company)}
+          defaultSubfolder={editing.event.defaultSubfolder} toastErr={toastErr}
+          onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); load(); toastOk('Packet saved.'); }} />
+      )}
+      {editing && editing.row && editing.row.engine !== 'documents' && (
         <PacketEditor packet={editing.row || editing.seed || null} event={editing.event.key} eventLabel={editing.event.label}
           companyId={editing.row ? (editing.row.entityId || '') : (editing.companyId ?? companyId)}
           companyName={editing.row ? (entityName(editing.row.entityId) || 'Every company') : (editing.companyId ? (entityName(editing.companyId) || 'This company') : company)}

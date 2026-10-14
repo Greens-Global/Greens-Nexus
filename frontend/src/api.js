@@ -2230,6 +2230,12 @@ export const api = {
   documentSigningPdf: (id) => req(`/documents/${id}/signing-pdf`),
   // Release a template's current wording to the HR packets that use it.
   publishDocTemplate: (id, note = '') => req(`/documents/templates/${id}/publish`, { method: 'POST', body: JSON.stringify({ note }) }),
+  // ── HR packets built from Documents (Oct 14) ───────────────────────────────
+  saveDocumentsPacket: (data) => req('/hr/packets/documents', { method: 'PUT', body: JSON.stringify(data) }),
+  // Who holds each signing role today for a company (the editor's "today: ...").
+  packetRoleHolders:   (entityId = '') => req(`/hr/packets/role-holders?entity_id=${encodeURIComponent(entityId)}`),
+  // One template as the packet prints it, filled with a sample person -> {blob}.
+  renderPacketPreview: (data) => reqBlob('/hr/packets/render-preview', { method: 'POST', body: JSON.stringify(data), headers: { 'Content-Type': 'application/json' } }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

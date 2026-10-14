@@ -3,6 +3,7 @@ import { Search, Plus, Copy, Archive, RotateCcw, FileText, Award, Star, Pencil, 
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import DocumentBuilder from './DocumentBuilder';
+import { takePendingOpen } from '../lib/pendingOpen';
 import { uploadToSupabase, imageFromPaste } from '../lib/docBuilderUpload';
 import { Spinner } from './AsyncState';
 
@@ -217,7 +218,8 @@ export default function DocumentTemplates({ openCreateSignal, toastOk, toastErr 
   const [templates, setTemplates] = useState(null);
   const [letterheads, setLetterheads] = useState([]);
   const [createOpen, setCreateOpen] = useState(false);
-  const [editingId, setEditingId] = useState(null);
+  // Open In Documents from an HR packet (Oct 14) lands straight in the editor.
+  const [editingId, setEditingId] = useState(() => takePendingOpen('doc-template'));
   const [previewId, setPreviewId] = useState(null);
   const [busyId, setBusyId] = useState('');
   const [seeding, setSeeding] = useState(false);

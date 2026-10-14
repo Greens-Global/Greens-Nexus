@@ -2365,6 +2365,7 @@ class EntityIn(BaseModel):
     manager_email:      Optional[str] = ""   # legacy mirror - kept for callers still reading the single field
     manager_emails:     Optional[list] = None   # company manager(s) (Nexus people or external users, Sep 29) - source of truth
     hr_contact_email:   Optional[str] = ""      # signs + finalizes timesheets (timesheet_review.py)
+    signatory_email:    Optional[str] = ""      # the authorized signatory as a Nexus person (HR packets, Oct 14)
 
 
 class EntityUpdate(BaseModel):
@@ -2390,6 +2391,17 @@ class EntityUpdate(BaseModel):
     manager_email:      Optional[str] = None
     manager_emails:     Optional[list] = None
     hr_contact_email:   Optional[str] = None
+    signatory_email:    Optional[str] = None
+
+
+def _check_signatory_email(db: Session, email: str) -> str:
+    """The Authorized Signatory is picked from Nexus People - a person who can
+    sign in Nexus, never a free email."""
+    e = (email or "").strip().lower()
+    if e and not db.query(NexusEmployee).filter(NexusEmployee.work_email == e,
+                                                 NexusEmployee.status.in_(("active", "onboarding"))).first():
+        raise HTTPException(400, "The Authorized Signatory must be an active person in Nexus People.")
+    return e
 
 
 def _norm_manager_emails(manager_email, manager_emails) -> tuple:
@@ -2422,6 +2434,7 @@ def _serialize_entity(e: HrEntity) -> dict:
         "managerEmail": e.manager_email or "",
         "managerEmails": e.manager_emails or ([e.manager_email] if e.manager_email else []),
         "hrContactEmail": e.hr_contact_email or "",
+        "signatoryEmail": getattr(e, "signatory_email", "") or "",
         "createdAt": e.created_at, "updatedAt": e.updated_at,
     }
 
@@ -2462,6 +2475,7 @@ def create_entity(body: EntityIn, user: dict = Depends(require_hr_write), db: Se
         domains=_norm_domains(body.domains or ""),
         manager_email=mgr_email, manager_emails=mgr_emails,
         hr_contact_email=(body.hr_contact_email or "").strip().lower(),
+        signatory_email=_check_signatory_email(db, body.signatory_email or ""),
         created_by=user["email"], created_at=now, updated_at=now,
     )
     db.add(row)
@@ -2503,6 +2517,8 @@ def update_entity(entity_id: str, body: EntityUpdate, user: dict = Depends(requi
             value = _norm_domains(value)
         elif key in ("manager_email", "hr_contact_email"):
             value = value.strip().lower()
+        elif key == "signatory_email":
+            value = _check_signatory_email(db, value)
         elif key == "manager_emails":
             mgr_email, value = _norm_manager_emails(None, value)
             row.manager_email = mgr_email

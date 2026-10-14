@@ -1424,6 +1424,10 @@ class HrEntity(Base):
     # the employee too (NexusEmployee.signature_closing): "Admin should not
     # have the control of Sign off... it should be employee specific."
     signature_closing  = Column(String, default="")
+    # The authorized signatory as a Nexus person (Oct 14) - who signs when an
+    # HR packet's flow says "Authorized Signatory". `signatory` above stays the
+    # printed name/title a letter shows ({{signatory}}).
+    signatory_email    = Column(String, default="")
 
 
 class NexusSetting(Base):
@@ -5775,6 +5779,22 @@ class HrPacketSetting(Base):
     # role the company has no role-specific packet for. A company hiring for
     # IT and Accounting sends each its own packet (Pranshu, Oct 8).
     role_ids         = Column(JSON, default=list)
+    # Packets built from the Documents module (Neil, Oct 14). engine 'pdf' is
+    # the uploaded-PDF packet above (template_id); 'documents' is an ordered
+    # list of Documents templates (doc_template_ids, read at their PUBLISHED
+    # version) signed in an order defined by ROLE, never by person:
+    # flow = [{key, role, action}] - key is the signer key the templates'
+    # signature blocks name, role is a checklist role (hr_checklists.ROLES)
+    # or signatory / sender, action is sign | approve | copy. The verifier
+    # (verify_role) checks the generated documents before anything is sent.
+    name             = Column(String, default="")
+    engine           = Column(String, default="pdf")              # pdf | documents
+    doc_template_ids = Column(JSON, default=list)                 # DocTemplate ids, in order
+    flow             = Column(JSON, default=list)                 # [{key, role, action}]
+    verify_role      = Column(String, default="hr")               # who checks before it is sent
+    verify_distinct  = Column(Integer, default=0)                 # 1 = the verifier cannot be who started it
+    letterhead_id    = Column(String, default="")                 # DocLetterhead for templates that require one
+    pay_mode         = Column(String, default="")                 # '' by event | always | auto
 
 
 class HrLifeEvent(Base):

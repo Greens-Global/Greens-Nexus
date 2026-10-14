@@ -5,11 +5,12 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 import hr_life_events as hle
+import hr_packet_docs as hpd
 import role_change as rc
 from auth import get_current_user, hr_scope, hr_team_limited
 from database import get_db
@@ -91,8 +92,9 @@ def _roles_taken(db: Session, row: HrPacketSetting) -> None:
         if clash:
             g = db.query(NexusGroup).filter(NexusGroup.id == sorted(clash)[0]).first()
             tpl = db.query(HrSignTemplate).filter(HrSignTemplate.id == other.template_id).first()
+            label = other.name or (tpl.name if tpl else "") or "unnamed"
             raise HTTPException(400, f"{g.name if g else 'That role'} already has a packet "
-                                     f"({tpl.name if tpl else 'unnamed'}) - remove it there first.")
+                                     f"({label}) - remove it there first.")
 
 
 def _setting_in_scope(entity_id: str, scope, write: bool) -> None:
@@ -127,8 +129,27 @@ def list_packets(user: dict = Depends(require_hr_read), db: Session = Depends(ge
                 "companyId": g.company_id or "", "companyName": names.get(g.company_id or "", "")}
                for g in born if g.id not in covered
                and (scope is None or not g.company_id or g.company_id in scope)]
+    # Packets built from Documents (Oct 14): the templates a packet can use
+    # (active ones; Not Published ones are listed so HR sees why they can't be
+    # picked yet), and the roles a signing step can be.
+    from models import DocTemplate
+    from routers.documents import signature_roles
+    doc_templates = []
+    for t in (db.query(DocTemplate).filter(DocTemplate.status == "active", DocTemplate.doc_type != "email")
+              .order_by(DocTemplate.name).all()):
+        doc_templates.append({"id": t.id, "name": t.name, "category": t.category or "",
+                              "department": t.department or "",
+                              "publishedVersion": t.published_version or 0,
+                              "hasUnpublishedChanges": bool(t.published_version) and (t.version or 0) > t.published_version,
+                              "signs": sorted(signature_roles(t.content)),
+                              "printsSignatory": "signatory" in hpd.content_tokens(t.content),
+                              "requiresLetterhead": bool(t.requires_letterhead)})
     return {
         "rolesNeedingPacket": needing,
+        "docTemplates": doc_templates,
+        "flowRoles": [{"key": r, "label": hpd.role_label(r)} for r in hpd.FLOW_ROLES],
+        "verifyRoles": [{"key": r, "label": hpd.role_label(r)} for r in hpd.VERIFY_ROLES],
+        "actions": [{"key": k, "label": v} for k, v in hpd.ACTION_LABELS.items()],
         "settings": [hle.ser_setting(db, r) for r in rows],
         "templates": [{"id": t.id, "name": t.name, "kind": t.kind, "entityId": t.entity_id or "",
                        "roles": hle.template_roles(t),
@@ -147,6 +168,8 @@ def save_packet(body: PacketSettingIn, user: dict = Depends(require_hr_write), d
     wt = (body.worker_type or "any").strip()
     role_ids = _clean_role_ids(db, entity_id, body.role_ids)
     row = db.query(HrPacketSetting).filter(HrPacketSetting.id == body.id).with_for_update().first() if body.id else None
+    if row is not None and hle.is_documents(row):
+        raise HTTPException(400, "This packet is built from Documents - edit it there.")
     if row is None and not role_ids:
         # The every-role packet: one per company, event and worker type.
         row = (db.query(HrPacketSetting)
@@ -234,6 +257,154 @@ def delete_packet(sid: str, user: dict = Depends(require_hr_write), db: Session 
         tpl.status, tpl.updated_at = "archived", _now()
     db.commit()
     return {"ok": True}
+
+
+class DocumentsPacketIn(BaseModel):
+    """A packet built from Documents (Oct 14): templates + a signing order by
+    role + who verifies it."""
+    id:               Optional[str] = ""
+    entity_id:        Optional[str] = ""
+    event:            str
+    name:             str
+    role_ids:         Optional[list] = None
+    worker_type:      Optional[str] = "any"
+    doc_template_ids: list
+    flow:             list                         # [{key, role, action}]
+    verify_role:      Optional[str] = "hr"
+    verify_distinct:  Optional[bool] = False
+    letterhead_id:    Optional[str] = ""
+    pay_mode:         Optional[str] = ""
+    email_message:    Optional[str] = ""
+    egnyte_subfolder: Optional[str] = ""
+
+
+@router.put("/packets/documents")
+def save_documents_packet(body: DocumentsPacketIn, user: dict = Depends(require_hr_write),
+                          db: Session = Depends(get_db)):
+    """Save a packet that pulls its documents from the Documents module. Its
+    problems are checked here, so HR finds out while configuring - not while
+    a new hire is waiting."""
+    entity_id = (body.entity_id or "").strip()
+    _setting_in_scope(entity_id, hr_scope(user, db), write=True)
+    if body.event not in hle.EVENTS:
+        raise HTTPException(400, "Unknown event")
+    name = (body.name or "").strip()[:120]
+    if not name:
+        raise HTTPException(400, "Give the packet a name.")
+    if (body.pay_mode or "") not in hpd.PAY_MODES:
+        raise HTTPException(400, "Unknown pay setting")
+    row = (db.query(HrPacketSetting).filter(HrPacketSetting.id == body.id).with_for_update().first()
+           if body.id else None)
+    if row is not None:
+        _setting_in_scope(row.entity_id or "", hr_scope(user, db), write=True)
+        if (row.pay_mode or "") != (body.pay_mode or "") and not _has_comp(user, db):
+            raise HTTPException(403, "Changing how a packet treats pay needs Pay & Benefits access.")
+    elif (body.pay_mode or "") and not _has_comp(user, db):
+        raise HTTPException(403, "Changing how a packet treats pay needs Pay & Benefits access.")
+    if body.letterhead_id:
+        from models import DocLetterhead
+        if not db.query(DocLetterhead).filter(DocLetterhead.id == body.letterhead_id).first():
+            raise HTTPException(400, "That letterhead no longer exists.")
+    now = _now()
+    if row is None:
+        row = HrPacketSetting(id=str(uuid.uuid4()), created_at=now, template_id="")
+        db.add(row)
+    row.entity_id, row.event, row.engine = entity_id, body.event, "documents"
+    row.worker_type = (body.worker_type or "any").strip()
+    row.name = name
+    row.role_ids = _clean_role_ids(db, entity_id, body.role_ids)
+    row.doc_template_ids = list(dict.fromkeys(str(t).strip() for t in (body.doc_template_ids or []) if str(t).strip()))
+    row.flow = hpd.clean_flow(body.flow)
+    row.subject_role = next((s["key"] for s in row.flow if s["role"] == hpd.SUBJECT_ROLE), "employee")
+    row.verify_role = (body.verify_role or "hr").strip()
+    row.verify_distinct = 1 if body.verify_distinct else 0
+    row.letterhead_id = (body.letterhead_id or "").strip()
+    row.pay_mode = (body.pay_mode or "").strip()
+    row.email_message = (body.email_message or "").strip()[:4000]
+    row.egnyte_subfolder = hle._safe_name(body.egnyte_subfolder, 60) if (body.egnyte_subfolder or "").strip() else ""
+    row.updated_by, row.updated_at = user["email"], now
+    if row.worker_type not in hle.WORKER_TYPES:
+        db.rollback()
+        raise HTTPException(400, "Unknown worker type")
+    problems = hpd.config_problems(db, row)
+    if problems:
+        db.rollback()
+        raise HTTPException(400, problems[0])
+    _roles_taken(db, row)
+    db.commit()
+    return hle.ser_setting(db, row)
+
+
+@router.get("/packets/role-holders")
+def packet_role_holders(entity_id: str = "", user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    """Who each signing role is today for a company - the editor shows it
+    beside each step. The same people People > Checklists > Checklist Owners
+    shows, plus the company's Authorized Signatory."""
+    _setting_in_scope(entity_id, hr_scope(user, db), write=False)
+    entity = db.query(HrEntity).filter(HrEntity.id == entity_id).first() if entity_id else None
+    return hpd.role_holders(db, entity)
+
+
+class PreviewDocIn(BaseModel):
+    template_id:   str
+    entity_id:     Optional[str] = ""
+    setting_id:    Optional[str] = ""          # whose letterhead / signing order to use
+    flow:          Optional[list] = None       # the editor's unsaved order
+    letterhead_id: Optional[str] = ""
+
+
+_SAMPLE = {"first_name": "Jane", "last_name": "Doe", "full_name": "Jane Doe", "preferred_name": "Jane",
+           "email": "jane.doe@example.com", "phone": "(555) 010-0100",
+           "address": "12 Pine Street, Springfield, CA 90000", "permanent_address": "12 Pine Street, Springfield, CA 90000",
+           "job_title": "Sample Job Title", "department": "Sample Department", "start_date": "2026-11-02",
+           "offer_expires": "2026-10-28", "employment_type": "Full-Time", "manager": "Sample Manager",
+           "supervisor": "Sample Manager", "work_hours": "9:00 AM - 5:00 PM", "work_days": "Monday - Friday",
+           "work_schedule": "9:00 AM - 5:00 PM, Monday - Friday", "employee_code": "GG-0000",
+           "effective_date": "2026-11-02", "old_title": "Previous Title", "new_title": "New Title",
+           "old_role": "Previous Role", "new_role": "New Role", "change_type": "promotion",
+           "responsibilities": "The responsibilities of the new role.", "last_day": "2026-11-02",
+           "separation_type": "Resignation"}
+
+
+@router.post("/packets/render-preview")
+def packet_render_preview(body: PreviewDocIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """One template as a packet would print it, filled with a sample person
+    (Preview With Sample Person). Pay prints as [Pay] for anyone without Pay &
+    Benefits. Nothing is saved."""
+    from models import DocTemplate
+    from routers.documents import TemplateNotPublished, published_snapshot
+    entity_id = (body.entity_id or "").strip()
+    _setting_in_scope(entity_id, hr_scope(user, db), write=False)
+    tpl = db.query(DocTemplate).filter(DocTemplate.id == body.template_id).first()
+    if not tpl:
+        raise HTTPException(404, "Template not found")
+    try:
+        content, meta, version = published_snapshot(db, tpl)
+    except TemplateNotPublished as e:
+        raise HTTPException(409, str(e))
+    snap = hpd.Snap(tpl, content, meta, version)
+    setting = (db.query(HrPacketSetting).filter(HrPacketSetting.id == body.setting_id).first()
+               if body.setting_id else None)
+    if setting is None:
+        setting = HrPacketSetting(entity_id=entity_id, event="hire", letterhead_id=body.letterhead_id or "",
+                                  flow=hpd.clean_flow(body.flow or []), pay_mode="")
+    entity = db.query(HrEntity).filter(HrEntity.id == entity_id).first() if entity_id else None
+    import hr_checklists as hc
+    ctx = {"entity": entity, "owners": hc.role_owners(db, entity_id), "sender": user["email"],
+           "subject_email": "jane.doe@example.com", "subject_name": "Jane Doe", "subject_kind": "external",
+           "manager_email": ""}
+    parties, remap, _problems = hpd.build_parties(db, setting, ctx)
+    values = {**_SAMPLE, **hpd.signer_values(parties, remap)}
+    merge = hpd.full_merge(db, snap, entity_id=entity_id, overrides=values)
+    for t in snap.tokens:
+        if hpd.is_pay_token(t, snap.defs) and t not in merge:
+            merge[t] = "$85,000.00 per year" if _has_comp(user, db) else "[Pay]"
+        elif t not in merge and t != "today" and not t.startswith("template."):
+            merge[t] = f"[{t.replace('_', ' ').replace('.', ' ').title()}]"
+    pdf = hpd.render(db, snap, title=f"{tpl.name} - Sample", merge=merge, entity_id=entity_id,
+                     letterhead_id=hpd.document_letterhead(db, setting, snap))
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'inline; filename="{hle._safe_name(tpl.name)} - Sample.pdf"'})
 
 
 @router.get("/packets/email-preview")
