@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/refs -- the org-chart canvas reads container/zoom refs during render for pan-zoom fit-to-view; safe intentional reads the React-Compiler rule flags */
 import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense, Fragment } from 'react';
 import { QuestionnairesModal, InterviewPanel, LeaderboardModal, EmployeeInterviews } from '../components/Interviews';
-import { PacketsModal, SendHiringPacketModal, PacketSigner, PersonLifeEvents, usDay } from '../components/HiringPacket';
+import { PacketsModal, SendHiringPacketModal, PacketSigner, PersonLifeEvents, PaperworkStatus, usDay } from '../components/HiringPacket';
 import PacketReview from '../components/PacketReview';
 import OfferModal from '../components/OfferModal';
 import { PromoteModal, OffboardModal, RoleChangeModal } from '../components/HrPersonActions';
@@ -1905,6 +1905,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           nothing was deleted. Their Microsoft 365 account was never changed.
         </div>
       )}
+      {!teamView && <PaperworkStatus employeeId={e.id} refreshKey={eventsKey} />}
       {!teamView && <PersonLifeEvents employeeId={e.id} refreshKey={eventsKey} onSignNow={setSignParty} toastOk={toastOk} toastErr={toastErr} />}
       {roleAction === 'choose' && <RoleChangeModal employee={e} toastErr={toastErr}
         onClose={() => setRoleAction(null)} onPromote={() => setRoleAction('promotion')}
@@ -2033,6 +2034,8 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
                 <Pencil size={13} /> Edit
               </button>
             </div>
+            {/* The hiring packet (Oct 14) - one place to see it, kept up to date by itself. */}
+            <PaperworkStatus employeeId={e.id} refreshKey={eventsKey} />
             <div>
               {row(ShieldCheck, 'Work auth', e.compliance?.workAuth ? (
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>

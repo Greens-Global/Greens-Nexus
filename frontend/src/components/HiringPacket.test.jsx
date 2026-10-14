@@ -136,3 +136,14 @@ describe('SendHiringPacketModal with a packet built from Documents', () => {
     api.hiringPacketOptions = prev;
   });
 });
+
+describe('paperworkState', () => {
+  it('says whether the hiring packet that follows the offer is done, and what it waits on', async () => {
+    const { paperworkState } = await import('./HiringPacket');
+    expect(paperworkState([])).toBeNull();
+    expect(paperworkState([{ kind: 'hire', status: 'intake' }])).toMatchObject({ done: false, why: expect.stringMatching(/fill in their details/) });
+    expect(paperworkState([{ kind: 'hire', status: 'voided' }, { kind: 'hire', status: 'completed' }])).toMatchObject({ done: true });
+    expect(paperworkState([{ kind: 'offer', status: 'completed', flags: [{ code: 'packet_not_started', message: 'No hiring packet is set up' }] }]))
+      .toMatchObject({ done: false, why: expect.stringMatching(/has not started/) });
+  });
+});

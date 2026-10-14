@@ -181,6 +181,15 @@ class JourneyTests(OfferCase):
         self._send_and_sign(packet.id)
         packet = self._ev(packet.id)
         self.assertEqual(packet.status, "completed", packet.apply_note)
+        # the checklist ticks itself: offer signed, then the pre-boarding packet
+        import hr_checklists as hc
+        self.db.expire_all()
+        emp_row = self.db.query(models.NexusEmployee).filter_by(id=emp.id).one()
+        cl = self.db.query(models.HrChecklist).filter_by(employee_id=emp.id, kind="onboarding").one()
+        hc.sync(self.db, cl, emp_row)
+        self.db.commit()
+        done = {i.key: i.status for i in self.db.query(models.HrChecklistItem).filter_by(checklist_id=cl.id)}
+        self.assertEqual((done.get("ON-02"), done.get("ON-04")), ("done", "done"))
         self.assertIn("paperwork is complete", packet.apply_note)
         self.db.expire_all()
         emp = self.db.query(models.NexusEmployee).filter_by(id=emp.id).one()

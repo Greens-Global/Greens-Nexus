@@ -878,12 +878,57 @@ export function PersonLifeEvents({ employeeId, refreshKey, onSignNow, toastOk, t
   const load = () => api.getLifeEvents({ employeeId }).then(setEvents).catch(() => setEvents([]));
   useEffect(() => { load(); }, [employeeId, refreshKey]);
   const recent = Date.now() - 14 * 86400000;
-  const shown = events.filter(e => ['awaiting_sender', 'sent'].includes(e.status) || e.applyStatus === 'scheduled'
+  const shown = events.filter(e => ['intake', 'review', 'awaiting_sender', 'sent'].includes(e.status) || e.applyStatus === 'scheduled'
+    || (e.kind === 'offer' && (e.flags || []).some(f => f.code === 'packet_not_started'))
     || (e.status === 'completed' && (e.filingStatus !== 'filed' || new Date(e.completedAt).getTime() > recent))
     || (e.flags || []).some(f => f.code === 'apply_failed')
     || (['declined', 'expired'].includes(e.status) && new Date(e.createdAt).getTime() > recent));
   if (!shown.length) return null;
   return <div>{shown.map(ev => <LifeEventCard key={ev.id} ev={ev} onSignNow={onSignNow} onChanged={load} toastOk={toastOk} toastErr={toastErr} />)}</div>;
+}
+
+// Right to work compliance (Neil, Oct 14): "they can't receive their first
+// paycheck until they complete X amount of paperwork." The hiring packet that
+// follows a signed offer, as one line HR can't miss on the profile and on the
+// Compliance tab - complete, or what it is waiting on.
+const PAPERWORK_WAIT = {
+  intake: 'waiting for them to fill in their details (no login)',
+  review: 'waiting for HR to verify the documents',
+  awaiting_sender: 'waiting for the company to sign',
+  sent: 'waiting for them to sign (no login)',
+  declined: 'they declined it - fix it and send it again',
+  expired: 'the link expired - send it again',
+};
+export function paperworkState(events) {
+  const hires = (events || []).filter(e => e.kind === 'hire');
+  const ev = hires.find(e => e.status !== 'voided') || null;
+  const offer = (events || []).find(e => e.kind === 'offer' && e.status === 'completed');
+  if (ev?.status === 'completed') return { done: true, ev };
+  if (ev) return { done: false, ev, why: PAPERWORK_WAIT[ev.status] || ev.status };
+  const stuck = offer && (offer.flags || []).find(f => f.code === 'packet_not_started');
+  if (stuck) return { done: false, ev: offer, why: `the hiring packet has not started - ${stuck.message}` };
+  return null;          // hired before offers and packets, or not hired through Nexus
+}
+export function PaperworkStatus({ employeeId, refreshKey }) {
+  const [events, setEvents] = useState(null);
+  useEffect(() => { api.getLifeEvents({ employeeId }).then(setEvents).catch(() => setEvents([])); }, [employeeId, refreshKey]);
+  const st = paperworkState(events);
+  if (!st) return null;
+  const tone = st.done ? 'green' : ['declined', 'expired'].includes(st.ev?.status) ? 'red' : 'orange';
+  return (
+    <div role="status" style={{ display: 'flex', gap: 10, alignItems: 'flex-start', borderRadius: 12, padding: '10px 14px', margin: '10px 0',
+      background: `hsla(var(--color-${tone}),0.08)`, border: `1px solid hsla(var(--color-${tone}),0.3)` }}>
+      {st.done ? <CheckCircle size={16} style={{ color: `hsl(var(--color-${tone}))`, flexShrink: 0, marginTop: 1 }} />
+        : <AlertTriangle size={16} style={{ color: `hsl(var(--color-${tone}))`, flexShrink: 0, marginTop: 1 }} />}
+      <div style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+        <b>{st.done ? 'Onboarding Paperwork Complete' : 'Onboarding Paperwork Not Complete'}</b>
+        <div style={{ color: 'var(--muted)' }}>
+          {st.done ? `Their hiring packet was signed${st.ev.completedAt ? ` on ${formatDateTime(st.ev.completedAt)}` : ''} - right to work paperwork is on file.`
+            : `Hold their first paycheck until it is signed - ${st.why}.`}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // Whether an offer letter or packet is out (so the Offer stage hides "Make
