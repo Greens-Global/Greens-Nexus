@@ -37,8 +37,14 @@ vi.mock('../api', () => ({
     getLifeEvents: () => Promise.resolve(events),
     getPeopleDirectory: () => Promise.resolve([{ email: 'max@x.com', name: 'Max' }]),
     hiringOptions: () => Promise.resolve({ roles: [{ id: 'jr-an', name: 'Analyst', department: 'Accounting' }], departments: ['Accounting', 'IT'] }),
+    // Packets built from Documents (Oct 14).
+    getDocTemplates: () => Promise.resolve([{ id: 'jd1', name: 'JD - Analyst', publishedVersion: 1 }]),
+    packetRoleHolders: () => Promise.resolve({ hr: { email: 'hana@x.com', name: 'Hana' } }),
+    getDocLetterheads: () => Promise.resolve([]),
+    startHiringPacket: (...a) => startPacket(...a),
   },
 }));
+const startPacket = vi.fn(() => Promise.resolve({ id: 'ev9', status: 'review' }));
 vi.mock('../lib/queries', () => ({ usePeopleDirectory: () => ({ data: [{ email: 'max@x.com', name: 'Max' }] }) }));
 vi.mock('./ESign', () => ({ SignModal: ({ partyId }) => <div data-testid="sign-modal">{partyId}</div>, AttachmentPlacer: () => null, MERGE_FIELDS: [['salary', 'Salary']] }));
 
@@ -102,5 +108,31 @@ describe('HiringPacketStatus', () => {
     await waitFor(() => expect(screen.getByText('Awaiting Your Signature')).toBeTruthy());
     fireEvent.click(screen.getByText('Sign Now'));
     expect(onSignNow).toHaveBeenCalledWith('p1');
+  });
+});
+
+describe('SendHiringPacketModal with a packet built from Documents', () => {
+  it('asks for the four options and the details, then generates the documents', async () => {
+    const { api } = await import('../api');
+    const prev = api.hiringPacketOptions;
+    api.hiringPacketOptions = () => Promise.resolve({ pickedId: 'sd', picked: { id: 'sd', engine: 'documents', templateName: 'Analyst Hiring', why: 'for Analyst' },
+      options: [{ id: 'sd', engine: 'documents', templateName: 'Analyst Hiring', why: 'for Analyst', companyName: '' }] });
+    const onSent = vi.fn();
+    const cand = { id: 'c1', firstName: 'Jane', lastName: 'Doe', email: 'jane@gmail.com', company: 'e1', roleId: 'jr-an', expectedStart: '2026-11-02' };
+    render(<SendHiringPacketModal candidate={cand} canSeePay onClose={noop} onSent={onSent} toastErr={noop} />);
+    await waitFor(() => expect(screen.getByText('Generate Documents')).toBeTruthy());
+    expect(screen.getByText('Start Hiring Packet - Jane Doe')).toBeTruthy();
+    expect(screen.getByText('Work Days')).toBeTruthy();
+    expect(screen.getByText('Job Description')).toBeTruthy();
+    expect(screen.getByText('Legal First Name *')).toBeTruthy();
+    expect(screen.queryByText('Review Packet')).toBeNull();
+    await waitFor(() => expect(screen.getByText('Generate Documents').closest('button').disabled).toBe(false));
+    fireEvent.click(screen.getByText('Generate Documents'));
+    await waitFor(() => expect(onSent).toHaveBeenCalled());
+    expect(onSent.mock.calls[0][0].openReview).toBe(true);
+    const body = startPacket.mock.calls[0][1];
+    expect(body.details.first_name).toBe('Jane');
+    expect(body.inputs.work_days).toEqual(['mon', 'tue', 'wed', 'thu', 'fri']);
+    api.hiringPacketOptions = prev;
   });
 });

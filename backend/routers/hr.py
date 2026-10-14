@@ -14,6 +14,7 @@ from database import get_db
 from notify_company import notification_company
 from auth import require_module_grant, hr_scope, is_team_scope, get_current_user, hr_team_limited
 from routers.stepup import require_stepup
+from currency import is_currency
 from models import NexusEmployee, PayrollRate, HrRemovedIdentity, PayrollRateHistory
 from services import logo_video
 
@@ -124,6 +125,7 @@ class EmployeeUpdate(BaseModel):
     personal:        Optional[dict] = None
     compliance:      Optional[dict] = None
     notes:           Optional[str] = None
+    external_company: Optional[str] = None   # guest / external rows only: the outside company they belong to
 
 
 def _validate(employment_type: Optional[str], status: Optional[str], identity_type: Optional[str] = None) -> None:
@@ -229,6 +231,9 @@ def _serialize(e: NexusEmployee) -> dict:
         "updatedAt":      e.updated_at,
         "deletedAt":      e.deleted_at or "",
         "deletedBy":      e.deleted_by or "",
+        # Guest / external rows: the outside company (the org chart shows it
+        # as the card's company line, Oct 14 2026).
+        "externalCompany": getattr(e, "external_company", "") or "",
     }
 
 
@@ -344,9 +349,12 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
         raise HTTPException(400, "first_name cannot be empty")
     fields = body.model_dump(exclude_unset=True)
     changes: dict = {}
+    is_external = (row.identity_type or "internal") in ("guest", "external")
     for key, value in fields.items():
         if value is None:
             continue
+        if key == "external_company" and not is_external:
+            continue   # an outside company only means something on a guest / external row
         if key in ("work_email", "personal_email", "manager_email", "backup_manager_email"):
             value = value.strip().lower()
         elif isinstance(value, str) and key != "notes":
@@ -797,8 +805,13 @@ def create_employee_from_candidate(db: Session, cand: HrCandidate, actor: str,
         emp.employment_type = d.get("employment_type") or emp.employment_type or "full_time"
         emp.status, emp.updated_at = "onboarding", now
     else:
+        # A hiring packet built from Documents may have printed a number
+        # already (Oct 14): use it while it is still free.
+        code = (d.get("employee_code") or "").strip()
+        if not code or db.query(NexusEmployee.id).filter(NexusEmployee.employee_code == code)                 .execution_options(include_deleted=True).first():
+            code = _next_code(db)
         emp = NexusEmployee(
-            id=str(uuid.uuid4()), employee_code=_next_code(db),
+            id=str(uuid.uuid4()), employee_code=code,
             first_name=cand.first_name, last_name=cand.last_name,
             personal_email=cand.email, phone=cand.phone,
             job_title=d.get("job_title") or cand.role_title,
@@ -1199,6 +1212,14 @@ def upload_document(eid: str, file: UploadFile = File(...), kind: str = Form("ot
     return _ser_doc(row)
 
 
+def _contract_prints_pay(db: Session, row: HrDocument) -> bool:
+    """A contract HrDocument that is the sealed PDF of a pay-printing envelope
+    (hr_life_events files it with the envelope's own storage path)."""
+    from models import HrSignRequest
+    return bool(row.storage_path) and db.query(HrSignRequest.id).filter(
+        HrSignRequest.final_pdf_path == row.storage_path, HrSignRequest.prints_pay == 1).first() is not None
+
+
 @router.get("/documents/{did}/url")
 def document_url(did: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
     """Mint a short-lived signed URL - the bucket itself is private."""
@@ -1215,6 +1236,9 @@ def document_url(did: str, user: dict = Depends(require_hr_read), db: Session = 
         _direct_report_or_404(user, emp, db)
     elif row.kind == "paystub" and not _has_comp(user, db):
         raise HTTPException(403, "Paystubs require the compensation grant")
+    elif row.kind == "contract" and _contract_prints_pay(db, row) and not _has_comp(user, db):
+        # A signed offer / promotion letter filed from Nexus Sign (Oct 14).
+        raise HTTPException(403, "This document shows pay - Pay & Benefits access is needed")
     resp = httpx.post(
         f"{_SUPABASE_URL}/storage/v1/object/sign/{_DOC_BUCKET}/{row.storage_path}",
         headers=_storage_headers(), json={"expiresIn": 300}, timeout=15,
@@ -2353,6 +2377,7 @@ class EntityIn(BaseModel):
     manager_email:      Optional[str] = ""   # legacy mirror - kept for callers still reading the single field
     manager_emails:     Optional[list] = None   # company manager(s) (Nexus people or external users, Sep 29) - source of truth
     hr_contact_email:   Optional[str] = ""      # signs + finalizes timesheets (timesheet_review.py)
+    signatory_email:    Optional[str] = ""      # the authorized signatory as a Nexus person (HR packets, Oct 14)
 
 
 class EntityUpdate(BaseModel):
@@ -2378,6 +2403,17 @@ class EntityUpdate(BaseModel):
     manager_email:      Optional[str] = None
     manager_emails:     Optional[list] = None
     hr_contact_email:   Optional[str] = None
+    signatory_email:    Optional[str] = None
+
+
+def _check_signatory_email(db: Session, email: str) -> str:
+    """The Authorized Signatory is picked from Nexus People - a person who can
+    sign in Nexus, never a free email."""
+    e = (email or "").strip().lower()
+    if e and not db.query(NexusEmployee).filter(NexusEmployee.work_email == e,
+                                                 NexusEmployee.status.in_(("active", "onboarding"))).first():
+        raise HTTPException(400, "The Authorized Signatory must be an active person in Nexus People.")
+    return e
 
 
 def _norm_manager_emails(manager_email, manager_emails) -> tuple:
@@ -2410,6 +2446,7 @@ def _serialize_entity(e: HrEntity) -> dict:
         "managerEmail": e.manager_email or "",
         "managerEmails": e.manager_emails or ([e.manager_email] if e.manager_email else []),
         "hrContactEmail": e.hr_contact_email or "",
+        "signatoryEmail": getattr(e, "signatory_email", "") or "",
         "createdAt": e.created_at, "updatedAt": e.updated_at,
     }
 
@@ -2450,6 +2487,7 @@ def create_entity(body: EntityIn, user: dict = Depends(require_hr_write), db: Se
         domains=_norm_domains(body.domains or ""),
         manager_email=mgr_email, manager_emails=mgr_emails,
         hr_contact_email=(body.hr_contact_email or "").strip().lower(),
+        signatory_email=_check_signatory_email(db, body.signatory_email or ""),
         created_by=user["email"], created_at=now, updated_at=now,
     )
     db.add(row)
@@ -2491,6 +2529,8 @@ def update_entity(entity_id: str, body: EntityUpdate, user: dict = Depends(requi
             value = _norm_domains(value)
         elif key in ("manager_email", "hr_contact_email"):
             value = value.strip().lower()
+        elif key == "signatory_email":
+            value = _check_signatory_email(db, value)
         elif key == "manager_emails":
             mgr_email, value = _norm_manager_emails(None, value)
             row.manager_email = mgr_email
@@ -3898,7 +3938,7 @@ def sync_rate_from_comp(db: Session, emp: NexusEmployee) -> None:
                           overtime_rule=default_overtime_rule(db, emp))
         db.add(row)
     cur = comp.get("currency") or ""
-    if cur in ("USD", "INR"):
+    if is_currency(cur):
         row.currency = cur
     if basis == "hourly":
         row.pay_type, row.hourly_rate, row.monthly_salary = "hourly", base, 0.0
@@ -4431,6 +4471,17 @@ def apply_status_change(db: Session, row: NexusEmployee, body: StatusChangeIn, a
                                        actor=actor)
             if entry is not None and (handover["reassigned"] or handover["projectsTransferred"]):
                 entry["taskHandover"] = handover
+        # Credential Vault (Oct 14 2026): the company credentials they own go to
+        # the same person their tasks went to, they stop being a backup owner,
+        # and the shared access they held ends now. Their Personal Vault is not
+        # touched - nobody else may read it. See credvault.handover_person.
+        try:
+            from routers.credvault import handover_person as vault_handover
+            vault = vault_handover(db, row.work_email, to_email, actor=actor)
+            if entry is not None and any(vault[k] for k in ("credentials", "backups", "grants", "requests")):
+                entry["vaultHandover"] = vault
+        except Exception as e:   # noqa: BLE001 - the vault is the least of the three handovers
+            print(f"[hr] credential vault handover skipped for {row.work_email}: {e}")
     row.status = body.status
     row.status_log = log
     row.updated_at = now

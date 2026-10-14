@@ -32,6 +32,7 @@ import ModuleTabs from '../components/ModuleTabs';
 import { SkeletonBlocks, ModalLoading, LoadingState } from '../components/AsyncState';
 import { buildSupportTourSteps } from './supportTourSteps';
 import { LatestCommentPreview } from '../tickets/LatestComment';
+import { StatusLabel } from '../components/StatusLabel';
 
 // Documentation tab (Sep 24): the written guide to every module. Lazy so its
 // content and drawn screenshots only load when someone opens the tab.
@@ -114,17 +115,15 @@ const toTicketBody = (p) => Object.fromEntries(Object.entries(p).map(([k, v]) =>
 const go = (view, sub) => window.dispatchEvent(
   new CustomEvent('nexus:navigate', { detail: sub ? { view, sub } : { view } }));
 
-// Same solid, edge-to-edge status cell the Ticket module's own list uses
-// (TicketsView's SolidCellPair) - filled with the status color rather than a
-// small outlined pill, so this table reads as the same UI, not a lookalike.
+// The same soft status label the Ticket module's own list uses (Neil, Oct 14
+// 2026 - the solid color blocks were retired everywhere), so this table reads
+// as the same UI, not a lookalike.
 function StatusCell({ status }) {
-  const m = TICKET_STATUS_META[status] || { label: status, color: NX.dim };
+  const m = TICKET_STATUS_META[status] || { label: status, color: '#64748b' };
   return (
-    <div style={{
-      display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%',
-      padding: '0 10px', background: m.color, color: '#fff', fontSize: 12, fontWeight: 700,
-      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontFamily: FONT,
-    }}>{m.label}</div>
+    <div style={{ display: 'flex', alignItems: 'center', height: '100%', padding: '0 10px', minWidth: 0, overflow: 'hidden' }}>
+      <StatusLabel label={m.label} color={m.color} />
+    </div>
   );
 }
 
@@ -139,7 +138,7 @@ function StatusCell({ status }) {
 const SUPPORT_TABLE_COLUMNS = [
   { key: 'ticket', label: '#', width: 64, minWidth: 56, sort: (t) => normalizeCode(t.code) },
   { key: 'title', label: 'Title', width: 320, minWidth: 160, template: 'minmax(200px,1.3fr)', sort: (t) => (t.subject || '').toLowerCase() },
-  { key: 'status', label: 'Status', width: 124, minWidth: 90, sort: (t) => TICKET_STATUS_ORDER.indexOf(t.status) },
+  { key: 'status', label: 'Status', width: 150, minWidth: 90, sort: (t) => TICKET_STATUS_ORDER.indexOf(t.status) },
   { key: 'assignedTo', label: 'Assigned To', width: 150, minWidth: 90, sort: (t, ctx) => (ctx.nameOf(t.assigneeId) || '').toLowerCase() },
   { key: 'created', label: 'Created', width: 112, minWidth: 96, sort: (t) => t.createdAt || '' },
   // Neil, Sep 30: "when was the last update" - any change or reply.

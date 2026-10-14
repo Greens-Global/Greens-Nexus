@@ -20,6 +20,15 @@ export function currencyOptions() {
   return cached;
 }
 
+// What a pay amount is printed with (People pay, offers, timecards - Pranshu,
+// 10/13: any currency). Same as backend/currency.py: a symbol only where it
+// cannot be misread, otherwise the code - "$" alone would make CAD read as USD.
+const PAY_SYMBOLS = { USD: '$', INR: '₹', EUR: '€', GBP: '£', JPY: '¥' };
+export function moneyPrefix(code) {
+  const c = String(code || 'USD').toUpperCase();
+  return PAY_SYMBOLS[c] || `${c} `;
+}
+
 /** "1240.50" + "EUR" -> "€1,240.50". Empty amount -> "". */
 export function formatCost(amount, currency = 'USD') {
   if (amount === '' || amount == null) return '';

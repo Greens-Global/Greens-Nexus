@@ -148,7 +148,8 @@ export default function CandidateDetailModal({
       secondary('Another Interview', () => onSchedule(c), <Undo2 size={13} />),
       secondary('Mark Hired By Hand', markHiredByHand, null),
       awaitingMe && onSignPacket && primary('Sign & Offer', () => onSignPacket(awaitingMe.senderPartyId), <FileSignature size={14} />),
-      !packetOut && primary('Send Hiring Packet', () => onSendPacket(c), <FileText size={14} />, packetEvents === null)],
+      !packetOut && primary(packetPick?.picked?.engine === 'documents' ? 'Start Hiring Packet' : 'Send Hiring Packet',
+        () => onSendPacket(c), <FileText size={14} />, packetEvents === null)],
     rejected: [primary('Reopen', () => onStage(c, 'applied', note || 'Reopened'), <RotateCcw size={14} />)],
     hired: [c.employeeId && onOpenPerson && primary('Open In People', () => onOpenPerson(c), <ChevronRight size={14} />)],
   }[c.stage] || [];

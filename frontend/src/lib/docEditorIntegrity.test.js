@@ -158,3 +158,22 @@ describe('the model keeps whitespace the way a Word user types it', () => {
     editor.destroy();
   });
 });
+
+// Signature blocks (Oct 14): where a signer signs is part of the template. The
+// node must survive a load/save round trip with every attribute, and repair
+// must leave it alone - it is a valid block node, not stray content.
+describe('signature blocks', () => {
+  const sig = { type: 'signatureBlock', attrs: { role: 'company', label: 'For {{company_legal}}', withName: true, withDate: false } };
+
+  it('round-trips with its role, caption and line choices', () => {
+    const editor = mount({ type: 'doc', content: [para(text('Agreed.')), sig] });
+    const out = editor.getJSON().content.find(n => n.type === 'signatureBlock');
+    expect(out.attrs).toEqual(sig.attrs);
+    editor.destroy();
+  });
+
+  it('is left alone by the structural repair', () => {
+    const doc = { type: 'doc', content: [para(text('Agreed.')), sig] };
+    expect(repairDocJson(doc)).toEqual(doc);
+  });
+});

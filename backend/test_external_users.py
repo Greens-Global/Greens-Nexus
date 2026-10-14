@@ -615,5 +615,52 @@ class TestInviteFlow(_ExternalBase):
         self.assertEqual(self.client.post("/external-users/nobody@nowhere.com/invite").status_code, 404)
 
 
+
+class TestOrgChartExternals(_ExternalBase):
+    """The org chart can show external users (Neil, Oct 14 2026): the People
+    API sends their outside company as `externalCompany`, and the same PATCH
+    that moves anyone's reporting line moves theirs - company included."""
+
+    def test_people_api_carries_the_external_company(self):
+        self._mk_guest()
+        self._as_admin()
+        r = self.client.get("/hr/employees")
+        self.assertEqual(r.status_code, 200, r.text)
+        row = next(e for e in r.json() if e["workEmail"] == GUEST)
+        self.assertEqual(row["identityType"], "guest")
+        self.assertEqual(row["externalCompany"], "Acme Construction")
+
+    def test_patch_moves_an_external_and_renames_their_company(self):
+        self._mk_guest()
+        self._as_admin()
+        r = self.client.patch("/hr/employees/ext-test-guest",
+                              json={"manager_email": ADMIN.upper(), "external_company": " Acme Builders "})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["managerEmail"], ADMIN)
+        self.assertEqual(r.json()["externalCompany"], "Acme Builders")
+
+    def test_internal_rows_never_take_an_external_company(self):
+        self._as_admin()
+        db = database.SessionLocal()
+        try:
+            db.add(models.NexusEmployee(
+                id="ext-test-internal", first_name="Ira", last_name="In",
+                work_email="authprobe.ira@greensglobal.com", identity_type="internal",
+                status="active", created_at="2026-10-14T00:00:00Z"))
+            db.commit()
+        finally:
+            db.close()
+        try:
+            r = self.client.patch("/hr/employees/ext-test-internal",
+                                  json={"job_title": "Analyst", "external_company": "Acme"})
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertEqual(r.json()["jobTitle"], "Analyst")
+            self.assertEqual(r.json()["externalCompany"], "")
+        finally:
+            db = database.SessionLocal()
+            db.query(models.NexusEmployee).filter(models.NexusEmployee.id == "ext-test-internal").delete()
+            db.commit(); db.close()
+
+
 if __name__ == "__main__":
     unittest.main()

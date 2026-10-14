@@ -17,14 +17,16 @@ const DEFAULT_PERSONAL = [
   { i: 'd6', type: 'kpi',           x: 9, y: 0, w: 3, h: 2, config: { metric: 'unread_notifications' } },
   { i: 'd7', type: 'notifications', x: 0, y: 2, w: 6, h: 5 },
   { i: 'd9', type: 'kpi-bar',       x: 6, y: 2, w: 3, h: 5 },
-  // h6: all six action rows fit without a scrollbar at the 72px row unit.
-  { i: 'd2', type: 'quick-actions', x: 9, y: 2, w: 3, h: 6 },
+  // A bare icon dock (Oct 13): 3x2 = six cells for the five default actions,
+  // one row on a phone. It used to be a 3x6 list that sat mostly empty.
+  { i: 'd2', type: 'quick-actions', x: 9, y: 2, w: 3, h: 2, config: { style: 'icons' } },
   // Calendar + My Agenda, merged (Outlook/Teams). Shows a quiet explainer for
   // non-M365 accounts. w8 so the month grid and the agenda list sit side by
   // side by default instead of wrapping to stacked.
   { i: 'd10', type: 'calendar',     x: 0, y: 7, w: 8, h: 5 },
   // h5: six link rows + header need ~260px - at h4 the last row clipped.
-  { i: 'd8', type: 'links',         x: 9, y: 7, w: 3, h: 5 },
+  // y4: straight under the dock, so the right column has no hole.
+  { i: 'd8', type: 'links',         x: 9, y: 4, w: 3, h: 5 },
 ];
 
 // Role-tiered starting extras (Sep 4, Pranshu: "give a few default widgets" so
@@ -217,7 +219,8 @@ export function useDashboards(widgetTier) {
   const addWidget = (type, config) => {
     const def = WIDGETS[type]; if (!def) return;
     const maxY = layout.reduce((m, it) => Math.max(m, it.y + it.h), 0);
-    setLayout([...layout, { i: rid(), type, x: 0, y: maxY, w: def.size.w, h: def.size.h, ...(config ? { config } : {}) }]);
+    const size = def.sizeWhen?.(config) || def.size;
+    setLayout([...layout, { i: rid(), type, x: 0, y: maxY, w: size.w, h: size.h, ...(config ? { config } : {}) }]);
     setEditing(true);
   };
   const removeWidget = (i) => setLayout(layout.filter(w => w.i !== i));
@@ -231,7 +234,10 @@ export function useDashboards(widgetTier) {
   };
   const autoFit = () => setLayout(compactLayout(layoutRef.current));
   const moveWidget = (i, dir) => setLayout(moveInOrder(layoutRef.current, i, dir));
-  const updateWidgetConfig = (i, patch) => setLayout(layout.map(w => w.i === i ? { ...w, config: { ...(w.config || {}), ...patch } } : w));
+  // The merged config may change the tile's bounds (a Quick Actions style
+  // does), so the tile is clamped to them right away rather than on the
+  // next drag.
+  const updateWidgetConfig = (i, patch) => setLayout(layout.map(w => w.i === i ? clampToLimits({ ...w, config: { ...(w.config || {}), ...patch } }) : w));
 
   const switchView = (id) => {
     const v = views.find(x => x.id === id);

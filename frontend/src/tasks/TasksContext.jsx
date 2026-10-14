@@ -355,6 +355,20 @@ export function TasksProvider({ children }) {
     setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
   }, []);
 
+  // A later due date can come back held for approval (Oct 13 2026, backend
+  // task_due.needs_approval): the task keeps its date, so say what happened -
+  // otherwise the picked date just snaps back. offerUndo is defined below.
+  const offerRef = useRef(null);
+  const announceHeld = useCallback((rows, patch) => {
+    if (!patch || !('dueOn' in patch) || !patch.dueOn) return;
+    const held = rows.filter((r) => r?.dueAgreement === 'extension_requested' && r.dueProposal?.dueOn === patch.dueOn);
+    if (!held.length) return;
+    offerRef.current?.(
+      held.length === 1 ? 'Extension sent for approval' : `${held.length} extensions sent for approval`,
+      () => Promise.all(held.map((r) => api.withdrawTaskDue(r.id).then((t) => patchLocalTask(t.id, t)))).catch(() => {}),
+    );
+  }, [patchLocalTask]);
+
   // ── Task actions ─────────────────────────────────────────────────────────
   const createTask = useCallback(async (data) => {
     const created = await api.createTask(toBody(data));
@@ -367,6 +381,7 @@ export function TasksProvider({ children }) {
     try {
       const saved = await api.updateTask(id, toBody(patch));
       setTasks((prev) => prev.map((t) => (t.id === id ? saved : t)));
+      announceHeld([saved], patch);
       return saved;
     } catch (e) {
       refetchTasks().catch(() => {});
@@ -376,7 +391,7 @@ export function TasksProvider({ children }) {
       if (e?.status && e.status !== 401) alert(e.message || 'Could not update this task.');
       throw e;
     }
-  }, [patchLocalTask, refetchTasks]);
+  }, [patchLocalTask, refetchTasks, announceHeld]);
 
   // Undo toast - one at a time; label + a run() that reverses the action.
   const [undo, setUndo] = useState(null);
@@ -386,6 +401,7 @@ export function TasksProvider({ children }) {
     setUndo({ label, run });
     undoTimer.current = setTimeout(() => setUndo(null), 6000);
   }, []);
+  useEffect(() => { offerRef.current = offerUndo; }, [offerUndo]);
   const runUndo = useCallback(() => {
     clearTimeout(undoTimer.current);
     setUndo((u) => { if (u) u.run(); return null; });
@@ -445,12 +461,13 @@ export function TasksProvider({ children }) {
       const rows = await api.bulkUpdateTasks(ids, toBody(patch));
       const map = Object.fromEntries(rows.map((r) => [r.id, r]));
       setTasks((prev) => prev.map((t) => map[t.id] || t));
+      announceHeld(rows, patch);
       return rows;
     } catch (e) {
       if (e?.status && e.status !== 401) alert(e.message || 'Could not update these tasks.');
       throw e;
     }
-  }, []);
+  }, [announceHeld]);
 
   // Comments (loaded on demand, cached)
   const getComments = useCallback(async (taskId) => {

@@ -601,7 +601,6 @@ def insights(user: dict = Depends(get_current_user), db: Session = Depends(get_d
             creds = db.query(M.VaultCredential).filter(M.VaultCredential.deleted_at == "")
             total = creds.count()
             weak = creds.filter(M.VaultCredential.strength == "weak").count()
-            breached = creds.filter(M.VaultCredential.breached == True).count()  # noqa: E712
             pending_shares = db.query(M.VaultShareRequest).filter(M.VaultShareRequest.status == "pending").count()
             # rotation_max is per-credential, so this needs real date math per
             # row, not a single SQL window - same pattern as the reminders scan
@@ -618,7 +617,7 @@ def insights(user: dict = Depends(get_current_user), db: Session = Depends(get_d
                     continue
             return {
                 "stats": [
-                    {"key": "breached", "label": "Breached Credentials", "value": breached, "tone": "critical"},
+                    # No "breached" count (Oct 14 2026): nothing ever set that flag.
                     {"key": "weak", "label": "Weak Credentials", "value": weak, "tone": "warning"},
                     {"key": "rotation_overdue", "label": "Rotation Overdue", "value": rotation_overdue, "tone": "warning"},
                     {"key": "pending_shares", "label": "Pending Share Requests", "value": pending_shares, "tone": "neutral"},
@@ -693,7 +692,7 @@ DRILLABLE = {
     "construction": {"logs_pending", "overdue_rfis", "pending_submittals", "at_risk_milestones"},
     "asset_management": {"warranties_expiring", "inspections_due"},
     "people": {"open_candidates", "interviews_7d", "leave_pending", "docs_expiring"},
-    "credential_vault": {"breached", "weak", "rotation_overdue", "pending_shares"},
+    "credential_vault": {"weak", "rotation_overdue", "pending_shares"},
 }
 
 
@@ -914,10 +913,6 @@ def insights_drilldown(module: str, metric: str, user: dict = Depends(get_curren
 
     if module == "credential_vault":
         creds = db.query(M.VaultCredential).filter(M.VaultCredential.deleted_at == "")
-        if metric == "breached":
-            rows = creds.filter(M.VaultCredential.breached == True).all()  # noqa: E712
-            items = [(r.name, r.owner_email) for r in rows]
-            return _list(items, "Breached Credentials")
         if metric == "weak":
             rows = creds.filter(M.VaultCredential.strength == "weak").all()
             items = [(r.name, r.owner_email) for r in rows]

@@ -3,8 +3,10 @@ import { Search, Plus, Copy, Archive, RotateCcw, FileText, Award, Star, Pencil, 
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import DocumentBuilder from './DocumentBuilder';
+import { takePendingOpen } from '../lib/pendingOpen';
 import { uploadToSupabase, imageFromPaste } from '../lib/docBuilderUpload';
 import { Spinner } from './AsyncState';
+import WordTemplateWizard from './WordTemplateWizard';
 
 // ── Document Templates & Letterheads (Phase 3) ───────────────────────────────
 // Category tabs + search over doc_templates, reusing DocumentBuilder (kind=
@@ -13,6 +15,8 @@ import { Spinner } from './AsyncState';
 const CATEGORIES = [
   ['letterhead', 'Letterhead'], ['hr', 'HR'], ['legal', 'Legal'], ['finance', 'Finance'],
   ['operations', 'Operations'], ['sales', 'Sales'], ['engineering', 'Engineering'], ['general', 'General'],
+  // One per role - the Job Description a hiring packet picks per hire (Oct 14).
+  ['job_description', 'Job Description'],
 ];
 
 const overlayStyle = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 };
@@ -217,7 +221,9 @@ export default function DocumentTemplates({ openCreateSignal, toastOk, toastErr 
   const [templates, setTemplates] = useState(null);
   const [letterheads, setLetterheads] = useState([]);
   const [createOpen, setCreateOpen] = useState(false);
-  const [editingId, setEditingId] = useState(null);
+  const [wordOpen, setWordOpen] = useState(false);       // New template from a Word file (Oct 14)
+  // Open In Documents from an HR packet (Oct 14) lands straight in the editor.
+  const [editingId, setEditingId] = useState(() => takePendingOpen('doc-template'));
   const [previewId, setPreviewId] = useState(null);
   const [busyId, setBusyId] = useState('');
   const [seeding, setSeeding] = useState(false);
@@ -281,6 +287,10 @@ export default function DocumentTemplates({ openCreateSignal, toastOk, toastErr 
             <button className="primary-btn" data-tour="documents-new-template" onClick={() => setCreateOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, flexShrink: 0 }}>
               <Plus size={13} /> New Template
             </button>
+            <button className="secondary-btn" onClick={() => setWordOpen(true)} title="Nexus reads the Word file and finds every blank and signature line"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, flexShrink: 0 }}>
+              <FileText size={13} /> From Word File
+            </button>
             {isAdmin && templates?.length > 0 && statusFilter === 'active' && (
               <button className="secondary-btn" disabled={seeding} onClick={seedStarters} title="Add any starter template the library does not have yet"
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, flexShrink: 0 }}>
@@ -335,6 +345,17 @@ export default function DocumentTemplates({ openCreateSignal, toastOk, toastErr 
                           : t.status === 'draft' ? 'rgba(245,158,11,0.13)' : 'var(--mist)' }}>
                       {t.status === 'active' ? 'Active' : t.status === 'draft' ? 'Draft' : 'Archived'}
                     </span>
+                    {/* HR packets print the PUBLISHED version (Oct 14) - these
+                        say which active templates still need a Publish. */}
+                    {t.status === 'active' && (!t.publishedVersion || t.hasUnpublishedChanges) && (
+                      <span title={t.publishedVersion
+                          ? 'Edited since it was last published - HR packets still print the published version. Open it and click Publish Changes.'
+                          : 'Never published - HR packets cannot use it yet. Open it and click Publish.'}
+                        style={{ padding: '2px 8px', borderRadius: 10, fontSize: 10, fontWeight: 800,
+                          color: 'hsl(var(--color-orange))', background: 'hsla(var(--color-orange),0.12)' }}>
+                        {t.publishedVersion ? 'Unpublished Changes' : 'Not Published'}
+                      </span>
+                    )}
                     <span title={t.department
                         ? `Maintained by ${t.department}. Department heads of ${t.department}, and administrators, can edit it.`
                         : 'Company-wide template - only an administrator can edit it.'}
@@ -409,6 +430,11 @@ Leave blank for a company-wide template (administrators only).`,
         <CreateTemplateModal letterheads={letterheads} toastErr={toastErr}
           onClose={() => setCreateOpen(false)}
           onCreated={(t) => { toastOk?.('Template created'); setEditingId(t.id); }} />
+      )}
+      {wordOpen && (
+        <WordTemplateWizard categories={CATEGORIES.filter(([v]) => v !== 'letterhead')} toastErr={toastErr}
+          onClose={() => { setWordOpen(false); load(); }}
+          onOpen={(id) => { setWordOpen(false); load(); setEditingId(id); }} />
       )}
     </div>
   );

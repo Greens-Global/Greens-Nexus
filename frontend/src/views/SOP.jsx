@@ -489,7 +489,7 @@ export default function SOP({ activeSub, onSubChange }) {
   const [sidebarOpen, setSidebarOpen] = useState(() => { try { return localStorage.getItem('kbSidebar') !== '0'; } catch { return true; } }); // Playbook side panel
   const [help, setHelp] = useState(null); // page key of the contextual help drawer, or null
   const openHelp = (key) => setHelp(key || 'playbook');
-  const helpBtn = (key) => <button onClick={() => openHelp(key)} title="Help for this page" aria-label="Help" style={{ width: 34, height: 34, borderRadius: 9, border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-secondary)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><HelpCircle size={16} /></button>;
+  const helpBtn = (key) => <button onClick={() => openHelp(key)} title="Help with this page" aria-label="Help" style={{ width: 34, height: 34, borderRadius: 9, border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-secondary)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><HelpCircle size={16} /></button>;
   const [ask, setAsk] = useState({ q: '', loading: false, answer: null, sources: [], grounded: true });
 
   // runnable checklists (Process Street-style "runs" of an SOP)
@@ -640,19 +640,10 @@ export default function SOP({ activeSub, onSubChange }) {
       .catch(() => want.forEach(p => signedReqRef.current.delete(p)));
     return () => { cancelled = true; };
   }, [selected, draft]);
-  // press "/" to jump to the search box (when not already typing in a field)
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey) return;
-      const t = e.target;
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
-      if (sub !== 'index' || mode !== 'list') return;
-      e.preventDefault();
-      searchRef.current?.focus();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [sub, mode]);
+  // "/" jumps to the search box on the index list: the box is tagged
+  // data-slash-search there and the header's shortcut handler (TopHeader)
+  // sends "/" to it.
+  const ownsSlash = sub === 'index' && mode === 'list';
 
   const togglePin = async (id, ev) => {
     if (ev) { ev.stopPropagation(); ev.preventDefault(); }
@@ -2849,7 +2840,7 @@ export default function SOP({ activeSub, onSubChange }) {
               </button>
             );
           })()}
-          <button onClick={() => openHelp(sub === 'tasks' ? 'tasks' : ['manage', 'matrix', 'insights', 'signoffs'].includes(sub) ? 'manage' : sub === 'lms' ? (lmsManage ? 'authoring' : 'learn') : 'playbook')} title="Help for this page" aria-label="Help" style={{ width: 34, height: 34, borderRadius: 9, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--muted)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><HelpCircle size={17} /></button>
+          <button onClick={() => openHelp(sub === 'tasks' ? 'tasks' : ['manage', 'matrix', 'insights', 'signoffs'].includes(sub) ? 'manage' : sub === 'lms' ? (lmsManage ? 'authoring' : 'learn') : 'playbook')} title="Help with this page" aria-label="Help" style={{ width: 34, height: 34, borderRadius: 9, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--muted)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><HelpCircle size={17} /></button>
         </div>
       </div>
       {helpModal()}
@@ -2864,7 +2855,7 @@ export default function SOP({ activeSub, onSubChange }) {
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
                 <Search size={18} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-                <input ref={searchRef} type="text" className="form-input" value={search} onChange={e => setSearch(e.target.value)}
+                <input data-slash-search={ownsSlash ? '' : undefined} ref={searchRef} type="text" className="form-input" value={search} onChange={e => setSearch(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter' && search.trim()) doAsk(search); }}
                   placeholder="Search or ask anything… e.g. How do we hand over a unit key?"
                   style={{ paddingLeft: 42, paddingRight: 36, width: '100%', height: 48, fontSize: '0.95rem', borderRadius: 12 }} />

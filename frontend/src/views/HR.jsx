@@ -1,8 +1,10 @@
 /* eslint-disable react-hooks/refs -- the org-chart canvas reads container/zoom refs during render for pan-zoom fit-to-view; safe intentional reads the React-Compiler rule flags */
-import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense, Fragment } from 'react';
 import { QuestionnairesModal, InterviewPanel, LeaderboardModal, EmployeeInterviews } from '../components/Interviews';
 import { PacketsModal, SendHiringPacketModal, PacketSigner, PersonLifeEvents, usDay } from '../components/HiringPacket';
-import { PromoteModal, OffboardModal } from '../components/HrPersonActions';
+import PacketReview from '../components/PacketReview';
+import { PromoteModal, OffboardModal, RoleChangeModal } from '../components/HrPersonActions';
+import { RoleChangeRequestCard, RoleChangeDecisionModal, RoleHistory } from '../components/RoleChangeRequests';
 import CandidateDetailModal, { STAGES, STAGE_META, candName } from '../components/HiringCandidateDetail';
 import { ScheduleInterviewModal } from '../components/HiringSchedule';
 import CandidateFormModal from '../components/HiringCandidateForm';
@@ -13,10 +15,11 @@ import {
   Building2, Trash2, MapPinned, Wallet, Landmark, Lock, Contact, Heart,
   ShieldCheck, Shield, AlertTriangle, Clock, ArrowUpRight, RotateCcw,
   ChevronDown, Globe, Globe2, BookMarked, Download, Link2, ExternalLink,
-  ListChecks, RefreshCw, Video,
+  ListChecks, RefreshCw, Video, Hourglass,
 } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, formatWeekday } from '../lib/datetime';
+import { currencyOptions, moneyPrefix } from '../asset/lib/currency';
 import { formatDistance, metersToFeet, feetToMeters } from '../lib/distance';
 import { timeTrackingText } from '../lib/timeTracking';
 import { useNameResolver } from '../lib/useNameResolver';
@@ -78,6 +81,9 @@ const STATUS_META = {
 // The statuses the directory's Inactive tab holds (Neil, Oct 12): Left and
 // Inactive people stay in Nexus with their record, out of the working list.
 const INACTIVE_STATUSES = new Set(['inactive', 'offboarded']);
+// Guest (Microsoft 365 guest) and external (no M365 login) rows - one
+// predicate for the whole screen.
+const isExternalPerson = (e) => ['guest', 'external'].includes(e?.identityType || 'internal');
 
 // The status dropdown's "Deleted" entry. Deliberately NOT a STATUS_META member:
 // removal is orthogonal to employment status (a removed person keeps whatever
@@ -475,7 +481,7 @@ function EmployeeFormModal({ employee, employees, externals = [], entities = [],
                 <div>
                   <label style={FL}>CURRENCY</label>
                   <select className="form-input" style={{ width: '100%' }} value={(f.contractor || {}).currency || 'USD'} onChange={e => setC('currency', e.target.value)}>
-                    <option value="USD">USD</option><option value="INR">INR</option>
+                    {currencyOptions().map(c => <option key={c.code} value={c.code}>{c.label}</option>)}
                   </select>
                 </div>
                 {cInput('ENGAGEMENT AREA', 'engagement_area', { placeholder: 'e.g. Escondido dev / remote' })}
@@ -1166,7 +1172,7 @@ function PayTab({ employee, reloadToken, onEdit, readOnly = false }) {
     try { await api.deleteEmployeeDoc(id); setStubs(s => s.filter(x => x.id !== id)); } catch { /* noop */ }
   };
 
-  const money = (v, cur) => v ? `${cur === 'INR' ? '₹' : '$'}${Number(v).toLocaleString()}` : '-';
+  const money = (v, cur) => v ? `${moneyPrefix(cur)}${Number(v).toLocaleString()}` : '-';
   const label = (list, v) => (list.find(([x]) => x === v) || [])[1] || v || '';
   const sectionLabel = txt => <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', margin: '16px 0 8px' }}>{txt}</div>;
   const row2 = (k, lbl, value) => (
@@ -1401,7 +1407,7 @@ function EmployeeAccess({ email, identityType = 'internal', companyId = '', toas
   const loadScopes = () => api.getAccessScopes(email).then(setScopes).catch(() => setScopes([]));
   useEffect(() => { if (email) { setData(null); load(); loadScopes(); } }, [email]);   // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { api.getJobRoles().then(setRoles).catch(() => {}); api.getGroups().then(gs => setGroups(gs.filter(g => !g.is_job_role))).catch(() => {}); api.getEntities().then(setEntities).catch(() => {}); }, []);
-  const isExternal = identityType === 'external' || identityType === 'guest';
+  const isExternal = isExternalPerson({ identityType });
 
   if (!email) return <div style={{ color: 'var(--muted)', fontSize: 13.5, padding: '20px 4px' }}>This person has no work email yet - provision their account first to manage access.</div>;
   if (!data) return <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="inline" /></div>;
@@ -1433,9 +1439,10 @@ function EmployeeAccess({ email, identityType = 'internal', companyId = '', toas
             </div>
           ) : <div style={{ color: 'var(--muted)', fontSize: 13 }}>No job role assigned yet.</div>}
           {data.job_role?.description && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>{data.job_role.description}</div>}
-          {/* Neil, Oct 8: changing someone's role is an HR action with a
-              letter (Promote / Change Role), not a silent switch. Setting the
-              FIRST role on a new record stays a direct pick. */}
+          {/* Neil, Oct 8: changing someone's role is an HR action from
+              People. Change Role asks whether it is a promotion (letter) or
+              just the role (Pranshu, Oct 13). Setting the FIRST role on a new
+              record stays a direct pick. */}
           {data.job_role && onChangeRole ? (
             <button className="secondary-btn" style={{ marginTop: 12, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }} onClick={onChangeRole}>
               <Shield size={13} /> Change Role
@@ -1676,7 +1683,7 @@ function OfficeContact({ e, row, canSync, onSynced, toastOk, toastErr }) {
   );
 }
 
-function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, isAdmin = false, teamView = false, initialTab = 'overview', checklists = [], onEdit, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated, onRemoved, onRestored, onExternalChanged }) {
+function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, isAdmin = false, teamView = false, initialTab = 'overview', checklists = [], onEdit, onBack, isMobile, toastOk, toastErr, onEmployeeUpdated, onRemoved, onRestored, onExternalChanged, onReload }) {
   // Removed from Nexus (soft delete) - the record is intact and restorable.
   const isRemoved = !!e.deletedAt;
   const [provisionOpen, setProvisionOpen] = useState(false);
@@ -1686,10 +1693,12 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
   const [complianceOpen, setComplianceOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
   // HR's actions on an employee (Neil, Oct 8): promote / change role / offboard
-  const [roleAction, setRoleAction] = useState(null);      // 'promotion' | 'role_change'
+  const [roleAction, setRoleAction] = useState(null);      // 'choose' (Change Role asks first) | 'promotion'
   const [offboardOpen, setOffboardOpen] = useState(false);
   const [signParty, setSignParty] = useState(null);        // HR's own signature on a letter
+  const [reviewEvent, setReviewEvent] = useState(null);    // a letter / package built from Documents, being reviewed (Oct 14)
   const [eventsKey, setEventsKey] = useState(0);
+  const [requestsKey, setRequestsKey] = useState(0);   // the pending role change card
   const [welcomeBusy, setWelcomeBusy] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
   const [tab, setTab] = useState(initialTab);
@@ -1755,7 +1764,9 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
     ['documents', 'Documents', FileText],
     ['interviews', 'Interviews', Video],
     ['checklist', 'Checklist', ListChecks],
-    isAdmin && ['access', 'Access', Shield],
+    // Everyone in People sees Access (Pranshu, Oct 14): the pending role
+    // change and the role history; managing access stays admin-only.
+    ['access', 'Access', Shield],
     ['bod', 'Work Logs', Clock],
   ]).filter(Boolean);
   const expiry = nextExpiry(e);
@@ -1829,8 +1840,8 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
               <TrendingUp size={13} /> Promote
             </button>
-            <button className="secondary-btn" onClick={() => setRoleAction('role_change')}
-              title="Move them to a different role, with a letter they and their manager sign"
+            <button className="secondary-btn" onClick={() => setRoleAction('choose')}
+              title="Move them to a different role - as a promotion with a letter, or just the role"
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
               <Shield size={13} /> Change Role
             </button>
@@ -1894,11 +1905,18 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
         </div>
       )}
       {!teamView && <PersonLifeEvents employeeId={e.id} refreshKey={eventsKey} onSignNow={setSignParty} toastOk={toastOk} toastErr={toastErr} />}
-      {roleAction && <PromoteModal employee={e} mode={roleAction} canSeePay={canSeeComp} toastErr={toastErr}
+      {roleAction === 'choose' && <RoleChangeModal employee={e} toastErr={toastErr}
+        onClose={() => setRoleAction(null)} onPromote={() => setRoleAction('promotion')}
+        onChanged={res => {
+          setRoleAction(null); setRequestsKey(n => n + 1); onReload?.();
+          toastOk(`${e.firstName} is now ${res.roleName}.${res.warning ? ` ${res.warning}` : ''}`);
+        }} />}
+      {roleAction === 'promotion' && <PromoteModal employee={e} mode={roleAction} canSeePay={canSeeComp} toastErr={toastErr}
         onClose={() => setRoleAction(null)}
         onSent={ev => {
           setRoleAction(null); setEventsKey(n => n + 1);
-          if (ev.senderPartyId) setSignParty(ev.senderPartyId);
+          if (ev.openReview) setReviewEvent(ev.id);
+          else if (ev.senderPartyId) setSignParty(ev.senderPartyId);
           else toastOk(`Letter sent - ${e.firstName} signs first, then their manager.`);
         }} />}
       {offboardOpen && <OffboardModal employee={e} companyName={companyName} toastErr={toastErr}
@@ -1911,8 +1929,11 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           toastOk(ev.applyStatus === 'applied'
             ? `${e.firstName} is offboarded${extra ? ` - ${extra}` : ''}.`
             : `Offboarding scheduled - last day ${usDay(ev.effectiveDate)}, Nexus marks them Left the morning after.`);
-          if (ev.senderPartyId) setSignParty(ev.senderPartyId);
+          if (ev.status === 'review') setReviewEvent(ev.id);
+          else if (ev.senderPartyId) setSignParty(ev.senderPartyId);
         }} />}
+      {reviewEvent && <PacketReview eventId={reviewEvent} onClose={() => setReviewEvent(null)}
+        onChanged={() => setEventsKey(n => n + 1)} onSignNow={setSignParty} toastOk={toastOk} toastErr={toastErr} />}
       <PacketSigner partyId={signParty} toastOk={toastOk} toastErr={toastErr}
         onClose={() => { setSignParty(null); setEventsKey(n => n + 1); }}
         onDone={() => { setSignParty(null); setEventsKey(n => n + 1); toastOk('Signed.'); }} />
@@ -1992,6 +2013,9 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
               {row(MapPinned, 'Current address', e.personal?.currentAddress)}
               {row(MapPinned, 'Permanent address', e.personal?.permanentAddress)}
               {row(Heart, 'Emergency contact', e.personal?.emergency?.name ? [e.personal.emergency.name, e.personal.emergency.relationship && `(${e.personal.emergency.relationship})`, e.personal.emergency.phone, e.personal.emergency.email].filter(Boolean).join(' · ') : '')}
+              {/* What they filled in on their hiring packet's Details Form
+                  (Oct 14) - Sensitive answers stay on the packet. */}
+              {(e.personal?.packetDetails || []).map(d => <Fragment key={d.label}>{row(FileText, d.label, d.value)}</Fragment>)}
             </div>
           </>
         )}
@@ -2040,9 +2064,16 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
 
         {tab === 'location' && <GeofenceSection employee={e} toastOk={toastOk} toastErr={toastErr} />}
 
+        {/* Role change awaiting approval (Pranshu, Oct 13): the manager or HR
+            approves here, or from the bell / email. */}
+        {tab === 'access' && <RoleChangeRequestCard employeeId={e.id} refreshKey={requestsKey}
+          toastOk={toastOk} toastErr={toastErr} onDecided={() => { setRequestsKey(n => n + 1); onReload?.(); }} />}
         {tab === 'access' && teamView && <TeamAccessView employee={e} />}
-        {tab === 'access' && isAdmin && !teamView && <EmployeeAccess email={meEmail} identityType={e.identityType} companyId={e.company || ''} toastOk={toastOk} toastErr={toastErr} onChanged={onEmployeeUpdated}
-          onChangeRole={['active', 'onboarding'].includes(e.status) && e.identityType !== 'external' ? () => setRoleAction('role_change') : undefined} />}
+        {/* keyed on updatedAt: a role change made from the Change Role modal
+            re-reads the job role and access shown here */}
+        {tab === 'access' && isAdmin && !teamView && <EmployeeAccess key={e.updatedAt} email={meEmail} identityType={e.identityType} companyId={e.company || ''} toastOk={toastOk} toastErr={toastErr} onChanged={onEmployeeUpdated}
+          onChangeRole={['active', 'onboarding'].includes(e.status) && e.identityType !== 'external' ? () => setRoleAction('choose') : undefined} />}
+        {tab === 'access' && <RoleHistory employeeId={e.id} refreshKey={`${requestsKey}-${eventsKey}-${e.updatedAt || ''}`} />}
 
         {tab === 'bod' && <WorkLogsSection employee={e} />}
 
@@ -2109,6 +2140,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
   const [packetsOpen, setPacketsOpen] = useState(false);   // Hiring > Packets (per-company setup)
   const [packetFor, setPacketFor] = useState(null);        // candidate the hiring packet is being sent to
   const [signParty, setSignParty] = useState(null);        // HR's own signature on a packet
+  const [reviewFor, setReviewFor] = useState(null);        // a packet built from Documents, being reviewed (Oct 14)
   const [packetRefresh, setPacketRefresh] = useState(0);
   const { canAccessModule } = useRole();
   const canSeePay = canAccessModule('hr_comp', 'owner', 'viewer');
@@ -2316,9 +2348,13 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
         onClose={() => setPacketFor(null)}
         onSent={ev => {
           setPacketFor(null); setPacketRefresh(n => n + 1);
-          if (ev.senderPartyId) setSignParty(ev.senderPartyId);
+          if (ev.openReview) setReviewFor(ev.id);
+          else if (ev.intakeUrl) toastOk(`Details link sent to ${ev.subjectEmail}. The documents are generated when they fill it in.`);
+          else if (ev.senderPartyId) setSignParty(ev.senderPartyId);
           else toastOk(`Hiring packet sent to ${ev.subjectEmail}.`);
         }} />}
+      {reviewFor && <PacketReview eventId={reviewFor} onClose={() => setReviewFor(null)}
+        onChanged={() => setPacketRefresh(n => n + 1)} onSignNow={setSignParty} toastOk={toastOk} toastErr={toastErr} />}
       <PacketSigner partyId={signParty} toastOk={toastOk} toastErr={toastErr}
         onClose={() => { setSignParty(null); setPacketRefresh(n => n + 1); }}
         onDone={() => {
@@ -2352,6 +2388,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
 // card press from a pan; data-email lets drop resolve the target across the
 // zoom transform.
 function OrgNodeCard({ e, kids, isCollapsed, onToggle, onSelect, dnd, entityName, highlight, divName, divColor, isHead, dim, onUnlink = null }) {
+  const ext = isExternalPerson(e);
   const email = (e.workEmail || '').toLowerCase();
   const isTarget = dnd.overKey === email && dnd.draggingId && dnd.draggingId !== e.id;
   const isDragging = dnd.draggingId === e.id;
@@ -2374,11 +2411,13 @@ function OrgNodeCard({ e, kids, isCollapsed, onToggle, onSelect, dnd, entityName
         </button>
       )}
       <div
+        data-orgtile="1"
         onPointerDown={ev => dnd.onCardPointerDown(ev, e)}
         style={{
           position: 'relative', width: 216, padding: '12px 14px 12px 18px', display: 'flex', alignItems: 'center', gap: 11,
           background: isTarget ? 'hsla(var(--color-green),0.08)' : 'var(--card)',
-          border: `1.5px solid ${isTarget ? 'hsl(var(--color-green))' : highlight ? 'hsl(var(--color-blue))' : 'var(--line)'}`,
+          border: isTarget ? '1.5px solid hsl(var(--color-green))' : highlight ? '1.5px solid hsl(var(--color-blue))'
+            : ext ? '1.5px dashed hsla(var(--color-orange),0.55)' : '1.5px solid var(--line)',
           borderRadius: 14, boxShadow: highlight ? '0 0 0 3px hsla(var(--color-blue),0.15)' : 'var(--shadow-sm)',
           cursor: 'grab', opacity: dim ? 0.3 : isDragging ? 0.4 : 1, overflow: 'hidden',
           touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none',
@@ -2387,10 +2426,24 @@ function OrgNodeCard({ e, kids, isCollapsed, onToggle, onSelect, dnd, entityName
         {divColor && <span style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 5, background: `hsl(${divColor})` }} />}
         <Avatar e={e} size={40} card={false} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fullName(e)}</div>
+          {/* Four lines (Neil, Oct 14 2026): name, role, department, company -
+              each on its own line so every card reads the same way. An
+              external user carries the designation beside the name and
+              their own company on the company line. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+            <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{fullName(e)}</span>
+            {ext && (
+              <span title={e.identityType === 'guest' ? 'Guest account (Microsoft 365 guest)' : 'External user (no Microsoft 365 login)'}
+                style={{ flexShrink: 0, fontSize: 9, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', padding: '1px 6px', borderRadius: 5,
+                  background: 'hsla(var(--color-orange),0.14)', color: 'hsl(var(--color-orange))', border: '1px solid hsla(var(--color-orange),0.35)' }}>
+                External
+              </span>
+            )}
+          </div>
           <div style={{ fontSize: 11, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.jobTitle || '-'}</div>
-          <div style={{ fontSize: 10, color: 'var(--muted)', opacity: 0.85, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {[e.department, entityName(e.company)].filter(Boolean).join(' · ')}
+          <div style={{ fontSize: 10.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.department || '-'}</div>
+          <div style={{ fontSize: 10.5, color: 'var(--muted)', opacity: 0.85, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {(ext ? e.externalCompany : entityName(e.company)) || '-'}
           </div>
           {isHead && divName && (
             <span style={{ display: 'inline-block', marginTop: 3, fontSize: 9.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', color: `hsl(${divColor})`, background: `hsla(${divColor},0.12)`, borderRadius: 6, padding: '1px 6px' }}>
@@ -2406,8 +2459,9 @@ function OrgNodeCard({ e, kids, isCollapsed, onToggle, onSelect, dnd, entityName
 
 // Right-hand detail drawer: view + edit reporting line, title, department, and
 // the functional-division head tag.
-function OrgSidePanel({ e, people, entities, entityName, descendants, divisionNames, inheritedDivision, onClose, onSelect, onSaved, toastOk, toastErr }) {
-  const init = () => ({ manager_email: e.managerEmail || '', job_title: e.jobTitle || '', department: e.department || '', company: e.company || '', division: e.division || '' });
+function OrgSidePanel({ e, people, externals = [], entities, entityName, descendants, divisionNames, inheritedDivision, onClose, onSelect, onSaved, toastOk, toastErr }) {
+  const ext = isExternalPerson(e);
+  const init = () => ({ manager_email: e.managerEmail || '', job_title: e.jobTitle || '', department: e.department || '', company: e.company || '', division: e.division || '', external_company: e.externalCompany || '' });
   const [f, setF] = useState(init);
   const [busy, setBusy] = useState(false);
   useEffect(() => { setF(init()); }, [e.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -2415,15 +2469,23 @@ function OrgSidePanel({ e, people, entities, entityName, descendants, divisionNa
   const myEmail = (e.workEmail || '').toLowerCase();
   const blocked = descendants(myEmail);           // can't report to your own subtree
   const managerOptions = people.filter(p => p.id !== e.id && p.workEmail && !blocked.has((p.workEmail || '').toLowerCase()));
+  // The current manager can be an external who is not on the chart (the
+  // External Users option is off): keep them selectable so the select never
+  // falls back to "No manager" and a save never unlinks them by accident.
+  const offChartManager = f.manager_email && !managerOptions.some(p => (p.workEmail || '').toLowerCase() === f.manager_email)
+    ? externals.find(p => (p.workEmail || '').toLowerCase() === f.manager_email) : null;
   const reports = people.filter(p => (p.managerEmail || '').toLowerCase() === myEmail && myEmail);
-  const dirty = f.manager_email !== (e.managerEmail || '') || f.job_title !== (e.jobTitle || '') || f.department !== (e.department || '') || f.company !== (e.company || '') || f.division !== (e.division || '');
+  const dirty = f.manager_email !== (e.managerEmail || '') || f.job_title !== (e.jobTitle || '') || f.department !== (e.department || '') || f.company !== (e.company || '') || f.division !== (e.division || '') || f.external_company !== (e.externalCompany || '');
   // Division inherited from a manager above (shown when this person isn't a lead themselves)
   const inherited = (inheritedDivision || '').trim();
 
   const save = async () => {
     setBusy(true);
     try {
-      const saved = await api.updateEmployee(e.id, f);
+      // The outside company is an external's field only; an internal's
+      // save never carries it.
+      const { external_company, ...internalFields } = f;
+      const saved = await api.updateEmployee(e.id, ext ? { ...internalFields, external_company } : internalFields);
       onSaved(saved);
       toastOk(`${fullName(e)} updated.`);
     } catch (err) { toastErr(err?.message || 'Could not save.'); }
@@ -2438,9 +2500,12 @@ function OrgSidePanel({ e, people, entities, entityName, descendants, divisionNa
         <div style={{ padding: '18px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 14 }}>
           <Avatar e={e} size={52} card={false} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 800, fontSize: 16 }}>{fullName(e)}</div>
+            <div style={{ fontWeight: 800, fontSize: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+              {fullName(e)}
+              {ext && <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', padding: '2px 7px', borderRadius: 5, background: 'hsla(var(--color-orange),0.14)', color: 'hsl(var(--color-orange))', border: '1px solid hsla(var(--color-orange),0.35)' }}>External</span>}
+            </div>
             <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {[e.jobTitle, e.department].filter(Boolean).join(' · ') || '-'}
+              {[e.jobTitle, e.department, ext ? e.externalCompany : ''].filter(Boolean).join(' · ') || '-'}
             </div>
             {e.workEmail && <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{e.workEmail}</div>}
           </div>
@@ -2452,7 +2517,8 @@ function OrgSidePanel({ e, people, entities, entityName, descendants, divisionNa
           <select className="form-input" style={{ width: '100%' }} value={f.manager_email}
             onChange={ev => setF(x => ({ ...x, manager_email: ev.target.value }))}>
             <option value="">- No manager (top of a tree) -</option>
-            {managerOptions.map(p => <option key={p.id} value={(p.workEmail || '').toLowerCase()}>{fullName(p)}{p.jobTitle ? ` - ${p.jobTitle}` : ''}</option>)}
+            {managerOptions.map(p => <option key={p.id} value={(p.workEmail || '').toLowerCase()}>{fullName(p)}{p.jobTitle ? ` - ${p.jobTitle}` : ''}{isExternalPerson(p) ? ' (External)' : ''}</option>)}
+            {offChartManager && <option value={f.manager_email}>{fullName(offChartManager)}{offChartManager.jobTitle ? ` - ${offChartManager.jobTitle}` : ''} (External, not shown on the chart)</option>}
           </select>
 
           <label style={lbl}>Job title</label>
@@ -2462,10 +2528,17 @@ function OrgSidePanel({ e, people, entities, entityName, descendants, divisionNa
           <input className="form-input" style={{ width: '100%' }} value={f.department} onChange={ev => setF(x => ({ ...x, department: ev.target.value }))} />
 
           <label style={lbl}>Company</label>
-          <select className="form-input" style={{ width: '100%' }} value={f.company} onChange={ev => setF(x => ({ ...x, company: ev.target.value }))}>
-            <option value="">-</option>
-            {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
-          </select>
+          {ext ? (
+            // An external user's company is their own outside company, not
+            // one of ours.
+            <input className="form-input" style={{ width: '100%' }} value={f.external_company} placeholder="The company they work for"
+              onChange={ev => setF(x => ({ ...x, external_company: ev.target.value }))} />
+          ) : (
+            <select className="form-input" style={{ width: '100%' }} value={f.company} onChange={ev => setF(x => ({ ...x, company: ev.target.value }))}>
+              <option value="">-</option>
+              {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
+            </select>
+          )}
 
           <label style={lbl}>Division lead of</label>
           <input className="form-input" style={{ width: '100%' }} list="org-divisions"
@@ -2476,7 +2549,7 @@ function OrgSidePanel({ e, people, entities, entityName, descendants, divisionNa
           </datalist>
           <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 4, lineHeight: 1.4 }}>
             {f.division.trim()
-              ? `Everyone reporting under ${fullName(e)} is coloured as “${f.division.trim()}”, until another lead is tagged below them.`
+              ? `Everyone reporting under ${fullName(e)} is colored as “${f.division.trim()}”, until another lead is tagged below them.`
               : inherited
                 ? `Inherits “${inherited}” from their manager. Type a name here to make ${fullName(e)} their own division lead.`
                 : `Not in any division. Type a name to make ${fullName(e)} a division lead - their whole team inherits it.`}
@@ -2511,7 +2584,14 @@ function OrgSidePanel({ e, people, entities, entityName, descendants, divisionNa
   );
 }
 
-function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr }) {
+const ORG_EXTERNALS_KEY = 'nx-orgchart-externals';
+function OrgChartTab({ employees, externals = [], entities = [], onUpdated, toastOk, toastErr }) {
+  // External users on the chart is an option (Neil, Oct 14 2026): off by
+  // default, remembered per device. On, every external with a work email
+  // joins the tree under whoever they report to, with a clear External
+  // designation on their card.
+  const [includeExternal, setIncludeExternal] = useState(() => { try { return localStorage.getItem(ORG_EXTERNALS_KEY) === 'true'; } catch { return false; } });
+  useEffect(() => { try { localStorage.setItem(ORG_EXTERNALS_KEY, String(includeExternal)); } catch { /* storage blocked */ } }, [includeExternal]);
   // Two charts, one tab (Neil, Aug 11): the reporting tree, and the investor
   // book grouped by relationship owner - investors don't report to anyone.
   const [chartMode, setChartMode] = useState('org');   // 'org' | 'investors'
@@ -2527,7 +2607,10 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
   const [dragGhost, setDragGhost] = useState(null);   // {name, x, y} while dragging a card
   const chartRef = useRef(null);                      // the shared canvas: centerView / fitToView / focusOn / bounds
   const dragRef = useRef(null);
-  const people = employees.filter(e => e.status !== 'offboarded');
+  // Externals are active / inactive / staged (never offboarded): only the
+  // active ones belong on the chart or in the toggle's count.
+  const liveExternals = externals.filter(e => (e.status || 'active') === 'active');
+  const people = [...employees.filter(e => e.status !== 'offboarded'), ...(includeExternal ? liveExternals : [])];
 
   // First render: show the top two levels at full size (roots + their direct
   // reports); deeper teams start collapsed behind their pill. Keeps the chart
@@ -2706,8 +2789,11 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
   const q = orgQ.trim().toLowerCase();
   // Company/department FILTER the tree; search FINDS within it (expand + center
   // + highlight) - filtering by name would amputate the person's whole subtree.
+  // An external has no entity of ours: for the company filter they belong
+  // where the person they report to belongs.
+  const companyOf = e => isExternalPerson(e) ? (byEmail.get((e.managerEmail || '').toLowerCase())?.company || '') : e.company;
   const visible = people.filter(e =>
-    (!orgCompany || e.company === orgCompany) &&
+    (!orgCompany || companyOf(e) === orgCompany) &&
     (!orgDept || e.department === orgDept));
   const visEmails = new Set(visible.map(e => (e.workEmail || '').toLowerCase()).filter(Boolean));
   const visChildren = new Map();
@@ -2835,6 +2921,18 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
           <option value="">All departments</option>
           {departments.map(d => <option key={d} value={d}>{d}</option>)}
         </select>
+        {/* External users (guests, contractors, outside managers) are an
+            option on the chart - off by default, remembered per device. */}
+        {liveExternals.length > 0 && (
+          <label title="Show external users (guests and contractors) on the chart, under whoever they report to"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 7, height: 34, padding: '0 12px', borderRadius: 10, flex: '0 0 auto', cursor: 'pointer',
+              border: `1.5px solid ${includeExternal ? 'hsl(var(--color-orange))' : 'var(--line)'}`, background: includeExternal ? 'hsla(var(--color-orange),0.08)' : 'var(--card)',
+              fontFamily: 'Inter,sans-serif', fontSize: 12.5, fontWeight: 700, color: includeExternal ? 'hsl(var(--color-orange))' : 'var(--ink)', userSelect: 'none' }}>
+            <input type="checkbox" checked={includeExternal} onChange={ev => setIncludeExternal(ev.target.checked)} style={{ margin: 0, accentColor: 'hsl(var(--color-orange))' }} />
+            External Users
+            <span style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)' }}>{liveExternals.length}</span>
+          </label>
+        )}
         <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: '0 0 auto', whiteSpace: 'nowrap' }}>
           {visible.length}{filtered ? ` of ${people.length}` : ''} people · {linked} linked
         </span>
@@ -2913,7 +3011,7 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
       )}
 
       {selected && (
-        <OrgSidePanel e={selected} people={people} entities={entities || []} entityName={entityName}
+        <OrgSidePanel e={selected} people={people} externals={liveExternals} entities={entities || []} entityName={entityName}
           descendants={descendants} divisionNames={divisionNames}
           inheritedDivision={(selected.division || '').trim() ? '' : divisionOf(selected)}
           onClose={() => setSelected(null)} onSelect={setSelected}
@@ -3344,7 +3442,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
   // Pydantic's exclude_unset leaves whatever a company already has in the DB
   // untouched (still rendered in signatures); this form just stops offering
   // a way to view/set it.
-  const blank = { name: '', legal_name: '', country: '', tax_id: '', physical_address: '', mailing_address: '', signatory: '', notes: '', domains: '', manager_emails: [], hr_contact_email: '', logo_url: '', website: '', main_phone: '', main_phone_type: 'phone', main_phone_country: 'US', facebook_url: '', twitter_url: '', instagram_url: '' };
+  const blank = { name: '', legal_name: '', country: '', tax_id: '', physical_address: '', mailing_address: '', signatory: '', signatory_email: '', notes: '', domains: '', manager_emails: [], hr_contact_email: '', logo_url: '', website: '', main_phone: '', main_phone_type: 'phone', main_phone_country: 'US', facebook_url: '', twitter_url: '', instagram_url: '' };
   const [mode, setMode] = useState(null);   // null = list · 'new' · <id> editing
   const [tab, setTab] = useState('overview');
   const { can } = useRole();
@@ -3393,7 +3491,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
     }
     const seeded = { name: en.name, legal_name: en.legalName || '', country: en.country || '', tax_id: en.taxId || '',
       physical_address: en.physicalAddress || '', mailing_address: en.mailingAddress || '',
-      signatory: en.signatory || '', notes: en.notes || '', domains: en.domains || '',
+      signatory: en.signatory || '', signatory_email: en.signatoryEmail || '', notes: en.notes || '', domains: en.domains || '',
       manager_emails: en.managerEmails && en.managerEmails.length ? en.managerEmails : (en.managerEmail ? [en.managerEmail] : []),
       hr_contact_email: en.hrContactEmail || '',
       logo_url: en.logoUrl || '', website: en.website || '', main_phone: phoneNumber, main_phone_type: phoneType, main_phone_country: phoneCountry, facebook_url: en.facebookUrl || '', twitter_url: en.twitterUrl || '', instagram_url: en.instagramUrl || '' };
@@ -3487,6 +3585,24 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                 </div>
                 {field('TAX ID (EIN / GSTIN)', 'tax_id')}
                 {field('AUTHORIZED SIGNATORY', 'signatory', { placeholder: 'name, title' })}
+                {/* Who signs when an HR packet's signing order says Authorized
+                    Signatory (Oct 14). The text above is what a letter prints
+                    ({{signatory}}); this is the person who actually signs. */}
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label style={FL}>AUTHORIZED SIGNATORY (PERSON)</label>
+                  <select className="form-input" style={{ width: '100%' }} value={f.signatory_email || ''}
+                    onChange={e => set('signatory_email', e.target.value)}>
+                    <option value="">- not set -</option>
+                    {people.map(p => <option key={p.email} value={p.email}>{p.name} ({p.email})</option>)}
+                  </select>
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Signs HR packets for the company when a packet's signing order says Authorized Signatory.</div>
+                  {f.signatory_email && f.signatory.trim() && personName(f.signatory_email)
+                    && !f.signatory.toLowerCase().includes((personName(f.signatory_email).split(' ')[0] || '').toLowerCase()) && (
+                    <div style={{ fontSize: 11.5, color: 'hsl(var(--color-orange))', marginTop: 4 }}>
+                      Letters print "{f.signatory}" as the signatory, but {personName(f.signatory_email)} signs - make the two match.
+                    </div>
+                  )}
+                </div>
                 <div style={{ gridColumn: '1 / -1' }}>
                   <label style={FL}>COMPANY MANAGER(S)</label>
                   {f.manager_emails.length > 0 && (
@@ -5090,7 +5206,10 @@ function maskId(v) {
 
 function PersonalModal({ employee, onClose, onSaved, toastOk, toastErr }) {
   const p0 = employee.personal || {};
+  // Everything else in the record (preferred name, a hire packet's details)
+  // is kept as it was - the save replaces the whole record.
   const [p, setP] = useState({
+    ...p0,
     dob: p0.dob || '', gender: p0.gender || '', nationalId: p0.nationalId || '',
     currentAddress: p0.currentAddress || '', permanentAddress: p0.permanentAddress || '',
     emergency: { name: '', relationship: '', phone: '', email: '', ...(p0.emergency || {}) },
@@ -5213,7 +5332,7 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
       toastOk('Compensation saved.'); onClose();
     } catch (e) { toastErr(e?.message || 'Could not save compensation.'); setBusy(false); }
   }
-  const money = (v, cur) => v ? `${cur === 'INR' ? '₹' : '$'}${Number(v).toLocaleString()}` : '-';
+  const money = (v, cur) => v ? `${moneyPrefix(cur)}${Number(v).toLocaleString()}` : '-';
   const dirty = JSON.stringify({ comp, bank }) !== JSON.stringify(baselineRef.current);
   const guard = useUnsavedGuard(dirty, onClose, save);
 
@@ -5239,7 +5358,7 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
             <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.04em', marginBottom: 10 }}>BASE PAY</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
               <div><label style={FL}>BASE AMOUNT</label><input className="form-input" style={{ width: '100%' }} type="number" value={comp.base} onChange={e => setC('base', e.target.value)} placeholder="e.g. 90000" /></div>
-              <div><label style={FL}>CURRENCY</label><select className="form-input" style={{ width: '100%' }} value={comp.currency} onChange={e => { const cur = e.target.value; setComp(p => ({ ...p, currency: cur, frequency: defaultPayFreq(p.payBasis, cur) })); }}><option value="USD">USD</option><option value="INR">INR</option></select></div>
+              <div><label style={FL}>CURRENCY</label><select className="form-input" style={{ width: '100%' }} value={comp.currency} onChange={e => { const cur = e.target.value; setComp(p => ({ ...p, currency: cur, frequency: defaultPayFreq(p.payBasis, cur) })); }}>{currencyOptions().map(c => <option key={c.code} value={c.code}>{c.label}</option>)}</select></div>
               <div><label style={FL}>PAY BASIS</label><select className="form-input" style={{ width: '100%' }} value={comp.payBasis} onChange={e => { const b = e.target.value; setComp(p => ({ ...p, payBasis: b, frequency: defaultPayFreq(b, p.currency) })); }}>{PAY_BASIS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
               <div><label style={FL}>PAY FREQUENCY</label><select className="form-input" style={{ width: '100%' }} value={comp.frequency} onChange={e => setC('frequency', e.target.value)}>{PAY_FREQ.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
               <div>
@@ -5570,7 +5689,7 @@ function PeopleStatCards({ employees, externals = [], loading, isMobile, onStatu
   // Total People counts the company's own people; external and guest users
   // (their own list on this screen) read underneath as "+N external" - the
   // ones still active (Neil, Oct 13 - 62 vs 59 active read wrong).
-  const isExt = e => ['external', 'guest'].includes(e.identityType || 'internal');
+  const isExt = isExternalPerson;
   const nExternal = externals.filter(e => isExt(e) && !INACTIVE_STATUSES.has(e.status || 'active')).length;
   const total = employees.filter(e => !isExt(e)).length;
   const nActive = employees.filter(e => e.status === 'active').length;
@@ -5632,6 +5751,22 @@ function PeopleStatCards({ employees, externals = [], loading, isMobile, onStatu
         </div>
       </StatCardShell>
     </div>
+  );
+}
+
+// A role change waiting on approval (Pranshu, Oct 14): the People list marks
+// the person so HR sees something is pending for them; a click opens it.
+function PendingRoleBadge({ req, onOpen }) {
+  if (!req) return null;
+  const label = `Role change to ${req.toRoleName} - ${req.canDecide ? 'waiting for your approval' : 'awaiting approval'}`;
+  const open = ev => { ev.stopPropagation(); onOpen(req); };
+  return (
+    <span role="button" tabIndex={0} title={label} aria-label={label} onClick={open}
+      onKeyDown={ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); open(ev); } }}
+      style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 20, height: 20, borderRadius: '50%', flexShrink: 0, cursor: 'pointer',
+        background: 'hsla(var(--color-orange),0.16)', color: 'hsl(var(--color-orange))' }}>
+      <Hourglass size={11} />
+    </span>
   );
 }
 
@@ -5708,6 +5843,14 @@ export default function HR({ activeSub, onSubChange }) {
   const [clProgress, setClProgress] = useState({});
   const [clView, setClView] = useState('overview');   // People > Checklists: overview | settings
   const [openTab, setOpenTab] = useState('overview'); // the profile tab a jump should land on
+  // Bell / email "Review Request" on a role change (Pranshu, Oct 13) lands on
+  // hr-role-change-<id>: open the decision right away, then People.
+  const [roleDecisionId, setRoleDecisionId] = useState(null);
+  const [pendingRoles, setPendingRoles] = useState({});   // employeeId -> waiting role change
+  useEffect(() => {
+    const m = String(activeSub || '').match(/^hr-role-change-(.+)$/);
+    if (m) { setRoleDecisionId(m[1]); onSubChange?.('hr-people'); }
+  }, [activeSub]);   // eslint-disable-line react-hooks/exhaustive-deps
   const { canAccessModule, can, hrScope } = useRole();
   const canSeeComp = !hrTeam && canAccessModule('hr_comp', 'owner', 'viewer');   // a team view never shows pay
   const isAdmin = can('administrator');   // Roles & Access tab is admin-only
@@ -5760,8 +5903,8 @@ export default function HR({ activeSub, onSubChange }) {
         // the Total/Active/New joiners cards, By department chart, org chart
         // and every picker built on it are unchanged; externals join the
         // DIRECTORY via extEmployees (Neil, Aug 24: one master People list).
-        setEmployees(rows.filter(e => !['guest', 'external'].includes(e.identityType || 'internal')));
-        setExtEmployees(rows.filter(e => ['guest', 'external'].includes(e.identityType || 'internal')));
+        setEmployees(rows.filter(e => !isExternalPerson(e)));
+        setExtEmployees(rows.filter(isExternalPerson));
         setError('');
       })
       .catch(err => setError(err?.message || 'Could not load employees.'))
@@ -5787,6 +5930,12 @@ export default function HR({ activeSub, onSubChange }) {
     if (hrTeam || (sub !== 'hr-people' && sub !== 'hr-checklists')) return;
     api.getChecklistProgress().then(r => setClProgress(r.progress || {})).catch(() => {});
   }, [sub, selectedId, hrTeam]);
+  useEffect(() => {
+    if (sub !== 'hr-people') return;
+    api.getRoleChangeRequests()
+      .then(rows => setPendingRoles(Object.fromEntries((rows || []).map(r => [r.employeeId, r]))))
+      .catch(() => {});
+  }, [sub, selectedId, employees, roleDecisionId]);
   const openChecklistOf = (id) => { setOpenTab('checklist'); setSelectedId(id); onSubChange?.('hr-people'); };
   const entityName = id => entities.find(en => en.id === id)?.name || '';
 
@@ -5798,7 +5947,7 @@ export default function HR({ activeSub, onSubChange }) {
   }, [employees, companyF]);
 
   const showingDeleted = statusF === DELETED_F;
-  const isExtRow = e => ['guest', 'external'].includes(e.identityType || 'internal');
+  const isExtRow = isExternalPerson;
   const filtered = useMemo(() => {
     // The directory is the MASTER list: internal people + guest/external
     // accounts together (Neil, Aug 24), narrowed by the worker-type filter.
@@ -5865,7 +6014,7 @@ export default function HR({ activeSub, onSubChange }) {
     const isNew = !employees.some(e => e.id === saved.id) && !extEmployees.some(e => e.id === saved.id);   // add modal shows its own toast
     // Route the row to the list its identity belongs in - an edit can flip a
     // person between internal and guest/external.
-    const ext = ['guest', 'external'].includes(saved.identityType || 'internal');
+    const ext = isExternalPerson(saved);
     const upsert = prev => {
       const i = prev.findIndex(e => e.id === saved.id);
       if (i === -1) return [...prev, saved].sort((a, b) => fullName(a).localeCompare(fullName(b)));
@@ -5978,7 +6127,7 @@ export default function HR({ activeSub, onSubChange }) {
             window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: 'documents-esign' } }));
           }} />
       )}
-      {sub === 'hr-org' && <OrgChartTab employees={employees} entities={entities} onUpdated={onSaved} toastOk={toastOk} toastErr={toastErr} />}
+      {sub === 'hr-org' && <OrgChartTab employees={employees} externals={extEmployees} entities={entities} onUpdated={onSaved} toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-leave' && <LeaveTab employees={employees} toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-time' && <TimeAdmin key={activeSub} initialView={TIME_DEEP_LINKS[activeSub]} toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-checklists' && (
@@ -6024,7 +6173,7 @@ export default function HR({ activeSub, onSubChange }) {
             companyName={entityName(selected.company)} canSeeComp={canSeeComp} isAdmin={isAdmin}
             initialTab={openTab} checklists={clProgress[selected.id] || []}
             toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved} onRemoved={onRemovedFromNexus} onRestored={onRestoredToNexus}
-            onExternalChanged={load}
+            onExternalChanged={load} onReload={load}
             onEdit={emp => { setEditing(emp); setFormOpen(true); }}
             onBack={() => setSelectedId(null)} />
           </>
@@ -6128,6 +6277,7 @@ export default function HR({ activeSub, onSubChange }) {
                             <div style={{ minWidth: 0 }}>
                               <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}>
                                 {fullName(e)}{isExtRow(e) && <ExternalBadge />}
+                                <PendingRoleBadge req={pendingRoles[e.id]} onOpen={r => setRoleDecisionId(r.id)} />
                               </div>
                               <div className="ppl-cell-sub" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                 {e.workEmail || e.employeeCode}
@@ -6174,6 +6324,7 @@ export default function HR({ activeSub, onSubChange }) {
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontWeight: 600, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 }}>
                               {fullName(e)}{isExtRow(e) && <ExternalBadge />}
+                                <PendingRoleBadge req={pendingRoles[e.id]} onOpen={r => setRoleDecisionId(r.id)} />
                             </div>
                             <div className="ppl-cell-sub" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.jobTitle || e.externalCompany || e.workEmail || '-'}</div>
                             {(clProgress[e.id] || []).length > 0 && (
@@ -6204,7 +6355,7 @@ export default function HR({ activeSub, onSubChange }) {
                       companyName={entityName(selected.company)} canSeeComp={canSeeComp} isAdmin={isAdmin}
                       initialTab={openTab} checklists={clProgress[selected.id] || []}
                       toastOk={toastOk} toastErr={toastErr} onEmployeeUpdated={onSaved} onRemoved={onRemovedFromNexus} onRestored={onRestoredToNexus}
-                      onExternalChanged={load}
+                      onExternalChanged={load} onReload={load}
                       onEdit={emp => { setEditing(emp); setFormOpen(true); }}
                       onBack={() => setSelectedId(null)} />
                   ) : (
@@ -6236,6 +6387,9 @@ export default function HR({ activeSub, onSubChange }) {
             load();   // the new external lands in the directory (master list)
           }} />
       )}
+      {roleDecisionId && <RoleChangeDecisionModal requestId={roleDecisionId} toastOk={toastOk} toastErr={toastErr}
+        onClose={() => setRoleDecisionId(null)}
+        onDecided={out => { setRoleDecisionId(null); load(); setOpenTab('access'); setSelectedId(out.employeeId); }} />}
       {toast && (
         <div role={toast.kind === 'error' ? 'alert' : 'status'}
           onMouseEnter={() => clearTimeout(toastTimer.current)}
