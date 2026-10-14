@@ -30,6 +30,26 @@ describe('PublicIntake', () => {
     expect(submit.mock.calls[0][1]).toMatchObject({ first_name: 'Jen', phone: '555-0100', address: '12 Pine St' });
   });
 
+  it("asks for the packet's own Details Form and sends the answers", async () => {
+    page = { ...page, state: 'open', form: [
+      { key: '', label: 'Bank Details', type: 'heading' },
+      { key: 'pan_number', label: 'PAN Number', type: 'text', required: true },
+      { key: 'aadhaar_number', label: 'Aadhaar Number', type: 'text', last4: true },
+      { key: 'account_type', label: 'Account Type', type: 'choice', options: ['Savings', 'Current'] },
+    ] };
+    submit.mockClear();
+    render(<PublicIntake token="tok" />);
+    await waitFor(() => expect(screen.getByText('Bank Details')).toBeTruthy());
+    expect(screen.getByText('Only the last 4 characters are kept.')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Phone *'), { target: { value: '555-0100' } });
+    fireEvent.change(screen.getByLabelText('Current Address *'), { target: { value: '12 Pine St' } });
+    fireEvent.change(screen.getByLabelText('PAN Number *'), { target: { value: 'ABCDE1234F' } });
+    fireEvent.change(screen.getByLabelText('Account Type'), { target: { value: 'Current' } });
+    fireEvent.click(screen.getByText('Send To HR'));
+    await waitFor(() => expect(screen.getByText('Thank You')).toBeTruthy());
+    expect(submit.mock.calls[0][1].answers).toEqual({ pan_number: 'ABCDE1234F', account_type: 'Current' });
+  });
+
   it('says when the link has expired', async () => {
     page = { ...page, state: 'expired' };
     render(<PublicIntake token="tok" />);

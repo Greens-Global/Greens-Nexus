@@ -1029,6 +1029,9 @@ def _run_migrations():
             "ALTER TABLE hr_life_events ADD COLUMN intake_sent_at VARCHAR DEFAULT ''",
             "ALTER TABLE hr_life_events ADD COLUMN intake_submitted_at VARCHAR DEFAULT ''",
             "CREATE INDEX IF NOT EXISTS ix_hr_life_events_intake_token_hash ON hr_life_events (intake_token_hash)",
+            # Packet Details Form + Signs Once (Oct 14). models.HrPacketSetting.
+            "ALTER TABLE hr_packet_settings ADD COLUMN details_form JSON DEFAULT '[]'",
+            "ALTER TABLE hr_packet_settings ADD COLUMN saved_signatures JSON DEFAULT '[]'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2284,6 +2287,9 @@ def _run_migrations():
         "ALTER TABLE hr_life_events ADD COLUMN IF NOT EXISTS intake_sent_at VARCHAR DEFAULT ''",
         "ALTER TABLE hr_life_events ADD COLUMN IF NOT EXISTS intake_submitted_at VARCHAR DEFAULT ''",
         "CREATE INDEX IF NOT EXISTS ix_hr_life_events_intake_token_hash ON hr_life_events (intake_token_hash)",
+        # Packet Details Form + Signs Once (Oct 14). models.HrPacketSetting.
+        "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS details_form JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS saved_signatures JSONB DEFAULT '[]'::jsonb",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

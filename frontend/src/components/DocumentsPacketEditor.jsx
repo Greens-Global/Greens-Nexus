@@ -11,15 +11,23 @@
 //                    each step shows who holds that role today.
 //   Verified By    - the role whose holder checks the filled-in documents
 //                    before anything goes out for signature.
+//   Signs Once     - a company step (HR, Authorized Signatory...) can sign
+//                    the packet ONCE; that signature then goes on every packet
+//                    until someone else holds the role (Pranshu, Oct 14).
+//   Details Form   - what the new hire fills in on their link beyond name,
+//                    phone, address and emergency contact: any country, any
+//                    field, each a {{variable}} the templates print.
 //
 // The server (backend/hr_packet_docs.py) owns every rule; the problems it
 // returns are shown as they are.
 import { useEffect, useMemo, useState } from 'react';
-import { X, Plus, Trash2, FileText, ChevronUp, ChevronDown, CheckCircle, AlertTriangle, Eye, ExternalLink, ListChecks } from 'lucide-react';
+import { X, Plus, Trash2, FileText, ChevronUp, ChevronDown, CheckCircle, AlertTriangle, Eye, ExternalLink, ListChecks, PenTool, Heading } from 'lucide-react';
 import { api } from '../api';
 import { setPendingOpen } from '../lib/pendingOpen';
-import { flowFor, keyLabel } from '../lib/packetFlow';
+import { flowFor, keyLabel, formKey } from '../lib/packetFlow';
 import { Spinner } from './AsyncState';
+import SignOnceModal from './SignOnceModal';
+import { formatDate } from '../lib/datetime';
 
 const lbl = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', margin: '14px 0 5px', textTransform: 'uppercase', letterSpacing: '.04em' };
 const hint = { fontSize: 11.5, color: 'var(--muted)', marginTop: 5, lineHeight: 1.5 };
@@ -35,6 +43,11 @@ const Chip = ({ tone = 'gray', children, title }) => (
     background: tone === 'gray' ? 'var(--mist)' : `hsla(var(--color-${tone}),0.12)`,
     color: tone === 'gray' ? 'var(--muted)' : `hsl(var(--color-${tone}))` }}>{children}</span>
 );
+
+// Roles the company holds - only these can Sign Once (the server re-checks).
+const ONCE_ROLES = (role) => !['employee', 'manager', 'sender'].includes(role);
+const FIELD_TYPES = [['text', 'Text'], ['longtext', 'Long Text'], ['number', 'Number'], ['date', 'Date'], ['email', 'Email'],
+  ['phone', 'Phone'], ['yesno', 'Yes / No'], ['choice', 'Dropdown']];
 
 function PreviewModal({ templateId, name, companyId, flow, letterheadId, onClose, toastErr }) {
   const [url, setUrl] = useState('');
@@ -71,7 +84,8 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
     name: packet?.name || '',
     roleIds: packet?.roleIds || [],
     docIds: packet?.docTemplateIds || [],
-    flow: packet?.flow?.map(({ key, role, action }) => ({ key, role, action })) || [],
+    flow: packet?.flow?.map(({ key, role, action, once }) => ({ key, role, action, ...(once ? { once: true } : {}) })) || [],
+    detailsForm: (packet?.detailsForm || []).map(f => ({ ...f, options: f.options || [] })),
     verifyRole: packet?.verifyRole || 'hr',
     letterheadId: packet?.letterheadId || '',
     payMode: packet?.payMode || '',
@@ -85,7 +99,14 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
   const [serverProblems, setServerProblems] = useState([]);
   const [preview, setPreview] = useState(null);
   const [adding, setAdding] = useState('');
+  const [onceStatus, setOnceStatus] = useState(packet?.signOnce || []);
+  const [signing, setSigning] = useState(null);
   const set = (k, v) => { setP(x => ({ ...x, [k]: v })); setServerProblems([]); };
+  // Who signs once for this company, and whether they have (with isMe).
+  useEffect(() => {
+    if (!p.id || !companyId) return;
+    api.signOnceStatus(p.id, companyId).then(setOnceStatus).catch(() => {});
+  }, [p.id, companyId]);
 
   useEffect(() => { api.hiringOptions(companyId || '').then(o => setCompanyRoles(o.roles || [])).catch(() => setCompanyRoles([])); }, [companyId]);
   useEffect(() => { api.packetRoleHolders(companyId || '').then(setHolders).catch(() => setHolders({})); }, [companyId]);
@@ -121,12 +142,22 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
     set('flow', at >= 0 && event !== 'promotion' ? [...p.flow.slice(0, at), step, ...p.flow.slice(at)] : [...p.flow, step]);
   };
 
+  // ── Details Form ──
+  const formKeys = new Set(p.detailsForm.map(f => f.key || formKey(f.label)).filter(Boolean));
+  const wanted = [];
+  docs.forEach(d => (d.variables || []).forEach(v => {
+    if (!formKeys.has(v.token) && !wanted.some(w => w.token === v.token)) wanted.push(v);
+  }));
+  const setField = (i, patch) => set('detailsForm', p.detailsForm.map((f, j) => j === i ? { ...f, ...patch } : f));
+  const addField = (f) => set('detailsForm', [...p.detailsForm, { label: '', type: 'text', required: false, sensitive: false, last4: false, options: [], ...f }]);
+
   // Quick checks while typing; the server's full list arrives on Save.
   const local = [];
   if (!p.name.trim()) local.push('Give the packet a name.');
   if (!p.docIds.length) local.push('Add at least one document from Documents > Templates.');
   docs.filter(d => !d.missing && !d.publishedVersion).forEach(d => local.push(`"${d.name}" has not been published yet - open it in Documents and click Publish.`));
   if (!p.flow.some(s => s.role === 'employee')) local.push('One step must be The Person (the one the packet is about).');
+  p.detailsForm.forEach(f => { if (!String(f.label || '').trim()) local.push('Every field on the Details Form needs a label.'); });
   const problems = [...new Set([...local, ...serverProblems])];
 
   async function save() {
@@ -136,6 +167,9 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
         id: p.id, entity_id: companyId || '', event, name: p.name.trim(), role_ids: p.roleIds,
         doc_template_ids: p.docIds, flow: p.flow, verify_role: p.verifyRole, letterhead_id: p.letterheadId,
         pay_mode: p.payMode, email_message: p.emailMessage, egnyte_subfolder: p.egnyteSubfolder,
+        details_form: event === 'hire' ? p.detailsForm.map(({ key, label, type, required, sensitive, last4, options, help }) => ({
+          key: key || '', label, type, required: !!required, sensitive: !!sensitive, last4: !!last4, options: options || [], help: help || '',
+        })) : [],
       });
       onSaved(saved);
     } catch (e) {
@@ -240,6 +274,13 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
               <select className="form-input" style={{ width: 140 }} value={s.action} onChange={e => setStep(i, { action: e.target.value })} aria-label="Action">
                 {actionOpts.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
               </select>
+              {s.action === 'sign' && ONCE_ROLES(s.role) && (
+                <label title="The company signs this packet once - that signature then goes on every packet automatically"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                  <input type="checkbox" checked={!!s.once} onChange={e => setStep(i, { once: e.target.checked || undefined })} style={{ accentColor: 'var(--pine)' }} />
+                  Signs Once
+                </label>
+              )}
               <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: 1, minWidth: 120 }}>{today(s.role)}</span>
               <button type="button" className="secondary-btn" disabled={i === 0} onClick={() => set('flow', move(p.flow, i, -1))} style={iconBtn} aria-label="Move up"><ChevronUp size={13} /></button>
               <button type="button" className="secondary-btn" disabled={i === p.flow.length - 1} onClick={() => set('flow', move(p.flow, i, 1))} style={iconBtn} aria-label="Move down"><ChevronDown size={13} /></button>
@@ -251,6 +292,92 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
             Roles are the same ones People &gt; Checklists uses - change who holds HR, IT or Payroll there (or the company's HR contact and Authorized Signatory in People &gt; Companies) and every packet follows.
             {event !== 'promotion' && ` The ${who} signs last.`}
           </div>
+
+          {p.flow.some(s => s.once) && (
+            <>
+              <label style={lbl}>Company Signature (Signs Once)</label>
+              {!p.id || !companyId ? (
+                <div style={hint}>{!p.id ? 'Save the packet, then the person who holds the role signs it once here.'
+                  : 'This packet is for every company - each company\'s signer signs once, the first time it is sent for them (from the packet\'s review).'}</div>
+              ) : onceStatus.map(s => (
+                <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', border: '1px solid var(--line)', borderRadius: 12, padding: '10px 12px', marginBottom: 8 }}>
+                  <PenTool size={15} style={{ color: s.signed ? 'hsl(var(--color-green))' : 'hsl(var(--color-orange))', flexShrink: 0 }} />
+                  <div style={{ flex: '1 1 240px', fontSize: 12.5 }}>
+                    <b>{s.roleLabel}</b> - {s.name || 'nobody holds this role yet'}
+                    <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>
+                      {s.signed ? `Signed once on ${formatDate(s.adoptedAt)} - applied to every packet automatically.`
+                        : s.previous ? `${s.previous.name} signed before, but ${s.name || 'someone else'} holds ${s.roleLabel} now - they sign once before the next packet can go.`
+                          : 'Not signed yet - nothing can be sent until they sign once.'}
+                    </div>
+                  </div>
+                  {s.signed ? <Chip tone="green">Signed</Chip> : s.isMe
+                    ? <button type="button" className="primary-btn" onClick={() => setSigning(s)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><PenTool size={12} /> Sign Once</button>
+                    : <Chip tone="orange">Waiting For {s.name || s.roleLabel}</Chip>}
+                </div>
+              ))}
+            </>
+          )}
+
+          {event === 'hire' && (
+            <>
+              <label style={lbl}>Details Form</label>
+              <div style={hint}>
+                Name, phone, address and emergency contact are always asked. Add anything else this packet needs - an ID number, bank details, date of birth -
+                for any country. Each field is a variable the templates print, shown as <code>{'{{like_this}}'}</code>.
+              </div>
+              {wanted.length > 0 && (
+                <div style={{ border: '1px dashed var(--line)', borderRadius: 12, padding: '10px 12px', marginTop: 8, fontSize: 12.5 }}>
+                  Your documents also print these, and nothing fills them yet:
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                    {wanted.map(v => (
+                      <button key={v.token} type="button" className="secondary-btn" onClick={() => addField({ key: v.token, label: v.label, type: ['date', 'email', 'number'].includes(v.type) ? v.type : 'text' })}
+                        style={{ fontSize: 11.5, padding: '3px 10px', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Plus size={11} /> {v.label}</button>
+                    ))}
+                  </div>
+                  <div style={{ ...hint, marginTop: 6 }}>Add each to the form, or give it a Default Value in the template if it is the same for everyone (a client name).</div>
+                </div>
+              )}
+              {p.detailsForm.map((f, i) => f.type === 'heading' ? (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
+                  <Heading size={14} style={{ color: 'var(--muted)' }} />
+                  <input className="form-input" style={{ flex: 1, fontWeight: 700 }} value={f.label} placeholder="Section heading, e.g. Bank Details" onChange={e => setField(i, { label: e.target.value })} />
+                  <button type="button" className="secondary-btn" disabled={i === 0} onClick={() => set('detailsForm', move(p.detailsForm, i, -1))} style={iconBtn} aria-label="Move up"><ChevronUp size={13} /></button>
+                  <button type="button" className="secondary-btn" disabled={i === p.detailsForm.length - 1} onClick={() => set('detailsForm', move(p.detailsForm, i, 1))} style={iconBtn} aria-label="Move down"><ChevronDown size={13} /></button>
+                  <button type="button" className="secondary-btn" onClick={() => set('detailsForm', p.detailsForm.filter((_, j) => j !== i))} style={iconBtn} aria-label="Remove heading"><Trash2 size={13} /></button>
+                </div>
+              ) : (
+                <div key={i} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '10px 12px', marginTop: 8 }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <input className="form-input" style={{ flex: '1 1 200px' }} value={f.label} placeholder="Label, e.g. PAN Number" onChange={e => setField(i, { label: e.target.value })} aria-label="Field label" />
+                    <select className="form-input" style={{ width: 150 }} value={f.type} onChange={e => setField(i, { type: e.target.value, ...(e.target.value === 'text' || e.target.value === 'number' ? {} : { last4: false }) })} aria-label="Field type">
+                      {FIELD_TYPES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                    </select>
+                    <code style={{ fontSize: 11, color: 'var(--muted)' }}>{`{{${f.key || formKey(f.label) || '...'}}}`}</code>
+                    <button type="button" className="secondary-btn" disabled={i === 0} onClick={() => set('detailsForm', move(p.detailsForm, i, -1))} style={iconBtn} aria-label="Move up"><ChevronUp size={13} /></button>
+                    <button type="button" className="secondary-btn" disabled={i === p.detailsForm.length - 1} onClick={() => set('detailsForm', move(p.detailsForm, i, 1))} style={iconBtn} aria-label="Move down"><ChevronDown size={13} /></button>
+                    <button type="button" className="secondary-btn" onClick={() => set('detailsForm', p.detailsForm.filter((_, j) => j !== i))} style={iconBtn} aria-label="Remove field"><Trash2 size={13} /></button>
+                  </div>
+                  <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 8, fontSize: 12 }}>
+                    {[['required', 'Required', 'They cannot send the form without it'],
+                      ['sensitive', 'Sensitive', 'Bank details, ID numbers: only people with Pay & Benefits access see it or the documents that print it'],
+                      ...(f.type === 'text' || f.type === 'number' ? [['last4', 'Last 4 Only', 'Only the last 4 characters are kept - and printed (XXXX 1234). For national ID numbers']] : [])].map(([k, l, t]) => (
+                      <label key={k} title={t} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
+                        <input type="checkbox" checked={!!f[k]} onChange={e => setField(i, { [k]: e.target.checked })} style={{ accentColor: 'var(--pine)' }} /> {l}
+                      </label>
+                    ))}
+                  </div>
+                  {f.type === 'choice' && (
+                    <input className="form-input" style={{ width: '100%', marginTop: 8 }} placeholder="Choices, separated by commas - e.g. Savings, Current"
+                      value={(f.options || []).join(', ')} onChange={e => setField(i, { options: e.target.value.split(',').map(x => x.trim()).filter(Boolean) })} aria-label="Choices" />
+                  )}
+                </div>
+              ))}
+              <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                <button type="button" className="secondary-btn" onClick={() => addField({})} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={12} /> Add Field</button>
+                <button type="button" className="secondary-btn" onClick={() => addField({ type: 'heading' })} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Heading size={12} /> Add Section Heading</button>
+              </div>
+            </>
+          )}
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '0 16px' }}>
             <div>
@@ -310,6 +437,10 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
           </button>
         </div>
       </div>
+      {signing && (
+        <SignOnceModal packetId={p.id} entityId={companyId} step={signing} packetName={p.name} companyName={companyName}
+          toastErr={toastErr} onClose={() => setSigning(null)} onDone={(status) => { setOnceStatus(status); setSigning(null); }} />
+      )}
       {preview && (
         <PreviewModal templateId={preview.id} name={preview.name} companyId={companyId} flow={p.flow}
           letterheadId={p.letterheadId} toastErr={toastErr} onClose={() => setPreview(null)} />

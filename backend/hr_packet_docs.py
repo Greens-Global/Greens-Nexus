@@ -23,6 +23,19 @@ counts as pay is decided fail-closed (is_pay_token), hire and promotion
 packets are treated as printing pay by default (pay_mode), pay values are
 never written onto a document row (they are merged in at render time), and
 everyone who would see a pay-printing document must hold Pay & Benefits.
+
+Two packet features from Oct 14 (Pranshu):
+
+  - the Details Form (details_form): fields the packet asks for beyond name,
+    phone, address and emergency contact - any country, any field. Each is a
+    {{variable}} the templates print. A field marked Sensitive travels exactly
+    like pay (Pay & Benefits only, never written on a document row); a field
+    marked Last 4 Only is kept - and printed - as its last four characters.
+  - Signs Once (a flow step with `once`): the company signs a packet ONCE and
+    that adopted signature is applied to every packet sent after it. It
+    belongs to whoever holds the step's role for the company: when the HR
+    contact (or the signatory) changes, the old one stops counting and the
+    new holder signs once before the next packet can go.
 """
 import hashlib
 import json
@@ -44,6 +57,10 @@ ROLE_LABELS = {**hc.ROLE_LABELS, "employee": "The Person", "signatory": "Authori
 ACTIONS = {"sign": "signer", "approve": "approver", "copy": "cc"}
 ACTION_LABELS = {"sign": "Signs", "approve": "Approves", "copy": "Gets A Copy"}
 VERIFY_ROLES = tuple(r for r in FLOW_ROLES if r not in (SUBJECT_ROLE, "sender"))
+# Who can Sign Once: a role the COMPANY holds. The person, their manager and
+# whoever starts it change from packet to packet, so a signature adopted once
+# would be signed by the wrong person.
+ONCE_ROLES = tuple(r for r in FLOW_ROLES if r not in (SUBJECT_ROLE, "manager", "sender"))
 PAY_MODES = ("", "always", "auto")
 EVENT_NOUN = {"hire": "hiring packet", "promotion": "promotion letter", "separation": "separation package"}
 
@@ -82,8 +99,11 @@ def clean_flow(flow) -> list:
         if not key or key in seen:
             continue
         seen.add(key)
-        out.append({"key": key, "role": str(step.get("role") or "").strip().lower(),
-                    "action": str(step.get("action") or "sign").strip().lower()})
+        row = {"key": key, "role": str(step.get("role") or "").strip().lower(),
+               "action": str(step.get("action") or "sign").strip().lower()}
+        if step.get("once"):
+            row["once"] = True
+        out.append(row)
     return out
 
 
@@ -200,13 +220,16 @@ def _mode(setting: HrPacketSetting) -> str:
 
 
 def doc_prints_pay(setting: HrPacketSetting, snap: Snap) -> bool:
+    """Pay & Benefits only: a document printing pay - or a Sensitive answer
+    from the packet's Details Form (a bank account, an ID number)."""
     if _mode(setting) == "always":
         return True
-    return any(is_pay_token(t, snap.defs) for t in snap.tokens)
+    return any(is_pay_token(t, snap.defs) for t in snap.tokens) or bool(sensitive_keys(setting) & snap.tokens)
 
 
 def packet_prints_pay(setting: HrPacketSetting, snaps: list) -> bool:
-    return _mode(setting) == "always" or bool(pay_tokens(snaps))
+    return (_mode(setting) == "always" or bool(pay_tokens(snaps))
+            or any(sensitive_keys(setting) & s.tokens for s in snaps))
 
 
 def has_comp_for(db: Session, email: str) -> bool:
@@ -232,7 +255,9 @@ def pay_merge(pay: Optional[dict], pay_values: Optional[dict]) -> dict:
     """The pay variables: what HR typed per pay variable, and {{salary}}
     falling back to the structured pay ("$85,000.00 per year"). Never indexes
     into the pay dict, so structured-only, text-only and none all work."""
-    out = {k: str(v).strip() for k, v in (pay_values or {}).items() if str(v or "").strip()}
+    # An empty value is kept: an optional Sensitive answer left blank prints
+    # blank (full_merge), never as an unfilled detail.
+    out = {k: str(v if v is not None else "").strip() for k, v in (pay_values or {}).items()}
     if not out.get("salary"):
         text = pay_text(pay or {})
         if text:
@@ -318,11 +343,13 @@ def build_parties(db: Session, setting: HrPacketSetting, ctx: dict) -> tuple:
             name = (p.display_name or f"{p.first_name} {p.last_name}").strip()
             kind, title = "internal", p.job_title or ""
         rows.append({"key": key, "role": role, "action": action, "email": email, "name": name,
-                     "title": title, "kind": kind, "partyRole": ACTIONS.get(action, "signer")})
+                     "title": title, "kind": kind, "partyRole": ACTIONS.get(action, "signer"),
+                     "once": bool(step.get("once"))})
     parties, remap = [], {}
     for r in rows:
         last = parties[-1] if parties else None
-        if (last and r["action"] == "sign" and last["action"] == "sign" and last["email"] == r["email"]):
+        if (last and r["action"] == "sign" and last["action"] == "sign" and last["email"] == r["email"]
+                and not r["once"] and not last["once"]):
             remap[r["key"]] = last["key"]
             continue
         parties.append(r)
@@ -358,8 +385,9 @@ def signer_values(parties: list, remap: dict) -> dict:
         p = by_key.get(target)
         if p:
             out[f"signer.{key}"] = p["name"]
-            if p.get("title"):
-                out[f"signer.{key}.title"] = p["title"]
+            # Blank when People has no job title - prints an empty line rather
+            # than holding the packet back.
+            out[f"signer.{key}.title"] = p.get("title") or ""
     return out
 
 
@@ -411,6 +439,14 @@ def config_problems(db: Session, setting: HrPacketSetting, snaps: Optional[list]
         if signs and signs[-1]["role"] != SUBJECT_ROLE:
             out.append("The Person signs last on a hiring packet or a separation package - "
                        "move their step to the end of the signing order.")
+    for step in flow:
+        if not step.get("once"):
+            continue
+        if step["action"] != "sign":
+            out.append(f'"{step["key"]}" is set to Signs Once, but only a step that signs can be.')
+        elif step["role"] not in ONCE_ROLES:
+            out.append(f'{role_label(step["role"])} changes from packet to packet, so it cannot Sign Once - '
+                       f'only a company role such as HR or Authorized Signatory can.')
     if (setting.verify_role or "hr") not in VERIFY_ROLES:
         out.append("Verified By must be a role such as HR - not The Person or whoever starts it.")
     if (setting.pay_mode or "") not in PAY_MODES:
@@ -514,6 +550,20 @@ def full_merge(db: Session, snap: Snap, *, employee_id: str = "", candidate_id: 
         values.update(pay)
     merge = resolve_merge_data(db, employee_id=employee_id, candidate_id=candidate_id,
                                entity_id=entity_id, overrides=values, template=snap.as_template())
+    # A variable's Default Value set in the template (Define Variable) prints
+    # when nothing else fills it - the client's name, an office address: set
+    # once in the template, never typed per hire. Never for pay.
+    for fd in snap.field_defs:
+        token, default = fd.get("token") or "", str(fd.get("default") or "").strip()
+        if (token and default and not str(merge.get(token) or "").strip()
+                and not is_pay_token(token, snap.defs)):
+            merge[token] = default
+    # A value given as deliberately empty (an optional Details Form answer
+    # left blank, a signer with no job title) prints blank - the resolver
+    # drops empty values, which would leave it "unfilled".
+    for k, v in values.items():
+        if v == "" and k not in merge:
+            merge[k] = ""
     return display_merge(merge, snap.field_defs)
 
 
@@ -538,7 +588,8 @@ def values_hash(values: dict) -> str:
 # ── serialization for the packet screens ────────────────────────────────────
 
 def ser_flow(db: Session, setting: HrPacketSetting) -> list:
-    return [{**s, "roleLabel": role_label(s["role"]), "actionLabel": ACTION_LABELS.get(s["action"], s["action"])}
+    return [{**s, "roleLabel": role_label(s["role"]),
+             "actionLabel": "Signs Once (Saved)" if s.get("once") else ACTION_LABELS.get(s["action"], s["action"])}
             for s in clean_flow(setting.flow)]
 
 
@@ -603,6 +654,7 @@ def plan(db: Session, setting: HrPacketSetting, *, ctx: dict, overrides: dict, p
     problems = config_problems(db, setting, snaps, snap_problems)
     parties, remap, party_problems = build_parties(db, setting, ctx)
     problems += party_problems
+    sign_once = once_status(setting, parties, ctx)     # a missing one blocks SENDING (event_plan), not starting
     prints = packet_prints_pay(setting, snaps)
     vrole = ctx.get("verifier_role") or setting.verify_role or "hr"
     vemail = resolve_role(db, vrole, ctx)
@@ -624,6 +676,8 @@ def plan(db: Session, setting: HrPacketSetting, *, ctx: dict, overrides: dict, p
             for t in snap.tokens:
                 if is_pay_token(t, snap.defs) and t not in merge:
                     merge[t] = "[Pay]"
+                elif t in sensitive_keys(setting) and t not in merge:
+                    merge[t] = "[Restricted]"
         docs.append({"templateId": snap.tpl.id, "name": snap.name, "version": snap.version,
                      "printsPay": doc_prints_pay(setting, snap), "signs": sorted(snap.signature_roles),
                      "unresolved": unresolved(snap, merge)})
@@ -631,9 +685,12 @@ def plan(db: Session, setting: HrPacketSetting, *, ctx: dict, overrides: dict, p
             "values": values, "printsPay": prints, "documents": docs,
             "verifier": {"role": vrole, "roleLabel": role_label(vrole), "email": vemail,
                          "name": name_of(db, vemail) if vemail else ""},
+            "signOnce": sign_once,
             "recipients": [{"order": p["ordinal"], "key": p["key"], "role": p["role"], "roleLabel": role_label(p["role"]),
-                            "action": p["action"], "actionLabel": ACTION_LABELS.get(p["action"], p["action"]),
-                            "name": p["name"], "email": p["email"], "isSubject": p["role"] == SUBJECT_ROLE}
+                            "action": p["action"],
+                            "actionLabel": "Signs Once (Saved)" if p.get("once") else ACTION_LABELS.get(p["action"], p["action"]),
+                            "name": p["name"], "email": p["email"], "isSubject": p["role"] == SUBJECT_ROLE,
+                            "once": bool(p.get("once")), "savedAt": (p.get("saved") or {}).get("adoptedAt", "")}
                            for p in parties]}
 
 
@@ -645,7 +702,8 @@ def plan(db: Session, setting: HrPacketSetting, *, ctx: dict, overrides: dict, p
 # From send on the PDFs in Nexus Sign are the record and never change.
 
 OPEN_STATUSES = ("intake", "review")
-PERSON_KEYS = ("first_name", "last_name", "preferred_name", "phone", "address", "permanent_address")
+PERSON_KEYS = ("first_name", "last_name", "preferred_name", "phone", "address", "permanent_address",
+               "emergency_name", "emergency_relationship", "emergency_phone")
 
 
 def event_setting(db: Session, ev) -> Optional[HrPacketSetting]:
@@ -684,22 +742,51 @@ def event_ctx(db: Session, ev, setting: HrPacketSetting, sender: str) -> dict:
                "subject_kind": d.get("send_kind") or ("internal" if ev.kind == "promotion" else "external"),
                "manager_email": ((emp.manager_email if emp else "") or "").lower()}
     ctx["verifier_role"] = d.get("verifier_role") or ""
-    ctx["pay_values"] = dict(ev.pay_values or {})
+    # Sensitive Details Form answers ride with pay: merged in at render, only
+    # ever for Pay & Benefits, never written onto a document row.
+    ctx["pay_values"] = {**dict(ev.pay_values or {}), **answer_values(setting, event_answers(ev))[1]}
     return ctx
+
+
+def event_answers(ev) -> dict:
+    return dict((ev.intake or {}).get("answers") or {})
 
 
 def event_overrides(db: Session, ev) -> dict:
     """The non-pay values a packet's documents print for this event."""
     extra = {k: str(v) for k, v in ((ev.inputs or {}).get("extra") or {}).items() if str(v or "").strip()}
-    return {**event_values(db, ev.kind, ev.inputs or {}), **person_values(ev), **extra}
+    setting = event_setting(db, ev)
+    plain = answer_values(setting, event_answers(ev))[0] if setting is not None else {}
+    return {**event_values(db, ev.kind, ev.inputs or {}), **person_values(ev), **plain, **extra}
+
+
+def event_pay(db: Session, ev, setting: Optional[HrPacketSetting] = None) -> dict:
+    """What a render merges in at print time for Pay & Benefits holders: the
+    pay, and the Sensitive answers of the packet's Details Form."""
+    setting = setting if setting is not None else event_setting(db, ev)
+    restricted = answer_values(setting, event_answers(ev))[1] if setting is not None else {}
+    return pay_merge(ev.pay or {}, {**dict(ev.pay_values or {}), **restricted})
 
 
 def event_plan(db: Session, ev, setting: HrPacketSetting, *, sender: str, can_see_pay: bool) -> dict:
     d = ev.inputs or {}
-    return plan(db, setting, ctx=event_ctx(db, ev, setting, sender), overrides=event_overrides(db, ev),
-                pay=ev.pay or {}, can_see_pay=can_see_pay, employee_id=ev.employee_id or "",
-                candidate_id=ev.candidate_id or "", entity_id=ev.entity_id or "",
-                extra_template_ids=[d["jd_template_id"]] if d.get("jd_template_id") else [])
+    p = plan(db, setting, ctx=event_ctx(db, ev, setting, sender), overrides=event_overrides(db, ev),
+             pay=ev.pay or {}, can_see_pay=can_see_pay, employee_id=ev.employee_id or "",
+             candidate_id=ev.candidate_id or "", entity_id=ev.entity_id or "",
+             extra_template_ids=[d["jd_template_id"]] if d.get("jd_template_id") else [])
+    # A changed Sensitive answer must still regenerate (and re-version) the
+    # documents the verifier is looking at - its hash, never its value.
+    p["restrictedHash"] = values_hash(answer_values(setting, event_answers(ev))[1])
+    extra = []
+    missing = missing_answers(setting, event_answers(ev)) if ev.kind == "hire" else []
+    if missing:
+        extra.append("Still needed on the Details Form: " + ", ".join(missing) + ".")
+    for s in p["signOnce"]:
+        if not s["signed"]:
+            extra.append(f"{s['name']} ({s['roleLabel']}) signs this packet once before it can be sent - they open "
+                         f"it and click Sign Once. After that their signature goes on every packet automatically.")
+    p["problems"] = list(dict.fromkeys(p["problems"] + extra))
+    return p
 
 
 def _non_pay(values: dict, snaps: list) -> dict:
@@ -716,7 +803,7 @@ def outdated(db: Session, ev, p: dict) -> dict:
     what the packet would generate now (a template PUBLISHED since, a changed
     value, a changed signer). A pure read - nothing is written."""
     want = {s.tpl.id: s for s in p["snaps"]}
-    h = values_hash(_non_pay(p["values"], p["snaps"]))
+    h = values_hash({**_non_pay(p["values"], p["snaps"]), "__restricted": p.get("restrictedHash", "")})
     out = {}
     for e in ev.documents or []:
         snap = want.get(e.get("templateId"))
@@ -737,7 +824,7 @@ def sync_documents(db: Session, ev, setting: HrPacketSetting, p: dict, by: str) 
     from models import DocumentVersion
     now = datetime.now(timezone.utc).isoformat()
     values = _non_pay(p["values"], p["snaps"])
-    h = values_hash(values)
+    h = values_hash({**values, "__restricted": p.get("restrictedHash", "")})
     existing = {e.get("templateId"): e for e in ev.documents or []}
     changed, out = False, []
     for snap in p["snaps"]:
@@ -806,7 +893,7 @@ def status_at_send(parties: list, subject_email: str) -> str:
     subj = next((p for p in parties if (p["email"] or "").lower() == want), None)
     if subj is None:
         return "awaiting_sender"       # fail safe - on_progress moves it on when the person's turn comes
-    ahead = [p for p in parties if p["ordinal"] < subj["ordinal"] and p["partyRole"] != "cc"]
+    ahead = [p for p in parties if p["ordinal"] < subj["ordinal"] and p["partyRole"] != "cc" and not p.get("saved")]
     return "awaiting_sender" if ahead else "sent"
 
 
@@ -860,11 +947,18 @@ def review_out(db: Session, ev, user: dict, *, can_see_pay: bool) -> dict:
              "schedule": timings(d).get("work_schedule", ""), "jdTemplateId": d.get("jd_template_id", ""),
              "jdName": jd.name if jd else "", "effectiveDate": d.get("effective_date", ""),
              "lastDay": d.get("last_day", ""), "employeeCode": d.get("employee_code", "")}
+    entity = db.query(HrEntity).filter(HrEntity.id == ev.entity_id).first() if ev.entity_id else None
     out = {"event": hle.ser_event(db, ev, show_pay=can_see_pay), "packetName": setting.name or "",
+           "packetId": setting.id, "entityId": ev.entity_id or "", "companyName": entity.name if entity else "",
            "offer": offer, "documents": docs, "recipients": p["recipients"], "verifier": p["verifier"],
            "printsPay": p["printsPay"], "problems": list(dict.fromkeys(problems)),
            "outdated": any(stale.values()), "canVerify": can_verify,
-           "isVerifier": p["verifier"]["email"] == me, "details": dict(ev.intake or {}),
+           "isVerifier": p["verifier"]["email"] == me,
+           "details": {k: v for k, v in (ev.intake or {}).items() if k != "answers"},
+           # The packet's Details Form with what was entered (Sensitive ones
+           # only for Pay & Benefits), and the Signs Once steps (Oct 14).
+           "answers": ser_answers(setting, event_answers(ev), can_see_pay),
+           "signOnce": [{**s, "isMe": s["email"] == me} for s in p.get("signOnce") or []],
            "extra": dict((ev.inputs or {}).get("extra") or {}),
            "seen": {e["documentId"]: e.get("version", 1) for e in ev.documents or []}}
     if can_see_pay:
@@ -953,7 +1047,7 @@ def build_envelope(db: Session, ev, setting: HrPacketSetting, user: dict, p: dic
     from pypdf import PdfReader
     from routers import esign
     from routers.documents import signing_fields
-    pay = pay_merge(ev.pay or {}, ev.pay_values)
+    pay = event_pay(db, ev, setting)
     remap = p["remap"]
     docs = []
     for i, e in enumerate(ev.documents or []):
@@ -975,7 +1069,9 @@ def build_envelope(db: Session, ev, setting: HrPacketSetting, user: dict, p: dic
                              ordinal=x["ordinal"], party_role=x["partyRole"], title=x.get("title", ""))
                for x in p["parties"]]
     me = (user["email"] or "").lower()
-    first = p["parties"][0] if p["parties"] else None
+    # Signs Once: the adopted signature goes on when that step's turn comes.
+    saved = {x["key"]: x["saved"] for x in p["parties"] if x.get("saved")}
+    first = next((x for x in p["parties"] if not x.get("saved")), None)
     sender_first = bool(first and first["kind"] == "internal" and first["email"] == me
                         and first["partyRole"] != "cc")
     title = f"{hle.EVENT_TITLES.get(ev.kind, 'Packet')} - {ev.subject_name}"
@@ -987,6 +1083,264 @@ def build_envelope(db: Session, ev, setting: HrPacketSetting, user: dict, p: dic
             expires_on=(ev.inputs or {}).get("offer_expires", "") if ev.kind == "hire" else "",
             ip=ip, user_agent=user_agent, excluded_ack=excluded_ack, document_class="employment",
             link_kind="life_event", link_id=ev.id, sender_signs_first=sender_first,
-            prints_pay=p["printsPay"])
+            prints_pay=p["printsPay"], saved=saved)
     except HTTPException as ex:
         raise hle.PacketError(str(ex.detail), ex.status_code)
+
+
+# ── the packet's Details Form (Oct 14) ───────────────────────────────────────
+# "India contractor is just an example ... it could be for any country and any
+# fields" (Pranshu). HR builds the form per packet; the person fills it from
+# their details link (or HR does); each answer is a {{variable}}.
+
+FORM_TYPES = ("text", "longtext", "number", "date", "email", "phone", "yesno", "choice", "heading")
+STANDARD_DETAILS = ("first_name", "last_name", "preferred_name", "phone", "address", "permanent_address",
+                    "emergency_name", "emergency_relationship", "emergency_phone")
+_MAX_FORM_FIELDS = 80
+_CTRL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+
+
+def _reserved_tokens() -> set:
+    """Variables Nexus fills itself - a form field may not shadow them."""
+    from services.merge_fields import BUILTIN_VARIABLES
+    return {t for t, _label, _group in BUILTIN_VARIABLES} | set(STANDARD_DETAILS) | PAY_NAMES | {"full_name", "today"}
+
+
+def form_key(text: str) -> str:
+    """"PAN Number" -> pan_number: the {{variable}} a field fills."""
+    k = re.sub(r"[^a-z0-9]+", "_", str(text or "").lower()).strip("_")[:60].strip("_")
+    return k if not k or k[0].isalpha() else f"f_{k}"
+
+
+def clean_form(fields) -> list:
+    """The Details Form as HR built it, checked. Raises PacketProblem with the
+    message HR reads."""
+    out, seen, reserved = [], set(), _reserved_tokens()
+    for f in (fields or [])[:_MAX_FORM_FIELDS]:
+        if not isinstance(f, dict):
+            continue
+        ftype = str(f.get("type") or "text").strip().lower()
+        if ftype not in FORM_TYPES:
+            raise PacketProblem(f'Unknown field type "{ftype}".')
+        label = _CTRL.sub("", str(f.get("label") or "")).strip()[:120]
+        if not label:
+            raise PacketProblem("Every field on the Details Form needs a label.")
+        if ftype == "heading":
+            out.append({"key": "", "label": label, "type": "heading"})
+            continue
+        key = form_key(f.get("key") or label)
+        if not key:
+            raise PacketProblem(f'"{label}" needs letters or numbers in its name.')
+        if key in seen:
+            raise PacketProblem(f"Two fields on the Details Form would both be {{{{{key}}}}} - rename one.")
+        if key in reserved:
+            raise PacketProblem(f'"{label}" would be {{{{{key}}}}}, which Nexus already fills - use that built-in '
+                                f'variable in the template, or rename the field.')
+        if is_pay_token(key):
+            raise PacketProblem(f'"{label}" reads as pay ({{{{{key}}}}}). Pay is entered when the packet starts, '
+                                f'never on the Details Form - rename it if it is not pay.')
+        seen.add(key)
+        options = []
+        if ftype == "choice":
+            options = list(dict.fromkeys(o for o in (_CTRL.sub("", str(x or "")).strip()[:80]
+                                                     for x in (f.get("options") or [])) if o))[:30]
+            if len(options) < 2:
+                raise PacketProblem(f'"{label}" is a dropdown - give it at least two choices.')
+        last4 = bool(f.get("last4")) and ftype in ("text", "number")
+        out.append({"key": key, "label": label, "type": ftype, "required": bool(f.get("required")),
+                    "options": options, "sensitive": bool(f.get("sensitive")), "last4": last4,
+                    "help": _CTRL.sub("", str(f.get("help") or "")).strip()[:200]})
+    return out
+
+
+def form_fields(setting: Optional[HrPacketSetting]) -> list:
+    """The form's answerable fields (headings left out)."""
+    if setting is None:
+        return []
+    return [f for f in (setting.details_form or []) if isinstance(f, dict) and f.get("key") and f.get("type") != "heading"]
+
+
+def sensitive_keys(setting: Optional[HrPacketSetting]) -> set:
+    return {f["key"] for f in form_fields(setting) if f.get("sensitive")}
+
+
+def mask_last4(value: str) -> str:
+    chars = re.sub(r"[^0-9A-Za-z]", "", value or "")
+    return f"XXXX {chars[-4:]}" if len(chars) >= 4 else ""
+
+
+def clean_answers(setting: Optional[HrPacketSetting], values: Optional[dict], existing: Optional[dict] = None,
+                  *, require: bool = False, keep: tuple = ()) -> dict:
+    """The Details Form answers, each checked against its field: known keys
+    only, the right shape for the type, Last 4 Only cut down before it is
+    ever stored. `keep` = keys left as they were (a Sensitive answer someone
+    without Pay & Benefits could not see)."""
+    existing, values = dict(existing or {}), dict(values or {})
+    out = {}
+    for f in form_fields(setting):
+        k, t, label = f["key"], f["type"], f["label"]
+        if k in keep:
+            if existing.get(k):
+                out[k] = existing[k]
+            continue
+        v = _CTRL.sub("", str(values.get(k) if values.get(k) is not None else "")).strip()
+        if f.get("last4") and v and v == existing.get(k):
+            out[k] = v                 # the masked value shown back, unchanged
+            continue
+        if not v:
+            if require and f.get("required"):
+                raise PacketProblem(f"Please fill in {label}.")
+            continue
+        v = v[:2000] if t == "longtext" else v[:200]
+        if t == "number" and not re.fullmatch(r"[0-9][0-9 ,.\-]*", v):
+            raise PacketProblem(f"{label} must be a number.")
+        if t == "date":
+            from datetime import datetime
+            try:
+                datetime.strptime(v, "%Y-%m-%d")
+            except ValueError:
+                raise PacketProblem(f"{label} must be a date.")
+        if t == "email" and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", v):
+            raise PacketProblem(f"{label} must be an email address.")
+        if t == "phone" and not re.fullmatch(r"[0-9+()\-. ]{5,30}", v):
+            raise PacketProblem(f"{label} must be a phone number.")
+        if t == "yesno":
+            v = {"yes": "Yes", "y": "Yes", "true": "Yes", "no": "No", "n": "No", "false": "No"}.get(v.lower(), "")
+            if not v:
+                raise PacketProblem(f"{label} must be Yes or No.")
+        if t == "choice" and v not in (f.get("options") or []):
+            raise PacketProblem(f"{label} must be one of: " + ", ".join(f.get("options") or []) + ".")
+        if f.get("last4"):
+            v = mask_last4(v)
+            if not v:
+                raise PacketProblem(f"{label} needs at least 4 letters or numbers.")
+        out[k] = v
+    return out
+
+
+def missing_answers(setting: Optional[HrPacketSetting], answers: dict) -> list:
+    return [f["label"] for f in form_fields(setting)
+            if f.get("required") and not str((answers or {}).get(f["key"]) or "").strip()]
+
+
+def answer_values(setting: Optional[HrPacketSetting], answers: dict) -> tuple:
+    """(plain, restricted) {{variable}} values from the answers, as the
+    documents print them (dates MM/DD/YYYY). Restricted = Sensitive fields."""
+    from datetime import datetime
+    plain, restricted = {}, {}
+    for f in form_fields(setting):
+        v = str((answers or {}).get(f["key"]) or "").strip()
+        if not v:
+            # An optional field left empty prints blank - it never blocks the
+            # packet as an "unfilled detail". A required one is checked by
+            # missing_answers.
+            if not f.get("required"):
+                (restricted if f.get("sensitive") else plain)[f["key"]] = ""
+            continue
+        if f["type"] == "date":
+            try:
+                v = datetime.strptime(v, "%Y-%m-%d").strftime("%m/%d/%Y")
+            except ValueError:
+                pass
+        (restricted if f.get("sensitive") else plain)[f["key"]] = v
+    return plain, restricted
+
+
+def ser_answers(setting: Optional[HrPacketSetting], answers: dict, can_see_pay: bool) -> list:
+    """The answers as the review screen shows them - a Sensitive one only to
+    Pay & Benefits."""
+    out = []
+    for f in (setting.details_form or []) if setting is not None else []:
+        if not isinstance(f, dict):
+            continue
+        if f.get("type") == "heading":
+            out.append({"key": "", "label": f.get("label", ""), "type": "heading"})
+            continue
+        locked = bool(f.get("sensitive")) and not can_see_pay
+        out.append({**f, "value": "" if locked else str((answers or {}).get(f["key"]) or ""), "locked": locked})
+    return out
+
+
+# ── Signs Once (Oct 14) ──────────────────────────────────────────────────────
+# "HR just needs to sign one time ... if HR is changed for that company from
+# company settings it again asks for sign" (Pranshu). The adoption is a real
+# signature: the holder is signed in to Nexus AND verifies a one-time code,
+# like every other Nexus signature, and the record is kept (never deleted).
+
+def saved_signature(setting: HrPacketSetting, step_key: str, entity_id: str, email: str) -> Optional[dict]:
+    """The signature in force for a step at a company - only while it was
+    adopted by the person who holds the role TODAY."""
+    for r in reversed(setting.saved_signatures or []):
+        if (isinstance(r, dict) and r.get("step") == step_key and (r.get("entityId") or "") == (entity_id or "")
+                and not r.get("replacedAt")):
+            return r if (r.get("email") or "").lower() == (email or "").lower() else None
+    return None
+
+
+def once_status(setting: HrPacketSetting, parties: list, ctx: dict) -> list:
+    """Each Signs Once step of this packet for this company: who holds it
+    now and whether they have signed. Marks the parties with their record."""
+    entity_id = getattr(ctx.get("entity"), "id", "") or ""
+    out = []
+    for party in parties:
+        if not party.get("once"):
+            continue
+        rec = saved_signature(setting, party["key"], entity_id, party["email"])
+        party["saved"] = rec
+        out.append({"key": party["key"], "role": party["role"], "roleLabel": role_label(party["role"]),
+                    "email": party["email"], "name": party["name"], "signed": bool(rec),
+                    "adoptedAt": (rec or {}).get("adoptedAt", ""), "entityId": entity_id})
+    return out
+
+
+def company_once_status(db: Session, setting: HrPacketSetting, entity: Optional[HrEntity]) -> list:
+    """For the packet editor: each Signs Once step, who holds it at this
+    company today, and whether that person has signed it."""
+    ctx = {"entity": entity, "owners": hc.role_owners(db, entity.id if entity else "")}
+    out = []
+    for step in clean_flow(setting.flow):
+        if not step.get("once"):
+            continue
+        email = resolve_role(db, step["role"], ctx)
+        rec = saved_signature(setting, step["key"], entity.id if entity else "", email) if email else None
+        last = next((r for r in reversed(setting.saved_signatures or [])
+                     if isinstance(r, dict) and r.get("step") == step["key"]
+                     and (r.get("entityId") or "") == (entity.id if entity else "")), None)
+        out.append({"key": step["key"], "role": step["role"], "roleLabel": role_label(step["role"]),
+                    "email": email, "name": name_of(db, email) if email else "", "signed": bool(rec),
+                    "adoptedAt": (rec or {}).get("adoptedAt", ""),
+                    "previous": ({"name": last.get("name", ""), "adoptedAt": last.get("adoptedAt", "")}
+                                 if last and not rec else None)})
+    return out
+
+
+def adopt_signature(db: Session, setting: HrPacketSetting, *, step_key: str, entity: Optional[HrEntity],
+                    email: str, kind: str, data: str, otp_challenge_id: str, consent_version: str,
+                    ip: str = "", user_agent: str = "") -> dict:
+    """Record `email`'s signature for a Signs Once step at a company. Only
+    the person who holds the step's role there today may. The caller has
+    checked the signature and the one-time code; the caller commits."""
+    from datetime import datetime, timezone
+    step = next((s for s in clean_flow(setting.flow) if s["key"] == step_key and s.get("once")), None)
+    if step is None:
+        raise PacketProblem("That step does not Sign Once - save the packet with Signs Once ticked first.")
+    entity_id = entity.id if entity else ""
+    if setting.entity_id and setting.entity_id != entity_id:
+        raise PacketProblem("This packet belongs to another company.")
+    holder = resolve_role(db, step["role"], {"entity": entity, "owners": hc.role_owners(db, entity_id)})
+    me = (email or "").strip().lower()
+    if not holder or holder != me:
+        raise PacketProblem(f"Only the person who holds {role_label(step['role'])} for this company "
+                            f"({name_of(db, holder) if holder else 'nobody yet'}) can sign it once.")
+    now = datetime.now(timezone.utc).isoformat()
+    recs = [dict(r) for r in (setting.saved_signatures or []) if isinstance(r, dict)]
+    for r in recs:
+        if r.get("step") == step_key and (r.get("entityId") or "") == entity_id and not r.get("replacedAt"):
+            r["replacedAt"] = now
+    rec = {"step": step_key, "role": step["role"], "entityId": entity_id, "email": me, "name": name_of(db, me),
+           "kind": kind, "data": data, "digest": hashlib.sha256((data or "").encode()).hexdigest(),
+           "adoptedAt": now, "consentVersion": consent_version, "otpChallengeId": otp_challenge_id,
+           "ip": (ip or "")[:64], "userAgent": (user_agent or "")[:300], "replacedAt": ""}
+    recs.append(rec)
+    setting.saved_signatures = recs        # reassigned, never mutated in place (JSON column)
+    return rec

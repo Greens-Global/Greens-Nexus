@@ -5799,6 +5799,17 @@ class HrPacketSetting(Base):
     verify_distinct  = Column(Integer, default=0)                 # 1 = the verifier cannot be who started it
     letterhead_id    = Column(String, default="")                 # DocLetterhead for templates that require one
     pay_mode         = Column(String, default="")                 # '' by event | always | auto
+    # The packet's own Details Form (Oct 14): fields the person (or HR) fills
+    # in beyond name / phone / address / emergency contact - any country, any
+    # field. [{key, label, type, required, options, sensitive, last4, help}];
+    # each key is a {{variable}} the packet's templates can print.
+    details_form     = Column(JSON, default=list)
+    # Signs Once (Oct 14): the company signature a step marked `once` applies
+    # to every packet, adopted ONCE by whoever holds that role for the
+    # company. [{step, entityId, email, name, kind, data, digest, adoptedAt,
+    # consentVersion, otpChallengeId, ip, userAgent, replacedAt}] - never
+    # deleted; a new holder's adoption marks the old one replaced.
+    saved_signatures = Column(JSON, default=list)
 
 
 class HrLifeEvent(Base):

@@ -134,10 +134,26 @@ def list_packets(user: dict = Depends(require_hr_read), db: Session = Depends(ge
     # picked yet), and the roles a signing step can be.
     from models import DocTemplate
     from routers.documents import signature_roles
+    reserved = hpd._reserved_tokens()
+
+    def own_variables(t):
+        """The variables a template prints that Nexus cannot fill and the
+        template gives no Default Value - what the packet's Details Form (or
+        HR, on review) must supply. Pay is never asked for on a form."""
+        defs = {fd.get("token"): fd for fd in (t.field_defs or []) if isinstance(fd, dict)}
+        out = []
+        for tok in sorted(hpd.content_tokens(t.content)):
+            fd = defs.get(tok) or {}
+            if tok in reserved or "." in tok or hpd.is_pay_token(tok, defs) or str(fd.get("default") or "").strip():
+                continue
+            out.append({"token": tok, "label": fd.get("label") or tok.replace("_", " ").title(),
+                        "type": fd.get("type") or "text"})
+        return out
     doc_templates = []
     for t in (db.query(DocTemplate).filter(DocTemplate.status == "active", DocTemplate.doc_type != "email")
               .order_by(DocTemplate.name).all()):
         doc_templates.append({"id": t.id, "name": t.name, "category": t.category or "",
+                              "variables": own_variables(t),
                               "department": t.department or "",
                               "publishedVersion": t.published_version or 0,
                               "hasUnpublishedChanges": bool(t.published_version) and (t.version or 0) > t.published_version,
@@ -276,6 +292,7 @@ class DocumentsPacketIn(BaseModel):
     pay_mode:         Optional[str] = ""
     email_message:    Optional[str] = ""
     egnyte_subfolder: Optional[str] = ""
+    details_form:     Optional[list] = None        # the packet's own Details Form (hiring packets)
 
 
 @router.put("/packets/documents")
@@ -322,6 +339,14 @@ def save_documents_packet(body: DocumentsPacketIn, user: dict = Depends(require_
     row.pay_mode = (body.pay_mode or "").strip()
     row.email_message = (body.email_message or "").strip()[:4000]
     row.egnyte_subfolder = hle._safe_name(body.egnyte_subfolder, 60) if (body.egnyte_subfolder or "").strip() else ""
+    # The Details Form: what the new hire fills in on their link (or HR does).
+    # Only a hiring packet asks - a promotion or separation is about someone
+    # already in People.
+    try:
+        row.details_form = hpd.clean_form(body.details_form) if body.event == "hire" else []
+    except hpd.PacketProblem as e:
+        db.rollback()
+        raise HTTPException(400, str(e))
     row.updated_by, row.updated_at = user["email"], now
     if row.worker_type not in hle.WORKER_TYPES:
         db.rollback()
@@ -345,6 +370,106 @@ def packet_role_holders(entity_id: str = "", user: dict = Depends(require_hr_rea
     return hpd.role_holders(db, entity)
 
 
+# ── Signs Once (Oct 14) ──────────────────────────────────────────────────────
+# "HR just needs to sign one time ... if a HR is changed for that company from
+# company settings it again asks for sign" (Pranshu). The person who holds the
+# step's role for the company signs once - signed in, with a one-time code
+# like every Nexus signature - and it goes on every packet after that.
+
+class SignOnceCodeIn(BaseModel):
+    step:      str
+    entity_id: Optional[str] = ""
+
+
+class SignOnceIn(BaseModel):
+    step:           str
+    entity_id:      Optional[str] = ""
+    consent:        bool
+    signature_kind: str                     # drawn | typed
+    signature_data: str
+    code:           str
+
+
+def _once_target(db: Session, sid: str, entity_id: str) -> tuple:
+    setting = db.query(HrPacketSetting).filter(HrPacketSetting.id == sid).first()
+    if not setting or not hle.is_documents(setting):
+        raise HTTPException(404, "Packet not found")
+    eid = setting.entity_id or (entity_id or "").strip()
+    entity = db.query(HrEntity).filter(HrEntity.id == eid).first() if eid else None
+    if entity is None:
+        raise HTTPException(400, "Pick the company this signature is for.")
+    return setting, entity
+
+
+def _once_otp_subject(setting: HrPacketSetting, step: str, email: str) -> tuple:
+    """The one-time code's scope: this packet, this step, this person - a
+    code minted here opens nothing else."""
+    from types import SimpleNamespace
+    req = SimpleNamespace(id=f"sign-once:{setting.id}", title=f"{setting.name or 'HR packet'} - Sign Once",
+                          created_by=email)
+    party = SimpleNamespace(id=f"sign-once:{setting.id}:{step}:{email}", email=email, phone="", kind="internal")
+    return req, party
+
+
+def _once_holder_or_403(db: Session, setting: HrPacketSetting, step_key: str, entity: HrEntity, email: str) -> None:
+    status = {s["key"]: s for s in hpd.company_once_status(db, setting, entity)}
+    s = status.get(step_key)
+    if s is None:
+        raise HTTPException(400, "That step does not Sign Once.")
+    if not s["email"] or s["email"] != (email or "").lower():
+        raise HTTPException(403, f"Only {s['name'] or 'the person who holds ' + s['roleLabel']} "
+                                 f"({s['roleLabel']}) can sign this packet once.")
+
+
+@router.get("/packets/{sid}/sign-once")
+def sign_once_status(sid: str, entity_id: str = "", user: dict = Depends(get_current_user),
+                     db: Session = Depends(get_db)):
+    setting, entity = _once_target(db, sid, entity_id)
+    me = (user["email"] or "").lower()
+    return [{**s, "isMe": s["email"] == me} for s in hpd.company_once_status(db, setting, entity)]
+
+
+@router.post("/packets/{sid}/sign-once/code")
+def sign_once_code(sid: str, body: SignOnceCodeIn, user: dict = Depends(get_current_user),
+                   db: Session = Depends(get_db)):
+    """Email the holder a one-time code for Sign Once."""
+    from services import sign_otp
+    setting, entity = _once_target(db, sid, body.entity_id or "")
+    me = (user["email"] or "").lower()
+    _once_holder_or_403(db, setting, body.step, entity, me)
+    req, party = _once_otp_subject(setting, body.step, me)
+    out = sign_otp.request_code(db, req, party, "email")
+    db.commit()
+    return out
+
+
+@router.post("/packets/{sid}/sign-once")
+def sign_once(sid: str, body: SignOnceIn, request: Request, user: dict = Depends(get_current_user),
+              db: Session = Depends(get_db)):
+    """Sign the packet once for the company. From now on that signature goes
+    on every packet automatically - until someone else holds the role."""
+    from routers import esign
+    from services import sign_otp
+    setting, entity = _once_target(db, sid, body.entity_id or "")
+    setting = db.query(HrPacketSetting).filter(HrPacketSetting.id == setting.id).with_for_update().first()
+    me = (user["email"] or "").lower()
+    _once_holder_or_403(db, setting, body.step, entity, me)
+    esign._validate_signature(esign.SignIn(consent=bool(body.consent), signature_kind=body.signature_kind,
+                                           signature_data=body.signature_data or ""))
+    req, party = _once_otp_subject(setting, body.step, me)
+    otp_row = sign_otp.verify_code(db, req, party, body.code or "")
+    ip, ua = _client_meta(request)
+    try:
+        hpd.adopt_signature(db, setting, step_key=body.step, entity=entity, email=me,
+                            kind=body.signature_kind, data=body.signature_data, otp_challenge_id=otp_row.id,
+                            consent_version=esign._CONSENT_VERSION, ip=ip, user_agent=ua)
+    except hpd.PacketProblem as e:
+        db.rollback()
+        raise HTTPException(400, str(e))
+    db.commit()
+    return [{**s, "isMe": s["email"] == me} for s in hpd.company_once_status(db, setting, entity)]
+
+
 class PreviewDocIn(BaseModel):
     template_id:   str
     entity_id:     Optional[str] = ""
@@ -363,7 +488,8 @@ _SAMPLE = {"first_name": "Jane", "last_name": "Doe", "full_name": "Jane Doe", "p
            "effective_date": "2026-11-02", "old_title": "Previous Title", "new_title": "New Title",
            "old_role": "Previous Role", "new_role": "New Role", "change_type": "promotion",
            "responsibilities": "The responsibilities of the new role.", "last_day": "2026-11-02",
-           "separation_type": "Resignation"}
+           "separation_type": "Resignation", "emergency_name": "John Doe", "emergency_relationship": "Brother",
+           "emergency_phone": "(555) 010-0101"}
 
 
 @router.post("/packets/render-preview")
@@ -638,7 +764,7 @@ def packet_document_pdf(eid: str, did: str, user: dict = Depends(require_hr_read
     prints = setting is None or hpd.doc_prints_pay(setting, hpd.row_snap(db, row))
     if prints and not comp:
         raise HTTPException(403, "This document shows pay - Pay & Benefits access is needed.")
-    pdf, _missing = hpd.render_row(db, row, hpd.pay_merge(ev.pay or {}, ev.pay_values) if comp else {})
+    pdf, _missing = hpd.render_row(db, row, hpd.event_pay(db, ev, setting) if comp else {})
     return Response(content=pdf, media_type="application/pdf",
                     headers={"Content-Disposition": f'inline; filename="{hle._safe_name(row.title)}.pdf"'})
 

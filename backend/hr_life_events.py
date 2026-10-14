@@ -323,6 +323,11 @@ def ser_setting(db: Session, s: HrPacketSetting) -> dict:
                 "letterheadId": s.letterhead_id or "", "payMode": s.pay_mode or "",
                 "emailMessage": s.email_message or "", "egnyteSubfolder": s.egnyte_subfolder or "",
                 "effectiveSubfolder": (s.egnyte_subfolder or "").strip() or DEFAULT_SUBFOLDERS.get(s.event, ""),
+                # The Details Form and, for a company's packet, who signs once
+                # and whether they have (Oct 14).
+                "detailsForm": list(s.details_form or []),
+                "signOnce": hpd.company_once_status(db, s, db.query(HrEntity).filter(HrEntity.id == s.entity_id).first())
+                if s.entity_id else [],
                 "problems": setting_problems(db, s), "updatedBy": s.updated_by or "", "updatedAt": s.updated_at or ""}
     tpl = db.query(HrSignTemplate).filter(HrSignTemplate.id == s.template_id).first() if s.template_id else None
     return {"id": s.id, "engine": "pdf", "entityId": s.entity_id or "", "event": s.event, "workerType": s.worker_type,
@@ -871,6 +876,15 @@ def start_hire(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[di
     by_candidate = intake_mode == "candidate"
     if not by_candidate and (not person.get("first_name") or not person.get("last_name")):
         raise PacketError("Enter their legal first and last name.")
+    if not by_candidate:
+        # The packet's own Details Form, filled by HR. What is still empty
+        # shows on the review and blocks sending if the form requires it.
+        try:
+            answers = hpd.clean_answers(setting, (details or {}).get("answers"))
+        except hpd.PacketProblem as e:
+            raise PacketError(str(e))
+        if answers:
+            person["answers"] = answers
     now = _now()
     if d["new_role_name"]:
         role = create_company_role(db, cand.company, d["new_role_name"], d["department"], user["email"],
@@ -945,11 +959,17 @@ def intake_public(db: Session, ev: HrLifeEvent) -> dict:
     expired = bool(ev.intake_expires_on) and ev.intake_expires_on < _today()
     state = ("submitted" if ev.intake_submitted_at else "closed" if ev.status != "intake"
              else "expired" if expired else "open")
+    import hr_packet_docs as hpd
+    setting = hpd.event_setting(db, ev)
+    form = [{k: f.get(k) for k in ("key", "label", "type", "required", "options", "last4", "help")}
+            for f in ((setting.details_form or []) if setting is not None else []) if isinstance(f, dict)]
     return {"state": state, "company": (entity.legal_name or entity.name) if entity else "",
             "firstName": (cand.first_name if cand else "") or "", "lastName": (cand.last_name if cand else "") or "",
             "phone": (cand.phone if cand else "") or "", "role": (ev.inputs or {}).get("job_title", ""),
             "expiresOn": ev.intake_expires_on or "",
-            "fields": [{"key": k, "required": k in ("first_name", "last_name", "phone", "address")} for k in INTAKE_FIELDS]}
+            "fields": [{"key": k, "required": k in ("first_name", "last_name", "phone", "address")} for k in INTAKE_FIELDS],
+            # The packet's own Details Form (Oct 14) - any country, any field.
+            "form": form}
 
 
 def submit_intake(db: Session, ev: HrLifeEvent, values: dict) -> None:
@@ -965,6 +985,12 @@ def submit_intake(db: Session, ev: HrLifeEvent, values: dict) -> None:
     missing = [k.replace("_", " ") for k in ("first_name", "last_name", "phone", "address") if not person.get(k)]
     if missing:
         raise PacketError("Please fill in: " + ", ".join(missing) + ".")
+    try:
+        answers = hpd.clean_answers(hpd.event_setting(db, ev), (values or {}).get("answers"), require=True)
+    except hpd.PacketProblem as e:
+        raise PacketError(str(e))
+    if answers:
+        person["answers"] = answers
     ev.intake = person
     ev.subject_name = f"{person['first_name']} {person['last_name']}".strip()
     ev.intake_submitted_at = ev.updated_at = _now()
@@ -1020,6 +1046,13 @@ def _ask_verifier(db: Session, ev: HrLifeEvent, p: dict) -> None:
         _notify(db, v["email"], f"Ready to verify - {EVENT_TITLES.get(ev.kind, 'Packet')} for {ev.subject_name}",
                 f"The documents are generated. Check them and click Verify And Send - nothing goes to "
                 f"{ev.subject_name} until you do.", ev, priority=1)
+    # Signs Once (Oct 14): a new HR contact / signatory has not signed this
+    # packet yet - ask them, once.
+    for s in p.get("signOnce") or []:
+        if not s["signed"] and s.get("email"):
+            _notify(db, s["email"], f"Sign once - {EVENT_TITLES.get(ev.kind, 'Packet')} for {ev.subject_name}",
+                    f"You now sign this packet for the company ({s['roleLabel']}). Open it and click Sign Once - "
+                    f"your signature then goes on every packet automatically.", ev, priority=1)
 
 
 def patch_values(db: Session, ev: HrLifeEvent, user: dict, body: dict, *, can_see_pay: bool) -> None:
@@ -1067,6 +1100,16 @@ def patch_values(db: Session, ev: HrLifeEvent, user: dict, body: dict, *, can_se
         person = clean_intake(body.get("details"))
         if ev.kind == "hire" and (not person.get("first_name") or not person.get("last_name")):
             raise PacketError("Enter their legal first and last name.")
+        # The Details Form answers: someone without Pay & Benefits never saw
+        # the Sensitive ones, so theirs are kept exactly as they were.
+        old = hpd.event_answers(ev)
+        try:
+            answers = hpd.clean_answers(setting, (body.get("details") or {}).get("answers"), old,
+                                        keep=() if can_see_pay else tuple(hpd.sensitive_keys(setting)))
+        except hpd.PacketProblem as e:
+            raise PacketError(str(e))
+        if answers:
+            person["answers"] = answers
         ev.intake = person
         if ev.kind == "hire":
             ev.subject_name = f"{person['first_name']} {person['last_name']}".strip()
@@ -1290,6 +1333,16 @@ def _apply_hire_details(db: Session, ev: HrLifeEvent, emp: NexusEmployee) -> Non
                                  "name": str(i.get("emergency_name") or "").strip(),
                                  "relationship": str(i.get("emergency_relationship") or "").strip(),
                                  "phone": str(i.get("emergency_phone") or "").strip()}
+    # The packet's Details Form (Oct 14): every answer that is not Sensitive
+    # lands on the profile under Hiring Details. Sensitive ones (a bank
+    # account, an ID number) stay on the packet and in the signed documents.
+    import hr_packet_docs as hpd
+    setting = hpd.event_setting(db, ev)
+    plain = hpd.answer_values(setting, hpd.event_answers(ev))[0]         # as printed: dates MM/DD/YYYY
+    rows = [{"label": f["label"], "value": plain[f["key"]]}
+            for f in hpd.form_fields(setting) if not f.get("sensitive") and plain.get(f["key"])]
+    if rows:
+        personal["packetDetails"] = rows
     emp.personal = personal
     if str(i.get("phone") or "").strip():
         emp.phone = str(i["phone"]).strip()

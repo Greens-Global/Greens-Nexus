@@ -1,5 +1,5 @@
 /* eslint-disable react-hooks/refs -- the org-chart canvas reads container/zoom refs during render for pan-zoom fit-to-view; safe intentional reads the React-Compiler rule flags */
-import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense, Fragment } from 'react';
 import { QuestionnairesModal, InterviewPanel, LeaderboardModal, EmployeeInterviews } from '../components/Interviews';
 import { PacketsModal, SendHiringPacketModal, PacketSigner, PersonLifeEvents, usDay } from '../components/HiringPacket';
 import PacketReview from '../components/PacketReview';
@@ -2013,6 +2013,9 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
               {row(MapPinned, 'Current address', e.personal?.currentAddress)}
               {row(MapPinned, 'Permanent address', e.personal?.permanentAddress)}
               {row(Heart, 'Emergency contact', e.personal?.emergency?.name ? [e.personal.emergency.name, e.personal.emergency.relationship && `(${e.personal.emergency.relationship})`, e.personal.emergency.phone, e.personal.emergency.email].filter(Boolean).join(' · ') : '')}
+              {/* What they filled in on their hiring packet's Details Form
+                  (Oct 14) - Sensitive answers stay on the packet. */}
+              {(e.personal?.packetDetails || []).map(d => <Fragment key={d.label}>{row(FileText, d.label, d.value)}</Fragment>)}
             </div>
           </>
         )}
@@ -5203,7 +5206,10 @@ function maskId(v) {
 
 function PersonalModal({ employee, onClose, onSaved, toastOk, toastErr }) {
   const p0 = employee.personal || {};
+  // Everything else in the record (preferred name, a hire packet's details)
+  // is kept as it was - the save replaces the whole record.
   const [p, setP] = useState({
+    ...p0,
     dob: p0.dob || '', gender: p0.gender || '', nationalId: p0.nationalId || '',
     currentAddress: p0.currentAddress || '', permanentAddress: p0.permanentAddress || '',
     emergency: { name: '', relationship: '', phone: '', email: '', ...(p0.emergency || {}) },
