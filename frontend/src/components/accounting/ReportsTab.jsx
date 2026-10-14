@@ -706,8 +706,9 @@ export default function ReportsTab({ search = null, searchText: outerText = '', 
                       );
                     }
                     const nf = f && typeof f === 'object' ? f : { op: '=', a: '', b: '' };
+                    const fw = widths.width(c.key);
                     return (
-                      <td key={c.key}>
+                      <td key={c.key} style={fw ? { minWidth: fw, maxWidth: fw } : undefined}>
                         <span className="acct-op-filter">
                           <select value={nf.op} onChange={(e) => setF({ ...nf, op: e.target.value })} aria-label={`Operator for ${c.label}`} title="Compare with">
                             {NUM_OPS.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
@@ -801,6 +802,9 @@ function StatementRow({ row, columns, open, width = () => undefined, onToggle, o
     const v = values[i];
     const w = width(c.key);
     const cap = w ? { maxWidth: w, overflow: 'hidden', textOverflow: 'ellipsis' } : {};
+    // Oct 14 (Vinod: Debit, Credit and Balance would not resize on the General
+    // Ledger): an amount cell keeps to its column's dragged width too, like text.
+    const numCap = w ? { minWidth: w, maxWidth: w, overflow: 'hidden', textOverflow: 'ellipsis' } : {};
     if (c.type === 'date') return <td key={c.key} style={{ color: 'var(--text-secondary)', ...cap }}>{v || (row.kind === 'account' ? '-' : '')}</td>;
     if (c.type === 'text' && c.key === 'note' && note && row.kind === 'account' && row.code) {
       return <NoteCell key={c.key} row={row} value={v} note={note} maxWidth={w || 360} />;
@@ -817,14 +821,14 @@ function StatementRow({ row, columns, open, width = () => undefined, onToggle, o
       );
     }
     if (c.type === 'text') return <td key={c.key} title={v || undefined} style={{ maxWidth: w || (c.key === 'description' ? 460 : 220), overflow: 'hidden', textOverflow: 'ellipsis', color: row.kind === 'line' ? undefined : 'var(--text-secondary)' }}>{v || ''}</td>;
-    if (c.type === 'pct') return <td key={c.key} className="acct-num" style={{ color: tint(values[variance]) }}><Figure text={v || '-'} /></td>;
-    if (row.kind === 'margin') return <td key={c.key} className="acct-num" style={{ ...(c.emphasis ? EMPHASIS : {}), color: tint(v) }}><Figure text={cellText(row, c, v) || '-'} /></td>;
-    if (v === '' || v == null) return <td key={c.key} className="acct-num" />;
-    if (c.type === 'variance') return <td key={c.key} className="acct-num" style={{ color: tint(v) }}><Amount value={v} zero="dash" /></td>;
+    if (c.type === 'pct') return <td key={c.key} className="acct-num" style={{ ...numCap, color: tint(values[variance]) }}><Figure text={v || '-'} /></td>;
+    if (row.kind === 'margin') return <td key={c.key} className="acct-num" style={{ ...numCap, ...(c.emphasis ? EMPHASIS : {}), color: tint(v) }}><Figure text={cellText(row, c, v) || '-'} /></td>;
+    if (v === '' || v == null) return <td key={c.key} className="acct-num" style={w ? numCap : undefined} />;
+    if (c.type === 'variance') return <td key={c.key} className="acct-num" style={{ ...numCap, color: tint(v) }}><Amount value={v} zero="dash" /></td>;
     // A zero is a dash on the statement; a ledger line leaves its empty side blank.
     const figure = <Amount value={v} zero={row.kind === 'line' ? 'blank' : 'dash'} />;
     const look = row.tone ? { color: v >= 0 ? 'var(--ok-fg, #15803d)' : 'var(--bad-fg, #dc2626)' } : c.key === 'other' && columns.length > 2 ? { color: 'var(--text-secondary)' } : row.kind === 'account' && v < 0 && columns.length === 2 && columns[1].type === 'date' ? { color: 'var(--bad-fg, #dc2626)' } : undefined;
-    const style = c.emphasis ? { ...EMPHASIS, ...look } : look;
+    const style = c.emphasis ? { ...numCap, ...EMPHASIS, ...look } : { ...numCap, ...look };
     const drill = row.drills?.[i] || c.drill;
     const drills = drill && !row.noDrill && DRILL_KINDS.has(row.kind) && (row.kind !== 'section' || !row.values.every((x) => typeof x !== 'number'));
     return (
