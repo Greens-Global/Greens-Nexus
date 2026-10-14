@@ -236,7 +236,7 @@ export default function CandidateDetailModal({
               <FileSignature size={13} style={{ flexShrink: 0, marginTop: 2, color: 'var(--muted)' }} />
               <span>{packetPick.picked
                 ? <><b>Hiring packet:</b> {packetPick.picked.templateName} <span style={{ color: 'var(--muted)' }}>- {packetPick.picked.why}{packetPick.options.length > 1 ? '; you can pick another when you send' : ''}</span></>
-                : <span style={{ color: 'hsl(var(--color-orange))' }}>No hiring packet is set up for this company and role - add one in Settings > Hiring > Hiring Documents before sending.</span>}</span>
+                : <span style={{ color: 'hsl(var(--color-orange))' }}>No hiring packet is set up for this company and role - add one in Settings &gt; Hiring &gt; Hiring Documents before sending.</span>}</span>
             </div>
           )}
           {c.stage === 'offer' && c.email && onSendForSignature && (
