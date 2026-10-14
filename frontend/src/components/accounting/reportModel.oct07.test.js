@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   bookLabel, bookOptions, cashFlowFigures, defaultConfig, glGroupOf, glLineParams, hideInactive, lineMatchesDims, numberFilterHit, parseFigure,
-  reportPages, resolveConfig, runReport, setUserBooks, withFluxNotes, filterFlux, fluxStatus,
+  reportPages, resolveConfig, runReport, setUserBooks, withFluxNotes, filterFlux, fluxStatus, filterChips, fluxAmountText,
 } from './reportModel';
 
 // Accounting > Reports, Oct 7 batch (Charmi, Neil): the General Ledger's
@@ -200,6 +200,39 @@ describe('Flux explanations (item 26b) and review status (Charmi, 10/15)', () =>
     expect(open.rows[0].count).toBe(1);
     expect(resolveConfig({ report: 'flux', fluxStatus: 'answered' }).fluxStatus).toBe('answered');
     expect(resolveConfig({ report: 'flux', fluxStatus: 'nope' }).fluxStatus).toBe('all');
+  });
+  it('filters by an amount with an operator, on the figure picked (Charmi, 10/15)', () => {
+    const lines = {
+      flux: { period: 'p' }, summary: [],
+      rows: [
+        { kind: 'section', section: 'expense', label: 'Operating Expenses', count: 3, values: [0, 0, 0, '', '', ''] },
+        { kind: 'account', section: 'expense', code: '61000', flag: true, values: [12000, 4000, 8000, '200.0%', 'Open', ''] },
+        { kind: 'account', section: 'expense', code: '62000', flag: true, values: [1000, 7000, -6000, '(85.7%)', 'Open', ''] },
+        { kind: 'account', section: 'expense', code: '63000', flag: false, values: [5000, 4900, 100, '2.0%', '', ''] },
+        { kind: 'grand', label: 'Net Income', values: [0, 0, 0, '', '', ''] },
+      ],
+    };
+    const codes = (amount, status = 'all') => filterFlux(lines, { status, amount }).rows.filter((y) => y.kind === 'account').map((y) => y.code);
+    // Either way: a $6,000 drop is as big a move as an $8,000 rise.
+    expect(codes({ target: 'abs-var', op: '>=', a: '5,000' })).toEqual(['61000', '62000']);
+    expect(codes({ target: 'var', op: '>=', a: '5000' })).toEqual(['61000']);
+    expect(codes({ target: 'var', op: '<', a: '0' })).toEqual(['62000']);
+    expect(codes({ target: 'var', op: '=', a: '100' })).toEqual(['63000']);
+    expect(codes({ target: 'var', op: '<=', a: '100' })).toEqual(['62000', '63000']);
+    expect(codes({ target: 'cur', op: '>', a: '4999.99' })).toEqual(['61000', '63000']);
+    expect(codes({ target: 'prior', op: 'between', a: '4000', b: '5000' })).toEqual(['61000', '63000']);
+    expect(codes({ target: 'pct', op: '>', a: '50' })).toEqual(['61000']);
+    // An empty value is no filter; the amount and the review state combine.
+    expect(filterFlux(lines, { amount: { target: 'var', op: '>', a: '' } })).toBe(lines);
+    expect(codes({ target: 'abs-var', op: '>', a: '50' }, 'flagged')).toEqual(['61000', '62000']);
+    // The config keeps it, the chip names it and takes it off.
+    const c = resolveConfig({ report: 'flux', fluxFilter: { target: 'abs-var', op: '>=', a: '5000' } });
+    expect(c.fluxFilter).toEqual({ target: 'abs-var', op: '>=', a: '5000', b: '' });
+    expect(resolveConfig({ report: 'flux', fluxFilter: { target: 'x', op: '~' } }).fluxFilter).toEqual({ target: 'abs-var', op: '>=', a: '', b: '' });
+    expect(fluxAmountText({ target: 'pct', op: 'between', a: '10', b: '20' })).toBe('Variance % Between 10 and 20');
+    const chip = filterChips(c).find((x) => x.key === 'flux-amount');
+    expect(chip.label).toBe('Variance $ (Either Way) >= 5000');
+    expect(chip.patch.fluxFilter.a).toBe('');
   });
 });
 

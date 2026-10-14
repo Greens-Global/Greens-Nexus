@@ -5908,6 +5908,14 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
   background: var(--bg-card); color: var(--text-secondary); flex: 0 0 auto; max-width: 64px;
 }
 .acct-lines .acct-op-filter input { min-width: 48px; text-align: right; }
+/* The Flux toolbar's amount filter (Charmi, 10/15): the same operator box, toolbar height. */
+.acct-flux-amount .acct-op-filter { display: inline-flex; gap: 3px; align-items: center; }
+.acct-flux-amount .acct-op-filter select,
+.acct-flux-amount .acct-op-filter input {
+  height: 30px; padding: 0 6px; border: 1px solid var(--border-color); border-radius: 8px; font: inherit; font-size: 0.78rem;
+  background: var(--bg-card); color: var(--text-primary);
+}
+.acct-flux-amount .acct-op-filter input { width: 92px; text-align: right; }
 
 /* Two lines, then an ellipsis - the Support ticket list's Title and Latest
    Comment cells (Neil, 10/08: two-row cells so both can actually be read). */

@@ -15,12 +15,12 @@ import { useAccountingPrefs } from './prefs';
 import { useColumnWidths, useCustomizePrefs } from './tableHooks';
 import Amount, { Figure } from './Amount';
 import {
-  AccountsPicker, ClearButton, ColumnResizer, CustomizeButton, DENSITIES, EntitiesPicker, ExportMenu, FiltersButton, MemorizeButton, Pager, PeriodStepper,
+  AccountsPicker, ClearButton, ColumnResizer, CustomizeButton, DENSITIES, EntitiesPicker, ExportMenu, FiltersButton, MemorizeButton, OpFilter, Pager, PeriodStepper,
   SavedReportsMenu, control,
 } from './reportControls';
 import {
-  EMPTY_DIMS, FLUX_STATUS_FILTERS, NUM_OPS, POPOVER_DIMS, REPORTS, activeColumns, bookLabel, bookOptions, canPickAccounts, canPickBook, canUseDims, cellText, columnModes, columnsForPicks, csvFileName, csvRows,
-  defaultConfig, downloadBlob, downloadCsv, entityText, filterChips, filterFlux, fluxNoteOf, hideInactive, iso, numberFilterHit, periodText, presetLabel, reportDef, reportPages, resolveConfig, runReport, setUserBooks, withFluxNotes,
+  EMPTY_DIMS, FLUX_AMOUNT_TARGETS, FLUX_STATUS_FILTERS, NUM_OPS, POPOVER_DIMS, REPORTS, activeColumns, bookLabel, bookOptions, canPickAccounts, canPickBook, canUseDims, cellText, columnModes, columnsForPicks, csvFileName, csvRows,
+  defaultConfig, downloadBlob, downloadCsv, entityText, filterChips, filterFlux, fluxAmountOn, fluxNoteOf, hideInactive, iso, numberFilterHit, periodText, presetLabel, reportDef, reportPages, resolveConfig, runReport, setUserBooks, withFluxNotes,
 } from './reportModel';
 
 // Accounting -> Reports. Pull any statement for any entity straight from the
@@ -83,11 +83,11 @@ const storable = (c) => ({
   ...(c.asofToday === false ? { asof: c.asof, asofToday: false } : {}),
   book: c.book, cols: c.cols, entities: c.entities, dims: c.dims,
   ...(c.accounts?.length ? { accounts: c.accounts } : {}), ...(c.showZero ? { showZero: true } : {}),
-  ...(c.report === 'flux' ? { fluxPct: c.fluxPct, fluxAmount: c.fluxAmount, ...(c.fluxStatus && c.fluxStatus !== 'all' ? { fluxStatus: c.fluxStatus } : {}) } : {}),
+  ...(c.report === 'flux' ? { fluxPct: c.fluxPct, fluxAmount: c.fluxAmount, ...(c.fluxStatus && c.fluxStatus !== 'all' ? { fluxStatus: c.fluxStatus } : {}), ...(fluxAmountOn(c.fluxFilter) ? { fluxFilter: c.fluxFilter } : {}) } : {}),
 });
 // What the ledger is read for: the view filters on the lines (the flux
 // review state) narrow what is on screen and never re-read the ledger.
-const VIEW_ONLY = new Set(['fluxStatus']);
+const VIEW_ONLY = new Set(['fluxStatus', 'fluxFilter']);
 const runnable = (c) => Object.fromEntries(Object.entries(storable(c)).filter(([k]) => !VIEW_ONLY.has(k)));
 const sameView = (a, b) => JSON.stringify(storable(a)) === JSON.stringify(storable(b));
 
@@ -429,7 +429,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
   }, [result, config.report, fluxNotes, showInactive]);
   // The flux lines in the review state picked (Charmi, 10/15); the counts
   // are over every line. What is on screen is what an export takes.
-  const shown = useMemo(() => (noted?.flux ? filterFlux(noted, { status: config.fluxStatus }) : noted), [noted, config.fluxStatus]);
+  const shown = useMemo(() => (noted?.flux ? filterFlux(noted, { status: config.fluxStatus, amount: config.fluxFilter }) : noted), [noted, config.fluxStatus, config.fluxFilter]);
   const fluxCounts = useMemo(() => {
     if (!noted?.flux) return null;
     const lines = noted.rows.filter((r) => r.kind === 'account');
@@ -567,6 +567,16 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
             ))}
           </select>
         )}
+        {/* Flux amount filter (Charmi, 10/15): what to compare, an operator and a value. */}
+        {config.report === 'flux' && (
+          <span className="acct-flux-amount" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+            <select value={config.fluxFilter.target} onChange={(e) => patch({ fluxFilter: { ...config.fluxFilter, target: e.target.value } })} aria-label="Amount to Filter" title="Which figure the amount filter compares"
+              style={{ ...select(fluxAmountOn(config.fluxFilter)), maxWidth: 190 }}>
+              {FLUX_AMOUNT_TARGETS.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+            </select>
+            <OpFilter label="Amount" value={config.fluxFilter} onChange={(v) => patch({ fluxFilter: { ...config.fluxFilter, ...v } })} placeholder={config.fluxFilter.target === 'pct' ? '%' : '0.00'} />
+          </span>
+        )}
         {canPickAccounts(config) && <AccountsPicker accounts={shown?.pickable || []} value={config.accounts} onChange={(accounts) => patch({ accounts })} showHistorical={!!prefs.showHistoricalAccounts} />}
 
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -689,7 +699,7 @@ export default function ReportsTab({ canEdit = true, search = null, searchText: 
                 </span>
               ))}
               {chips.length > 1 && (
-                <button type="button" onClick={() => patch({ entities: [], dims: { ...EMPTY_DIMS }, accounts: [], fluxStatus: 'all' })}
+                <button type="button" onClick={() => patch({ entities: [], dims: { ...EMPTY_DIMS }, accounts: [], fluxStatus: 'all', fluxFilter: { ...config.fluxFilter, a: '', b: '' } })}
                   style={{ border: 'none', background: 'none', font: 'inherit', fontSize: '0.74rem', color: 'var(--text-muted)', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>
                   Clear all filters
                 </button>

@@ -294,6 +294,14 @@ export function resolveConfig(config, now = new Date()) {
   c.fluxAmount = Number.isFinite(Number(c.fluxAmount)) && Number(c.fluxAmount) >= 0 ? Number(c.fluxAmount) : FLUX_DEFAULTS.fluxAmount;
   // Flux review filter (Charmi, 10/15): which review state the lines show.
   c.fluxStatus = ['all', 'flagged', 'open', 'answered', 'closed'].includes(c.fluxStatus) ? c.fluxStatus : 'all';
+  // Flux amount filter (Charmi, 10/15): { target, op, a, b }.
+  const fa = c.fluxFilter && typeof c.fluxFilter === 'object' ? c.fluxFilter : {};
+  c.fluxFilter = {
+    target: FLUX_AMOUNT_TARGETS.some((x) => x.key === fa.target) ? fa.target : FLUX_AMOUNT_DEFAULT.target,
+    op: NUM_OPS.some((o) => o.key === fa.op) ? fa.op : FLUX_AMOUNT_DEFAULT.op,
+    a: typeof fa.a === 'string' || typeof fa.a === 'number' ? String(fa.a) : '',
+    b: typeof fa.b === 'string' || typeof fa.b === 'number' ? String(fa.b) : '',
+  };
   return c;
 }
 
@@ -338,6 +346,9 @@ export function filterChips(config, entities = [], names = {}) {
   (config.accounts || []).forEach((code) => {
     out.push({ key: `account:${code}`, label: `Account: ${code}`, patch: { accounts: config.accounts.filter((c) => c !== code) } });
   });
+  if (config.report === 'flux' && fluxAmountOn(config.fluxFilter)) {
+    out.push({ key: 'flux-amount', label: fluxAmountText(config.fluxFilter), patch: { fluxFilter: { ...config.fluxFilter, a: '', b: '' } } });
+  }
   if (config.report === 'flux' && config.fluxStatus && config.fluxStatus !== 'all') {
     out.push({ key: 'flux-status', label: `Review: ${config.fluxStatus === 'flagged' ? 'Flagged' : config.fluxStatus[0].toUpperCase() + config.fluxStatus.slice(1)}`, patch: { fluxStatus: 'all' } });
   }
@@ -1181,6 +1192,29 @@ export function withFluxNotes(result, notes) {
   const summary = (result.summary || []).map((f) => (f.label === 'Review' ? { ...f, value: `${n(counts.open)} Open · ${n(counts.answered)} Answered · ${n(counts.closed)} Closed` } : f));
   return { ...result, rows, summary, fluxCounts: counts };
 }
+/**
+ * What the Flux amount filter compares (Charmi, 10/15: "Filter to include
+ * amount and also >, <, >=, <=, ="): the variance either way (the usual flux
+ * question - did it move by more than $5,000, up or down), the signed
+ * variance, the variance %, or either period's amount. `at` is the column.
+ */
+export const FLUX_AMOUNT_TARGETS = [
+  { key: 'abs-var', label: 'Variance $ (Either Way)', at: 2, abs: true },
+  { key: 'var', label: 'Variance $', at: 2 },
+  { key: 'pct', label: 'Variance %', at: 3 },
+  { key: 'cur', label: 'Current Period', at: 0 },
+  { key: 'prior', label: 'Prior Period', at: 1 },
+];
+export const FLUX_AMOUNT_DEFAULT = { target: 'abs-var', op: '>=', a: '', b: '' };
+/** Whether a flux amount filter { target, op, a, b } is in force. */
+export const fluxAmountOn = (f) => !!f && (String(f.a ?? '').trim() !== '' || (f.op === 'between' && String(f.b ?? '').trim() !== ''));
+/** The amount filter as words: "Variance $ (Either Way) >= 5,000". */
+export function fluxAmountText(f) {
+  if (!fluxAmountOn(f)) return '';
+  const t = FLUX_AMOUNT_TARGETS.find((x) => x.key === f.target) || FLUX_AMOUNT_TARGETS[0];
+  const v = (x) => String(x ?? '').trim();
+  return f.op === 'between' ? `${t.label} Between ${v(f.a) || '...'} and ${v(f.b) || '...'}` : `${t.label} ${f.op || '='} ${v(f.a)}`;
+}
 /** The Review Status filter's choices: every line, the flagged ones, or one state. */
 export const FLUX_STATUS_FILTERS = [{ key: 'all', label: 'All Lines' }, { key: 'flagged', label: 'Flagged' }, ...FLUX_STATUSES.map(({ key, label }) => ({ key, label }))];
 /**
@@ -1188,9 +1222,19 @@ export const FLUX_STATUS_FILTERS = [{ key: 'all', label: 'All Lines' }, { key: '
  * flagged | open | answered | closed. A section heading stays while a line
  * under it stays; subtotals and Net Income stay (they are the whole report's).
  */
-export function filterFlux(result, { status = 'all' } = {}) {
-  if (!result?.flux || status === 'all' || !status) return result;
-  const keep = (r) => (status === 'flagged' ? !!r.flag : r.status === status);
+export function filterFlux(result, { status = 'all', amount = null } = {}) {
+  const byAmount = fluxAmountOn(amount);
+  if (!result?.flux || ((status === 'all' || !status) && !byAmount)) return result;
+  const t = FLUX_AMOUNT_TARGETS.find((x) => x.key === amount?.target) || FLUX_AMOUNT_TARGETS[0];
+  const amountHit = (r) => {
+    if (!byAmount) return true;
+    const v = t.key === 'pct' ? parseFigure(r.values[t.at]) : Number(r.values[t.at]);
+    // A filter on a signed value keeps its sign; "either way" compares the size.
+    const f = t.abs ? { ...amount, a: String(amount.a ?? '').replace(/[-()]/g, ''), b: String(amount.b ?? '').replace(/[-()]/g, '') } : amount;
+    return Number.isFinite(v) && numberFilterHit(t.abs ? Math.abs(v) : v, { ...f, op: f.op || '=' });
+  };
+  const statusHit = (r) => (status === 'all' || !status ? true : status === 'flagged' ? !!r.flag : r.status === status);
+  const keep = (r) => statusHit(r) && amountHit(r);
   const accounts = new Set(result.rows.filter((r) => r.kind === 'account' && keep(r)));
   const sections = new Set([...accounts].map((r) => r.section));
   const rows = result.rows.filter((r) => (r.kind === 'account' ? accounts.has(r) : r.kind === 'section' ? sections.has(r.section) : true))

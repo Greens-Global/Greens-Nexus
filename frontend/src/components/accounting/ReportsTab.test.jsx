@@ -683,6 +683,47 @@ describe('ReportsTab controls', () => {
     await waitFor(() => expect(screen.getByText('Repairs').closest('tr').className).not.toContain('acct-flag'));
   });
 
+  it('filters a Flux by amount with an operator, on the figure picked, without reading the ledger again (Charmi, 10/15)', async () => {
+    const year = new Date().getFullYear();
+    const prior = { ...pnl, sections: [
+      { key: 'revenue', label: 'Revenue', accounts: [{ account_no: '41000', title: 'Rental Income', amount: 1000 }, { account_no: '41100', title: 'Parking Income', amount: 500 }] },
+      { key: 'expense', label: 'Operating Expenses', accounts: [{ account_no: '61000', title: 'Repairs', amount: 6000 }] },
+    ] };
+    api.getAccountingPnl.mockImplementation(async (from) => (from < `${year}-01-01` ? prior : pnl));
+    render(<ReportsTab />);
+    await screen.findByText('Rental Income');
+    fireEvent.change(screen.getByLabelText('Report'), { target: { value: 'flux' } });
+    await screen.findByRole('columnheader', { name: 'Variance $' });
+    const reads = api.getAccountingPnl.mock.calls.length;
+    const target = screen.getByLabelText('Amount to Filter');
+    expect([...target.options].map((o) => o.textContent)).toEqual(['Variance $ (Either Way)', 'Variance $', 'Variance %', 'Current Period', 'Prior Period']);
+    expect([...screen.getByLabelText('Operator for Amount').options].map((o) => o.textContent)).toEqual(['=', '>', '<', '>=', '<=', 'Between']);
+    // Repairs fell by 5,600: a move of 5,000 or more either way.
+    fireEvent.change(screen.getByLabelText('Filter Amount'), { target: { value: '5000' } });
+    await waitFor(() => expect(screen.queryByText('Rental Income')).toBeNull());
+    expect(screen.getByText('Repairs')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Remove Variance $ (Either Way) >= 5000' })).toBeTruthy();
+    // The signed variance: a fall is below zero.
+    fireEvent.change(target, { target: { value: 'var' } });
+    await waitFor(() => expect(screen.queryByText('Repairs')).toBeNull());
+    fireEvent.change(screen.getByLabelText('Operator for Amount'), { target: { value: '<' } });
+    fireEvent.change(screen.getByLabelText('Filter Amount'), { target: { value: '0' } });
+    await screen.findByText('Repairs');
+    // Between takes a second value; the current period's amount.
+    fireEvent.change(target, { target: { value: 'cur' } });
+    fireEvent.change(screen.getByLabelText('Operator for Amount'), { target: { value: 'between' } });
+    fireEvent.change(screen.getByLabelText('Filter Amount'), { target: { value: '450' } });
+    fireEvent.change(screen.getByLabelText('Filter Amount up to'), { target: { value: '1000' } });
+    await screen.findByText('Rental Income');
+    expect(screen.getByText('Parking Income')).toBeTruthy();
+    expect(screen.queryByText('Repairs')).toBeNull();
+    await new Promise((r) => setTimeout(r, 300));
+    expect(api.getAccountingPnl.mock.calls.length).toBe(reads);
+    // The chip takes it off.
+    fireEvent.click(screen.getByRole('button', { name: /^Remove Current Period Between/ }));
+    await screen.findByText('Repairs');
+  });
+
   it('asks the ledger once when two controls change one after the other', async () => {
     render(<ReportsTab />);
     await screen.findByText('Rental Income');

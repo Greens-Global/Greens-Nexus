@@ -7,9 +7,9 @@ import { useIsMobile } from '../../lib/useIsMobile';
 import EntryDetail from './EntryDetail';
 import Amount from './Amount';
 import { useAccountingPrefs } from './prefs';
-import { PopoverPanel, usePopover } from './reportControls';
+import { OpFilter, PopoverPanel, usePopover } from './reportControls';
 import { linesBaseName } from './linesExport';
-import { DIM_KINDS, NUM_OPS, glLineParams, lineMatchesDims, numberFilterHit, parseFigure } from './reportModel';
+import { DIM_KINDS, glLineParams, lineMatchesDims, numberFilterHit, parseFigure } from './reportModel';
 
 // Search results and report drill-downs for Accounting -> Reports.
 //
@@ -544,23 +544,6 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
       ) : null}
       {openEntry && <EntryDetail entryId={openEntry.id} entryNo={openEntry.no} onClose={closeEntry} />}
     </div>
-  );
-}
-
-// The operator box under an amount column - the same control as the Reports
-// tables' (ReportsTab, item 26d): =, >, <, >=, <=, Between and a value.
-function OpFilter({ label, value, onChange }) {
-  const v = value && typeof value === 'object' ? value : { op: '=', a: '', b: '' };
-  return (
-    <span className="acct-op-filter">
-      <select value={v.op || '='} onChange={(e) => onChange({ ...v, op: e.target.value })} aria-label={`Operator for ${label}`} title="Compare with">
-        {NUM_OPS.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
-      </select>
-      <input type="text" inputMode="decimal" value={v.a || ''} onChange={(e) => onChange({ ...v, a: e.target.value })} aria-label={`Filter ${label}`} placeholder="0.00" className="acct-num" />
-      {v.op === 'between' && (
-        <input type="text" inputMode="decimal" value={v.b || ''} onChange={(e) => onChange({ ...v, b: e.target.value })} aria-label={`Filter ${label} up to`} placeholder="and" className="acct-num" />
-      )}
-    </span>
   );
 }
 
