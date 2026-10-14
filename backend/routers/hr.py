@@ -1098,6 +1098,13 @@ def upload_resume(cid: str, file: UploadFile = File(...),
         raise HTTPException(502, f"Storage upload failed: {up.text[:200]}")
     row.resume_url = path
     row.updated_at = datetime.now(timezone.utc).isoformat()
+    # The screeners read it from their task (Oct 15).
+    if (row.screen_task_id or "").strip():
+        import hiring_screening
+        try:
+            hiring_screening.attach_resume(db, row, name, data, file.content_type or "", user["email"])
+        except Exception as e:   # noqa: BLE001 - the resume is saved either way
+            print(f"[hiring] resume not attached to the screening task for {row.id}: {type(e).__name__}: {e}")
     db.commit()
     return _ser_candidate(row)
 

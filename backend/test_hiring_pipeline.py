@@ -376,6 +376,7 @@ class ScreeningTaskTests(PipelineCase):
 
     def tearDown(self):
         self.db.query(models.Task).delete()
+        self.db.query(models.TaskAttachment).delete()
         self.db.commit()
         super().tearDown()
 
@@ -398,6 +399,32 @@ class ScreeningTaskTests(PipelineCase):
         hr.update_candidate(c["id"], hr.CandidateUpdate(stage="rejected"), user=HR_USER, db=self.db)
         self.db.expire_all()
         self.assertTrue(self.db.query(models.Task).filter_by(id=cand.screen_task_id).one().completed)
+
+    def test_the_resume_rides_on_the_task_and_comments_become_notes(self):
+        import io
+        import task_files
+        from fastapi import UploadFile
+        import hiring_screening
+        self._chain()
+        c = self._add(role_id="role-analyst")
+        cand = self.db.query(models.HrCandidate).filter_by(id=c["id"]).one()
+        real = task_files.store_bytes
+        task_files.store_bytes = lambda name, raw, ct: f"https://x/storage/v1/object/public/task-files/tasks/{name}"
+        try:
+            hr.upload_resume(c["id"], UploadFile(filename="jane.pdf", file=io.BytesIO(b"%PDF-1.4 resume")), user=HR_USER, db=self.db)
+        finally:
+            task_files.store_bytes = real
+        att = self.db.query(models.TaskAttachment).filter_by(task_id=cand.screen_task_id).all()
+        self.assertEqual([a.name for a in att], ["Resume - jane.pdf"])
+        task = self.db.query(models.Task).filter_by(id=cand.screen_task_id).one()
+        self.assertIn(att[0].id, task.attachment_ids)
+        # a manager's comment lands on the candidate's notes, with who wrote it
+        self.assertTrue(hiring_screening.note_from_comment(self.db, cand.screen_task_id, "head@greensglobal.com", "Strong resume, call them"))
+        self.db.commit()
+        rows = hr.candidate_history(c["id"], user=HR_USER, db=self.db)
+        note = [r for r in rows if r["kind"] == "note"][-1]
+        self.assertEqual((note["note"], note["byEmail"]), ("Strong resume, call them", "head@greensglobal.com"))
+        self.assertFalse(hiring_screening.note_from_comment(self.db, "not-a-screening-task", "x@y.com", "hi"))
 
     def test_no_department_head_falls_back_to_the_hr_contact(self):
         self.db.query(models.HrEntity).filter_by(id=ENT).update({"hr_contact_email": NEIL})

@@ -14,8 +14,11 @@ When a candidate is added, ONE task - "Screen <name>" - goes to the head of
 the role's department and everyone above them in the reporting line, each
 gets a bell, and it is due the business day before the expected interview
 (the company's holidays skipped). When the interview is booked or moved, the
-due date follows it. Rejecting or hiring the candidate closes it; their
-notes go on the candidate's timeline.
+due date follows it. Rejecting or hiring the candidate closes it.
+
+The managers never need Hiring access (Pranshu, Oct 15): the resume is
+attached to the task, and every comment on the task lands on the candidate's
+notes timeline - so the task IS their view of the candidate.
 """
 import uuid
 from datetime import date, datetime, timedelta, timezone
@@ -125,8 +128,9 @@ def start(db: Session, cand: models.HrCandidate, by: str) -> Optional[models.Tas
     task = models.Task(
         id=str(uuid.uuid4()), code=_next_code(db), company_id=cand.company or "",
         title=f"Screen {name} - {role}",
-        description=(f"{name} applied for {role}. Read their resume and add your screening notes on the candidate in "
-                     f"People > Hiring before the interview" + (f" (expected {expected})" if expected else "") + ". "
+        description=(f"{name} applied for {role}. Their resume is attached. Read it and write your screening notes as "
+                     f"comments on this task - they go straight onto the candidate's notes in Hiring" +
+                     (f" - before the interview (expected {expected})" if expected else "") + ". "
                      f"Mark this task complete when you have screened them."),
         type="task", status="not_started", priority="medium", position=datetime.now().timestamp(),
         assignee_email="", assignee_emails=[], owner_email=(by or "").lower(), follower_emails=[],
@@ -138,6 +142,14 @@ def start(db: Session, cand: models.HrCandidate, by: str) -> Optional[models.Tas
     set_task_assignees(task, who)
     db.add(task)
     cand.screen_task_id = task.id
+    if (cand.resume_url or "").strip() and not cand.resume_url.startswith("http"):
+        # A resume already on file (an API caller, or an edit) rides along.
+        from routers import esign
+        from routers.hr import _DOC_BUCKET
+        got = esign._storage_fetch(_DOC_BUCKET, cand.resume_url)
+        if got.is_success and got.content:
+            attach_resume(db, cand, cand.resume_url.rsplit("/", 1)[-1].split("-", 1)[-1], got.content,
+                          "application/octet-stream", by)
     from routers.hr import _hr_notify
     for email in who:
         _hr_notify(db, email, f"Screen {name} - {role}",
@@ -145,6 +157,48 @@ def start(db: Session, cand: models.HrCandidate, by: str) -> Optional[models.Tas
                    + (f" - screening is due {task.due_on}" if task.due_on else "") + ".",
                    ref_id=cand.id, requested_by=by, action={"view": "hr", "sub": "hr-hiring"})
     return task
+
+
+def attach_resume(db: Session, cand: models.HrCandidate, name: str, raw: bytes, content_type: str, by: str) -> bool:
+    """The resume on the screening task, so the screeners read it from the task
+    itself. A copy in the task-files bucket (private; task viewers open it
+    through /files/view). The caller commits."""
+    t = _task(db, cand)
+    if t is None or not raw:
+        return False
+    import task_files
+    url = task_files.store_bytes(name or "resume.pdf", raw, content_type or "application/octet-stream")
+    if not url:
+        return False                      # no storage here (a local backend) - the task still says to read it
+    now = _now()
+    for old in db.query(models.TaskAttachment).filter(models.TaskAttachment.task_id == t.id,
+                                                       models.TaskAttachment.name.like("Resume - %")).all():
+        db.delete(old)                    # a replaced resume replaces the attachment
+    a = models.TaskAttachment(id=str(uuid.uuid4()), task_id=t.id, name=f"Resume - {name or 'resume.pdf'}",
+                              size=str(len(raw)), kind="doc", url=url, added_at=now, added_by=(by or "").lower())
+    db.add(a)
+    db.flush()
+    t.attachment_ids = [i for i in (t.attachment_ids or []) if i not in
+                        {o.id for o in db.query(models.TaskAttachment).filter(models.TaskAttachment.task_id == t.id)
+                         .filter(models.TaskAttachment.id != a.id, models.TaskAttachment.name.like("Resume - %"))}] + [a.id]
+    t.modified_at = now
+    return True
+
+
+def note_from_comment(db: Session, task_id: str, author: str, body: str) -> bool:
+    """A comment on a screening task is a screening note: it goes on the
+    candidate's timeline with who wrote it. The caller commits."""
+    text = (body or "").strip()
+    if not task_id or not text:
+        return False
+    cand = db.query(models.HrCandidate).filter(models.HrCandidate.screen_task_id == task_id).first()
+    if cand is None:
+        return False
+    now = _now()
+    db.add(models.HrStageEvent(id=str(uuid.uuid4()), candidate_id=cand.id, from_stage=cand.stage, to_stage=cand.stage,
+                               note=text[:4000], by_email=(author or "").lower(), created_at=now, kind="note"))
+    cand.updated_at = now
+    return True
 
 
 def follow_interview(db: Session, cand: models.HrCandidate) -> None:
