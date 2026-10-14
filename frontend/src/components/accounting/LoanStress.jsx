@@ -158,7 +158,7 @@ export default function LoanStress({ loan, canEdit = false }) {
           <Field id="st-noi" title="NOI (Annual)" hint={l.noiT12 != null ? 'Trailing 12 from the ledger - type over it to test' : 'No trailing-12 NOI on file'}><AmountInput id="st-noi" value={p.noi} onChange={(v) => set({ noi: v })} style={input} /></Field>
           <Field id="st-cov" title="Covenant DSCR"><input id="st-cov" type="number" step="0.01" min="0" value={p.covenant} onChange={(e) => set({ covenant: e.target.value })} style={input} /></Field>
           <Field id="st-type" title="Rate Type"><select id="st-type" value={p.rateType} onChange={(e) => set({ rateType: e.target.value })} style={input}><option value="floating">Floating</option><option value="fixed">Fixed</option></select></Field>
-          <Field id="st-amort" title="Amortization Left (Months)" hint={l.monthlyPi ? 'From the monthly P&I on file' : 'Default 300 (25 years)'}>
+          <Field id="st-amort" title="Amortization Left (Months)" hint={l.monthlyPi ? 'From the monthly payment on file' : 'Default 300 (25 years)'}>
             <input id="st-amort" type="number" min="1" max="1200" value={p.amortMonths} disabled={p.interestOnly} onChange={(e) => set({ amortMonths: e.target.value })} style={input} />
           </Field>
         </div>
