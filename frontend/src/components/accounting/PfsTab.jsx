@@ -90,7 +90,7 @@ const DETAILS = [
   ['ssn_last4', 'Social Security Number - Last 4 Digits'],
 ];
 const RE_DETAILS = [['address', 'Address'], ['property_type', 'Property Type'], ['legal_owner', 'Legal Owner'], ['ownership_type', 'Ownership Type'], ['lender', 'Lender'], ['interest_rate', 'Interest Rate'], ['monthly_payment', 'Monthly Payment']];
-const LOCK_HINT = 'Each file opens with a one-time code emailed to you, for 30 minutes in this tab, and its borrowers are told. Every open, change and statement is logged.';
+const LOCK_HINT = 'Each file opens with a one-time code emailed to you, for 90 minutes in this tab, and its borrowers are told. Every open, change and statement is logged.';
 
 const pct = (n) => `${(Number(n) || 0).toLocaleString('en-US', { maximumFractionDigits: 2 })}%`;
 const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, boxShadow: 'var(--shadow-sm)' };
