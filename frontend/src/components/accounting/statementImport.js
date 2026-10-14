@@ -11,7 +11,8 @@ export function parseCsv(text) {
   let row = [];
   let cell = '';
   let quoted = false;
-  const s = String(text || '').replace(/^﻿/, '');
+  const raw = String(text || '');
+  const s = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;   // a byte-order mark
   for (let i = 0; i < s.length; i += 1) {
     const ch = s[i];
     if (quoted) {

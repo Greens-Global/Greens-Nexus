@@ -36,6 +36,7 @@ describe('statement import', () => {
   });
 
   it('reads amounts and dates in the usual shapes', () => {
+    expect(parseCsv(`${String.fromCharCode(0xfeff)}Date,"A ""quoted"" one"\r\n1/2/26,x`)).toEqual([['Date', 'A "quoted" one'], ['1/2/26', 'x']]);
     expect(parseAmount('(1,234.50)')).toBe(-1234.5);
     expect(parseAmount('$99.10')).toBe(99.1);
     expect(parseAmount('12.00 DR')).toBe(-12);
