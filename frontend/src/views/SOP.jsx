@@ -640,19 +640,10 @@ export default function SOP({ activeSub, onSubChange }) {
       .catch(() => want.forEach(p => signedReqRef.current.delete(p)));
     return () => { cancelled = true; };
   }, [selected, draft]);
-  // press "/" to jump to the search box (when not already typing in a field)
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.key !== '/' || e.metaKey || e.ctrlKey || e.altKey) return;
-      const t = e.target;
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
-      if (sub !== 'index' || mode !== 'list') return;
-      e.preventDefault();
-      searchRef.current?.focus();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [sub, mode]);
+  // "/" jumps to the search box on the index list: the box is tagged
+  // data-slash-search there and the header's shortcut handler (TopHeader)
+  // sends "/" to it.
+  const ownsSlash = sub === 'index' && mode === 'list';
 
   const togglePin = async (id, ev) => {
     if (ev) { ev.stopPropagation(); ev.preventDefault(); }
@@ -2864,7 +2855,7 @@ export default function SOP({ activeSub, onSubChange }) {
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
                 <Search size={18} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-                <input ref={searchRef} type="text" className="form-input" value={search} onChange={e => setSearch(e.target.value)}
+                <input data-slash-search={ownsSlash ? '' : undefined} ref={searchRef} type="text" className="form-input" value={search} onChange={e => setSearch(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter' && search.trim()) doAsk(search); }}
                   placeholder="Search or ask anything… e.g. How do we hand over a unit key?"
                   style={{ paddingLeft: 42, paddingRight: 36, width: '100%', height: 48, fontSize: '0.95rem', borderRadius: 12 }} />

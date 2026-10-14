@@ -81,6 +81,9 @@ const STATUS_META = {
 // The statuses the directory's Inactive tab holds (Neil, Oct 12): Left and
 // Inactive people stay in Nexus with their record, out of the working list.
 const INACTIVE_STATUSES = new Set(['inactive', 'offboarded']);
+// Guest (Microsoft 365 guest) and external (no M365 login) rows - one
+// predicate for the whole screen.
+const isExternalPerson = (e) => ['guest', 'external'].includes(e?.identityType || 'internal');
 
 // The status dropdown's "Deleted" entry. Deliberately NOT a STATUS_META member:
 // removal is orthogonal to employment status (a removed person keeps whatever
@@ -1404,7 +1407,7 @@ function EmployeeAccess({ email, identityType = 'internal', companyId = '', toas
   const loadScopes = () => api.getAccessScopes(email).then(setScopes).catch(() => setScopes([]));
   useEffect(() => { if (email) { setData(null); load(); loadScopes(); } }, [email]);   // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { api.getJobRoles().then(setRoles).catch(() => {}); api.getGroups().then(gs => setGroups(gs.filter(g => !g.is_job_role))).catch(() => {}); api.getEntities().then(setEntities).catch(() => {}); }, []);
-  const isExternal = identityType === 'external' || identityType === 'guest';
+  const isExternal = isExternalPerson({ identityType });
 
   if (!email) return <div style={{ color: 'var(--muted)', fontSize: 13.5, padding: '20px 4px' }}>This person has no work email yet - provision their account first to manage access.</div>;
   if (!data) return <div style={{ padding: 30, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="inline" /></div>;
@@ -2382,6 +2385,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
 // card press from a pan; data-email lets drop resolve the target across the
 // zoom transform.
 function OrgNodeCard({ e, kids, isCollapsed, onToggle, onSelect, dnd, entityName, highlight, divName, divColor, isHead, dim, onUnlink = null }) {
+  const ext = isExternalPerson(e);
   const email = (e.workEmail || '').toLowerCase();
   const isTarget = dnd.overKey === email && dnd.draggingId && dnd.draggingId !== e.id;
   const isDragging = dnd.draggingId === e.id;
@@ -2404,11 +2408,13 @@ function OrgNodeCard({ e, kids, isCollapsed, onToggle, onSelect, dnd, entityName
         </button>
       )}
       <div
+        data-orgtile="1"
         onPointerDown={ev => dnd.onCardPointerDown(ev, e)}
         style={{
           position: 'relative', width: 216, padding: '12px 14px 12px 18px', display: 'flex', alignItems: 'center', gap: 11,
           background: isTarget ? 'hsla(var(--color-green),0.08)' : 'var(--card)',
-          border: `1.5px solid ${isTarget ? 'hsl(var(--color-green))' : highlight ? 'hsl(var(--color-blue))' : 'var(--line)'}`,
+          border: isTarget ? '1.5px solid hsl(var(--color-green))' : highlight ? '1.5px solid hsl(var(--color-blue))'
+            : ext ? '1.5px dashed hsla(var(--color-orange),0.55)' : '1.5px solid var(--line)',
           borderRadius: 14, boxShadow: highlight ? '0 0 0 3px hsla(var(--color-blue),0.15)' : 'var(--shadow-sm)',
           cursor: 'grab', opacity: dim ? 0.3 : isDragging ? 0.4 : 1, overflow: 'hidden',
           touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none',
@@ -2417,10 +2423,24 @@ function OrgNodeCard({ e, kids, isCollapsed, onToggle, onSelect, dnd, entityName
         {divColor && <span style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 5, background: `hsl(${divColor})` }} />}
         <Avatar e={e} size={40} card={false} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fullName(e)}</div>
+          {/* Four lines (Neil, Oct 14 2026): name, role, department, company -
+              each on its own line so every card reads the same way. An
+              external user carries the designation beside the name and
+              their own company on the company line. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+            <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>{fullName(e)}</span>
+            {ext && (
+              <span title={e.identityType === 'guest' ? 'Guest account (Microsoft 365 guest)' : 'External user (no Microsoft 365 login)'}
+                style={{ flexShrink: 0, fontSize: 9, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', padding: '1px 6px', borderRadius: 5,
+                  background: 'hsla(var(--color-orange),0.14)', color: 'hsl(var(--color-orange))', border: '1px solid hsla(var(--color-orange),0.35)' }}>
+                External
+              </span>
+            )}
+          </div>
           <div style={{ fontSize: 11, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.jobTitle || '-'}</div>
-          <div style={{ fontSize: 10, color: 'var(--muted)', opacity: 0.85, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {[e.department, entityName(e.company)].filter(Boolean).join(' · ')}
+          <div style={{ fontSize: 10.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.department || '-'}</div>
+          <div style={{ fontSize: 10.5, color: 'var(--muted)', opacity: 0.85, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {(ext ? e.externalCompany : entityName(e.company)) || '-'}
           </div>
           {isHead && divName && (
             <span style={{ display: 'inline-block', marginTop: 3, fontSize: 9.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', color: `hsl(${divColor})`, background: `hsla(${divColor},0.12)`, borderRadius: 6, padding: '1px 6px' }}>
@@ -2436,8 +2456,9 @@ function OrgNodeCard({ e, kids, isCollapsed, onToggle, onSelect, dnd, entityName
 
 // Right-hand detail drawer: view + edit reporting line, title, department, and
 // the functional-division head tag.
-function OrgSidePanel({ e, people, entities, entityName, descendants, divisionNames, inheritedDivision, onClose, onSelect, onSaved, toastOk, toastErr }) {
-  const init = () => ({ manager_email: e.managerEmail || '', job_title: e.jobTitle || '', department: e.department || '', company: e.company || '', division: e.division || '' });
+function OrgSidePanel({ e, people, externals = [], entities, entityName, descendants, divisionNames, inheritedDivision, onClose, onSelect, onSaved, toastOk, toastErr }) {
+  const ext = isExternalPerson(e);
+  const init = () => ({ manager_email: e.managerEmail || '', job_title: e.jobTitle || '', department: e.department || '', company: e.company || '', division: e.division || '', external_company: e.externalCompany || '' });
   const [f, setF] = useState(init);
   const [busy, setBusy] = useState(false);
   useEffect(() => { setF(init()); }, [e.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -2445,15 +2466,23 @@ function OrgSidePanel({ e, people, entities, entityName, descendants, divisionNa
   const myEmail = (e.workEmail || '').toLowerCase();
   const blocked = descendants(myEmail);           // can't report to your own subtree
   const managerOptions = people.filter(p => p.id !== e.id && p.workEmail && !blocked.has((p.workEmail || '').toLowerCase()));
+  // The current manager can be an external who is not on the chart (the
+  // External Users option is off): keep them selectable so the select never
+  // falls back to "No manager" and a save never unlinks them by accident.
+  const offChartManager = f.manager_email && !managerOptions.some(p => (p.workEmail || '').toLowerCase() === f.manager_email)
+    ? externals.find(p => (p.workEmail || '').toLowerCase() === f.manager_email) : null;
   const reports = people.filter(p => (p.managerEmail || '').toLowerCase() === myEmail && myEmail);
-  const dirty = f.manager_email !== (e.managerEmail || '') || f.job_title !== (e.jobTitle || '') || f.department !== (e.department || '') || f.company !== (e.company || '') || f.division !== (e.division || '');
+  const dirty = f.manager_email !== (e.managerEmail || '') || f.job_title !== (e.jobTitle || '') || f.department !== (e.department || '') || f.company !== (e.company || '') || f.division !== (e.division || '') || f.external_company !== (e.externalCompany || '');
   // Division inherited from a manager above (shown when this person isn't a lead themselves)
   const inherited = (inheritedDivision || '').trim();
 
   const save = async () => {
     setBusy(true);
     try {
-      const saved = await api.updateEmployee(e.id, f);
+      // The outside company is an external's field only; an internal's
+      // save never carries it.
+      const { external_company, ...internalFields } = f;
+      const saved = await api.updateEmployee(e.id, ext ? { ...internalFields, external_company } : internalFields);
       onSaved(saved);
       toastOk(`${fullName(e)} updated.`);
     } catch (err) { toastErr(err?.message || 'Could not save.'); }
@@ -2468,9 +2497,12 @@ function OrgSidePanel({ e, people, entities, entityName, descendants, divisionNa
         <div style={{ padding: '18px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 14 }}>
           <Avatar e={e} size={52} card={false} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 800, fontSize: 16 }}>{fullName(e)}</div>
+            <div style={{ fontWeight: 800, fontSize: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+              {fullName(e)}
+              {ext && <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', padding: '2px 7px', borderRadius: 5, background: 'hsla(var(--color-orange),0.14)', color: 'hsl(var(--color-orange))', border: '1px solid hsla(var(--color-orange),0.35)' }}>External</span>}
+            </div>
             <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {[e.jobTitle, e.department].filter(Boolean).join(' · ') || '-'}
+              {[e.jobTitle, e.department, ext ? e.externalCompany : ''].filter(Boolean).join(' · ') || '-'}
             </div>
             {e.workEmail && <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{e.workEmail}</div>}
           </div>
@@ -2482,7 +2514,8 @@ function OrgSidePanel({ e, people, entities, entityName, descendants, divisionNa
           <select className="form-input" style={{ width: '100%' }} value={f.manager_email}
             onChange={ev => setF(x => ({ ...x, manager_email: ev.target.value }))}>
             <option value="">- No manager (top of a tree) -</option>
-            {managerOptions.map(p => <option key={p.id} value={(p.workEmail || '').toLowerCase()}>{fullName(p)}{p.jobTitle ? ` - ${p.jobTitle}` : ''}</option>)}
+            {managerOptions.map(p => <option key={p.id} value={(p.workEmail || '').toLowerCase()}>{fullName(p)}{p.jobTitle ? ` - ${p.jobTitle}` : ''}{isExternalPerson(p) ? ' (External)' : ''}</option>)}
+            {offChartManager && <option value={f.manager_email}>{fullName(offChartManager)}{offChartManager.jobTitle ? ` - ${offChartManager.jobTitle}` : ''} (External, not shown on the chart)</option>}
           </select>
 
           <label style={lbl}>Job title</label>
@@ -2492,10 +2525,17 @@ function OrgSidePanel({ e, people, entities, entityName, descendants, divisionNa
           <input className="form-input" style={{ width: '100%' }} value={f.department} onChange={ev => setF(x => ({ ...x, department: ev.target.value }))} />
 
           <label style={lbl}>Company</label>
-          <select className="form-input" style={{ width: '100%' }} value={f.company} onChange={ev => setF(x => ({ ...x, company: ev.target.value }))}>
-            <option value="">-</option>
-            {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
-          </select>
+          {ext ? (
+            // An external user's company is their own outside company, not
+            // one of ours.
+            <input className="form-input" style={{ width: '100%' }} value={f.external_company} placeholder="The company they work for"
+              onChange={ev => setF(x => ({ ...x, external_company: ev.target.value }))} />
+          ) : (
+            <select className="form-input" style={{ width: '100%' }} value={f.company} onChange={ev => setF(x => ({ ...x, company: ev.target.value }))}>
+              <option value="">-</option>
+              {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
+            </select>
+          )}
 
           <label style={lbl}>Division lead of</label>
           <input className="form-input" style={{ width: '100%' }} list="org-divisions"
@@ -2506,7 +2546,7 @@ function OrgSidePanel({ e, people, entities, entityName, descendants, divisionNa
           </datalist>
           <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 4, lineHeight: 1.4 }}>
             {f.division.trim()
-              ? `Everyone reporting under ${fullName(e)} is coloured as “${f.division.trim()}”, until another lead is tagged below them.`
+              ? `Everyone reporting under ${fullName(e)} is colored as “${f.division.trim()}”, until another lead is tagged below them.`
               : inherited
                 ? `Inherits “${inherited}” from their manager. Type a name here to make ${fullName(e)} their own division lead.`
                 : `Not in any division. Type a name to make ${fullName(e)} a division lead - their whole team inherits it.`}
@@ -2541,7 +2581,14 @@ function OrgSidePanel({ e, people, entities, entityName, descendants, divisionNa
   );
 }
 
-function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr }) {
+const ORG_EXTERNALS_KEY = 'nx-orgchart-externals';
+function OrgChartTab({ employees, externals = [], entities = [], onUpdated, toastOk, toastErr }) {
+  // External users on the chart is an option (Neil, Oct 14 2026): off by
+  // default, remembered per device. On, every external with a work email
+  // joins the tree under whoever they report to, with a clear External
+  // designation on their card.
+  const [includeExternal, setIncludeExternal] = useState(() => { try { return localStorage.getItem(ORG_EXTERNALS_KEY) === 'true'; } catch { return false; } });
+  useEffect(() => { try { localStorage.setItem(ORG_EXTERNALS_KEY, String(includeExternal)); } catch { /* storage blocked */ } }, [includeExternal]);
   // Two charts, one tab (Neil, Aug 11): the reporting tree, and the investor
   // book grouped by relationship owner - investors don't report to anyone.
   const [chartMode, setChartMode] = useState('org');   // 'org' | 'investors'
@@ -2557,7 +2604,10 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
   const [dragGhost, setDragGhost] = useState(null);   // {name, x, y} while dragging a card
   const chartRef = useRef(null);                      // the shared canvas: centerView / fitToView / focusOn / bounds
   const dragRef = useRef(null);
-  const people = employees.filter(e => e.status !== 'offboarded');
+  // Externals are active / inactive / staged (never offboarded): only the
+  // active ones belong on the chart or in the toggle's count.
+  const liveExternals = externals.filter(e => (e.status || 'active') === 'active');
+  const people = [...employees.filter(e => e.status !== 'offboarded'), ...(includeExternal ? liveExternals : [])];
 
   // First render: show the top two levels at full size (roots + their direct
   // reports); deeper teams start collapsed behind their pill. Keeps the chart
@@ -2736,8 +2786,11 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
   const q = orgQ.trim().toLowerCase();
   // Company/department FILTER the tree; search FINDS within it (expand + center
   // + highlight) - filtering by name would amputate the person's whole subtree.
+  // An external has no entity of ours: for the company filter they belong
+  // where the person they report to belongs.
+  const companyOf = e => isExternalPerson(e) ? (byEmail.get((e.managerEmail || '').toLowerCase())?.company || '') : e.company;
   const visible = people.filter(e =>
-    (!orgCompany || e.company === orgCompany) &&
+    (!orgCompany || companyOf(e) === orgCompany) &&
     (!orgDept || e.department === orgDept));
   const visEmails = new Set(visible.map(e => (e.workEmail || '').toLowerCase()).filter(Boolean));
   const visChildren = new Map();
@@ -2865,6 +2918,18 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
           <option value="">All departments</option>
           {departments.map(d => <option key={d} value={d}>{d}</option>)}
         </select>
+        {/* External users (guests, contractors, outside managers) are an
+            option on the chart - off by default, remembered per device. */}
+        {liveExternals.length > 0 && (
+          <label title="Show external users (guests and contractors) on the chart, under whoever they report to"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 7, height: 34, padding: '0 12px', borderRadius: 10, flex: '0 0 auto', cursor: 'pointer',
+              border: `1.5px solid ${includeExternal ? 'hsl(var(--color-orange))' : 'var(--line)'}`, background: includeExternal ? 'hsla(var(--color-orange),0.08)' : 'var(--card)',
+              fontFamily: 'Inter,sans-serif', fontSize: 12.5, fontWeight: 700, color: includeExternal ? 'hsl(var(--color-orange))' : 'var(--ink)', userSelect: 'none' }}>
+            <input type="checkbox" checked={includeExternal} onChange={ev => setIncludeExternal(ev.target.checked)} style={{ margin: 0, accentColor: 'hsl(var(--color-orange))' }} />
+            External Users
+            <span style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)' }}>{liveExternals.length}</span>
+          </label>
+        )}
         <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: '0 0 auto', whiteSpace: 'nowrap' }}>
           {visible.length}{filtered ? ` of ${people.length}` : ''} people · {linked} linked
         </span>
@@ -2943,7 +3008,7 @@ function OrgChartTab({ employees, entities = [], onUpdated, toastOk, toastErr })
       )}
 
       {selected && (
-        <OrgSidePanel e={selected} people={people} entities={entities || []} entityName={entityName}
+        <OrgSidePanel e={selected} people={people} externals={liveExternals} entities={entities || []} entityName={entityName}
           descendants={descendants} divisionNames={divisionNames}
           inheritedDivision={(selected.division || '').trim() ? '' : divisionOf(selected)}
           onClose={() => setSelected(null)} onSelect={setSelected}
@@ -5618,7 +5683,7 @@ function PeopleStatCards({ employees, externals = [], loading, isMobile, onStatu
   // Total People counts the company's own people; external and guest users
   // (their own list on this screen) read underneath as "+N external" - the
   // ones still active (Neil, Oct 13 - 62 vs 59 active read wrong).
-  const isExt = e => ['external', 'guest'].includes(e.identityType || 'internal');
+  const isExt = isExternalPerson;
   const nExternal = externals.filter(e => isExt(e) && !INACTIVE_STATUSES.has(e.status || 'active')).length;
   const total = employees.filter(e => !isExt(e)).length;
   const nActive = employees.filter(e => e.status === 'active').length;
@@ -5832,8 +5897,8 @@ export default function HR({ activeSub, onSubChange }) {
         // the Total/Active/New joiners cards, By department chart, org chart
         // and every picker built on it are unchanged; externals join the
         // DIRECTORY via extEmployees (Neil, Aug 24: one master People list).
-        setEmployees(rows.filter(e => !['guest', 'external'].includes(e.identityType || 'internal')));
-        setExtEmployees(rows.filter(e => ['guest', 'external'].includes(e.identityType || 'internal')));
+        setEmployees(rows.filter(e => !isExternalPerson(e)));
+        setExtEmployees(rows.filter(isExternalPerson));
         setError('');
       })
       .catch(err => setError(err?.message || 'Could not load employees.'))
@@ -5876,7 +5941,7 @@ export default function HR({ activeSub, onSubChange }) {
   }, [employees, companyF]);
 
   const showingDeleted = statusF === DELETED_F;
-  const isExtRow = e => ['guest', 'external'].includes(e.identityType || 'internal');
+  const isExtRow = isExternalPerson;
   const filtered = useMemo(() => {
     // The directory is the MASTER list: internal people + guest/external
     // accounts together (Neil, Aug 24), narrowed by the worker-type filter.
@@ -5943,7 +6008,7 @@ export default function HR({ activeSub, onSubChange }) {
     const isNew = !employees.some(e => e.id === saved.id) && !extEmployees.some(e => e.id === saved.id);   // add modal shows its own toast
     // Route the row to the list its identity belongs in - an edit can flip a
     // person between internal and guest/external.
-    const ext = ['guest', 'external'].includes(saved.identityType || 'internal');
+    const ext = isExternalPerson(saved);
     const upsert = prev => {
       const i = prev.findIndex(e => e.id === saved.id);
       if (i === -1) return [...prev, saved].sort((a, b) => fullName(a).localeCompare(fullName(b)));
@@ -6056,7 +6121,7 @@ export default function HR({ activeSub, onSubChange }) {
             window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: 'documents-esign' } }));
           }} />
       )}
-      {sub === 'hr-org' && <OrgChartTab employees={employees} entities={entities} onUpdated={onSaved} toastOk={toastOk} toastErr={toastErr} />}
+      {sub === 'hr-org' && <OrgChartTab employees={employees} externals={extEmployees} entities={entities} onUpdated={onSaved} toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-leave' && <LeaveTab employees={employees} toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-time' && <TimeAdmin key={activeSub} initialView={TIME_DEEP_LINKS[activeSub]} toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-checklists' && (

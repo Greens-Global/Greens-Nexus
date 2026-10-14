@@ -1,7 +1,8 @@
 import { forwardRef, useState, useEffect } from "react";
-import { useMsal } from "@azure/msal-react";
-import { useRole, ROLES, EXTERNAL_ROLE_META } from "../contexts/RoleContext";
+import { useRole } from "../contexts/RoleContext";
 import { api } from "../api";
+import { useIsMobile } from "../lib/useIsMobile";
+import SidebarClock from "./SidebarClock";
 import {
   LayoutDashboard, ShoppingCart, CheckSquare, BookOpen,
   Monitor, Wifi, Home, LayoutGrid, FileText,
@@ -19,6 +20,17 @@ import {
 import TicketToken from "./icons/TicketToken";
 
 // Exported: MobileMenu mirrors this exact order/grouping on phones
+// Who sees a NAV item - the rail, and the header search's Pages, agree
+// through this one function. External (B2B guest) accounts see ONLY their
+// granted modules (no baseline screens); everyone else sees an item unless
+// it needs a role they lack and no grant opens it; QA-gated items need QA on.
+export function isNavItemVisible(item, { isExternal, can, myGrantedModules, qaEnabled }) {
+  if (item.qaGated && !qaEnabled) return false;
+  const granted = (item.grants || [item.grant || item.view]).some(g => myGrantedModules?.has(g));
+  if (isExternal) return !item.divider && granted;
+  return !item.minRole || !!can?.('administrator') || granted;
+}
+
 export const NAV = [
   { view: "dashboard", code: "HOME",         label: "Dashboard",          icon: LayoutDashboard },
   // Time Clock folded into My HR as tabs (Visesh, Sep 3 - "no need for My HR
@@ -189,17 +201,15 @@ export const NAV = [
 ];
 
 const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate, isOpen, onClose, collapsed, onToggleCollapse }, ref) {
-  const { accounts } = useMsal();
-  const { myRole, can, myGrantedModules, isExternal } = useRole();
+  const { can, myGrantedModules, isExternal } = useRole();
   // Dev-only Testing module: ask the backend once whether it's enabled here.
   const [qaEnabled, setQaEnabled] = useState(false);
   useEffect(() => { api.qaEnabled().then(r => setQaEnabled(!!r?.enabled)).catch(() => {}); }, []);
-  const account     = accounts[0];
-  const displayName = account?.name ?? account?.username ?? "User";
-  const initials    = displayName.split(" ").map(p => p[0]).slice(0, 2).join("").toUpperCase();
-  const firstName   = displayName.split(" ")[0];
-  // External guests read "External", never a tier name (Visesh, Aug 18).
-  const roleLabel   = isExternal ? EXTERNAL_ROLE_META.label : (ROLES[myRole]?.label ?? 'Employee');
+  // The time clock (components/SidebarClock.jsx, Oct 14 2026) replaces the
+  // user footer, which repeated the top-right block (the role badge lives in
+  // the profile menu). Only where the sidebar is a real sidebar - on a phone
+  // it is a drawer and the floating capsule stays.
+  const phone = useIsMobile('(max-width: 900px)');   // the drawer breakpoint - style.css's `@media (max-width: 900px) { .sidebar {...} }`
 
   function renderIcon(item, size = 17) {
     return item.icon
@@ -246,11 +256,14 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
     <>
       <aside ref={ref} className={`sidebar${isOpen ? " open" : ""}${collapsed ? " collapsed" : ""}`}>
 
-        {/* ── Collapse toggle ── */}
+        {/* ── Collapse toggle: the edge tab, as it always was (Neil, Oct 14
+            2026: a header chevron was tried and sent back) - Nexus green on
+            hover. ── */}
         <button
           className="sidebar-collapse-btn"
           onClick={onToggleCollapse}
           title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           {collapsed
             ? <ChevronRight style={{ width: 13, height: 13 }} />
@@ -258,14 +271,13 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
           }
         </button>
 
-        {/* ── Header - desk mark + wordmark ── */}
+        {/* ── Header: the mark and wordmark are the way Home (Oct 14 2026). ── */}
         <div className="sidebar-header">
-          <div className="dk-mark" aria-hidden="true">N</div>
-          {!collapsed && (
-            <div className="company-info">
-              <span className="company-name">Nexus</span>
-            </div>
-          )}
+          <a href="#dashboard" className="sidebar-brand" title="Dashboard" aria-label="Nexus - go to Dashboard"
+            onClick={(e) => { e.preventDefault(); onNavigate('dashboard'); }}>
+            <span className="dk-mark" aria-hidden="true">N</span>
+            {!collapsed && <span className="company-name">Nexus</span>}
+          </a>
         </div>
 
         {/* ── Nav ── */}
@@ -284,10 +296,7 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
               // no baseline screens (Dashboard/Time Clock/My HR are internal-only).
               // Mirrors the server's path allowlist in auth.apply_external_policy.
               // `grants` (a list) = any one of them opens the item; else the single grant/view key.
-              const granted = (item) => (item.grants || [item.grant || item.view]).some(g => myGrantedModules.has(g));
-              const visible = NAV.filter(item => (!item.qaGated || qaEnabled) && (isExternal
-                ? (!item.divider && granted(item))
-                : (!item.minRole || can('administrator') || granted(item))));
+              const visible = NAV.filter(item => isNavItemVisible(item, { isExternal, can, myGrantedModules, qaEnabled }));
               const out = [];
               if (!collapsed && visible.length && !visible[0].divider) {
                 out.push(<li key="k0" className="nav-kicker">{KICKERS[0]}</li>);
@@ -306,16 +315,12 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
           </ul>
         </nav>
 
-        {/* ── User footer ── */}
-        <div className="sidebar-user">
-          <div className="user-avatar">{initials}</div>
-          {!collapsed && (
-            <div className="sidebar-user-info">
-              <div className="sidebar-user-name">{firstName}</div>
-              <div className="sidebar-user-role">{roleLabel}</div>
-            </div>
-          )}
-        </div>
+        {/* ── The time clock, where the user footer was (that footer
+            repeated the top-right block; the role badge lives in the
+            profile menu). Silent when clocked out. Folded, it is a column
+            of icons - state, Break, Punch Out - so nothing needs the
+            sidebar open (Neil, Oct 14 2026). ── */}
+        {!phone && <SidebarClock collapsed={collapsed} />}
       </aside>
       {isOpen && <div className="sidebar-overlay active" onClick={onClose} />}
     </>

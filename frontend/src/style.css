@@ -310,19 +310,11 @@ h1,h2,h3,h4,h5,h6,
   justify-content: center;
   gap: 0;
 }
+.sidebar.collapsed .sidebar-brand { flex: 0 0 auto; justify-content: center; }   /* the N sits centered, not at the left of a stretched link */
 .sidebar.collapsed .sidebar-nav { padding: 4px 5px 8px; }
-.sidebar.collapsed .sidebar-user {
-  justify-content: center;
-  padding: 14px 0;
-}
 
-/* Icon-only nav item */
-.nav-item--icon {
-  justify-content: center !important;
-  padding: 9px 6px !important;
-}
-
-/* â”€â”€ Sidebar collapse toggle button â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* Sidebar collapse toggle: the edge tab (Nexus green on hover - Neil,
+   Oct 14 2026; it used to go black) */
 .sidebar-collapse-btn {
   position: fixed;
   top: calc(50vh - 22px);
@@ -346,12 +338,20 @@ h1,h2,h3,h4,h5,h6,
   padding: 0;
 }
 .sidebar-collapse-btn:hover {
-  background: var(--ink);
-  color: var(--card);
-  border-color: var(--ink);
+  background: var(--wk-brand);
+  color: #fff;
+  border-color: var(--wk-brand);
   box-shadow: var(--shadow-md);
 }
+.sidebar-collapse-btn:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: 2px; }
 .sidebar-collapse-btn svg { width: 11px; height: 11px; }
+
+/* Icon-only nav item */
+.nav-item--icon {
+  justify-content: center !important;
+  padding: 9px 6px !important;
+}
+
 .sidebar.collapsed { --sw: 60px; }
 .sidebar:not(.collapsed) { --sw: 200px; }
 
@@ -378,9 +378,183 @@ h1,h2,h3,h4,h5,h6,
   flex-shrink: 0;
 }
 
-.company-info { display: flex; flex-direction: column; gap: 1px; }
 .company-name { font-family: var(--wk-font); font-weight: 700; font-size: 17px; letter-spacing: -.02em; line-height: 1; }
-.brand-sub { font-size: 11px; color: var(--muted); font-weight: 500; margin-top: 2px; }
+
+/* The mark + wordmark is the way Home (Oct 14 2026). */
+.sidebar-header { border-bottom: none; }   /* padding and gap: the Work OS rule further down */
+.sidebar-brand { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; text-decoration: none; color: inherit; border-radius: 10px; }
+.sidebar-brand:hover .dk-mark { filter: brightness(1.06); }
+.sidebar-brand:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: 2px; }
+.sidebar-foot { padding: 0 10px 12px; }
+.sidebar.collapsed .sidebar-foot { padding: 0 0 12px; display: flex; justify-content: center; }
+
+/* The time clock (components/ClockChip.jsx, Oct 14 2026): one object, a
+   ring that fills with today's hours toward 8 and wears the color of where
+   you are - green clocked in, amber on a break - with the media triad under
+   it, each button wearing the color of where it takes you (Pause amber,
+   Play green, Stop red). Folded, it is a column of circles. Motion: the arc
+   sweeps in, the ring breathes while working and settles on a break, the
+   minute digits slide, and a punch-out drains the arc and fades the chip;
+   all off under reduced motion. */
+.sbclock {
+  --sb-tone: var(--wk-brand); --sb-tint: color-mix(in srgb, var(--wk-brand) 7%, var(--card)); --sb-line: color-mix(in srgb, var(--wk-brand) 28%, transparent);
+  border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 10px; position: relative;
+  background: var(--sb-tint); border: 1px solid var(--sb-line);
+  transition: background .25s ease, border-color .25s ease, opacity .4s ease, transform .4s ease;
+  animation: sbIn .18s ease-out;
+}
+.sbclock--break, .sbclock-rail--break { --sb-tone: #b45309; --sb-tint: rgba(180,83,9,.07); --sb-line: rgba(180,83,9,.3); }
+.sbclock.is-leaving, .sbclock-rail.is-leaving { opacity: 0; transform: translateY(6px); pointer-events: none; }
+@keyframes sbIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.sbclock-head { display: flex; align-items: center; gap: 8px; background: none; border: none; padding: 0; cursor: pointer; font-family: inherit; text-align: left; width: 100%; color: var(--ink); min-width: 0; border-radius: 10px; }
+.sbclock-text { display: flex; flex-direction: column; min-width: 0; flex: 1; line-height: 1.2; }
+/* one scale: the state and the hours share a size and a baseline; the
+   since line sits under both at the small size the tooltips use */
+.sbclock-line { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; line-height: 1.15; }
+.sbclock-state { font-size: 13.5px; font-weight: 700; white-space: nowrap; letter-spacing: -.01em; }
+.sbclock-sub { font-size: 11px; font-weight: 500; color: var(--muted); white-space: nowrap; margin-top: 3px; line-height: 1.2; }
+.sbclock-alert { display: block; width: 100%; box-sizing: border-box; text-align: left; font-family: inherit; font-size: 10.5px; font-weight: 600; line-height: 1.3; color: #b91c1c; background: rgba(185,28,28,.07); border: 1px solid rgba(185,28,28,.2); border-radius: 8px; padding: 5px 8px; }
+.sbclock-alert--btn { cursor: pointer; }
+.sbclock-alert--btn:hover { background: rgba(185,28,28,.11); }
+.sbclock-timer { font-size: 13.5px; font-weight: 700; letter-spacing: -.01em; font-variant-numeric: tabular-nums; flex-shrink: 0; color: var(--ink); animation: sbTick .22s ease-out; }
+.sbclock--break .sbclock-timer { color: #b45309; }
+.sbclock-head:hover .sbclock-timer { color: var(--sb-tone); }
+@keyframes sbTick { from { transform: translateY(-35%); opacity: 0; } to { transform: none; opacity: 1; } }
+/* the ring */
+.sbring { position: relative; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; border-radius: 50%; }
+.sbring svg { display: block; }
+.sbring-track { stroke: var(--line); }
+.sbring-arc { stroke: var(--sb-tone, var(--wk-brand)); transition: stroke-dashoffset .8s cubic-bezier(.22,1,.36,1), stroke .25s ease; animation: sbSweep .8s cubic-bezier(.22,1,.36,1); }
+@keyframes sbSweep { from { stroke-dashoffset: var(--sb-c, 999); } }
+.sbring--in { --sb-tone: var(--wk-brand); animation: sbBreathe 3.2s ease-in-out infinite; }
+.sbring--break { --sb-tone: #b45309; animation: sbSettle 2.4s ease-in-out infinite; }
+.sbring--out { --sb-tone: #b91c1c; }
+.sbring-ticks { stroke: var(--line); }
+.sbring-sweep { stroke: var(--sb-tone, var(--wk-brand)); opacity: .55; animation: sbSweepOnce .7s cubic-bezier(.22,1,.36,1) forwards; }
+@keyframes sbSweepOnce { from { stroke-dashoffset: var(--sb-c, 999); opacity: .7; } to { stroke-dashoffset: 0; opacity: 0; } }
+.sbclock--out { --sb-tone: #b91c1c; --sb-tint: rgba(185,28,28,.05); --sb-line: rgba(185,28,28,.22); }
+.sbclock-rail--out { --sb-tone: #b91c1c; }
+@keyframes sbBreathe { 0%, 100% { filter: drop-shadow(0 0 0 rgba(0,0,0,0)); } 50% { filter: drop-shadow(0 0 5px color-mix(in srgb, var(--wk-brand) 55%, transparent)); } }
+@keyframes sbSettle { 0%, 100% { opacity: 1; } 50% { opacity: .62; } }
+.sbring-core { fill: var(--sb-tone, var(--wk-brand)); transition: fill .25s ease; }
+.sbring-alert { position: absolute; right: -2px; top: -2px; width: 10px; height: 10px; border-radius: 50%; background: #b91c1c; border: 2px solid var(--card); box-sizing: content-box; }
+/* the transport: Play, Pause, Stop, always all three; the lit one is where
+   you are and its outline slides to the next on a state change */
+.sbtr { position: relative; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.sbtr-lit { position: absolute; left: 0; top: 0; width: calc((100% - 12px) / 3); height: 100%; border-radius: 10px; box-sizing: border-box;
+  border: 2px solid var(--sb-tone, var(--wk-brand)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--sb-tone, var(--wk-brand)) 18%, transparent);
+  transition: transform .24s cubic-bezier(.22,1,.36,1), border-color .25s ease, box-shadow .25s ease; pointer-events: none; }
+.sbtr--break .sbtr-lit { --sb-tone: #b45309; }
+/* a state change: the outline is re-keyed, slides from where it was and
+   lands with a small pop (the slide is the transform transition above) */
+.sbtr-lit { animation: sbLand .36s cubic-bezier(.22,1,.36,1); }
+@keyframes sbLand { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--sb-tone, var(--wk-brand)) 30%, transparent); } 55% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--sb-tone, var(--wk-brand)) 14%, transparent); } 100% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--sb-tone, var(--wk-brand)) 18%, transparent); } }
+/* a punch-out: the dial drains and turns red in place (stroke-dashoffset
+   and stroke transition on .sbring-arc), the card loses its tint */
+.sbclock--out .sbring-arc { transition: stroke-dashoffset .8s cubic-bezier(.22,1,.36,1), stroke .4s ease; }
+.sbtr--out .sbtr-lit { --sb-tone: var(--wk-brand); }
+.sbtt { position: relative; display: block; min-width: 0; }
+.sbtr-btn {
+  position: relative; width: 100%; height: 32px; border-radius: 10px; border: none; padding: 0; cursor: pointer; font-family: inherit;
+  display: inline-flex; align-items: center; justify-content: center; color: var(--ink); background: var(--card); box-shadow: inset 0 0 0 1px var(--line);
+  transition: filter .12s ease, transform .1s ease, background .25s ease, color .25s ease, box-shadow .25s ease;
+}
+.sbtr-btn svg { width: 13px; height: 13px; fill: currentColor; }
+.sbtr-btn:disabled, .sbtr-btn.is-inert { cursor: default; }
+.sbtr-btn.is-dim { opacity: .35; }
+.sbtr-btn:not(:disabled):not(.is-inert):hover { filter: brightness(.95); }
+.sbtr-btn:not(:disabled):not(.is-inert):active { transform: scale(.94); }
+.sbtr-btn--play.is-lit, .sbtr-btn--play.is-next { background: color-mix(in srgb, var(--wk-brand) 14%, transparent); color: var(--wk-brand); box-shadow: none; }
+.sbtr-btn--play.is-next { animation: sbNext 1.8s ease-in-out infinite; }
+@keyframes sbNext { 0%, 100% { background: color-mix(in srgb, var(--wk-brand) 14%, transparent); } 50% { background: color-mix(in srgb, var(--wk-brand) 26%, transparent); } }
+.sbtr-btn--pause:not(.is-dim) { background: rgba(180,83,9,.12); color: #b45309; box-shadow: none; }
+.sbtr-btn--stop:not(.is-dim) { background: rgba(185,28,28,.1); color: #b91c1c; box-shadow: none; }
+.sbtr-btn:focus-visible { outline: 2px solid var(--sb-tone, var(--wk-brand)); outline-offset: 2px; }
+/* the coffee cup that rises out of Pause when a break starts */
+.sbtr-coffee { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; color: #b45309; pointer-events: none; animation: sbCup 1.1s cubic-bezier(.22,1,.36,1) forwards; filter: drop-shadow(0 2px 4px rgba(180,83,9,.25)); }
+.sbtr-coffee svg { width: 22px; height: 22px; fill: none; stroke-width: 2.4; }
+.sbtr-coffee i { position: absolute; left: 7px; top: -7px; width: 2.5px; height: 7px; border-radius: 2px; background: currentColor; opacity: 0; animation: sbSteam 1s ease-out .2s forwards; }
+.sbtr-coffee i + i { left: 13px; animation-delay: .45s; }
+@keyframes sbCup { 0% { opacity: 0; transform: translateY(0) scale(.5); } 25% { opacity: 1; transform: translateY(-18px) scale(1.2); } 70% { opacity: 1; transform: translateY(-28px) scale(1.05); } 100% { opacity: 0; transform: translateY(-38px) scale(.9); } }
+@keyframes sbSteam { 0% { opacity: 0; transform: translateY(0); } 40% { opacity: .9; } 100% { opacity: 0; transform: translateY(-8px); } }
+/* our tooltip: a dark pill that rises in, a bold line and a quiet one */
+.sbtt-pop {
+  position: absolute; left: 50%; bottom: calc(100% + 8px); transform: translate(-50%, 4px); z-index: 30; pointer-events: none;
+  display: flex; flex-direction: column; gap: 1px; min-width: 112px; max-width: 180px; padding: 6px 10px; border-radius: 9px;
+  background: var(--ink); color: var(--card); font-size: 11.5px; line-height: 1.3; white-space: nowrap; text-align: center;
+  box-shadow: 0 8px 24px rgba(17,24,39,.22); opacity: 0; transition: opacity .12s ease, transform .12s ease;
+}
+.sbtt-pop b { font-weight: 700; }
+.sbtt-pop i { font-style: normal; font-size: 10.5px; opacity: .72; }
+.sbtt-pop::after { content: ''; position: absolute; left: 50%; top: 100%; margin-left: -5px; border: 5px solid transparent; border-top-color: var(--ink); }
+.sbtt:hover .sbtt-pop, .sbtt:focus-within .sbtt-pop { opacity: 1; transform: translate(-50%, 0); transition-delay: .25s; }
+/* the first and last buttons' tips hug the chip's edges instead of clipping at the sidebar's */
+.sbtt--start .sbtt-pop { left: 0; transform: translate(0, 4px); }
+.sbtt--start:hover .sbtt-pop, .sbtt--start:focus-within .sbtt-pop { transform: translate(0, 0); }
+.sbtt--start .sbtt-pop::after { left: 16px; margin-left: 0; }
+.sbtt--end .sbtt-pop { left: auto; right: 0; transform: translate(0, 4px); }
+.sbtt--end:hover .sbtt-pop, .sbtt--end:focus-within .sbtt-pop { transform: translate(0, 0); }
+.sbtt--end .sbtt-pop::after { left: auto; right: 16px; margin-left: 0; }
+.sbclock-rail .sbtt-pop { left: calc(100% + 12px); bottom: auto; top: 50%; transform: translate(-6px, -50%); text-align: left; }
+.sbclock-rail .sbtt-pop::after { left: -5px; top: 50%; margin: -5px 0 0; border: 5px solid transparent; border-right-color: var(--ink); }
+.sbclock-rail .sbtt:hover .sbtt-pop, .sbclock-rail .sbtt:focus-within .sbtt-pop { transform: translate(0, -50%); }
+@media (hover: none) { .sbtt-pop { display: none; } }
+/* monitoring: folded away until the pointer is on the chip (always open on
+   touch, and always when a required share has dropped) - the row grows in
+   over 180ms rather than sitting as a blank band */
+.sbclock-monwrap { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .18s ease, margin-top .18s ease; margin-top: -9px; }
+.sbclock:hover .sbclock-monwrap, .sbclock:focus-within .sbclock-monwrap, .sbclock-monwrap.is-needed { grid-template-rows: 1fr; margin-top: 0; }
+@media (hover: none) { .sbclock-monwrap { grid-template-rows: 1fr; margin-top: 0; } }
+.sbclock-mon { display: flex; align-items: center; justify-content: flex-end; gap: 4px; min-height: 0; overflow: hidden; }
+.sbclock-mon-label { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 5px; font-size: 10.5px; font-weight: 700; color: var(--muted); white-space: nowrap; }
+.sbclock-mon-label.is-on { color: #b91c1c; }
+.sbclock-mon-label.is-paused { color: #b45309; }
+.sbclock-mon-label em { font-style: normal; font-weight: 500; color: var(--muted); font-variant-numeric: tabular-nums; }
+.sbclock-mon-add { background: var(--card); color: var(--ink); border-color: var(--line); }
+.sbclock-mon-add:hover { border-color: var(--ink); }
+.sbclock-mon-add.is-needed { color: #b91c1c; border-color: #b91c1c; background: rgba(185,28,28,.08); }
+.sbclock-mon-ico {
+  width: 22px; height: 22px; border-radius: 7px; border: 1px solid var(--line); background: var(--card); color: var(--muted);
+  display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; font-family: inherit;
+}
+.sbclock-mon-ico svg { width: 12px; height: 12px; }
+.sbclock-mon-ico:hover { background: var(--wk-hover, var(--mist)); color: var(--ink); }
+.sbclock-mon-ico.is-on { color: #b91c1c; }
+.sbclock-mon-ico.is-paused { color: #b45309; }
+.sbclock-mon-ico.is-needed { color: #b91c1c; background: rgba(185,28,28,.08); border-color: rgba(185,28,28,.25); }
+/* folded: a column of circles */
+.sbclock-rail { display: flex; flex-direction: column; align-items: center; gap: 8px; animation: sbIn .18s ease-out; transition: opacity .4s ease, transform .4s ease; }
+.sbclock-ringbtn { border-radius: 50%; border: none; background: none; padding: 0; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.sbclock-ringbtn:hover .sbring { transform: scale(1.06); }
+.sbring { transition: transform .15s ease; }
+/* folded: four equal 36px circles - the dial, Play, Pause, Stop - 8px apart */
+.sbclock-rail { gap: 8px; }
+.sbclock-rail .sbtr { grid-template-columns: 1fr; width: 36px; gap: 8px; }
+.sbclock-rail .sbtr-lit { width: 100%; height: calc((100% - 16px) / 3); border-radius: 50%; }
+.sbclock-rail .sbtr-btn { height: 36px; border-radius: 50%; }
+.sbclock-rail .sbtr-btn svg { width: 14px; height: 14px; }
+.sbclock-ringbtn { width: 36px; height: 36px; }
+.sbclock-rail .sbtr-btn--share { width: 36px; height: 36px; border-radius: 50%; background: rgba(185,28,28,.1); color: #b91c1c; box-shadow: inset 0 0 0 1px rgba(185,28,28,.35); }
+.sbclock-rail .sbtr-btn--share svg { fill: none; }
+.sbclock-ringbtn:focus-visible, .sbclock-head:focus-visible { outline: 2px solid var(--sb-tone, var(--wk-brand)); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  .sbclock, .sbclock-rail, .sbclock-timer, .sbring-arc, .sbring--in, .sbring--break, .sbtr-btn--play.is-next, .sbtr-coffee, .sbtr-coffee i, .sbring-sweep, .sbtr-lit { animation: none; }
+  .sbring-arc, .sbtr-lit { transition: none; }
+  .sbtr-coffee { display: none; }
+}
+
+/* The phone capsule (components/TimeclockWidget.jsx, below 900px where
+   there is no sidebar): a pill with the live dot and the hours; tapping it
+   opens the same chip above. */
+.tc-pill {
+  display: inline-flex; align-items: center; gap: 7px; background: var(--card); border: 1px solid var(--wk-line2); border-radius: 999px;
+  padding: 7px 11px 7px 13px; box-shadow: 0 6px 22px rgba(17,24,39,.16); cursor: pointer; font-family: var(--wk-font);
+}
+.tc-pill-time { font-size: 13.5px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ink); }
+.tc-pill .sbring { --sb-tone: var(--wk-brand); }
+.tc-pill.is-break .sbring { --sb-tone: #b45309; }
+.tc-sheet { width: 236px; background: var(--card); border: 1px solid var(--wk-line2); border-radius: 18px; padding: 8px; box-shadow: 0 24px 70px rgba(17,24,39,.30); }
+.tc-sheet .sbclock { border-radius: 12px; }
 
 /* Section kickers: quiet sentence-case labels (kit grammar - no uppercase tracking) */
 .nav-section-title {
@@ -481,31 +655,6 @@ h1,h2,h3,h4,h5,h6,
   margin-left: 2px;
 }
 
-/* sidebar user footer */
-.sidebar-user {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 14px 18px;
-  border-top: 1px solid var(--line);
-}
-.sidebar-user .user-avatar {
-  width: 34px;
-  height: 34px;
-  border-radius: 9px;
-  background: var(--pine);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  font-size: 13px;
-  flex-shrink: 0;
-}
-.sidebar-user-info { flex: 1; min-width: 0; }
-.sidebar-user-name { font-weight: 700; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sidebar-user-role { font-size: 11px; color: var(--muted); }
-
 /* â”€â”€ Main content â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .main-content {
   flex: 1; min-width: 0; margin-left: 200px;
@@ -569,7 +718,7 @@ h1,h2,h3,h4,h5,h6,
 }
 .breadcrumb-back:hover { color: var(--ink); opacity: 1; }
 
-.header-center { flex: 1; max-width: 260px; }
+.header-center { flex: 1; min-width: 0; }
 .search-bar {
   display: flex;
   align-items: center;
@@ -3602,7 +3751,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 
 /* ── Shell polish: sidebar ──────────────────────────────────────────────── */
 .sidebar { font-family: var(--wk-font); }
-.sidebar-header { gap: 10px; padding: 18px 16px 14px; }
+.sidebar-header { gap: 8px; padding: 16px 12px 12px; }
 .dk-mark {
   width: 34px; height: 34px; border-radius: 8px;
   background: var(--wk-brand); color: #fff;
@@ -3613,11 +3762,6 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 .sidebar .company-name {
   font-family: var(--wk-font); font-weight: 800; font-size: 17px;
   letter-spacing: -.01em; color: var(--ink); line-height: 1;
-}
-.sidebar .brand-sub {
-  font-family: var(--wk-font); font-size: 10px; font-weight: 600;
-  letter-spacing: .05em; color: var(--wk-faint); margin-top: 3px;
-  text-transform: uppercase;
 }
 .sidebar .nav-item {
   border-radius: 6px;
@@ -3646,12 +3790,6 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 }
 .sidebar.collapsed .nav-kicker { display: none; }
 .sidebar .nav-divider { margin: 6px 6px 0; }
-.sidebar .sidebar-user .user-avatar {
-  background: var(--wk-brand); color: #fff; border-radius: 50%;
-  font-family: var(--wk-font); font-weight: 700; font-size: 12px;
-}
-.sidebar .sidebar-user-name { font-family: var(--wk-font); }
-.sidebar .sidebar-user-role { font-family: var(--wk-font); }
 
 /* Dark theme still works on the shell (legacy tokens drive it) - but the
    brand accents above stay brand-colored in both. */
@@ -3835,28 +3973,43 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
   box-shadow: var(--wk-shadow-hov);
 }
 
-/* Header search on module screens (tabs occupy the center, so this lives in
-   header-right). Tasks gets an always-visible compact bar (.hdr-search-inline)
-   instead of an icon someone has to already know exists to click - that hid
-   task/people search well enough that it went unnoticed (Aug 2026). Every
-   other module keeps the plain icon + popover (.hdr-search-pop) it always
-   had - those modules have nothing of their own for this search to reach
-   into, so a permanent search box there would just be clutter. */
-.hdr-search-wrap { position: relative; }
-.hdr-search-inline { width: 220px; flex-shrink: 0; }
-.hdr-search-pop {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  width: 300px;
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  box-shadow: 0 8px 28px rgba(0,0,0,.15);
-  padding: 8px;
-  z-index: 500;
+/* Header search (Neil, Oct 14 2026): ONE bar, one size, one place - the
+   right cluster before Help - on every module, whether or not the module
+   publishes tabs into the center. It used to be a centered bar on some
+   screens, an icon-and-popover on others and a compact bar on Tasks; the
+   phone sheet (.gs-*) searched different things again. Now the bar and the
+   sheet share components/search/useNexusSearch. */
+.hdr-search { position: relative; width: 252px; flex-shrink: 0; }
+.hdr-search .search-bar { height: 38px; padding: 0 10px 0 12px; box-sizing: border-box; }
+.hdr-search-kbd {
+  font: 600 10.5px Inter, sans-serif; color: var(--muted);
+  border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px;
+  letter-spacing: .02em; white-space: nowrap; flex-shrink: 0; opacity: .85;
 }
-@media (max-width: 900px) { .hdr-search-wrap { display: none; } }
+.hdr-search .search-bar:focus-within .hdr-search-kbd { display: none; }
+.hdr-search-panel {
+  position: absolute; top: calc(100% + 8px); right: 0; width: 440px; max-width: calc(100vw - 32px);
+  max-height: 70vh; overflow-y: auto;
+  background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: 0 12px 36px rgba(0,0,0,.16); z-index: 500;
+  animation: fadeInUp .14s cubic-bezier(.16,1,.3,1) both;
+}
+.hdr-search-panel .gs-hint { padding: 14px 16px; }
+.gs-row-tag {
+  flex-shrink: 0; font-size: 10.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  padding: 1px 7px; border-radius: 999px; color: var(--muted); border: 1px solid var(--line);
+}
+.gs-more { padding: 6px 10px 10px; font-size: 11.5px; color: var(--muted); }
+button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blue)); }
+/* Narrow desktops: the bar gives up a little width and the module tabs drop
+   their icons, so a four-tab module and the bar still share the row. */
+@media (max-width: 1180px) {
+  .hdr-search { width: 176px; }
+  .hdr-search-kbd { display: none; }
+  .hdr-tab { padding: 9px 10px; }
+  .hdr-tab svg { display: none; }
+}
+@media (max-width: 900px) { .hdr-search { display: none; } }
 
 /* In-page fallback strip: phones only - the header center is hidden ≤900px,
    so <ModuleTabs> renders the classic swipeable strip in the page body. */
@@ -3988,9 +4141,10 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 .dk-session-chip b { font-variant-numeric: tabular-nums; font-weight: 700; }
 [data-theme="dark"] .dk-session-chip { background: var(--card); border-color: var(--line); color: var(--muted); box-shadow: none; }
 [data-theme="dark"] .dk-session-chip--on { color: #4ade80; }
-.dk-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.dk-dot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; }   /* bigger (Neil, Oct 14 2026): seen from across the room */
 .dk-dot--up { background: #00c875; }
-.dk-dot--off { background: var(--wk-faint); }
+.dk-dot--off { background: #b91c1c; opacity: .75; }   /* red = off the clock (Neil, Oct 14 2026: green working, amber break, red not) */
+.dk-dot--na { background: var(--wk-faint); }          /* never on a clock (exempt): neutral, not an alarm */
 
 /* stat cards */
 .dk-board { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }

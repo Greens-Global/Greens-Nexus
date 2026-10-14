@@ -66,7 +66,7 @@ describe('Help widget', () => {
   it('has an accessible Help button in the header', () => {
     render(<HelpMenu activeView="dashboard" />);
     const btn = screen.getByRole('button', { name: 'Help' });
-    expect(btn.getAttribute('title')).toBe('Help');
+    expect(btn.getAttribute('title')).toBe('Help and Support (?)');
     expect(btn.getAttribute('aria-expanded')).toBe('false');
   });
 
