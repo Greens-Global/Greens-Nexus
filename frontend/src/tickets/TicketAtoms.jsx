@@ -1,8 +1,9 @@
 // Ticket Module - small presentational pieces shared by the list, the create
 // wizard and the drawer. Everything here is driven by ticketMeta.js.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { Check, ChevronDown, X } from 'lucide-react';
 import { NX, FONT, chip, btn, input as inputStyle } from '../tasks/theme';
-import { PersonSelect, PersonMultiSelect, DateField, SearchSelect } from '../tasks/components';
+import { PersonSelect, PersonMultiSelect, DateField, SearchSelect, SelectMenu, Avatar, useIsMobile } from '../tasks/components';
 import {
   TICKET_TYPE_META, TICKET_STATUS_META, SLA_META, slaState, toEmailList, fmtDate,
 } from './ticketMeta';
@@ -56,6 +57,68 @@ export function TicketSelect({
       onPick={(id) => onChange(id)} placeholder={placeholder} searchPlaceholder={searchPlaceholder}
       emptyText={emptyText} menuMinWidth={withDesc ? Math.max(menuMinWidth, 320) : menuMinWidth} buttonStyle={base}
       renderOption={renderOption} />
+  );
+}
+
+// The Requester dropdown's look, picking several people (Collaborators, Sagar
+// Oct 14 2026): the same full-width field, search box and two-line rows (name,
+// then email). The list stays open while people are ticked; the field shows
+// them as small chips that can be taken off without opening it.
+// `options` is [{ id: email, label: name, desc: email }]; value/onChange are arrays.
+export function TicketPeopleMultiSelect({ value, onChange, options, placeholder = 'No collaborators', searchPlaceholder = 'Search people…', emptyText = 'No one matches.', label = 'Collaborators' }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const ref = useRef(null);
+  const isMobile = useIsMobile();
+  const picked = Array.isArray(value) ? value : [];
+  const nameOf = (id) => options.find((o) => o.id === id)?.label || id;
+  const query = q.trim().toLowerCase();
+  const shown = query ? options.filter((o) => `${o.label} ${o.desc || ''}`.toLowerCase().includes(query)) : options;
+  const toggle = (id) => onChange(picked.includes(id) ? picked.filter((x) => x !== id) : [...picked, id]);
+  return (
+    <div ref={ref} style={{ position: 'relative', minWidth: 0 }}>
+      <button type="button" aria-label={label} aria-haspopup="listbox" onClick={() => { setOpen((o) => !o); setQ(''); }}
+        style={{ ...inputStyle, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, cursor: 'pointer',
+          height: 'auto', minHeight: 38, textAlign: 'left', fontWeight: 400, padding: picked.length ? '5px 10px' : undefined }}>
+        <span style={{ display: 'flex', flexWrap: 'wrap', gap: 5, minWidth: 0, flex: 1 }}>
+          {picked.length === 0 && <span style={{ color: NX.faint }}>{placeholder}</span>}
+          {picked.map((id) => (
+            <span key={id} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: NX.surface2, border: `1px solid ${NX.border}`, borderRadius: 20, padding: '2px 7px 2px 2px', fontSize: 12, color: NX.ink }}>
+              <Avatar email={id} name={nameOf(id)} size={18} card={false} />
+              {nameOf(id)}
+              {/* A span: it sits inside the trigger button. */}
+              <span role="button" tabIndex={-1} title={`Remove ${nameOf(id)}`}
+                onClick={(e) => { e.stopPropagation(); toggle(id); }}
+                style={{ display: 'inline-flex', cursor: 'pointer', color: NX.faint }}><X size={11} /></span>
+            </span>
+          ))}
+        </span>
+        <ChevronDown size={15} style={{ flexShrink: 0, opacity: 0.75 }} />
+      </button>
+      {open && (
+        <SelectMenu anchorRef={ref} onClose={() => { setOpen(false); setQ(''); }} minWidth={260}>
+          <input autoFocus={!isMobile} value={q} onChange={(e) => setQ(e.target.value)} placeholder={searchPlaceholder}
+            onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); } }}
+            style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: isMobile ? '11px 12px' : '9px 12px',
+              fontSize: isMobile ? 16 : 13, fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
+          {shown.map((o) => {
+            const on = picked.includes(o.id);
+            return (
+              <div key={o.id} role="option" aria-selected={on} className="nx-menu-row" onClick={() => toggle(o.id)}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink,
+                  background: on ? `${NX.blue}12` : undefined, ...(isMobile ? { minHeight: 40, boxSizing: 'border-box' } : null) }}>
+                <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <span style={{ fontWeight: 600 }}>{o.label}</span>
+                  {o.desc && <span style={{ fontSize: 11.5, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.desc}</span>}
+                </span>
+                {on && <Check size={14} style={{ color: NX.blue, flexShrink: 0 }} />}
+              </div>
+            );
+          })}
+          {shown.length === 0 && <div style={{ padding: '10px 12px', fontSize: 12.5, color: NX.faint }}>{query ? `No matches for “${q.trim()}”.` : emptyText}</div>}
+        </SelectMenu>
+      )}
+    </div>
   );
 }
 

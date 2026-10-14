@@ -993,6 +993,14 @@ def _run_migrations():
             # Time entries (Oct 2026). models.Task.time_entry_count.
             "ALTER TABLE tasks ADD COLUMN time_entry_count INTEGER DEFAULT 0",
             "CREATE UNIQUE INDEX IF NOT EXISTS ux_task_time_running ON task_time_entries (person_email) WHERE ended_at = ''",
+            # Tasks from tickets (Oct 14 2026). models.Task.source_ticket_id.
+            "ALTER TABLE tasks ADD COLUMN source_ticket_id VARCHAR DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS ix_tasks_source_ticket_id ON tasks (source_ticket_id)",
+            # Save as Template (Oct 14 2026). models.TaskTemplate.
+            "ALTER TABLE task_templates ADD COLUMN subtasks JSON DEFAULT '[]'",
+            "ALTER TABLE task_templates ADD COLUMN checklist JSON DEFAULT '[]'",
+            "ALTER TABLE task_templates ADD COLUMN source_task_id VARCHAR DEFAULT ''",
+            "ALTER TABLE task_templates ADD COLUMN created_by VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2210,6 +2218,14 @@ def _run_migrations():
         # Time entries (Oct 2026). models.Task.time_entry_count.
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS time_entry_count INTEGER DEFAULT 0",
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_task_time_running ON task_time_entries (person_email) WHERE ended_at = ''",
+        # Tasks from tickets (Oct 14 2026). models.Task.source_ticket_id.
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS source_ticket_id VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_tasks_source_ticket_id ON tasks (source_ticket_id)",
+        # Save as Template (Oct 14 2026). models.TaskTemplate.
+        "ALTER TABLE task_templates ADD COLUMN IF NOT EXISTS subtasks JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE task_templates ADD COLUMN IF NOT EXISTS checklist JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE task_templates ADD COLUMN IF NOT EXISTS source_task_id VARCHAR DEFAULT ''",
+        "ALTER TABLE task_templates ADD COLUMN IF NOT EXISTS created_by VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

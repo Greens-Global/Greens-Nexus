@@ -394,3 +394,168 @@ class ScheduledSeriesTests(unittest.TestCase):
         self._task("2026-09-21", assignee="gm04@greensstorage.com")
         self._task("2026-09-21", assignee="gm05@greensstorage.com")
         self.assertEqual(len(self._run()), 2)
+
+
+class _SubtaskSeriesBase(unittest.TestCase):
+    """A yearly main task with three subtasks, for the tests below."""
+
+    YEARLY = {"freq": "yearly", "month": 4, "dayOfMonth": 15}
+
+    @classmethod
+    def setUpClass(cls):
+        models.Base.metadata.create_all(bind=database.engine)
+
+    def setUp(self):
+        self.db = database.SessionLocal()
+        for m in (models.Task, models.TaskActivity, models.TaskChecklistItem):
+            self.db.query(m).delete()
+        self.db.commit()
+
+    def tearDown(self):
+        self.db.rollback()
+        self.db.close()
+
+    def _add(self, **kw):
+        now = now_iso()
+        kw.setdefault("status", "not_started")
+        t = models.Task(id=gen_id(), code=f"T-{gen_id()[:6]}", created_at=now, modified_at=now,
+                        created_by=USER["email"], **kw)
+        self.db.add(t)
+        self.db.commit()
+        return t
+
+    def _series(self):
+        parent = self._add(title="Tax Return - RJK MD Inc", due_on="2026-04-15", status="recurring",
+                           recurrence=dict(self.YEARLY), custom_field_values={"ent": "rjk"},
+                           assignee_email="viral@greensglobal.com", assignee_emails=["viral@greensglobal.com"])
+        a = self._add(title="Collect K-1s", parent_task_id=parent.id, position=0.0, due_on="2026-03-01",
+                      completed=True, status="completed", completed_at="2026-03-01T10:00:00",
+                      custom_field_values={"ent": "rjk"}, assignee_emails=["urmi@greensglobal.com"])
+        b = self._add(title="File extension", parent_task_id=parent.id, position=1.0, due_on="2026-04-10",
+                      recurrence={"skip": True})
+        c = self._add(title="Send to CPA", parent_task_id=parent.id, position=2.0)
+        self.db.add(models.TaskChecklistItem(id=gen_id(), task_id=a.id, title="Ask the bank", done=True,
+                                             position=0.0, created_at=now_iso()))
+        self.db.commit()
+        return parent, a, b, c
+
+    def _complete(self, t):
+        update_task(t.id, TaskUpdate(completed=True), BackgroundTasks(), user=USER, db=self.db)
+        self.db.expire_all()
+        return self.db.query(models.Task).filter(models.Task.title == t.title, models.Task.id != t.id).one()
+
+
+class SubtasksTravelTests(_SubtaskSeriesBase):
+    """Oct 14 2026 (Neil): a recurring task's subtasks come with it to the next
+    occurrence - open again, in order, dates moved by the main task's shift -
+    and one switched off ({"skip": true}) stays behind. A Missed occurrence
+    takes its open subtasks with it."""
+
+    def test_subtasks_come_along_open_and_in_order(self):
+        parent, a, b, c = self._series()
+        nxt = self._complete(parent)
+        subs = (self.db.query(models.Task).filter(models.Task.parent_task_id == nxt.id)
+                .order_by(models.Task.position).all())
+        self.assertEqual([s.title for s in subs], ["Collect K-1s", "Send to CPA"])
+        self.assertEqual(nxt.subtask_ids, [s.id for s in subs])
+        self.assertTrue(all(not s.completed and s.status == "not_started" for s in subs))
+        self.assertEqual(len({s.code for s in subs} | {nxt.code}), 3)
+
+    def test_due_dates_move_with_the_main_task_and_fields_stay(self):
+        parent, a, *_ = self._series()
+        nxt = self._complete(parent)
+        self.assertEqual(nxt.due_on, "2027-04-15")
+        k1 = self.db.query(models.Task).filter(models.Task.parent_task_id == nxt.id,
+                                               models.Task.title == "Collect K-1s").one()
+        self.assertEqual(k1.due_on, "2027-03-01")
+        self.assertEqual(k1.custom_field_values, {"ent": "rjk"})
+        self.assertEqual(k1.assignee_emails, ["urmi@greensglobal.com"])
+        items = self.db.query(models.TaskChecklistItem).filter(models.TaskChecklistItem.task_id == k1.id).all()
+        self.assertEqual([(i.title, i.done) for i in items], [("Ask the bank", False)])
+        self.assertEqual(k1.checklist_total, 1)
+
+    def test_a_missed_occurrence_closes_its_open_subtasks(self):
+        from routers.tasks import _close_as_missed
+        parent, a, b, c = self._series()
+        _close_as_missed(self.db, parent, "test")
+        self.db.commit()
+        self.db.expire_all()
+        self.assertEqual(self.db.get(models.Task, c.id).status, "missed")
+        self.assertEqual(self.db.get(models.Task, a.id).status, "completed")   # finished stays finished
+
+
+class SubtaskOwnScheduleTests(_SubtaskSeriesBase):
+    """Oct 14 2026 (Sagar): a subtask repeats with its main task by default,
+    but can be given a schedule of its own. Each copy goes under the main
+    task's CURRENT occurrence; when the main task repeats, an open one moves
+    to the new occurrence instead of being copied, and a Missed main task
+    does not close it."""
+
+    MONTHLY = {"freq": "monthly", "dayOfMonth": 1}
+
+    def _own(self, parent, **kw):
+        return self._add(title="Reconcile bank", parent_task_id=parent.id, position=3.0,
+                         due_on="2026-03-01", recurrence=dict(self.MONTHLY), status="recurring", **kw)
+
+    def test_completing_it_makes_the_next_copy_under_the_same_main_task(self):
+        parent = self._add(title="Year-end close", due_on="2026-12-31")   # does not repeat
+        own = self._own(parent)
+        nxt = self._complete(own)
+        self.assertEqual(nxt.parent_task_id, parent.id)
+        self.assertEqual(nxt.due_on, "2026-04-01")
+        self.assertEqual(nxt.position, 3.0)
+        self.db.expire_all()
+        self.assertIn(nxt.id, self.db.get(models.Task, parent.id).subtask_ids)
+
+    def test_the_next_copy_goes_under_the_main_tasks_current_occurrence(self):
+        parent, *_ = self._series()
+        own = self._own(parent)
+        own.completed, own.status = True, "completed"   # done before the main task rolled
+        self.db.commit()
+        new_parent = self._complete(parent)
+        from routers.tasks import _spawn_next_occurrence
+        self.db.expire_all()
+        own = self.db.get(models.Task, own.id)
+        nxt = _spawn_next_occurrence(self.db, own, USER)
+        self.db.commit()
+        self.assertEqual(nxt.parent_task_id, new_parent.id)
+
+    def test_an_open_one_moves_with_the_main_task_not_copied(self):
+        parent, *_ = self._series()
+        own = self._own(parent)
+        new_parent = self._complete(parent)
+        self.db.expire_all()
+        self.assertEqual(self.db.get(models.Task, own.id).parent_task_id, new_parent.id)
+        self.assertIn(own.id, new_parent.subtask_ids)
+        self.assertNotIn(own.id, self.db.get(models.Task, parent.id).subtask_ids or [])
+        copies = self.db.query(models.Task).filter(models.Task.title == "Reconcile bank").count()
+        self.assertEqual(copies, 1)
+
+    def test_a_missed_main_task_leaves_it_open(self):
+        from routers.tasks import _close_as_missed
+        parent, a, b, c = self._series()
+        own = self._own(parent)
+        _close_as_missed(self.db, parent, "test")
+        self.db.commit()
+        self.db.expire_all()
+        self.assertFalse(self.db.get(models.Task, own.id).completed)
+        self.assertEqual(self.db.get(models.Task, c.id).status, "missed")
+
+    def test_the_daily_schedule_rolls_it_forward(self):
+        from routers.tasks import spawn_scheduled_occurrences
+        parent = self._add(title="Year-end close", due_on="2026-12-31")
+        own = self._own(parent)
+        spawned = spawn_scheduled_occurrences(self.db, "2026-04-02")
+        self.assertEqual([(t.title, t.parent_task_id, t.due_on) for t in spawned],
+                         [("Reconcile bank", parent.id, "2026-04-01")])
+        self.db.expire_all()
+        self.assertEqual(self.db.get(models.Task, own.id).status, "missed")
+
+    def test_the_same_step_under_two_main_tasks_is_two_series(self):
+        from routers.tasks import spawn_scheduled_occurrences
+        p1 = self._add(title="Close - RJK", due_on="2026-12-31")
+        p2 = self._add(title="Close - AUS", due_on="2026-12-31")
+        self._own(p1)
+        self._own(p2)
+        spawned = spawn_scheduled_occurrences(self.db, "2026-04-02")
+        self.assertEqual(sorted(t.parent_task_id for t in spawned), sorted([p1.id, p2.id]))

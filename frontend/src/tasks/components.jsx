@@ -4,7 +4,7 @@ import { isBypassing, confirmDiscard } from '../lib/dialogGuard';
 import { useExit } from '../lib/motion';
 import { createPortal } from 'react-dom';
 import { X, Check, ChevronDown, ChevronLeft, ChevronRight, Plus,
-  ListTree, MessageSquare, Paperclip, Download, CalendarDays, UserPlus,
+  ListTree, MessageSquare, Paperclip, Download, CalendarDays, UserPlus, Repeat,
   LayoutGrid, List, FileText, Sheet } from 'lucide-react';
 import { api } from '../api';
 import { NX, FONT, colorForKey, initialsOf, statusChip, priorityChip, btn, chip, STATUS_META, input as inputStyle } from './theme';
@@ -300,7 +300,7 @@ const sameYMD = (a, b) => !!a && !!b && a.getFullYear() === b.getFullYear() && a
 // flipped up when there isn't room below - so it works inside modals/sheets too.
 // `min` (YYYY-MM-DD): days before it are shown but cannot be picked, and
 // months/years wholly before it are greyed out the same way.
-function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min = '' }) {
+function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min = '', repeat = null }) {
   const selected = value ? isoToDate(value) : null;
   const today = new Date();
   const minDate = min ? isoToDate(min) : null;
@@ -314,6 +314,9 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
   // page of years, and picking one zooms straight back in. Lets you cross
   // years in two clicks instead of paging a month at a time.
   const [zoom, setZoom] = useState('days');
+  // 'repeat': the footer's Repeat button swapped the days for the repeat
+  // panel the caller supplied (`repeat.render`).
+  const [panel, setPanel] = useState('days');
   const ref = useRef(null);
   // Touch screens only; null on desktop, which keeps measuring the window as before.
   const vv = useVisualViewport(useTouchUi());
@@ -321,6 +324,9 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
     const onDoc = (e) => {
       if (ref.current && ref.current.contains(e.target)) return;
       if (anchorRef?.current && anchorRef.current.contains(e.target)) return;
+      // A calendar opened FROM this one (the repeat panel's end date) is its
+      // own portal; picking a day there must not close this one.
+      if (e.target.closest?.('[data-nx-calendar]')) return;
       onClose();
     };
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
@@ -380,10 +386,20 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
   };
 
   return createPortal(
-    <div ref={ref} style={{
+    <div ref={ref} data-nx-calendar="" style={{
       position: 'fixed', left, width: W, ...vpos, background: NX.surface, border: `1px solid ${NX.border}`,
       borderRadius: 14, boxShadow: '0 16px 44px rgba(0,0,0,0.22)', zIndex: 5000, padding: 14, fontFamily: FONT,
     }}>
+      {panel === 'repeat' && repeat ? (
+        <div style={{ minHeight: H - 28, display: 'flex', flexDirection: 'column' }}>
+          <button type="button" onClick={() => setPanel('days')} style={{ ...linkBtn, alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>
+            <ChevronLeft size={15} /> Back to Calendar
+          </button>
+          <div className="nx-scroll" style={{ flex: 1, maxHeight: H - 70, overflowY: 'auto' }}>
+            {repeat.render({ back: () => setPanel('days'), close: onClose })}
+          </div>
+        </div>
+      ) : (<>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
           {zoom === 'days' && (
@@ -458,10 +474,21 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
       )}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, borderTop: `1px solid ${NX.border2}`, paddingTop: 8 }}>
         <button onClick={() => { onChange(null); onClose(); }} style={linkBtn}>Clear</button>
-        {!beforeMin(new Date(today.getFullYear(), today.getMonth(), today.getDate())) && (
-          <button onClick={() => { onChange(dateToISO(today)); onClose(); }} style={linkBtn}>Today</button>
+        {/* Repeat sits with the date it repeats from (Sagar, Oct 14 2026),
+            the way Asana's date picker has it. Only where the caller can
+            save a rule - due dates, not start or end dates. */}
+        {repeat && (
+          <button type="button" onClick={() => setPanel('repeat')} title={repeat.label}
+            style={{ ...linkBtn, display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0, maxWidth: 150, color: repeat.on ? NX.blue : NX.dim }}>
+            <Repeat size={13} style={{ flexShrink: 0 }} />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{repeat.on ? repeat.label : 'Repeat'}</span>
+          </button>
         )}
+        {!beforeMin(new Date(today.getFullYear(), today.getMonth(), today.getDate())) ? (
+          <button onClick={() => { onChange(dateToISO(today)); onClose(); }} style={linkBtn}>Today</button>
+        ) : <span />}
       </div>
+      </>)}
     </div>,
     document.body,
   );
@@ -477,7 +504,9 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
 // `noPast`: the calendar will not offer a day before today - for DUE dates
 // (a task cannot be made due in the past). An existing overdue date still
 // displays as it is; it just cannot be moved to another past day.
-export function DateField({ value, onChange, placeholder = '-', color, style, title, disabled, compact = false, noPast = false }) {
+// `repeat`: { on, label, render({ back, close }) } adds a Repeat button to the
+// calendar's footer that opens the caller's repeat controls in its place.
+export function DateField({ value, onChange, placeholder = '-', color, style, title, disabled, compact = false, noPast = false, repeat = null }) {
   const min = noPast ? localTodayISO() : '';
   const [open, setOpen] = useState(false);
   const [rect, setRect] = useState(null);
@@ -502,7 +531,7 @@ export function DateField({ value, onChange, placeholder = '-', color, style, ti
             padding: 0, cursor: disabled ? 'default' : 'pointer', flexShrink: 0,
           }}
         ><CalendarDays size={13} strokeWidth={2} /></button>
-        {open && rect && <CalendarPopover value={value} onChange={onChange} onClose={() => setOpen(false)} anchorRect={rect} anchorRef={btnRef} min={min} />}
+        {open && rect && <CalendarPopover value={value} onChange={onChange} onClose={() => setOpen(false)} anchorRect={rect} anchorRef={btnRef} min={min} repeat={repeat} />}
       </span>
     );
   }
@@ -525,7 +554,7 @@ export function DateField({ value, onChange, placeholder = '-', color, style, ti
           onClick={toggle}
         />
       )}
-      {open && rect && <CalendarPopover value={value} onChange={onChange} onClose={() => setOpen(false)} anchorRect={rect} anchorRef={btnRef} min={min} />}
+      {open && rect && <CalendarPopover value={value} onChange={onChange} onClose={() => setOpen(false)} anchorRect={rect} anchorRef={btnRef} min={min} repeat={repeat} />}
     </span>
   );
 }

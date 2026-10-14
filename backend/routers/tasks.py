@@ -98,6 +98,7 @@ def task_to_dict(t: models.Task) -> dict:
         "createdAt":        t.created_at or "",
         "modifiedAt":       t.modified_at or "",
         "syncedWithAsana":  bool(t.synced_with_asana),
+        "sourceTicketId":   _nz(t.source_ticket_id),
         # Due-date accountability - see task_due.py.
         "dueExtensionCount": int(t.due_extension_count or 0),
         "dueHistory":       t.due_history if isinstance(t.due_history, list) else [],
@@ -819,8 +820,12 @@ def _spawn_next_occurrence(db: Session, t: models.Task, user: dict,
                            next_due_override: str = "") -> Optional[models.Task]:
     """Create the occurrence after `t` (unless the end condition - `until` date
     or `count` - is reached). Returns the new task, or None if the series has
-    ended or `t` already rolled forward. Top-level tasks only; subtasks don't
-    recur.
+    ended or `t` already rolled forward.
+
+    A subtask recurs only on a schedule of its OWN (`freq` on its rule, Oct 14
+    2026); one that simply repeats with its main task is copied by
+    _carry_subtasks instead. Its next copy goes under the main task's CURRENT
+    occurrence (_current_occurrence), so it is always found with the live one.
 
     Two callers, one roll-forward each (Sept 2026): completing an occurrence
     (update_task), and the daily schedule (spawn_scheduled_occurrences) - a
@@ -829,7 +834,7 @@ def _spawn_next_occurrence(db: Session, t: models.Task, user: dict,
     `t`, and the other then does nothing - so completing Monday's task after
     Tuesday's already appeared cannot create a second Tuesday."""
     rec = t.recurrence
-    if not isinstance(rec, dict) or not rec.get("freq") or t.parent_task_id:
+    if not isinstance(rec, dict) or not rec.get("freq"):
         return None
     if rec.get("nextOccurrenceId"):
         return None  # already rolled forward (by the schedule or a completion)
@@ -861,6 +866,7 @@ def _spawn_next_occurrence(db: Session, t: models.Task, user: dict,
     if count is not None:
         new_rec["count"] = int(count) - 1
 
+    parent = _current_occurrence(db, t.parent_task_id) if t.parent_task_id else None
     now = now_iso()
     nid = gen_id()
     nxt = models.Task(
@@ -881,7 +887,8 @@ def _spawn_next_occurrence(db: Session, t: models.Task, user: dict,
         project_id=t.project_id or "",
         section_id=t.section_id or "",
         team_id=t.team_id or "",
-        parent_task_id="",
+        parent_task_id=parent.id if parent is not None else "",
+        position=(t.position or 0.0) if parent is not None else 0.0,
         subtask_ids=[], blocked_by_ids=[], blocking_ids=[], dependency_types={},
         tags=list(t.tags or []),
         custom_field_values=dict(t.custom_field_values or {}),
@@ -900,13 +907,11 @@ def _spawn_next_occurrence(db: Session, t: models.Task, user: dict,
     db.add(nxt)
     # The checklist travels with the series, every line unticked: a recurring
     # "monthly close" is the same steps each month.
-    items = (db.query(models.TaskChecklistItem).filter(models.TaskChecklistItem.task_id == t.id)
-             .order_by(models.TaskChecklistItem.position).all())
-    for i, item in enumerate(items):
-        db.add(models.TaskChecklistItem(id=gen_id(), task_id=nid, title=item.title, done=False,
-                                        assignee_email=item.assignee_email or "", position=float(i),
-                                        created_at=now, created_by=user["email"]))
-    nxt.checklist_total, nxt.checklist_done = len(items), 0
+    _copy_checklist(db, t.id, nxt, user, now)
+    nxt.subtask_ids = _carry_subtasks(db, t, nxt, user)
+    nxt.subtask_order = t.subtask_order or ""
+    if parent is not None:
+        parent.subtask_ids = list(parent.subtask_ids or []) + [nid]
     # Reassigned (not mutated in place) so SQLAlchemy sees the JSON change.
     t.recurrence = {**rec, "nextOccurrenceId": nid}
     aid = log_activity(db, type="created", actor_email=user["email"], entity_id=nid,
@@ -923,6 +928,125 @@ def _spawn_next_occurrence(db: Session, t: models.Task, user: dict,
     return nxt
 
 
+def _tell_ticket_task_done(db: Session, t: models.Task, user: dict) -> None:
+    """A task from a ticket was completed (Oct 14 2026): the ticket's history
+    says so, and once the LAST of its open tasks is done, whoever works the
+    ticket is told it may be ready to resolve. Told, never resolved for them -
+    the task being done is not the same as the requester's problem being
+    fixed."""
+    from ticket_code import ticket_no
+    tk = db.query(models.TaskTicket).filter(models.TaskTicket.id == t.source_ticket_id).first()
+    if tk is None:
+        return
+    actor = user["email"].lower()
+    log_activity(db, type="task_completed", actor_email=actor, entity_kind="ticket", entity_id=tk.id,
+                 entity_code=tk.code, entity_title=tk.subject, detail=f"completed task {t.code} · {t.title}")
+    if tk.status in ("resolved", "closed"):
+        return
+    ids = [i for i in (tk.task_ids or []) if i]
+    others = (db.query(models.Task).filter(models.Task.id.in_(ids), models.Task.id != t.id).all() if ids else [])
+    if any(not o.completed for o in others):
+        return
+    who = (tk.assignee_email or "").lower()
+    if who and who != actor:
+        task_notify(db, kind="ticket_tasks_done", for_email=who,
+                    title="All tasks for a ticket are done",
+                    body=f"{ticket_no(tk.code)} · {tk.subject} - it may be ready to resolve", ticket_id=tk.id,
+                    nexus_action={"view": "tickets", "label": "View ticket"})
+
+
+def _copy_checklist(db: Session, src_id: str, dst: models.Task, user: dict, now: str) -> None:
+    items = (db.query(models.TaskChecklistItem).filter(models.TaskChecklistItem.task_id == src_id)
+             .order_by(models.TaskChecklistItem.position).all())
+    for i, item in enumerate(items):
+        db.add(models.TaskChecklistItem(id=gen_id(), task_id=dst.id, title=item.title, done=False,
+                                        assignee_email=item.assignee_email or "", position=float(i),
+                                        created_at=now, created_by=user["email"]))
+    dst.checklist_total, dst.checklist_done = len(items), 0
+
+
+def _current_occurrence(db: Session, task_id: str) -> Optional[models.Task]:
+    """The live occurrence of the series `task_id` belongs to: follow the
+    nextOccurrenceId links forward (skipping the Recycle Bin). A task that does
+    not repeat is its own current occurrence."""
+    cur = db.query(models.Task).filter(models.Task.id == task_id).first()
+    seen = set()
+    while cur is not None and cur.id not in seen:
+        seen.add(cur.id)
+        nid = (cur.recurrence or {}).get("nextOccurrenceId") if isinstance(cur.recurrence, dict) else None
+        nxt = db.query(models.Task).filter(models.Task.id == nid).first() if nid else None
+        if nxt is None or nxt.deleted_at:
+            break
+        cur = nxt
+    return cur
+
+
+def _carry_subtasks(db: Session, t: models.Task, nxt: models.Task, user: dict) -> list:
+    """The subtasks of a recurring task come along to its next occurrence
+    (Neil, Oct 14 2026: a yearly tax return is the same eleven steps every
+    year - they had to be typed in again each time). Each one starts open
+    again, keeps its place, people, priority and fields, and its due date
+    moves by as much as the main task's did. A subtask switched off on its
+    own Recurrence row ({"skip": true}) stays behind. One on a schedule of its
+    own (`freq`) is not copied: while open it MOVES to the new occurrence, and
+    it makes its own next copies (_spawn_next_occurrence). Returns the ids now
+    under `nxt`."""
+    subs = (db.query(models.Task)
+            .filter(models.Task.parent_task_id == t.id,
+                    (models.Task.deleted_at == "") | (models.Task.deleted_at.is_(None)))
+            .order_by(models.Task.position).all())
+    shift = None
+    if t.due_on and nxt.due_on:
+        try:
+            shift = (datetime.strptime(nxt.due_on[:10], "%Y-%m-%d")
+                     - datetime.strptime(t.due_on[:10], "%Y-%m-%d")).days
+        except ValueError:
+            shift = None
+    now = nxt.created_at or now_iso()
+    ids = []
+    moved = []
+    for s in subs:
+        if isinstance(s.recurrence, dict) and s.recurrence.get("skip"):
+            continue
+        if isinstance(s.recurrence, dict) and s.recurrence.get("freq"):
+            if not s.completed:
+                s.parent_task_id, s.modified_at = nxt.id, now
+                moved.append(s.id)
+                ids.append(s.id)
+            continue
+        due = ""
+        if s.due_on and shift is not None:
+            try:
+                due = (datetime.strptime(s.due_on[:10], "%Y-%m-%d") + timedelta(days=shift)).date().isoformat()
+            except ValueError:
+                due = ""
+        sid = gen_id()
+        sub = models.Task(
+            id=sid, company_id=getattr(nxt, "company_id", "") or "", code=_next_code(db),
+            title=s.title, description=s.description or "", type=s.type or "task",
+            status="not_started", priority=s.priority or "medium",
+            assignee_email=s.assignee_email or "", assignee_emails=list(task_assignees(s)),
+            owner_email=s.owner_email or "", follower_emails=list(s.follower_emails or []),
+            liked_by_emails=[], access_level=s.access_level or "org",
+            project_id=s.project_id or "", section_id=s.section_id or "", team_id=s.team_id or "",
+            parent_task_id=nxt.id, position=s.position or 0.0,
+            subtask_ids=[], blocked_by_ids=[], blocking_ids=[], dependency_types={},
+            tags=list(s.tags or []), custom_field_values=dict(s.custom_field_values or {}),
+            start_on="", due_on=due, estimate_hours=s.estimate_hours, actual_hours=None,
+            recurrence=dict(s.recurrence) if isinstance(s.recurrence, dict) else None,
+            is_milestone=bool(s.is_milestone), approval_status="none",
+            completed=False, completed_at="",
+            comment_ids=[], attachment_ids=[], activity_ids=[],
+            created_at=now, modified_at=now, created_by=user["email"],
+        )
+        db.add(sub)
+        _copy_checklist(db, s.id, sub, user, now)
+        ids.append(sid)
+    if moved:
+        t.subtask_ids = [x for x in (t.subtask_ids or []) if x not in moved]
+    return ids
+
+
 def _close_as_missed(db: Session, t: models.Task, why: str) -> None:
     """Close an occurrence nobody finished: Missed, not Completed. completed is
     set so it leaves every open list and stops the overdue emails; completed_at
@@ -934,6 +1058,14 @@ def _close_as_missed(db: Session, t: models.Task, why: str) -> None:
     t.modified_at = now_iso()
     log_activity(db, type="closed_missed", actor_email="system", entity_id=t.id, entity_code=t.code,
                  entity_title=t.title, detail=f"Closed as Missed - {why}")
+    # Its open subtasks go with it - the next occurrence brought fresh copies
+    # (_carry_subtasks), and the old ones would otherwise sit open beside them.
+    for s in (db.query(models.Task)
+              .filter(models.Task.parent_task_id == t.id, models.Task.completed == False,  # noqa: E712
+                      (models.Task.deleted_at == "") | (models.Task.deleted_at.is_(None))).all()):
+        if isinstance(s.recurrence, dict) and s.recurrence.get("freq"):
+            continue  # on a schedule of its own - it closes by its own dates
+        s.completed, s.completed_at, s.status, s.modified_at = True, "", MISSED, now_iso()
 
 
 def _us(iso: str) -> str:
@@ -974,14 +1106,15 @@ def spawn_scheduled_occurrences(db: Session, today_iso: str) -> list[models.Task
     spawned: list[models.Task] = []
     rows = (db.query(models.Task)
             .filter(models.Task.recurrence.isnot(None),
-                    (models.Task.parent_task_id == "") | (models.Task.parent_task_id.is_(None)),
                     (models.Task.deleted_at == "") | (models.Task.deleted_at.is_(None)))
             .all())
+    # Subtasks on a schedule of their own roll forward here too (Oct 14 2026).
+    by_id = {t.id: t for t in rows}
     series: dict[tuple, list[models.Task]] = {}
     for t in rows:
         rec = t.recurrence
         if isinstance(rec, dict) and rec.get("freq") in _SCHEDULED_FREQS and t.due_on:
-            series.setdefault(_series_key(t), []).append(t)
+            series.setdefault(_series_key(t, by_id), []).append(t)
     touched = False
     closed: list[str] = []
     for members in series.values():
@@ -1038,7 +1171,7 @@ def spawn_scheduled_occurrences(db: Session, today_iso: str) -> list[models.Task
     return spawned
 
 
-def _series_key(t: models.Task) -> tuple:
+def _series_key(t: models.Task, by_id: Optional[dict] = None) -> tuple:
     """What makes two tasks occurrences of the same recurring series. There is
     no series id on a task, but every occurrence is a copy of the one before
     it (_spawn_next_occurrence): same title, project, assignees and rule. The
@@ -1046,8 +1179,20 @@ def _series_key(t: models.Task) -> tuple:
     closedAsMissed, and
     `count`, which counts down along the series)."""
     rec = {k: v for k, v in (t.recurrence or {}).items() if k not in ("nextOccurrenceId", "count", "closedAsMissed")}
-    return ((t.title or "").strip().lower(), t.project_id or "", tuple(sorted(task_assignees(t))),
-            json.dumps(rec, sort_keys=True, default=str))
+    key = ((t.title or "").strip().lower(), t.project_id or "", tuple(sorted(task_assignees(t))),
+           json.dumps(rec, sort_keys=True, default=str))
+    if t.parent_task_id:
+        # A subtask on its own schedule: the same step under two different
+        # main tasks is two series. Its copies move from occurrence to
+        # occurrence of the main task, so the main task's own series - not its
+        # id - is what they share; a main task that does not repeat is known
+        # by its id. (`by_id` holds only rows with a rule, which every main
+        # task that repeats has.)
+        parent = (by_id or {}).get(t.parent_task_id)
+        if parent is None or not (parent.recurrence or {}).get("freq"):
+            return ("sub", t.parent_task_id) + key
+        return ("sub", _series_key(parent, by_id)) + key
+    return key
 
 
 @router.get("")
@@ -1514,6 +1659,15 @@ def list_tasks_delta(since: str = "", user: dict = Depends(get_current_user), db
 @router.post("", status_code=201)
 def create_task(body: TaskCreate, background_tasks: BackgroundTasks,
                 user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    return _create_task(body, background_tasks, user, db)
+
+
+def _create_task(body: TaskCreate, background_tasks: BackgroundTasks, user: dict, db: Session,
+                 before_commit=None):
+    """create_task's body. `before_commit(task)` runs on the new row just
+    before the one commit, so a caller's own writes land in the same
+    transaction - a ticket's "Create Task from Ticket" links both sides there,
+    and a task can never exist without its link (routers/tickets.py)."""
     now = now_iso()
     tid = body.id or gen_id()
     # No explicit access_level -> inherit the project's (so a task in a
@@ -1637,6 +1791,8 @@ def create_task(body: TaskCreate, background_tasks: BackgroundTasks,
                         title="You were assigned a task",
                         body=f"{t.title}", task_id=tid,
                         nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
+    if before_commit is not None:
+        before_commit(t)
     db.commit()
     db.refresh(t)
     fire_task_event(tid, "created")
@@ -1821,6 +1977,8 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
 
     # Completing a recurring task rolls the series forward to the next occurrence.
     spawned = _spawn_next_occurrence(db, t, user) if (t.completed and not prev_completed) else None
+    if t.completed and not prev_completed and t.source_ticket_id:
+        _tell_ticket_task_done(db, t, user)
 
     db.commit()
     db.refresh(t)

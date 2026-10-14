@@ -43,7 +43,7 @@ import {
 import { HELP_SUBTOPIC_KEY, HELP_SUBTOPIC_LABEL, topicOptions, helpWithLabel } from './ticketMeta';
 import { useTicketConfig, COMPANY_FIELD, typeRequiresApproval } from './ticketConfig';
 import {
-  TypeFieldInput, TicketTypeIcon, SlaBadge, TicketStatusChip, TicketSelect,
+  TypeFieldInput, TicketTypeIcon, SlaBadge, TicketStatusChip, TicketSelect, TicketPeopleMultiSelect,
 } from './TicketAtoms';
 import { SkeletonBlocks, Spinner } from '../components/AsyncState';
 import GuidedTour from '../components/GuidedTour';
@@ -1843,9 +1843,23 @@ function PendingFileChip({ file, onRemove }) {
 // and left empty saves "<p></p>"; a screenshot on its own still counts.
 const hasRichText = (html) => !!html && (!isEmptyDoc(html) || /<img\b/i.test(html));
 
+// Who can be a ticket's collaborator: the People list (staff, A-Z) as the
+// Requester dropdown shows it, plus anyone already on it who is not in the
+// list, less the requester (already on the ticket).
+function collaboratorOptions(people, keep, requester) {
+  const req = (requester || '').toLowerCase();
+  const rows = people.filter((p) => !p.external)
+    .sort((a, b) => String(a.name).localeCompare(String(b.name), 'en', { sensitivity: 'base' }))
+    .map((p) => ({ id: p.email, label: p.name, desc: p.email }));
+  const known = new Set(rows.map((r) => r.id));
+  for (const e of keep || []) if (e && !known.has(e)) { rows.push({ id: e, label: e, desc: e }); known.add(e); }
+  return rows.filter((r) => r.id !== req);
+}
+
 // ── Create ───────────────────────────────────────────────────────────────────
 // `fromTask` (Convert to Ticket, Neil 10/05): { id, title, description,
-// priority, ownerId, fileCount } - the form opens pre-filled from the task,
+// priority, ownerId, fileCount, collaboratorIds } - the form opens pre-filled
+// from the task (its assignees and collaborators as the ticket's collaborators),
 // names every required field the task could not supply, and on create the
 // server links the ticket to the task, copies its files and (when asked)
 // closes the task. `onCreated(ticket)` runs after a successful create.
@@ -1898,6 +1912,10 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
     // Who the ticket is FOR (Neil, Oct 1): you, unless you pick a colleague.
     // A converted task is for whoever owns it - they asked for the work.
     requesterId: (fromTask?.ownerId || myEmail || '').toLowerCase() || null, companyId: '', hrDepartmentId: '', application: '',
+    // Collaborators (Oct 14 2026): others pulled onto it from the start - a
+    // converted task's assignees and collaborators, less whoever it is for.
+    watcherIds: [...new Set((fromTask?.collaboratorIds || []).map((e) => (e || '').toLowerCase()).filter(Boolean))]
+      .filter((e) => e !== (fromTask?.ownerId || myEmail || '').toLowerCase()),
     propertyAssetId: forProperty?.id || '',
   });
   // Close the task once the ticket exists, so the work is not tracked twice.
@@ -2110,6 +2128,8 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
         // date is derived from priority; the service area from the topic.
         requesterId: requester || '', companyId: form.companyId || '', hrDepartmentId: form.hrDepartmentId || '',
         application: form.application.trim(),
+        // Collaborators - the server adds you too when it is for someone else.
+        watcherIds: (form.watcherIds || []).filter((e) => e && e !== requester),
         slaDueOn: slaDueFromPriority(form.priority),
         typeFields,
         ...(fromTask ? { fromTaskId: fromTask.id, closeSourceTask: closeSource } : {}),
@@ -2201,6 +2221,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
   const fieldLabel = (k) => ({ subject: 'Title', companyId: 'Company', hrDepartmentId: 'Department',
     application: 'What Do You Need Help With?' }[k] || typeFieldDefs.find((f) => f.key === k)?.label || k);
   const carried = fromTask ? ['title', 'description', 'priority', 'requester',
+    ...((form.watcherIds || []).length ? ['collaborators'] : []),
     ...(fromTask.fileCount ? [`${fromTask.fileCount} file${fromTask.fileCount > 1 ? 's' : ''}`] : [])] : [];
 
   return shell(fromTask ? 'Convert to Ticket' : 'Create a Ticket', {
@@ -2274,14 +2295,25 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
           section, which was really asking who this is for. You by default;
           anyone on the People list otherwise. They get the updates, see it as
           theirs, and confirm or reopen it; you stay on it as a watcher. */}
-      <div style={field}>
-        <label style={label}>Requester</label>
-        <TicketSelect value={requester} onChange={(v) => set('requesterId', v || me || null)}
-          options={requesterOptions} placeholder="Select a person" searchPlaceholder="Search people…"
-          emptyText="No one matches." style={sel} />
-        {sub(onBehalf
-          ? 'Raising this on their behalf - they get the updates, and you can still follow it.'
-          : 'Who is this for? Pick a colleague if you are raising it for someone else.')}
+      {/* Collaborators beside it (Sagar, Oct 14 2026), as on a task: anyone
+          else who should follow it - they can open it, reply and get its
+          updates, and are told they were added. */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'minmax(0, 1fr)' : 'repeat(2, minmax(0, 1fr))', columnGap: 14 }}>
+        <div style={field}>
+          <label style={label}>Requester</label>
+          <TicketSelect value={requester} onChange={(v) => set('requesterId', v || me || null)}
+            options={requesterOptions} placeholder="Select a person" searchPlaceholder="Search people…"
+            emptyText="No one matches." style={sel} />
+          {sub(onBehalf
+            ? 'Raising this on their behalf - they get the updates, and you can still follow it.'
+            : 'Who is this for? Pick a colleague if you are raising it for someone else.')}
+        </div>
+        <div style={field}>
+          <label style={label}>Collaborators</label>
+          <TicketPeopleMultiSelect value={form.watcherIds || []} options={requesterOptions.filter((o) => o.id !== requester)}
+            onChange={(list) => set('watcherIds', list)} />
+          {sub('Anyone else who should follow it and can reply.')}
+        </div>
       </div>
 
       {/* Rich description (Neil, Oct 1): the Task module's own editor, with
@@ -2654,7 +2686,7 @@ function readOnlyFieldValue(f, value, nameOf) {
 // Support list's pencil (Neil, Sep 30) lands here.
 export function TicketDrawer({ ticketId, onClose, startEditing = false, initialTab = null }) {
   const { tickets, ticketsLoaded, tasks, projects = [], loading: tasksLoading,
-    addTicketLink, removeTicketLink, escalateTicket, createTask, myEmail, nameOf, updateTicket, deleteTicket,
+    addTicketLink, removeTicketLink, escalateTicket, createTaskFromTicket, myEmail, nameOf, updateTicket, deleteTicket,
     refresh } = useTasks();
   // An approval decision changes status/resolution server-side, so pull the whole
   // list rather than patching one field locally.
@@ -2682,6 +2714,9 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   // A linked task opened in place, over the ticket - so working on it does not
   // mean closing the ticket and hunting for the task in the Task module.
   const [openTaskId, setOpenTaskId] = useState(null);
+  // A task opened from this ticket closes back onto the ticket's Overview,
+  // where its Tasks list is (Sagar, Oct 14 2026).
+  const closeTask = () => { setOpenTaskId(null); setTab('overview'); };
   // Title/description editor, and the resolve/confirm/reopen dialog - up
   // here with the other hooks for the same reason as requestingControl.
   const [editing, setEditing] = useState(startEditing);
@@ -2853,6 +2888,11 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   // And only for a desk supervisor - the server's delete route requires one
   // (ticket_roles.can_delete), so offering it to anybody else is a dead button.
   const canDelete = deskAccess.canDelete && (privileged || (!requesterLocked && isRequester));
+  // Collaborators (Oct 14 2026): whoever may edit the ticket at all - its
+  // requester or the desk - may add or remove them, whatever its state. They
+  // are not the ticket's content, so neither lock above applies (mirrors
+  // _COLLABORATOR_FIELDS in routers/tickets.py).
+  const canEditCollaborators = privileged || isRequester || deskAccess.canWorkQueue;
   // Escalate is a distress flare, not a priority bump: it mails the ticket's
   // department head that it needs instant care. The assignee or a manager -
   // whoever is actually working it - can raise it any time it's open,
@@ -2942,10 +2982,14 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   const reopen = () => setDialog({ mode: 'reopen' });
   // ticket → many tasks: union of the spawned list + the legacy single linkedTaskId
   const taskIds = [...(t.taskIds || []), ...(t.linkedTaskId && !(t.taskIds || []).includes(t.linkedTaskId) ? [t.linkedTaskId] : [])];
+  // One server call links both sides (Oct 14 2026) - it used to create the
+  // task, then PATCH the ticket, and a failed second save left a task nobody
+  // could trace back. The new task opens straight away; closing it comes back
+  // here, to the Overview.
   const spawnTask = async () => {
     try {
-      const task = await createTask({ title: t.subject, description: t.description || '', assigneeId: t.assigneeId || '', priority: t.priority || 'medium' });
-      await patch({ taskIds: [...(t.taskIds || []), task.id] });
+      const { task } = await createTaskFromTicket(t.id);
+      setOpenTaskId(task.id);
     } catch (e) { alert(`Could not create task: ${e.message || e}`); }
   };
   const linkTask = (taskId) => { if (taskId && !taskIds.includes(taskId)) patch({ taskIds: [...(t.taskIds || []), taskId] }); };
@@ -2969,7 +3013,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
         used to pass read as a cramped tab next to that (Pranshu, Sept 8 2026). */}
     {/* While a linked task is open on top, Escape (which Modal also listens
         for) closes the task first rather than the ticket underneath it. */}
-    <Modal title={ticketNo(t.code) || 'Ticket'} onClose={() => (openTaskId ? setOpenTaskId(null) : closeDrawer())} footer={
+    <Modal title={ticketNo(t.code) || 'Ticket'} onClose={() => (openTaskId ? closeTask() : closeDrawer())} footer={
       <>
         {canDelete && (
           <button style={{ ...btn('outline'), color: NX.red, borderColor: NX.border, marginRight: 'auto' }} onClick={remove}><Trash2 size={14} /> Delete</button>
@@ -3172,6 +3216,26 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
             </div>
           </div>
         )}
+        {/* Collaborators, as on a task (Sagar, Oct 14 2026): the people
+            pulled in to help. They are the ticket's watchers - they can open
+            it, reply and hear about every change, and each one added gets a
+            bell. Saved with the rest on Done. */}
+        <div style={{ ...field, gridColumn: '1 / -1' }}>
+          <label style={label}>Collaborators</label>
+          {canEditCollaborators ? (
+            <TicketPeopleMultiSelect value={v.watcherIds || []} onChange={(list) => stage({ watcherIds: list })}
+              options={collaboratorOptions(people, [t.requesterId, ...(v.watcherIds || [])], t.requesterId)} />
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', minHeight: 34 }}>
+              {(v.watcherIds || []).length ? (v.watcherIds || []).map((em) => (
+                <span key={em} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: NX.ink }}>
+                  <Avatar email={em} name={nameOf(em)} size={22} />{nameOf(em)}
+                </span>
+              )) : <span style={{ fontSize: 13, color: NX.faint }}>-</span>}
+            </div>
+          )}
+          <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>They can open this ticket, reply and get its updates.</div>
+        </div>
         <div style={field}>
           <label style={label}>Company</label>
           {canEditCompany ? (
@@ -3360,7 +3424,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
         {tab === 'activity' && <TicketActivity ticketId={t.id} nameOf={nameOf} companies={companies} allDepts={allDepts} />}
       </div>
     </Modal>
-    {openTaskId && <TaskDetailDrawer taskId={openTaskId} onClose={() => setOpenTaskId(null)} zIndex={4100} />}
+    {openTaskId && <TaskDetailDrawer taskId={openTaskId} onClose={closeTask} onBackToTicket={closeTask} zIndex={4100} />}
     {dialog && (
       <TicketActionDialog mode={dialog.mode} targetStatus={dialog.targetStatus} ticket={v}
         // Resolving is a status change like any other - held for Done. Confirm
