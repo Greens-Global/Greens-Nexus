@@ -117,13 +117,13 @@ describe('AccessTab', () => {
     expect(within(row).getByText('Greens Escondido')).toBeTruthy();
     expect(within(row).getByText('Viewer')).toBeTruthy();
     const other = screen.getByText('Priyanka Sahu').closest('tr');
-    expect(within(other).getByText('All entities')).toBeTruthy();
+    expect(within(other).getByText('All Entities')).toBeTruthy();
     // Never a raw email address.
     expect(screen.queryByText(/@greensglobal\.com/)).toBeNull();
 
     fireEvent.click(within(other).getByRole('button', { name: 'Change' }));
     const dialog = screen.getByRole('dialog', { name: /Entities Priyanka Sahu can read/i });
-    fireEvent.click(within(dialog).getByLabelText(/Only the entities picked below/));
+    fireEvent.click(within(dialog).getByLabelText(/Only the Entities Picked Below/));
     expect(within(dialog).getByRole('button', { name: 'Save' }).disabled).toBe(true);   // nothing picked yet
     fireEvent.click(within(dialog).getByRole('option', { name: /Family Trust/ }));
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
@@ -135,7 +135,7 @@ describe('AccessTab', () => {
     const row = (await screen.findByText('Priyanka Sahu')).closest('tr');
     fireEvent.click(within(row).getByRole('button', { name: 'Change' }));
     const dialog = screen.getByRole('dialog');
-    fireEvent.click(within(dialog).getByLabelText(/Only the entities picked below/));
+    fireEvent.click(within(dialog).getByLabelText(/Only the Entities Picked Below/));
     fireEvent.click(within(dialog).getByRole('button', { name: 'Select All' }));
     const picked = within(dialog).getAllByRole('option').filter((o) => o.getAttribute('aria-selected') === 'true');
     expect(picked.length).toBe(within(dialog).getAllByRole('option').length);
@@ -154,7 +154,7 @@ describe('AccessTab', () => {
     const row = (await screen.findByText('Urmi Gor')).closest('tr');
     fireEvent.click(within(row).getByRole('button', { name: 'Change' }));
     const dialog = screen.getByRole('dialog');
-    fireEvent.click(within(dialog).getByLabelText(/All entities/));
+    fireEvent.click(within(dialog).getByLabelText(/All Entities/));
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(api.setAccountingAccess).toHaveBeenCalledWith('urmi.gor@greensglobal.com', []));
   });

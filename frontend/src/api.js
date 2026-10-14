@@ -2162,7 +2162,7 @@ export const api = {
   resolvePfsShareMismatches: (id, ids, action) => req(`/pfs/profiles/${encodeURIComponent(id)}/share-mismatches`, { method: 'POST', body: JSON.stringify({ ids, action }) }),
   encryptPfsPdf:          (id, body) => req(`/pfs/profiles/${encodeURIComponent(id)}/pdf/encrypt`, { method: 'POST', body: JSON.stringify(body) }),
   getPfsAccessPeople:     () => req('/pfs-access/people'),
-  setPfsAccessLevel:      (email, level) => req(`/pfs-access/people/${encodeURIComponent(email)}`, { method: 'PUT', body: JSON.stringify({ level }) }),
+  setPfsAccessLevel:      (email, level, files) => req(`/pfs-access/people/${encodeURIComponent(email)}`, { method: 'PUT', body: JSON.stringify(files ? { level, files } : { level }) }),
   // ── Accounting > Reports, Oct 7 (Charmi, item 35): the books a report can
   //    read ({available, books: [{key, label, kind, journals}]}; available
   //    false = the accounting app lists none yet), and one report read with

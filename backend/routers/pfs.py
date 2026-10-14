@@ -519,10 +519,14 @@ def meta():
 
 
 @router.get("/profiles")
-def list_profiles(db: Session = Depends(get_db)):
+def list_profiles(user: dict = Depends(_read), db: Session = Depends(get_db)):
     """The guarantor dropdown, in the order it was put in (Neil, 10/14); files
-    never placed follow by name, archived files last."""
+    never placed follow by name, archived files last. Only the files the
+    caller is given (pfs_access.allowed_files)."""
     rows = db.query(models.PfsProfile).all()
+    allowed = pfs_access.allowed_files(db, user)   # only the files the caller is given (Neil, 10/14)
+    if allowed is not None:
+        rows = [p for p in rows if p.id in allowed]
     rows.sort(key=lambda p: (bool(p.archived), not (p.sort_order or 0), p.sort_order or 0, (p.name or "").lower()))
     return [_profile_out(p, full=False) for p in rows]
 
@@ -539,6 +543,9 @@ def order_profiles(body: ProfileOrderBody, user: dict = Depends(_edit), db: Sess
     ids = list(dict.fromkeys(str(i) for i in (body.ids or [])))[:500]
     if not ids:
         raise HTTPException(status_code=400, detail="Give the guarantors in the order wanted.")
+    allowed = pfs_access.allowed_files(db, user)   # a limited editor orders only the files they are given
+    if allowed is not None and any(i not in allowed for i in ids):
+        raise HTTPException(status_code=404, detail="A guarantor in that order was not found.")
     rows = {p.id: p for p in db.query(models.PfsProfile).filter(models.PfsProfile.id.in_(ids)).all()}
     if len(rows) != len(ids):
         raise HTTPException(status_code=404, detail="A guarantor in that order was not found.")
