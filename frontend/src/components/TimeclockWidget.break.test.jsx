@@ -95,12 +95,13 @@ describe('TimeclockWidget break prompts', () => {
     // The sidebar chip: a subscriber that presses the engine's own action.
     function Chip() { const vm = useTimeclock(); return <button onClick={() => vm.actions?.toggleBreak()}>Chip Break</button>; }
     punchMock.punchDurable.mockResolvedValue({ ok: true, punch: { kind: 'break_start', at: stamp(new Date()) }, result: {} });
-    const { container } = render(<><TimeclockWidget /><Chip /></>);
-    expect(container.querySelector('.tc-capsule')).toBeNull();
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Chip Break' })); });
-    expect(await screen.findByTestId('bod-modal')).toHaveTextContent('break');
-    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
-    await waitFor(() => expect(punchMock.punchDurable).toHaveBeenCalledTimes(1));
-    release();
+    try {
+      const { container } = render(<><TimeclockWidget /><Chip /></>);
+      expect(container.querySelector('.tc-capsule')).toBeNull();
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Chip Break' })); });
+      expect(await screen.findByTestId('bod-modal')).toHaveTextContent('break');
+      fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+      await waitFor(() => expect(punchMock.punchDurable).toHaveBeenCalledTimes(1));
+    } finally { release(); }
   });
 });

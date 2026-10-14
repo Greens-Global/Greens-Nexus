@@ -361,6 +361,10 @@ export default function TimeclockWidget() {
   // it (bounded to 15 minutes) - the Time Clock screen's own order.
   const [breakGate, setBreakGate] = useState(null);
   const breakClickRef = useRef('');
+  // The shift closed under an open prompt (punched out on another device, a
+  // stale shift): drop it right here in the render, or the chip stays
+  // disabled and the prompt comes back on the next shift.
+  if (!clockedIn && (breakGate || breakBusy)) { setBreakGate(null); setBreakBusy(false); breakClickRef.current = ''; }
   async function quickBreak(kind) {
     if (busy || breakBusy) return false;   // a sheet must not close on a tap that did nothing
     setBreakBusy(true);

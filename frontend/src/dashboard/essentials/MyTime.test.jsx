@@ -170,6 +170,22 @@ describe('<MyTime /> render', () => {
     expect(punchMock.punchDurable.mock.calls[0][0].kind).toBe('break_end');
   });
 
+  it('a break the server refuses after the prompt: the words show, the button works again, the stamp does not carry over', async () => {
+    apiMock.timeStatus.mockResolvedValue(clockedInStatus());
+    punchMock.punchDurable.mockResolvedValueOnce({ ok: false, error: { status: 409, message: 'Already on a break.' } });
+    render(<MyTime />);
+    fireEvent.click(await screen.findByRole('button', { name: /Start Break/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Send' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Already on a break.');
+    expect(punchMock.punchDurable.mock.calls[0][0].clickedAt).toMatch(/^\d{4}/);
+    // Released: the next tap prompts again and sends a stamp of its own.
+    punchMock.punchDurable.mockResolvedValueOnce({ ok: true, punch: { kind: 'break_start', at: stamp(NOW) }, result: {} });
+    fireEvent.click(screen.getByRole('button', { name: /Start Break/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(punchMock.punchDurable).toHaveBeenCalledTimes(2));
+    expect(punchMock.punchDurable.mock.calls[1][0].clickedAt).toMatch(/^\d{4}/);
+  });
+
   it('a role-flagged person (bodExempt) starts the break with no prompt', async () => {
     apiMock.timeStatus.mockResolvedValue(clockedInStatus({ bodExempt: true }));
     punchMock.punchDurable.mockResolvedValue({ ok: true, punch: { kind: 'break_start', at: stamp(NOW) }, result: {} });

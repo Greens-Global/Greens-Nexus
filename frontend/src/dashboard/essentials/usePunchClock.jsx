@@ -246,6 +246,9 @@ export function usePunchClock() {
         say(false, res.error?.message || 'Punch failed.');
       }
     } finally {
+      // One stamp per tap: a refused gated punch must not hand its moment to
+      // the next, ungated one (a Punch Out backdated up to 15 minutes).
+      clickedAt.current = '';
       if (alive.current) setBusy('');
     }
   }
