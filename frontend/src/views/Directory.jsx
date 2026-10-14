@@ -107,16 +107,8 @@ export default function Directory() {
     return () => window.removeEventListener(CONTACT_EVENT, onContact);
   }, []);
 
-  // "/" focuses search from anywhere on the page, Escape clears it.
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.key === '/' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName) && !e.metaKey && !e.ctrlKey) {
-        e.preventDefault(); searchRef.current?.focus();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  // "/" focuses this box: the header's shortcut handler (TopHeader) sends
+  // "/" to the page's own search when one is tagged data-slash-search.
 
   useEffect(() => { try { localStorage.setItem(LENS_KEY, lens); } catch { /* private mode */ } }, [lens]);
 
@@ -234,7 +226,7 @@ export default function Directory() {
     <div style={{ padding: 12, borderBottom: `1px solid ${NX.border}`, display: 'flex', flexDirection: horizontal ? 'row' : 'column', flexWrap: horizontal ? 'wrap' : 'nowrap', alignItems: horizontal ? 'center' : 'stretch', gap: 9 }}>
       <div style={{ position: 'relative', flex: horizontal ? '1 1 240px' : undefined, minWidth: horizontal ? 200 : undefined, maxWidth: horizontal ? 380 : undefined }}>
         <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)', pointerEvents: 'none' }} />
-        <input ref={searchRef} type="search" className="form-input" value={query} onChange={(e) => { setQuery(e.target.value); setCursor(-1); }}
+        <input data-slash-search="" ref={searchRef} type="search" className="form-input" value={query} onChange={(e) => { setQuery(e.target.value); setCursor(-1); }}
           onKeyDown={onListKey} placeholder={chart ? 'Find someone on the chart…' : 'Search name, title, department, office…'} aria-label="Search people"
           style={{ width: '100%', paddingLeft: 30, paddingRight: query ? 30 : 12, fontSize: mobile ? 16 : 13.5 }} />
         {query && (

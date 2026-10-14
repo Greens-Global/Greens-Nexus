@@ -3,7 +3,7 @@ import { Check, LayoutDashboard, Archive, User, Package, ClipboardList, Shopping
 import { useRole } from '../../contexts/RoleContext';
 import { useInventory } from '../../contexts/InventoryContext';
 import { useRequisitions } from '../../contexts/RequisitionContext';
-import { NAV } from '../Sidebar';
+import { NAV, isNavItemVisible } from '../Sidebar';
 import { SUBMENUS } from '../MobileMenu';
 import { openContact } from '../../lib/contactNav';
 import { api } from '../../api';
@@ -13,12 +13,14 @@ import { api } from '../../api';
 // finds, how it is grouped and where a pick goes never differs by screen.
 //
 // Sources, in the order the groups are shown:
-//   Pages      - the sidebar's screens and their sections, role-gated like
-//                the sidebar itself (local, instant).
 //   Tasks / Projects / People / Portfolios / Teams - the Task module's
 //                content through /tasks search (debounced, 2+ characters).
 //   Items / Checkouts / Purchase Requests - from the data the app already
 //                holds in its contexts (local, instant).
+//   Pages      - the sidebar's screens and their sections, visible exactly
+//                when the sidebar shows them (local, instant). Last, so
+//                Enter on a typed title opens the thing, not the module
+//                whose name happens to contain the same letters.
 
 export const SEARCH_PLACEHOLDER = 'Search Nexus';
 export const SEARCH_HINT = 'Pages, tasks, projects, people, items and requests.';
@@ -37,27 +39,51 @@ const EMPTY_HITS = { tasks: [], projects: [], people: [], portfolios: [], teams:
 // never imports the 8k-line view (and the module -> search import cycle).
 const ITEM_STATUS_LABELS = {
   available: 'Available', unassigned: 'Unassigned', location_assigned: 'Assigned · Location',
-  checked_out: 'Checked out', permanently_assigned: 'Perm. Assigned', retired: 'Retired',
+  checked_out: 'Checked Out', permanently_assigned: 'Perm. Assigned', retired: 'Retired',
 };
+// Status labels are Title Case ("Pending Receipt", never "pending receipt").
+const statusLabel = (s) => (s || '').split('_').filter(Boolean).map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
 function itemStatusLabel(item) {
   const s = (item.ownershipType === 'permanent' && item.status === 'available')
     ? ((!item.assignedToEmail && item.location) ? 'location_assigned' : 'unassigned')
     : item.status;
-  return ITEM_STATUS_LABELS[s] || (s || '').replace(/_/g, ' ');
+  return ITEM_STATUS_LABELS[s] || statusLabel(s);
+}
+
+// QA-gated screens (Testing) show only while QA is on - asked once, shared
+// by every search surface.
+let qaKnown = null;   // null until asked; the answer is shared by every surface
+let qaAsk = null;
+function useQaEnabled(enabled) {
+  const [answered, setAnswered] = useState(qaKnown);
+  useEffect(() => {
+    if (!enabled || qaKnown !== null) return undefined;
+    let live = true;
+    qaAsk = qaAsk || api.qaEnabled().then(r => !!r?.enabled).catch(() => false).then(v => { qaKnown = v; return v; });
+    qaAsk.then(v => { if (live) setAnswered(v); });
+    return () => { live = false; };
+  }, [enabled]);
+  return (qaKnown ?? answered) === true;
 }
 
 const navigate = (view, sub) => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view, sub: sub ?? undefined } }));
 
 export function useNexusSearch(query, { enabled = true } = {}) {
-  const { can, myGrantedModules, myEmail } = useRole();
+  const { myRole, isExternal, can, myGrantedModules, myEmail } = useRole();
   const { items = [], checkouts = [] } = useInventory() || {};
   const { requisitions = [] } = useRequisitions() || {};
   const q = (query || '').trim().toLowerCase();
+  const live = enabled && q.length > 0;
   const isManager = can?.('manager');
+  const qaEnabled = useQaEnabled(live);
 
-  // Screens registry: sidebar NAV (same role gating) + each module's sections.
+  // Screens registry: the sidebar's NAV, visible exactly as the sidebar
+  // shows it, plus each module's sections. Built only while a search is
+  // open and typed (`can` is a new function each render, so it is keyed on
+  // the role it reads instead).
   const screens = useMemo(() => {
-    const visible = NAV.filter(i => !i.divider && (!i.minRole || can?.('administrator') || myGrantedModules?.has(i.view)));
+    if (!live) return [];
+    const visible = NAV.filter(i => !i.divider && isNavItemVisible(i, { isExternal, can, myGrantedModules, qaEnabled }));
     const out = [];
     for (const item of visible) {
       out.push({ view: item.view, sub: null, label: item.label, context: null });
@@ -66,7 +92,7 @@ export function useNexusSearch(query, { enabled = true } = {}) {
       if (subs) for (const s of subs) out.push({ view: item.view, sub: s.sub, label: s.label, context: item.label });
     }
     return out;
-  }, [can, myGrantedModules]);
+  }, [live, myRole, isExternal, myGrantedModules, qaEnabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Task-module content, debounced so a fast typist makes one call rather
   // than one per keystroke. A failure is an empty answer: the local groups
@@ -91,15 +117,12 @@ export function useNexusSearch(query, { enabled = true } = {}) {
   const searching = wantContent && answer.term !== term;
 
   const groups = useMemo(() => {
-    if (!q) return [];
+    if (!live) return [];
     const match = (...fields) => fields.some(f => (f || '').toLowerCase().includes(q));
     const out = [];
-    const add = (key, label, rows, more = null) => { if (rows.length) out.push({ key, label, rows, more }); };
-
-    add('pages', 'Pages', screens.filter(s => match(s.label, s.context, s.view)).slice(0, 6).map(s => ({
-      key: `page:${s.view}:${s.sub || ''}`, Icon: LayoutDashboard, title: s.label, detail: s.context,
-      run: () => navigate(s.view, s.sub),
-    })));
+    // A group's `note` is information ("and 4 more projects"); a "See all"
+    // line is a ROW (more: true) so the keyboard reaches it too.
+    const add = (key, label, rows, note = '') => { if (rows.length) out.push({ key, label, rows, note }); };
 
     const toTasks = (sub) => navigate('tasks', sub);
     for (const g of CONTENT_GROUPS) {
@@ -122,13 +145,15 @@ export function useNexusSearch(query, { enabled = true } = {}) {
           run: () => toTasks(g.key),
         };
       });
-      let more = null;
+      let note = '';
       if (total > list.length) {
-        more = g.key === 'tasks'
-          ? { label: `See all ${total} tasks`, run: () => { toTasks('mine'); setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:tasks-search', { detail: { q: (query || '').trim() } })), 0); } }
-          : { label: `and ${total - list.length} more ${g.label.toLowerCase()}` };
+        if (g.key === 'tasks') rows.push({
+          key: 'more:tasks', more: true, title: `See all ${total} tasks`,
+          run: () => { toTasks('mine'); setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:tasks-search', { detail: { q: (query || '').trim() } })), 0); },
+        });
+        else note = `and ${total - list.length} more ${g.label.toLowerCase()}`;
       }
-      add(g.key, g.label, rows, more);
+      add(g.key, g.label, rows, note);
     }
 
     const itemRows = [];
@@ -152,7 +177,7 @@ export function useNexusSearch(query, { enabled = true } = {}) {
       if (!isManager && (c.requestedByEmail || '').toLowerCase() !== (myEmail || '').toLowerCase()) continue;
       if (match(c.itemName, c.requestedBy)) checkoutRows.push({
         key: `checkout:${c.id}`, Icon: ClipboardList, title: c.itemName,
-        detail: [c.requestedBy, (c.status || '').replace(/_/g, ' ')].filter(Boolean).join(' · '),
+        detail: [c.requestedBy, statusLabel(c.status)].filter(Boolean).join(' · '),
         run: () => navigate('inventory', isManager ? 'checkouts' : 'myitems'),
       });
     }
@@ -163,13 +188,18 @@ export function useNexusSearch(query, { enabled = true } = {}) {
       if (reqRows.length >= 4) break;
       if (match(r.item, r.employeeName, r.id)) reqRows.push({
         key: `req:${r.id}`, Icon: ShoppingCart, title: `${r.item} - ${r.employeeName}`,
-        detail: [r.id, (r.status || '').replace(/_/g, ' ')].filter(Boolean).join(' · '),
+        detail: [r.id, statusLabel(r.status)].filter(Boolean).join(' · '),
         run: () => navigate('purchase', 'log'),
       });
     }
     add('requests', 'Purchase Requests', reqRows);
+
+    add('pages', 'Pages', screens.filter(s => match(s.label, s.context, s.view)).slice(0, 6).map(s => ({
+      key: `page:${s.view}:${s.sub || ''}`, Icon: LayoutDashboard, title: s.label, detail: s.context,
+      run: () => navigate(s.view, s.sub),
+    })));
     return out;
-  }, [q, query, screens, hits, items, checkouts, requisitions, can, isManager, myEmail]);
+  }, [live, q, query, screens, hits, items, checkouts, requisitions, isManager, myEmail]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const rows = useMemo(() => groups.flatMap(g => g.rows), [groups]);
   return { groups, rows, searching, count: rows.length };

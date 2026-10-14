@@ -33,10 +33,8 @@ import { api } from "../api";
 import { useNexusSearch, SEARCH_PLACEHOLDER, SEARCH_HINT, SEARCH_LABEL } from './search/useNexusSearch';
 import SearchResults from './search/SearchResults';
 
-// Is the keyboard focus somewhere that types? Then "/" is a character, not
-// our shortcut.
-const isTypingTarget = (el) => !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);
-const PHONE = '(max-width: 900px)';
+import { isSearchShortcut, isPhone } from '../lib/keys';
+
 const MOD_KEY = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || '') ? '⌘' : 'Ctrl';
 
 export default function TopHeader({ title, activeView, theme, onThemeToggle, sidebarPinned, onSidebarPinnedChange, onMobileToggle, canGoBack, onBack, onNavigate, prevLabel }) {
@@ -170,7 +168,7 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
   // same hook, so a search finds the same things wherever it is typed.
   const search = useNexusSearch(searchQuery, { enabled: searchOpen });
   useEffect(() => {
-    searchListRef.current?.querySelector('[data-active="true"]')?.scrollIntoView({ block: 'nearest' });
+    searchListRef.current?.querySelector('[data-active="true"]')?.scrollIntoView?.({ block: 'nearest' });
   }, [searchIdx]);
   function closeSearch(blur = false) {
     setSearchQuery(''); setSearchOpen(false);
@@ -181,20 +179,23 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
     row.run?.();
   }
 
-  // Keyboard: Ctrl/Cmd+K and "/" (outside a text field) land in this bar on
-  // a desktop; on a phone, where the bar is hidden, they open the sheet.
+  // Keyboard, desktop only: Ctrl/Cmd+K lands in this bar. "/" lands in the
+  // page's own search box when the page tags one (data-slash-search:
+  // Contact Directory, Knowledge Base), else here. Listens on document so it
+  // runs before the sheet's window listener, which then sees defaultPrevented
+  // and stands down; on a phone this does nothing and the sheet (GlobalSearch)
+  // answers the same keys.
   useEffect(() => {
     const onKey = (e) => {
-      const isK = (e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k';
-      const isSlash = e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey && !isTypingTarget(e.target) && !isTypingTarget(document.activeElement);
-      if (!isK && !isSlash) return;
+      if (!isSearchShortcut(e) || isPhone()) return;
       e.preventDefault();
-      if (window.matchMedia?.(PHONE).matches) { window.dispatchEvent(new CustomEvent('nexus:search-open')); return; }
+      const own = e.key === '/' ? document.querySelector('input[data-slash-search]') : null;
+      if (own) { own.focus(); return; }
       searchInputRef.current?.focus();
       setSearchOpen(true);
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
   }, []);
 
   useEffect(() => {
@@ -206,11 +207,13 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
+  // The highlighted row, clamped: a shrinking result set never strands it.
+  const activeIdx = search.rows.length ? Math.min(searchIdx, search.rows.length - 1) : 0;
   function handleSearchKey(e) {
     if (e.key === 'Escape') { e.preventDefault(); closeSearch(true); return; }
-    if (e.key === 'ArrowDown') { e.preventDefault(); setSearchIdx(i => Math.min(search.rows.length - 1, i + 1)); return; }
-    if (e.key === 'ArrowUp') { e.preventDefault(); setSearchIdx(i => Math.max(0, i - 1)); return; }
-    if (e.key === 'Enter' && search.rows[searchIdx]) { e.preventDefault(); pickSearch(search.rows[searchIdx]); }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setSearchIdx(Math.min(Math.max(0, search.rows.length - 1), activeIdx + 1)); return; }
+    if (e.key === 'ArrowUp') { e.preventDefault(); setSearchIdx(Math.max(0, activeIdx - 1)); return; }
+    if (e.key === 'Enter' && search.rows[activeIdx]) { e.preventDefault(); pickSearch(search.rows[activeIdx]); }
   }
 
   function handleSignOut() {
@@ -249,7 +252,7 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
         <div className="hdr-search-panel">
           {searchQuery.trim()
             ? <SearchResults query={searchQuery} groups={search.groups} rows={search.rows} searching={search.searching}
-                activeIdx={searchIdx} onActive={setSearchIdx} onPick={pickSearch} listRef={searchListRef} />
+                activeIdx={activeIdx} onActive={setSearchIdx} onPick={pickSearch} listRef={searchListRef} />
             : <div className="gs-hint">{SEARCH_HINT}</div>}
         </div>
       )}

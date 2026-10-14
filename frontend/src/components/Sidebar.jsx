@@ -20,6 +20,17 @@ import {
 import TicketToken from "./icons/TicketToken";
 
 // Exported: MobileMenu mirrors this exact order/grouping on phones
+// Who sees a NAV item - the rail, and the header search's Pages, agree
+// through this one function. External (B2B guest) accounts see ONLY their
+// granted modules (no baseline screens); everyone else sees an item unless
+// it needs a role they lack and no grant opens it; QA-gated items need QA on.
+export function isNavItemVisible(item, { isExternal, can, myGrantedModules, qaEnabled }) {
+  if (item.qaGated && !qaEnabled) return false;
+  const granted = (item.grants || [item.grant || item.view]).some(g => myGrantedModules?.has(g));
+  if (isExternal) return !item.divider && granted;
+  return !item.minRole || !!can?.('administrator') || granted;
+}
+
 export const NAV = [
   { view: "dashboard", code: "HOME",         label: "Dashboard",          icon: LayoutDashboard },
   // Time Clock folded into My HR as tabs (Visesh, Sep 3 - "no need for My HR
@@ -285,10 +296,7 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
               // no baseline screens (Dashboard/Time Clock/My HR are internal-only).
               // Mirrors the server's path allowlist in auth.apply_external_policy.
               // `grants` (a list) = any one of them opens the item; else the single grant/view key.
-              const granted = (item) => (item.grants || [item.grant || item.view]).some(g => myGrantedModules.has(g));
-              const visible = NAV.filter(item => (!item.qaGated || qaEnabled) && (isExternal
-                ? (!item.divider && granted(item))
-                : (!item.minRole || can('administrator') || granted(item))));
+              const visible = NAV.filter(item => isNavItemVisible(item, { isExternal, can, myGrantedModules, qaEnabled }));
               const out = [];
               if (!collapsed && visible.length && !visible[0].divider) {
                 out.push(<li key="k0" className="nav-kicker">{KICKERS[0]}</li>);

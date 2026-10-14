@@ -14,6 +14,7 @@
 //   - mounts the Ticket module's own create form for Ask a Question / Send Us
 //     a Message (the same trick Support.jsx uses), so there is one ticket form
 // The widget's code loads on first open (or on hover of the button).
+import { isTypingTarget } from '../lib/keys';
 import { Component, lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { ModalLoading } from '../components/AsyncState';
 import { CircleHelp } from 'lucide-react';
@@ -41,12 +42,6 @@ export const HELP_OPEN_EVENT = 'nexus:help-open';
 let lastTab = 'home';
 
 /** Typing in a field (or a rich-text editor) owns the "?" key. */
-function isTypingTarget(el) {
-  if (!el || el === document.body) return false;
-  const tag = el.tagName;
-  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
-  return !!el.isContentEditable || !!el.closest?.('[contenteditable="true"], [contenteditable=""]');
-}
 
 // Shown while the widget's code loads, so the click never looks like it did nothing.
 function WidgetLoading() {

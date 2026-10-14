@@ -28,9 +28,9 @@ export default function SearchResults({ query, groups, rows, searching, activeId
           {g.rows.map((r, j) => {
             const i = offsets[k] + j;
             return (
-              <button key={r.key} className="gs-row" data-active={i === activeIdx}
+              <button key={r.key} className={`gs-row${r.more ? ' gs-more' : ''}`} data-active={i === activeIdx}
                 onMouseEnter={() => onActive?.(i)} onClick={() => onPick(r)}>
-                <r.Icon size={15} style={{ color: r.done ? 'var(--ok, #16a34a)' : 'var(--muted)', flexShrink: 0 }} />
+                {r.Icon && <r.Icon size={15} style={{ color: r.done ? 'var(--ok, #16a34a)' : 'var(--muted)', flexShrink: 0 }} />}
                 <span className="gs-row-title" style={r.done ? { textDecoration: 'line-through' } : undefined}>{r.title}</span>
                 {r.tag && <span className="gs-row-tag">{r.tag}</span>}
                 {r.detail && <span className="gs-row-detail">{r.detail}</span>}
@@ -38,9 +38,7 @@ export default function SearchResults({ query, groups, rows, searching, activeId
               </button>
             );
           })}
-          {g.more && (g.more.run
-            ? <button className="gs-row gs-more" onClick={() => onPick(g.more)}>{g.more.label}</button>
-            : <div className="gs-more">{g.more.label}</div>)}
+          {g.note && <div className="gs-more">{g.note}</div>}
         </div>
       ))}
       {searching && <div className="gs-more" style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Spinner size={12} /> Searching…</div>}

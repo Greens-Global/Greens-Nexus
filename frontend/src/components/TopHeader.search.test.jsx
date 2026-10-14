@@ -21,7 +21,7 @@ const searchTaskModule = vi.fn(() => Promise.resolve({
   totals: { tasks: 3 },
 }));
 vi.mock('../api', () => ({
-  api: new Proxy({}, { get: (_, k) => (k === 'searchTaskModule' ? searchTaskModule : () => Promise.resolve({})) }),
+  api: new Proxy({}, { get: (_, k) => (k === 'searchTaskModule' ? searchTaskModule : k === 'qaEnabled' ? () => Promise.resolve({ enabled: false }) : () => Promise.resolve({})) }),
 }));
 vi.mock('../contexts/RoleContext', async (importOriginal) => ({
   ...(await importOriginal()),
@@ -69,21 +69,26 @@ describe('TopHeader search', () => {
     expect(document.querySelector('.header-right button[aria-label="Search Nexus"]')).toBeNull();   // no icon trigger on the right
   });
 
-  it('Ctrl+K and "/" focus the bar on a desktop; on a phone they open the sheet', () => {
+  it('Ctrl+K and "/" focus the bar on a desktop and take the key; "/" goes to a page that owns it; a phone leaves both to the sheet', () => {
     header();
-    fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
+    const k = fireEvent.keyDown(document.body, { key: 'k', ctrlKey: true });
+    expect(k).toBe(false);                                                   // defaultPrevented: the sheet stands down
     expect(document.activeElement).toBe(bar());
     bar().blur();
-    fireEvent.keyDown(window, { key: '/' });
+    fireEvent.keyDown(document.body, { key: '/' });
     expect(document.activeElement).toBe(bar());
+    bar().blur();
+    const own = document.createElement('input'); own.setAttribute('data-slash-search', ''); document.body.appendChild(own);
+    fireEvent.keyDown(document.body, { key: '/' });
+    expect(document.activeElement).toBe(own);                                // the Contact Directory / Knowledge Base box
+    own.remove();
+    fireEvent.keyDown(bar(), { key: '/' });                                  // typing "/" in a field is a character
     cleanup();
     PHONE = true;
-    const opened = vi.fn();
-    window.addEventListener('nexus:search-open', opened);
     header();
-    fireEvent.keyDown(window, { key: 'k', metaKey: true });
-    expect(opened).toHaveBeenCalledTimes(1);
-    window.removeEventListener('nexus:search-open', opened);
+    const notTaken = fireEvent.keyDown(document.body, { key: 'k', metaKey: true });
+    expect(notTaken).toBe(true);
+    expect(document.activeElement).not.toBe(bar());
   });
 
   it('finds pages, items and Task-module content in one grouped list, and a pick navigates', async () => {
@@ -108,6 +113,23 @@ describe('TopHeader search', () => {
       expect(nav).toHaveBeenCalled();
       expect(nav.mock.calls[0][0].detail).toEqual({ view: 'tasks', sub: 'mine' });
       expect(bar().value).toBe('');                                          // a pick clears and closes
+      // Enter: the first row is the first content hit, not the module whose
+      // name contains the letters; Pages come last.
+      fireEvent.change(bar(), { target: { value: 'ta' } });
+      await act(async () => { vi.advanceTimersByTime(200); await Promise.resolve(); });
+      const sections = [...document.querySelectorAll('.gs-section')].map(el => el.textContent);
+      expect(sections[0]).toBe('Tasks');
+      expect(sections[sections.length - 1]).toBe('Pages');
+      fireEvent.keyDown(bar(), { key: 'ArrowDown' });                        // "See all 3 tasks" is a row the keyboard reaches
+      expect(document.querySelector('[data-active="true"]').textContent).toContain('See all 3 tasks');
+      fireEvent.keyDown(bar(), { key: 'ArrowUp' });
+      fireEvent.keyDown(bar(), { key: 'Enter' });
+      expect(nav.mock.calls.at(-1)[0].detail).toEqual({ view: 'tasks', sub: 'mine' });
+      // ArrowDown with nothing to show yet never strands the highlight.
+      fireEvent.change(bar(), { target: { value: 'zz' } });
+      fireEvent.keyDown(bar(), { key: 'ArrowDown' });
+      await act(async () => { vi.advanceTimersByTime(200); await Promise.resolve(); });
+      expect(document.querySelector('[data-active="true"]')).toBeTruthy();
       window.removeEventListener('nexus:navigate', nav);
     } finally { vi.useRealTimers(); }
   });
