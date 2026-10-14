@@ -128,7 +128,12 @@ export default function ClockChip({ vm, variant = 'wide', onAfterAction, leaving
   const vertical = variant === 'rail';
   const transport = (
     <div className={`sbtr sbtr--${tone}`} role="group" aria-label="Punch">
-      <span className="sbtr-lit" key={`${tone}-${lit}`} style={{ transform: vertical ? `translateY(${lit * 100}%)` : `translateX(${lit * 100}%)` }} aria-hidden="true" />
+      {/* --sb-lit: which slot it sits on; the stylesheet moves it by a slot
+          AND the gap between slots (sliding by its own width alone left it
+          a gap short of Pause: Neil, Oct 14 2026). The outline is ONE element
+          so the move is a transition - a re-keyed one mounted in place and
+          never slid; only the landing pop inside it is re-keyed. */}
+      <span className="sbtr-lit" style={{ '--sb-lit': lit }} aria-hidden="true"><i className="sbtr-land" key={`${tone}-${lit}`} /></span>
       <Tip title={play.label} sub={play.sub} edge={vertical ? '' : 'start'} native={vertical}>
         <button type="button" className={`sbtr-btn sbtr-btn--play${play.lit ? ' is-lit' : ''}${play.next ? ' is-next' : ''}${!play.onClick ? ' is-inert' : ''}`}
           onClick={play.onClick || undefined} disabled={busyAny} aria-disabled={!play.onClick || undefined} aria-pressed={play.lit && !off ? true : undefined} aria-label={play.label}>

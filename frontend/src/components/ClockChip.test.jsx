@@ -33,7 +33,7 @@ describe('ClockChip', () => {
     expect(vm.actions.punchOut).toHaveBeenCalledTimes(1);
     fireEvent.click(container.querySelector('.sbclock-head'));
     expect(vm.actions.openClock).toHaveBeenCalledTimes(1);
-    expect(container.querySelector('.sbtr-lit').style.transform).toBe('translateX(0%)');
+    expect(container.querySelector('.sbtr-lit').style.getPropertyValue('--sb-lit')).toBe('0');
   });
 
   it('on break: Pause is lit, Play resumes and the outline has slid to Pause; amber dial', () => {
@@ -41,7 +41,7 @@ describe('ClockChip', () => {
     const { container } = render(<ClockChip vm={vm} />);
     expect(container.querySelector('.sbclock--break .sbring--break')).toBeTruthy();
     expect(btn('On Break').getAttribute('aria-pressed')).toBe('true');
-    expect(container.querySelector('.sbtr-lit').style.transform).toBe('translateX(100%)');
+    expect(container.querySelector('.sbtr-lit').style.getPropertyValue('--sb-lit')).toBe('1');
     fireEvent.click(btn('Resume'));
     expect(vm.actions.toggleBreak).toHaveBeenCalledTimes(1);
   });

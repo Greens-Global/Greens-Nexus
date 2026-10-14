@@ -4,7 +4,7 @@ import { api } from '../api';
 import { editGuard } from '../asset/lib/editGuard.js';
 import BodModal from './BodModal';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
-import { useTimeStatus } from '../lib/useTimeStatus';
+import { useTimeStatus, applyPunch } from '../lib/useTimeStatus';
 import { punchDurable, replayPending, readPending } from '../lib/punchQueue';
 import { punchPosition, keepPositionWarm } from '../lib/geoPosition';
 import { replayPendingBods } from '../lib/bodQueue';
@@ -361,6 +361,7 @@ export default function TimeclockWidget() {
   // it (bounded to 15 minutes) - the Time Clock screen's own order.
   const [breakGate, setBreakGate] = useState(null);
   const breakClickRef = useRef('');
+  const breakPosRef = useRef(null);   // the location fix, started as the prompt opens
   // The shift closed under an open prompt (punched out on another device, a
   // stale shift): drop it right here in the render, or the chip stays
   // disabled and the prompt comes back on the next shift.
@@ -389,6 +390,7 @@ export default function TimeclockWidget() {
     // cannot type) punch straight through.
     if (!status?.bodExempt) {
       breakClickRef.current = new Date().toISOString().slice(0, 19);
+      breakPosRef.current = punchPosition(kind);   // runs while they type
       setBreakGate(kind === 'break_start' ? 'break' : 'break_end');
       return true;   // the sheet may close - the prompt stands on its own
     }
@@ -397,11 +399,13 @@ export default function TimeclockWidget() {
   async function finishBreak(kind) {
     // With a position, like the Time Clock page - without one every break
     // from here read "Location off" on the timecard (Charmi, Sep 29).
-    const pos = await punchPosition(kind);
+    const pos = (await (breakPosRef.current || punchPosition(kind))) ?? await punchPosition(kind);   // a miss asks once more, as before
+    breakPosRef.current = null;
     const res = await punchDurable({ kind, tzOffsetMin: new Date().getTimezoneOffset(), pos, clickedAt: breakClickRef.current || undefined });
     if (res.ok) {
       breakClickRef.current = '';
       setLostOut(false);
+      applyPunch(res.punch);   // the chip flips now; the re-read confirms
       window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));
     } else if (res.unreachable) {
       setLostOut(true);
@@ -435,6 +439,7 @@ export default function TimeclockWidget() {
     if (res.ok) {
       setLostOut(false);
       stopCapture();
+      applyPunch(res.punch);
       window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));
       if (res.result?.promptEod) setEodOpen(true); // offer the end-of-day message
     } else if (res.unreachable) {
@@ -516,7 +521,7 @@ export default function TimeclockWidget() {
   const breakModal = breakGate ? (
     <BodModal mode={breakGate} required
       onSent={() => { const kind = breakGate === 'break' ? 'break_start' : 'break_end'; setBreakGate(null); finishBreak(kind); }}
-      onClose={() => { breakClickRef.current = ''; setBreakGate(null); setBreakBusy(false); }}
+      onClose={() => { breakClickRef.current = ''; breakPosRef.current = null; setBreakGate(null); setBreakBusy(false); }}
       toastOk={() => {}} toastErr={say} />
   ) : null;
 

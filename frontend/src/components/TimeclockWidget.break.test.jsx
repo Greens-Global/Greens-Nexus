@@ -7,8 +7,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, cleanup, act } from '@testing-library/react';
 
 const punchMock = vi.hoisted(() => ({ punchDurable: vi.fn(), replayPending: vi.fn(async () => null), readPending: vi.fn(() => null) }));
-const timeStatus = vi.hoisted(() => ({ status: null }));
-vi.mock('../lib/useTimeStatus', () => ({ useTimeStatus: () => ({ status: timeStatus.status, reload: vi.fn() }) }));
+const timeStatus = vi.hoisted(() => ({ status: null, applyPunch: vi.fn() }));
+vi.mock('../lib/useTimeStatus', () => ({ useTimeStatus: () => ({ status: timeStatus.status, reload: vi.fn() }), applyPunch: timeStatus.applyPunch }));
 vi.mock('../lib/punchQueue', () => punchMock);
 vi.mock('../lib/geoPosition', () => ({ punchPosition: vi.fn(async () => ({ lat: 1, lng: 2, accuracy_m: 5 })), keepPositionWarm: vi.fn() }));
 vi.mock('../lib/bodQueue', () => ({ replayPendingBods: vi.fn(async () => {}) }));
@@ -35,12 +35,13 @@ const onBreak = () => clockedIn({ lastPunch: { kind: 'break_start', at: stamp(mi
 // The phone / desktop capsule: the pill opens the chip.
 const openChip = () => fireEvent.click(screen.getByTitle('Time clock - tap for controls'));
 
-beforeEach(() => { punchMock.punchDurable.mockReset(); timeStatus.status = clockedIn(); delete window.__nexusCapture; });
+beforeEach(() => { punchMock.punchDurable.mockReset(); timeStatus.applyPunch.mockReset(); timeStatus.status = clockedIn(); delete window.__nexusCapture; });
 afterEach(() => { cleanup(); delete window.__nexusCapture; });
 
 describe('TimeclockWidget break prompts', () => {
-  it('Start Break opens the reason prompt; the punch records once it is sent, with the moment the button was pressed', async () => {
-    punchMock.punchDurable.mockResolvedValue({ ok: true, punch: { kind: 'break_start', at: stamp(new Date()) }, result: {} });
+  it('Start Break opens the reason prompt; the punch records once it is sent, with the moment the button was pressed, and the chip flips on the answer', async () => {
+    const punch = { kind: 'break_start', at: stamp(new Date()), localDate: TODAY };
+    punchMock.punchDurable.mockResolvedValue({ ok: true, punch, result: {} });
     render(<TimeclockWidget />);
     openChip();
     fireEvent.click(screen.getByRole('button', { name: 'Start Break' }));
@@ -50,6 +51,7 @@ describe('TimeclockWidget break prompts', () => {
     await waitFor(() => expect(punchMock.punchDurable).toHaveBeenCalledTimes(1));
     expect(punchMock.punchDurable.mock.calls[0][0]).toMatchObject({ kind: 'break_start', pos: { lat: 1, lng: 2 } });
     expect(punchMock.punchDurable.mock.calls[0][0].clickedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(timeStatus.applyPunch).toHaveBeenCalledWith(punch);      // folded into the shared status before any re-read
     expect(screen.queryByTestId('bod-modal')).toBeNull();
   });
 
