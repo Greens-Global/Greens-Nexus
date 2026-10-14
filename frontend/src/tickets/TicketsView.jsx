@@ -26,7 +26,7 @@ import TaskDetailDrawer from '../tasks/TaskDetailDrawer';
 import { Avatar, PriorityChip, StatusChip, EmptyState, Modal, PersonSelect, usePeople, useIsMobile, UnassignedAvatar, SelectMenu, useImageZoom } from '../tasks/components';
 import MobileTaskBar, { BottomSheet } from '../tasks/MobileTaskBar';
 import { Card, LightBar, Donut } from '../tasks/views/charts';
-import { useTableColumns, useTableSetting, ColResizer } from '../tasks/tableCols';
+import { useTableColumns, ColResizer } from '../tasks/tableCols';
 import {
   fmtDate, today, requiredHint, TICKET_TYPE_META, TICKET_TYPE_ORDER, TICKET_TYPE_KEYS, TYPE_FIELDS, NO_RECORDING_TYPES,
   TICKET_RESOLUTION, LINK_TYPES, TICKET_STATUS_META, TICKET_STATUS_ORDER, CLOSED_STATES,
@@ -719,14 +719,13 @@ export default function TicketsView() {
     table: 'tickets', cols: columnDefs,
   });
   // Completed tickets (resolved/closed) collapse into their own section below
-  // the main list by default (Pranshu, Sept 8 2026) rather than sitting inline
-  // with the work still in flight. Same per-table settings document as the
-  // column arrangement, so it also follows the person between devices.
-  const [collapsedList, setCollapsedList] = useTableSetting('tickets', 'collapsed', ['completed']);
-  const completedCollapsed = collapsedList.includes('completed');
-  const toggleCompleted = () => setCollapsedList(
-    completedCollapsed ? collapsedList.filter((k) => k !== 'completed') : [...collapsedList, 'completed'],
-  );
+  // the main list (Pranshu, Sept 8 2026) rather than sitting inline with the
+  // work still in flight. Collapsed on EVERY visit (Neil, Oct 13 2026: "make
+  // sure the completed section is collapsed by default so it doesn't add to
+  // the confusion") - opening it is for this visit only. It used to be a saved
+  // preference, so one click left it open on every screen from then on.
+  const [completedCollapsed, setCompletedCollapsed] = useState(true);
+  const toggleCompleted = () => setCompletedCollapsed((c) => !c);
 
   // Assignee filter options - every distinct current assignee across the
   // tickets already on screen, not a separate directory fetch: this only
@@ -1111,7 +1110,7 @@ export default function TicketsView() {
                 sitting inline with the ones still in flight - see toggleCompleted. */}
             {sortedCompleted.length > 0 && (
               <div className="nx-edge-card" style={{ border: `1px solid ${NX.border}`, borderRadius: 12, background: NX.surface, overflow: 'hidden' }}>
-                <button onClick={toggleCompleted} style={{
+                <button onClick={toggleCompleted} aria-expanded={!completedCollapsed} style={{
                   display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '9px 16px', background: NX.surface2,
                   border: 'none', borderBottom: completedCollapsed ? 'none' : `1px solid ${NX.border2}`, cursor: 'pointer', fontFamily: FONT, textAlign: 'left',
                 }}>
@@ -1179,10 +1178,10 @@ export default function TicketsView() {
               ))}
               {/* Resolved/closed tickets collapse into their own section instead
                   of sitting inline with the ones still in flight (Pranshu, Sept
-                  8 2026) - see toggleCompleted/collapsedList above. */}
+                  8 2026) - see toggleCompleted above. */}
               {sortedCompleted.length > 0 && (
                 <div>
-                  <button onClick={toggleCompleted} style={{
+                  <button onClick={toggleCompleted} aria-expanded={!completedCollapsed} style={{
                     display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '9px 16px', background: NX.surface2,
                     border: 'none', borderTop: `1px solid ${NX.border}`, borderBottom: completedCollapsed ? 'none' : `1px solid ${NX.border2}`,
                     cursor: 'pointer', fontFamily: FONT, textAlign: 'left',
