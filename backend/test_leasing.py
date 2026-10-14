@@ -278,6 +278,15 @@ class LeasingApiTests(unittest.TestCase):
         self.assertEqual((refused.status_code, refused.json()["detail"]), (400, "Name who pays it."))
         self.assertEqual({l["incomeType"] for l in self._mine()}, {"lease", "interest"})
 
+    def test_cam_is_a_type_of_its_own(self):
+        """Oct 14 (Priyanka): "there is no CAM option" - a CAM charge is kept
+        like a lease (a tenant, a space, the dates) under its own type."""
+        _as(EDITOR)
+        made = self.client.post("/leasing/leases", json=self._body(incomeType="cam", propertyName="910 SECR - CAM"))
+        self.assertEqual((made.status_code, made.json()["incomeType"]), (201, "cam"))
+        refused = self.client.post("/leasing/leases", json=self._body(incomeType="cam", tenantName=""))
+        self.assertEqual((refused.status_code, refused.json()["detail"]), (400, "Name the tenant, or mark the space vacant."))
+
     def test_what_is_refused(self):
         _as(EDITOR)
         y = date.today().year
