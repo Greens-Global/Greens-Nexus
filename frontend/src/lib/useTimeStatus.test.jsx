@@ -11,7 +11,7 @@ vi.mock('./pollWhileVisible', () => ({
   pollWhileVisible: (fn, ms) => { pollMock.calls.push({ fn, ms }); return () => { pollMock.stops += 1; }; },
 }));
 
-import { useTimeStatus, patchTimeStatus } from './useTimeStatus';
+import { useTimeStatus, patchTimeStatus, withPunch, applyPunch } from './useTimeStatus';
 
 function Watcher({ name, pollMs }) {
   const { status, failed } = useTimeStatus({ pollMs });
@@ -78,6 +78,32 @@ describe('useTimeStatus', () => {
     apiMock.timeStatus.mockRejectedValue(new Error('down'));
     render(<Watcher name="a" />);
     expect(await screen.findByText('a: failed')).toBeTruthy();
+  });
+
+  it('withPunch folds an accepted punch in: last punch, next allowed, the punch on its day', () => {
+    const before = { lastPunch: { kind: 'in', at: '2026-10-14T15:00:00', localDate: '2026-10-14' }, allowed: ['out', 'break_start'], bodRequired: false,
+      days: { '2026-10-14': { workedMin: 0, punches: [{ kind: 'in', at: '2026-10-14T15:00:00', localDate: '2026-10-14' }] } } };
+    const punch = { kind: 'break_start', at: '2026-10-14T16:00:00', localDate: '2026-10-14' };
+    const after = withPunch(before, punch);
+    expect(after.lastPunch).toBe(punch);
+    expect(after.allowed).toEqual(['break_end', 'out']);
+    expect(after.days['2026-10-14'].punches.map(p => p.kind)).toEqual(['in', 'break_start']);
+    expect(before.days['2026-10-14'].punches.length).toBe(1);             // the old answer is untouched
+    // A first punch of the day makes the day; a clock-in settles the day message.
+    const fresh = withPunch({ lastPunch: { kind: 'out', at: '2026-10-13T23:00:00' }, bodRequired: true, days: {} }, { kind: 'in', at: '2026-10-14T15:00:00', localDate: '2026-10-14' });
+    expect(fresh.days['2026-10-14'].punches.length).toBe(1);
+    expect(fresh.bodRequired).toBe(false);
+    expect(withPunch(null, punch)).toBeNull();
+    expect(withPunch(before, {})).toBe(before);
+  });
+
+  it('applyPunch flips every watcher before any re-read', async () => {
+    apiMock.timeStatus.mockResolvedValue(answer('in'));
+    render(<><Watcher name="a" /><Watcher name="b" /></>);
+    await screen.findByText('a: in');
+    act(() => { applyPunch({ kind: 'out', at: '2026-10-14T20:00:00', localDate: '2026-10-14' }); });
+    expect(await screen.findByText('b: out')).toBeTruthy();
+    expect(apiMock.timeStatus).toHaveBeenCalledTimes(1);
   });
 
   it('patchTimeStatus touches up the shared answer for every watcher', async () => {

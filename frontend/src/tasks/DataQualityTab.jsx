@@ -10,12 +10,41 @@
 // (see TasksWorkspace.jsx's `canManage`) - no separate permission check needed
 // here. Every open (non-completed) task is in scope, company-wide: managers
 // already see every task from `useTasks()`, unscoped by project or assignee.
-import { useMemo, useRef, useState, useEffect, useCallback } from 'react';
+import { Fragment, useMemo, useRef, useState, useEffect, useCallback } from 'react';
 import { AlertTriangle, CheckCircle2, Trash2, X } from 'lucide-react';
 import { NX, FONT, btn, chip, input as inputStyle, PRIORITY_META, PRIORITY_ORDER } from './theme';
 import { Avatar, DateField, EmptyState, SearchSelect, usePeople } from './components';
-import { teamInProject, taskAssignees } from './lib';
+import { teamInProject, taskAssignees, fieldsForTask, requiredByProjectsOf, isBlankValue } from './lib';
 import TaskDetailDrawer from './TaskDetailDrawer';
+import { PillSelect } from './views/richlist';
+import { useTableColumns, TableHead, ResetColumnsButton } from './tableCols';
+
+// The Task List's table, cell for cell (Sagar, Oct 14 2026: "make this table
+// as the whole task module"): a rounded card, a hairline border on every
+// cell, centered Title Case headers, Priority as the list's priority signal
+// and Team as a colored pill - the same PillSelect the list uses. What a row is
+// missing is in its Missing column: grey labels, red for a required field.
+// Columns move, resize and auto-fit exactly as the Task List's do - the
+// same kit (tableCols.jsx), saved to the person's profile as 'dataquality'.
+const COLUMNS = [
+  { key: 'check', width: 40, fixed: true },
+  { key: 'task', label: 'Task', width: 320, minWidth: 160 },
+  { key: 'missing', label: 'Missing', width: 170 },
+  { key: 'due', label: 'Due Date', width: 130 },
+  { key: 'project', label: 'Project', width: 200 },
+  { key: 'priority', label: 'Priority', width: 116 },
+  { key: 'team', label: 'Team', width: 150 },
+];
+// Header click sorts, as in the list: unsorted -> ascending -> descending -> back.
+const PRI_RANK = Object.fromEntries(PRIORITY_ORDER.map((p, i) => [p, i]));
+const SORTERS = {
+  task: (r) => String(r.t.title || '').toLowerCase(),
+  missing: (r) => r.gaps.length,
+  due: (r) => r.t.dueOn || '9999',
+  priority: (r) => (r.t.priority in PRI_RANK ? PRI_RANK[r.t.priority] : 99),
+};
+const ROW_H = 38;
+const cell = { minWidth: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', padding: '2px 8px', borderRight: `1px solid ${NX.border2}`, boxSizing: 'border-box' };
 
 // Each row's "missing X" test, in the order they read as columns. A task
 // missing more than one shows every gap chip that applies - nothing here
@@ -39,26 +68,41 @@ function projectOptions(projects) {
       .map((p) => ({ id: p.id, label: p.name }))];
 }
 
-const gapChip = (label) => <span key={label} style={chip(NX.amber, 'rgba(217,119,6,0.14)')}>{label}</span>;
+// A required field left empty is an ALERT (red); the everyday gaps are
+// plain grey labels - they are what the filter is for, not a warning
+// (Sagar, Oct 14 2026: "1916 missing Team" on every task was noise).
+const gapChip = (g) => (
+  <span key={g.key} title={g.mandatory ? `${g.label} is required in this task's project` : undefined}
+    style={g.mandatory ? chip(NX.red, 'rgba(220,38,38,0.12)') : chip(NX.dim, NX.border2)}>{g.label}</span>
+);
 
-function GapRow({ t, gaps, store, onOpen, selected, toggleSel }) {
+/** The fields a task's own projects REQUIRE (Oct 13 2026) that it has left
+ *  empty - its mandatory gaps, keyed `cf:<id>`. */
+function mandatoryGaps(customFields, t) {
+  const values = t.customFieldValues || {};
+  return fieldsForTask(customFields, t)
+    .filter((f) => requiredByProjectsOf(f, t).length > 0 && isBlankValue(values[f.id]))
+    .map((f) => ({ key: `cf:${f.id}`, label: f.name, mandatory: true }));
+}
+
+function GapRow({ t, gaps, store, onOpen, selected, toggleSel, cols }) {
   const { projects, teams, nameOf } = store;
   const projOpts = useMemo(() => projectOptions(projects), [projects]);
-  const teamOpts = [{ id: '', label: 'No team' },
-    ...(teams || []).filter((tm) => teamInProject(tm, t.projectId)).map((tm) => ({ id: tm.id, label: tm.name }))];
-  const has = (key) => gaps.some((g) => g.key === key);
+  const projectTeams = (teams || []).filter((tm) => teamInProject(tm, t.projectId));
+  const team = projectTeams.find((tm) => tm.id === t.teamId) || (teams || []).find((tm) => tm.id === t.teamId);
   const assignees = taskAssignees(t);
   const isSel = selected.has(t.id);
+  const pm = PRIORITY_META[t.priority];
+  const stop = (e) => e.stopPropagation();
 
-  return (
-    // Hover: .nx-row-hover (style.css) - the whole-row highlight every list shares (Neil, 10/10).
-    <div onClick={() => onOpen(t.id)} className="nx-row-hover" data-selected={isSel ? 'true' : undefined} style={{
-      display: 'grid', gridTemplateColumns: '24px minmax(220px,1.6fr) minmax(180px,1fr) 130px 200px 130px 160px',
-      alignItems: 'center', gap: 10, padding: '9px 16px', borderBottom: `1px solid ${NX.border2}`,
-      fontSize: 13, cursor: 'pointer', background: isSel ? 'rgba(37,99,235,0.08)' : 'transparent',
-    }}>
-      <input type="checkbox" checked={isSel} onClick={(e) => e.stopPropagation()} onChange={() => toggleSel(t.id)} style={{ cursor: 'pointer' }} />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+  const cells = {
+    check: (
+      <div style={cell}>
+        <input type="checkbox" checked={isSel} onClick={stop} onChange={() => toggleSel(t.id)} style={{ cursor: 'pointer' }} />
+      </div>
+    ),
+    task: (
+      <div style={{ ...cell, justifyContent: 'flex-start', gap: 8 }}>
         {assignees.length ? (
           <span title={assignees.map((e) => nameOf?.(e) || e).join(', ')} style={{ display: 'flex', flexShrink: 0 }}>
             {assignees.slice(0, 2).map((e, i) => <span key={e} style={{ marginLeft: i ? -6 : 0 }}><Avatar email={e} size={20} /></span>)}
@@ -68,32 +112,54 @@ function GapRow({ t, gaps, store, onOpen, selected, toggleSel }) {
         )}
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500, color: NX.ink }}>{t.title}</span>
       </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-        {gaps.map((g) => gapChip(g.label))}
+    ),
+    missing: (
+      <div style={{ ...cell, gap: 4, overflow: 'hidden' }}>
+        {gaps.map(gapChip)}
       </div>
-      <div onClick={(e) => e.stopPropagation()}>
+    ),
+    due: (
+      <div style={cell} onClick={stop}>
         <DateField value={t.dueOn || ''} onChange={(v) => store.updateTask(t.id, { dueOn: v })} noPast
-          title="Due Date" compact
-          style={{ fontSize: 12.5, padding: '3px 6px', background: has('dueOn') ? 'rgba(217,119,6,0.08)' : 'transparent', borderRadius: 6 }} />
+          title="Due Date" compact style={{ fontSize: 12 }} />
       </div>
-      <div onClick={(e) => e.stopPropagation()}>
+    ),
+    project: (
+      <div style={cell} onClick={stop}>
         <SearchSelect value={t.projectId || ''} placeholder="No project" searchPlaceholder="Search projects…"
           emptyText="No projects yet." options={projOpts}
-          buttonStyle={{ border: 'none', borderRadius: 6, padding: '3px 6px', fontSize: 12.5, color: t.projectId ? NX.dim : NX.faint, background: has('projectId') ? 'rgba(217,119,6,0.08)' : 'transparent', fontFamily: FONT, width: '100%', height: 'auto', minHeight: 0, cursor: 'pointer', fontWeight: 400, justifyContent: 'flex-start' }}
+          buttonStyle={{ border: 'none', borderRadius: 6, padding: '3px 6px', fontSize: 13, color: t.projectId ? NX.dim : NX.faint, background: 'transparent', fontFamily: FONT, width: '100%', height: 'auto', minHeight: 0, cursor: 'pointer', fontWeight: 400, justifyContent: 'center' }}
           onPick={(id) => store.updateTask(t.id, { projectId: id || null })} />
       </div>
-      <div onClick={(e) => e.stopPropagation()}>
-        <SearchSelect value={t.priority || ''} placeholder="No priority" searchPlaceholder="Search…"
-          emptyText="No options." options={PRIORITY_ORDER.map((p) => ({ id: p, label: PRIORITY_META[p].label }))}
-          buttonStyle={{ border: 'none', borderRadius: 6, padding: '3px 6px', fontSize: 12.5, color: t.priority ? NX.dim : NX.faint, background: has('priority') ? 'rgba(217,119,6,0.08)' : 'transparent', fontFamily: FONT, width: '100%', height: 'auto', minHeight: 0, cursor: 'pointer', fontWeight: 400, justifyContent: 'flex-start' }}
-          onPick={(id) => store.updateTask(t.id, { priority: id || null })} />
+    ),
+    // The list's priority signal (soft labels, Oct 14 2026).
+    priority: (
+      <div style={cell} onClick={stop}>
+        <PillSelect variant="priority" center label={pm ? pm.label : '-'} color={pm ? pm.color : NX.faint} tint={pm ? pm.tint : 'transparent'}
+          currentKey={t.priority || ''}
+          options={PRIORITY_ORDER.map((p) => ({ key: p, label: PRIORITY_META[p].label, color: PRIORITY_META[p].color }))}
+          onSelect={(k) => store.updateTask(t.id, { priority: k || null })} />
       </div>
-      <div onClick={(e) => e.stopPropagation()}>
-        <SearchSelect value={t.teamId || ''} placeholder="No team" searchPlaceholder="Search…"
-          emptyText="No teams for this project." options={teamOpts}
-          buttonStyle={{ border: 'none', borderRadius: 6, padding: '3px 6px', fontSize: 12.5, color: t.teamId ? NX.dim : NX.faint, background: has('teamId') ? 'rgba(217,119,6,0.08)' : 'transparent', fontFamily: FONT, width: '100%', height: 'auto', minHeight: 0, cursor: 'pointer', fontWeight: 400, justifyContent: 'flex-start' }}
-          onPick={(id) => store.updateTask(t.id, { teamId: id || null })} />
+    ),
+    team: (
+      <div style={cell} onClick={stop}>
+        <PillSelect center
+          label={team ? team.name : 'No Team'} color={team ? team.color : NX.faint} tint={team ? `${team.color}1a` : 'transparent'}
+          icon={team ? <span style={{ width: 8, height: 8, borderRadius: '50%', background: team.color, flexShrink: 0 }} /> : null}
+          currentKey={t.teamId || ''}
+          options={[{ key: '', label: 'No Team', color: NX.faint }, ...projectTeams.map((tm) => ({ key: tm.id, label: tm.name, color: tm.color }))]}
+          onSelect={(k) => store.updateTask(t.id, { teamId: k || null })} />
       </div>
+    ),
+  };
+
+  return (
+    // Hover: .nx-row-hover (style.css) - the whole-row highlight every list shares (Neil, 10/10).
+    <div onClick={() => onOpen(t.id)} className="nx-row-hover" data-selected={isSel ? 'true' : undefined} style={{
+      display: 'grid', gridTemplateColumns: 'var(--nx-grid)', height: ROW_H, alignItems: 'stretch', borderBottom: `1px solid ${NX.border2}`,
+      fontSize: 13, cursor: 'pointer', background: isSel ? 'rgba(37,99,235,0.08)' : 'transparent',
+    }}>
+      {cols.map((c) => <Fragment key={c.key}>{cells[c.key]}</Fragment>)}
     </div>
   );
 }
@@ -142,17 +208,39 @@ export default function DataQualityTab({ store }) {
     const out = [];
     for (const t of tasks) {
       if (t.completed) continue;
-      const gaps = GAP_DEFS.filter((g) => g.test(t));
+      const gaps = [...mandatoryGaps(store.customFields, t), ...GAP_DEFS.filter((g) => g.test(t))];
       if (gaps.length) out.push({ t, gaps });
     }
     return out.sort((a, b) => String(a.t.title || '').localeCompare(String(b.t.title || ''), 'en', { sensitivity: 'base' }));
-  }, [tasks]);
+  }, [tasks, store.customFields]);
+
+  // Every required field some task is missing, for its alert chip and the
+  // filter - in the order first met.
+  const mandatoryKinds = useMemo(() => {
+    const seen = new Map();
+    for (const r of rows) for (const g of r.gaps) if (g.mandatory && !seen.has(g.key)) seen.set(g.key, g);
+    return [...seen.values()];
+  }, [rows]);
 
   // Counts always reflect the FULL gap set, not the current filter - so every
   // chip's number stays put while you click between them, instead of the row
   // you just filtered to reading "0 missing X" everywhere else.
   const countFor = (key) => rows.reduce((n, r) => n + (r.gaps.some((g) => g.key === key) ? 1 : 0), 0);
-  const filteredRows = filterKey ? rows.filter((r) => r.gaps.some((g) => g.key === filterKey)) : rows;
+  const { projectName, teams } = store;
+  const [sort, setSort] = useState({ key: '', dir: 'asc' });
+  const filteredRows = useMemo(() => {
+    const list = filterKey ? rows.filter((r) => r.gaps.some((g) => g.key === filterKey)) : rows;
+    const teamName = (id) => (teams || []).find((tm) => tm.id === id)?.name || '';
+    const by = SORTERS[sort.key]
+      || (sort.key === 'project' ? (r) => (projectName?.(r.t.projectId) || '').toLowerCase() : null)
+      || (sort.key === 'team' ? (r) => teamName(r.t.teamId).toLowerCase() : null);
+    if (!by) return list;
+    const dir = sort.dir === 'desc' ? -1 : 1;
+    return [...list].sort((a, b) => { const x = by(a); const y = by(b); return x < y ? -dir : x > y ? dir : 0; });
+  }, [rows, filterKey, sort, projectName, teams]);
+  const { cols, widths, template, startResize, resetWidth, autofitWidth, wrapRef, dragProps } = useTableColumns({
+    table: 'dataquality', cols: COLUMNS,
+  });
 
   // ── Row virtualization ──────────────────────────────────────────────────────
   // Opening this tab with ~2000 gap rows used to freeze the tab switch for a
@@ -162,7 +250,6 @@ export default function DataQualityTab({ store }) {
   // Same fixed-row-height + spacer-padding approach InventoryManagement.jsx's
   // catalog table already uses: render only the rows near the viewport (+
   // overscan) inside the bounded scroll box.
-  const ROW_H = 46;
   const OVERSCAN = 8;
   const scrollRef = useRef(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -180,7 +267,7 @@ export default function DataQualityTab({ store }) {
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = 0;
     setScrollTop(0);
-  }, [filterKey, tasks]);
+  }, [filterKey, tasks, sort]);
   const onScroll = useCallback((e) => setScrollTop(e.currentTarget.scrollTop), []);
   const vStart = Math.max(0, Math.floor(scrollTop / ROW_H) - OVERSCAN);
   const vEnd = Math.min(filteredRows.length, vStart + Math.ceil(viewportH / ROW_H) + OVERSCAN * 2);
@@ -202,18 +289,31 @@ export default function DataQualityTab({ store }) {
           <div style={{ fontSize: 18, fontWeight: 700 }}>Data Quality</div>
         </div>
         <div style={{ fontSize: 13, color: NX.dim, marginBottom: 12 }}>
-          Every open task, company-wide, missing a Due Date, Project, Priority, Team, or Assignee - fix any
-          of them right here without opening the task. Click a count below to narrow the list to just that gap.
+          Every open task, company-wide, with a gap - a required field left empty, or a missing Due Date, Project,
+          Priority, Team or Assignee. Fix any of them right here without opening the task.
         </div>
         {rows.length > 0 && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
-            <FilterChip label={`${rows.length} task${rows.length === 1 ? '' : 's'} with gaps`}
-              active={!filterKey} color={NX.dim} tint={NX.border2} onClick={() => setFilterKey(null)} />
-            {GAP_DEFS.map((g) => countFor(g.key) > 0 && (
-              <FilterChip key={g.key} label={g.chipText ? g.chipText(countFor(g.key)) : `${countFor(g.key)} missing ${g.label}`}
-                active={filterKey === g.key} color={NX.amber} tint="rgba(217,119,6,0.12)"
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+            {/* Every kind of gap is one pick away here (Sagar, Oct 14 2026);
+                only the REQUIRED ones get an alert chip beside it. */}
+            <div style={{ minWidth: 230 }}>
+              <SearchSelect value={filterKey || ''} searchPlaceholder="Search gaps…" emptyText="No gaps."
+                options={[
+                  { id: '', label: `All Gaps (${rows.length})` },
+                  ...mandatoryKinds.map((g) => ({ id: g.key, label: `${g.label} - Required (${countFor(g.key)})` })),
+                  ...GAP_DEFS.filter((g) => countFor(g.key) > 0).map((g) => ({
+                    id: g.key, label: g.key === 'assignee' ? `Unassigned (${countFor(g.key)})` : `Missing ${g.label} (${countFor(g.key)})`,
+                  })),
+                ]}
+                buttonStyle={{ ...inputStyle, width: '100%', padding: '6px 10px', fontSize: 13, height: 'auto', fontWeight: 400 }}
+                onPick={(id) => setFilterKey(id || null)} />
+            </div>
+            {mandatoryKinds.map((g) => (
+              <FilterChip key={g.key} label={`${countFor(g.key)} missing ${g.label}`}
+                active={filterKey === g.key} color={NX.red} tint="rgba(220,38,38,0.12)"
                 onClick={() => setFilterKey((k) => (k === g.key ? null : g.key))} />
             ))}
+            <span style={{ marginLeft: 'auto' }}><ResetColumnsButton /></span>
           </div>
         )}
       </div>
@@ -222,21 +322,33 @@ export default function DataQualityTab({ store }) {
         {rows.length === 0 ? (
           <EmptyState icon={CheckCircle2} title="Nothing missing" hint="Every open task has a due date, project, priority, team, and assignee." />
         ) : (
-          <>
+          <div ref={wrapRef} style={{ margin: '0 16px 16px', border: `1px solid ${NX.border}`, borderRadius: 12, background: NX.surface, width: 'fit-content', minWidth: 'calc(100% - 32px)', '--nx-grid': template }}>
+            {/* Sticky, like the list's: the titles stay put while you scroll.
+                Drag a title to move its column, its right edge to resize
+                (double-click to fit), click it to sort. */}
             <div style={{
-              display: 'grid', gridTemplateColumns: '24px minmax(220px,1.6fr) minmax(180px,1fr) 130px 200px 130px 160px',
-              gap: 10, padding: '8px 16px', borderTop: `1px solid ${NX.border}`, borderBottom: `1px solid ${NX.border}`,
-              background: NX.surface2, fontSize: 11.5, fontWeight: 700, color: NX.dim, textTransform: 'uppercase',
-              position: 'sticky', top: 0, zIndex: 1,
+              display: 'grid', gridTemplateColumns: 'var(--nx-grid)', minHeight: 36, alignItems: 'stretch',
+              borderBottom: `1px solid ${NX.border2}`, background: NX.surface, borderRadius: '12px 12px 0 0',
+              fontSize: 13, fontWeight: 400, color: NX.dim, position: 'sticky', top: 0, zIndex: 9,
             }}>
-              <input type="checkbox" checked={allFilteredSelected} onChange={toggleSelectAll}
-                title="Select all" style={{ cursor: 'pointer' }} />
-              <span>Task</span><span>Missing</span><span>Due Date</span><span>Project</span><span>Priority</span><span>Team</span>
+              {cols.map((c) => (c.key === 'check' ? (
+                <div key={c.key} style={cell}>
+                  <input type="checkbox" checked={allFilteredSelected} onChange={toggleSelectAll}
+                    title="Select all" style={{ cursor: 'pointer' }} />
+                </div>
+              ) : (
+                <TableHead key={c.key} label={c.label} sortKey={c.key} sort={sort} setSort={setSort}
+                  sortReset={{ key: '', dir: 'asc' }} align={c.key === 'task' ? 'flex-start' : 'center'}
+                  drag={dragProps(c.key, !c.fixed)}
+                  onResizeStart={startResize(c.key, widths[c.key] ?? c.width)}
+                  onResizeReset={() => resetWidth(c.key)} onResizeAutofit={() => autofitWidth(c.key)}
+                  style={cell} />
+              )))}
             </div>
             {padTop > 0 && <div style={{ height: padTop }} />}
-            {vSlice.map(({ t, gaps }) => <GapRow key={t.id} t={t} gaps={gaps} store={store} onOpen={setOpenId} selected={selected} toggleSel={toggleSel} />)}
+            {vSlice.map(({ t, gaps }) => <GapRow key={t.id} t={t} gaps={gaps} store={store} onOpen={setOpenId} selected={selected} toggleSel={toggleSel} cols={cols} />)}
             {padBot > 0 && <div style={{ height: padBot }} />}
-          </>
+          </div>
         )}
       </div>
 

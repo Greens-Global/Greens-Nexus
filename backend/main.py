@@ -1032,6 +1032,14 @@ def _run_migrations():
             # Packet Details Form + Signs Once (Oct 14). models.HrPacketSetting.
             "ALTER TABLE hr_packet_settings ADD COLUMN details_form JSON DEFAULT '[]'",
             "ALTER TABLE hr_packet_settings ADD COLUMN saved_signatures JSON DEFAULT '[]'",
+            # Tasks from tickets (Oct 14 2026). models.Task.source_ticket_id.
+            "ALTER TABLE tasks ADD COLUMN source_ticket_id VARCHAR DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS ix_tasks_source_ticket_id ON tasks (source_ticket_id)",
+            # Save as Template (Oct 14 2026). models.TaskTemplate.
+            "ALTER TABLE task_templates ADD COLUMN subtasks JSON DEFAULT '[]'",
+            "ALTER TABLE task_templates ADD COLUMN checklist JSON DEFAULT '[]'",
+            "ALTER TABLE task_templates ADD COLUMN source_task_id VARCHAR DEFAULT ''",
+            "ALTER TABLE task_templates ADD COLUMN created_by VARCHAR DEFAULT ''",
             # PFS guarantor dropdown order (Neil, Oct 14). models.PfsProfile.sort_order.
             "ALTER TABLE pfs_profiles ADD COLUMN sort_order INTEGER DEFAULT 0",
         ]
@@ -2292,6 +2300,14 @@ def _run_migrations():
         # Packet Details Form + Signs Once (Oct 14). models.HrPacketSetting.
         "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS details_form JSONB DEFAULT '[]'::jsonb",
         "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS saved_signatures JSONB DEFAULT '[]'::jsonb",
+        # Tasks from tickets (Oct 14 2026). models.Task.source_ticket_id.
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS source_ticket_id VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_tasks_source_ticket_id ON tasks (source_ticket_id)",
+        # Save as Template (Oct 14 2026). models.TaskTemplate.
+        "ALTER TABLE task_templates ADD COLUMN IF NOT EXISTS subtasks JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE task_templates ADD COLUMN IF NOT EXISTS checklist JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE task_templates ADD COLUMN IF NOT EXISTS source_task_id VARCHAR DEFAULT ''",
+        "ALTER TABLE task_templates ADD COLUMN IF NOT EXISTS created_by VARCHAR DEFAULT ''",
         # PFS guarantor dropdown order (Neil, Oct 14). models.PfsProfile.sort_order.
         "ALTER TABLE pfs_profiles ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0",
     ]
