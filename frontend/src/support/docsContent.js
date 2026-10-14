@@ -1126,7 +1126,7 @@ export const DOCS = [
         title: 'Move a Candidate Through Hiring',
         steps: [
           'Click the Hiring tab, then Add Candidate.',
-          'Pick the hiring company, then the role: the list shows that company\'s own roles under its name, then Shared Roles (the ones every company uses). Other is for a role that does not exist yet: type its title and department and, on save, it becomes a real role of that company (with no access until an administrator sets it). The Packets button then shows a count until that role has a hiring packet - open it and click Add Packet beside the role.',
+          'Pick the hiring company, then the role: the list shows that company\'s own roles under its name, then Shared Roles (the ones every company uses). Other is for a role that does not exist yet: type its title and department and, on save, it becomes a real role of that company (with no access until an administrator sets it). The Hiring Setup button then shows a count until that role has hiring documents - open it and click Add Packet beside the role.',
           "Last name, personal email and phone are required on a new candidate - the interview invite and the offer go there. Expected Interview Date (five business days out to start with) is when the interview should happen; screening is due the business day before it, and the card shows it until an interview is booked.",
           "Move them through Screening, Interview and Offer as things progress - with the buttons on the card, or by dragging the card to another lane on the board. Dragging to Interview opens Schedule Interview (Interview always means a booked interview); dragging back to an earlier stage asks first; Hired is final.",
           "Hired and Rejected always show on the board. Open a rejected candidate and click Remove From Board to take them off it - anyone rejected more than 90 days ago leaves it by itself. Show Inactive lists them; Reopen brings one back.",
@@ -1149,7 +1149,7 @@ export const DOCS = [
         title: 'Set Up a Hiring Packet',
         steps: [
           'First write each document once in Documents > Templates - the offer letter, the NDA, each addendum, a Job Description per role - each its own template. Use variables for whatever changes per person ({{first_name}}, {{job_title}}, {{salary}}, {{start_date}}, {{work_schedule}}...), insert a Signature Block wherever someone signs (Company, Employee...), and click Publish.',
-          'In People > Hiring, click Packets. Pick the company, or leave All Companies to add one that every company shares. Under Hiring Packet click Add Packet.',
+          'Open Settings > Hiring > Hiring Documents (or Hiring Setup on the Hiring board). Pick the company, or leave All Companies to add one that every company shares. Under Hiring Packet click Add Packet.',
           'Name the packet and pick the job role it is for - IT gets one packet, Accounting another. A packet made for a role is always used for that role; "Every role" covers the roles that have no packet of their own. A role can be in one packet only.',
           'Add the documents from the template list, in order. Preview shows each one filled with a sample person; Open In Documents takes you to the wording. A template must be published to be used, and the packet always prints its published version - edit and Publish Changes in Documents, and every packet that has not been sent yet updates.',
           'Check the Signing Order. Each signer named by the signature blocks in the documents gets a step, set by ROLE: HR, Manager, Authorized Signatory, IT, Payroll... - the same roles People > Checklists uses - with who holds it today shown beside it. The new hire signs last. A step can also Approve or just Get A Copy.',
@@ -1169,7 +1169,7 @@ export const DOCS = [
           'Missed one? In the box under the table, type any text from the document - a blank Nexus did not catch (____) or real text that changes per hire (Hyderabad, 6:00 PM). Every place it appears is listed; untick any to keep, give it a label, pick what fills it and click Add. Each variable has one fixed source: Salary is always the pay on the offer, Company Legal Name the hiring company\'s, Start Date the offer\'s - the guessing happens only here, never when a packet goes out.',
           'It also lists every signature line with who signs it - The Person or The Company. The Date and Name lines under a signature are drawn by the signature spot itself, so they go.',
           'Click Create And Publish. The template is published (v1) with every variable and signature spot in place. Preview With Sample Person shows it filled in; Open In Editor if you want to change any wording.',
-          'Add it to a packet in People > Hiring > Packets. The packet\'s Ready To Send checklist offers to put every Ask The Person field on its Details Form in one click, and warns if anything is still missing.',
+          'Add it to a packet in Settings > Hiring > Hiring Documents. The packet\'s Ready To Send checklist offers to put every Ask The Person field on its Details Form in one click, and warns if anything is still missing.',
           'Splitting a big Word file: if parts of it are shared by many roles (an agreement, an NDA) and one part is per role (a scope of work), save them as separate Word files first and make a template from each - each role\'s packet then reuses the shared ones.',
         ],
       },
@@ -1211,7 +1211,7 @@ export const DOCS = [
       {
         title: "Promote or Change Someone's Role",
         steps: [
-          'Set up the letter once in People > Hiring > Packets under Promotion Letter: Add Packet, upload the letter PDF (or type it), place the signature boxes for the employee and the manager (employee first), and save. A packet can be for every role or for particular roles.',
+          'Set up the letter once in Settings > Hiring > Hiring Documents under Promotion Letter: Add Packet, upload the letter PDF (or type it), place the signature boxes for the employee and the manager (employee first), and save. A packet can be for every role or for particular roles.',
           'In People: open the person, click Change Role and choose Role Change Without Promotion. Pick the new role, add a reason if you like, and click Change Role. It takes effect right away - no approval. Their manager and the employee get a bell.',
           'In Settings > Access: pick the person and click Change Role. There is no promotion here. Pick the new role, write the reason (required), and click Send For Approval. Nothing changes yet.',
           "Their manager and their company's HR contact each get a Nexus notification (on the yellow bar) and an email with the reason. Either one approves or declines - from the notification or email (Review Request opens the decision), from the person's Access tab, or from the orange hourglass next to their name in the People list. The person who asked never approves their own request.",
@@ -1228,7 +1228,7 @@ export const DOCS = [
       {
         title: 'Offboard Someone',
         steps: [
-          "Set up the separation package once in People > Hiring > Packets under Separation Package: Add Packet, upload the documents, place the signature boxes (the company first, the employee last), and save.",
+          "Set up the separation package once in Settings > Hiring > Hiring Documents under Separation Package: Add Packet, upload the documents, place the signature boxes (the company first, the employee last), and save.",
           'Open the person in People and click Offboard.',
           'Enter their last day and why they are leaving. Choose what happens to their mailbox, who gets their tasks (blank = their supervisor), and whether to export their mailbox and start the offboarding checklist.',
           'Click Review. If the last day is today, their access ends as soon as you confirm and the paperwork goes to their personal email. If it is later, the paperwork goes to their work email; they keep their access through their last day and Nexus marks them Left the morning after by itself.',

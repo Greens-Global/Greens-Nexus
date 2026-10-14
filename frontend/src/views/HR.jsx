@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/refs -- the org-chart canvas reads container/zoom refs during render for pan-zoom fit-to-view; safe intentional reads the React-Compiler rule flags */
 import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense, Fragment } from 'react';
-import { QuestionnairesModal, InterviewPanel, LeaderboardModal, EmployeeInterviews } from '../components/Interviews';
-import { PacketsModal, SendHiringPacketModal, PacketSigner, PersonLifeEvents, usDay } from '../components/HiringPacket';
+import { InterviewPanel, LeaderboardModal, EmployeeInterviews } from '../components/Interviews';
+import { SendHiringPacketModal, PacketSigner, PersonLifeEvents, usDay } from '../components/HiringPacket';
 import PacketReview from '../components/PacketReview';
 import { PromoteModal, OffboardModal, RoleChangeModal } from '../components/HrPersonActions';
 import { RoleChangeRequestCard, RoleChangeDecisionModal, RoleHistory } from '../components/RoleChangeRequests';
@@ -2132,13 +2132,11 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
   const [busy, setBusy] = useState(false);
   const [showInactive, setShowInactive] = useState(false);   // rejected ones taken off the board
   const [dragOver, setDragOver] = useState('');              // the lane a card is being dragged over
-  const [qOpen, setQOpen] = useState(false);        // questionnaires manager
   const [lbOpen, setLbOpen] = useState(false);      // interview leaderboard
   const [ivFor, setIvFor] = useState(null);         // candidate for the interview room
   const [loadErr, setLoadErr] = useState(false);
   const [editing, setEditing] = useState(null);            // candidate open in the edit form
   const [scheduling, setScheduling] = useState(null);      // { candidate, replace } - the one scheduling path
-  const [packetsOpen, setPacketsOpen] = useState(false);   // Hiring > Packets (per-company setup)
   const [packetFor, setPacketFor] = useState(null);        // candidate the hiring packet is being sent to
   const [signParty, setSignParty] = useState(null);        // HR's own signature on a packet
   const [reviewFor, setReviewFor] = useState(null);        // a packet built from Documents, being reviewed (Oct 14)
@@ -2294,13 +2292,15 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
     <div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button className="secondary-btn" style={{ fontSize: 12.5 }} onClick={() => setQOpen(true)}>Questionnaires</button>
-          <button className="secondary-btn" onClick={() => setPacketsOpen(true)}
-            title={needPackets.length ? `${needPackets.map(r => r.name).join(', ')} - added while hiring, no packet yet` : undefined}
+          {/* Neil, Oct 14: the questionnaires and the documents are settings -
+              set up in Settings > Hiring, never edited on the board. */}
+          <button className="secondary-btn"
+            onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'global-hiring' } }))}
+            title={needPackets.length ? `${needPackets.map(r => r.name).join(', ')} - added while hiring, no hiring documents yet` : 'Hiring documents and interview questionnaires, in Settings'}
             style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6,
               ...(needPackets.length ? { borderColor: '#b45309', color: '#b45309', background: 'rgba(180,83,9,0.08)', fontWeight: 700 } : {}) }}>
             {needPackets.length > 0 && <AlertTriangle size={13} />}
-            Packets
+            Hiring Setup
             {needPackets.length > 0 && (
               <span style={{ fontSize: 11, fontWeight: 800, padding: '1px 7px', borderRadius: 999, background: '#b45309', color: '#fff' }}>{needPackets.length}</span>
             )}
@@ -2401,7 +2401,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
         onSaved={c => {
           setCandidates(prev => [c, ...prev]);
           toastOk(c.roleCreated
-            ? `${candName(c)} added. "${c.roleCreated}" is now a role of the company - add its hiring packet under Packets.`
+            ? `${candName(c)} added. "${c.roleCreated}" is now a role of the company - add its hiring documents in Settings > Hiring.`
             : `${candName(c)} added to the pipeline.`);
           refreshBoard();
           if (c.roleCreated) loadNeedPackets();
@@ -2420,7 +2420,6 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
         onScheduled={() => { setScheduling(null); setPacketRefresh(n => n + 1); refreshBoard(); }} />}
       {editing && <CandidateFormModal candidate={editing} onClose={() => setEditing(null)} toastErr={toastErr}
         onSaved={u => { setCandidates(prev => prev.map(x => x.id === u.id ? u : x)); setDetail(d => d && d.id === u.id ? u : d); toastOk(`${candName(u)} updated.`); }} />}
-      {packetsOpen && <PacketsModal onClose={() => { setPacketsOpen(false); loadNeedPackets(); }} toastOk={toastOk} toastErr={toastErr} />}
       {packetFor && <SendHiringPacketModal candidate={packetFor} canSeePay={canSeePay} toastErr={toastErr}
         onClose={() => setPacketFor(null)}
         onSent={ev => {
@@ -2438,7 +2437,6 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
           setSignParty(null); setPacketRefresh(n => n + 1);
           toastOk('Signed - the new hire has been emailed the packet to sign.');
         }} />
-      {qOpen && <QuestionnairesModal onClose={() => setQOpen(false)} toastOk={toastOk} toastErr={toastErr} />}
       {lbOpen && <LeaderboardModal onClose={() => setLbOpen(false)} toastOk={toastOk} toastErr={toastErr} />}
       {ivFor && <InterviewPanel candidate={ivFor} onClose={() => { setIvFor(null); refreshBoard(); }} toastOk={toastOk} toastErr={toastErr}
         onDecision={(kind, cand) => {

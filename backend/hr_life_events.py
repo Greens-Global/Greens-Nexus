@@ -644,7 +644,7 @@ def plan_hire(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[dic
         setting = resolve_setting(db, cand.company, "hire", wt, details["role_id"])
     if not setting:
         raise PacketError(f"No hiring packet is set up for {company} yet - add one under "
-                          f"People > Hiring > Packets.", 409)
+                          f"Settings > Hiring > Hiring Documents.", 409)
     name = f"{cand.first_name} {cand.last_name}".strip()
     if is_documents(setting):
         # Built from Documents (Oct 14): previewed here; it goes out through
@@ -1521,7 +1521,7 @@ def plan_promotion(db: Session, user: dict, eid: str, inputs: dict, pay: Optiona
                               details["role_id"] or role_id_for_employee(db, emp))
     if not setting:
         raise PacketError(f"No promotion letter is set up for {company} yet - add one under "
-                          f"People > Hiring > Packets.", 409)
+                          f"Settings > Hiring > Hiring Documents.", 409)
     if is_documents(setting):
         # Built from Documents (Oct 14): previewed here, started, verified, sent.
         import hr_checklists as hc
@@ -1853,7 +1853,7 @@ def plan_separation(db: Session, user: dict, eid: str, inputs: dict, scope, lock
     elif d["send_package"]:
         if not setting:
             raise PacketError(f"No separation package is set up for {company} - add one under People > "
-                              f"Hiring > Packets, or offboard without documents.", 409)
+                              f"Settings > Hiring > Hiring Documents, or offboard without documents.", 409)
         if problems:
             raise PacketError(f"The {company} separation package needs fixing: {problems[0]}", 409)
         if not to:
