@@ -475,6 +475,14 @@ def schedule_interview(cid: str, body: ScheduleIn, user: dict = Depends(require_
                        f"You're interviewing {cand_name} ({cand.role_title or 'candidate'}) - see the Teams invite.",
                        ref_id=cand.id, requested_by=user["email"], action={"view": "hr", "sub": "hr-hiring"})
     db.add(iv)
+    # Neil, Oct 14: when the interview is booked, the screening task's date
+    # follows it - due the business day before.
+    try:
+        import hiring_screening
+        db.flush()
+        hiring_screening.follow_interview(db, cand)
+    except Exception as e:   # noqa: BLE001 - never block the schedule
+        print(f"[hiring] screening due date not moved for {cand.id}: {type(e).__name__}: {e}")
     db.commit()
     out = _ser_iv(iv, cand)
     out["inviteSent"] = bool(iv.event_id)

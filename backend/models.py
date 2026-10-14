@@ -985,6 +985,9 @@ class HrCandidate(Base):
     # to like inactive"). Reopen brings them back.
     rejected_at    = Column(String, default="")               # ISO datetime of the rejection
     inactive_at    = Column(String, default="")               # ISO datetime removed from the board
+    # The "Screen <name>" task for the department head and up (Oct 14,
+    # hiring_screening.py) - its due date follows the interview.
+    screen_task_id = Column(String, default="")               # Task.id
     created_by     = Column(String, default="")
     created_at     = Column(String, default="")
     updated_at     = Column(String, default="")

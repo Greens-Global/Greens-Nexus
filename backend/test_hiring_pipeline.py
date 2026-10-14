@@ -357,6 +357,54 @@ class NotesTimelineTests(PipelineCase):
         self.assertEqual(legacy[0]["note"], "Written before the timeline")
 
 
+class ScreeningTaskTests(PipelineCase):
+    """Neil, Oct 14: a new candidate -> one "Screen <name>" task for the
+    department head and everyone above them, due the business day before the
+    interview, following it when it is booked."""
+
+    def _chain(self):
+        for eid, email, mgr in (("e-head", "head@greensglobal.com", "boss@greensglobal.com"),
+                                ("e-boss", "boss@greensglobal.com", "")):
+            self.db.add(models.NexusEmployee(id=eid, work_email=email, first_name=eid[2:].title(), last_name="X",
+                                             company=ENT, status="active", manager_email=mgr))
+        self.db.add(models.HrDepartment(id="d-acct", company_id=ENT, name="Accounting", lead_email="head@greensglobal.com"))
+        self.db.commit()
+
+    def tearDown(self):
+        self.db.query(models.Task).delete()
+        self.db.commit()
+        super().tearDown()
+
+    def test_the_head_and_up_get_one_task_due_the_business_day_before(self):
+        self._chain()
+        c = self._add(role_id="role-analyst", expected_interview_on="2030-11-05")      # a Tuesday
+        cand = self.db.query(models.HrCandidate).filter_by(id=c["id"]).one()
+        task = self.db.query(models.Task).filter_by(id=cand.screen_task_id).one()
+        self.assertEqual(task.assignee_emails, ["head@greensglobal.com", "boss@greensglobal.com"])
+        self.assertEqual(task.due_on, "2030-11-04")
+        self.assertIn("Screen Jane Doe", task.title)
+        bells = {n.recipient for n in self.db.query(models.NexusNotification).filter(
+            models.NexusNotification.title.like("Screen %")).all()}
+        self.assertEqual(bells, {"head@greensglobal.com", "boss@greensglobal.com"})
+        # booking the interview on a Monday moves it to the Friday before
+        self._schedule(c["id"], at="2030-11-11T17:00:00Z")
+        self.db.expire_all()
+        self.assertEqual(self.db.query(models.Task).filter_by(id=cand.screen_task_id).one().due_on, "2030-11-08")
+        # rejecting closes it
+        hr.update_candidate(c["id"], hr.CandidateUpdate(stage="rejected"), user=HR_USER, db=self.db)
+        self.db.expire_all()
+        self.assertTrue(self.db.query(models.Task).filter_by(id=cand.screen_task_id).one().completed)
+
+    def test_no_department_head_falls_back_to_the_hr_contact(self):
+        self.db.query(models.HrEntity).filter_by(id=ENT).update({"hr_contact_email": NEIL})
+        self.db.commit()
+        c = self._add(role_id="role-analyst")
+        cand = self.db.query(models.HrCandidate).filter_by(id=c["id"]).one()
+        task = self.db.query(models.Task).filter_by(id=cand.screen_task_id).one()
+        self.assertEqual(task.assignee_emails, [NEIL])
+        self.assertEqual(task.due_on, "")          # no interview date yet
+
+
 class FollowupTests(PipelineCase):
     """End Interview merges everything (Neil: "when we clicked end, it should
     just take all of this stuff in and merge it all"); the transcript can be

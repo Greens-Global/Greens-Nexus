@@ -807,7 +807,8 @@ def _check_date(value: str, label: str) -> str:
 
 
 @router.post("/candidates")
-def create_candidate(body: CandidateIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+def create_candidate(body: CandidateIn, background: BackgroundTasks = None, user: dict = Depends(require_hr_write),
+                     db: Session = Depends(get_db)):
     if not body.first_name.strip():
         raise HTTPException(400, "first_name is required")
     scope = hr_scope(user, db)
@@ -855,8 +856,22 @@ def create_candidate(body: CandidateIn, user: dict = Depends(require_hr_write), 
         # What HR wrote on Add Candidate is the timeline's first note (Oct 14).
         db.add(HrStageEvent(id=str(uuid.uuid4()), candidate_id=row.id, from_stage="applied", to_stage="applied",
                             note=body.notes.strip()[:4000], by_email=user["email"], created_at=now, kind="note"))
+    # Screening (Neil, Oct 14): one task for the department head and up, due
+    # the business day before the interview - never in the way of the add.
+    import hiring_screening
+    task = None
+    try:
+        sp = db.begin_nested()
+        task = hiring_screening.start(db, row, user["email"])
+        sp.commit()
+    except Exception as e:   # noqa: BLE001 - the candidate is added either way
+        sp.rollback()
+        print(f"[hiring] screening task not created for {row.id}: {type(e).__name__}: {e}")
     db.commit()
     db.refresh(row)
+    if task is not None and background is not None:
+        from task_notify import notify_task_event
+        background.add_task(notify_task_event, task.id, "assigned", user["email"])
     out = _ser_candidate(row)
     out["roleCreated"] = role_created     # the new role's name, '' when an existing one was used
     return out
@@ -962,6 +977,9 @@ def update_candidate(cid: str, body: CandidateUpdate, user: dict = Depends(requi
                             to_stage=body.stage, note=(body.stage_note or "").strip(),
                             by_email=user["email"], created_at=now))
         row.stage = body.stage
+        if body.stage in ("rejected", "hired"):
+            import hiring_screening
+            hiring_screening.close(db, row)          # nothing left to screen
         if body.stage == "rejected":
             row.rejected_at = now
         elif row.rejected_at or row.inactive_at:
@@ -1006,6 +1024,8 @@ def update_candidate(cid: str, body: CandidateUpdate, user: dict = Depends(requi
         raise HTTPException(400, "First name can't be empty.")
     if body.expected_interview_on is not None:
         row.expected_interview_on = _check_date(body.expected_interview_on, "Expected interview date")
+        import hiring_screening
+        hiring_screening.follow_interview(db, row)
     if body.inactive is not None:
         if body.inactive and row.stage != "rejected":
             raise HTTPException(409, "Only a rejected candidate can be removed from the board.")

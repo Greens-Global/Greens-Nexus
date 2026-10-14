@@ -1132,6 +1132,7 @@ export const DOCS = [
           "Hired and Rejected always show on the board. Open a rejected candidate and click Remove From Board to take them off it - anyone rejected more than 90 days ago leaves it by itself. Show Inactive lists them; Reopen brings one back.",
           'At Offer, click Send Hiring Packet (see Send a Hiring Packet below). When they sign it they are hired automatically.',
           'Only for an offer signed on paper: Mark Hired By Hand, which asks why. Nothing is sent or filed that way.',
+          "Screening: when a candidate is added, the head of the role's department (the department's lead in Company Settings > Departments, else the role's default manager) and everyone above them in the reporting line get a bell and ONE task, Screen <name>, assigned to all of them. It is due the business day before the interview - the expected date at first, then the interview once it is booked or moved. They read the resume, add their notes on the candidate, and mark the task complete; rejecting or hiring the candidate closes it. With no department head set up, it goes to the company's HR contact.",
           "Notes And History on the candidate is one list, newest first: every note, every move with its note, and every interview that finished with its score - each with who and when. Anyone who can see the candidate can add a note; a note still in the box goes along with the next move you make from the card. The Interview Room shows the same notes at the top, so the interviewer reads everyone's screening notes first.",
         ],
       },
