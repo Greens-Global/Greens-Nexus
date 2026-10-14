@@ -5644,6 +5644,11 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
 .pr-dcard-note { color: var(--muted); font-style: italic; }
 .pr-dcard-foot { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-top: 1px solid var(--line); }
 .pr-dcard-foot button { min-height: 32px; }
+/* The table's inline text buttons (Missing, + add, Add a Break, Fix a Break
+   Punch, Approve / Reject) are tiny; inside a card they get a thumb-sized
+   target without changing the desktop table. */
+.pr-dcard-times button, .pr-dcard-extra button { min-height: 32px; }
+.pr-dcard-req button { padding-top: 6px !important; padding-bottom: 6px !important; }
 
 /* The salaried Time Sheet on a phone: the same table, each day row a card. */
 @media (max-width: 900px) {
@@ -5653,7 +5658,7 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
   .pr-fixed-table tr { display: block; }
   .pr-fixed-table tr > td { display: block; white-space: normal !important; }
   .pr-fixed-table tr > td:empty { display: none; }
-  .pr-fixed-table tr.pr-day-row { display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 6px 10px;
+  .pr-fixed-table tr.pr-day-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto auto; align-items: center; gap: 6px 10px;
     grid-template-areas: "date date status hours" "in out brk effect" "notes notes notes log";
     padding: 10px 12px; border-top: 1px solid var(--line); }
   .pr-fixed-table tr.pr-day-row:first-child { border-top: none; }
@@ -5662,6 +5667,7 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
   .pr-fixed-table .fx-status { grid-area: status; }
   .pr-fixed-table .fx-hours { grid-area: hours; font-size: 14px; font-weight: 800; }
   .pr-fixed-table .fx-in { grid-area: in; }
+  .pr-fixed-table .fx-in > span { flex-wrap: wrap; }
   .pr-fixed-table .fx-out { grid-area: out; }
   .pr-fixed-table .fx-break { grid-area: brk; }
   .pr-fixed-table .fx-effect { grid-area: effect; font-weight: 700; white-space: nowrap !important; }

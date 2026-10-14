@@ -868,7 +868,6 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       if (!cur || cur.ds !== r.ds) { cur = { type: 'card', ds: r.ds, segs: [], extra: [] }; items.push(cur); }
       if (r.type === 'day') cur.segs.push(r); else cur.extra.push(r);
     });
-    const todayIso = isoDate(new Date());
     const small = { fontSize: 12, color: 'var(--muted)' };
     return (
       <div data-tour="pr-table" className="pr-days">
@@ -889,11 +888,11 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           const otMin = worked.reduce((a, r) => a + (r.seg.otMin || 0), 0);
           const dtMin = worked.reduce((a, r) => a + (r.seg.dtMin || 0), 0);
           const pay = worked.reduce((a, r) => a + (r.seg.amount || 0), 0);
-          // A day with no punches is one line: its date, Add Note and the Work
-          // Log (past days, as the table row offers them) and Add Punch. A
-          // worked day, or one with a note, carries them in its own footer.
+          // A day with no punches is one line: its date, Add Note, the Work Log
+          // and Add Punch, as the table row offers them. A worked day, or one
+          // with a note, carries the note and Work Log in its own footer.
           const foot = worked.length > 0 || !!(self ? myNote(ds) : (notes[ds]?.note || notes[ds]?.employeeNote));
-          const inline = !foot && ds <= todayIso;
+          const inline = !foot;
           const canAdd = !fin;
           const noteCell = self
             ? <NoteCell date={ds} note={myNote(ds)} onSave={saveMyNote} placeholder="Add a note for your manager" />
@@ -920,7 +919,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                     title={self ? 'Add a punch for this day - goes to your approver' : 'Add a punch for this day'}>
                     <Plus size={13} /> Add Punch
                   </button>
-                ) : <span style={small}>No punches</span>}
+                ) : <span style={small}>No Punches</span>}
               </div>
               {worked.map((r, si) => (
                 <div key={si} className="pr-dcard-seg">
@@ -937,7 +936,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                       </button>
                     )}
                   </div>
-                  {(r.seg.category || r.seg.deductedMin > 0 || r.seg.workSite || r.seg.geo) && (
+                  {(r.seg.category || r.seg.payClass || r.seg.deductedMin > 0 || r.seg.workSite || r.seg.geo || r.seg.geoOut) && (
                     <div className="pr-dcard-meta">
                       {(r.seg.category || r.seg.payClass) && <span>{hCategory(r)}</span>}
                       {r.seg.deductedMin > 0 && <span style={{ color: '#b45309' }}>−{r.seg.deductedMin}m deducted</span>}
@@ -1404,7 +1403,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           body: 'Regular, overtime (1.5×), and double-time (2×) hours with wages - shown as clock time AND decimal ("58:30 (58.50)"), matching SwipeClock\'s summary, so payroll can key either format.' },
         { target: 'pr-approve', title: 'Two-step sign-off',
           body: 'Step 1 - the manager presses Approve when their person\'s card is right. Step 2 - HR presses Finalize: the period locks (no more edits, like SwipeClock\'s "finalized" periods) and payroll runs from it. Unlock reopens it if a correction is truly needed. CSV exports the punches for records.' },
-      ]} />}
+      // On a phone there is no employee list and no edit column (the day
+      // cards replace the table), so those two steps would point at nothing.
+      ].filter(st => !phone || (st.target !== 'pr-sidebar' && st.target !== 'pr-edit'))} />}
       <style>{`.pr-row:hover { background: var(--bg); } .pr-sidebar button:hover { background: var(--bg); } .loc-chip .loc-chip-text { border-bottom: 1px dashed currentColor; } .loc-chip:hover .loc-chip-text { border-bottom-style: solid; } .loc-chip:hover { opacity: 0.85; } .loc-chip:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: 2px; border-radius: 4px; }`}</style>
       </div>
       {workLogDay && (
