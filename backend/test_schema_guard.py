@@ -12,6 +12,7 @@ a FAKE connection that records the SQL it is sent - no real Postgres is touched.
 """
 import os
 import tempfile
+import types
 import unittest
 from unittest import mock
 
@@ -156,6 +157,32 @@ class RunOncePerDeployTests(GuardCase):
                     object(), False, lambda: "fp-new", mock.Mock(side_effect=RuntimeError("boom")))
         self.assertTrue(conn.ran("pg_advisory_unlock"))
         self.assertTrue(conn.closed)
+
+
+class TransactionPoolerTests(GuardCase):
+    """On the transaction pooler (port 6543) a session advisory lock would land
+    on a random server connection and never be released, so the guard steps
+    aside and the work runs unguarded, as it did before the guard existed."""
+
+    @staticmethod
+    def _engine(port):
+        return types.SimpleNamespace(url=types.SimpleNamespace(port=port))
+
+    def test_port_6543_runs_the_work_with_no_lock_and_no_state(self):
+        opener = mock.Mock()
+        with mock.patch.object(schema_guard, "open_lock_connection", opener):
+            out = schema_guard.run_once_per_deploy(self._engine(6543), False, lambda: "fp-new", self.work)
+        self.assertEqual((out, self.calls), ("applied", 1))
+        opener.assert_not_called()
+
+    def test_session_pooler_and_direct_ports_keep_the_guard(self):
+        for port in (5432, None):
+            conn = FakeConn(stored="fp-new")
+            with mock.patch.object(schema_guard, "open_lock_connection", mock.Mock(return_value=conn)):
+                out = schema_guard.run_once_per_deploy(self._engine(port), False, lambda: "fp-new", self.work)
+            self.assertEqual(out, "skipped", port)
+        self.assertEqual(self.calls, 0)
+        self.assertFalse(schema_guard.transaction_pooled(object()))
 
 
 class BookkeepingFailureTests(GuardCase):
