@@ -42,10 +42,10 @@ describe('ClockChip', () => {
     expect(vm.actions.toggleBreak).toHaveBeenCalledTimes(1);
   });
 
-  it('shows the engine\'s note (a declined screen share) in place of the since line', () => {
+  it('shows the engine\'s note (a declined screen share) as its own line under the head', () => {
     render(<ClockChip vm={working({ note: 'Share your screen to end your break - choose a screen when your browser asks, then tap again.' })} />);
     expect(screen.getByRole('status').textContent).toMatch(/Share your screen/);
-    expect(screen.queryByText('since 7:52 AM')).toBeNull();
+    expect(screen.getByText('since 7:52 AM')).toBeTruthy();                 // the head keeps its line
   });
 
   it('a parked punch: the warning line and Retry, and the rail tile says so too', () => {
