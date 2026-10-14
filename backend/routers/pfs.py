@@ -520,8 +520,33 @@ def meta():
 
 @router.get("/profiles")
 def list_profiles(db: Session = Depends(get_db)):
-    rows = db.query(models.PfsProfile).order_by(models.PfsProfile.archived, models.PfsProfile.name).all()
+    """The guarantor dropdown, in the order it was put in (Neil, 10/14); files
+    never placed follow by name, archived files last."""
+    rows = db.query(models.PfsProfile).all()
+    rows.sort(key=lambda p: (bool(p.archived), not (p.sort_order or 0), p.sort_order or 0, (p.name or "").lower()))
     return [_profile_out(p, full=False) for p in rows]
+
+
+class ProfileOrderBody(BaseModel):
+    ids: list[str]
+
+
+@router.put("/profile-order")   # no {profile_id}: the order of the list is not one file's
+def order_profiles(body: ProfileOrderBody, user: dict = Depends(_edit), db: Session = Depends(get_db)):
+    """The order of the guarantor dropdown (Neil, 10/14: "be able to move
+    Guarantors up and down"): file ids in the order wanted. Files not sent
+    follow them by name. The audit row says how many files were placed."""
+    ids = list(dict.fromkeys(str(i) for i in (body.ids or [])))[:500]
+    if not ids:
+        raise HTTPException(status_code=400, detail="Give the guarantors in the order wanted.")
+    rows = {p.id: p for p in db.query(models.PfsProfile).filter(models.PfsProfile.id.in_(ids)).all()}
+    if len(rows) != len(ids):
+        raise HTTPException(status_code=404, detail="A guarantor in that order was not found.")
+    for i, pid in enumerate(ids):
+        rows[pid].sort_order = i + 1
+    _audit(db, user, "pfs_profiles_reordered", "", {"count": len(ids)})
+    db.commit()
+    return {"ok": True, "ids": ids}
 
 
 def _apply_profile(p: models.PfsProfile, body: ProfileBody, user: dict) -> None:
@@ -1292,10 +1317,15 @@ def _schedule_entities(lines: list[dict]) -> list[str]:
 CONDITION_ASSETS = [
     ("cash", "Cash on Hand", ("cash",)),
     ("bank", "Bank Accounts / Cash Equivalents", ("bank",)),
-    ("securities", "Marketable Securities", ("investment",)),
+    # Oct 14 (Vinod: "Add Investments under Assets in PFS - this has not been
+    # done"): one Investments line on the first page - Investment Accounts and
+    # Business Interests, the same rows the Investments group on the Assets tab
+    # holds - counted in Total Assets. Real estate stays its own line at market
+    # value (its loans are under Mortgages), so nothing is counted twice; the
+    # Investments block below the first page shows it again at equity.
+    ("investments", "Investments", ("investment", "business")),
     ("retirement", "Retirement Accounts", ("retirement",)),
     ("real_estate", "Real Estate", ()),
-    ("business", "Business Interests / Closely Held", ("business",)),
     ("notes_receivable", "Notes Receivable", ("notes_receivable",)),
     ("insurance", "Cash Value of Life Insurance", ("insurance",)),
     ("vehicles", "Vehicles", ("vehicles",)),

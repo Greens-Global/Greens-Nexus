@@ -327,7 +327,7 @@ export default function HomeView({ onNavigate }) {
             person actually watches. Bookmark from a project's own header. */}
         {bookmarked.length === 0 ? (
           <div style={{ padding: '18px 0', fontSize: 13, color: NX.faint }}>
-            No bookmarks yet. Open a project and press <strong>Bookmark</strong> in its header to pin it here.
+            No bookmarks yet. Open a project and click the <strong>star</strong> next to its name to pin it here.
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column' }}>

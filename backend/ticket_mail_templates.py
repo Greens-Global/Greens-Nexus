@@ -446,7 +446,7 @@ def _has_text(raw: str) -> bool:
 
 
 def requester_teams_dm_html(*, code: str, subject: str, link: str, actor_name: str = "",
-                            assigned_to: str = "", closed_status: str = "",
+                            closed_status: str = "",
                             resolution_note: str = "", comment: str = "") -> str:
     """The HTML body of one Teams chat message, or "" when nothing in it is
     news to the requester. One summary line per event, the reply or the
@@ -457,10 +457,8 @@ def requester_teams_dm_html(*, code: str, subject: str, link: str, actor_name: s
     no = ticket_no(code) or "Ticket"
     title = f'{escape(no)} "{escape(subject or "")}"'
     parts = []
-    if assigned_to:
-        parts.append(f"<p>{title} has been assigned to {escape(assigned_to)}.</p>")
     if closed_status in ("resolved", "closed"):
-        lead = "It" if parts else title
+        lead = title
         parts.append(f"<p>{lead} has been {closed_status}.</p>")
         if _has_text(resolution_note):
             parts.append(f"<p><b>Resolution:</b> {rich_to_email_html(resolution_note, limit=1500)}</p>")
@@ -472,6 +470,19 @@ def requester_teams_dm_html(*, code: str, subject: str, link: str, actor_name: s
         return ""
     parts.append(f'<p><a href="{escape(link, quote=True)}">Open {escape(no)}</a></p>')
     return "".join(parts)
+
+
+def assignment_teams_dm_html(*, code: str, subject: str, link: str,
+                             handed_to: str = "", reassigned: bool = False) -> str:
+    """An assignment told to the requester BY the assignees (Neil, 10/14) -
+    whoever clicked Assign is never in it. `handed_to` = the previous
+    assignee saying who has it now; otherwise the new assignee taking it."""
+    no = ticket_no(code) or "Ticket"
+    title = f'{escape(no)} "{escape(subject or "")}"'
+    line = (f"has been reassigned to {escape(handed_to)}" if handed_to
+            else "has been reassigned to me" if reassigned
+            else "has been assigned to me and is being worked on")
+    return f'<p>{title} {line}.</p><p><a href="{escape(link, quote=True)}">Open {escape(no)}</a></p>'
 
 
 def walkthrough_email(*, property_name: str, property_id: str, actor_name: str, rows: list, audience: str,

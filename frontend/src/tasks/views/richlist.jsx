@@ -23,6 +23,7 @@ import { matchPeople } from '../../lib/peopleSearch';
 import { useListNav } from '../../lib/listNav';
 import { AddSectionButton, SectionMenu } from '../SectionControls';
 import DueBadge from '../DueBadge';
+import { repeatOption } from '../RecurrenceMenu';
 import { useFlip } from '../../lib/motion';
 import ChangeFlash from '../../components/ChangeFlash';
 import { changedRecently } from '../recentChanges';
@@ -187,7 +188,8 @@ const dueColor = (iso, completed) => {
 // `variant` 'status' / 'priority' draws the shared soft status label or the
 // priority signal (components/StatusLabel.jsx) - the monday.com-style solid
 // cell fills were retired (Neil, Oct 14 2026).
-function PillSelect({ label, color, tint, icon, options, currentKey, onSelect, center, variant }) {
+// Exported for Manage > Data Quality, whose table is this one's (Oct 14 2026).
+export function PillSelect({ label, color, tint, icon, options, currentKey, onSelect, center, variant }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   const panelRef = useRef(null);
@@ -445,8 +447,14 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
         ),
         // due
         due: (
-        <div className="rl-cell" style={{ ...editCell, gap: 4 }} onClick={(e) => e.stopPropagation()}>
-          <DateField value={t.dueOn || ''} onChange={(v) => store.updateTask(t.id, { dueOn: v })} noPast color={dueColor(t.dueOn, t.completed)} title="Due Date" compact style={{ fontSize: 12, width: '100%', minWidth: 78, flex: 1 }} />
+        <div className="rl-cell" style={{ ...editCell, gap: 4, justifyContent: 'center' }} onClick={(e) => e.stopPropagation()}>
+          {/* Repeat rides in the calendar, as on the task itself (Oct 14 2026). */}
+          <DateField value={t.dueOn || ''} onChange={(v) => store.updateTask(t.id, { dueOn: v })} noPast color={dueColor(t.dueOn, t.completed)} title="Due Date" compact style={{ fontSize: 12 }}
+            repeat={repeatOption({
+              value: t.recurrence, seedDate: t.dueOn, subtask: !!t.parentTaskId,
+              mainRule: t.parentTaskId ? store.taskById?.[t.parentTaskId]?.recurrence || null : null,
+              onChange: (r) => store.updateTask(t.id, { recurrence: r, status: r?.freq ? 'recurring' : (t.status === 'recurring' ? 'not_started' : t.status) }),
+            })} />
           <DueBadge task={t} nameOf={store.nameOf} compact />
         </div>
         ),
@@ -509,7 +517,7 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
     const f = customFields.find((x) => x.id === key);
     if (!f) return null;
     return (
-      <div className="rl-cell" style={editCell} onClick={(e) => e.stopPropagation()}>
+      <div className="rl-cell" style={{ ...editCell, justifyContent: 'center' }} onClick={(e) => e.stopPropagation()}>
         <FieldCell field={f} value={(t.customFieldValues || {})[f.id]} people={people}
           onChange={(v) => store.updateTask(t.id, { customFieldValues: { ...(t.customFieldValues || {}), [f.id]: v } })} />
       </div>
@@ -772,7 +780,7 @@ function MultiPillSelect({ options, picked, onToggle, placeholder = '-' }) {
     <div ref={ref} style={{ width: '100%' }}>
       <button onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }} style={{
         width: '100%', border: 'none', background: 'transparent', cursor: 'pointer', fontFamily: FONT,
-        display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', padding: '2px 0', minHeight: 22,
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, flexWrap: 'wrap', padding: '2px 0', minHeight: 22,
       }}>
         {chosen.length === 0 && <span style={{ fontSize: 12.5, color: NX.faint }}>{placeholder}</span>}
         {chosen.map((o) => (
@@ -867,19 +875,19 @@ function FieldCell({ field, value, onChange, people = [] }) {
     const opts = fieldOpts(field);
     const cur = opts.find((o) => o.key === value);
     return (
-      <PillSelect label={cur ? cur.label : '-'} color={cur ? cur.color : NX.faint} tint={cur ? `${cur.color}1a` : 'transparent'}
+      <PillSelect center label={cur ? cur.label : '-'} color={cur ? cur.color : NX.faint} tint={cur ? `${cur.color}1a` : 'transparent'}
         currentKey={value || ''} options={[{ key: '', label: 'None', color: NX.faint }, ...opts]} onSelect={onChange} />
     );
   }
   if (field.type === 'date') {
-    return <DateField value={value || ''} onChange={onChange} color={NX.dim} compact style={{ fontSize: 12, width: '100%' }} />;
+    return <DateField value={value || ''} onChange={onChange} color={NX.dim} compact style={{ fontSize: 12 }} />;
   }
   if (field.type === 'number') {
     return <input type="number" className="rl-num nx-inline-edit" value={value ?? ''} onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))} placeholder="-"
-      style={{ width: '100%', border: 'none', fontSize: 12.5, color: NX.dim, fontFamily: FONT }} />;
+      style={{ width: '100%', border: 'none', fontSize: 12.5, color: NX.dim, fontFamily: FONT, textAlign: 'center' }} />;
   }
   return <input className="nx-inline-edit" type="text" value={value || ''} onChange={(e) => onChange(e.target.value)} placeholder="-"
-    style={{ width: '100%', border: 'none', fontSize: 12.5, color: NX.dim, fontFamily: FONT }} />;
+    style={{ width: '100%', border: 'none', fontSize: 12.5, color: NX.dim, fontFamily: FONT, textAlign: 'center' }} />;
 }
 
 // monday-style Timeline cell: a colored date-range pill (start → due); click to

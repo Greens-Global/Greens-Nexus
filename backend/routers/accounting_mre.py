@@ -54,8 +54,17 @@ _edit = require_module_grant("accounting", "editor")
 _full = require_module_grant("accounting", "full")
 
 _ISO = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-FREQUENCIES = {"monthly": 1, "quarterly": 3, "annual": 12}
-CATEGORIES = ("utilities", "insurance", "payroll_services", "software", "rent_paid", "other")
+# Oct 14 (Neil): Semi-Annual, and Custom "with a fillable period" - every N
+# months (frequency_months), counted from the start month like the others.
+FREQUENCIES = {"monthly": 1, "quarterly": 3, "semi_annual": 6, "annual": 12, "custom": 0}
+CUSTOM_MAX_MONTHS = 60
+# Oct 14 (Charmi, Neil): Mortgage, Dues & Subscriptions, Property Tax,
+# Advertising, Auto Registration, State Tax. Appended; "other" stays last.
+CATEGORIES = ("utilities", "insurance", "payroll_services", "software", "rent_paid", "mortgage", "dues_subscriptions",
+              "property_tax", "advertising", "auto_registration", "state_tax", "other")
+# Variance (Charmi, 10/14: "Variance should be %, in increments of 5%"): a
+# paid month within this % of expected counts as Paid.
+VARIANCES = tuple(range(0, 55, 5))
 _COSTS = ("cogs", "expense", "other_expense")
 # Debt service is Loans & Financing's; depreciation and amortization are
 # journal entries, never a vendor's bill.
@@ -68,6 +77,11 @@ _CATEGORY_WORDS = [
     ("utilities", re.compile(r"utilit|electric|\bgas\b|water|sewer|trash|waste|power|energy|internet|telephone|\bphone|telecom|cable|sdg&e|edison|pg&e")),
     ("insurance", re.compile(r"insur")),
     ("payroll_services", re.compile(r"payroll|\badp\b|paychex|gusto|paylocity|\bpeo\b")),
+    ("dues_subscriptions", re.compile(r"\bdues\b|membership")),
+    ("property_tax", re.compile(r"property tax|county tax|tax collector|assessor")),
+    ("state_tax", re.compile(r"state tax|franchise tax|secretary of state|department of revenue|\bftb\b")),
+    ("auto_registration", re.compile(r"\bdmv\b|vehicle reg|auto reg|motor vehicle")),
+    ("advertising", re.compile(r"advertis|marketing|\byelp\b|apartments\.com|zillow")),
     ("software", re.compile(r"software|subscription|saas|licen[cs]e|microsoft|google|adobe|intuit|quickbooks|amazon web|\baws\b|cloud|zoom|slack|dues and sub")),
     ("rent_paid", re.compile(r"\brent\b|\blease\b|leasing|occupancy")),
 ]
@@ -176,6 +190,20 @@ def propose(entity: dict, accounts: list[dict], by_vendor: dict[str, dict[str, d
     return sorted(out, key=lambda p: (p["entityName"], p["vendorName"]))
 
 
+def step_months(line: dict) -> int:
+    """How many months apart the line falls due: 1 monthly, 3 quarterly, 6
+    semi-annual, 12 annual, N for Custom (every N months; a Custom line with
+    no period reads as monthly)."""
+    freq = line.get("frequency") or "monthly"
+    if freq == "custom":
+        try:
+            n = int(line.get("frequencyMonths") or 0)
+        except (TypeError, ValueError):
+            n = 0
+        return n if 1 <= n <= CUSTOM_MAX_MONTHS else 1
+    return FREQUENCIES.get(freq) or 1
+
+
 def due_in_month(line: dict, year: int, month: int) -> bool:
     """Whether the line falls due in this calendar month: inside its start /
     end, and on its frequency counted from the start month."""
@@ -187,15 +215,17 @@ def due_in_month(line: dict, year: int, month: int) -> bool:
         return False
     if line.get("status") == "ended" and not end:
         return False
-    step = FREQUENCIES.get(line.get("frequency") or "monthly", 1)
+    step = step_months(line)
     if step == 1 or not start:
         return True
     return (_month_index(key) - _month_index(start[:7])) % step == 0
 
 
-def month_status(due: bool, expected: float, paid: float, key: str, this_month: str) -> str:
-    """paid | short | over | missed | upcoming | none."""
-    tol = max(0.5, abs(expected) * 0.01)
+def month_status(due: bool, expected: float, paid: float, key: str, this_month: str, variance_pct: float = 0) -> str:
+    """paid | short | over | missed | upcoming | none. A month paid within the
+    line's Variance % of expected (at least 1%, at least 50 cents) is Paid."""
+    pct = max(1.0, float(variance_pct or 0)) / 100
+    tol = max(0.5, abs(expected) * pct)
     if not due:
         return "over" if paid > _POSTED else "none"
     if abs(paid - expected) <= tol:
@@ -228,7 +258,7 @@ def grid(lines: list[dict], payments: dict, year: int, today: date, unread: Opti
             if pair in unread:
                 status = "upcoming" if key > this_month else ("unknown" if due else "none")
             else:
-                status = month_status(due, expected, paid, key, this_month)
+                status = month_status(due, expected, paid, key, this_month, line.get("variancePct") or 0)
             cells.append({"month": key, "due": due, "expected": expected, "paid": paid, "status": status})
             paid_year = _r2(paid_year + paid)
             totals[m - 1]["expected"] = _r2(totals[m - 1]["expected"] + expected)
@@ -255,6 +285,8 @@ def _line_out(r: models.RecurringExpense) -> dict:
         "id": r.id, "entityCode": r.entity_code or "", "entityName": r.entity_name or r.entity_code or "", "vendorId": r.vendor_id or "",
         "vendorName": r.vendor_name or r.vendor_id or "", "expenseAccounts": list(r.expense_accounts) if isinstance(r.expense_accounts, list) else [],
         "category": r.category if r.category in CATEGORIES else "other", "frequency": r.frequency if r.frequency in FREQUENCIES else "monthly",
+        "frequencyMonths": int(r.frequency_months or 0), "variancePct": int(r.variance_pct or 0),
+        "accountNumber": r.account_number or "", "accountDetails": r.account_details or "", "contactInfo": r.contact_info or "",
         "expectedAmount": _r2(r.expected_amount), "startDate": r.start_date or "", "endDate": r.end_date or "",
         "status": r.status or "active", "notes": r.notes or "", "source": r.source or "manual",
         "updatedBy": r.updated_by or "", "updatedAt": r.updated_at or "",
@@ -274,6 +306,11 @@ class LineBody(BaseModel):
     endDate: Optional[str] = ""
     status: Optional[str] = "active"
     notes: Optional[str] = ""
+    frequencyMonths: Optional[int] = 0
+    variancePct: Optional[int] = 0
+    accountNumber: Optional[str] = ""
+    accountDetails: Optional[str] = ""
+    contactInfo: Optional[str] = ""
 
 
 def _clean(body: LineBody) -> dict:
@@ -287,7 +324,13 @@ def _clean(body: LineBody) -> dict:
     if not accounts:
         raise HTTPException(status_code=400, detail="Name at least one expense account (GL code).")
     if body.frequency not in FREQUENCIES:
-        raise HTTPException(status_code=400, detail="Frequency is monthly, quarterly or annual.")
+        raise HTTPException(status_code=400, detail="Frequency is monthly, quarterly, semi-annual, annual or custom.")
+    months = int(body.frequencyMonths or 0)
+    if body.frequency == "custom" and not 1 <= months <= CUSTOM_MAX_MONTHS:
+        raise HTTPException(status_code=400, detail=f"A custom frequency needs its period: every 1 to {CUSTOM_MAX_MONTHS} months.")
+    variance = int(body.variancePct or 0)
+    if variance not in VARIANCES:
+        raise HTTPException(status_code=400, detail="Variance is 0% to 50% in steps of 5%.")
     if body.category not in CATEGORIES:
         raise HTTPException(status_code=400, detail="Pick a category.")
     if (body.expectedAmount or 0) < 0:
@@ -302,6 +345,9 @@ def _clean(body: LineBody) -> dict:
         "expense_accounts": accounts, "category": body.category, "frequency": body.frequency, "expected_amount": float(body.expectedAmount or 0),
         "start_date": body.startDate or "", "end_date": body.endDate or "", "status": body.status if body.status in ("active", "ended") else "active",
         "notes": (body.notes or "")[:1000],
+        "frequency_months": months if body.frequency == "custom" else 0, "variance_pct": variance,
+        "account_number": (body.accountNumber or "").strip()[:100], "account_details": (body.accountDetails or "").strip()[:1000],
+        "contact_info": (body.contactInfo or "").strip()[:1000],
     }
 
 

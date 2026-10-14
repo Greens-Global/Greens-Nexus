@@ -52,7 +52,7 @@ describe('LoanAmortization', () => {
   it('builds a schedule and saves it', async () => {
     render(<LoanAmortization loan={loan} canEdit />);
     fireEvent.click(await screen.findByRole('button', { name: /Build Schedule/ }));
-    expect(screen.getByText('Monthly P&I')).toBeInTheDocument();
+    expect(screen.getByText('Monthly Payment')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Save Schedule' }));
     await waitFor(() => expect(api.saveLoanSchedule).toHaveBeenCalled());
     const [, body] = api.saveLoanSchedule.mock.calls[0];

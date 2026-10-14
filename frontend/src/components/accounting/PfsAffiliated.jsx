@@ -325,7 +325,7 @@ export function PfsExecutiveProfiles({ profile, canEdit = false, onLocked, onSav
       {canEdit && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <button type="button" className="primary-btn" onClick={save} disabled={!changed.length || busy} style={{ fontSize: '0.8rem' }}>{busy ? 'Saving...' : 'Save Profiles'}</button>
-          {changed.length > 0 && <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Unsaved changes</span>}
+          {changed.length > 0 && <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Unsaved Changes</span>}
         </div>
       )}
     </section>

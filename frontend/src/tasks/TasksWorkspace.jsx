@@ -173,6 +173,13 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
   const tracksTime = lockedProject ? projectTracksTime(lockedProject, store.tasks)
     : visible.some((t) => taskTracksTime(t, store.projects, store.tasks));
   const isBookmarked = !!lockedProject && bookmarks?.has(lockedProject.id);
+  const toggleStar = () => {
+    const id = lockedProject.id;
+    const adding = !isBookmarked;
+    toggleBookmark(id)
+      .then(() => store.offerUndo?.(adding ? 'Added to Bookmarks' : 'Removed from Bookmarks', () => toggleBookmark(id).catch(() => {})))
+      .catch(() => {});
+  };
   // Only select fields can group or sort meaningfully - a free-text field would
   // make one group per distinct string.
   const groupableFields = activeFields.filter((f) => f.type === 'select');
@@ -196,6 +203,17 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
             <>
               <FolderKanban size={19} style={{ color: lockedProject.color || NX.purple, flexShrink: 0 }} />
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lockedProject.name}</span>
+              {/* Bookmark (Neil, Oct 14 2026): a hollow star beside the name
+                  that fills when clicked - the browser's own bookmark star -
+                  in place of a wide "Bookmark" button among the actions. It
+                  is what pins the project to the Home dashboard; a toast
+                  says which way it went, with Undo. */}
+              <button type="button" onClick={toggleStar} aria-pressed={isBookmarked}
+                aria-label={isBookmarked ? 'Remove from bookmarks' : 'Bookmark this project'}
+                title={isBookmarked ? 'Remove from bookmarks' : 'Bookmark - pin this project to your Home'}
+                style={{ ...btn('ghost'), padding: 4, flexShrink: 0, color: isBookmarked ? '#f59e0b' : NX.faint }}>
+                <Star size={18} fill={isBookmarked ? 'currentColor' : 'none'} />
+              </button>
               {lockedProject.hrDepartmentName && <span style={chip(NX.dim, NX.border2)}>{lockedProject.hrDepartmentName}</span>}
               {lockedProject.portfolioId && portfolioById(lockedProject.portfolioId) && (
                 <span style={chip(NX.purple, NX.border2)}>{portfolioById(lockedProject.portfolioId).name}</span>
@@ -216,18 +234,6 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
               <button onClick={() => setDuplicating(true)} title="Duplicate this project"
                 style={{ ...btn('outline'), padding: isMobile ? 7 : '6px 10px', fontSize: 12, color: NX.dim }}>
                 <Copy size={14} />{!isMobile && 'Duplicate'}
-              </button>
-            )}
-            {/* Bookmark sits FIRST of the project actions - it is the only one
-                of them a non-admin uses daily, and it is what puts this project
-                on their dashboard (Neil, Sept 8). Filled star = bookmarked. */}
-            {lockedProject && (
-              <button onClick={() => toggleBookmark(lockedProject.id).catch(() => {})}
-                title={isBookmarked ? 'Remove from your bookmarks' : 'Bookmark - pin this project to your dashboard'}
-                aria-pressed={isBookmarked}
-                style={{ ...btn('outline'), padding: isMobile ? 7 : '6px 10px', fontSize: 12, color: isBookmarked ? NX.amber || '#d97706' : NX.dim }}>
-                <Star size={14} fill={isBookmarked ? 'currentColor' : 'none'} />
-                {!isMobile && (isBookmarked ? 'Bookmarked' : 'Bookmark')}
               </button>
             )}
             {lockedProject && (
