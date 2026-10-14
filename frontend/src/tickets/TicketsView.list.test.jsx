@@ -121,7 +121,10 @@ describe('Ticket list - Oct 14 column and tile words', () => {
     render(<TicketsView />);
     const cell = await screen.findByRole('button', { name: /Latest comment by Ava Agent/ });
     expect(cell.getAttribute('title')).toMatch(/^Ava Agent/);
-    expect(within(cell).queryByText(/Ava Agent/)).toBeNull();          // not as text
+    expect(within(cell).queryByText(/Ava Agent/)).toBeNull();          // not as text...
+    const pic = within(cell).getByTitle('Ava Agent');                    // ...but as their picture (initials here)
+    expect(pic.textContent).toBe('AA');
+    expect(pic.getAttribute('role')).toBeNull();                         // no hover card inside the button
     expect(within(cell).getByText(/Swapping the toner now/)).toBeTruthy();
   });
 

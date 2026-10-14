@@ -58,7 +58,7 @@ export function LatestCommentPreview({ comment, nameOf, onOpen, compact = false,
           fontFamily: FONT, color: NX.ink, background: 'transparent',
         }}>
         <span style={{ position: 'relative', flexShrink: 0, marginTop: 1 }}>
-          <Avatar email={comment.authorId} name={who} size={24} />
+          <Avatar email={comment.authorId} name={who} size={24} card={false} />
           {comment.internal && (
             <Lock size={10} aria-label="Internal note" style={{ position: 'absolute', right: -4, bottom: -3, color: NX.amber, background: NX.surface, borderRadius: '50%', padding: 1 }} />
           )}
@@ -83,7 +83,7 @@ export function LatestCommentPreview({ comment, nameOf, onOpen, compact = false,
           the tooltip and the aria label. An internal note wears a lock. */}
       <span style={{ position: 'relative', flexShrink: 0, display: 'flex' }}>
         {comment.authorId
-          ? <Avatar email={comment.authorId} name={who} size={compact ? 22 : 20} />
+          ? <Avatar email={comment.authorId} name={who} size={compact ? 22 : 20} card={false} />   /* no hover card: the cell is the button */
           : <MessageSquare size={12} style={{ color: NX.faint }} />}
         {comment.internal && (
           <Lock size={10} aria-label="Internal note" style={{ position: 'absolute', right: -4, bottom: -3, color: NX.amber, background: NX.surface, borderRadius: '50%', padding: 1 }} />
