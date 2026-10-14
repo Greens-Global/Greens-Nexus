@@ -5616,6 +5616,67 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
 @media (hover: hover) { .pr-day-row:hover > td { background: color-mix(in srgb, var(--wk-brand) 9%, transparent); } }
 @media (hover: hover) { .pr-day-row.pr-leave:hover > td { background: rgba(185, 28, 28, 0.15); } }
 
+/* Time Sheet on a phone (Oct 14): one card per day instead of the 12-column
+   table (PayrollTimecard's hourlyPhoneDays). Weekly totals sit between the
+   weeks as a brand band; a leave day keeps the table's red edge. */
+.pr-days { display: flex; flex-direction: column; gap: 8px; }
+.pr-days-week { display: flex; justify-content: space-between; gap: 10px; padding: 8px 12px; border-radius: 10px;
+  background: var(--wk-brand-tint); color: var(--wk-brand); font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.pr-dcard { border: 1px solid var(--wk-line2); border-radius: 12px; background: var(--card); box-shadow: var(--wk-shadow); overflow: hidden; }
+.pr-dcard-leave { box-shadow: inset 3px 0 0 #b91c1c, var(--wk-shadow); background: color-mix(in srgb, #b91c1c 5%, var(--card)); }
+.pr-dcard-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-height: 44px; padding: 6px 12px; }
+.pr-dcard-inline-note { min-width: 0; max-width: 45%; }
+.pr-dcard-date { font-size: 14px; font-weight: 700; }
+.pr-dcard-empty .pr-dcard-date { font-weight: 500; }
+.pr-dcard-total { display: inline-flex; align-items: baseline; gap: 10px; font-size: 14px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.pr-dcard-seg { padding: 8px 12px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 4px; }
+.pr-dcard-times { display: flex; align-items: center; gap: 10px; min-height: 32px; font-size: 14px; font-variant-numeric: tabular-nums; }
+.pr-dcard-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--muted); min-width: 0; }
+.pr-dcard-icon { background: none; border: none; color: var(--muted); display: inline-flex; align-items: center; justify-content: center;
+  min-width: 36px; min-height: 36px; margin: -6px -8px -6px 0; cursor: pointer; border-radius: 8px; }
+.pr-dcard-add { display: inline-flex; align-items: center; gap: 5px; min-height: 36px; padding: 0 10px; border: 1px dashed var(--wk-line2);
+  border-radius: 999px; background: none; color: var(--wk-brand); font: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+.pr-dcard-add-more { margin: 2px 12px 8px; align-self: flex-start; }
+.pr-dcard-extra { padding: 6px 12px 8px; font-size: 12px; white-space: normal; border-top: 1px solid var(--line); }
+.pr-dcard-auto { color: #b91c1c; font-weight: 600; }
+.pr-dcard-holiday { color: #2563eb; font-weight: 600; background: rgba(37, 99, 235, 0.06); }
+.pr-dcard-req { background: rgba(180, 83, 9, 0.07); }
+.pr-dcard-note { color: var(--muted); font-style: italic; }
+.pr-dcard-foot { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-top: 1px solid var(--line); }
+.pr-dcard-foot button { min-height: 32px; }
+
+/* The salaried Time Sheet on a phone: the same table, each day row a card. */
+@media (max-width: 900px) {
+  .pr-fixed-table { min-width: 0 !important; display: block; }
+  .pr-fixed-table thead { display: none; }
+  .pr-fixed-table tbody { display: block; }
+  .pr-fixed-table tr { display: block; }
+  .pr-fixed-table tr > td { display: block; white-space: normal !important; }
+  .pr-fixed-table tr > td:empty { display: none; }
+  .pr-fixed-table tr.pr-day-row { display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 6px 10px;
+    grid-template-areas: "date date status hours" "in out brk effect" "notes notes notes log";
+    padding: 10px 12px; border-top: 1px solid var(--line); }
+  .pr-fixed-table tr.pr-day-row:first-child { border-top: none; }
+  .pr-fixed-table tr.pr-day-row > td { padding: 0 !important; border: none !important; text-align: left !important; }
+  .pr-fixed-table .fx-date { grid-area: date; font-size: 14px; }
+  .pr-fixed-table .fx-status { grid-area: status; }
+  .pr-fixed-table .fx-hours { grid-area: hours; font-size: 14px; font-weight: 800; }
+  .pr-fixed-table .fx-in { grid-area: in; }
+  .pr-fixed-table .fx-out { grid-area: out; }
+  .pr-fixed-table .fx-break { grid-area: brk; }
+  .pr-fixed-table .fx-effect { grid-area: effect; font-weight: 700; white-space: nowrap !important; }
+  .pr-fixed-table .fx-hours, .pr-fixed-table .fx-break { white-space: nowrap !important; }
+  /* Shade the whole card, not each cell: a weekend keeps its mist, a leave day its red edge. */
+  .pr-fixed-table tr.pr-day-row > td { background: transparent !important; box-shadow: none !important; }
+  .pr-fixed-table tr.pr-day-row.pr-band { background: color-mix(in srgb, var(--wk-hover) 60%, transparent); }
+  .pr-fixed-table tr.pr-day-row.pr-weekend { background: var(--mist); }
+  .pr-fixed-table tr.pr-day-row.pr-leave { background: rgba(185, 28, 28, 0.09); box-shadow: inset 3px 0 0 #b91c1c; }
+  .pr-fixed-table .fx-notes { grid-area: notes; min-width: 0; }
+  .pr-fixed-table .fx-log { grid-area: log; }
+  .pr-fixed-table tr:not(.pr-day-row) { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 4px 12px; }
+  .pr-fixed-table tr:not(.pr-day-row) > td { padding: 2px 0 !important; border: none !important; }
+}
+
 /* ── Accounting -> Reports, 10/02 (Charmi, Neil) ──────────────────────────
    Flux Analysis: a line over the thresholds is tinted amber across the row
    (the sticky Account cell too), and the Explanation cell is a button that
