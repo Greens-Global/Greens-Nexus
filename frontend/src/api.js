@@ -2245,6 +2245,8 @@ export const api = {
   verifyAndSendPacket: (eid, data) => req(`/hr/life-events/${eid}/verify-and-send`, { method: 'POST', body: JSON.stringify(data) }),
   // Ask the candidate for their details again - a fresh link, the old one dead.
   reopenPacketIntake:  (eid) => req(`/hr/life-events/${eid}/reopen-intake`, { method: 'POST' }),
+  // A promotion letter built from Documents: generated, then verified and sent.
+  startPromotion:      (eid, data) => req(`/hr/employees/${eid}/promotion/start`, { method: 'POST', body: JSON.stringify(data) }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

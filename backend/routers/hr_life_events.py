@@ -734,6 +734,27 @@ def send_promotion(eid: str, body: HirePacketIn, request: Request,
     return out
 
 
+class StartLetterIn(BaseModel):
+    inputs:     Optional[dict] = None
+    pay:        Optional[dict] = None
+    pay_values: Optional[dict] = None
+
+
+@router.post("/employees/{eid}/promotion/start")
+def start_promotion_letter(eid: str, body: StartLetterIn, user: dict = Depends(require_hr_write),
+                           db: Session = Depends(get_db)):
+    """Promote / change role with a letter built from Documents (Oct 14): the
+    letter is generated at once and the verifier checks it before it goes."""
+    pay = _pay_allowed(HirePacketIn(pay=body.pay), user, db)
+    try:
+        ev = hle.start_promotion(db, user, eid, body.inputs or {}, pay,
+                                 _pay_values_allowed(body.pay_values, user, db), hr_scope(user, db))
+    except hle.PacketError as e:
+        db.rollback()
+        _raise(e)
+    return hle.ser_event(db, ev, show_pay=_has_comp(user, db))
+
+
 class RoleChangeIn(BaseModel):
     role_id:     str
     reason:      Optional[str] = ""

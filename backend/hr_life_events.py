@@ -1467,6 +1467,23 @@ def plan_promotion(db: Session, user: dict, eid: str, inputs: dict, pay: Optiona
     if not setting:
         raise PacketError(f"No promotion letter is set up for {company} yet - add one under "
                           f"People > Hiring > Packets.", 409)
+    if is_documents(setting):
+        # Built from Documents (Oct 14): previewed here, started, verified, sent.
+        import hr_checklists as hc
+        import hr_packet_docs as hpd
+        name = (emp.display_name or f"{emp.first_name} {emp.last_name}").strip()
+        details["manager_email"] = (emp.manager_email or "").strip().lower()
+        ctx = {"entity": entity, "owners": hc.role_owners(db, emp.company or ""),
+               "sender": user["email"].lower(), "subject_email": emp.work_email.lower(),
+               "subject_emails": [emp.work_email, emp.personal_email], "subject_name": name,
+               "subject_kind": "internal", "manager_email": details["manager_email"]}
+        dp = hpd.plan(db, setting, ctx=ctx, overrides=hpd.event_values(db, "promotion", details), pay=clean,
+                      can_see_pay=bool(clean), employee_id=emp.id, entity_id=emp.company or "")
+        return {"employee": emp, "details": details, "pay": clean, "setting": setting, "template": None,
+                "docplan": dp, "merge": {}, "unresolved": [], "parties": [], "subjectName": name,
+                "title": f"{CHANGE_TYPES[details['change_type']]} Letter - {name}", "company": company,
+                "subfolder": (setting.egnyte_subfolder or "").strip() or DEFAULT_SUBFOLDERS["promotion"],
+                "flags": signed_periods_from(db, emp.work_email, details["effective_date"]) if clean else []}
     problems = setting_problems(db, setting)
     if problems:
         raise PacketError(f"The {company} promotion letter needs fixing: {problems[0]}", 409)
@@ -1506,6 +1523,16 @@ def plan_promotion(db: Session, user: dict, eid: str, inputs: dict, pay: Optiona
 
 def promotion_preview_out(plan: dict) -> dict:
     tpl, d = plan["template"], plan["details"]
+    if plan.get("docplan") is not None:
+        dp = plan["docplan"]
+        return {"engine": "documents", "title": plan["title"], "company": plan["company"],
+                "packetName": plan["setting"].name or "", "documents": [x["name"] for x in dp["documents"]],
+                "documentDetails": dp["documents"], "recipients": dp["recipients"], "verifier": dp["verifier"],
+                "problems": dp["problems"], "printsPay": dp["printsPay"],
+                "unresolved": sorted({t for x in dp["documents"] for t in x["unresolved"]}),
+                "entityId": plan["employee"].company or "", "egnyteSubfolder": plan["subfolder"],
+                "effectiveDate": d["effective_date"], "fromTitle": d["old_title"], "toTitle": d["job_title"],
+                "fromRole": d["old_role_name"], "toRole": d["role_name"], "signedPeriods": plan["flags"]}
     return {
         "title": plan["title"], "company": plan["company"], "templateName": tpl.name, "templateId": tpl.id,
         "entityId": plan["employee"].company or "",
@@ -1525,6 +1552,8 @@ def send_promotion(db: Session, user: dict, eid: str, inputs: dict, pay: Optiona
                    excluded_ack: bool, ip: str = "", user_agent: str = "") -> HrLifeEvent:
     plan = plan_promotion(db, user, eid, inputs, pay, scope, lock=True)
     emp = plan["employee"]
+    if plan.get("docplan") is not None:
+        raise PacketError("This letter is built from Documents - it is sent once HR has verified it.", 409)
     if plan["unresolved"]:
         raise PacketError("Fill in: " + ", ".join(plan["unresolved"]) + ".")
     busy = (db.query(HrLifeEvent).filter(HrLifeEvent.employee_id == emp.id, HrLifeEvent.kind == "promotion",
@@ -1565,6 +1594,41 @@ def send_promotion(db: Session, user: dict, eid: str, inputs: dict, pay: Optiona
     ev.sign_request_id = out["id"]
     if not sender_first:
         ev.status = "sent"
+    db.commit()
+    return ev
+
+
+def start_promotion(db: Session, user: dict, eid: str, inputs: dict, pay: Optional[dict],
+                    pay_values: Optional[dict], scope) -> HrLifeEvent:
+    """Promote / change role with a letter built from Documents (Oct 14): the
+    letter is generated at once and the verifier asked to check it. Commits."""
+    import hr_packet_docs as hpd
+    plan = plan_promotion(db, user, eid, inputs, pay, scope, lock=True)
+    emp, setting = plan["employee"], plan["setting"]
+    if plan.get("docplan") is None:
+        raise PacketError("This company's promotion letter is an uploaded PDF - use Send For Signature.", 409)
+    busy = (db.query(HrLifeEvent).filter(HrLifeEvent.employee_id == emp.id, HrLifeEvent.kind == "promotion",
+                                         HrLifeEvent.status.in_(OPEN)).first())
+    if busy:
+        raise PacketError("A promotion letter is already open for them - void it first.", 409)
+    d = dict(plan["details"])
+    extra = d.pop("merge", {}) or {}
+    now = _now()
+    old = ({"old_pay": {k: (emp.compensation or {}).get(k) for k in ("base", "payBasis", "frequency", "currency")}}
+           if plan["pay"] and (emp.compensation or {}).get("base") else {})
+    ev = HrLifeEvent(id=str(uuid.uuid4()), kind="promotion", status="review", entity_id=emp.company or "",
+                     employee_id=emp.id, subject_name=plan["subjectName"], subject_email=emp.work_email.lower(),
+                     setting_id=setting.id, template_id="",
+                     inputs={**d, **old, "extra": extra, "verifier_role": setting.verify_role or "hr", "engine": "documents"},
+                     pay=plan["pay"], pay_values=clean_pay_values(db, setting, pay_values),
+                     effective_date=d["effective_date"], documents=[],
+                     flags=[{"code": "signed_timesheets", "periods": plan["flags"]}] if plan["flags"] else [],
+                     created_by=user["email"].lower(), created_at=now, updated_at=now)
+    db.add(ev)
+    db.flush()
+    p = hpd.event_plan(db, ev, setting, sender=user["email"], can_see_pay=True)
+    hpd.sync_documents(db, ev, setting, p, user["email"].lower())
+    _ask_verifier(db, ev, p)
     db.commit()
     return ev
 
@@ -1715,7 +1779,23 @@ def plan_separation(db: Session, user: dict, eid: str, inputs: dict, scope, lock
     problems = setting_problems(db, setting) if setting else []
     package = d["send_package"] and bool(setting) and not problems
     merge, unresolved, parties = {}, [], []
-    if d["send_package"]:
+    docplan = None
+    if d["send_package"] and is_documents(setting):
+        # Built from Documents (Oct 14): previewed here; the offboarding itself
+        # goes ahead as always, the package waits for the verifier.
+        import hr_checklists as hc
+        import hr_packet_docs as hpd
+        if not to:
+            raise PacketError(f"Add {emp.first_name}'s personal email first - {why}.", 409)
+        d["job_title"], d["department"] = emp.job_title or "", emp.department or ""
+        d["send_kind"] = kind_of
+        ctx = {"entity": entity, "owners": hc.role_owners(db, emp.company or ""), "sender": user["email"].lower(),
+               "subject_email": to, "subject_emails": [emp.work_email, emp.personal_email], "subject_name": name,
+               "subject_kind": kind_of, "manager_email": (emp.manager_email or "").strip().lower()}
+        docplan = hpd.plan(db, setting, ctx=ctx, overrides=hpd.event_values(db, "separation", d), pay=None,
+                           can_see_pay=False, employee_id=emp.id, entity_id=emp.company or "")
+        package = True
+    elif d["send_package"]:
         if not setting:
             raise PacketError(f"No separation package is set up for {company} - add one under People > "
                               f"Hiring > Packets, or offboard without documents.", 409)
@@ -1734,6 +1814,7 @@ def plan_separation(db: Session, user: dict, eid: str, inputs: dict, scope, lock
         manager = {"name": person_name(db, mgr), "email": mgr} if mgr and mgr != work else None
         parties = _parties_for(tpl, setting.subject_role or "employee", name, to, kind_of, sender, manager=manager)
     return {"employee": emp, "details": d, "setting": setting, "template": tpl, "package": package,
+            "docplan": docplan,
             "merge": merge, "unresolved": unresolved, "parties": parties, "subjectName": name,
             "to": to, "why": why, "company": company,
             "title": f"{EVENT_TITLES['separation']} - {name}",
@@ -1742,6 +1823,14 @@ def plan_separation(db: Session, user: dict, eid: str, inputs: dict, scope, lock
 
 def separation_preview_out(plan: dict) -> dict:
     d, tpl = plan["details"], plan["template"]
+    if plan.get("docplan") is not None:
+        dp = plan["docplan"]
+        return {"engine": "documents", "title": plan["title"], "company": plan["company"], "lastDay": d["last_day"],
+                "immediate": d["immediate"], "sendTo": plan["to"], "why": plan["why"], "package": True,
+                "packetName": plan["setting"].name or "", "documents": [x["name"] for x in dp["documents"]],
+                "recipients": dp["recipients"], "verifier": dp["verifier"], "problems": dp["problems"],
+                "unresolved": [], "entityId": plan["employee"].company or "",
+                "egnyteSubfolder": plan["subfolder"]}
     return {
         "title": plan["title"], "company": plan["company"], "lastDay": d["last_day"],
         "immediate": d["immediate"], "sendTo": plan["to"], "why": plan["why"],
@@ -1812,6 +1901,17 @@ def _package_follows_the_leaver(db: Session, ev: HrLifeEvent, emp: NexusEmployee
     moves to their personal email as an external signer, the way an
     immediate offboarding sends it in the first place. Returns the note for
     the record ('' when there was nothing to move)."""
+    if ev.status in ("intake", "review") and (ev.inputs or {}).get("send_kind") == "internal":
+        # Not sent yet (Oct 14): when it is, it goes to their personal email.
+        personal = (emp.personal_email or "").strip().lower()
+        if not personal:
+            _notify(db, ev.created_by, f"Separation package has nowhere to go - {ev.subject_name}",
+                    f"{ev.subject_name} is Left and their work email is closed. Add their personal email on "
+                    f"People before the package is sent.", ev, priority=1)
+            return "package not sent yet - no personal email to send it to"
+        ev.subject_email = personal
+        ev.inputs = {**(ev.inputs or {}), "send_kind": "external"}
+        return f"package will go to {personal}"
     if not ev.sign_request_id or ev.status not in ACTIVE:
         return ""
     req = db.query(HrSignRequest).filter(HrSignRequest.id == ev.sign_request_id).first()
@@ -1843,7 +1943,7 @@ def send_separation(db: Session, user: dict, eid: str, inputs: dict, scope, *, e
         raise PacketError("Fill in: " + ", ".join(plan["unresolved"]) + ".")
     busy = (db.query(HrLifeEvent).filter(HrLifeEvent.employee_id == emp.id, HrLifeEvent.kind == "separation",
                                          HrLifeEvent.apply_status == "scheduled").first())
-    if busy and busy.status in ACTIVE:
+    if busy and busy.status in OPEN:
         raise PacketError("An offboarding is already scheduled for them - cancel it first.", 409)
     now = _now()
     if busy:
@@ -1860,7 +1960,18 @@ def send_separation(db: Session, user: dict, eid: str, inputs: dict, scope, *, e
                      effective_date=d["last_day"], apply_status="scheduled",
                      created_by=user["email"].lower(), created_at=now, updated_at=now, completed_at=now)
     db.add(ev)
-    if plan["package"]:
+    if plan.get("docplan") is not None:
+        # The package is generated now and waits for the verifier (Oct 14);
+        # the offboarding never waits on it.
+        import hr_packet_docs as hpd
+        ev.status, ev.completed_at, ev.documents = "review", "", []
+        ev.inputs = {**dict(d), "verifier_role": plan["setting"].verify_role or "hr", "engine": "documents",
+                     "extra": dict(d.get("merge") or {})}
+        db.flush()
+        p = hpd.event_plan(db, ev, plan["setting"], sender=user["email"], can_see_pay=False)
+        hpd.sync_documents(db, ev, plan["setting"], p, user["email"].lower())
+        _ask_verifier(db, ev, p)
+    elif plan["package"]:
         ev.status, ev.completed_at = "awaiting_sender", ""
         first = plan["parties"][0] if plan["parties"] else None
         sender_first = bool(first and first.email == user["email"].lower() and first.email != ev.subject_email)
@@ -1897,6 +2008,9 @@ def cancel_separation(db: Session, ev: HrLifeEvent, actor: str) -> None:
     ev.apply_status = "canceled"
     ev.apply_note = f"Canceled by {actor}"
     ev.updated_at = _now()
+    if ev.status in ("intake", "review"):
+        void_open(db, ev, actor)       # never sent: its documents are archived
+        return
     if ev.sign_request_id and ev.status in ACTIVE:
         from routers.esign import void_request
         db.commit()

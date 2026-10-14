@@ -1693,6 +1693,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
   const [roleAction, setRoleAction] = useState(null);      // 'choose' (Change Role asks first) | 'promotion'
   const [offboardOpen, setOffboardOpen] = useState(false);
   const [signParty, setSignParty] = useState(null);        // HR's own signature on a letter
+  const [reviewEvent, setReviewEvent] = useState(null);    // a letter / package built from Documents, being reviewed (Oct 14)
   const [eventsKey, setEventsKey] = useState(0);
   const [requestsKey, setRequestsKey] = useState(0);   // the pending role change card
   const [welcomeBusy, setWelcomeBusy] = useState(false);
@@ -1911,7 +1912,8 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
         onClose={() => setRoleAction(null)}
         onSent={ev => {
           setRoleAction(null); setEventsKey(n => n + 1);
-          if (ev.senderPartyId) setSignParty(ev.senderPartyId);
+          if (ev.openReview) setReviewEvent(ev.id);
+          else if (ev.senderPartyId) setSignParty(ev.senderPartyId);
           else toastOk(`Letter sent - ${e.firstName} signs first, then their manager.`);
         }} />}
       {offboardOpen && <OffboardModal employee={e} companyName={companyName} toastErr={toastErr}
@@ -1924,8 +1926,11 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           toastOk(ev.applyStatus === 'applied'
             ? `${e.firstName} is offboarded${extra ? ` - ${extra}` : ''}.`
             : `Offboarding scheduled - last day ${usDay(ev.effectiveDate)}, Nexus marks them Left the morning after.`);
-          if (ev.senderPartyId) setSignParty(ev.senderPartyId);
+          if (ev.status === 'review') setReviewEvent(ev.id);
+          else if (ev.senderPartyId) setSignParty(ev.senderPartyId);
         }} />}
+      {reviewEvent && <PacketReview eventId={reviewEvent} onClose={() => setReviewEvent(null)}
+        onChanged={() => setEventsKey(n => n + 1)} onSignNow={setSignParty} toastOk={toastOk} toastErr={toastErr} />}
       <PacketSigner partyId={signParty} toastOk={toastOk} toastErr={toastErr}
         onClose={() => { setSignParty(null); setEventsKey(n => n + 1); }}
         onDone={() => { setSignParty(null); setEventsKey(n => n + 1); toastOk('Signed.'); }} />
