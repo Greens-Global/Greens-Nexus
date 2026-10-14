@@ -27,7 +27,7 @@ import PartnersTab from '../components/accounting/PartnersTab';
 import AllocationsTab from '../components/accounting/AllocationsTab';
 import AmaTab from '../components/accounting/AmaTab';
 import { Calculator, Handshake, Split, Users } from 'lucide-react';
-import { ArrowLeftRight, BookOpen, PieChart, Scale } from 'lucide-react';
+import { ArrowLeftRight, BookOpen, PieChart, Scale, Target, Activity } from 'lucide-react';
 
 // Accounting in Nexus reads the Nexus Accounting ledger (a one-way Intacct ->
 // Supabase mirror; Intacct stays the source of truth and nothing is written
@@ -70,6 +70,9 @@ const REPORT_SHORTCUTS = [
   { report: 'cash-position', label: 'Cash Position', Icon: Wallet },
   { report: 'general-ledger', label: 'General Ledger', Icon: BookOpen },
   { report: 'cash-flow', label: 'Statement of Cash Flows', Icon: ArrowLeftRight },
+  // Oct 15 (Charmi): the two review reports, one click from the menu too.
+  { report: 'flux', label: 'Flux Analysis', Icon: Activity },
+  { report: 'budget', label: 'Actual vs Budget', Icon: Target },
 ];
 const TABS = [
   { key: 'dashboard', label: 'Dashboard', Icon: LayoutGrid, items: [

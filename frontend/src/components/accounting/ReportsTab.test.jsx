@@ -64,6 +64,8 @@ vi.mock('../../api', () => ({
       { symbol: 'ARJ', title: 'Accounts Receivable', kind: 'ar' }, { symbol: 'STAT', title: 'Units', kind: 'statistical' },
     ] })),
     getAccountingFluxNotes: vi.fn(async () => ({ notes: [{ accountNo: '41100', note: 'New tenant in suite B.' }] })),
+    getAccountingReportBudget: vi.fn(async () => ({ budget_id: 'STD', rows: [{ account_no: '61000', title: 'Repairs', section: 'expense', month: '2026-01', amount: 300 }] })),
+    getAccountingBudget: vi.fn(async () => ({ source: 'none', rows: [] })),
     saveAccountingFluxNote: vi.fn(async (body) => ({ accountNo: body.accountNo, note: body.note, by: 'me', at: '2026-10-02' })),
     saveAccountingFluxReview: vi.fn(async (body) => ({ accountNo: body.accountNo, note: 'Roof repair last year, one-time.', closed: body.closed, closedBy: body.closed ? 'me' : '', status: body.closed ? 'closed' : 'answered' })),
     egnyteFolder: vi.fn(async (path) => ({ path, folders: [{ name: '2026', path: `${path}/2026` }, { name: 'Lenders', path: `${path}/Lenders` }], files: [] })),
@@ -192,7 +194,7 @@ describe('ReportsTab controls', () => {
     await screen.findByText('Rental Income');
     const report = screen.getByLabelText('Report');
     expect(report.tagName).toBe('SELECT');
-    expect([...report.options].map((o) => o.textContent)).toEqual(['Income Statement', 'Balance Sheet', 'Trial Balance', 'General Ledger', 'Cash Position', 'Flux Analysis', 'Statement of Cash Flows']);
+    expect([...report.options].map((o) => o.textContent)).toEqual(['Income Statement', 'Balance Sheet', 'Trial Balance', 'General Ledger', 'Cash Position', 'Flux Analysis', 'Statement of Cash Flows', 'Actual vs Budget']);
     expect(screen.queryByText('Profit & Loss')).toBeNull();
     expect(screen.queryByRole('button', { name: /refresh/i })).toBeNull();
     expect(screen.queryByText(/add filter/i)).toBeNull();
@@ -722,6 +724,18 @@ describe('ReportsTab controls', () => {
     // The chip takes it off.
     fireEvent.click(screen.getByRole('button', { name: /^Remove Current Period Between/ }));
     await screen.findByText('Repairs');
+  });
+
+  it('opens Actual vs Budget as its own report: Actual, Budget, Variance $ and Variance % (Charmi, 10/15)', async () => {
+    render(<ReportsTab report="budget" />);
+    await screen.findByRole('columnheader', { name: 'Variance $' });
+    expect(screen.getByRole('heading', { level: 3 }).textContent).toContain('Actual vs Budget');
+    expect(screen.getAllByRole('columnheader').map((h) => h.textContent).slice(1)).toEqual(['Actual', 'Budget', 'Variance $', 'Variance %']);
+    const repairs = screen.getByText('Repairs').closest('tr');
+    expect([...repairs.querySelectorAll('td.acct-num')].map((c) => c.textContent)).toEqual(['400.00', '300.00', '100.00', '33.3%']);
+    expect(screen.getByText(/Budget: Intacct budget STD/)).toBeTruthy();
+    // A budget is per entity and account: no department or vendor filters here.
+    expect(screen.queryByRole('button', { name: /^Filters/ })).toBeNull();
   });
 
   it('asks the ledger once when two controls change one after the other', async () => {

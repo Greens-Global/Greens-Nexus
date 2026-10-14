@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   bookLabel, bookOptions, cashFlowFigures, defaultConfig, glGroupOf, glLineParams, hideInactive, lineMatchesDims, numberFilterHit, parseFigure,
-  reportPages, resolveConfig, runReport, setUserBooks, withFluxNotes, filterFlux, fluxStatus, filterChips, fluxAmountText,
+  reportPages, resolveConfig, runReport, setUserBooks, withFluxNotes, filterFlux, fluxStatus, filterChips, fluxAmountText, csvRows, canUseDims, canPickAccounts,
 } from './reportModel';
 
 // Accounting > Reports, Oct 7 batch (Charmi, Neil): the General Ledger's
@@ -330,7 +330,7 @@ describe('Actual vs Budget (item 43)', () => {
       getAccountingBudget: vi.fn(),
     };
     const r = await runReport(api, resolveConfig({ ...defaultConfig(NOW), cols: 'budget', entities: ['15000'] }, NOW));
-    expect(r.columns.map((c) => c.label)).toEqual(['Actual', 'Budget', '$ Variance', '% Variance']);
+    expect(r.columns.map((c) => c.label)).toEqual(['Actual', 'Budget', 'Variance $', 'Variance %']);
     expect(r.rows.find((x) => x.code === '41000').values.slice(0, 3)).toEqual([1200, 1000, 200]);
     expect(r.notes[0]).toMatch(/Intacct budget STD/);
     expect(api.getAccountingBudget).not.toHaveBeenCalled();
@@ -349,5 +349,46 @@ describe('Actual vs Budget (item 43)', () => {
     expect(r.columns[1].label).toBe('Budget (Nexus)');
     expect(r.rows.find((x) => x.code === '41000').values[1]).toBe(300);
     expect(r.notes[0]).toMatch(/saved in Nexus/);
+  });
+
+  it('is a report of its own, the Budget column filled from a Nexus budget that names no sections (Charmi, 10/15)', async () => {
+    const actual = { org: 'Greens Global', generated_at: '2026-10-06', sections: [
+      { key: 'revenue', accounts: [{ account_no: '41000', title: 'Rental Income', amount: 1200 }] },
+      { key: 'expense', accounts: [{ account_no: '61000', title: 'Repairs', amount: 500 }] },
+    ] };
+    const months = (v) => { const m = Array(12).fill(0); m[0] = v; return m; };
+    const api = {
+      getAccountingPnl: vi.fn(async () => actual),
+      getAccountingReportBudget: vi.fn(async () => { throw new Error('404'); }),
+      // The budget answer before 10/15 carried no `section`: placed where the
+      // ledger has the account, or by the account number when it has none.
+      getAccountingBudget: vi.fn(async () => ({ source: 'nexus', rows: [
+        { accountNo: '41000', title: 'Rental Income', months: months(1000) },
+        { accountNo: '61000', title: 'Repairs', months: months(800) },
+        { accountNo: '62500', title: 'Landscaping', months: months(250) },
+      ] })),
+    };
+    const c = resolveConfig({ ...defaultConfig(NOW), report: 'budget', entities: ['15000'] }, NOW);
+    expect(c.report).toBe('budget');
+    expect(canUseDims(c)).toBe(false);
+    expect(canPickAccounts(c)).toBe(true);
+    const r = await runReport(api, c);
+    expect(r.def.label).toBe('Actual vs Budget');
+    expect(r.columns.map((x) => x.label)).toEqual(['Actual', 'Budget (Nexus)', 'Variance $', 'Variance %']);
+    const by = Object.fromEntries(r.rows.filter((x) => x.code).map((x) => [x.code, x.values]));
+    expect(by['41000']).toEqual([1200, 1000, 200, '20.0%']);
+    expect(by['61000']).toEqual([500, 800, -300, '(37.5%)']);
+    expect(by['62500']).toEqual([0, 250, -250, '(100.0%)']);
+    expect(r.rows.find((x) => x.label === 'Net Income').values.slice(0, 3)).toEqual([700, -50, 750]);
+    expect(r.notes[0]).toMatch(/saved in Nexus/);
+    // The export carries the Budget column, filled.
+    const csv = csvRows(r);
+    expect(csv[0]).toEqual(['Actual vs Budget']);
+    const head = csv.find((row) => row[0] === 'Section');
+    expect(head.slice(3)).toEqual(['Actual', 'Budget (Nexus)', 'Variance $', 'Variance %']);
+    expect(csv.find((row) => row[1] === '62500').slice(3)).toEqual([0, 250, -250, '(100.0%)']);
+    // "Accrual and Cash" cannot sit beside a budget: the Actual reads one book.
+    await runReport(api, { ...c, book: 'both' });
+    expect(api.getAccountingPnl.mock.calls.at(-1)[4]).toBe('accrual');
   });
 });

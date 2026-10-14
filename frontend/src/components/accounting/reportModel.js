@@ -30,6 +30,12 @@ export const REPORTS = [
   // capital moves between two balance sheets, investing and financing; the
   // ending cash ties to Cash Position. Mapping by account type and title.
   { key: 'cash-flow', label: 'Statement of Cash Flows', period: 'range' },
+  // Actual vs Budget (Charmi, 10/15: "Actual is what we already have. Budget
+  // is what is missing and needs to be added into the template"): the income
+  // statement's Actual beside the Budget - the Intacct budget, else the one
+  // saved in Nexus (Accounting > Budget) - with Variance $ and Variance %, as
+  // a report of its own; the Income Statement keeps it as a Columns choice.
+  { key: 'budget', label: 'Actual vs Budget', period: 'range' },
 ];
 /** The flag thresholds a Flux Analysis starts with: both must be passed for a line to be flagged. */
 export const FLUX_DEFAULTS = { fluxPct: 10, fluxAmount: 5000 };
@@ -310,8 +316,10 @@ export const activeColumns = (config) => (config.book === 'both' && canPickBook(
 // The Statement of Cash Flows ties to Cash Position, which reads the accrual
 // book for whole entities - so neither a book nor the dimension filters apply.
 export const canPickBook = (config) => config.report !== 'cash-position' && config.report !== 'cash-flow';
-export const canUseDims = (config) => config.report !== 'cash-position' && config.report !== 'cash-flow';
-export const canPickAccounts = (config) => ['pnl', 'balance-sheet', 'general-ledger', 'flux'].includes(config.report);
+// Actual vs Budget: a budget is kept per entity and account, never per
+// department or vendor, so the other filters would narrow only one side.
+export const canUseDims = (config) => config.report !== 'cash-position' && config.report !== 'cash-flow' && config.report !== 'budget';
+export const canPickAccounts = (config) => ['pnl', 'balance-sheet', 'general-ledger', 'flux', 'budget'].includes(config.report);
 
 export const periodText = (config) => {
   const def = reportDef(config.report);
@@ -465,6 +473,13 @@ function statementsByBucket(rows, sectionKeys) {
   });
   return out;
 }
+// The income statement section an account number falls in when nothing
+// else says (Greens' chart: 4xxxx revenue, 5xxxx cost of sales, 6xxxx-7xxxx
+// operating expenses, 8xxxx other income, 9xxxx other expenses).
+function accountSection(code) {
+  const d = String(code || '').trim()[0];
+  return { 4: 'revenue', 5: 'cogs', 6: 'expense', 7: 'expense', 8: 'other_income', 9: 'other_expense' }[d] || '';
+}
 const asSections = (report, bySection) => SECTIONS[report].map(([key, label]) => ({ key, label, accounts: bySection?.get(key) || [] }));
 
 // A dimension column per code can be thousands of columns. Keep the largest
@@ -537,9 +552,14 @@ export function balanceAsOf(rows, asof) {
 // entities on the report (GET /accounting/reports/budget); until the app has
 // one, the budget saved in Nexus for the one picked entity, labeled
 // "Budget (Nexus)". A month counts in full when the period covers part of it.
-async function readBudget(api, config) {
+async function readBudget(api, config, actualSections = []) {
   const bySection = new Map();
-  const add = (section, code, title, amount) => {
+  // A budget line the source does not place (the Nexus budget answered
+  // without sections before 10/15) goes where the ledger has the account.
+  const home = new Map();
+  (actualSections || []).forEach((s) => (s.accounts || []).forEach((a) => { if (a.account_no) home.set(a.account_no, s.key); }));
+  const add = (given, code, title, amount) => {
+    const section = PL_KEYS.includes(given) ? given : home.get(code) || accountSection(code);
     if (!PL_KEYS.includes(section) || !Number.isFinite(Number(amount))) return;
     const list = bySection.get(section) || [];
     const at = list.find((a) => a.account_no === code);
@@ -596,8 +616,9 @@ async function readColumns(api, config, entities = []) {
     return { cols, derived: null, mode: 'books' };
   }
   if (mode === 'budget' && !isBs) {
-    const [actual, budget] = await Promise.all([one(range, 'Actual', book, 'cur'), readBudget(api, config)]);
-    return { cols: [actual, { key: 'budget', label: budget.label, drill: null, sections: budget.sections }], derived: 'compare', mode: 'compare', otherLabel: budget.label, budgetNote: budget.note };
+    const actual = await one(range, 'Actual', book, 'cur');
+    const budget = await readBudget(api, config, actual.sections);
+    return { cols: [actual, { key: 'budget', label: budget.label, drill: null, sections: budget.sections }], derived: 'compare', mode: 'compare', otherLabel: budget.label, budgetNote: budget.note, varianceLabels: ['Variance $', 'Variance %'] };
   }
   if (isCompare(mode)) {
     let prior;
@@ -701,7 +722,8 @@ function layout(config, read) {
     return v;
   };
   const columns = cols.map((c) => ({ key: c.key, label: c.label, type: 'amount', drill: c.drill }));
-  if (derived === 'compare') columns.push({ key: 'var', label: '$ Variance', type: 'variance' }, { key: 'pct', label: '% Variance', type: 'pct' });
+  const [varLabel, pctLabel] = read.varianceLabels || ['$ Variance', '% Variance'];
+  if (derived === 'compare') columns.push({ key: 'var', label: varLabel, type: 'variance' }, { key: 'pct', label: pctLabel, type: 'pct' });
   if (derived === 'total') columns.push({ key: 'total', label: 'Total', type: 'amount', drill: read.totalDrill, emphasis: true });
 
   const wanted = config.accounts?.length ? new Set(config.accounts) : null;
@@ -833,6 +855,12 @@ export async function runReport(api, config, entities = []) {
   if (config.report === 'general-ledger') return { ...base, ...(await generalLedger(api, config, book, drillCur)) };
   if (config.report === 'cash-flow') return { ...base, ...(await cashFlowReport(api, config)) };
   if (config.report === 'flux') return { ...base, ...(await fluxAnalysis(api, config, book)) };
+  if (config.report === 'budget') {
+    // The income statement read with the Budget beside the Actual.
+    const pnlConfig = { ...config, report: 'pnl', cols: 'budget', book: config.book === 'both' ? 'accrual' : config.book };
+    const read = await readColumns(api, pnlConfig, entities);
+    return { ...base, org: read.cols[0]?.org || '', generatedAt: read.cols[0]?.generatedAt || '', mode: read.mode, otherLabel: read.otherLabel || '', ...layout(pnlConfig, read), notes: [read.budgetNote].filter(Boolean), budgetLabel: read.otherLabel || 'Budget' };
+  }
 
   const read = await readColumns(api, config, entities);
   return { ...base, org: read.cols[0]?.org || '', generatedAt: read.cols[0]?.generatedAt || '', mode: read.mode, otherLabel: read.otherLabel || '', ...layout(config, read), ...(read.budgetNote ? { notes: [read.budgetNote] } : {}) };
