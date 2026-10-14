@@ -57,6 +57,10 @@ describe('Workday Overview with the Time Clock', () => {
     expect(await screen.findByRole('button', { name: /Punch In/ })).toBeTruthy();
     expect(screen.getByText('Clocked Out')).toBeTruthy();
     expect(screen.getByText('Not Clocked In')).toBeTruthy();
+    // Phone layout hooks (Oct 13): the punch row is its own cell of the clock
+    // card and the card is wrapped so the phone stylesheet can lead with it.
+    expect(screen.getByRole('button', { name: /Punch In/ }).closest('.wd-punch-row')).toBeTruthy();
+    expect(document.querySelector('.wd-overview > .wd-clock-wrap .wd-clock')).toBeTruthy();
     expect(await screen.findByText('Amy Test')).toBeTruthy();
     // Overview, Time Sheet, Time Off - no Clock tab.
     const tabs = [...document.querySelectorAll('.module-tab-inline-btn')].map((b) => b.textContent.trim());

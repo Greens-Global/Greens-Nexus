@@ -4097,6 +4097,58 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 [data-theme="dark"] .dk-action-sub--on, [data-theme="dark"] .dk-action-sub--ok { color: #4ade80; }
 [data-theme="dark"] .dk-action-sub--bad { color: #f87171; }
 .dk-action[aria-disabled="true"] { cursor: default; opacity: .72; }
+
+/* Quick Actions styles (Oct 13). Icons Only: no card - a grid of bare icon
+   chips sitting on the board, one per grid cell (the widget sets the column
+   and row counts from its size), each chip the size of an Action Tile's and
+   the whole chip the button. On a phone (.qa-dock--row) it is one strip:
+   icons spread across the width, scrolling sideways past the fit. */
+.qa-dock { display: grid; width: 100%; height: 100%; box-sizing: border-box; place-items: center; position: relative; gap: 4px; }
+.qa-dock--row { display: flex; flex-wrap: nowrap; align-items: center; justify-content: space-around; gap: 10px; padding: 0 6px; overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+.qa-dock--row::-webkit-scrollbar { display: none; height: 0; }
+.qa-empty { font-size: 12px; color: var(--muted); text-align: center; padding: 6px 10px; grid-column: 1 / -1; }
+.qa-dock--row > .qa-icon { flex: 0 0 auto; }
+.qa-icon {
+  width: 48px; height: 48px; border-radius: 15px; border: none; padding: 0; margin: 0; cursor: pointer; font: inherit;
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  box-shadow: var(--wk-shadow); transition: transform .12s ease, box-shadow .15s ease, filter .12s ease;
+}
+.qa-icon svg { width: 22px; height: 22px; }
+.qa-icon:not(:disabled):hover { transform: translateY(-1px); box-shadow: var(--wk-shadow-hov); filter: brightness(1.03); }
+.qa-icon:not(:disabled):active { transform: scale(.94); box-shadow: var(--wk-shadow); }
+.qa-icon:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: 2px; }
+.qa-icon:disabled { cursor: default; opacity: .6; }
+.qa-icon[aria-busy="true"] { cursor: progress; }
+/* Clocked in: the punch icon carries the same live ping as the clock card. */
+.qa-icon--live { animation: tcPingQa 1.8s cubic-bezier(.22,1,.36,1) infinite; }
+@keyframes tcPingQa { 0% { box-shadow: 0 0 0 0 rgba(0,162,91,.35); } 70% { box-shadow: 0 0 0 9px rgba(0,0,0,0); } 100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); } }
+@media (prefers-reduced-motion: reduce) { .qa-icon--live { animation: none; } }
+.qa-icon--more { background: var(--card); color: var(--muted); font-size: 13px; font-weight: 800; border: 1px solid var(--wk-line2); letter-spacing: -.02em; }
+[data-theme="dark"] .qa-icon--more { background: var(--card); border-color: var(--line); }
+.qa-note {
+  position: absolute; left: 50%; bottom: 2px; transform: translateX(-50%); max-width: calc(100% - 12px); box-sizing: border-box;
+  padding: 3px 10px; border-radius: 999px; background: var(--card); color: var(--wk-ink); font-size: 11px; font-weight: 600;
+  box-shadow: var(--wk-shadow-hov); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; animation: fadeIn .15s ease-out;
+}
+/* Icons + Names: app-icon tiles with the name under each, no header. */
+.qa-tiles-card { height: 100%; box-sizing: border-box; overflow: auto; padding: 14px 12px; position: relative; }
+.qa-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px 4px; }
+.qa-tile {
+  display: flex; flex-direction: column; align-items: center; gap: 7px; padding: 8px 4px; border: none; background: none; border-radius: 12px;
+  cursor: pointer; font: inherit; min-width: 0; transition: background .12s ease;
+}
+.qa-tile:hover { background: var(--wk-hover, var(--mist)); }
+.qa-tile:active .qa-tile-chip { transform: scale(.94); }
+.qa-tile:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: -2px; }
+.qa-tile--static { cursor: default; }
+.qa-tile--static:hover { background: none; }
+.qa-tile-chip.qa-icon { width: 46px; height: 46px; border-radius: 14px; }
+.qa-tile-name { font-size: 11.5px; font-weight: 600; color: var(--wk-ink); line-height: 1.2; text-align: center; overflow-wrap: anywhere; max-width: 100%; }
+[data-theme="dark"] .qa-tile-name { color: var(--ink); }
+.qa-tiles-note { margin-top: 8px; text-align: center; font-size: 11.5px; font-weight: 600; color: var(--wk-green); }
+/* The punch inside the list style: a live chip where the static one sits. */
+.qa-list-punch { cursor: default; }
+.qa-list-punch-chip { border: none; cursor: pointer; padding: 0; }
 .dk-action[aria-disabled="true"]:hover, .dk-action[aria-disabled="true"]:active { transform: none; box-shadow: var(--wk-shadow); border-color: var(--wk-line2); }
 /* The Action Tile's announcer: read by screen readers, never drawn. */
 .dk-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
