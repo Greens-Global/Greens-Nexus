@@ -433,7 +433,7 @@ export default function TimeclockWidget() {
   // Not before the local-agent probe has answered: until then an agent PC
   // would show a dropped-share alert for a share it never needed.
   const browserCaptures = canCapture && !agentActive && !localAgent && agentProbed && !!navigator.mediaDevices?.getDisplayMedia;
-  const vm = !live ? { state: mine.state } : {
+  const vm = !live ? { state: mine.state, sinceLabel: mine.lastOutLabel } : {
     state: mine.state,
     timer: fmtHM(onBreak ? Math.floor(elapsedSec / 60) : mine.todayMin),
     todayMin: mine.todayMin,

@@ -12,6 +12,11 @@ vi.mock('../contexts/RoleContext', () => ({
   ROLES: {}, EXTERNAL_ROLE_META: { label: 'External' },
 }));
 vi.mock('../api', () => ({ api: { qaEnabled: () => Promise.resolve({ enabled: false }) } }));
+// Off the clock the sidebar draws Punch In from the Punch tile's hook.
+const punch = vi.hoisted(() => ({ act: vi.fn(async () => {}) }));
+vi.mock('../dashboard/essentials/usePunchClock.jsx', () => ({
+  usePunchClock: () => ({ status: { lastPunch: { kind: 'out', at: '2026-10-13T23:30:00' } }, vm: { state: 'out', exempt: false, lastOutLabel: 'Last clocked out at 4:30 PM' }, busy: '', note: null, act: punch.act, modals: null }),
+}));
 
 let PHONE = false;
 const realMatchMedia = window.matchMedia;
@@ -56,13 +61,15 @@ describe('Sidebar', () => {
     expect(container.querySelector('.sidebar.peek')).toBeNull();          // no hover peek (sent back, Oct 14)
   });
 
-  it('draws the time clock chip from the engine only while a shift is live, and claims the surface', () => {
-    act(() => publishTimeclock({ state: 'out' }));
+  it('off the clock: the chip offers Punch In from the Punch tile hook; live: the engine draws it and claims the surface', () => {
+    act(() => publishTimeclock({ state: 'out', sinceLabel: 'Last clocked out at 4:30 PM' }));
     const r = mount();
-    expect(r.container.querySelector('.sbclock')).toBeNull();
+    expect(screen.getByText('Clocked Out', { selector: '.sbclock-state' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Punch In' }));
+    expect(punch.act).toHaveBeenCalledWith('in');
     expect(timeclockSurfaceClaimed()).toBe(false);
     act(() => publishTimeclock(live()));
-    expect(screen.getByText('Clocked In')).toBeTruthy();
+    expect(screen.getByText('Clocked In', { selector: '.sbclock-state' })).toBeTruthy();
     expect(screen.getByText('2:10')).toBeTruthy();
     expect(timeclockSurfaceClaimed()).toBe(true);                           // the capsule stands down
     r.unmount();
@@ -74,15 +81,21 @@ describe('Sidebar', () => {
     const { container } = mount({ collapsed: true });
     expect(container.querySelector('.sbclock-rail .sbring')).toBeTruthy();
     expect(container.querySelector('.sbclock')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Break' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Start Break' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Punch Out' })).toBeTruthy();
+  });
+
+  it('nothing for an exempt person', () => {
+    act(() => publishTimeclock({ state: 'exempt' }));
+    const { container } = mount();
+    expect(container.querySelector('.sidebar-foot')).toBeNull();
   });
 
   it('on a phone the drawer never draws the chip - the capsule keeps it', () => {
     PHONE = true;
     act(() => publishTimeclock(live()));
     const { container } = mount();
-    expect(container.querySelector('.sbclock')).toBeNull();
+    expect(container.querySelector('.sidebar-foot')).toBeNull();
     expect(timeclockSurfaceClaimed()).toBe(false);
   });
 });

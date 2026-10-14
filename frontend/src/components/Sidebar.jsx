@@ -1,9 +1,8 @@
-import { forwardRef, useState, useEffect, useRef } from "react";
+import { forwardRef, useState, useEffect } from "react";
 import { useRole } from "../contexts/RoleContext";
 import { api } from "../api";
 import { useIsMobile } from "../lib/useIsMobile";
-import { useTimeclock, claimTimeclockSurface } from "../lib/timeclockStore";
-import ClockChip from "./ClockChip";
+import SidebarClock from "./SidebarClock";
 import {
   LayoutDashboard, ShoppingCart, CheckSquare, BookOpen,
   Monitor, Wifi, Home, LayoutGrid, FileText,
@@ -195,27 +194,11 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
   // Dev-only Testing module: ask the backend once whether it's enabled here.
   const [qaEnabled, setQaEnabled] = useState(false);
   useEffect(() => { api.qaEnabled().then(r => setQaEnabled(!!r?.enabled)).catch(() => {}); }, []);
-  // The time clock chip (Oct 14 2026) replaces the user footer: the live
-  // shift from the engine (components/TimeclockWidget.jsx, which keeps
-  // running and stops drawing its capsule while this chip claims the
-  // surface). Only where the sidebar is a real sidebar - on a phone it is a
-  // drawer and the capsule stays. Nothing when clocked out or exempt.
+  // The time clock (components/SidebarClock.jsx, Oct 14 2026) replaces the
+  // user footer, which repeated the top-right block (the role badge lives in
+  // the profile menu). Only where the sidebar is a real sidebar - on a phone
+  // it is a drawer and the floating capsule stays.
   const phone = useIsMobile('(max-width: 900px)');   // the drawer breakpoint - style.css's `@media (max-width: 900px) { .sidebar {...} }`
-  const tc = useTimeclock();
-  const liveClock = !phone && !!tc && (tc.state === 'in' || tc.state === 'break');
-  useEffect(() => (liveClock ? claimTimeclockSurface() : undefined), [liveClock]);
-  // A punch-out drains the ring and fades the chip (400ms) before the slot
-  // empties: the last live view-model is held for that long.
-  const [held, setHeld] = useState(null);
-  useEffect(() => {
-    if (liveClock) { setHeld(null); return undefined; }
-    if (!held && tc && lastLive.current) { setHeld(lastLive.current); }
-    const t = setTimeout(() => setHeld(null), 420);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [liveClock]);
-  const lastLive = useRef(null);
-  useEffect(() => { if (liveClock) lastLive.current = tc; }, [liveClock, tc]);
 
   function renderIcon(item, size = 17) {
     return item.icon
@@ -329,11 +312,7 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
             profile menu). Silent when clocked out. Folded, it is a column
             of icons - state, Break, Punch Out - so nothing needs the
             sidebar open (Neil, Oct 14 2026). ── */}
-        {(liveClock || held) && (
-          <div className="sidebar-foot">
-            <ClockChip vm={liveClock ? tc : held} variant={collapsed ? 'rail' : 'wide'} leaving={!liveClock} />
-          </div>
-        )}
+        {!phone && <SidebarClock collapsed={collapsed} />}
       </aside>
       {isOpen && <div className="sidebar-overlay active" onClick={onClose} />}
     </>
