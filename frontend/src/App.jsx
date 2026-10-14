@@ -388,7 +388,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "timeclock":          return <TimeClock initialTab="overview" activeSub={activeSub} onSubChange={onSubChange} />;
     case "myhr":               return <TimeClock initialTab="overview" activeSub={activeSub} onSubChange={onSubChange} />;
     case "testing":            return <Testing />;
-    case "credvault":          return <CredentialVault />;
+    case "credvault":          return <CredentialVault activeSub={activeSub} onSubChange={onSubChange} />;
     case "egnyte":             return <Egnyte activeSub={activeSub} onSubChange={onSubChange} />;
     case "employee-tracking":  return <EmployeeTracking initialSub={activeSub} module />;
     case "shifts":             return <Shifts activeSub={activeSub} onSubChange={onSubChange} />;

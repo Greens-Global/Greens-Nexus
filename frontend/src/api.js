@@ -1655,6 +1655,14 @@ export const api = {
   cvPersonalLockVerify: (password) => req('/credvault/personal/lock/verify', { method: 'POST', body: JSON.stringify({ password }) }),
   cvPersonalLockForgot: (channel)  => req('/credvault/personal/lock/forgot', { method: 'POST', body: JSON.stringify({ channel }) }),
   cvPersonalLockReset:  (challengeId, code, newPassword) => req('/credvault/personal/lock/reset', { method: 'POST', body: JSON.stringify({ challengeId, code, newPassword }) }),
+  cvTransfer:       (id, ownerEmail) => req(`/credvault/credentials/${id}/transfer`, { method: 'POST', body: JSON.stringify({ ownerEmail }) }),
+  // Oct 14 2026 rebuild: ask for access, who has it, end a grant early,
+  // the identity-check window, edit a personal credential.
+  cvRequest:        (id, body)   => req(`/credvault/credentials/${id}/request`, { method: 'POST', body: JSON.stringify(body || {}) }),
+  cvAccess:         (id)         => req(`/credvault/credentials/${id}/access`),
+  cvRevokeGrant:    (grantId)    => req(`/credvault/grants/${grantId}`, { method: 'DELETE' }),
+  cvOtpStatus:      ()           => req('/credvault/otp/status'),
+  cvPersonalUpdate: (id, body)   => req(`/credvault/personal/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
 
   // ── Documents (DMS) - Phase 1: folders + drafts/library, next to E-Sign ──
   getDocFolders:      ()             => req('/documents/folders'),
