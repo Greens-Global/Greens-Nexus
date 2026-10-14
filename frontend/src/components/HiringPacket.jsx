@@ -865,10 +865,37 @@ export function HiringPacketStatus({ candidateId, refreshKey, onSignNow, onChang
     const mine = (events || []).filter(e => e.kind === kind);
     return mine.find(e => e.status !== 'voided') || mine[0] || null;
   }).filter(Boolean), [events]);
+  // The offer is signed but its hiring packet was voided, declined or
+  // expired (or never started): start it again from here.
+  const offerDone = shown.find(e => e.kind === 'offer' && e.status === 'completed');
+  const hireEv = shown.find(e => e.kind === 'hire');
+  const restart = offerDone && hireEv && ['voided', 'declined', 'expired'].includes(hireEv.status);
+  const [busy, setBusy] = useState(false);
+  async function startAgain() {
+    setBusy(true);
+    try {
+      const out = await api.startPacketAfterOffer(candidateId);
+      toastOk?.(out.intakeUrl ? `Hiring packet started again - ${out.subjectName} was emailed a new link for their details.` : 'Hiring packet started.');
+      load(); onChanged?.();
+    } catch (e) { toastErr?.(e?.message || 'Could not start the hiring packet.'); }
+    setBusy(false);
+  }
   if (events === null) return <div style={{ padding: '8px 0' }}><Spinner size={16} /></div>;
   if (!shown.length) return null;
-  return <>{shown.map(ev => <LifeEventCard key={ev.id} ev={ev} onSignNow={onSignNow} toastOk={toastOk} toastErr={toastErr} hideSign={hideSign}
-    onChanged={() => { load(); onChanged?.(); }} />)}</>;
+  return (
+    <>
+      {shown.map(ev => <LifeEventCard key={ev.id} ev={ev} onSignNow={onSignNow} toastOk={toastOk} toastErr={toastErr} hideSign={hideSign}
+        onChanged={() => { load(); onChanged?.(); }} />)}
+      {restart && (
+        <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontSize: 12.5 }}>
+          <span style={{ color: 'var(--muted)' }}>Their hiring packet is {hireEv.status} - their right to work paperwork is not done.</span>
+          <button type="button" className="primary-btn" onClick={startAgain} disabled={busy} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            {busy ? <Spinner size={12} /> : <Send size={12} />} Start Hiring Packet Again
+          </button>
+        </div>
+      )}
+    </>
+  );
 }
 
 // The letters on a person (People > profile): anything still out for
@@ -902,6 +929,10 @@ const PAPERWORK_WAIT = {
 export function paperworkState(events) {
   const hires = (events || []).filter(e => e.kind === 'hire');
   const ev = hires.find(e => e.status !== 'voided') || null;
+  // Only voided ones after a signed offer: still not done - say so.
+  if (!ev && hires.length && (events || []).some(e => e.kind === 'offer' && e.status === 'completed')) {
+    return { done: false, ev: hires[0], why: 'the hiring packet was voided - start it again from their Hiring card' };
+  }
   const offer = (events || []).find(e => e.kind === 'offer' && e.status === 'completed');
   if (ev?.status === 'completed') return { done: true, ev };
   if (ev) return { done: false, ev, why: PAPERWORK_WAIT[ev.status] || ev.status };

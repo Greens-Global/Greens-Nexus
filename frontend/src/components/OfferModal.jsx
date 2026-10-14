@@ -71,6 +71,7 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
   const [jds, setJds] = useState([]);
   const [roles, setRoles] = useState({ roles: [], departments: [] });
   const [opts, setOpts] = useState(null);              // which letter + packet, and what they ask
+  const [chosenId, setChosenId] = useState('');         // HR picked another offer letter by hand
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -90,12 +91,13 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
   useEffect(() => {
     let alive = true;
     setLoading(true);
-    api.offerOptions(c.id, { worker_type: who.worker_type, country: who.country, role_id: roleId })
+    api.offerOptions(c.id, { worker_type: who.worker_type, country: who.country, role_id: roleId, packet_id: chosenId,
+                             new_role: isOther ? '1' : '', department: isOther ? f.department : '' })
       .then(o => { if (!alive) return; setOpts(o); setWho(w => (w.country ? w : { ...w, country: o.country || '' })); })
       .catch(e => { if (alive) { setOpts(null); toastErr?.(e?.message || 'Could not find the offer letter.'); } })
       .finally(() => alive && setLoading(false));
     return () => { alive = false; };
-  }, [c.id, who.worker_type, who.country, roleId]);
+  }, [c.id, who.worker_type, who.country, roleId, chosenId, isOther, f.department]);
 
   const letter = opts?.offerLetter || null;
   const packet = opts?.hiringPacket || null;
@@ -132,7 +134,7 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
       const ev = await api.startOffer(c.id, {
         inputs: { ...f, ...who, role_id: roleId, new_role_name: isOther ? f.new_role_name.trim() : '',
                   ...(prints.has('work_schedule') || prints.has('work_hours') || prints.has('work_days') ? timing : {}),
-                  jd_template_id: packet ? jdId : '', packet_id: '', merge: plain },
+                  jd_template_id: packet ? jdId : '', packet_id: chosenId, merge: plain },
         pay: canSeePay && String(pay.base).trim() ? { ...pay, base: Number(pay.base) } : null,
         pay_values: Object.keys(payQs).length ? payQs : null,
         details: { first_name: person.first_name.trim(), last_name: person.last_name.trim(), ...(prints.has('address') ? { address: person.address.trim() } : {}) },
@@ -219,17 +221,26 @@ export default function OfferModal({ candidate: c, canSeePay, onClose, onStarted
               ) : (
                 <>
                   <Warn>{opts?.missing || 'No offer letter matches this hire.'}</Warn>
-                  {onMoveWithout && opts && !(opts.choices || []).length && (
+                  {onMoveWithout && opts && (
                     <div style={{ ...hint, marginTop: 8 }}>
-                      This company has no offer letters yet.{' '}
+                      {(opts.choices || []).length ? 'Pick one of the company\'s other letters below, set one up, or ' : 'This company has no offer letters yet. '}
                       <button type="button" onClick={() => onMoveWithout(c)}
                         style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 11.5, color: 'hsl(var(--color-blue))', textDecoration: 'underline', fontFamily: 'Inter,sans-serif' }}>
-                        Move them to Offer without one
-                      </button> - the hiring packet can still be sent the old way.
+                        move them to Offer without one
+                      </button> - the hiring packet can then be sent the old way.
                     </div>
                   )}
                 </>
               )}
+              {(opts?.choices || []).length > 1 || (!letter && (opts?.choices || []).length > 0) ? (
+                <div style={{ marginTop: 8 }}>
+                  <label style={{ ...lbl, marginTop: 4 }} htmlFor="of-letter">Use A Different Offer Letter</label>
+                  <select id="of-letter" className="form-input" style={{ width: '100%' }} value={chosenId} onChange={e => setChosenId(e.target.value)}>
+                    <option value="">The one Nexus picks for this hire</option>
+                    {opts.choices.map(x => <option key={x.id} value={x.id}>{x.name}{x.workerType !== 'any' ? ` - ${x.workerType === 'contractor' ? 'Contractors' : 'Employees'}` : ''}{x.country ? ` (${COUNTRY_NAMES[x.country] || x.country})` : ''}</option>)}
+                  </select>
+                </div>
+              ) : null}
             </div>
           )}
 

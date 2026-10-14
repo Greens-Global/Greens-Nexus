@@ -221,7 +221,7 @@ def _mode(setting: HrPacketSetting) -> str:
     m = (setting.pay_mode or "").strip()
     if m:
         return m
-    return "always" if setting.event in ("hire", "promotion") else "auto"
+    return "always" if setting.event in ("offer", "hire", "promotion") else "auto"
 
 
 def doc_prints_pay(setting: HrPacketSetting, snap: Snap) -> bool:
@@ -1055,6 +1055,7 @@ def verify_and_send(db: Session, ev, user: dict, *, seen: dict, excluded_ack: bo
     if not excluded_ack:
         raise hle.PacketError("Confirm the packet is not a record excluded from electronic signature.", 422)
     parties = p["parties"]
+    hle.refresh_due(ev)                    # paperwork after a signed offer never goes out already expired
     status = status_at_send(parties, ev.subject_email)
     out = build_envelope(db, ev, setting, user, p, excluded_ack=excluded_ack, ip=ip, user_agent=user_agent)
     now = datetime.now(timezone.utc).isoformat()

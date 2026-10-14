@@ -244,10 +244,15 @@ def resolve_setting(db: Session, entity_id: str, event: str, worker_type: str,
                                            _sendable()).all())
                        if (r.country or "").upper() in ("", country) and (not documents_only or is_documents(r))])
     if role_id:
+        # A role's own letter or packet - still for the right kind of hire
+        # (Neil: "we could have an accounting associate who is an employee. We
+        # could have an accounting associate who is a contractor").
         for rows in levels:
-            for r in rows:
-                if role_id in (r.role_ids or []):
-                    return r
+            mine = [r for r in rows if role_id in (r.role_ids or [])]
+            for wt in (worker_type, "any"):
+                for r in mine:
+                    if (r.worker_type or "any") == wt:
+                        return r
     for rows in levels:
         general = [r for r in rows if not (r.role_ids or [])]
         for wt in (worker_type, "any"):
@@ -623,7 +628,11 @@ def reroute_hire_packet(db: Session, cand: HrCandidate, new_email: str, by: str)
     if ev is not None and ev.status in ("intake", "review"):
         # Not sent yet (Oct 14): the packet simply goes to the corrected address.
         ev.subject_email, ev.updated_at = new_email.strip().lower(), _now()
-        _stage_note(db, ev, f"Hiring packet will go to {ev.subject_email}", by=by)
+        _stage_note(db, ev, f"{EVENT_TITLES.get(ev.kind, 'Packet')} will go to {ev.subject_email}", by=by)
+        if ev.status == "intake" and ev.intake_token_hash:
+            # The details link went to the typo - a fresh one, the old one dead.
+            refresh_due(ev)
+            mail_intake_after_commit(db, ev, new_intake_token(ev))
         return True
     if not ev or not ev.sign_request_id:
         return False
@@ -1038,7 +1047,7 @@ def _describe(db: Session, s: Optional[HrPacketSetting], department: str = "", r
 
 
 def offer_options(db: Session, cand: HrCandidate, worker_type: str, country: str, role_id: str,
-                  chosen: str = "") -> dict:
+                  chosen: str = "", new_role: bool = False, department: str = "") -> dict:
     """The Move To Offer form: which offer letter this kind of hire gets, the
     hiring packet that follows it, and everything either asks of HR - so HR
     answers once, at the offer (Neil: "the time to do it is right at sending
@@ -1046,7 +1055,8 @@ def offer_options(db: Session, cand: HrCandidate, worker_type: str, country: str
     wt = (worker_type or "").strip().lower()
     company_country = country_of(db, cand.company)
     country = re.sub(r"[^A-Za-z]", "", country or "").upper()[:2] or company_country
-    role_id = (role_id or cand.role_id or "").strip()
+    # A new role ("Other") has no role of its own yet - never the card's.
+    role_id = "" if new_role else (role_id or cand.role_id or "").strip()
     entity = db.query(HrEntity).filter(HrEntity.id == cand.company).first()
     company = entity.name if entity else "this company"
     choices = [{"id": r.id, "name": r.name or "Unnamed", "workerType": r.worker_type or "any", "country": r.country or ""}
@@ -1060,7 +1070,7 @@ def offer_options(db: Session, cand: HrCandidate, worker_type: str, country: str
     packet = resolve_setting(db, cand.company, "hire", wt, role_id, country, documents_only=True)
     from models import NexusGroup
     role = db.query(NexusGroup).filter(NexusGroup.id == role_id).first() if role_id else None
-    department = (role.department if role is not None else "") or cand.department or ""
+    department = (role.department if role is not None else "") or department or cand.department or ""
     out["offerLetter"] = _describe(db, letter, department, role_id)
     out["hiringPacket"] = _describe(db, packet, department, role_id)
     if letter is None:
@@ -1115,6 +1125,30 @@ def plan_offer(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[di
             "former": former, "company": company, "subjectName": f"{cand.first_name} {cand.last_name}".strip()}
 
 
+def offer_pay_snaps(db: Session, setting: HrPacketSetting, inputs: dict) -> list:
+    """The documents an offer's pay can be printed in: the letter, and the
+    hiring packet that follows it (HR answers both at the offer)."""
+    import hr_packet_docs as hpd
+    ids = hpd.template_ids_for(setting, inputs, "offer")
+    packet = (db.query(HrPacketSetting).filter(HrPacketSetting.id == inputs.get("hire_packet_id")).first()
+              if inputs.get("hire_packet_id") else None)
+    if packet is not None:
+        ids += [t for t in hpd.template_ids_for(packet, inputs, "hire") if t not in ids]
+    return hpd.load_snaps(db, ids)[0]
+
+
+def _no_pay_in(snaps: list, extra: dict) -> None:
+    """HR's plain answers never carry pay - a pay question is entered as pay
+    (Pay & Benefits only, never on a document row)."""
+    import hr_packet_docs as hpd
+    defs = {}
+    for snap in snaps:
+        defs.update(snap.defs)
+    for k in extra or {}:
+        if hpd.is_pay_token(k, defs):
+            raise PacketError(f'"{k.replace("_", " ")}" is pay - enter it with the pay (Pay & Benefits access needed).')
+
+
 def _pay_for(snaps: list, values: Optional[dict]) -> dict:
     """Pay typed per pay variable - only the pay variables these documents
     print (and {{salary}}), at most 200 characters each."""
@@ -1157,6 +1191,7 @@ def start_offer(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[d
     extra = d.pop("merge", {}) or {}
     stored = {**d, **opts, "extra": extra, "verifier_role": setting.verify_role or "hr", "engine": "documents",
               "hire_packet_id": packet.id if packet is not None else ""}
+    _no_pay_in(offer_pay_snaps(db, setting, stored), extra)
     letter_snaps, _ = hpd.load_snaps(db, hpd.template_ids_for(setting, d, "offer"))
     packet_ids = hpd.template_ids_for(packet, {**d, **opts}, "hire") if packet is not None else []
     packet_snaps = hpd.load_snaps(db, packet_ids)[0] if packet_ids else []
@@ -1197,6 +1232,7 @@ def start_packet_after_offer(db: Session, offer: HrLifeEvent, by: str) -> tuple:
     cand = db.query(HrCandidate).filter(HrCandidate.id == offer.candidate_id).first()
     if cand is None or not offer.employee_id:
         raise PacketError("They are not hired yet - the hiring packet starts once the offer letter is signed.", 409)
+    # One at a time; a voided, declined or expired one can be started again.
     existing = (db.query(HrLifeEvent)
                 .filter(HrLifeEvent.candidate_id == cand.id, HrLifeEvent.kind == "hire",
                         HrLifeEvent.status.in_(OPEN + ("completed",))).first())
@@ -1269,7 +1305,9 @@ def mail_intake_after_commit(db: Session, ev: HrLifeEvent, token: str) -> str:
         # shows up, and nothing is sent.
         import time
         from database import SessionLocal
-        for _ in range(40):
+        # Up to ten minutes: the sealed copies are emailed inside the same
+        # signing request, before it commits.
+        for _ in range(300):
             s2 = SessionLocal()
             try:
                 found = s2.query(HrLifeEvent.id).filter(HrLifeEvent.intake_token_hash == want).first() is not None
@@ -1278,7 +1316,7 @@ def mail_intake_after_commit(db: Session, ev: HrLifeEvent, token: str) -> str:
             if found:
                 rc.send_emails([(to, subject, html)])
                 return
-            time.sleep(0.5)
+            time.sleep(2)
 
     sa_event.listen(db, "after_commit", lambda _s: threading.Thread(target=send, daemon=True).start(), once=True)
     return link
@@ -1379,11 +1417,25 @@ def submit_intake(db: Session, ev: HrLifeEvent, values: dict) -> None:
     db.commit()
 
 
+def refresh_due(ev: HrLifeEvent) -> None:
+    """The packet that follows a signed offer is paperwork, not an offer: its
+    date never strands it. Asking again or sending it with less than three
+    days left gives it two more weeks."""
+    d = dict(ev.inputs or {})
+    if not d.get("after_offer"):
+        return
+    today = datetime.strptime(_today(), "%Y-%m-%d")
+    if (d.get("due_on") or "") < (today + timedelta(days=3)).strftime("%Y-%m-%d"):
+        d["due_on"] = (today + timedelta(days=14)).strftime("%Y-%m-%d")
+        ev.inputs = d                       # reassigned, never mutated in place (JSON column)
+
+
 def reopen_intake(db: Session, ev: HrLifeEvent, by: str) -> str:
     """Ask the candidate again (a typo, an expired link): a fresh link, the
     old one dead. The packet goes back to waiting on details. Commits."""
     if ev.kind != "hire" or ev.status not in ("intake", "review"):
         raise PacketError("Only a hiring packet that has not been sent can ask for details again.", 409)
+    refresh_due(ev)
     exp = (ev.inputs or {}).get("due_on") or (ev.inputs or {}).get("offer_expires") or ""
     if exp and exp < _today():
         raise PacketError("The link's date has passed - change Offer Expires first.", 409)
@@ -1492,7 +1544,8 @@ def patch_values(db: Session, ev: HrLifeEvent, user: dict, body: dict, *, can_se
             except ValueError as e:
                 raise PacketError(str(e))
         if "pay_values" in body:
-            ev.pay_values = clean_pay_values(db, setting, body.get("pay_values"), inputs.get("jd_template_id", ""), inputs)
+            ev.pay_values = (_pay_for(offer_pay_snaps(db, setting, inputs), body.get("pay_values")) if ev.kind == "offer"
+                             else clean_pay_values(db, setting, body.get("pay_values"), inputs.get("jd_template_id", ""), inputs))
     ev.inputs = inputs
     ev.updated_at = _now()
     db.flush()

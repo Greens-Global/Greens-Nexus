@@ -242,6 +242,97 @@ class JourneyTests(OfferCase):
         self.assertEqual(self._ev(eid).status, "voided")
 
 
+class ReviewFixTests(OfferCase):
+    """The holes a cold review found (Oct 14)."""
+
+    def test_a_roles_own_letter_still_follows_employee_or_contractor(self):
+        db = database.SessionLocal()
+        cand = db.query(models.HrCandidate).filter_by(id="cand-1").one()
+        cand.role_id = "role-x"
+        db.add(models.NexusGroup(id="role-x", name="Analyst", department="Accounting", is_job_role=1, company_id=CO))
+        _setting(db, "s-role-con", "offer", "Analyst Contractor Letter", ["t-india"], worker_type="contractor")
+        db.flush()
+        db.query(models.HrPacketSetting).filter_by(id="s-role-con").update({"role_ids": ["role-x"]})
+        db.commit()
+        db.close()
+        base = "/hr/candidates/cand-1/offer/options"
+        self.assertEqual(self.client.get(base, params={"worker_type": "employee"}).json()["offerLetter"]["name"],
+                         "US Employee Offer")
+        self.assertEqual(self.client.get(base, params={"worker_type": "contractor"}).json()["offerLetter"]["name"],
+                         "Analyst Contractor Letter")
+        # "Other (a new role)" never falls back to the card's role
+        other = self.client.get(base, params={"worker_type": "contractor", "new_role": "1"}).json()
+        self.assertIsNone(other["offerLetter"])
+
+    def test_a_voided_packet_starts_again_and_an_old_date_never_strands_it(self):
+        offer = self._offer().json()
+        self._send_and_sign(offer["id"])
+        packet = self.db.query(models.HrLifeEvent).filter_by(candidate_id="cand-1", kind="hire").one()
+        db = database.SessionLocal()
+        row = db.query(models.HrLifeEvent).filter_by(id=packet.id).one()
+        row.inputs = {**row.inputs, "due_on": "2020-01-01"}
+        db.commit()
+        db.close()
+        r = self.client.post(f"/hr/life-events/{packet.id}/reopen-intake")
+        self.assertEqual(r.status_code, 200, r.text)                 # refreshed, not refused
+        self.assertGreater(self._ev(packet.id).inputs["due_on"], "2026-01-01")
+        self.assertEqual(self.client.post(f"/hr/life-events/{packet.id}/void").status_code, 200)
+        r = self.client.post("/hr/candidates/cand-1/hiring-packet/after-offer")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertNotEqual(r.json()["id"], packet.id)
+        self.assertEqual(r.json()["status"], "intake")
+
+    def test_editing_an_offers_pay_keeps_the_packets_pay_questions(self):
+        db = database.SessionLocal()
+        fee = _doc(_p("Monthly fee ", "{{monthly_fee}}", " for ", "{{full_name}}"), _sig("company"), _sig("employee"))
+        _tpl(db, "t-fee", "Fee Schedule", fee, [{"token": "monthly_fee", "label": "Monthly Fee", "type": "text",
+                                                  "source": "hr", "pay": True}], category="hr")
+        db.query(models.HrPacketSetting).filter_by(id="s-hire").update({"doc_template_ids": ["t-intake", "t-fee"]})
+        db.commit()
+        db.close()
+        r = self._offer()
+        self.assertEqual(r.status_code, 200, r.text)
+        eid = r.json()["id"]
+        db = database.SessionLocal()
+        db.query(models.HrLifeEvent).filter_by(id=eid).update({"pay_values": {"monthly_fee": "$5,000"}})
+        db.commit()
+        db.close()
+        r = self.client.patch(f"/hr/life-events/{eid}/values",
+                              json={"pay_values": {"monthly_fee": "$5,500", "salary": "$85,000 per year"}})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self._ev(eid).pay_values["monthly_fee"], "$5,500")
+        # and pay never rides in HR's plain answers
+        db = database.SessionLocal()
+        db.query(models.HrLifeEvent).filter_by(id=eid).update({"status": "voided"})
+        db.commit()
+        db.close()
+        r = self._offer(merge={"probation_period": "90 days", "monthly_fee": "$1"})
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("is pay", r.json()["detail"])
+
+    def test_the_role_from_the_offer_is_applied_when_the_work_email_lands(self):
+        from routers.hr import adopt_pending_role
+        db = database.SessionLocal()
+        db.add(models.NexusGroup(id="role-y", name="Analyst", department="Accounting", is_job_role=1, company_id=CO))
+        db.query(models.HrCandidate).filter_by(id="cand-1").update({"role_id": "role-y"})
+        db.commit()
+        db.close()
+        offer = self._offer(role_id="role-y").json()
+        self._send_and_sign(offer["id"])
+        self.db.expire_all()
+        emp = self.db.query(models.NexusEmployee).filter_by(
+            id=self.db.query(models.HrCandidate).filter_by(id="cand-1").one().employee_id).one()
+        emp.work_email = "jane.new@greensglobal.com"
+        adopt_pending_role(self.db, emp, HR)
+        self.db.commit()
+        self.assertTrue(self.db.query(models.NexusGroupMember).filter_by(group_id="role-y", email="jane.new@greensglobal.com").first())
+
+    def test_no_mark_hired_by_hand_under_an_open_offer(self):
+        self._offer()
+        r = self.client.patch("/hr/candidates/cand-1", json={"stage": "hired"})
+        self.assertEqual(r.status_code, 409)
+
+
 class BuildingBlockTests(OfferCase):
     """One packet per kind of hire; the team's own NDA is added for the person
     (Neil: "there's a different confidentiality agreement for each team")."""

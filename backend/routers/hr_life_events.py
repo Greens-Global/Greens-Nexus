@@ -713,6 +713,7 @@ def start_hiring_packet(cid: str, body: StartPacketIn, background: BackgroundTas
 
 @router.get("/candidates/{cid}/offer/options")
 def offer_options(cid: str, worker_type: str = "", country: str = "", role_id: str = "", packet_id: str = "",
+                  new_role: str = "", department: str = "",
                   user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     """The Move To Offer form: which offer letter this hire gets (by employee
     or contractor, and where they work), the hiring packet that follows it,
@@ -721,7 +722,8 @@ def offer_options(cid: str, worker_type: str = "", country: str = "", role_id: s
         cand = hle._load_candidate(db, cid, hr_scope(user, db))
     except hle.PacketError as e:
         _raise(e)
-    return hle.offer_options(db, cand, worker_type, country, role_id, packet_id)
+    return hle.offer_options(db, cand, worker_type, country, role_id, packet_id,
+                             new_role=new_role in ("1", "true"), department=department)
 
 
 class OfferIn(BaseModel):

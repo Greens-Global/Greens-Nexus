@@ -862,6 +862,12 @@ def update_candidate(cid: str, body: CandidateUpdate, user: dict = Depends(requi
             if hle.active_hire_event(db, row.id):
                 raise HTTPException(409, "Their offer letter or hiring packet is still open - void it first "
                                          "(on its card), then reject.")
+        if body.stage == "hired":
+            # A signature would hire them a second time.
+            import hr_life_events as hle
+            if hle.active_hire_event(db, row.id):
+                raise HTTPException(409, "Their offer letter or hiring packet is still open - void it first "
+                                         "(on its card), then mark them hired.")
         db.add(HrStageEvent(id=str(uuid.uuid4()), candidate_id=row.id, from_stage=row.stage,
                             to_stage=body.stage, note=(body.stage_note or "").strip(),
                             by_email=user["email"], created_at=now))
@@ -4002,7 +4008,9 @@ def adopt_pending_role(db: Session, emp: NexusEmployee, by: str, ev=None) -> Non
     if has_role:
         return
     if ev is None:
-        ev = (db.query(HrLifeEvent).filter(HrLifeEvent.employee_id == emp.id, HrLifeEvent.kind == "hire",
+        # The signed offer letter (Oct 14) or the hiring packet - whichever
+        # signed last carries the role they were hired into.
+        ev = (db.query(HrLifeEvent).filter(HrLifeEvent.employee_id == emp.id, HrLifeEvent.kind.in_(("offer", "hire")),
                                            HrLifeEvent.status == "completed")
               .order_by(HrLifeEvent.completed_at.desc()).first())
     role_id = ((ev.inputs or {}).get("role_id") if ev else "") or ""

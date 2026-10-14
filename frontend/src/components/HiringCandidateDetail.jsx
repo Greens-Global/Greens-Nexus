@@ -94,8 +94,10 @@ export default function CandidateDetailModal({
   useEffect(() => {
     if (!['interview', 'offer'].includes(c.stage) || !onMakeOffer) { setOfferChoices(null); return; }
     api.offerOptions(c.id).then(o => setOfferChoices(o.choices || [])).catch(() => setOfferChoices([]));
-  }, [c.id, c.stage, refreshKey, onMakeOffer]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only whether there is an offer flow, not the callback's identity
+  }, [c.id, c.stage, refreshKey, !!onMakeOffer]);
   const offers = onMakeOffer && (offerChoices === null || offerChoices.length > 0);
+  const offerSigned = (packetEvents || []).some(e => e.kind === 'offer' && e.status === 'completed');
   // Once an interview is on the books the record is settled - no more editing
   // of who they are or which company; the email goes with the packet.
   const canEdit = ['applied', 'screening'].includes(c.stage);
@@ -163,7 +165,10 @@ export default function CandidateDetailModal({
       secondary('Another Interview', () => onSchedule(c), <Undo2 size={13} />),
       secondary('Mark Hired By Hand', markHiredByHand, null),
       awaitingMe && onSignPacket && primary('Sign & Offer', () => onSignPacket(awaitingMe.senderPartyId), <FileSignature size={14} />),
-      !packetOut && offers && primary('Make Offer', () => onMakeOffer(c), <FileSignature size={14} />, packetEvents === null),
+      !packetOut && offers && !offerSigned && primary('Make Offer', () => onMakeOffer(c), <FileSignature size={14} />, packetEvents === null),
+      // No letter fits this hire (say only an India contractor letter exists
+      // and this is a US employee): the old packet send stays reachable.
+      !packetOut && offers && !offerSigned && packetPick?.picked && secondary('Send Hiring Packet Without An Offer Letter', () => onSendPacket(c), <FileText size={13} />),
       !packetOut && !offers && primary(packetPick?.picked?.engine === 'documents' ? 'Start Hiring Packet' : 'Send Hiring Packet',
         () => onSendPacket(c), <FileText size={14} />, packetEvents === null)],
     rejected: [primary('Reopen', () => onStage(c, 'applied', note || 'Reopened'), <RotateCcw size={14} />)],
