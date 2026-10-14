@@ -1040,6 +1040,10 @@ def _run_migrations():
             "ALTER TABLE task_templates ADD COLUMN checklist JSON DEFAULT '[]'",
             "ALTER TABLE task_templates ADD COLUMN source_task_id VARCHAR DEFAULT ''",
             "ALTER TABLE task_templates ADD COLUMN created_by VARCHAR DEFAULT ''",
+            # Hiring board (Neil, Oct 14): expected interview date, rejected -> inactive.
+            "ALTER TABLE hr_candidates ADD COLUMN expected_interview_on VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_candidates ADD COLUMN rejected_at VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_candidates ADD COLUMN inactive_at VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2306,6 +2310,10 @@ def _run_migrations():
         "ALTER TABLE task_templates ADD COLUMN IF NOT EXISTS checklist JSONB DEFAULT '[]'::jsonb",
         "ALTER TABLE task_templates ADD COLUMN IF NOT EXISTS source_task_id VARCHAR DEFAULT ''",
         "ALTER TABLE task_templates ADD COLUMN IF NOT EXISTS created_by VARCHAR DEFAULT ''",
+        # Hiring board (Neil, Oct 14): expected interview date, rejected -> inactive.
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS expected_interview_on VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS rejected_at VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS inactive_at VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

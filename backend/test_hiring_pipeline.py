@@ -94,7 +94,7 @@ class PipelineCase(unittest.TestCase):
         self.db.close()
 
     def _add(self, **kw):
-        body = {"first_name": "Jane", "last_name": "Doe", "email": "jane@gmail.com", "company": ENT}
+        body = {"first_name": "Jane", "last_name": "Doe", "email": "jane@gmail.com", "phone": "555-0100", "company": ENT}
         body.update(kw)
         return hr.create_candidate(hr.CandidateIn(**body), user=HR_USER, db=self.db)
 
@@ -177,7 +177,7 @@ class IntakeTests(PipelineCase):
             self._add(email="not-an-email")
 
     def test_edit_fixes_the_email_and_changes_the_role(self):
-        c = self._add(email="")
+        c = self._add(email="jane.typo@gmail.com")
         out = hr.update_candidate(c["id"], hr.CandidateUpdate(email="Jane.Doe@Gmail.com", role_id="role-shared"),
                                   user=HR_USER, db=self.db)
         self.assertEqual((out["email"], out["roleTitle"], out["department"]), ("jane.doe@gmail.com", "IT Support Associate", "IT"))
@@ -277,10 +277,60 @@ class StageTests(PipelineCase):
         self.assertEqual(self._stage(cid).interview_at, "")
 
     def test_no_email_no_invite(self):
-        cid = self._cand("screening", email="")
+        cid = self._cand("screening")
+        self.db.query(models.HrCandidate).filter_by(id=cid).update({"email": ""})   # a candidate from before email was required
+        self.db.commit()
         with self.assertRaises(HTTPException) as e:
             self._schedule(cid)
         self.assertIn("email", e.exception.detail)
+
+
+class BoardTests(PipelineCase):
+    """The hiring board (Neil, Oct 14): required contact details, the expected
+    interview date, moving back, and rejected candidates leaving the board."""
+
+    def test_last_name_email_and_phone_are_required(self):
+        for field in ("last_name", "email", "phone"):
+            with self.assertRaises(HTTPException) as e:
+                self._add(**{field: ""})
+            self.assertEqual(e.exception.status_code, 400)
+
+    def test_the_expected_interview_date_is_kept(self):
+        c = self._add(expected_interview_on="2030-11-05")
+        self.assertEqual(c["expectedInterviewOn"], "2030-11-05")
+        with self.assertRaises(HTTPException):
+            self._add(expected_interview_on="11/05/2030")
+
+    def test_any_earlier_stage_but_never_out_of_hired(self):
+        cid = self._cand("offer")
+        out = hr.update_candidate(cid, hr.CandidateUpdate(stage="screening", stage_note="Needs another look"),
+                                  user=HR_USER, db=self.db)
+        self.assertEqual(out["stage"], "screening")
+        cid2 = self._cand("hired")
+        with self.assertRaises(HTTPException):
+            hr.update_candidate(cid2, hr.CandidateUpdate(stage="offer"), user=HR_USER, db=self.db)
+
+    def test_mark_hired_by_hand_needs_a_reason(self):
+        cid = self._cand("offer")
+        with self.assertRaises(HTTPException) as e:
+            hr.update_candidate(cid, hr.CandidateUpdate(stage="hired"), user=HR_USER, db=self.db)
+        self.assertIn("why", e.exception.detail)
+
+    def test_rejected_leave_the_board_by_hand_or_after_90_days_and_reopen_brings_them_back(self):
+        cid = self._cand("screening")
+        out = hr.update_candidate(cid, hr.CandidateUpdate(stage="rejected"), user=HR_USER, db=self.db)
+        self.assertFalse(out["inactive"])
+        out = hr.update_candidate(cid, hr.CandidateUpdate(inactive=True), user=HR_USER, db=self.db)
+        self.assertTrue(out["inactive"])
+        out = hr.update_candidate(cid, hr.CandidateUpdate(stage="applied", stage_note="Reopened"), user=HR_USER, db=self.db)
+        self.assertFalse(out["inactive"])
+        cid2 = self._cand("screening")
+        hr.update_candidate(cid2, hr.CandidateUpdate(stage="rejected"), user=HR_USER, db=self.db)
+        self.db.query(models.HrCandidate).filter_by(id=cid2).update({"rejected_at": "2020-01-01T00:00:00"})
+        self.db.commit()
+        self.assertTrue(next(c for c in hr.list_candidates(user=HR_USER, db=self.db) if c["id"] == cid2)["inactive"])
+        with self.assertRaises(HTTPException):
+            hr.update_candidate(self._cand("applied"), hr.CandidateUpdate(inactive=True), user=HR_USER, db=self.db)
 
 
 class FollowupTests(PipelineCase):

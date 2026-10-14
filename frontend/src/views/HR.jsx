@@ -2130,7 +2130,8 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
   const [addOpen, setAddOpen] = useState(false);
   const [detail, setDetail] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [showClosed, setShowClosed] = useState(false);
+  const [showInactive, setShowInactive] = useState(false);   // rejected ones taken off the board
+  const [dragOver, setDragOver] = useState('');              // the lane a card is being dragged over
   const [qOpen, setQOpen] = useState(false);        // questionnaires manager
   const [lbOpen, setLbOpen] = useState(false);      // interview leaderboard
   const [ivFor, setIvFor] = useState(null);         // candidate for the interview room
@@ -2183,13 +2184,61 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
   if (candidates === null) return <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }}><Spinner size="section" /></div>;
 
   const open = candidates.filter(c => !['hired', 'rejected'].includes(c.stage));
-  const closed = candidates.filter(c => ['hired', 'rejected'].includes(c.stage));
-  const byStage = s => candidates.filter(c => c.stage === s);
+  // Neil, Oct 14: Hired and Rejected stay on the board ("there's no need to keep
+  // this closed"); a rejected candidate leaves it when removed, or after 90 days.
+  const inactive = candidates.filter(c => c.inactive);
+  const byStage = s => candidates.filter(c => c.stage === s && !c.inactive);
+  const LANES = [...STAGES, 'rejected'];
+
+  // Drag a card to another stage (Neil, Oct 14: "you should be able to drag
+  // and drop people ... you should be able to go backwards"). Each target runs
+  // the same action its button does - Interview is reached by scheduling one.
+  async function dropOn(id, stage) {
+    setDragOver('');
+    const c = candidates.find(x => x.id === id);
+    if (!c || c.stage === stage) return;
+    if (c.stage === 'hired') { toastErr(`${candName(c)} is hired - that is final.`); return; }
+    const from = LANES.indexOf(c.stage), to = LANES.indexOf(stage);
+    if (stage === 'rejected') {
+      const why = await dialog.prompt(`Reject ${candName(c)}? Add a reason for the notes (optional).`, { title: 'Reject', confirmText: 'Reject' });
+      if (why !== null) moveStage(c, 'rejected', why);
+      return;
+    }
+    if (c.stage === 'rejected') {
+      if (await dialog.confirm(`Reopen ${candName(c)} in ${STAGE_META[stage].label}?`, { title: 'Reopen', confirmText: 'Reopen' })) {
+        moveStage(c, stage === 'screening' ? 'screening' : 'applied', 'Reopened');
+      }
+      return;
+    }
+    if (stage === 'hired') {
+      if (c.stage !== 'offer') { toastErr('Hire from Offer - make the offer first.'); return; }
+      markHiredByHand(c);
+      return;
+    }
+    if (stage === 'interview' && from < to) {
+      if (!c.email) { toastErr('Add their email first (open them, then Edit) - the Teams invite goes there.'); return; }
+      setScheduling({ candidate: c, replace: null });     // Interview means a scheduled interview
+      return;
+    }
+    if (stage === 'offer' && c.stage !== 'interview') { toastErr('Interview them before the offer - schedule the interview first.'); return; }
+    if (to < from && !await dialog.confirm(`Move ${candName(c)} back to ${STAGE_META[stage].label}?`, { title: 'Move Back', confirmText: 'Move Back' })) return;
+    moveStage(c, stage, to < from ? `Moved back to ${STAGE_META[stage].label}` : '');
+  }
+  // Only for an offer signed on paper - and never without saying why.
+  async function markHiredByHand(c, note = '') {
+    const why = note || await dialog.prompt(`Mark ${candName(c)} hired without the hiring packet? Say why - for example "signed the offer on paper".`,
+      { title: 'Mark Hired By Hand', confirmText: 'Mark Hired', required: true });
+    if (why) moveStage(c, 'hired', why);
+  }
 
   const card = c => {
     const hue = hueFor({ employeeCode: c.id });
     return (
       <button key={c.id} onClick={() => setDetail(c)}
+        draggable={!isMobile && c.stage !== 'hired'}
+        onDragStart={e => { e.dataTransfer.setData('text/x-candidate', c.id); e.dataTransfer.effectAllowed = 'move'; }}
+        onDragEnd={() => setDragOver('')}
+        title={!isMobile && c.stage !== 'hired' ? 'Drag to another stage' : undefined}
         style={{ display: 'block', width: '100%', textAlign: 'left', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: '12px 13px', marginBottom: 8, boxShadow: 'var(--shadow-sm)', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
           <div style={{ width: 32, height: 32, borderRadius: 9, background: `hsla(${hue},0.13)`, color: `hsl(${hue})`, fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -2201,6 +2250,14 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
           </div>
           <span style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 600, flexShrink: 0 }}>{daysSince(c.updatedAt)}d</span>
         </div>
+        {['applied', 'screening'].includes(c.stage) && c.expectedInterviewOn && !c.interview && (
+          <div style={{ marginTop: 7 }}>
+            <span title="Expected interview date - screening is due one business day before"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 12, background: 'var(--mist)', color: 'var(--muted)' }}>
+              <CalendarDays size={10} /> Interview By {formatDate(c.expectedInterviewOn)}
+            </span>
+          </div>
+        )}
         {(c.interview || c.interviewScore != null) && !['hired', 'rejected'].includes(c.stage) && (
           <div style={{ marginTop: 7, display: 'flex', gap: 5, flexWrap: 'wrap' }}>
             {c.interview && ['scheduled', 'live'].includes(c.interview.status) && (
@@ -2249,9 +2306,12 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
             )}
           </button>
           <button className="secondary-btn" style={{ fontSize: 12.5 }} onClick={() => setLbOpen(true)}>Leaderboard</button>
-          <button className="secondary-btn" style={{ fontSize: 12.5 }} onClick={() => setShowClosed(s => !s)}>
-            {showClosed ? 'Hide' : 'Show'} closed ({closed.length})
-          </button>
+          {inactive.length > 0 && (
+            <button className="secondary-btn" style={{ fontSize: 12.5 }} onClick={() => setShowInactive(s => !s)}
+              title="Rejected candidates removed from the board, or rejected more than 90 days ago">
+              {showInactive ? 'Hide' : 'Show'} Inactive ({inactive.length})
+            </button>
+          )}
           <button className="primary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }} onClick={() => setAddOpen(true)}>
             <Plus size={14} /> Add Candidate
           </button>
@@ -2281,7 +2341,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
       ) : isMobile ? (
         /* Phone: stage-grouped stacks, same data as the desktop board */
         <div>
-          {[...STAGES.slice(0, 4), ...(showClosed ? ['hired', 'rejected'] : [])].map(s => {
+          {LANES.map(s => {
             const items = byStage(s);
             if (!items.length) return null;
             return (
@@ -2298,12 +2358,17 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
         </div>
       ) : (
         /* Desktop: kanban lanes - full height so the board reads as a board */
-        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${showClosed ? 6 : 4}, 1fr)`, gap: 12, alignItems: 'stretch' }}>
-          {[...STAGES.slice(0, 4), ...(showClosed ? ['hired', 'rejected'] : [])].map(s => {
+        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${LANES.length}, minmax(170px, 1fr))`, gap: 12, alignItems: 'stretch', overflowX: 'auto' }}>
+          {LANES.map(s => {
             const items = byStage(s);
             return (
-              <div key={s} style={{ background: 'rgba(255,255,255,0.55)', border: '1px solid var(--line)', borderRadius: 14, padding: 10,
-                minHeight: 'max(420px, calc(100vh - 470px))', display: 'flex', flexDirection: 'column' }}>
+              <div key={s} role="list" aria-label={`${STAGE_META[s].label} lane`}
+                onDragOver={e => { if (e.dataTransfer.types.includes('text/x-candidate')) { e.preventDefault(); if (dragOver !== s) setDragOver(s); } }}
+                onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) setDragOver(''); }}
+                onDrop={e => { e.preventDefault(); dropOn(e.dataTransfer.getData('text/x-candidate'), s); }}
+                style={{ background: dragOver === s ? `hsla(${STAGE_META[s].hue},0.08)` : 'rgba(255,255,255,0.55)',
+                  border: dragOver === s ? `1.5px dashed hsl(${STAGE_META[s].hue})` : '1px solid var(--line)', borderRadius: 14, padding: 10,
+                  minHeight: 'max(420px, calc(100vh - 470px))', display: 'flex', flexDirection: 'column' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '2px 4px 10px' }}>
                   <span style={{ width: 8, height: 8, borderRadius: '50%', background: `hsl(${STAGE_META[s].hue})` }} />
                   <b style={{ fontSize: 11, letterSpacing: '.05em', textTransform: 'uppercase' }}>{STAGE_META[s].label}</b>
@@ -2320,6 +2385,17 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
           })}
         </div>
       )}
+      {showInactive && inactive.length > 0 && (
+        <div style={{ marginTop: 16, border: '1px solid var(--line)', borderRadius: 14, padding: 12 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 8 }}>
+            Inactive - Rejected And Off The Board ({inactive.length})
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 8 }}>
+            {inactive.map(card)}
+          </div>
+          <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>Open one and click Reopen to put them back in the pipeline.</div>
+        </div>
+      )}
 
       {addOpen && <CandidateFormModal onClose={() => setAddOpen(false)} toastOk={toastOk} toastErr={toastErr}
         onSaved={c => {
@@ -2331,6 +2407,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
           if (c.roleCreated) loadNeedPackets();
         }} />}
       {detail && <CandidateDetailModal candidate={detail} onClose={() => setDetail(null)} onStage={moveStage} onSendForSignature={onSendForSignature} busy={busy}
+        onMarkHired={c => markHiredByHand(c)}
         refreshKey={packetRefresh}
         onUpdated={u => { if (u) { setCandidates(prev => prev.map(x => x.id === u.id ? { ...x, ...u } : x)); setDetail(d => d && d.id === u.id ? { ...d, ...u } : d); } else refreshBoard(); }}
         onEdit={cand => setEditing(cand)}

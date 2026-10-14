@@ -1082,6 +1082,9 @@ def invite_final_round(iid: str, body: FinalRoundIn, user: dict = Depends(requir
         "Join with the Teams link in this invite.\n", cand.email, cand_name,
         body.at.replace("Z", "+00:00"), max(15, min(240, body.duration_min)))
     if cand.stage in ("applied", "screening", "interview"):
+        # Recorded like every other move, so Stage History shows it.
+        db.add(HrStageEvent(id=str(uuid.uuid4()), candidate_id=cand.id, from_stage=cand.stage, to_stage="offer",
+                            note="Invited to the final round", by_email=user["email"], created_at=_now()))
         cand.stage = "offer"
     cand.updated_at = _now()
     _hr_notify(db, iv.created_by, f"Final round booked - {cand_name}",

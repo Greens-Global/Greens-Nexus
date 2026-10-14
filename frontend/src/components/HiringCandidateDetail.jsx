@@ -56,7 +56,7 @@ const rejectBtn = { background: 'none', border: '1px solid hsla(var(--color-red)
 
 export default function CandidateDetailModal({
   candidate: c, onClose, onStage, onUpdated, busy, refreshKey,
-  onEdit, onSchedule, onOpenRoom, onSendPacket, onSignPacket, onSendForSignature, onOpenPerson, toastOk, toastErr,
+  onEdit, onSchedule, onOpenRoom, onSendPacket, onSignPacket, onSendForSignature, onOpenPerson, onMarkHired, toastOk, toastErr,
 }) {
   const [history, setHistory] = useState(null);
   const [rounds, setRounds] = useState(null);
@@ -119,9 +119,16 @@ export default function CandidateDetailModal({
     onStage(c, 'offer', note);
   }
   async function markHiredByHand() {
-    if (!await dialog.confirm(`Mark ${candName(c)} hired without the hiring packet? Use this only when they signed on paper - nothing is sent or filed.`,
-      { title: 'Mark Hired', confirmText: 'Mark Hired' })) return;
-    onStage(c, 'hired', note || 'Marked hired by hand (no hiring packet)');
+    // Neil, Oct 14: hiring "backwards" outside Nexus is what we are getting
+    // away from - so a hire by hand always says why.
+    if (onMarkHired) { onMarkHired(c); return; }
+    const why = note.trim() || await dialog.prompt(`Mark ${candName(c)} hired without the hiring packet? Say why - for example "signed the offer on paper".`,
+      { title: 'Mark Hired By Hand', confirmText: 'Mark Hired', required: true });
+    if (why) onStage(c, 'hired', why);
+  }
+  async function removeFromBoard(inactive) {
+    try { onUpdated?.(await api.updateCandidate(c.id, { inactive })); toastOk?.(inactive ? `${candName(c)} removed from the board - find them under Inactive.` : `${candName(c)} is back on the board.`); }
+    catch (e) { toastErr?.(e?.message || 'Could not update them.'); }
   }
 
   const primary = (label, onClick, icon, disabled) => (
@@ -150,7 +157,8 @@ export default function CandidateDetailModal({
       awaitingMe && onSignPacket && primary('Sign & Offer', () => onSignPacket(awaitingMe.senderPartyId), <FileSignature size={14} />),
       !packetOut && primary(packetPick?.picked?.engine === 'documents' ? 'Start Hiring Packet' : 'Send Hiring Packet',
         () => onSendPacket(c), <FileText size={14} />, packetEvents === null)],
-    rejected: [primary('Reopen', () => onStage(c, 'applied', note || 'Reopened'), <RotateCcw size={14} />)],
+    rejected: [!c.inactive && secondary('Remove From Board', () => removeFromBoard(true), <XCircle size={13} />),
+      primary('Reopen', () => onStage(c, 'applied', note || 'Reopened'), <RotateCcw size={14} />)],
     hired: [c.employeeId && onOpenPerson && primary('Open In People', () => onOpenPerson(c), <ChevronRight size={14} />)],
   }[c.stage] || [];
 
@@ -181,6 +189,10 @@ export default function CandidateDetailModal({
               : <span style={{ color: 'hsl(var(--color-orange))' }}><Mail size={12} style={{ verticalAlign: 'middle', marginRight: 6 }} />No email yet{canEdit ? ' - add it with Edit (invites and the hiring packet go there)' : ''}</span>}
             {c.phone && <span><Phone size={12} style={{ verticalAlign: 'middle', marginRight: 6 }} />{c.phone}</span>}
             {c.expectedStart && <span><CalendarDays size={12} style={{ verticalAlign: 'middle', marginRight: 6 }} />Expected start {usDay(c.expectedStart)}</span>}
+            {c.expectedInterviewOn && ['applied', 'screening'].includes(c.stage) && (
+              <span><CalendarDays size={12} style={{ verticalAlign: 'middle', marginRight: 6 }} />Interview expected by {usDay(c.expectedInterviewOn)} - screening is due the business day before</span>
+            )}
+            {c.inactive && <span style={{ color: 'hsl(var(--color-orange))' }}>Inactive - off the board (removed, or rejected more than 90 days ago). Reopen to bring them back.</span>}
             <span style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <FileText size={12} />
               {c.resumeUrl ? <button onClick={viewResume} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: 'hsl(var(--color-blue))', fontFamily: 'Inter,sans-serif', padding: 0 }}>View Resume</button>

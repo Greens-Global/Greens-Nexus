@@ -977,6 +977,14 @@ class HrCandidate(Base):
     resume_url     = Column(String, default="")               # hr-docs storage path (private; signed URL to view)
     notes          = Column(String, default="")
     employee_id    = Column(String, default="")               # set when hired
+    # Neil, Oct 14: the interview is expected by this day - screening has to be
+    # done one business day before it.
+    expected_interview_on = Column(String, default="")        # ISO date
+    # A rejected candidate leaves the board: Remove, or 90 days after the
+    # rejection (Neil, Oct 14: "after 90 days it gets taken out and gets moved
+    # to like inactive"). Reopen brings them back.
+    rejected_at    = Column(String, default="")               # ISO datetime of the rejection
+    inactive_at    = Column(String, default="")               # ISO datetime removed from the board
     created_by     = Column(String, default="")
     created_at     = Column(String, default="")
     updated_at     = Column(String, default="")

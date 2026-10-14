@@ -525,14 +525,18 @@ _STAGES = ("applied", "screening", "interview", "offer", "hired", "rejected")
 # action should not be moved to interview. It should be schedule an interview"
 # - which is also how an Offer goes back for another round. Hired by hand only
 # from Offer (the hiring packet hires by itself when signed).
+# Neil, Oct 14: "you should be able to go backwards to different stages" -
+# any earlier stage, by hand or by dragging the card. Hired is final.
 _STAGE_MOVES = {
     "applied":   {"screening", "rejected"},
     "screening": {"applied", "rejected"},
-    "interview": {"offer", "screening", "rejected"},
-    "offer":     {"hired", "rejected"},
+    "interview": {"offer", "screening", "applied", "rejected"},
+    "offer":     {"hired", "interview", "screening", "applied", "rejected"},
     "rejected":  {"applied", "screening"},     # reopen
     "hired":     set(),
 }
+# A rejected candidate leaves the board after this long (Neil, Oct 14).
+INACTIVE_AFTER_DAYS = 90
 _STAGE_HINTS = {
     "interview": "Schedule the interview - that moves them to Interview.",
     "hired": "Hire from Offer - send the hiring packet, or Mark Hired By Hand.",
@@ -562,6 +566,7 @@ class CandidateIn(BaseModel):
     last_name:      Optional[str] = ""
     email:          Optional[str] = ""
     phone:          Optional[str] = ""
+    expected_interview_on: Optional[str] = ""   # ISO date the interview is expected by
     role_title:     Optional[str] = ""
     department:     Optional[str] = ""
     expected_start: Optional[str] = ""
@@ -586,10 +591,25 @@ class CandidateUpdate(BaseModel):
     stage_note:     Optional[str] = None
     interview_at:   Optional[str] = None   # ISO datetime; '' clears
     role_id:        Optional[str] = None
+    expected_interview_on: Optional[str] = None
+    inactive:       Optional[bool] = None  # Remove a rejected candidate from the board (True)
+
+
+def _is_inactive(c: HrCandidate) -> bool:
+    """Off the board: removed by hand, or rejected 90+ days ago."""
+    if (c.inactive_at or "").strip():
+        return True
+    if c.stage != "rejected":
+        return False
+    since = (c.rejected_at or c.updated_at or "")[:10]
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=INACTIVE_AFTER_DAYS)).strftime("%Y-%m-%d")
+    return bool(since) and since < cutoff
 
 
 def _ser_candidate(c: HrCandidate) -> dict:
     return {
+        "expectedInterviewOn": c.expected_interview_on or "", "rejectedAt": c.rejected_at or "",
+        "inactive": _is_inactive(c),
         "id": c.id, "firstName": c.first_name, "lastName": c.last_name,
         "email": c.email, "phone": c.phone, "roleTitle": c.role_title,
         "department": c.department, "stage": c.stage,
@@ -723,6 +743,16 @@ def candidate_history(cid: str, user: dict = Depends(require_hr_read), db: Sessi
              "byEmail": e.by_email, "createdAt": e.created_at} for e in rows]
 
 
+def _check_date(value: str, label: str) -> str:
+    v = (value or "").strip()[:10]
+    if v:
+        try:
+            datetime.strptime(v, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(400, f"{label} is not a valid date.")
+    return v
+
+
 @router.post("/candidates")
 def create_candidate(body: CandidateIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     if not body.first_name.strip():
@@ -730,6 +760,11 @@ def create_candidate(body: CandidateIn, user: dict = Depends(require_hr_write), 
     scope = hr_scope(user, db)
     if scope is not None and (body.company or "").strip() not in scope:
         raise HTTPException(403, "Pick one of your companies - your People access is limited to specific companies")
+    # Neil, Oct 14: "last name is mandatory ... e-mail and phone number needs
+    # to be mandatory" - the invites and the offer go there.
+    for value, label in ((body.last_name, "Last name"), (body.email, "Email"), (body.phone, "Phone")):
+        if not (value or "").strip():
+            raise HTTPException(400, f"{label} is required.")
     now = datetime.now(timezone.utc).isoformat()
     role_title, department = (body.role_title or "").strip(), (body.department or "").strip()
     role_id = (body.role_id or "").strip()
@@ -756,6 +791,7 @@ def create_candidate(body: CandidateIn, user: dict = Depends(require_hr_write), 
         email=_check_candidate_email(body.email), phone=(body.phone or "").strip(),
         role_title=role_title, department=department,
         expected_start=(body.expected_start or "").strip(), source=(body.source or "").strip(),
+        expected_interview_on=_check_date(body.expected_interview_on, "Expected interview date"),
         company=(body.company or "").strip(),
         notes=body.notes or "", created_by=user["email"], created_at=now, updated_at=now,
     )
@@ -856,16 +892,23 @@ def update_candidate(cid: str, body: CandidateUpdate, user: dict = Depends(requi
         if body.stage not in _STAGE_MOVES.get(row.stage, set()):
             raise HTTPException(409, _STAGE_HINTS.get(body.stage)
                                 or f"A candidate in {row.stage} can't move to {body.stage}.")
-        if body.stage == "rejected":
-            # A hiring packet still out would hire them the moment they sign.
+        if row.stage == "offer" and body.stage != "hired" or body.stage == "rejected":
+            # A hiring packet still out would hire them the moment they sign -
+            # never under a candidate moved back or rejected.
             import hr_life_events as hle
             if hle.active_hire_event(db, row.id):
                 raise HTTPException(409, "Their hiring packet is still out for signature - void it first "
-                                         "(on the packet card), then reject.")
+                                         "(on the packet card), then move them.")
+        if body.stage == "hired" and not (body.stage_note or "").strip():
+            raise HTTPException(400, "Say why they are marked hired by hand.")
         db.add(HrStageEvent(id=str(uuid.uuid4()), candidate_id=row.id, from_stage=row.stage,
                             to_stage=body.stage, note=(body.stage_note or "").strip(),
                             by_email=user["email"], created_at=now))
         row.stage = body.stage
+        if body.stage == "rejected":
+            row.rejected_at = now
+        elif row.rejected_at or row.inactive_at:
+            row.rejected_at, row.inactive_at = "", ""     # reopened: back on the board
         # Hired -> the candidate becomes an employee master record (onboarding)
         if body.stage == "hired" and not row.employee_id:
             created_employee = create_employee_from_candidate(db, row, user["email"])
@@ -904,6 +947,12 @@ def update_candidate(cid: str, body: CandidateUpdate, user: dict = Depends(requi
             hle.reroute_hire_packet(db, row, body.email, user["email"])
     if body.first_name is not None and not body.first_name.strip():
         raise HTTPException(400, "First name can't be empty.")
+    if body.expected_interview_on is not None:
+        row.expected_interview_on = _check_date(body.expected_interview_on, "Expected interview date")
+    if body.inactive is not None:
+        if body.inactive and row.stage != "rejected":
+            raise HTTPException(409, "Only a rejected candidate can be removed from the board.")
+        row.inactive_at = now if body.inactive else ""
     if body.role_id is not None:
         rid = body.role_id.strip()
         if rid:
