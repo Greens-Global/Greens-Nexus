@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, act } from '@testing-library/react';
 
-// The sidebar (Oct 14 2026): the N and wordmark go Home, the green chevron
-// folds the rail (no edge tab), a collapsed rail peeks open on hover, there
-// is no user footer, and the time clock chip sits where the footer was,
-// drawn from the engine's published view-model - only while a shift is live.
+// The sidebar (Oct 14 2026): the N and wordmark go Home, the edge tab folds
+// the rail (a header chevron and a hover peek were tried and sent back),
+// there is no user footer, and the time clock chip sits where the footer
+// was, drawn from the engine's published view-model - only while a shift is
+// live.
 
 vi.mock('../contexts/RoleContext', () => ({
   useRole: () => ({ can: () => true, myGrantedModules: new Set(), isExternal: false, myRole: 'administrator' }),

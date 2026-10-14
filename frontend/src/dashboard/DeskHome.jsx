@@ -121,9 +121,10 @@ export function DeskGreeting({ summary = null, right = null, menu = null }) {
   const firstName = ((actingAs?.targetName || accounts[0]?.name) ?? 'there').split(' ')[0];
   const { status } = useTimeStatus();   // the shared read (lib/useTimeStatus)
 
-  const last = status?.lastPunch;
-  // Stale open shift (clock-in >16h, server treats it as closed) reads as clocked out here too.
-  const clockedIn = !!(last && last.kind !== 'out') && !status?.staleOpenShift;
+  // The same derivation as the sidebar chip (stale shifts and exempt people
+  // read as clocked out), so the two never disagree on whether a shift is live.
+  const mine = deriveMyTime({ status, now });
+  const clockedIn = mine.state === 'in' || mine.state === 'break';
 
   const greeting = greetingFor(now);
   const dateLine = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric' }).format(now);
@@ -179,7 +180,7 @@ export function DeskGreeting({ summary = null, right = null, menu = null }) {
             style={{ flexShrink: 0, whiteSpace: 'nowrap' }}
           >
             <span className={`dk-dot ${clockedIn ? 'dk-dot--up' : 'dk-dot--off'}`} />
-            {clockedIn ? <>Clocked in · <b>{fmtHM(deriveMyTime({ status, now }).todayMin)}</b></> : <>Clocked out<span className="dk-session-long"> · Open time clock</span></>}
+            {clockedIn ? <>Clocked in · <b>{fmtHM(mine.todayMin)}</b></> : <>Clocked out<span className="dk-session-long"> · Open time clock</span></>}
           </button>
           {/* "…" view menu: its own distinct button, at the far right corner
               after the session chip - not merged with it (Pranshu, Sep 15

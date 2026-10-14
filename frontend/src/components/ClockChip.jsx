@@ -33,7 +33,7 @@ export default function ClockChip({ vm, variant = 'wide', onAfterAction }) {
     // A parked punch, a declined share or a dropped share must never hide
     // inside the rail: the state tile goes red with a warning icon and its
     // label says why (the wide chip spells it out; here the title does).
-    const alert = vm.lost ? 'a punch has not recorded, retry below' : vm.note || '';
+    const alert = vm.note || (vm.lost ? 'a punch has not recorded, retry below' : capture?.needed ? 'screen sharing stopped - open to share again' : '');
     const label = `${onBreak ? 'On Break' : 'Working'} · ${vm.timer}${alert ? ` · ${alert}` : ''} - open the time clock`;
     return (
       <div className={`sbclock-rail sbclock-rail--${tone}`} role="group" aria-label="Time clock">
@@ -60,10 +60,10 @@ export default function ClockChip({ vm, variant = 'wide', onAfterAction }) {
         <span className={`sbclock-dot${onBreak ? '' : ' sbclock-dot--live'}`} aria-hidden="true" />
         <span className="sbclock-text">
           <span className="sbclock-state">{onBreak ? 'On Break' : 'Working'}</span>
-          {vm.lost
-            ? <span className="sbclock-sub sbclock-sub--lost"><AlertTriangle size={10} aria-hidden="true" /> A punch has not recorded - saved on this device</span>
-            : vm.note
-              ? <span className="sbclock-sub sbclock-sub--note" role="status">{vm.note}</span>
+          {vm.note
+            ? <span className="sbclock-sub sbclock-sub--note" role="status">{vm.note}</span>
+            : vm.lost
+              ? <span className="sbclock-sub sbclock-sub--lost"><AlertTriangle size={10} aria-hidden="true" /> A punch has not recorded - saved on this device</span>
               : <span className="sbclock-sub">{vm.sinceLabel}</span>}
         </span>
         <span className="sbclock-timer">{vm.timer}</span>
@@ -84,7 +84,7 @@ export default function ClockChip({ vm, variant = 'wide', onAfterAction }) {
             onClick={capture.screens ? a.stopCapture : a.startCapture}
             aria-label={capture.paused ? 'Capture paused for your break - stop capture' : capture.screens ? 'Recording - stop capture' : capture.needed ? 'Screen sharing stopped - share your screen again' : 'Share your screen'}
             title={capture.paused ? 'Screen capture is paused for your break - no frames are saved until you end it. Click to stop capture entirely.'
-              : capture.screens ? `Recording ${capture.screens} screen${capture.screens === 1 ? '' : 's'} - click to stop capture`
+              : capture.screens ? `Recording ${capture.screens} screen${capture.screens === 1 ? '' : 's'} - a frame of each is saved every ${capture.intervalMin || 5} minute${(capture.intervalMin || 5) === 1 ? '' : 's'}${capture.randomize ? ' (timing varies)' : ''}. Click to stop capture.`
               : capture.needed ? 'Screen sharing stopped - share your screen again to keep capturing'
               : 'Share your screen to start capture (your browser shows a sharing indicator the whole time)'}>
             {capture.paused ? <MonitorPause /> : capture.screens ? <MonitorUp /> : <MonitorX />}

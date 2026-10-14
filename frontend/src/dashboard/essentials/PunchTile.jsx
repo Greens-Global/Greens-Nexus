@@ -51,8 +51,8 @@ export default function PunchTile({ row }) {
 
 // The punch as one bare icon (Quick Actions, Icons Only - Oct 13): the same
 // hook and flow as the tile, with the next punch as the icon and the state as
-// the color (green to punch in, orange to punch out, purple for a break,
-// blue to end one). There is no caption, so the plain-English note about
+// the color (green to punch in, red to punch out, amber for a break, green
+// to end one). There is no caption, so the plain-English note about
 // what the tap did goes to the caller (`onNote`) to show where it can, and
 // to a live region here so it is read out either way. A disabled icon while
 // the status loads, the Time Clock itself for an exempt person or a failed

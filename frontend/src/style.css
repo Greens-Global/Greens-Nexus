@@ -378,7 +378,6 @@ h1,h2,h3,h4,h5,h6,
   flex-shrink: 0;
 }
 
-.company-info { display: flex; flex-direction: column; gap: 1px; }
 .company-name { font-family: var(--wk-font); font-weight: 700; font-size: 17px; letter-spacing: -.02em; line-height: 1; }
 
 /* The mark + wordmark is the way Home (Oct 14 2026). */

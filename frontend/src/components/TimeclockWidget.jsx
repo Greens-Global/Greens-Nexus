@@ -72,6 +72,7 @@ export default function TimeclockWidget() {
   const [lostOut, setLostOut] = useState(false);   // the quick punch-out did not record
   const [expanded, setExpanded] = useState(false); // capsule collapsed by default; expands upward
   const [localAgent, setLocalAgent] = useState(false); // /nexus/ping answered on THIS machine
+  const [agentProbed, setAgentProbed] = useState(false); // ...and the first probe has answered at all
   const wrapRef = useRef(null);
   const [, setTick] = useState(0);
   const streamsRef = useRef([]);                   // one MediaStream per shared screen
@@ -96,7 +97,7 @@ export default function TimeclockWidget() {
     // "Capture off" pill on screen while the agent is in fact recording
     // (Aarav, Sep 3). Cheap: an absent agent refuses instantly, a blocked one
     // times out in 1.2s, and this rides the existing 25s status poll.
-    _localAgentPresent().then(setLocalAgent).catch(() => {});
+    _localAgentPresent().then((v) => { setLocalAgent(v); setAgentProbed(true); }).catch(() => setAgentProbed(true));
   }, [reloadStatus]);
 
   // The mini-timer is mounted on every screen, so this is where a punch parked
@@ -352,7 +353,7 @@ export default function TimeclockWidget() {
   useEffect(() => () => clearTimeout(noteTimer.current), []);
   const say = (text) => { setNote(text); clearTimeout(noteTimer.current); noteTimer.current = setTimeout(() => setNote(''), 6000); };
   async function quickBreak(kind) {
-    if (busy || breakBusy) return;
+    if (busy || breakBusy) return false;   // a sheet must not close on a tap that did nothing
     setBreakBusy(true);
     // Coming back from a break needs the screen shared where the policy
     // requires it (same rule as the Workday page and the Punch tile): the
@@ -383,7 +384,7 @@ export default function TimeclockWidget() {
   }
 
   async function quickPunchOut() {
-    if (busy) return;
+    if (busy) return false;
     setBusy(true);
     // An earlier punch is still owed (a break end that never landed). Send THAT
     // first: punching out moves the state past it, after which it can never be
@@ -429,13 +430,15 @@ export default function TimeclockWidget() {
   // on, no desktop agent): the screens being captured, paused on a break,
   // and `needed` when the share the policy requires has dropped mid-shift
   // (the browser's own Stop sharing, a page reload).
-  const browserCaptures = canCapture && !agentActive && !localAgent && !!navigator.mediaDevices?.getDisplayMedia;
+  // Not before the local-agent probe has answered: until then an agent PC
+  // would show a dropped-share alert for a share it never needed.
+  const browserCaptures = canCapture && !agentActive && !localAgent && agentProbed && !!navigator.mediaDevices?.getDisplayMedia;
   const vm = !live ? { state: mine.state } : {
     state: mine.state,
     timer: fmtHM(onBreak ? Math.floor(elapsedSec / 60) : mine.todayMin),
     sinceLabel: mine.sinceLabel,
     lost: lostOut, note, busy, breakBusy,
-    capture: browserCaptures ? { screens: capturing, paused: capturing > 0 && onBreak, needed: capturing === 0 && !onBreak } : null,
+    capture: browserCaptures ? { screens: capturing, paused: capturing > 0 && onBreak, needed: capturing === 0 && !onBreak, intervalMin, randomize: randomizeRef.current } : null,
     actions: {
       toggleBreak: () => quickBreak(onBreak ? 'break_end' : 'break_start'),
       punchOut: quickPunchOut,
