@@ -22,7 +22,7 @@
 // Scheduling is one path (HiringSchedule.jsx) - it sends the Teams invite
 // and moves the stage.
 import { useEffect, useRef, useState } from 'react';
-import { X, Mail, Phone, CalendarDays, FileText, FileSignature, XCircle, ChevronRight, Video, ClipboardList,
+import { X, CalendarDays, FileText, FileSignature, XCircle, ChevronRight, Video, ClipboardList,
          RotateCcw, Trophy, Undo2, Check } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
@@ -59,8 +59,6 @@ const ROUND_STATUS = {
 const chip = (tone) => ({ padding: '2px 9px', borderRadius: 12, fontSize: 11, fontWeight: 700,
   background: tone === 'gray' ? 'var(--mist)' : `hsla(var(--color-${tone}),0.12)`, color: tone === 'gray' ? 'var(--muted)' : `hsl(var(--color-${tone}))` });
 const rejectBtn = { background: 'none', border: '1px solid hsla(var(--color-red),0.4)', borderRadius: 8, padding: '7px 14px', fontSize: 12.5, cursor: 'pointer', color: 'hsl(var(--color-red))', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 5, fontFamily: 'Inter,sans-serif' };
-const row = { display: 'flex', alignItems: 'center', gap: 10, fontSize: 13.5, padding: '9px 0', borderBottom: '1px solid var(--line)' };
-const rowIcon = { color: 'var(--muted)', flexShrink: 0 };
 
 // The stages as a bar: done, here, still to come. Rejected shows on its own.
 function StageBar({ stage }) {
@@ -221,31 +219,40 @@ export default function CandidateDetailModal({
   ];
   const shownTab = TABS.some(([k]) => k === tab) ? tab : 'overview';
 
+  // About on the left, the notes thread on the right - a busy candidate
+  // never pushes the notes off the bottom (Pranshu, Oct 15).
+  const about = (label, value, missing) => (
+    <div style={{ padding: '7px 0', borderBottom: '1px solid var(--line)' }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>{label}</div>
+      <div style={{ fontSize: 13, marginTop: 2, wordBreak: 'break-word', color: missing ? 'hsl(var(--color-orange))' : 'var(--ink)' }}>{value}</div>
+    </div>
+  );
   const overview = (
-    <div>
-      <div style={row}><Mail size={14} style={rowIcon} />
-        {c.email ? <span>{c.email}</span>
-          : <span style={{ color: 'hsl(var(--color-orange))' }}>No email yet{canEdit ? ' - add it with Edit (invites and the offer go there)' : ''}</span>}
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '0 28px' }}>
+      <div style={{ gridColumn: 'span 1', maxWidth: 320 }}>
+        {about('Email', c.email || (canEdit ? 'No email yet - add it with Edit' : 'No email yet'), !c.email)}
+        {c.phone && about('Phone', c.phone)}
+        {c.expectedStart && about('Expected Start', usDay(c.expectedStart))}
+        {c.expectedInterviewOn && ['applied', 'screening'].includes(c.stage) && about('Interview Expected By', `${usDay(c.expectedInterviewOn)} - screening due the business day before`)}
+        {c.source && about('Came From', c.source)}
+        <div style={{ padding: '7px 0' }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>Resume</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
+            {c.resumeUrl ? <button onClick={viewResume} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: 'hsl(var(--color-blue))', fontFamily: 'Inter,sans-serif', padding: 0 }}>View Resume</button>
+              : <span style={{ fontSize: 13, color: 'var(--muted)' }}>None on file</span>}
+            <input ref={resumeRef} type="file" accept=".pdf,.doc,.docx" style={{ display: 'none' }} onChange={e => uploadResume(e.target.files?.[0])} />
+            {!closed && <button className="secondary-btn" style={{ fontSize: 12, padding: '3px 10px' }} disabled={resumeBusy} onClick={() => resumeRef.current?.click()}>
+              {resumeBusy ? 'Uploading...' : c.resumeUrl ? 'Replace' : 'Upload'}</button>}
+          </div>
+        </div>
+        {c.inactive && <div style={{ fontSize: 12.5, color: 'hsl(var(--color-orange))', padding: '7px 0' }}>Inactive - off the board (removed, or rejected more than 90 days ago). Reopen to bring them back.</div>}
       </div>
-      {c.phone && <div style={row}><Phone size={14} style={rowIcon} /><span>{c.phone}</span></div>}
-      {c.expectedStart && <div style={row}><CalendarDays size={14} style={rowIcon} /><span>Expected start {usDay(c.expectedStart)}</span></div>}
-      {c.expectedInterviewOn && ['applied', 'screening'].includes(c.stage) && (
-        <div style={row}><CalendarDays size={14} style={rowIcon} /><span>Interview expected by {usDay(c.expectedInterviewOn)} <span style={{ color: 'var(--muted)' }}>- screening is due the business day before</span></span></div>
-      )}
-      {c.source && <div style={row}><ChevronRight size={14} style={rowIcon} /><span>Came from {c.source}</span></div>}
-      <div style={{ ...row, borderBottom: 'none' }}>
-        <FileText size={14} style={rowIcon} />
-        {c.resumeUrl ? <button onClick={viewResume} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13.5, fontWeight: 600, color: 'hsl(var(--color-blue))', fontFamily: 'Inter,sans-serif', padding: 0 }}>View Resume</button>
-          : <span style={{ color: 'var(--muted)' }}>No resume on file</span>}
-        <input ref={resumeRef} type="file" accept=".pdf,.doc,.docx" style={{ display: 'none' }} onChange={e => uploadResume(e.target.files?.[0])} />
-        {!closed && <button className="secondary-btn" style={{ fontSize: 12, padding: '3px 10px' }} disabled={resumeBusy} onClick={() => resumeRef.current?.click()}>
-          {resumeBusy ? 'Uploading...' : c.resumeUrl ? 'Replace' : 'Upload Resume'}</button>}
+      <div style={{ gridColumn: 'span 1', minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 800, margin: '4px 0 10px' }}>Notes</div>
+        <CandidateNotes candidateId={c.id} refreshKey={`${refreshKey}-${c.stage}-${notesKey}`} draft={note} onDraft={setNote}
+          canAdd={c.stage !== 'hired'} toastErr={toastErr} />
+        {!closed && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 10 }}>A note still in the box goes with the next move you make here.</div>}
       </div>
-      {c.inactive && <div style={{ ...row, color: 'hsl(var(--color-orange))', borderBottom: 'none' }}>Inactive - off the board (removed, or rejected more than 90 days ago). Reopen to bring them back.</div>}
-      <div style={{ fontSize: 13, fontWeight: 800, margin: '22px 0 10px' }}>Notes And History</div>
-      <CandidateNotes candidateId={c.id} refreshKey={`${refreshKey}-${c.stage}-${notesKey}`} draft={note} onDraft={setNote}
-        canAdd={c.stage !== 'hired'} toastErr={toastErr} />
-      {!closed && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>A note still in the box goes with the next move you make here.</div>}
     </div>
   );
 
