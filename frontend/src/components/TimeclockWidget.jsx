@@ -356,6 +356,15 @@ export default function TimeclockWidget() {
   const noteTimer = useRef(null);
   useEffect(() => () => clearTimeout(noteTimer.current), []);
   const say = (text) => { setNote(text); clearTimeout(noteTimer.current); noteTimer.current = setTimeout(() => setNote(''), 6000); };
+  // 'break' / 'break_end' while the reason / note prompt holds the punch, and
+  // the moment the button was pressed, so the server backdates the punch to
+  // it (bounded to 15 minutes) - the Time Clock screen's own order.
+  const [breakGate, setBreakGate] = useState(null);
+  const breakClickRef = useRef('');
+  // The shift closed under an open prompt (punched out on another device, a
+  // stale shift): drop it right here in the render, or the chip stays
+  // disabled and the prompt comes back on the next shift.
+  if (!clockedIn && (breakGate || breakBusy)) { setBreakGate(null); setBreakBusy(false); breakClickRef.current = ''; }
   async function quickBreak(kind) {
     if (busy || breakBusy) return false;   // a sheet must not close on a tap that did nothing
     setBreakBusy(true);
@@ -372,11 +381,26 @@ export default function TimeclockWidget() {
         return false;
       }
     }
+    // A break asks for its reason on the way out and offers a note on the way
+    // back, posted to the person's chat (BodModal) - the same prompts the Time
+    // Clock screen holds the punch behind; the sidebar chip skipped them (Neil,
+    // Oct 14 2026). The punch records once the message is sent; closing the
+    // prompt cancels it. Role-flagged people (bodExempt: field workers who
+    // cannot type) punch straight through.
+    if (!status?.bodExempt) {
+      breakClickRef.current = new Date().toISOString().slice(0, 19);
+      setBreakGate(kind === 'break_start' ? 'break' : 'break_end');
+      return true;   // the sheet may close - the prompt stands on its own
+    }
+    return finishBreak(kind);
+  }
+  async function finishBreak(kind) {
     // With a position, like the Time Clock page - without one every break
     // from here read "Location off" on the timecard (Charmi, Sep 29).
     const pos = await punchPosition(kind);
-    const res = await punchDurable({ kind, tzOffsetMin: new Date().getTimezoneOffset(), pos });
+    const res = await punchDurable({ kind, tzOffsetMin: new Date().getTimezoneOffset(), pos, clickedAt: breakClickRef.current || undefined });
     if (res.ok) {
+      breakClickRef.current = '';
       setLostOut(false);
       window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));
     } else if (res.unreachable) {
@@ -485,6 +509,17 @@ export default function TimeclockWidget() {
     return () => { alive = false; };
   }, [live, todayLocal]);
 
+  // The break prompt, drawn whichever surface holds the shift (the sidebar
+  // chip, the capsule, the phone sheet): a sent message lands the punch, the
+  // X cancels it and frees the button. The modal's own complaints ("Add a
+  // short reason.") go to the chip's note line.
+  const breakModal = breakGate ? (
+    <BodModal mode={breakGate} required
+      onSent={() => { const kind = breakGate === 'break' ? 'break_start' : 'break_end'; setBreakGate(null); finishBreak(kind); }}
+      onClose={() => { breakClickRef.current = ''; setBreakGate(null); setBreakBusy(false); }}
+      toastOk={() => {}} toastErr={say} />
+  ) : null;
+
   // Salaried/exempt people are never time-tracked - no floating timer for them
   // (Charmi, Aug 21).
   if (status?.timeTrackingExempt) return null;
@@ -495,7 +530,7 @@ export default function TimeclockWidget() {
   }
   // The sidebar chip is on screen: it draws the shift, this engine keeps
   // running underneath (capture, replay, polling) with nothing to show.
-  if (claimed) return null;
+  if (claimed) return breakModal;
 
   // Lift the capsule clear of any bottom save bar (asset detail edit) so the
   // Save/Discard buttons underneath are never covered. editGuard.dirty is the
@@ -512,7 +547,8 @@ export default function TimeclockWidget() {
   // dot and the hours; tap it and the same chip the sidebar draws opens
   // above it. Small on purpose so it never buries page-level bars (e.g. the
   // asset "Save before you leave" bar).
-  return (
+  return (<>
+    {breakModal}
     <div ref={wrapRef} className="tc-capsule" style={{ position: 'fixed', bottom, right, zIndex: 1190, display: 'flex',
       flexDirection: 'column', alignItems: 'flex-end', gap: 8, fontFamily: 'var(--wk-font)', transition: 'bottom .18s ease' }}>
       {expanded && (
@@ -527,5 +563,5 @@ export default function TimeclockWidget() {
         <ChevronUp size={13} style={{ color: 'var(--muted)', transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
       </button>
     </div>
-  );
+  </>);
 }

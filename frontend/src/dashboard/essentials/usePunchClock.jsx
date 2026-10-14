@@ -8,7 +8,7 @@
 // what happened. Nothing here is new behavior - see MyTime.jsx for the why
 // of each step; that file is now just the card around this hook.
 //
-// `modals` is a node the caller renders anywhere: the two BodModal gates go
+// `modals` is a node the caller renders anywhere: the BodModal gates go
 // to document.body through a portal (a transformed grid item would trap a
 // position: fixed overlay) with click bubbling stopped, so a card whose own
 // click opens Workday does not fire under the modal.
@@ -103,7 +103,9 @@ export function usePunchClock() {
   const [now, setNow] = useState(() => new Date());
   const [busy, setBusy] = useState('');
   const [note, setNote] = useState(null);             // { ok, text } - what the last punch did, or why it did not
-  const [gate, setGate] = useState(null);             // 'bod' while the beginning-of-day message is owed
+  // 'bod' while the beginning-of-day message is owed; 'break' / 'break_end'
+  // while the break's reason / note prompt holds that punch.
+  const [gate, setGate] = useState(null);
   const [eodOpen, setEodOpen] = useState(false);
   const alive = useRef(true);
   const clickedAt = useRef('');                       // when Punch In was pressed, carried through the gate
@@ -180,6 +182,16 @@ export function usePunchClock() {
       // people). The punch records once it is sent or acknowledged.
       if (status?.bodRequired && !status?.bodExempt) { setGate('bod'); return true; }
     }
+    // A break asks for its reason on the way out and offers a note on the way
+    // back, posted to the person's chat - the same prompts the Time Clock
+    // screen holds the punch behind (the sidebar chip skipped them: Neil,
+    // Oct 14 2026). The punch records once the message is sent; closing the
+    // prompt cancels it. Role-flagged people (bodExempt) punch straight through.
+    if ((kind === 'break_start' || kind === 'break_end') && !status?.bodExempt) {
+      clickedAt.current = new Date().toISOString().slice(0, 19);
+      setGate(kind === 'break_start' ? 'break' : 'break_end');
+      return true;
+    }
     await punch(kind);
     return false;
   }
@@ -205,7 +217,9 @@ export function usePunchClock() {
       ]);
       const res = await punchDurable({
         kind, tzOffsetMin: new Date().getTimezoneOffset(), pos,
-        clickedAt: kind === 'in' ? clickedAt.current : undefined,
+        // The moment the button was pressed, when a prompt stood between it
+        // and the punch (the server backdates, bounded to 15 minutes).
+        clickedAt: clickedAt.current || undefined,
         extra: pairNonce ? { pair_nonce: pairNonce } : null,
       });
       if (res.ok) {
@@ -232,6 +246,9 @@ export function usePunchClock() {
         say(false, res.error?.message || 'Punch failed.');
       }
     } finally {
+      // One stamp per tap: a refused gated punch must not hand its moment to
+      // the next, ungated one (a Punch Out backdated up to 15 minutes).
+      clickedAt.current = '';
       if (alive.current) setBusy('');
     }
   }
@@ -247,6 +264,13 @@ export function usePunchClock() {
           <BodModal mode="bod" required
             onSent={() => { setGate(null); punch('in').finally(() => { inFlight.current = false; }); }}
             onSkip={() => { bodMarker(); setGate(null); punch('in').finally(() => { inFlight.current = false; }); }}
+            onClose={() => { clickedAt.current = ''; inFlight.current = false; setGate(null); }}
+            toastOk={(t) => say(true, t)} toastErr={(t) => say(false, t)} />
+        </div>, document.body)}
+      {(gate === 'break' || gate === 'break_end') && createPortal(
+        <div onClick={stop}>
+          <BodModal mode={gate} required
+            onSent={() => { const kind = gate === 'break' ? 'break_start' : 'break_end'; setGate(null); punch(kind).finally(() => { inFlight.current = false; }); }}
             onClose={() => { clickedAt.current = ''; inFlight.current = false; setGate(null); }}
             toastOk={(t) => say(true, t)} toastErr={(t) => say(false, t)} />
         </div>, document.body)}
