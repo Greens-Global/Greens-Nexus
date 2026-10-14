@@ -6,7 +6,7 @@
 // added punch gets and skips the ones it cannot take, with the reason; the
 // preview IS that judgment (a dry run), so nothing lands that was not shown.
 // Afterwards one Undo takes the whole batch back.
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { X, Check, AlertTriangle, Undo2, CalendarPlus, Clock } from 'lucide-react';
 import { api } from '../api';
 import { formatDate } from '../lib/datetime';
@@ -14,6 +14,7 @@ import { DAY_MS, localKey, nextDay, weekday, monthDay, hm, t12, cap, BREAKS, TYP
 import { inputToUtcTz, tzOffsetForInput, formatTimeTz, useDisplayTz, currentTzOption } from '../lib/displayTz';
 import { Spinner } from './AsyncState';
 
+const MAX_DAYS = 31;   // the server's cap (_ADD_TIME_MAX_DAYS)
 const field = { border: '1px solid var(--line)', borderRadius: 8, padding: '7px 9px', fontSize: 13, fontFamily: 'inherit', background: 'var(--card)', color: 'var(--ink)' };
 const lab = { fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em', display: 'block', marginBottom: 4 };
 
@@ -40,6 +41,14 @@ export default function AddTimeModal({ email, name = '', start = '', end = '', i
   const [preview, setPreview] = useState(null);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(null);
+  const prefilled = useRef(false);
+  // Escape closes, like the other punch dialogs (not mid-save).
+  useEffect(() => {
+    if (busy) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') onClose?.(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose, busy]);
 
   useEffect(() => {
     let alive = true;
@@ -54,9 +63,15 @@ export default function AddTimeModal({ email, name = '', start = '', end = '', i
         if (have.size || initialDates.length) return have;
         return new Set(list.filter((d) => (d.state === 'needs_out' || d.state === 'needs_in') && !d.locked).map((d) => d.date));
       });
-      const src = list.find((d) => d.shift || d.usual);
-      const hrs = src?.shift || src?.usual;
-      if (hrs) { setInT(hrs.start); setOutT(hrs.end); setBrk(BREAKS.includes(hrs.breakMin) ? hrs.breakMin : 0); }
+      // Hours prefill once, from the first picked day with a shift or usual
+      // hours - a later range change must not clobber what was typed.
+      if (!prefilled.current) {
+        prefilled.current = true;
+        const first = list.find((d) => (initialDates.length ? initialDates.includes(d.date) : (d.state === 'needs_out' || d.state === 'needs_in')) && (d.shift || d.usual))
+          || list.find((d) => d.shift || d.usual);
+        const hrs = first?.shift || first?.usual;
+        if (hrs) { setInT(hrs.start); setOutT(hrs.end); setBrk(BREAKS.includes(hrs.breakMin) ? hrs.breakMin : 0); }
+      }
     }).catch((e) => { if (alive) { setLoaded({ key: rangeKey, days: [], name: '' }); setErr(e?.message || "Could not read this person's days."); } });
     return () => { alive = false; };
     // initialDates only matters on the first read; its identity changing must not re-read
@@ -90,6 +105,7 @@ export default function AddTimeModal({ email, name = '', start = '', end = '', i
   const run = async (dry) => {
     setErr('');
     if (!chosen.length) { setErr('Pick at least one day.'); return; }
+    if (chosen.length > MAX_DAYS) { setErr(`Add at most ${MAX_DAYS} days at a time.`); return; }
     if (reason.trim().length < 3) { setErr('Say why this time is being added - it goes on every punch.'); return; }
     setBusy(true);
     try {

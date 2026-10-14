@@ -10011,25 +10011,43 @@ def _add_time_day_state(db: Session, email: str, d: str) -> dict:
     """What a day already holds, in the words the modal shows: `empty`,
     `needs_out` (an open shift), `needs_in` (a clock-out with no clock-in),
     `has_time` (closed pairs) or `live` (on the clock right now)."""
-    punches = _live_punches(db, email, d, d)
-    summ = _day_summaries(punches, _round_min(db), break_cfg=_break_cfg_for(db, email)).get(d, {})
+    # The day with its neighbours: an overnight shift's clock-out is dated
+    # the NEXT local day, and _day_summaries pairs across the whole run, so
+    # a normally punched night shift reads as closed time on the day it
+    # started - not as a missing out plus a missing in (same reason
+    # _period_exceptions reads one day past its range).
+    d0 = date.fromisoformat(d)
+    around = _live_punches(db, email, (d0 - timedelta(days=1)).isoformat(), (d0 + timedelta(days=1)).isoformat())
+    summ = _day_summaries(around, _round_min(db), break_cfg=_break_cfg_for(db, email)).get(d, {})
     flags = set(summ.get("flags", []))
+    own = [p for p in around if p.local_date == d]
     if _clocked_in_now(db, email) == d:
         state = "live"
     elif "missing_out" in flags:
         state = "needs_out"
     elif "out_without_in" in flags:
         state = "needs_in"
-    elif summ.get("workedMin") or any(p.kind in ("in", "out") for p in punches):
+    elif summ.get("workedMin") or any(p.kind == "in" for p in own):
         state = "has_time"
     else:
         state = "empty"
-    ins = [p for p in punches if p.kind == "in"]
-    outs = [p for p in punches if p.kind == "out"]
+    ins = [p for p in own if p.kind == "in"]
+    outs = [p for p in own if p.kind == "out"]
+    # The day's closed in/out pairs, so a forced second shift cannot be laid
+    # over time that is already there.
+    pairs, open_in = [], None
+    for p in sorted(around, key=lambda x: x.at or ""):
+        if p.kind == "in":
+            open_in = p
+        elif p.kind == "out" and open_in:
+            if open_in.local_date == d:
+                pairs.append((open_in.at, p.at))
+            open_in = None
     return {"state": state, "workedMin": int(summ.get("workedMin") or 0),
             "firstIn": ins[0].at if ins else "", "lastOut": outs[-1].at if outs else "",
             "openIn": ins[-1].at if state == "needs_out" and ins else "",
-            "loneOut": outs[0].at if state == "needs_in" and outs else ""}
+            "loneOut": outs[0].at if state == "needs_in" and outs else "",
+            "pairs": pairs}
 
 
 def _add_time_lock(db: Session, email: str, d: str, actor: str) -> str:
@@ -10088,7 +10106,7 @@ def add_time_days(email: str, start: str, end: str, user: dict = Depends(require
         off = next((o for o in offs if (o.start_date or "") <= ds <= (o.end_date or "")), None)
         usual_today = usual if usual and (not usual["days"] or d.isoweekday() in usual["days"]) else None
         out.append({
-            "date": ds, **st,
+            "date": ds, **{k: v for k, v in st.items() if k != "pairs"},
             "locked": _add_time_lock(db, em, ds, user["email"]),
             "shift": ({"start": sh.start_hhmm, "end": sh.end_hhmm, "breakMin": int(getattr(sh, "break_min", 0) or 0),
                        "label": sh.label or ""} if sh else None),
@@ -10136,6 +10154,12 @@ def _add_time_plan(db: Session, em: str, body: AddTimeIn, actor: str) -> list:
             if open_in and t_out <= open_in:
                 row["reason"] = f"The clock-out must be after the open clock-in ({_fmt_local(st['openIn'], tz)})."
                 continue
+            if open_in and (t_out - open_in) > timedelta(hours=16):
+                row["reason"] = "A shift longer than 16 hours cannot be closed in one go."
+                continue
+            if _local_date(day.out_at, tz) not in (ds, (date.fromisoformat(ds) + timedelta(days=1)).isoformat()):
+                row["reason"] = "The clock-out is not on this date (or the next morning) in the employee's time zone."
+                continue
             row.update(action="fill_out", inAt=st["openIn"], outAt=day.out_at[:19],
                        minutes=int((t_out - open_in).total_seconds() // 60) if open_in else 0)
             writes = [("out", day.out_at[:19])]
@@ -10146,6 +10170,12 @@ def _add_time_plan(db: Session, em: str, body: AddTimeIn, actor: str) -> list:
             lone_out = _parse_iso(st["loneOut"])
             if lone_out and t_in >= lone_out:
                 row["reason"] = f"The clock-in must be before the clock-out ({_fmt_local(st['loneOut'], tz)})."
+                continue
+            if lone_out and (lone_out - t_in) > timedelta(hours=16):
+                row["reason"] = "A shift longer than 16 hours cannot be added in one go."
+                continue
+            if _local_date(day.in_at, tz) != ds:
+                row["reason"] = "The clock-in is not on this date in the employee's time zone."
                 continue
             row.update(action="fill_in", inAt=day.in_at[:19], outAt=st["loneOut"],
                        minutes=int((lone_out - t_in).total_seconds() // 60) if lone_out else 0)
@@ -10166,6 +10196,11 @@ def _add_time_plan(db: Session, em: str, body: AddTimeIn, actor: str) -> list:
             if _local_date(day.in_at, tz) != ds:
                 row["reason"] = "The clock-in is not on this date in the employee's time zone."
                 continue
+            clash = next((pr for pr in st.get("pairs", [])
+                          if (_parse_iso(pr[0]) or t_in) < t_out and (_parse_iso(pr[1]) or t_out) > t_in), None)
+            if clash:
+                row["reason"] = f"It overlaps the time already on this day ({_fmt_local(clash[0], tz)} - {_fmt_local(clash[1], tz)})."
+                continue
             brk = max(0, int(day.break_min or 0))
             writes = [("in", day.in_at[:19])]
             if brk:
@@ -10178,15 +10213,20 @@ def _add_time_plan(db: Session, em: str, body: AddTimeIn, actor: str) -> list:
             writes.append(("out", day.out_at[:19]))
             row.update(action="add", inAt=day.in_at[:19], outAt=day.out_at[:19], breakMin=brk,
                        minutes=int((t_out - t_in).total_seconds() // 60) - brk)
+        # Every punch is dated by its own time (an overnight clock-out lands
+        # on the next local day), the same as every other write path.
+        writes = [(k, at, _local_date(at, tz)) for k, at in writes]
+        mine = []
         try:
-            for kind, at in writes:
+            for kind, at, ld in writes:
                 if kind in ("in", "out"):
-                    _guard_punch_order(db, em, kind=kind, at=at, local_date=ds, extra=extra)
+                    _guard_punch_order(db, em, kind=kind, at=at, local_date=ld, extra=extra + mine)
+                mine.append(SimpleNamespace(id=f"new-{ds}-{kind}", kind=kind, at=at, local_date=ld))
         except HTTPException as e:
             row.update(action="skip", reason=str(e.detail), minutes=0)
             continue
         row["writes"] = writes
-        extra += [SimpleNamespace(id=f"new-{ds}-{k}", kind=k, at=at, local_date=ds) for k, at in writes]
+        extra += mine
     return plan
 
 
@@ -10214,9 +10254,9 @@ def add_time(body: AddTimeIn, user: dict = Depends(require_team_write), db: Sess
     now = _now_iso()
     cat = (body.category or "").strip()[:80]
     for r in doing:
-        for kind, at in r["writes"]:
+        for kind, at, ld in r["writes"]:
             db.add(TimePunch(id=str(uuid.uuid4()), employee_email=em, kind=kind, at=at,
-                             local_date=r["date"], tz_offset_min=r.get("tz", int(body.tz_offset_min or 0)), geo_status="no_location",
+                             local_date=ld, tz_offset_min=r.get("tz", int(body.tz_offset_min or 0)), geo_status="no_location",
                              note=reason[:300], source="manual", category=cat if kind == "in" else "",
                              created_by=user["email"], created_at=now, batch_id=batch_id))
     dates = ", ".join(_us_day(r["date"]) for r in doing)

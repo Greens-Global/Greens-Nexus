@@ -205,6 +205,48 @@ class AddTimeTests(unittest.TestCase):
         self.assertEqual(e.exception.status_code, 403)
         self.assertTrue(all(p.voided == 0 for p in self._punches()))
 
+    # -- review pass ------------------------------------------------------------
+    def test_a_normal_overnight_shift_reads_as_time_not_two_missing_punches(self):
+        self._punch("2026-10-04", "in", "2026-10-05T04:00:00")            # Sun 9pm Pacific
+        self._punch(WEEK[0], "out", "2026-10-05T13:00:00")                # Mon 6am Pacific, dated Mon
+        self.db.commit()
+        by = {d["date"]: d for d in T.add_time_days(email=EMP, start="2026-10-04", end=WEEK[0], user=ADMIN, db=self.db)["days"]}
+        self.assertEqual((by["2026-10-04"]["state"], by["2026-10-04"]["workedMin"]), ("has_time", 540))
+        self.assertEqual(by[WEEK[0]]["state"], "empty")
+
+    def test_an_overnight_add_dates_its_clock_out_on_the_next_day(self):
+        # Mon 9pm - Tue 6am Pacific: 04:00Z and 13:00Z on Tuesday's UTC date
+        res = self._add([T.AddTimeDay(date=WEEK[0], in_at=f"{WEEK[1]}T04:00:00", out_at=f"{WEEK[1]}T13:00:00")])
+        self.assertEqual(res["days"][0]["action"], "add", res["days"][0]["reason"])
+        self.assertEqual([(p.kind, p.local_date) for p in self._punches()], [("in", WEEK[0]), ("out", WEEK[1])])
+
+    def test_a_second_shift_before_the_existing_one_is_allowed(self):
+        self._punch(WEEK[0], "in", f"{WEEK[0]}T15:30:00")
+        self._punch(WEEK[0], "out", f"{WEEK[0]}T23:30:00")
+        self.db.commit()
+        res = self._add([day(WEEK[0], in_h="13:00", out_h="15:00", force=True)])
+        self.assertEqual(res["days"][0]["action"], "add", res["days"][0]["reason"])
+
+    def test_a_second_shift_that_overlaps_the_existing_one_is_skipped(self):
+        self._punch(WEEK[0], "in", f"{WEEK[0]}T15:30:00")
+        self._punch(WEEK[0], "out", f"{WEEK[0]}T23:30:00")
+        self.db.commit()
+        res = self._add([day(WEEK[0], in_h="17:00", out_h="19:00", force=True)])
+        self.assertEqual(res["days"][0]["action"], "skip")
+        self.assertIn("overlaps", res["days"][0]["reason"])
+
+    def test_closing_an_open_shift_is_capped_at_16_hours(self):
+        self._punch(WEEK[0], "in", f"{WEEK[0]}T15:30:00")
+        self.db.commit()
+        res = self._add([T.AddTimeDay(date=WEEK[0], out_at=f"{WEEK[1]}T10:00:00")])
+        self.assertIn("16 hours", res["days"][0]["reason"])
+
+    def test_a_manager_cannot_undo_someone_elses_batch_outside_their_team(self):
+        res = self._add([day(WEEK[0])])
+        with self.assertRaises(HTTPException) as e:
+            T.add_time_undo(res["batchId"], user={"email": "someone@greensglobal.com", "level": 3}, db=self.db)
+        self.assertEqual(e.exception.status_code, 403)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -118,6 +118,14 @@ describe('AddTimeModal', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it('closes on Escape', async () => {
+    const onClose = vi.fn();
+    open({ onClose });
+    await waitFor(() => expect(chip('2026-10-05')).toBeTruthy());
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it('any change after a preview asks for a fresh one', async () => {
     open();
     await waitFor(() => expect(chip('2026-10-05')).toBeTruthy());
