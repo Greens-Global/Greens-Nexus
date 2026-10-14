@@ -119,7 +119,7 @@ describe('MyShifts week and group grid', () => {
     expect(block.textContent).toBe('9:00a - 5:00pGSTFront Desk');       // one line, the code in color, the label under it
     expect(block.getAttribute('title')).toContain('Lunch 30m');          // the lunch is the hover title
     expect(block.textContent).not.toMatch(/PDT|PST/);                    // same zone as the team: no chip
-    expect(block.style.borderLeftWidth || '1px').toBe('1px');          // no colored edge stripe (Neil, Oct 14): the tint carries the color
+    expect(block.getAttribute('style')).not.toMatch(/border-left|inset/);          // no colored edge stripe (Neil, Oct 14): the tint carries the color
     expect(block.style.background).toMatch(/rgba|color-mix|#/);
     const grid = screen.getByRole('table', { name: 'Store schedule' });
     expect(grid.textContent).toContain('Week · 15.5 Hrs');
