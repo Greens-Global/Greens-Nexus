@@ -1040,6 +1040,8 @@ def _run_migrations():
             "ALTER TABLE task_templates ADD COLUMN checklist JSON DEFAULT '[]'",
             "ALTER TABLE task_templates ADD COLUMN source_task_id VARCHAR DEFAULT ''",
             "ALTER TABLE task_templates ADD COLUMN created_by VARCHAR DEFAULT ''",
+            # PFS guarantor dropdown order (Neil, Oct 14). models.PfsProfile.sort_order.
+            "ALTER TABLE pfs_profiles ADD COLUMN sort_order INTEGER DEFAULT 0",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2306,6 +2308,8 @@ def _run_migrations():
         "ALTER TABLE task_templates ADD COLUMN IF NOT EXISTS checklist JSONB DEFAULT '[]'::jsonb",
         "ALTER TABLE task_templates ADD COLUMN IF NOT EXISTS source_task_id VARCHAR DEFAULT ''",
         "ALTER TABLE task_templates ADD COLUMN IF NOT EXISTS created_by VARCHAR DEFAULT ''",
+        # PFS guarantor dropdown order (Neil, Oct 14). models.PfsProfile.sort_order.
+        "ALTER TABLE pfs_profiles ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
