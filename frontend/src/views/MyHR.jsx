@@ -375,7 +375,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, clock = null }) {
   const toLabel = (t) => timeOffLabel(t) || 'Time Off';
   const dayOf = (d) => formatDate(d + 'T12:00:00');
   const spanLabel = (r) => r.startDate === r.endDate ? dayOf(r.startDate) : `${dayOf(r.startDate)} - ${dayOf(r.endDate)}`;
-  const clockParts = typeof clock === 'function' ? clock(profile?.firstName || '') : null;
+  const clockParts = typeof clock === 'function' ? clock() : null;
   // undefined = no clock handed in (no shift data at all); null = loading.
   const shiftInfo = clockParts ? clockParts.shift : undefined;
   // Time-tracking exempt: Workday hands in what it already knows (the
