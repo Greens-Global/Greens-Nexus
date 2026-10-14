@@ -35,7 +35,7 @@ export default function ScheduleDay({ date, sections, shifts, openCells, notes, 
         onPointerDown={(e) => { dragProps(s).onPointerDown?.(e); on.longPress(e, { email, date, groupId: s.groupId || '', shift: s }); }}
         aria-label={`${email ? 'Shift' : 'Open shift'} ${shiftTimeText(s)}${st.tag ? `, ${st.tag}` : ''}`}
         style={{ position: 'absolute', top: 6, bottom: 6, left: `${(a / 1440) * 100}%`, width: `${(w / 1440) * 100}%`, minWidth: 30,
-          background: alpha(color, 0.12), border: `1px ${s.published === false && !s.hasChanges ? 'dashed' : 'solid'} ${s.published === false && !s.hasChanges ? color : 'transparent'}`, borderLeft: `3px solid ${color}`, borderRadius: 6,
+          background: alpha(color, 0.12), border: `1px ${s.published === false && !s.hasChanges ? 'dashed' : 'solid'} ${s.published === false && !s.hasChanges ? color : 'transparent'}`, borderRadius: 6,
           fontSize: 11, fontWeight: 700, color: 'var(--ink)', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', cursor: shiftEditable(s) ? 'grab' : 'pointer',
           padding: '0 6px', textAlign: 'left', fontFamily: 'inherit', opacity: dragId === s.id ? 0.4 : s.pendingDelete ? 0.55 : 1, textDecoration: s.pendingDelete ? 'line-through' : 'none' }}>
         {shiftShortText(s)}{s.code ? <span style={{ color, marginLeft: 5, fontSize: '0.9em', fontWeight: 800 }}>{s.code}</span> : null}{s.label ? ` · ${s.label}` : ''}{email ? '' : ` · ${s.openSlots || 1} open`}

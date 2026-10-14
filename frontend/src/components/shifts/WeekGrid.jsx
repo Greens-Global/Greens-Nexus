@@ -83,8 +83,7 @@ export function PersonCell({ emp, isMe = false, hrs, over = [], viewOnly = false
   const limited = emp.availability?.length > 0;
   return (
     <div {...rest} className="sched-person"
-      style={{ padding: `${PAD + 2}px ${tools ? 30 : 10}px ${PAD}px 14px`, display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0, position: 'relative',
-        boxShadow: isMe ? 'inset 3px 0 0 var(--wk-brand)' : 'none', ...style }}>
+      style={{ padding: `${PAD + 2}px ${tools ? 30 : 10}px ${PAD}px 14px`, display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0, position: 'relative', ...style }}>
       {photos && (
         <span style={{ position: 'relative', flexShrink: 0, display: 'flex' }}>
           <Avatar name={emp.name} photoUrl={emp.photoUrl} size={32} />
@@ -304,8 +303,7 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
         {items.map((s) => block(s, email, ds, groupId))}
         {!items.length && editable && on && (ghost ? (
           <div className="sched-add" data-ghost="" aria-hidden="true" style={{ position: 'absolute', left: compact ? 3 : PAD, right: compact ? 3 : PAD, top: (compact ? 3 : PAD) + top, opacity: 0, pointerEvents: 'none' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: compact ? '2px 4px' : '4px 8px', borderRadius: 6, border: `1px dashed ${ghost.color || 'var(--wk-line2, var(--line))'}`,
-              borderLeft: `3px solid ${ghost.color || 'var(--muted)'}`, background: 'color-mix(in srgb, var(--card) 70%, transparent)', color: 'var(--muted)', fontSize: compact ? 10 : 11.5, fontWeight: 700, ...ELLIPSIS, opacity: 0.85 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: compact ? '2px 4px' : '4px 8px', borderRadius: 6, border: `1px dashed ${ghost.color || 'var(--wk-line2, var(--line))'}`, background: 'color-mix(in srgb, var(--card) 70%, transparent)', color: 'var(--muted)', fontSize: compact ? 10 : 11.5, fontWeight: 700, ...ELLIPSIS, opacity: 0.85 }}>
               <Plus size={11} style={{ flexShrink: 0 }} />
               <span style={ELLIPSIS}>{shiftShortText(ghost)}{ghost.code ? <span style={{ color: ghost.color || 'var(--muted)', marginLeft: 4 }}>{ghost.code}</span> : null}</span>
             </div>
@@ -489,7 +487,7 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
               data-person={emp.email} usual={usualOf(emp.email)} onNow={onNowOf(emp.email)}
               viewOnly={!editable && canManage} photos={prefs.photos !== false}
               {...pdp}
-              style={{ ...stickyLeft(row), boxShadow: isMe ? 'inset 3px 0 0 var(--wk-brand)' : 'none', ...(pdp.style || {}) }}
+              style={{ ...stickyLeft(row), ...(pdp.style || {}) }}
               tools={on && canManage && editable ? (
                 <span className="person-tools" style={{ display: 'inline-flex', flexDirection: 'column', gap: 4, opacity: coarse ? 1 : 0 }}>
                   <button type="button" aria-label={`Options for ${emp.name}`} title="Options"
