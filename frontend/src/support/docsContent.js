@@ -1577,6 +1577,7 @@ export const DOCS = [
       'Changes to a job role apply to everyone with that role right away.',
       'Where BOD, EOD and break messages post in Microsoft Teams is set on the job role: open the role, then under Teams Messages pick Group Chat or Channel and bind it. Everyone given the role posts there. A shift group chat is only used for people whose role sets none.',
       'Who is off today: the first BOD posted to a chat or channel each day is followed by one "Out today" post listing everyone who posts there and is on approved time off that day - the type of leave (or just "Time off" when the request is confidential), the hours of a partial day, or the date it runs through. Nothing posts on a day nobody is off.',
+      'Every BOD and EOD shows where it was sent from in brackets beside the time: (Remote) for anyone set to Remote under People > Work Mode, the site name when they are at one of their allowed sites, or (Off-Site Punch) anywhere else. When the browser shares no location, or only a rough one, nothing is shown.',
       'Not sure which category a setting is in? Type a word like "email" or "SLA" in Filter Settings.',
     ],
   },
