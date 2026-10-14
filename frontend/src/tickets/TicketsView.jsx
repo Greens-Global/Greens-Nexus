@@ -1178,7 +1178,7 @@ export default function TicketsView() {
               ))}
               {/* Resolved/closed tickets collapse into their own section instead
                   of sitting inline with the ones still in flight (Pranshu, Sept
-                  8 2026) - see toggleCompleted/collapsedList above. */}
+                  8 2026) - see toggleCompleted above. */}
               {sortedCompleted.length > 0 && (
                 <div>
                   <button onClick={toggleCompleted} aria-expanded={!completedCollapsed} style={{
