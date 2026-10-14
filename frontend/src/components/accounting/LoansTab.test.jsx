@@ -594,3 +594,73 @@ describe('LoansTab shared controls', () => {
     expect(screen.getByRole('group', { name: 'Row Density' })).toBeTruthy();
   });
 });
+
+// Oct 14 (Charmi and Neil, feedback of 10/13).
+describe('LoansTab - Oct 14 feedback', () => {
+  it('a liability on the wrong side says Check Sign, never Debit Balance', async () => {
+    render(<LoansTab canEdit />);
+    const golden = await rowOf('Golden 1 Credit Union');
+    expect(within(golden).getByText('Check Sign')).toBeTruthy();
+    expect(within(golden).getByText('14,500,000.00')).toBeTruthy();
+    expect(within(await rowOf('F&M Bank')).queryByText('Check Sign')).toBeNull();
+    expect(screen.queryByText('Debit Balance')).toBeNull();
+  });
+
+  it('Rate, Maturity and Monthly Payment are changed right in the row', async () => {
+    render(<LoansTab canEdit />);
+    const fm = await rowOf('F&M Bank');
+    fireEvent.click(within(fm).getByRole('button', { name: 'Change Rate of F&M Bank' }));
+    const rate = within(fm).getByLabelText('Rate of F&M Bank');
+    fireEvent.change(rate, { target: { value: '6.25' } });
+    fireEvent.keyDown(rate, { key: 'Enter' });
+    await waitFor(() => expect(api.updateLoan).toHaveBeenCalledWith('FL1', '', { ratePct: 6.25 }));
+    await waitFor(() => expect(api.getLoansReview).toHaveBeenCalledTimes(2));
+    const again = await rowOf('F&M Bank');
+    await waitFor(() => expect(within(again).getByRole('button', { name: 'Change Monthly Payment of F&M Bank' })).toBeTruthy());
+    fireEvent.click(within(again).getByRole('button', { name: 'Change Monthly Payment of F&M Bank' }));
+    const pay = within(again).getByLabelText('Monthly Payment of F&M Bank');
+    fireEvent.change(pay, { target: { value: '12k' } });
+    fireEvent.blur(pay);
+    await waitFor(() => expect(api.updateLoan).toHaveBeenCalledWith('FL1', '', { monthlyPayment: 12000 }));
+    // Opening the editor does not open the loan's details.
+    expect(screen.queryByLabelText('Details of F&M Bank')).toBeNull();
+  });
+
+  it('a viewer sees the terms as plain text', async () => {
+    render(<LoansTab />);
+    const fm = await rowOf('F&M Bank');
+    expect(within(fm).getByText('6.10% fixed')).toBeTruthy();
+    expect(within(fm).queryByRole('button', { name: /Change Rate/ })).toBeNull();
+  });
+
+  it('termBody: unchanged is nothing, blank clears, bad input is refused', () => {
+    const l = loan();
+    expect(_test.termBody('ratePct', '6.1', l)).toBeNull();
+    expect(_test.termBody('ratePct', '', l)).toEqual({ ratePct: 0 });
+    expect(_test.termBody('ratePct', 'abc', l).error).toBeTruthy();
+    expect(_test.termBody('maturity', '', l)).toEqual({ maturity: '' });
+    expect(_test.termBody('monthlyPayment', '10,000.00', l)).toBeNull();
+    expect(_test.termBody('monthlyPayment', '5,995.51', l)).toEqual({ monthlyPayment: 5995.51 });
+  });
+
+  it('asks for a loan\'s own interest account when none is linked or it is shared', async () => {
+    api.getLoansReview.mockImplementation(async () => ({ ...review, loans: [loan({ interestSource: 'none', interestAccounts: [], interestAccount: '' }), loan({ id: 'FL2', lender: 'Chase', interestSource: 'shared' })] }));
+    render(<LoansTab canEdit />);
+    expect(within(await rowOf('F&M Bank')).getByText('Link Interest Account')).toBeTruthy();
+    expect(within(await rowOf('Chase')).getByText('Interest Shared')).toBeTruthy();
+  });
+
+  it('+ Add > From the Ledger reads active entities only, even with Show Historical Entities on; the box opts in', async () => {
+    render(<LoansTab canEdit />);
+    await rowOf('F&M Bank');
+    fireEvent.click(screen.getByRole('button', { name: /Customize/ }));
+    fireEvent.click(screen.getByLabelText(/Show Historical Entities/));
+    fireEvent.click(screen.getByRole('button', { name: /Add/ }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: /From the Ledger/ }));
+    const dialog = await screen.findByRole('dialog', { name: /Add loans from the ledger/ });
+    await within(dialog).findByText('SBA EIDL Loan');
+    expect(api.getLoanProposalsAsOf).toHaveBeenLastCalledWith(expect.objectContaining({ historical: false }));
+    fireEvent.click(within(dialog).getByLabelText(/Include Historical Entities/));
+    await waitFor(() => expect(api.getLoanProposalsAsOf).toHaveBeenLastCalledWith(expect.objectContaining({ historical: true })));
+  });
+});
