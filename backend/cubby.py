@@ -515,6 +515,12 @@ def _load() -> dict:
     except Exception as e:  # noqa: BLE001 - a missing table or a database blip falls back to Cubby
         print(f"[cubby] database read failed: {type(e).__name__}")
         pulled = None
+    if pulled is None and not configured():
+        # Nothing synced and no key on this server: say so instead of failing.
+        payload = {"organization": "", "fetchedAt": "", "facilities": [], "trend": [], "syncedAt": "",
+                   "syncStatus": "not_configured", "syncRunning": False, "cubbyConfigured": False}
+        _cache, _pulled = (time.monotonic(), payload), None
+        return payload
     if pulled is None:
         # Nothing synced yet (first deploy): read Cubby live once, kick a sync,
         # and keep showing that pull until the tables fill.
@@ -527,6 +533,8 @@ def _load() -> dict:
     payload["syncedAt"] = pulled["syncedAt"]
     payload["syncStatus"] = pulled["syncStatus"]
     payload["syncRunning"] = pulled["syncRunning"]
+    # The screen reads the tables either way; without the key here they stop moving.
+    payload["cubbyConfigured"] = configured()
     for f in payload["facilities"]:
         f["syncedAt"] = (pulled.get("facilitySyncedAt") or {}).get(f["id"], "")
     try:
@@ -679,6 +687,9 @@ async def cubby_snapshot_loop():
         try:
             if configured():
                 await asyncio.to_thread(cubby_sync.sync_all, "schedule")
+            else:
+                # Visible in GET /facility-ops/sync and the log, at most once an hour.
+                await asyncio.to_thread(cubby_sync.record_not_configured)
         except Exception as e:  # noqa: BLE001
             print(f"[cubby] loop error: {type(e).__name__}: {getattr(e, 'message', '')}")
         await asyncio.sleep(SYNC_EVERY_SEC)

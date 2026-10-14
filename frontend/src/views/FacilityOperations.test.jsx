@@ -27,6 +27,8 @@ vi.mock('../api', () => ({ api: {
   recordOpsRate: (...a) => recordOpsRate(...a),
   getCubbySync: (...a) => getCubbySync(...a), startCubbySync: (...a) => startCubbySync(...a),
 } }));
+let isManager = false;
+vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: (r) => (r === 'manager' ? isManager : true) }) }));
 const downloadCsv = vi.fn();
 vi.mock('../operations/csv', async (orig) => ({ ...(await orig()), downloadCsv: (...a) => downloadCsv(...a) }));
 vi.mock('../components/ModuleTabs', () => ({
@@ -68,7 +70,7 @@ function facility(id, shortName, over = {}) {
 
 const PAYLOAD = {
   organization: 'Greens Storage', fetchedAt: '2026-10-13T16:00:00Z', trend: [],
-  syncedAt: new Date().toISOString(), syncStatus: 'ok', syncRunning: false,
+  syncedAt: new Date().toISOString(), syncStatus: 'ok', syncRunning: false, cubbyConfigured: true,
   facilities: [facility('fac_a', 'Temecula'), facility('fac_b', 'Murrieta', { units: { total: 50, rented: 45, vacant: 5, unavailable: 0 } })],
 };
 
@@ -318,6 +320,35 @@ describe('Cubby sync indicator', () => {
       await waitFor(() => expect(getFacilityOps).toHaveBeenLastCalledWith(true));
     } finally {
       vi.useRealTimers();
+    }
+  });
+});
+
+describe('No Cubby key on the server', () => {
+  const KEY_HINT = /An administrator needs to set CUBBY_API_KEY/;
+
+  it('says Cubby is not connected instead of a blank screen when nothing was ever synced', async () => {
+    getFacilityOps.mockResolvedValue({ organization: '', fetchedAt: '', facilities: [], trend: [], syncedAt: '',
+      syncStatus: 'not_configured', syncRunning: false, cubbyConfigured: false });
+    render(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
+    expect(await screen.findByText("Cubby is not connected on this server yet. An administrator needs to set CUBBY_API_KEY in the API's app settings.")).toBeTruthy();
+  });
+
+  it('still shows the synced figures with the delayed chip, and the key hint to managers only', async () => {
+    getFacilityOps.mockResolvedValue({ ...PAYLOAD, cubbyConfigured: false });
+    isManager = false;
+    const { unmount } = render(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
+    expect(await screen.findByText('Facility Scorecard')).toBeTruthy();
+    expect(screen.getByText('Cubby Sync Delayed')).toBeTruthy();
+    expect(screen.queryByText(KEY_HINT)).toBeNull();
+    unmount();
+    isManager = true;
+    try {
+      render(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
+      expect(await screen.findByText(KEY_HINT)).toBeTruthy();
+      expect(screen.getByText('Cubby Sync Delayed')).toBeTruthy();
+    } finally {
+      isManager = false;
     }
   });
 });

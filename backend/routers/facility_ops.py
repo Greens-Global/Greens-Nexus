@@ -33,14 +33,17 @@ router = APIRouter(
 
 
 def _require_cubby() -> None:
+    """Only what talks to Cubby needs the key (starting a sync). Reads come
+    from the database the sync fills, whether or not this server has it."""
     if not cubby.configured():
-        raise HTTPException(status_code=503, detail="Cubby is not connected (CUBBY_API_KEY is not set)")
+        raise HTTPException(status_code=503, detail=cubby_sync.NOT_CONFIGURED)
 
 
 async def _from_cubby(fn, *args):
     """Run a blocking cubby.py read in a thread; 424 (never 502 - Cloudflare
-    replaces a 502 body and hides the reason) when Cubby is unhappy."""
-    _require_cubby()
+    replaces a 502 body and hides the reason) when Cubby is unhappy. No key
+    gate: a server without CUBBY_API_KEY still serves the synced tables, and
+    with empty tables the summary says `not_configured` instead of failing."""
     try:
         return await asyncio.to_thread(fn, *args)
     except cubby.CubbyError as e:

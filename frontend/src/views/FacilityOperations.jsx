@@ -19,9 +19,11 @@ import Market from '../operations/Market';
 import Reports from '../operations/Reports';
 import Lookup from '../operations/Lookup';
 import SyncStatus from '../operations/SyncStatus';
+import { useRole } from '../contexts/RoleContext';
 import '../operations/ops.css';
 
 const SYNC_POLL_MS = 3000;
+const NOT_CONNECTED = "Cubby is not connected on this server yet. An administrator needs to set CUBBY_API_KEY in the API's app settings.";
 
 const TABS = [
   { key: 'overview',    label: 'Overview',        Icon: LayoutDashboard },
@@ -68,6 +70,9 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
   // until it is done, then re-reads the figures. A sync someone else started
   // counts too: wait for it instead of starting another.
   const [notice, setNotice] = useState('');
+  // Only managers and above are told about the missing key; everyone sees the delayed chip.
+  const role = useRole();
+  const canSeeKeyHint = role?.can?.('manager') ?? false;
   const alive = useRef(true);
   useEffect(() => {
     alive.current = true;   // StrictMode mounts twice; the second mount must turn it back on
@@ -154,7 +159,15 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
       )}
 
       {state.status === 'ready' && !facilities.length && (
-        <div className="dash-card"><div className="ops-empty">Cubby returned no facilities for this account.</div></div>
+        <div className="dash-card"><div className="ops-empty">
+          {state.data?.syncStatus === 'not_configured' ? NOT_CONNECTED : 'Cubby returned no facilities for this account.'}
+        </div></div>
+      )}
+
+      {state.status === 'ready' && facilities.length > 0 && state.data?.cubbyConfigured === false && canSeeKeyHint && (
+        <p className="ops-note" role="status" style={{ margin: '0 0 12px' }}>
+          Cubby is not connected on this server, so these figures are from the last sync and will not update. An administrator needs to set CUBBY_API_KEY in the API's app settings.
+        </p>
       )}
 
       {state.status === 'ready' && facilities.length > 0 && (

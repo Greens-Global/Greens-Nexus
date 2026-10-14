@@ -47,6 +47,9 @@ PAYMENT_DAYS = 45                    # re-read window for late status changes
 STALE_RUN_MIN = 30                   # a `running` row older than this is a dead run
 MANUAL_GAP_SEC = 180                 # Refresh: at most one sync per 3 minutes
 WORKERS = 10                         # Cubby calls in flight at once
+NOT_CONFIGURED_EVERY_SEC = 3600      # a missing key is recorded at most this often
+NOT_CONFIGURED = ("Cubby is not connected on this server yet. An administrator needs to set "
+                  "CUBBY_API_KEY in the API's app settings.")
 
 # A key that holds personal contact or identity data, matched as a substring of
 # the lowercased key, so "billingAddress", "mobilePhone", "dateOfBirth",
@@ -175,9 +178,32 @@ def status() -> dict:
         last = db.query(R).filter(R.status != "running").order_by(R.started_at.desc()).first()
         stamps = [f.synced_at for f in db.query(models.CubbyFacility).filter(models.CubbyFacility.enabled.is_(True)).all()]
         return {"running": running is not None, "current": _run_json(running), "last": _run_json(last),
+                "configured": cubby.configured(),
                 "syncedAt": min(stamps) if stamps and all(stamps) else ""}
     finally:
         db.close()
+
+
+def record_not_configured() -> bool:
+    """The sync loop found no CUBBY_API_KEY: leave a `not_configured` run row
+    (GET /facility-ops/sync shows it) and one log line - at most once an hour,
+    not every 15 minutes. True when a row was written. Blocking."""
+    import models
+    from database import SessionLocal
+    db = SessionLocal()
+    try:
+        R = models.CubbySyncRun
+        last = db.query(R).filter(R.status == "not_configured").order_by(R.started_at.desc()).first()
+        if last is not None and last.started_at >= _iso(_now() - timedelta(seconds=NOT_CONFIGURED_EVERY_SEC)):
+            return False
+        stamp = _iso(_now())
+        db.add(R(id=str(uuid.uuid4()), trigger="schedule", started_at=stamp, finished_at=stamp,
+                 status="not_configured", facilities={}, error=NOT_CONFIGURED))
+        db.commit()
+    finally:
+        db.close()
+    print("[cubby] sync skipped: CUBBY_API_KEY is not set on this server - Operations keeps showing the last synced figures")
+    return True
 
 
 def start_manual(requested_by: str) -> tuple[str | None, str]:
@@ -190,7 +216,7 @@ def start_manual(requested_by: str) -> tuple[str | None, str]:
         R = models.CubbySyncRun
         if db.query(R).filter(R.status == "running").first() is not None:
             return None, "running"
-        last = db.query(R).order_by(R.started_at.desc()).first()
+        last = db.query(R).filter(R.status != "not_configured").order_by(R.started_at.desc()).first()
         if last is not None and last.started_at >= _iso(_now() - timedelta(seconds=MANUAL_GAP_SEC)):
             return None, "too-soon"
     finally:

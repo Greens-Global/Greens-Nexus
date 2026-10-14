@@ -86,6 +86,7 @@ def fake(monkeypatch):
     finally:
         db.close()
     cubby.forget()
+    monkeypatch.delenv("CUBBY_API_KEY", raising=False)     # each test says whether this server has the key
     f = FakeCubby()
     monkeypatch.setattr(cubby, "_post", f)
     monkeypatch.setattr(cubby, "_facility_today", lambda fac: date(2026, 10, 15))
@@ -191,6 +192,7 @@ def test_reads_come_from_the_database_without_calling_cubby(fake):
 
 
 def test_an_empty_database_reads_cubby_once_and_starts_a_sync(fake, monkeypatch):
+    monkeypatch.setenv("CUBBY_API_KEY", "test-key-not-real")
     kicked = []
     monkeypatch.setattr(cubby, "_kick_sync", lambda: kicked.append(1))
     data = cubby.summary()
@@ -229,7 +231,7 @@ def client(fake, monkeypatch):
     user = {"email": "ops.manager@greensglobal.com", "role": "manager", "level": 3}
     app.dependency_overrides[get_current_user] = lambda: user
     c = TestClient(app)
-    c.user, c.started = user, started
+    c.user, c.started, c.fake = user, started, fake
     return c
 
 
@@ -249,4 +251,49 @@ def test_refresh_starts_a_background_sync_and_refuses_a_second(client):
 def test_refresh_needs_the_operations_door(client):
     client.user.update({"role": "employee", "level": 1, "email": "someone@greensglobal.com"})
     assert client.post("/facility-ops/sync").status_code == 401
+    assert client.started == []
+
+
+# ── No key on this server (Oct 15: prod never had CUBBY_API_KEY set) ─────────
+
+def test_reads_need_no_key_when_the_tables_are_filled(client, monkeypatch):
+    cubby_sync.sync_all("schedule")
+    cubby.forget()
+    monkeypatch.delenv("CUBBY_API_KEY")
+    r = client.get("/facility-ops/summary")
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body["facilities"]) == 2 and body["cubbyConfigured"] is False and body["syncStatus"] == "ok"
+    assert client.get("/facility-ops/lookup?q=a1").json()["results"][0]["unit"] == "A1"
+    assert client.get("/facility-ops/report/rent-roll").status_code == 200
+    assert client.get("/facility-ops/sync").json()["configured"] is False
+
+
+def test_no_key_and_empty_tables_says_not_configured(client, monkeypatch):
+    monkeypatch.delenv("CUBBY_API_KEY")
+    r = client.get("/facility-ops/summary")
+    assert r.status_code == 200
+    assert r.json()["syncStatus"] == "not_configured" and r.json()["facilities"] == []
+    assert client.fake.calls == []                                      # no live pull without a key
+
+
+def test_the_loop_records_a_missing_key_once_an_hour(fake, capsys):
+    assert cubby_sync.record_not_configured() is True
+    assert cubby_sync.record_not_configured() is False                 # 15 minutes later: no second row
+    rows = _q(models.CubbySyncRun, status="not_configured")
+    assert len(rows) == 1 and "CUBBY_API_KEY" in rows[0].error
+    assert capsys.readouterr().out.count("CUBBY_API_KEY is not set") == 1
+    st = cubby_sync.status()
+    assert st["last"]["status"] == "not_configured" and st["running"] is False
+    db = SessionLocal()
+    db.query(models.CubbySyncRun).update({"started_at": "2026-10-01T00:00:00+00:00"})
+    db.commit()
+    db.close()
+    assert cubby_sync.record_not_configured() is True                  # an hour on, it is recorded again
+
+
+def test_refresh_without_a_key_is_503_with_the_message(client, monkeypatch):
+    monkeypatch.delenv("CUBBY_API_KEY")
+    r = client.post("/facility-ops/sync")
+    assert r.status_code == 503 and "set CUBBY_API_KEY" in r.json()["detail"]
     assert client.started == []

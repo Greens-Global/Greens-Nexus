@@ -3396,7 +3396,10 @@ def health():
                         # (NEXUS_AM_ORIGINATOR + NEXUS_AM_AUDIENCE) - the
                         # task-email card is only emitted when this is true.
                         "actionable_messages": bool(os.getenv("NEXUS_AM_ORIGINATOR", "").strip()
-                                                    and os.getenv("NEXUS_AM_AUDIENCE", "").strip())}}
+                                                    and os.getenv("NEXUS_AM_AUDIENCE", "").strip()),
+                        # Cubby -> database sync (Operations, Oct 15). Only the
+                        # sync needs it; the screens read the synced tables.
+                        "cubby_api_key": bool(os.getenv("CUBBY_API_KEY", "").strip())}}
 
 
 @app.get("/health/ready")
