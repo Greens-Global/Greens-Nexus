@@ -176,7 +176,7 @@ class ChecklistTests(unittest.TestCase):
             db.commit()
         finally:
             db.close()
-        r = self.client.patch("/hr/candidates/cand-1", json={"stage": "hired"})
+        r = self.client.patch("/hr/candidates/cand-1", json={"stage": "hired", "stage_note": "Signed on paper"})
         self.assertEqual(r.status_code, 200, r.text)
         db = database.SessionLocal()
         try:
