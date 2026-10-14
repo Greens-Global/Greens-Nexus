@@ -10,6 +10,7 @@ const cell = (text) => ({ type: 'tableCell', content: [text ? p(text) : { type: 
 const DOC = { type: 'doc', content: [
   { type: 'table', content: [{ type: 'tableRow', content: [cell('Contractor Name'), cell(''), cell('PAN Number'), cell('')] }] },
   p('Client(s) Name:   '),
+  p('Fully remote position based in Hyderabad, India.'),
   p('Contractor Signature:   '),
   p('Date:  '),
 ] };
@@ -42,6 +43,14 @@ describe('WordTemplateWizard', () => {
     // HR changes a guess
     fireEvent.change(screen.getByLabelText('What fills PAN Number'), { target: { value: 'leave' } });
 
+    // a blank Nexus could not know about: HR adds it from the text
+    fireEvent.change(screen.getByLabelText('Text to turn into a variable'), { target: { value: 'Hyderabad' } });
+    expect(screen.getByText('Found in 1 place')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Label for the new variable'), { target: { value: 'Work Location' } });
+    fireEvent.click(screen.getByText('Add', { selector: 'button' }));
+    expect(screen.getByText('{{work_location}}')).toBeTruthy();
+    expect(screen.getByText('Blanks (4)')).toBeTruthy();
+
     fireEvent.click(screen.getByText('Create And Publish'));
     await waitFor(() => expect(screen.getByText(/Published v1/)).toBeTruthy());
     const body = createDocTemplate.mock.calls[0][0];
@@ -52,7 +61,9 @@ describe('WordTemplateWizard', () => {
     expect(json).toContain('"token":"full_name"');
     expect(json).not.toContain('pan_number');                    // left blank
     expect(json).toContain('"type":"signatureBlock"');
-    expect(body.fieldDefs).toEqual([expect.objectContaining({ token: 'client_name', default: 'Greens Global LLC' })]);
+    expect(body.fieldDefs).toEqual([expect.objectContaining({ token: 'client_name', default: 'Greens Global LLC' }),
+      expect.objectContaining({ token: 'work_location', label: 'Work Location' })]);
+    expect(json).toContain('"token":"work_location"');
     expect(publishDocTemplate).toHaveBeenCalledWith('t-new', expect.stringContaining('Admin_Associate Package.docx'));
     fireEvent.click(screen.getByText('Open In Editor'));
     expect(onOpen).toHaveBeenCalledWith('t-new');

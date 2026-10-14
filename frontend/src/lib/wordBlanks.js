@@ -285,6 +285,7 @@ export function applyBlanks(doc, blanks) {
         default: b.fill === 'same' ? String(b.value || '') : (prev?.default || ''),
       });
     }
+    if (b.kind === 'text' || !b.at) return;          // placed below, wherever it appears
     const target = blocks[b.at[0]];
     if (!target) return;
     if (b.kind === 'cell') {
@@ -302,8 +303,54 @@ export function applyBlanks(doc, blanks) {
       replaceMatch(target, GAP, b.occurrence, token);
     }
   });
+  // Text HR picked by hand ("Missed one?"): every chosen place it appears.
+  blanks.forEach((b, n) => {
+    const token = tokens[n];
+    if (b.kind !== 'text' || !token || !b.match) return;
+    const re = new RegExp(escapeRe(b.match), 'gi');
+    const byPar = new Map();
+    (b.places || []).forEach(pl => {
+      const key = pl.path.join('.');
+      byPar.set(key, [...(byPar.get(key) || []), pl.occurrence]);
+    });
+    byPar.forEach((occ, key) => {
+      const node = nodeAt(out, key.split('.').map(Number));
+      if (!node || !Array.isArray(node.content)) return;
+      // last first, so the earlier places keep their numbers
+      [...occ].sort((a, b2) => b2 - a).forEach(k => replaceMatch(node, re, k, token));
+    });
+  });
   out.content = blocks.filter((_, i) => !remove.has(i));
   return { doc: out, fieldDefs: [...defs.values()], signers: [...signers] };
+}
+
+const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const nodeAt = (root, path) => path.reduce((n, i) => (n && n.content ? n.content[i] : undefined), root);
+
+/** Every place a piece of text appears in the document (paragraphs and
+ *  headings anywhere - tables and lists included), for "Missed one?". */
+export function findText(doc, query) {
+  const q = String(query || '');
+  if (q.trim().length < 2) return [];
+  const re = new RegExp(escapeRe(q), 'gi');
+  const out = [];
+  const walk = (node, path) => {
+    if (!node || typeof node !== 'object') return;
+    if ((node.type === 'paragraph' || node.type === 'heading') && Array.isArray(node.content)) {
+      const text = node.content.map(r => (r.type === 'text' ? r.text || '' : '\u0001')).join('');
+      let k = 0;
+      for (const m of text.matchAll(re)) {
+        const from = Math.max(0, m.index - 50);
+        const around = `${from ? '...' : ''}${text.slice(from, m.index + m[0].length + 50)}`.split('\u0001').join(' ');
+        out.push({ path, occurrence: k, context: clean(around) });
+        k += 1;
+      }
+      return;
+    }
+    (node.content || []).forEach((c, i) => walk(c, [...path, i]));
+  };
+  walk(doc, []);
+  return out;
 }
 
 /** Real pages at Word's own page breaks - the editor's shape. */

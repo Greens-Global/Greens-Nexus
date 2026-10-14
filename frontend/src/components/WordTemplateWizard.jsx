@@ -10,7 +10,7 @@ import { api } from '../api';
 import { importDocumentFile } from '../lib/docBuilderImport';
 import { repairDocJson } from '../lib/docBuilderSchema';
 import { uploadToSupabase } from '../lib/docBuilderUpload';
-import { NEXUS_FIELDS, applyBlanks, findBlanks, splitPages, tokensFor } from '../lib/wordBlanks';
+import { NEXUS_FIELDS, applyBlanks, findBlanks, findText, splitPages, tokensFor } from '../lib/wordBlanks';
 import { Spinner } from './AsyncState';
 
 const lbl = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', margin: '14px 0 5px', textTransform: 'uppercase', letterSpacing: '.04em' };
@@ -19,6 +19,73 @@ const td = { fontSize: 12.5, padding: '7px 8px', borderBottom: '1px solid var(--
 const FILL_LABEL = { nexus: 'Nexus Fills It', ask: 'Ask The Person', same: 'Same For Everyone', leave: 'Left Blank' };
 
 const valueOf = (b) => (b.fill === 'nexus' ? `nexus:${b.token}` : b.fill);
+
+// The "Filled With" choices - the same list for a found blank and one HR adds.
+function FillSelect({ value, onChange, label }) {
+  return (
+    <select className="form-input" style={{ width: '100%', fontSize: 12.5 }} value={value} onChange={e => onChange(e.target.value)} aria-label={label}>
+      <optgroup label="Nexus Fills It">
+        {NEXUS_FIELDS.map(([k, l]) => <option key={k} value={`nexus:${k}`}>{l}</option>)}
+      </optgroup>
+      <option value="ask">Ask The Person</option>
+      <option value="same">Same For Everyone</option>
+      <option value="leave">Leave Blank</option>
+    </select>
+  );
+}
+
+// "Missed one?" - any text in the document becomes a variable: a blank the
+// rules did not catch, or real text that changes per hire ("Hyderabad").
+function MissedOne({ doc, onAdd }) {
+  const [q, setQ] = useState('');
+  const [label, setLabel] = useState('');
+  const [fill, setFill] = useState('ask');
+  const [value, setValue] = useState('');
+  const [off, setOff] = useState(new Set());
+  const matches = useMemo(() => findText(doc, q), [doc, q]);
+  const picked = matches.filter((_, i) => !off.has(i));
+  const add = () => {
+    onAdd({ kind: 'text', match: q, places: picked, label: (label || q).trim(), context: picked[0]?.context || q,
+      ...(fill.startsWith('nexus:') ? { fill: 'nexus', token: fill.slice(6) } : { fill }), ...(fill === 'same' ? { value } : {}) });
+    setQ(''); setLabel(''); setValue(''); setFill('ask'); setOff(new Set());
+  };
+  return (
+    <div style={{ border: '1px dashed var(--line)', borderRadius: 12, padding: '10px 12px', marginTop: 12 }}>
+      <div style={{ fontSize: 13, fontWeight: 800 }}>Missed One? Turn Any Text Into A Variable</div>
+      <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Type a blank Nexus did not catch (like ____) or text that changes per hire (like Hyderabad or 6:00 PM). Every place it appears is listed - untick any to keep.</div>
+      <input className="form-input" style={{ width: '100%', marginTop: 8 }} value={q} placeholder="Text from the document..."
+        onChange={e => { setQ(e.target.value); setOff(new Set()); }} aria-label="Text to turn into a variable" />
+      {q.trim().length >= 2 && (
+        matches.length === 0
+          ? <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>Not found in the document.</div>
+          : (
+            <>
+              <div style={{ fontSize: 12, fontWeight: 700, marginTop: 8 }}>Found in {matches.length} place{matches.length === 1 ? '' : 's'}</div>
+              <div style={{ maxHeight: 160, overflow: 'auto', marginTop: 4 }}>
+                {matches.map((m, i) => (
+                  <label key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 11.5, padding: '3px 0', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={!off.has(i)} style={{ marginTop: 2, accentColor: 'var(--pine)' }}
+                      onChange={() => setOff(s => { const n = new Set(s); if (n.has(i)) n.delete(i); else n.add(i); return n; })} />
+                    <span style={{ color: 'var(--muted)' }}>{m.context}</span>
+                  </label>
+                ))}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 8, marginTop: 8, alignItems: 'start' }}>
+                <input className="form-input" value={label} placeholder={`Label - e.g. ${q.trim() || 'Work Location'}`} onChange={e => setLabel(e.target.value)} aria-label="Label for the new variable" />
+                <div>
+                  <FillSelect value={fill} onChange={setFill} label="What fills the new variable" />
+                  {fill === 'same' && <input className="form-input" style={{ width: '100%', fontSize: 12.5, marginTop: 5 }} value={value} onChange={e => setValue(e.target.value)} placeholder="Type it once" aria-label="Value for the new variable" />}
+                </div>
+                <button type="button" className="primary-btn" disabled={!picked.length} onClick={add} style={{ fontSize: 12.5 }}>
+                  Add {picked.length > 1 ? `(${picked.length} Places)` : ''}
+                </button>
+              </div>
+            </>
+          )
+      )}
+    </div>
+  );
+}
 
 export default function WordTemplateWizard({ categories, onClose, onOpen, toastErr }) {
   const [step, setStep] = useState('upload');           // upload | review | done
@@ -183,17 +250,16 @@ export default function WordTemplateWizard({ categories, onClose, onOpen, toastE
                       <tr key={b.id} style={{ background: b.fill === 'leave' ? 'transparent' : undefined }}>
                         <td style={{ ...td, fontWeight: 700, maxWidth: 220 }}>{b.label}</td>
                         <td style={{ ...td, color: 'var(--muted)', fontSize: 11.5, maxWidth: 300 }}>
-                          <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={b.context}>{b.kind === 'cell' ? 'Table' : b.context}</span>
+                          <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={b.context}>
+                            {b.kind === 'text' ? `Added by you - "${b.match}", ${b.places.length} place${b.places.length === 1 ? '' : 's'}` : b.kind === 'cell' ? 'Table' : b.context}
+                          </span>
+                          {b.kind === 'text' && (
+                            <button type="button" onClick={() => setBlanks(list => list.filter(x => x.id !== b.id))}
+                              style={{ background: 'none', border: 'none', color: 'hsl(var(--color-red))', cursor: 'pointer', fontSize: 11, padding: 0, marginTop: 2 }}>Remove</button>
+                          )}
                         </td>
                         <td style={{ ...td, minWidth: 230 }}>
-                          <select className="form-input" style={{ width: '100%', fontSize: 12.5 }} value={valueOf(b)} onChange={e => choose(b, e.target.value)} aria-label={`What fills ${b.label}`}>
-                            <optgroup label="Nexus Fills It">
-                              {NEXUS_FIELDS.map(([k, l]) => <option key={k} value={`nexus:${k}`}>{l}</option>)}
-                            </optgroup>
-                            <option value="ask">Ask The Person</option>
-                            <option value="same">Same For Everyone</option>
-                            <option value="leave">Leave Blank</option>
-                          </select>
+                          <FillSelect value={valueOf(b)} onChange={v => choose(b, v)} label={`What fills ${b.label}`} />
                           {b.fill === 'same' && (
                             <input className="form-input" style={{ width: '100%', fontSize: 12.5, marginTop: 5 }} placeholder="Type it once - e.g. the client's name"
                               value={b.value || ''} onChange={e => setBlank(b.id, { value: e.target.value })} aria-label={`Value for ${b.label}`} />
@@ -205,6 +271,7 @@ export default function WordTemplateWizard({ categories, onClose, onOpen, toastE
                   </tbody>
                 </table>
               </div>
+              <MissedOne doc={doc.json} onAdd={(b) => setBlanks(list => [...list, { ...b, id: `t${Date.now()}` }])} />
               {missingValues.length > 0 && (
                 <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'hsla(var(--color-orange),0.1)', color: 'hsl(var(--color-orange))', borderRadius: 10, padding: '8px 12px', fontSize: 12, marginTop: 8 }}>
                   <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} />

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { findBlanks, applyBlanks, guessFill, splitPages, tokensFor } from './wordBlanks';
+import { findBlanks, applyBlanks, findText, guessFill, splitPages, tokensFor } from './wordBlanks';
 
 // The shapes a Word file comes in as (lib/docxToTiptap.js): label + empty
 // cell tables, "Label:" lines, [   ] brackets, "Rs.     per month" gaps and
@@ -116,6 +116,25 @@ describe('applyBlanks', () => {
   it('names a variable without the notes in brackets', () => {
     expect(tokensFor([{ fill: 'ask', label: "Driver's Licence No. (if applicable)" }, { fill: 'ask', label: 'UPI ID (optional)' }]))
       .toEqual(['drivers_licence_no', 'upi_id']);
+  });
+
+  it('turns text HR picks into a variable - only in the places ticked, even across Word runs', () => {
+    const doc = { type: 'doc', content: [
+      p('Fully remote position based in Hyde', 'rabad, India.'),
+      table(row('Location', 'Hyderabad office')),
+      p('Travel to Hyderabad is not required.'),
+    ] };
+    const places = findText(doc, 'hyderabad');
+    expect(places).toHaveLength(3);
+    expect(places[1].context).toContain('Hyderabad office');
+    const blank = { kind: 'text', match: 'Hyderabad', places: [places[0], places[1]], label: 'Work Location', fill: 'same', value: 'Hyderabad' };
+    const { doc: out, fieldDefs } = applyBlanks(doc, [blank]);
+    const json = JSON.stringify(out);
+    expect(json.match(/"token":"work_location"/g)).toHaveLength(2);
+    expect(json).toContain('Travel to Hyderabad is not required.');      // the unticked place stays
+    expect(json).not.toContain('Hyde"');                                  // the split run was replaced whole
+    expect(fieldDefs).toEqual([expect.objectContaining({ token: 'work_location', default: 'Hyderabad' })]);
+    expect(findText(doc, 'x')).toEqual([]);                               // too short to search
   });
 
   it('guesses by label', () => {
