@@ -38,15 +38,12 @@ async function renderTab(tab = 'timesheet') {
 }
 
 describe('Timesheets to Review on the Time Sheet tab', () => {
-  it('lists what is waiting, counts it on the header button, and the button jumps to the list', async () => {
+  it('lists what is waiting at the top of the tab, with no jump button (the header band is gone, Oct 14)', async () => {
     globalThis.__waiting = [ROW, { ...ROW, id: 'r2', name: 'Pranshu Upadhyay' }];
     await renderTab();
     expect(await screen.findByText('Valinda Cranfill')).toBeTruthy();
     expect(screen.getByText('2 waiting on you')).toBeTruthy();
-    const btn = await screen.findByRole('button', { name: /Timesheets to Review/ });
-    await waitFor(() => expect(screen.getByLabelText('2 waiting')).toBeTruthy());
-    fireEvent.click(btn);
-    expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: /Timesheets to Review/ })).toBeNull();
     // Agree / Send Back for a manager without the HR grant; no Review link.
     expect(screen.getAllByRole('button', { name: /Agree/ }).length).toBe(2);
     expect(screen.queryByRole('button', { name: /^Review/ })).toBeNull();
@@ -63,11 +60,10 @@ describe('Timesheets to Review on the Time Sheet tab', () => {
     window.removeEventListener('nexus:navigate', nav);
   }, SLOW);
 
-  it('shows no button and no list when nothing is waiting', async () => {
+  it('shows no list when nothing is waiting', async () => {
     await renderTab();
     await screen.findByText('Timecard');
     await new Promise((r) => setTimeout(r, 0));
-    expect(screen.queryByRole('button', { name: /Timesheets to Review/ })).toBeNull();
     expect(screen.queryByText(/waiting on you/)).toBeNull();
   }, SLOW);
 

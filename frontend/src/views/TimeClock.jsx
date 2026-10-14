@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useIsMobile } from '../lib/useIsMobile';
 import {
-  Clock, LogIn, LogOut, Coffee, Play, MapPin, MapPinOff, AlertTriangle,
+  LogIn, LogOut, Coffee, Play, MapPin, MapPinOff, AlertTriangle,
   CheckCircle, Plus, X, CalendarDays, Monitor, Lock,
-  ChevronDown, Check, ClipboardCheck, ArrowRight,
+  ChevronDown, Check, ArrowRight,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -18,7 +18,7 @@ import BodModal from '../components/BodModal';
 import { useTimeStatus, patchTimeStatus } from '../lib/useTimeStatus';
 import { punchDurable, replayPending, readPending, utcStamp } from '../lib/punchQueue';
 import { replayPendingBods } from '../lib/bodQueue';
-import { formatTime, formatDate, formatWeekday, formatHHMM, formatMonthDay, greetingFor } from '../lib/datetime';
+import { formatTime, formatDate, formatWeekday, formatHHMM, formatMonthDay } from '../lib/datetime';
 import { getPosition, punchPosition } from '../lib/geoPosition';
 import { MyHROverview } from './MyHR';
 import { leaveRequestDays, openShiftMinutes } from '../lib/workdayStats';
@@ -58,9 +58,9 @@ const KIND_DONE = { in: 'Punched in', out: 'Punched out', break_start: 'Break st
 // "Time Clock" no matter which tab was open). `title` also drives the
 // breadcrumb via <ModuleTabs syncTitle> below.
 const TAB_META = {
-  overview:  { title: 'Workday', label: 'Overview',   subtitle: 'Your clock, hours, documents and time off - only you see this' },
-  timesheet: { title: 'Time Sheet', label: 'Time Sheet', subtitle: 'Your hours this pay period, day by day' },
-  timeoff:   { title: 'Time Off',   label: 'Time Off',   subtitle: 'Request time off and see what’s coming up' },
+  overview:  { title: 'Workday',    label: 'Overview' },
+  timesheet: { title: 'Time Sheet', label: 'Time Sheet' },
+  timeoff:   { title: 'Time Off',   label: 'Time Off' },
 };
 // The Clock tab folded into Overview (Oct 2) - a bookmark, a bell or an
 // email that still says 'clock' lands there.
@@ -85,8 +85,6 @@ if (typeof document !== 'undefined' && !document.getElementById('ts-anim')) {
        band, then the punch panel left and today/this week right. Brand-
        derived tints only, so a company's accent color carries through. */
     .wd-clock { background: var(--card); border: 1px solid var(--wk-line2); border-radius: 18px; box-shadow: var(--wk-shadow); overflow: hidden; }
-    .wd-intro { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin: 2px 0 14px; }
-    .wd-intro-greet { margin: 0; font-size: 21px; font-weight: 700; color: var(--ink); letter-spacing: -.015em; }
     .wd-clock-body { display: grid; grid-template-columns: auto minmax(0, 1fr); }
     .wd-clock-main { padding: 18px 26px; display: grid; grid-template-columns: auto 250px; grid-template-rows: auto auto; align-items: center; column-gap: 22px; row-gap: 12px; min-width: 0; }
     .wd-clock-main > :first-child { grid-row: 1 / span 2; }
@@ -195,7 +193,6 @@ if (typeof document !== 'undefined' && !document.getElementById('ts-anim')) {
       .wd-hp-total { font-size: 26px; }
       .wd-hp-facts { gap: 16px; }
       .wd-bars-plot { height: 76px; }
-      .wd-intro { display: none; }
       .wd-overview { display: flex; flex-direction: column; }
       .wd-overview > .wd-clock-wrap { order: -1; margin-bottom: 12px; }
       .wd-overview > .wd-statgrid { margin-bottom: 12px; }
@@ -924,10 +921,8 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     window.addEventListener('nexus:timesheet-review-changed', load);
     return () => { live = false; window.removeEventListener('nexus:timesheet-review-changed', load); };
   }, []);
-  const reviewRef = useRef(null);
   // Stable: TimesheetsToReview reloads whenever its onCount changes identity.
   const onReviewCount = useCallback((n) => { if (n != null) setToReview(n); }, []);
-  const showReview = tab === 'timesheet' && toReview > 0;
   // Whether this person is time-tracking exempt, before /time/status answers
   // (Neil, 10/06: the Time Sheet tab showed for a moment, then vanished, on
   // every visit; 10/08: so did the clock card's skeleton). The last answer is
@@ -941,7 +936,6 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   useEffect(() => {
     if (status) rememberTimeExempt(myEmail, status.timeTrackingExempt);
   }, [status, myEmail]);
-  const openReview = () => reviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   // Review opens that employee's full timecard in People > Time - only for
   // those who can open it (administrator, or the HR grant - App.jsx's gate).
   const openTimecardFor = mayOpenTime ? (r) => {
@@ -1027,16 +1021,11 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   // day and today's shift, as plain page text - then MyHR's summary tiles,
   // then `card` - the clock itself, which opens straight onto the punch
   // panel and the hours panel (no header band of its own).
-  const clockIntro = (firstName) => (
-    <div className="wd-intro">
-      <div style={{ minWidth: 0 }}>
-        <h3 className="wd-intro-greet">{greetingFor(now)}{firstName ? `, ${firstName}` : ''}</h3>
-      </div>
-    </div>
-  );
   // `exempt` travels with the widget so Overview's Hours tile can hide itself
   // on the remembered answer too, instead of waiting on /time/me.
-  const clockWidget = (firstName) => ({ intro: clockIntro(firstName), card: clockCard(), shift: todayShift, exempt: exemptKnown });
+  // No greeting line (Neil, Oct 14 2026: the Dashboard already greets; here
+  // it only pushed the clock down).
+  const clockWidget = () => ({ card: clockCard(), shift: todayShift, exempt: exemptKnown });
   // Salaried/exempt people get no clock card at all (Neil, 10/06: "if it's
   // off, please take it off so the data that's coming in is relevant") - the
   // old "Time Tracking Is Off for You" note was a card about nothing. Not
@@ -1221,30 +1210,11 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
 
   return (
     <div style={{ fontFamily: 'var(--wk-font)', animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
-      {/* Standard module header band (view-header carries the hairline divider
-          that separates every module's title from its content). */}
-      <div className="view-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-          <span style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            {tab === 'timeoff' ? <CalendarDays size={19} /> : <Clock size={19} />}
-          </span>
-          <div className="view-title-group">
-            <h2 style={{ margin: 0 }}>{TAB_META[tab].title}</h2>
-            <p style={{ margin: '2px 0 0' }}>{TAB_META[tab].subtitle}</p>
-          </div>
-        </div>
-        {showReview && (
-          <button type="button" className={toReview > 0 ? 'primary-btn' : 'secondary-btn'} onClick={openReview}
-            title="Jump to the timesheets submitted to you - agree to them or send them back"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 13, alignSelf: 'center', whiteSpace: 'nowrap' }}>
-            <ClipboardCheck size={15} /> Timesheets to Review
-            {toReview > 0 && (
-              <span aria-label={`${toReview} waiting`} style={{ minWidth: 20, height: 20, padding: '0 6px', borderRadius: 999, background: '#fff', color: 'var(--wk-brand)',
-                fontSize: 11.5, fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{toReview}</span>
-            )}
-          </button>
-        )}
-      </div>
+      {/* No module header band here (Neil, Oct 14 2026): the breadcrumb and
+          the centered tabs already say where you are, and the band with its
+          icon and subtitle only pushed the clock down. Timesheets to Review
+          sits at the top of the Time Sheet tab, so the jump button that lived
+          in the band is gone with it. */}
 
       {/* Tabs - one job per screen (the everything-in-one page read as clutter).
           Desktop renders them centered in the top header; phones keep the
@@ -1278,7 +1248,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       {/* Timesheets submitted to me, not decided yet - above my own timesheet,
           for exempt reviewers too. Renders nothing when nothing is waiting. */}
       {tab === 'timesheet' && (
-        <div ref={reviewRef} style={{ scrollMarginTop: 80 }}>
+        <div>
           <TimesheetsToReview toastOk={t => toast(true, t)} toastErr={t => toast(false, t)}
             onCount={onReviewCount} onOpen={openTimecardFor} />
         </div>
