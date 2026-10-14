@@ -588,6 +588,10 @@ export const api = {
   getTaskTemplates: () => req("/task-templates"),
   createTaskTemplate: (data) => req("/task-templates", { method: "POST", body: JSON.stringify(data) }),
   deleteTaskTemplate: (id) => req(`/task-templates/${id}`, { method: "DELETE" }),
+  // Save as Template / Use (Oct 14 2026) - the server reads the task and its
+  // subtasks itself, and builds them back in one go.
+  saveTaskAsTemplate: (taskId, data) => req(`/tasks/${taskId}/as-template`, { method: "POST", body: JSON.stringify(data) }),
+  useTaskTemplate: (id, data) => req(`/task-templates/${id}/use`, { method: "POST", body: JSON.stringify(data || {}) }),
   // Project templates - a whole project saved as a reusable blueprint. Distinct
   // from the single-task templates above (see models.TaskProjectTemplate).
   // Building a project can mint a hundred rows, so use/duplicate get a longer
@@ -616,6 +620,9 @@ export const api = {
   // company, so filtering in the browser would still ship them all.
   getMyTickets: () => req("/task-tickets?mine=true"),
   createTaskTicket: (data) => req("/task-tickets", { method: "POST", body: JSON.stringify(data) }),
+  // Create Task from Ticket (Oct 14 2026): one call, both sides linked -> { task, ticket }.
+  createTaskFromTicket: (id) => req(`/task-tickets/${id}/tasks`, { method: "POST" }),
+  getTicketSummary: (id) => req(`/task-tickets/${id}/summary`),
   updateTaskTicket: (id, data) => req(`/task-tickets/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteTaskTicket: (id) => req(`/task-tickets/${id}`, { method: "DELETE" }),
   getTicketComments: (id) => req(`/task-tickets/${id}/comments`),
@@ -1271,6 +1278,8 @@ export const api = {
   // HR - hiring pipeline
   getCandidates:       ()         => req('/hr/candidates'),
   getCandidateHistory: (id)       => req(`/hr/candidates/${id}/history`),
+  // One notes timeline (Oct 14): add a note - who and when are recorded.
+  addCandidateNote:    (id, note) => req(`/hr/candidates/${id}/notes`, { method: 'POST', body: JSON.stringify({ note }) }),
   createCandidate:     (data)     => req('/hr/candidates', { method: 'POST', body: JSON.stringify(data) }),
   updateCandidate:     (id, data) => req(`/hr/candidates/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   candidateResumeUpload: (id, form) => req(`/hr/candidates/${id}/resume`, { method: 'POST', body: form }),

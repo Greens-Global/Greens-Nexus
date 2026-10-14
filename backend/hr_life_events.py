@@ -706,7 +706,7 @@ def plan_hire(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[dic
         setting = resolve_setting(db, cand.company, "hire", wt, details["role_id"])
     if not setting:
         raise PacketError(f"No hiring packet is set up for {company} yet - add one under "
-                          f"People > Hiring > Packets.", 409)
+                          f"Settings > Hiring > Hiring Documents.", 409)
     # The offer comes first (Neil, Oct 14): where an offer letter is set up
     # for this hire, the packet goes out by itself once the offer is signed.
     if resolve_setting(db, cand.company, "offer", wt, details["role_id"], country_of(db, cand.company)) is not None:
@@ -1075,7 +1075,7 @@ def offer_options(db: Session, cand: HrCandidate, worker_type: str, country: str
     out["hiringPacket"] = _describe(db, packet, department, role_id)
     if letter is None:
         out["missing"] = (f"No offer letter is set up for {kind_of_hire(wt, country)} at {company} yet - add one "
-                          f"under People > Hiring > Packets > Offer Letter.")
+                          f"under Settings > Hiring > Hiring Documents > Offer Letter.")
     return out
 
 
@@ -1114,7 +1114,7 @@ def plan_offer(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[di
         setting = resolve_setting(db, cand.company, "offer", d["worker_type"], d["role_id"], d["country"])
     if setting is None:
         raise PacketError(f"No offer letter is set up for {kind_of_hire(d['worker_type'], d['country'])} at {company} "
-                          f"yet - add one under People > Hiring > Packets > Offer Letter.", 409)
+                          f"yet - add one under Settings > Hiring > Hiring Documents > Offer Letter.", 409)
     if not is_documents(setting):
         raise PacketError("Offer letters are built from Documents - set this one up again there.", 409)
     packet = resolve_setting(db, cand.company, "hire", d["worker_type"], d["role_id"], d["country"], documents_only=True)
@@ -1248,7 +1248,7 @@ def start_packet_after_offer(db: Session, offer: HrLifeEvent, by: str) -> tuple:
     company = entity.name if entity else "this company"
     if setting is None:
         raise PacketError(f"No hiring packet is set up for {kind_of_hire(wt, d.get('country', ''))} at {company} - "
-                          f"add one under People > Hiring > Packets.", 409)
+                          f"add one in Settings > Hiring > Hiring Documents.", 409)
     if not is_documents(setting):
         raise PacketError(f'"{setting.name or "The hiring packet"}" is an uploaded-PDF packet, which cannot start by '
                           f'itself - rebuild it from Documents.', 409)
@@ -1978,7 +1978,7 @@ def plan_promotion(db: Session, user: dict, eid: str, inputs: dict, pay: Optiona
                               details["role_id"] or role_id_for_employee(db, emp))
     if not setting:
         raise PacketError(f"No promotion letter is set up for {company} yet - add one under "
-                          f"People > Hiring > Packets.", 409)
+                          f"Settings > Hiring > Hiring Documents.", 409)
     if is_documents(setting):
         # Built from Documents (Oct 14): previewed here, started, verified, sent.
         import hr_checklists as hc
@@ -2310,7 +2310,7 @@ def plan_separation(db: Session, user: dict, eid: str, inputs: dict, scope, lock
     elif d["send_package"]:
         if not setting:
             raise PacketError(f"No separation package is set up for {company} - add one under People > "
-                              f"Hiring > Packets, or offboard without documents.", 409)
+                              f"Settings > Hiring > Hiring Documents, or offboard without documents.", 409)
         if problems:
             raise PacketError(f"The {company} separation package needs fixing: {problems[0]}", 409)
         if not to:

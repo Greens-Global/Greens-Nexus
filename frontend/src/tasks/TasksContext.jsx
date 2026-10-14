@@ -590,6 +590,14 @@ export function TasksProvider({ children }) {
     addTicketLink: async (id, targetId, type) => { const r = await api.addTicketLink(id, { ticket_id: targetId, type }); await reloadTicketsInto(setTickets); return r; },
     removeTicketLink: async (id, targetId) => { const r = await api.removeTicketLink(id, targetId); await reloadTicketsInto(setTickets); return r; },
     escalateTicket: async (id) => { const r = await api.escalateTicket(id); setTickets((p) => p.map((x) => (x.id === id ? r : x))); return r; },
+    // A task made from a ticket (Oct 14 2026): the server links both sides in
+    // one save and hands both back.
+    createTaskFromTicket: async (id) => {
+      const r = await api.createTaskFromTicket(id);
+      setTasks((p) => [r.task, ...p.filter((x) => x.id !== r.task.id)]);
+      setTickets((p) => p.map((x) => (x.id === id ? r.ticket : x)));
+      return r;
+    },
     createSavedView: mk(api.createTaskSavedView, setSavedViews),
     deleteSavedView: mkDel(api.deleteTaskSavedView, setSavedViews),
     createTicketView: mk(api.createTicketView, setTicketViews),
@@ -599,6 +607,18 @@ export function TasksProvider({ children }) {
     deleteRule: mkDel(api.deleteTaskAutomationRule, setRules),
     createTemplate: mk(api.createTaskTemplate, setTemplates),
     deleteTemplate: mkDel(api.deleteTaskTemplate, setTemplates),
+    saveTaskAsTemplate: async (taskId, data) => {
+      const r = await api.saveTaskAsTemplate(taskId, toBody(data));
+      setTemplates((p) => [r, ...p]);
+      return r;
+    },
+    // The main task comes back; its subtasks arrive with the refetch.
+    startFromTemplate: async (id, data) => {
+      const r = await api.useTaskTemplate(id, toBody(data));
+      setTasks((p) => [r, ...p.filter((x) => x.id !== r.id)]);
+      refetchTasks().catch(() => {});
+      return r;
+    },
     // Project templates. Saving one is a pure read of the project, so nothing
     // else on screen changes; USING one mints a project plus its sections and
     // tasks, so the core is reloaded rather than patched - the same reason

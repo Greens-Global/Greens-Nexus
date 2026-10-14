@@ -22,6 +22,18 @@ const hint = { fontSize: 11.5, color: 'var(--muted)', marginTop: 4 };
 const RESUME_TYPES = '.pdf,.doc,.docx';
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
+// Five business days out - when an interview usually happens (Oct 14). HR
+// changes it; screening has to be done one business day before it.
+function businessDaysFromNow(n) {
+  const d = new Date();
+  let left = n;
+  while (left > 0) {
+    d.setDate(d.getDate() + 1);
+    if (d.getDay() !== 0 && d.getDay() !== 6) left -= 1;
+  }
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 function initialForm(c) {
   const known = ['Referral', 'LinkedIn', 'Indeed', 'Company Website', 'Job Fair', 'Recruiter / Agency', 'Walk-In'];
   const src = c?.source || '';
@@ -31,6 +43,7 @@ function initialForm(c) {
     company: c?.company || '', role_id: c ? (c.roleId || (c.roleTitle ? OTHER : '')) : '',
     role_title: c?.roleTitle || '', department: c?.department || '',
     expected_start: (c?.expectedStart || '').slice(0, 10),
+    expected_interview_on: c ? (c.expectedInterviewOn || '') : businessDaysFromNow(5),
     source: otherSrc ? 'Other' : src, source_other: otherSrc ? src.replace(/^Other - /, '') : '',
     notes: c?.notes || '',
   };
@@ -89,6 +102,11 @@ export default function CandidateFormModal({ candidate, onClose, onSaved, toastO
   const email = f.email.trim();
   const problems = [
     !f.first_name.trim() && 'First name',
+    // Neil, Oct 14: last name, email and phone are mandatory on a new candidate.
+    !editing && !f.last_name.trim() && 'Last name',
+    !editing && !email && 'Email',
+    !editing && !f.phone.trim() && 'Phone',
+    !editing && !scheduleNow && !f.expected_interview_on && 'Expected interview date',
     !f.company && 'Hiring company',
     !f.role_id && 'Role applying for',
     isOther && !f.role_title.trim() && 'Role title',
@@ -109,6 +127,7 @@ export default function CandidateFormModal({ candidate, onClose, onSaved, toastO
       role_title: isOther ? f.role_title.trim() : (role?.name || f.role_title),
       department: isOther ? f.department : (role?.department || f.department),
       expected_start: f.expected_start,
+      expected_interview_on: f.expected_interview_on,
       source: f.source === 'Other' ? `Other - ${f.source_other.trim()}` : f.source,
       notes: f.notes,
     };
@@ -136,8 +155,8 @@ export default function CandidateFormModal({ candidate, onClose, onSaved, toastO
   const guard = useUnsavedGuard(dirty, onClose, problems.length ? undefined : save);
 
   const input = (label, key, props = {}) => (
-    <div><label style={FL}>{label}</label>
-      <input className="form-input" style={{ width: '100%' }} value={f[key]} onChange={e => set(key, e.target.value)} {...props} /></div>
+    <div><label style={FL} htmlFor={`cf-${key}`}>{label}</label>
+      <input id={`cf-${key}`} className="form-input" style={{ width: '100%' }} value={f[key]} onChange={e => set(key, e.target.value)} {...props} /></div>
   );
   const companyName = entities.find(e => e.id === f.company)?.name;
 
@@ -151,9 +170,9 @@ export default function CandidateFormModal({ candidate, onClose, onSaved, toastO
         </div>
         <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 1fr))', gap: 14 }}>
           {input('First Name *', 'first_name', { autoFocus: !editing })}
-          {input('Last Name', 'last_name')}
-          {input('Personal Email', 'email', { type: 'email', placeholder: 'Where interview invites and the hiring packet go' })}
-          {input('Phone', 'phone')}
+          {input(editing ? 'Last Name' : 'Last Name *', 'last_name')}
+          {input(editing ? 'Personal Email' : 'Personal Email *', 'email', { type: 'email', placeholder: 'Where interview invites and the offer go' })}
+          {input(editing ? 'Phone' : 'Phone *', 'phone', { type: 'tel' })}
 
           <div><label style={FL}>Hiring Company *</label>
             <select className="form-input" style={{ width: '100%' }} value={f.company} onChange={e => pickCompany(e.target.value)}>
@@ -197,6 +216,12 @@ export default function CandidateFormModal({ candidate, onClose, onSaved, toastO
               </div></div>
           )}
           {input('Expected Start', 'expected_start', { type: 'date' })}
+          {!scheduleNow && (
+            <div>
+              {input(editing ? 'Expected Interview Date' : 'Expected Interview Date *', 'expected_interview_on', { type: 'date' })}
+              <div style={hint}>When the interview should happen - screening is due one business day before it.</div>
+            </div>
+          )}
 
           <div><label style={FL}>Source</label>
             <select className="form-input" style={{ width: '100%' }} value={f.source} onChange={e => set('source', e.target.value)}>

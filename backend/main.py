@@ -1036,6 +1036,22 @@ def _run_migrations():
             "ALTER TABLE hr_packet_settings ADD COLUMN country VARCHAR DEFAULT ''",
             # Packets assembled from building blocks: a team's / role's documents (Oct 14).
             "ALTER TABLE hr_packet_settings ADD COLUMN extra_docs JSON DEFAULT '[]'",
+            # Tasks from tickets (Oct 14 2026). models.Task.source_ticket_id.
+            "ALTER TABLE tasks ADD COLUMN source_ticket_id VARCHAR DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS ix_tasks_source_ticket_id ON tasks (source_ticket_id)",
+            # Save as Template (Oct 14 2026). models.TaskTemplate.
+            "ALTER TABLE task_templates ADD COLUMN subtasks JSON DEFAULT '[]'",
+            "ALTER TABLE task_templates ADD COLUMN checklist JSON DEFAULT '[]'",
+            "ALTER TABLE task_templates ADD COLUMN source_task_id VARCHAR DEFAULT ''",
+            "ALTER TABLE task_templates ADD COLUMN created_by VARCHAR DEFAULT ''",
+            # Hiring board (Neil, Oct 14): expected interview date, rejected -> inactive.
+            "ALTER TABLE hr_candidates ADD COLUMN expected_interview_on VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_candidates ADD COLUMN rejected_at VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_candidates ADD COLUMN inactive_at VARCHAR DEFAULT ''",
+            # One notes timeline per candidate (Oct 14): plain notes in hr_stage_events.
+            "ALTER TABLE hr_stage_events ADD COLUMN kind VARCHAR DEFAULT ''",
+            # The screening task per candidate (Oct 14). models.HrCandidate.screen_task_id.
+            "ALTER TABLE hr_candidates ADD COLUMN screen_task_id VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2298,6 +2314,22 @@ def _run_migrations():
         "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS country VARCHAR DEFAULT ''",
         # Packets assembled from building blocks: a team's / role's documents (Oct 14).
         "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS extra_docs JSONB DEFAULT '[]'::jsonb",
+        # Tasks from tickets (Oct 14 2026). models.Task.source_ticket_id.
+        "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS source_ticket_id VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_tasks_source_ticket_id ON tasks (source_ticket_id)",
+        # Save as Template (Oct 14 2026). models.TaskTemplate.
+        "ALTER TABLE task_templates ADD COLUMN IF NOT EXISTS subtasks JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE task_templates ADD COLUMN IF NOT EXISTS checklist JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE task_templates ADD COLUMN IF NOT EXISTS source_task_id VARCHAR DEFAULT ''",
+        "ALTER TABLE task_templates ADD COLUMN IF NOT EXISTS created_by VARCHAR DEFAULT ''",
+        # Hiring board (Neil, Oct 14): expected interview date, rejected -> inactive.
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS expected_interview_on VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS rejected_at VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS inactive_at VARCHAR DEFAULT ''",
+        # One notes timeline per candidate (Oct 14): plain notes in hr_stage_events.
+        "ALTER TABLE hr_stage_events ADD COLUMN IF NOT EXISTS kind VARCHAR DEFAULT ''",
+        # The screening task per candidate (Oct 14). models.HrCandidate.screen_task_id.
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS screen_task_id VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

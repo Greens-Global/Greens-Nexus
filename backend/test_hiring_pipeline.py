@@ -94,7 +94,7 @@ class PipelineCase(unittest.TestCase):
         self.db.close()
 
     def _add(self, **kw):
-        body = {"first_name": "Jane", "last_name": "Doe", "email": "jane@gmail.com", "company": ENT}
+        body = {"first_name": "Jane", "last_name": "Doe", "email": "jane@gmail.com", "phone": "555-0100", "company": ENT}
         body.update(kw)
         return hr.create_candidate(hr.CandidateIn(**body), user=HR_USER, db=self.db)
 
@@ -177,7 +177,7 @@ class IntakeTests(PipelineCase):
             self._add(email="not-an-email")
 
     def test_edit_fixes_the_email_and_changes_the_role(self):
-        c = self._add(email="")
+        c = self._add(email="jane.typo@gmail.com")
         out = hr.update_candidate(c["id"], hr.CandidateUpdate(email="Jane.Doe@Gmail.com", role_id="role-shared"),
                                   user=HR_USER, db=self.db)
         self.assertEqual((out["email"], out["roleTitle"], out["department"]), ("jane.doe@gmail.com", "IT Support Associate", "IT"))
@@ -277,10 +277,132 @@ class StageTests(PipelineCase):
         self.assertEqual(self._stage(cid).interview_at, "")
 
     def test_no_email_no_invite(self):
-        cid = self._cand("screening", email="")
+        cid = self._cand("screening")
+        self.db.query(models.HrCandidate).filter_by(id=cid).update({"email": ""})   # a candidate from before email was required
+        self.db.commit()
         with self.assertRaises(HTTPException) as e:
             self._schedule(cid)
         self.assertIn("email", e.exception.detail)
+
+
+class BoardTests(PipelineCase):
+    """The hiring board (Neil, Oct 14): required contact details, the expected
+    interview date, moving back, and rejected candidates leaving the board."""
+
+    def test_last_name_email_and_phone_are_required(self):
+        for field in ("last_name", "email", "phone"):
+            with self.assertRaises(HTTPException) as e:
+                self._add(**{field: ""})
+            self.assertEqual(e.exception.status_code, 400)
+
+    def test_the_expected_interview_date_is_kept(self):
+        c = self._add(expected_interview_on="2030-11-05")
+        self.assertEqual(c["expectedInterviewOn"], "2030-11-05")
+        with self.assertRaises(HTTPException):
+            self._add(expected_interview_on="11/05/2030")
+
+    def test_any_earlier_stage_but_never_out_of_hired(self):
+        cid = self._cand("offer")
+        out = hr.update_candidate(cid, hr.CandidateUpdate(stage="screening", stage_note="Needs another look"),
+                                  user=HR_USER, db=self.db)
+        self.assertEqual(out["stage"], "screening")
+        cid2 = self._cand("hired")
+        with self.assertRaises(HTTPException):
+            hr.update_candidate(cid2, hr.CandidateUpdate(stage="offer"), user=HR_USER, db=self.db)
+
+    def test_mark_hired_by_hand_needs_a_reason(self):
+        cid = self._cand("offer")
+        with self.assertRaises(HTTPException) as e:
+            hr.update_candidate(cid, hr.CandidateUpdate(stage="hired"), user=HR_USER, db=self.db)
+        self.assertIn("why", e.exception.detail)
+
+    def test_rejected_leave_the_board_by_hand_or_after_90_days_and_reopen_brings_them_back(self):
+        cid = self._cand("screening")
+        out = hr.update_candidate(cid, hr.CandidateUpdate(stage="rejected"), user=HR_USER, db=self.db)
+        self.assertFalse(out["inactive"])
+        out = hr.update_candidate(cid, hr.CandidateUpdate(inactive=True), user=HR_USER, db=self.db)
+        self.assertTrue(out["inactive"])
+        out = hr.update_candidate(cid, hr.CandidateUpdate(stage="applied", stage_note="Reopened"), user=HR_USER, db=self.db)
+        self.assertFalse(out["inactive"])
+        cid2 = self._cand("screening")
+        hr.update_candidate(cid2, hr.CandidateUpdate(stage="rejected"), user=HR_USER, db=self.db)
+        self.db.query(models.HrCandidate).filter_by(id=cid2).update({"rejected_at": "2020-01-01T00:00:00"})
+        self.db.commit()
+        self.assertTrue(next(c for c in hr.list_candidates(user=HR_USER, db=self.db) if c["id"] == cid2)["inactive"])
+        with self.assertRaises(HTTPException):
+            hr.update_candidate(self._cand("applied"), hr.CandidateUpdate(inactive=True), user=HR_USER, db=self.db)
+
+
+class NotesTimelineTests(PipelineCase):
+    """One notes section (Neil, Oct 14): every note, move and finished
+    interview, each with who and when."""
+
+    def test_notes_moves_and_the_add_form_note_are_one_timeline(self):
+        c = self._add(notes="Strong resume")
+        hr.add_candidate_note(c["id"], hr.CandidateNoteIn(note="Great on the phone screen"), user=HR_USER, db=self.db)
+        hr.update_candidate(c["id"], hr.CandidateUpdate(stage="screening", stage_note="Looks good"), user=HR_USER, db=self.db)
+        rows = hr.candidate_history(c["id"], user=HR_USER, db=self.db)
+        self.assertEqual([r["kind"] for r in rows], ["move", "note", "note", "move"])
+        self.assertEqual([r["note"] for r in rows[1:]], ["Strong resume", "Great on the phone screen", "Looks good"])
+        self.assertTrue(all(r["byEmail"] == HR_USER["email"] and r["createdAt"] and r["byName"] for r in rows))
+        with self.assertRaises(HTTPException):
+            hr.add_candidate_note(c["id"], hr.CandidateNoteIn(note="   "), user=HR_USER, db=self.db)
+
+    def test_the_old_notes_box_still_shows(self):
+        cid = self._cand("screening")
+        self.db.query(models.HrCandidate).filter_by(id=cid).update({"notes": "Written before the timeline"})
+        self.db.commit()
+        rows = hr.candidate_history(cid, user=HR_USER, db=self.db)
+        legacy = [r for r in rows if r.get("legacy")]
+        self.assertEqual(legacy[0]["note"], "Written before the timeline")
+
+
+class ScreeningTaskTests(PipelineCase):
+    """Neil, Oct 14: a new candidate -> one "Screen <name>" task for the
+    department head and everyone above them, due the business day before the
+    interview, following it when it is booked."""
+
+    def _chain(self):
+        for eid, email, mgr in (("e-head", "head@greensglobal.com", "boss@greensglobal.com"),
+                                ("e-boss", "boss@greensglobal.com", "")):
+            self.db.add(models.NexusEmployee(id=eid, work_email=email, first_name=eid[2:].title(), last_name="X",
+                                             company=ENT, status="active", manager_email=mgr))
+        self.db.add(models.HrDepartment(id="d-acct", company_id=ENT, name="Accounting", lead_email="head@greensglobal.com"))
+        self.db.commit()
+
+    def tearDown(self):
+        self.db.query(models.Task).delete()
+        self.db.commit()
+        super().tearDown()
+
+    def test_the_head_and_up_get_one_task_due_the_business_day_before(self):
+        self._chain()
+        c = self._add(role_id="role-analyst", expected_interview_on="2030-11-05")      # a Tuesday
+        cand = self.db.query(models.HrCandidate).filter_by(id=c["id"]).one()
+        task = self.db.query(models.Task).filter_by(id=cand.screen_task_id).one()
+        self.assertEqual(task.assignee_emails, ["head@greensglobal.com", "boss@greensglobal.com"])
+        self.assertEqual(task.due_on, "2030-11-04")
+        self.assertIn("Screen Jane Doe", task.title)
+        bells = {n.recipient for n in self.db.query(models.NexusNotification).filter(
+            models.NexusNotification.title.like("Screen %")).all()}
+        self.assertEqual(bells, {"head@greensglobal.com", "boss@greensglobal.com"})
+        # booking the interview on a Monday moves it to the Friday before
+        self._schedule(c["id"], at="2030-11-11T17:00:00Z")
+        self.db.expire_all()
+        self.assertEqual(self.db.query(models.Task).filter_by(id=cand.screen_task_id).one().due_on, "2030-11-08")
+        # rejecting closes it
+        hr.update_candidate(c["id"], hr.CandidateUpdate(stage="rejected"), user=HR_USER, db=self.db)
+        self.db.expire_all()
+        self.assertTrue(self.db.query(models.Task).filter_by(id=cand.screen_task_id).one().completed)
+
+    def test_no_department_head_falls_back_to_the_hr_contact(self):
+        self.db.query(models.HrEntity).filter_by(id=ENT).update({"hr_contact_email": NEIL})
+        self.db.commit()
+        c = self._add(role_id="role-analyst")
+        cand = self.db.query(models.HrCandidate).filter_by(id=c["id"]).one()
+        task = self.db.query(models.Task).filter_by(id=cand.screen_task_id).one()
+        self.assertEqual(task.assignee_emails, [NEIL])
+        self.assertEqual(task.due_on, "")          # no interview date yet
 
 
 class FollowupTests(PipelineCase):

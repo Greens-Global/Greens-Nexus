@@ -234,7 +234,7 @@ export function PacketsModal({ onClose, toastOk, toastErr }) {
     <Overlay onClose={onClose} wide>
       <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 14, flexShrink: 0 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 800, fontSize: 15.5 }}>Packets</div>
+          <div style={{ fontWeight: 800, fontSize: 15.5 }}>Hiring Documents</div>
           <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>What goes out through Nexus Sign when someone is hired, promoted or leaves</div>
         </div>
         <select className="form-input" style={{ width: 240 }} value={companyId} onChange={e => setCompanyId(e.target.value)} aria-label="Company">
@@ -495,7 +495,7 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
             <select className="form-input" style={{ width: '100%' }} value={f.packet_id} disabled={!packets}
               onChange={e => { setPacketTouched(true); set('packet_id', e.target.value); }}>
               {!packets && <option value="">Finding the packet...</option>}
-              {packets && packets.options.length === 0 && <option value="">No hiring packet set up for this company - add one under Packets</option>}
+              {packets && packets.options.length === 0 && <option value="">No hiring packet set up for this company - add one in Settings &gt; Hiring</option>}
               {(packets?.options || []).map(o => (
                 <option key={o.id} value={o.id}>{o.templateName} - {o.why}{o.companyName ? ` (${o.companyName})` : ''}{o.id === packets.pickedId ? ' - matched' : ''}</option>
               ))}
@@ -506,7 +506,7 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
             {/* Ready To Send (Oct 14): say now what would stop this hire later.
                 Signing once is offered on the review, so it is not listed. */}
             {(chosen?.readiness || []).filter(c => !c.ok && !c.key.startsWith('once:')).map(c => (
-              <Problem key={c.key}>{c.label}: {c.detail} Fix it in Packets.</Problem>
+              <Problem key={c.key}>{c.label}: {c.detail} Fix it in Settings &gt; Hiring &gt; Hiring Documents.</Problem>
             ))}
           </div>
           {isOther && (

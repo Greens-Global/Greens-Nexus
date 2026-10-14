@@ -105,6 +105,18 @@ class ConvertTests(unittest.TestCase):
         self.assertIn("Converted to <a", note)
         self.assertNotIn("closed", note)
 
+    def test_the_task_links_back_to_its_ticket_and_both_histories_say_so(self):
+        out = self._convert(close=False)
+        self.assertEqual(self._task().source_ticket_id, out["id"])
+        acts = {(a.entity_id, a.type) for a in self.db.query(models.TaskActivity).all()}
+        self.assertIn((self.task.id, "task_converted"), acts)
+        self.assertIn((out["id"], "task_converted"), acts)
+
+    def test_closing_the_converted_task_does_not_say_the_tickets_work_is_done(self):
+        self._convert(close=True)
+        self.assertEqual(self.db.query(models.TaskNotification)
+                         .filter(models.TaskNotification.kind == "ticket_tasks_done").count(), 0)
+
     def test_someone_who_cannot_see_the_task_cannot_convert_it(self):
         with self.assertRaises(HTTPException) as ctx:
             self._convert(user=STRANGER)

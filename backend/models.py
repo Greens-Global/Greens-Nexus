@@ -123,6 +123,11 @@ class Task(Base):
     # actual_hours is their rolled-up total (routers/tasks._recount_time) and
     # cannot be typed over; with none, actual_hours stays the old free number.
     time_entry_count  = Column(Integer, default=0)
+    # The ticket this task was created from, or linked to, on that ticket's
+    # Tasks list (Oct 14 2026) - the task's way back to it ("From Ticket").
+    # Kept in step with TaskTicket.task_ids by routers/tickets.py, server-side
+    # only; never taken from a task payload.
+    source_ticket_id  = Column(String, default="", index=True)
 
 
 class PurchaseRequest(Base):
@@ -972,6 +977,17 @@ class HrCandidate(Base):
     resume_url     = Column(String, default="")               # hr-docs storage path (private; signed URL to view)
     notes          = Column(String, default="")
     employee_id    = Column(String, default="")               # set when hired
+    # Neil, Oct 14: the interview is expected by this day - screening has to be
+    # done one business day before it.
+    expected_interview_on = Column(String, default="")        # ISO date
+    # A rejected candidate leaves the board: Remove, or 90 days after the
+    # rejection (Neil, Oct 14: "after 90 days it gets taken out and gets moved
+    # to like inactive"). Reopen brings them back.
+    rejected_at    = Column(String, default="")               # ISO datetime of the rejection
+    inactive_at    = Column(String, default="")               # ISO datetime removed from the board
+    # The "Screen <name>" task for the department head and up (Oct 14,
+    # hiring_screening.py) - its due date follows the interview.
+    screen_task_id = Column(String, default="")               # Task.id
     created_by     = Column(String, default="")
     created_at     = Column(String, default="")
     updated_at     = Column(String, default="")
@@ -986,6 +1002,9 @@ class HrStageEvent(Base):
     note         = Column(String, default="")
     by_email     = Column(String, default="")
     created_at   = Column(String, default="")
+    # Neil, Oct 14: one Notes section, "consolidated with time and date and
+    # person who put it in" - a plain note is a row here too ('' = a stage move).
+    kind         = Column(String, default="")               # '' (move) | note
 
 
 class HrLeaveRequest(Base):
@@ -3228,6 +3247,17 @@ class TaskTemplate(Base):
     # Soft delete -> Recycle Bin (Sept 2026). See the hook in database.py.
     deleted_at   = Column(String, default="", index=True)
     deleted_by   = Column(String, default="")
+    # Save as Template (Neil, Oct 14 2026: "convert to task template", like
+    # project templates). A template saved FROM a task keeps whole subtasks,
+    # not just titles: [{title, description, priority, assigneeIds,
+    # followerIds, customFieldValues, recurrence, dueOffsetDays, checklist}]
+    # - dueOffsetDays counted from the main task's due date. `checklist` is
+    # the main task's own [{title, assigneeId}]. Older templates have only
+    # subtask_titles; both are used (routers/task_config.use_template).
+    subtasks       = Column(JSON, default=list)
+    checklist      = Column(JSON, default=list)
+    source_task_id = Column(String, default="")
+    created_by     = Column(String, default="")
 
 
 class TaskIntakeForm(Base):
