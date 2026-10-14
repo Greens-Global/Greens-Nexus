@@ -189,7 +189,10 @@ def load_snaps(db: Session, template_ids: list) -> tuple:
 PAY_NAMES = {"salary", "old_salary", "new_salary", "old_pay", "new_pay", "pay"}
 PAY_WORDS = {"salary", "salaries", "wage", "wages", "pay", "rate", "rates", "bonus", "compensation",
              "comp", "ctc", "stipend", "commission", "allowance", "incentive", "equity", "esop",
-             "stock", "hourly", "overtime", "remuneration", "earnings"}
+             "stock", "hourly", "overtime", "remuneration", "earnings",
+             # A contractor's pay is a fee (Neil, Oct 14: "what is your monthly
+             # contractual fee?") - fail closed on it too.
+             "fee", "fees", "payment", "payments", "retainer", "honorarium"}
 
 
 def is_pay_token(token: str, defs: Optional[dict] = None) -> bool:
@@ -221,15 +224,17 @@ def _mode(setting: HrPacketSetting) -> str:
 
 def doc_prints_pay(setting: HrPacketSetting, snap: Snap) -> bool:
     """Pay & Benefits only: a document printing pay - or a Sensitive answer
-    from the packet's Details Form (a bank account, an ID number)."""
+    from the packet's Details Form or the template's own Ask The Person
+    variables (a bank account, an ID number)."""
     if _mode(setting) == "always":
         return True
-    return any(is_pay_token(t, snap.defs) for t in snap.tokens) or bool(sensitive_keys(setting) & snap.tokens)
+    return (any(is_pay_token(t, snap.defs) for t in snap.tokens)
+            or bool((sensitive_keys(setting) | snap_sensitive(snap)) & snap.tokens))
 
 
 def packet_prints_pay(setting: HrPacketSetting, snaps: list) -> bool:
     return (_mode(setting) == "always" or bool(pay_tokens(snaps))
-            or any(sensitive_keys(setting) & s.tokens for s in snaps))
+            or any((sensitive_keys(setting) | snap_sensitive(s)) & s.tokens for s in snaps))
 
 
 def has_comp_for(db: Session, email: str) -> bool:
@@ -673,10 +678,11 @@ def plan(db: Session, setting: HrPacketSetting, *, ctx: dict, overrides: dict, p
         if not can_see_pay:
             # A preview for someone without pay access prints [Pay] - the
             # real figure is only ever rendered for Pay & Benefits holders.
+            hidden = sensitive_keys(setting) | snap_sensitive(snap)
             for t in snap.tokens:
                 if is_pay_token(t, snap.defs) and t not in merge:
                     merge[t] = "[Pay]"
-                elif t in sensitive_keys(setting) and t not in merge:
+                elif t in hidden and t not in merge:
                     merge[t] = "[Restricted]"
         docs.append({"templateId": snap.tpl.id, "name": snap.name, "version": snap.version,
                      "printsPay": doc_prints_pay(setting, snap), "signs": sorted(snap.signature_roles),
@@ -744,7 +750,7 @@ def event_ctx(db: Session, ev, setting: HrPacketSetting, sender: str) -> dict:
     ctx["verifier_role"] = d.get("verifier_role") or ""
     # Sensitive Details Form answers ride with pay: merged in at render, only
     # ever for Pay & Benefits, never written onto a document row.
-    ctx["pay_values"] = {**dict(ev.pay_values or {}), **answer_values(setting, event_answers(ev))[1]}
+    ctx["pay_values"] = {**dict(ev.pay_values or {}), **answer_values(event_form(db, ev, setting), event_answers(ev))[1]}
     return ctx
 
 
@@ -756,7 +762,7 @@ def event_overrides(db: Session, ev) -> dict:
     """The non-pay values a packet's documents print for this event."""
     extra = {k: str(v) for k, v in ((ev.inputs or {}).get("extra") or {}).items() if str(v or "").strip()}
     setting = event_setting(db, ev)
-    plain = answer_values(setting, event_answers(ev))[0] if setting is not None else {}
+    plain = answer_values(event_form(db, ev, setting), event_answers(ev))[0] if setting is not None else {}
     return {**event_values(db, ev.kind, ev.inputs or {}), **person_values(ev), **plain, **extra}
 
 
@@ -764,21 +770,22 @@ def event_pay(db: Session, ev, setting: Optional[HrPacketSetting] = None) -> dic
     """What a render merges in at print time for Pay & Benefits holders: the
     pay, and the Sensitive answers of the packet's Details Form."""
     setting = setting if setting is not None else event_setting(db, ev)
-    restricted = answer_values(setting, event_answers(ev))[1] if setting is not None else {}
+    restricted = answer_values(event_form(db, ev, setting), event_answers(ev))[1] if setting is not None else {}
     return pay_merge(ev.pay or {}, {**dict(ev.pay_values or {}), **restricted})
 
 
 def event_plan(db: Session, ev, setting: HrPacketSetting, *, sender: str, can_see_pay: bool) -> dict:
-    d = ev.inputs or {}
+    form = event_form(db, ev, setting)
     p = plan(db, setting, ctx=event_ctx(db, ev, setting, sender), overrides=event_overrides(db, ev),
              pay=ev.pay or {}, can_see_pay=can_see_pay, employee_id=ev.employee_id or "",
              candidate_id=ev.candidate_id or "", entity_id=ev.entity_id or "",
-             extra_template_ids=[d["jd_template_id"]] if d.get("jd_template_id") else [])
+             extra_template_ids=event_template_ids(ev, setting))
     # A changed Sensitive answer must still regenerate (and re-version) the
     # documents the verifier is looking at - its hash, never its value.
-    p["restrictedHash"] = values_hash(answer_values(setting, event_answers(ev))[1])
+    p["restrictedHash"] = values_hash(answer_values(form, event_answers(ev))[1])
+    p["form"] = form
     extra = []
-    missing = missing_answers(setting, event_answers(ev)) if ev.kind == "hire" else []
+    missing = missing_answers(form, event_answers(ev)) if ev.kind in ("hire", "offer") else []
     if missing:
         extra.append("Still needed on the Details Form: " + ", ".join(missing) + ".")
     for s in p["signOnce"]:
@@ -957,7 +964,7 @@ def review_out(db: Session, ev, user: dict, *, can_see_pay: bool) -> dict:
            "details": {k: v for k, v in (ev.intake or {}).items() if k != "answers"},
            # The packet's Details Form with what was entered (Sensitive ones
            # only for Pay & Benefits), and the Signs Once steps (Oct 14).
-           "answers": ser_answers(setting, event_answers(ev), can_see_pay),
+           "answers": ser_answers(p["form"], event_answers(ev), can_see_pay),
            "signOnce": [{**s, "isMe": s["email"] == me} for s in p.get("signOnce") or []],
            "extra": dict((ev.inputs or {}).get("extra") or {}),
            "seen": {e["documentId"]: e.get("version", 1) for e in ev.documents or []}}
@@ -1164,6 +1171,114 @@ def sensitive_keys(setting: Optional[HrPacketSetting]) -> set:
     return {f["key"] for f in form_fields(setting) if f.get("sensitive")}
 
 
+# ── who fills each variable: the template says (Oct 14) ─────────────────────
+# Neil: "Pranshu is going to let you fill in everything and the document will
+# make itself." A template variable carries its source (Documents > Templates,
+# From Word File or Define Variable): 'person' = asked of the person on their
+# intake form, 'hr' = answered by HR when they make the offer. The person's
+# form is therefore BUILT FROM the documents - each Ask The Person variable
+# once, however many documents print it - plus the packet's own Details Form
+# for anything extra. HR never keeps a second list that drifts.
+
+_FORM_TYPE = {"text": "text", "multiline": "longtext", "address": "longtext", "number": "number",
+              "currency": "number", "date": "date", "email": "email", "dropdown": "choice", "radio": "choice",
+              "checkbox": "yesno", "person": "text", "time": "text"}
+
+
+def def_source(fd: Optional[dict]) -> str:
+    return str((fd or {}).get("source") or "")
+
+
+def snap_sensitive(snap: Snap) -> set:
+    """The template's own Ask The Person variables marked Private."""
+    return {fd.get("token") for fd in snap.field_defs
+            if def_source(fd) == "person" and fd.get("sensitive") and fd.get("token")}
+
+
+def template_form(snaps: list) -> list:
+    """Every Ask The Person variable of these documents as a form field, once
+    each, in document order. Built-in details (address, phone...) are already
+    on every intake form, so they are never asked twice."""
+    reserved, out, seen = _reserved_tokens(), [], set()
+    for snap in snaps:
+        for fd in snap.field_defs:
+            token = fd.get("token") or ""
+            if def_source(fd) != "person" or not token or token in seen or token in reserved or "." in token:
+                continue
+            if token not in snap.tokens:
+                continue                                  # defined but no longer printed
+            seen.add(token)
+            ftype = _FORM_TYPE.get(fd.get("type") or "text", "text")
+            options = [str(o) for o in (fd.get("options") or []) if str(o).strip()] if ftype == "choice" else []
+            if ftype == "choice" and len(options) < 2:
+                ftype, options = "text", []
+            out.append({"key": token, "label": str(fd.get("label") or token.replace("_", " ").title())[:120],
+                        "type": ftype, "required": bool(fd.get("required")), "options": options,
+                        "sensitive": bool(fd.get("sensitive")) or is_pay_token(token, snap.defs),
+                        "last4": bool(fd.get("last4")) and ftype in ("text", "number"),
+                        "help": str(fd.get("description") or "")[:200], "fromTemplate": snap.name})
+    return out
+
+
+class FormView:
+    """The person's whole form for one packet - what every Details Form helper
+    reads (they only look at .details_form): the packet's own fields, then
+    each Ask The Person variable of its documents not already on it."""
+
+    def __init__(self, setting: Optional[HrPacketSetting], snaps: list):
+        own = [f for f in ((setting.details_form or []) if setting is not None else []) if isinstance(f, dict)]
+        keys = {f.get("key") for f in own if f.get("key")}
+        derived = [f for f in template_form(snaps) if f["key"] not in keys]
+        self.details_form = own + derived
+        self.derived_keys = {f["key"] for f in derived}
+
+
+def form_view(db: Session, setting: Optional[HrPacketSetting], template_ids: Optional[list] = None) -> FormView:
+    if setting is None:
+        return FormView(None, [])
+    ids = list(setting.doc_template_ids or [])
+    ids += [t for t in (template_ids or []) if t and t not in ids]
+    snaps, _ = load_snaps(db, ids)
+    return FormView(setting, snaps)
+
+
+def event_template_ids(ev, setting: Optional[HrPacketSetting]) -> list:
+    """Every template an event's packet prints: the packet's own documents,
+    then the job description picked for this hire."""
+    ids = list((setting.doc_template_ids or []) if setting is not None else [])
+    jd = (ev.inputs or {}).get("jd_template_id") or ""
+    if jd and jd not in ids:
+        ids.append(jd)
+    return ids
+
+
+def event_form(db: Session, ev, setting: Optional[HrPacketSetting]) -> FormView:
+    return form_view(db, setting, event_template_ids(ev, setting))
+
+
+def hr_questions(snaps: list) -> list:
+    """Every HR Answers variable of these documents, once each - what HR is
+    asked when they make the offer or start the packet. Pay ones are marked:
+    they are entered only by Pay & Benefits holders and never stored on a
+    document row."""
+    reserved, out, seen = _reserved_tokens(), [], set()
+    for snap in snaps:
+        for fd in snap.field_defs:
+            token = fd.get("token") or ""
+            if def_source(fd) != "hr" or not token or token in seen or token in reserved or "." in token:
+                continue
+            if token not in snap.tokens:
+                continue
+            seen.add(token)
+            ftype = _FORM_TYPE.get(fd.get("type") or "text", "text")
+            out.append({"token": token, "label": str(fd.get("label") or token.replace("_", " ").title())[:120],
+                        "type": ftype, "options": [str(o) for o in (fd.get("options") or []) if str(o).strip()],
+                        "required": bool(fd.get("required")), "default": str(fd.get("default") or ""),
+                        "pay": is_pay_token(token, snap.defs), "help": str(fd.get("description") or "")[:200],
+                        "templateName": snap.name})
+    return out
+
+
 def mask_last4(value: str) -> str:
     chars = re.sub(r"[^0-9A-Za-z]", "", value or "")
     return f"XXXX {chars[-4:]}" if len(chars) >= 4 else ""
@@ -1362,15 +1477,18 @@ def _check(key: str, ok: bool, label: str, detail: str = "", severity: str = "bl
 
 def unfilled_variables(setting: HrPacketSetting, snaps: list) -> list:
     """{token, label} of every variable the packet's templates print that
-    nothing fills: not built in, not on the Details Form, no Default Value,
+    nothing fills: not built in, not asked of the person (the template's Ask
+    The Person or the Details Form), not answered by HR, no Default Value,
     not pay. HR would have to type each one on every packet."""
     reserved = _reserved_tokens()
-    form = {f["key"] for f in form_fields(setting)}
+    form = {f["key"] for f in form_fields(FormView(setting, snaps))}
     out, seen = [], set()
     for s in snaps:
         defaults = {fd.get("token") for fd in s.field_defs if str(fd.get("default") or "").strip()}
+        # HR answers it when the offer is made (or the packet starts).
+        by_hr = {fd.get("token") for fd in s.field_defs if def_source(fd) == "hr"}
         for t in sorted(s.tokens):
-            if (t in seen or t in reserved or t in form or t in defaults or "." in t
+            if (t in seen or t in reserved or t in form or t in defaults or t in by_hr or "." in t
                     or is_pay_token(t, s.defs)):
                 continue
             seen.add(t)
@@ -1455,10 +1573,12 @@ def readiness(db: Session, setting: HrPacketSetting) -> list:
     # 7. Every variable has a source.
     missing = unfilled_variables(setting, snaps)
     out.append(_check("variables", not missing, "Every Variable Is Filled",
-                      "Nexus, the Details Form or a Default Value fills each one" if not missing else
+                      "Nexus fills each one, or it is asked of the person or of HR" if not missing else
                       "Nothing fills " + ", ".join(m["label"] for m in missing[:6]) + ("..." if len(missing) > 6 else "") +
-                      (" - add them to the Details Form, or give them a Default Value in the template."
-                       if setting.event == "hire" else " - give them a Default Value in the template, or HR types them each time."),
+                      (" - in the template mark each one Ask The Person or HR Answers, give it a Default Value, "
+                       "or add it to the Details Form."
+                       if setting.event == "hire" else
+                       " - in the template mark each one HR Answers, or give it a Default Value."),
                       fix={"kind": "addToForm" if setting.event == "hire" else "template", "variables": missing,
                            "templateId": missing[0]["templateId"] if missing else ""}))
     return out
