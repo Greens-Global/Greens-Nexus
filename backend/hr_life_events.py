@@ -667,7 +667,9 @@ def send_hire(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[dic
             message=plan["setting"].email_message or "", expires_on=plan["details"]["offer_expires"],
             ip=ip, user_agent=user_agent,
             excluded_ack=excluded_ack, link_kind="life_event", link_id=ev.id,
-            sender_signs_first=sender_first)
+            sender_signs_first=sender_first,
+            prints_pay=pay_in_letter(plan["template"]) or bool(plan["pay"])
+            or bool(plan["details"].get("salary_text")))
     except HTTPException as e:
         raise PacketError(str(e.detail), e.status_code)
     ev.sign_request_id = out["id"]
@@ -1084,7 +1086,9 @@ def send_promotion(db: Session, user: dict, eid: str, inputs: dict, pay: Optiona
             employee_id=emp.id, entity_id=emp.company or "", merge=plan["merge"],
             message=plan["setting"].email_message or "", ip=ip, user_agent=user_agent,
             excluded_ack=excluded_ack, link_kind="life_event", link_id=ev.id,
-            sender_signs_first=sender_first)
+            sender_signs_first=sender_first,
+            prints_pay=pay_in_letter(plan["template"]) or bool(plan["pay"])
+            or bool(plan["details"].get("salary_text")))
     except HTTPException as e:
         raise PacketError(str(e.detail), e.status_code)
     ev.sign_request_id = out["id"]
@@ -1397,7 +1401,7 @@ def send_separation(db: Session, user: dict, eid: str, inputs: dict, scope, *, e
                 employee_id=emp.id, entity_id=emp.company or "", merge=plan["merge"],
                 message=plan["setting"].email_message or "", ip=ip, user_agent=user_agent,
                 excluded_ack=excluded_ack, link_kind="life_event", link_id=ev.id,
-                sender_signs_first=sender_first)
+                sender_signs_first=sender_first, prints_pay=pay_in_letter(plan["template"]))
         except HTTPException as e:
             raise PacketError(str(e.detail), e.status_code)
         ev.sign_request_id = out["id"]

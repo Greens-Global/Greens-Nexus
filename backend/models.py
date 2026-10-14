@@ -1740,6 +1740,9 @@ class HrSignRequest(Base):
     # that record along: link_kind "timesheet" + link_id = TimesheetReview.id.
     link_kind        = Column(String, default="", index=True)
     link_id          = Column(String, default="", index=True)
+    # 1 = the documents print pay (offer / promotion letters): the sealed PDF,
+    # the party links and party re-pointing need Pay & Benefits (hr_comp).
+    prints_pay       = Column(Integer, default=0)
 
 
 class HrSignParty(Base):

@@ -731,6 +731,7 @@ export const DOCS = [
       points: [
         'Set a template as the default for its type so everyone starts from the approved version.',
         'Copy a signer\'s link or fix their name, email or access code if they cannot open it.',
+        'Envelopes that show pay (offer and promotion letters) can be downloaded, have their links copied, or have a signer changed only by people with Pay & Benefits access. Everyone in HR still sees their status.',
         'Signed documents are filed to Egnyte automatically.',
       ],
     },

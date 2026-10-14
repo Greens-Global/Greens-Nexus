@@ -3497,6 +3497,10 @@ function SendWizard({ templates, employees, entities, prefill, onPrefillConsumed
 }
 
 // ── Envelope detail: parties progress + audit timeline + actions ──────────────
+// An envelope whose documents print pay (offer / promotion letters): only
+// Pay & Benefits holders download it or hand out its links (the API 403s).
+const PAY_LOCKED_HINT = 'Needs Pay & Benefits access - this envelope shows pay';
+
 function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toastErr }) {
   const [req, setReq] = useState(null);
   const [busy, setBusy] = useState('');
@@ -3566,7 +3570,7 @@ function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toastErr }
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
               {req.status === 'pending' && <button className="secondary-btn" disabled={!!busy} onClick={() => act('remind', () => api.remindSign(requestId), r => `Reminded ${r.reminded}.`)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Bell size={12} /> Remind</button>}
               {req.status === 'pending' && <button className="secondary-btn" disabled={!!busy} onClick={() => act('void', () => api.voidSign(requestId), 'Voided.')} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, color: 'hsl(var(--color-red))' }}><Ban size={12} /> Void</button>}
-              {req.hasFinalPdf && <button className="secondary-btn" disabled={!!busy} onClick={download} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={12} /> Sealed PDF</button>}
+              {req.hasFinalPdf && <button className="secondary-btn" disabled={!!busy || req.payLocked} onClick={download} title={req.payLocked ? PAY_LOCKED_HINT : undefined} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={12} /> Sealed PDF</button>}
               {req.hasFinalPdf && <button className="secondary-btn" disabled={!!busy} onClick={() => act('verify', () => api.verifySign(requestId), r => {
                 const doc = r.valid ? 'Document untampered' : '⚠ HASH MISMATCH - document was modified!';
                 const chain = !r.chainAvailable ? 'audit chain unavailable (pre-dates this feature)'
@@ -3591,11 +3595,11 @@ function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toastErr }
                       <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{p.email}{p.declineReason && ` - "${p.declineReason}"`}</div>
                     </div>
                     {fixable && p.kind === 'external' && !cc && (
-                      <button className="secondary-btn" disabled={!!busy} onClick={() => copyLink(p)} title="Copy their signing link"
+                      <button className="secondary-btn" disabled={!!busy || req.payLocked} onClick={() => copyLink(p)} title={req.payLocked ? PAY_LOCKED_HINT : 'Copy their signing link'}
                         style={{ fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px' }}><Copy size={11} /> Link</button>
                     )}
                     {fixable && (
-                      <button className="secondary-btn" disabled={!!busy} title="Fix their name, email or access code"
+                      <button className="secondary-btn" disabled={!!busy || req.payLocked} title={req.payLocked ? PAY_LOCKED_HINT : 'Fix their name, email or access code'}
                         onClick={() => { setEditPid(editPid === p.id ? null : p.id); setPf({ name: p.name, email: p.email, access_code: '' }); }}
                         style={{ fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px' }}><Pencil size={11} /> Edit</button>
                     )}

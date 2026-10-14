@@ -1200,6 +1200,14 @@ def upload_document(eid: str, file: UploadFile = File(...), kind: str = Form("ot
     return _ser_doc(row)
 
 
+def _contract_prints_pay(db: Session, row: HrDocument) -> bool:
+    """A contract HrDocument that is the sealed PDF of a pay-printing envelope
+    (hr_life_events files it with the envelope's own storage path)."""
+    from models import HrSignRequest
+    return bool(row.storage_path) and db.query(HrSignRequest.id).filter(
+        HrSignRequest.final_pdf_path == row.storage_path, HrSignRequest.prints_pay == 1).first() is not None
+
+
 @router.get("/documents/{did}/url")
 def document_url(did: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
     """Mint a short-lived signed URL - the bucket itself is private."""
@@ -1216,6 +1224,9 @@ def document_url(did: str, user: dict = Depends(require_hr_read), db: Session = 
         _direct_report_or_404(user, emp, db)
     elif row.kind == "paystub" and not _has_comp(user, db):
         raise HTTPException(403, "Paystubs require the compensation grant")
+    elif row.kind == "contract" and _contract_prints_pay(db, row) and not _has_comp(user, db):
+        # A signed offer / promotion letter filed from Nexus Sign (Oct 14).
+        raise HTTPException(403, "This document shows pay - Pay & Benefits access is needed")
     resp = httpx.post(
         f"{_SUPABASE_URL}/storage/v1/object/sign/{_DOC_BUCKET}/{row.storage_path}",
         headers=_storage_headers(), json={"expiresIn": 300}, timeout=15,
