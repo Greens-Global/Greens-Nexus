@@ -5,6 +5,8 @@ import { fmtHM } from '../lib/timeclockStore';
 // dashboard made no sense) and nothing until the status has loaded, so the
 // chip never flashes Clocked Out before it knows. On a break it says so.
 export function SessionChip({ mine, onOpen }) {
+  // 'unknown' is also a first status read that failed: the chip stays away
+  // rather than claim Clocked Out (the Workday widgets say Unavailable).
   if (!mine || mine.exempt || mine.state === 'unknown') return null;
   const on = mine.state === 'in' || mine.state === 'break';
   return (

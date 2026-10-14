@@ -4159,7 +4159,6 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
 .dk-dot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; }   /* bigger (Neil, Oct 14 2026): seen from across the room */
 .dk-dot--up { background: #00c875; }
 .dk-dot--off { background: #b91c1c; opacity: .75; }   /* red = off the clock (Neil, Oct 14 2026: green working, amber break, red not) */
-.dk-dot--na { background: var(--wk-faint); }          /* never on a clock (exempt): neutral, not an alarm */
 
 /* stat cards */
 .dk-board { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
