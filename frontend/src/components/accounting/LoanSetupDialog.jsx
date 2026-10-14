@@ -121,7 +121,11 @@ function FoldersDialog({ row, value, onSave, onClose }) {
   );
 }
 
-export default function LoanSetupDialog({ asof, entities = [], entityLabel = '', historical = false, onClose, onCreated, pollMs = POLL_MS }) {
+export default function LoanSetupDialog({ asof, entities = [], entityLabel = '', historical: historicalAtOpen = false, onClose, onCreated, pollMs = POLL_MS }) {
+  // Oct 14 (Charmi: "we do not have 279 entities ... don't count historical by
+  // default, it will speed up the process"): active entities only, whatever
+  // the Reports preference says; this box opts in for one scan.
+  const [historical, setHistorical] = useState(!!historicalAtOpen);
   const scan = useLedgerScan(() => api.getLoanProposalsAsOf({ asof, entities, historical }), [asof, entities.join(','), historical], pollMs);
   const { data, progress, retry } = scan;
   const backdrop = useBackdropClose(onClose);
@@ -200,6 +204,12 @@ export default function LoanSetupDialog({ asof, entities = [], entityLabel = '',
               {removedCount && !showRemoved ? ` · ${removedCount} removed under Loans not offered` : ''}
             </div>
           )}
+          {!done && (
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.76rem', color: 'var(--text-secondary)', cursor: 'pointer', justifySelf: 'start' }}
+              title="Historical (H) entities have closed books - their loans are long paid off, and reading them is most of the wait.">
+              <input type="checkbox" data-nx-filter="1" checked={historical} disabled={!!progress} onChange={(e) => setHistorical(e.target.checked)} /> Include Historical Entities (slower)
+            </label>
+          )}
           {progress ? <ScanProgress progress={progress} /> : scanError ? null : data === null ? <SkeletonBlocks count={2} /> : done ? (
             <div style={{ fontSize: '0.86rem', display: 'grid', gap: 6 }}>
               <strong>{done.created.length} {done.created.length === 1 ? 'loan' : 'loans'} set up{done.skipped.length ? `, ${done.skipped.length} skipped` : ''}.</strong>
@@ -245,9 +255,9 @@ export default function LoanSetupDialog({ asof, entities = [], entityLabel = '',
                       return (
                         <tr key={k} style={p.status === 'set_up' ? { color: 'var(--text-muted)' } : undefined}>
                           <td>{selectable(p) ? <input type="checkbox" data-nx-filter="1" checked={picked.has(k)} onChange={() => toggle(k)} aria-label={`Create ${p.title} on ${p.entityName}`} /> : null}</td>
-                          <td style={{ minWidth: 220 }}>{p.entityName} <span style={{ color: 'var(--text-muted)', fontSize: '0.72rem' }}>{p.entityCode}</span></td>
+                          <td style={{ minWidth: 220 }}><span style={{ color: 'var(--text-muted)', fontSize: '0.72rem', fontVariantNumeric: 'tabular-nums' }}>{p.entityCode}</span> {p.entityName}</td>
                           <td>{p.glAccount}</td><td style={{ minWidth: 220 }}>{p.title}</td>
-                          <td style={num} title={p.debitBalance ? DEBIT_NOTE : undefined}><Amount value={Math.abs(p.balance)} />{p.debitBalance ? <span aria-hidden="true" style={{ color: 'var(--text-muted)' }}> *</span> : null}</td>
+                          <td style={{ ...num, minWidth: 120 }} title={p.debitBalance ? DEBIT_NOTE : undefined}>{p.debitBalance ? <span style={{ marginRight: 6, fontSize: '0.64rem', fontWeight: 700, color: '#92400e' }}>Check Sign</span> : null}<Amount value={Math.abs(p.balance)} /></td>
                           <td>{p.lender || <span style={{ color: 'var(--text-muted)' }}>unknown - type it after</span>}</td>
                           <td><Chip tone={p.kind === 'intercompany' ? 'muted' : 'brand'}>{KIND[p.kind] || p.kind}</Chip></td>
                           <td style={{ whiteSpace: 'nowrap', fontSize: '0.76rem' }}>{p.loanType === 'line_of_credit' ? 'Line of Credit' : 'Term Loan'}</td>

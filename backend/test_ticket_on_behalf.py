@@ -76,6 +76,13 @@ class OnBehalfTests(unittest.TestCase):
         body = T.TicketBody(subject=kw.pop("subject", "Laptop will not boot"), requester_email=requester, **kw)
         return T.create_ticket(body, BackgroundTasks(), user=user, db=self.db)
 
+    # ── collaborators picked on the form (Oct 14 2026) ───────────────────────
+    def test_collaborators_on_the_form_are_kept_and_told(self):
+        t = self._create(ME, requester=COLLEAGUE, watcher_emails=[" Agent@GreensGlobal.com ", AGENT["email"]])
+        self.assertEqual(t["watcherIds"], [AGENT["email"], ME["email"]])   # the filer stays on it too
+        bells = self.db.query(models.TaskNotification).filter(models.TaskNotification.kind == "ticket_collaborator").all()
+        self.assertEqual([b.for_email for b in bells], [AGENT["email"]])
+
     # ── who it is for ────────────────────────────────────────────────────────
     def test_blank_requester_means_me(self):
         out = self._create(ME)

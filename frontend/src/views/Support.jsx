@@ -485,8 +485,12 @@ export default function Support({ activeSub, onSubChange }) {
 
       <div className="dash-card" data-tour="support-open-tickets" data-tier={tier} ref={cardRef}>
         {/* Indented by the gutter so the tabs' left edge is the table's left
-            edge - the pencil and unread dot live to the left of both. */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap', paddingLeft: tickets !== null && listed.length > 0 ? gutterW : 0 }}>
+            edge - the pencil and unread dot live to the left of both. On EVERY
+            tab, empty or loading too: indenting only when the list had rows
+            made the tabs jump sideways on switching to an empty Following or
+            Closed tab (Neil, Oct 14 2026: "Open looks proper, the others
+            become goofy"). */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap', paddingLeft: gutterW }}>
           {/* Open and Closed (Neil, Sep 30: "now I don't have any history of
               the ticket that I had... I should be able to go through and
               reopen if the same issue happened again"). */}

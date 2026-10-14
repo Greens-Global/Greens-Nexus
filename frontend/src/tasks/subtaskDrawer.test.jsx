@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, within, waitFor } from '@testing-library/react';
 
 // Subtasks in the task drawer (Sagar, Oct 13 2026): a subtask says whose it is
 // under its title, and closing, deleting or completing one goes back to the
@@ -295,11 +295,11 @@ describe('editing recurrence from the task Overview', () => {
 
 // Duplicate in the task's ... menu (Oct 13 2026).
 describe('Duplicate Task', () => {
-  it('copies the task and its subtasks, then opens the copy', async () => {
-    const main = { ...parent, status: 'recurring', recurrence: { freq: 'weekly', daysOfWeek: [1] },
-      followerIds: ['neil@x.com'], customFieldValues: { prop: 'esc' }, priority: 'high' };
-    const kid = { ...sub, id: 's', parentTaskId: 'p', title: 'Check the portal', priority: 'low' };
-    const copy = { ...main, id: 'copy', title: `${main.title} (copy)`, status: 'not_started', recurrence: null };
+  const main = { ...parent, status: 'recurring', recurrence: { freq: 'weekly', daysOfWeek: [1], nextOccurrenceId: 'n1' },
+    followerIds: ['neil@x.com'], customFieldValues: { prop: 'esc' }, priority: 'high' };
+  const kid = { ...sub, id: 's', parentTaskId: 'p', title: 'Check the portal', priority: 'low', customFieldValues: { prop: 'esc' } };
+  const copy = { ...main, id: 'copy', title: `${main.title} (copy)`, status: 'not_started', recurrence: null };
+  const open = async () => {
     state = { ...makeStore(), tasks: [main, kid], taskById: { p: main, s: kid } };
     state.createTask = vi.fn((body) => {
       if (body.parentTaskId) return Promise.resolve({ id: 'copy-sub' });
@@ -307,19 +307,43 @@ describe('Duplicate Task', () => {
       state.taskById = { ...state.taskById, copy };
       return Promise.resolve({ id: 'copy' });
     });
-    const { rerender } = render(<TaskDetailDrawer taskId="p" onClose={() => {}} />);
+    const view = render(<TaskDetailDrawer taskId="p" onClose={() => {}} />);
     fireEvent.click(screen.getByTitle('More Actions'));
-    await act(async () => { fireEvent.click(screen.getByText('Duplicate Task')); });
+    fireEvent.click(screen.getByText('Duplicate Task'));
+    await screen.findByText('Bring Over');
+    return view;
+  };
+  const run = async () => { await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Duplicate' })); }); };
+
+  it('asks what to bring over, then copies the task and its subtasks and opens the copy', async () => {
+    const { rerender } = await open();
+    // Oct 14 2026: the series is carried by default (one copy per entity,
+    // each repeating) - untick Recurrence for a one-off.
+    fireEvent.click(within(screen.getByRole('dialog')).getByLabelText('Recurrence'));
+    await run();
     const [first, second] = state.createTask.mock.calls.map((c) => c[0]);
     expect(first).toEqual(expect.objectContaining({
       title: `${main.title} (copy)`, status: 'not_started', priority: 'high',
       followerIds: ['neil@x.com'], customFieldValues: { prop: 'esc' },
     }));
-    expect(first.recurrence).toBeUndefined();             // a one-off, not a second series
+    expect(first.recurrence).toBeUndefined();
     expect(second).toEqual(expect.objectContaining({ title: 'Check the portal', parentTaskId: 'copy', priority: 'low' }));
     expect(state.offerUndo).toHaveBeenCalled();
     rerender(<TaskDetailDrawer taskId="p" onClose={() => {}} />);
     expect(screen.getAllByRole('textbox').some((el) => el.value === `${main.title} (copy)`)).toBe(true);
+  });
+
+  it('keeps the recurrence (without the series marker) and leaves out what is unticked', async () => {
+    await open();
+    const dialog = screen.getByText('Bring Over').closest('div').parentElement;
+    fireEvent.click(within(dialog).getByLabelText(/^Subtasks/));
+    fireEvent.click(within(dialog).getByLabelText('Collaborators'));
+    await run();
+    const calls = state.createTask.mock.calls.map((c) => c[0]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].recurrence).toEqual({ freq: 'weekly', daysOfWeek: [1] });
+    expect(calls[0].status).toBe('recurring');
+    expect(calls[0].followerIds).toEqual([]);
   });
 });
 
@@ -370,5 +394,149 @@ describe('the Add subtask row date', () => {
     expect(state.createTask).toHaveBeenCalledWith(expect.objectContaining({
       title: 'File the W9s', dueOn: `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`,
     }));
+  });
+});
+
+// Neil, Oct 14 2026: a subtask is the main task's child.
+describe('subtasks follow the main task', () => {
+  const main = { ...parent, assigneeIds: ['sai@x.com'], followerIds: ['neil@x.com'], priority: 'high',
+    customFieldValues: { ent: 'rjk' }, recurrence: { freq: 'yearly' }, status: 'recurring' };
+  const kid = { ...sub, followerIds: ['neil@x.com'], customFieldValues: { ent: 'rjk' } };
+  const openMain = () => {
+    state = { ...makeStore(), tasks: [main, kid], taskById: { p: main, s: kid },
+      customFields: [{ id: 'ent', name: 'Entities', type: 'select', options: [{ id: 'rjk', label: 'RJK' }, { id: 'aus', label: 'Greens Austin' }] }] };
+    render(<TaskDetailDrawer taskId="p" onClose={() => {}} />);
+  };
+
+  it('a new subtask starts with the main task’s people, priority and field values', async () => {
+    openMain();
+    fireEvent.change(screen.getByPlaceholderText('Add subtask'), { target: { value: 'Collect K-1s' } });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Add' })); });
+    expect(state.createTask).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Collect K-1s', parentTaskId: 'p', assigneeIds: ['sai@x.com'], followerIds: ['neil@x.com'],
+      priority: 'high', customFieldValues: { ent: 'rjk' },
+    }));
+  });
+
+  it('changing the Entity on the main task offers it to the subtasks', () => {
+    openMain();
+    fireEvent.change(screen.getByDisplayValue('RJK'), { target: { value: 'aus' } });
+    expect(state.updateTask).toHaveBeenCalledWith('p', { customFieldValues: { ent: 'aus' } });
+    expect(screen.getByText('Change Entities on the 1 subtask too?')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Apply to Subtasks' }));
+    expect(state.updateTask).toHaveBeenCalledWith('s', { customFieldValues: { ent: 'aus' } });
+  });
+
+  it('a subtask of a repeating task says it repeats with it, and can stop', () => {
+    state = { ...makeStore(), tasks: [main, kid], taskById: { p: main, s: kid } };
+    render(<TaskDetailDrawer taskId="s" onClose={() => {}} />);
+    expect(screen.getByText(/Repeats with the main task/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Recurrence' }));
+    fireEvent.click(screen.getByText('Does not repeat'));
+    expect(state.updateTask).toHaveBeenCalledWith('s', expect.objectContaining({ recurrence: { skip: true } }));
+  });
+
+  it('a subtask can be given a schedule of its own', () => {
+    state = { ...makeStore(), tasks: [main, kid], taskById: { p: main, s: kid } };
+    render(<TaskDetailDrawer taskId="s" onClose={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Recurrence' }));
+    fireEvent.click(screen.getByText('Daily'));
+    expect(state.updateTask).toHaveBeenCalledWith('s', { recurrence: { freq: 'daily' }, status: 'recurring' });
+  });
+
+  it("the add row's calendar has Repeat, and a new subtask can repeat on its own", async () => {
+    openMain();
+    fireEvent.change(screen.getByPlaceholderText('Add subtask'), { target: { value: 'Reconcile bank' } });
+    fireEvent.click(screen.getAllByTitle('Due Date').at(-1));
+    fireEvent.click(screen.getByTitle('With Main Task'));
+    fireEvent.click(screen.getByText('Daily'));
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    await waitFor(() => expect(state.createTask).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Reconcile bank', recurrence: { freq: 'daily' }, status: 'recurring',
+    })));
+  });
+
+  it('Status is a dropdown', () => {
+    openMain();
+    fireEvent.click(screen.getByRole('button', { name: 'Status' }));
+    expect(screen.getByText('Not Started')).toBeTruthy();   // the menu's option
+  });
+});
+
+// Tasks from tickets (Oct 14 2026): the task names the ticket it came from,
+// and from a ticket's own Tasks list the link just goes back to it.
+describe('From Ticket', () => {
+  const fromTicket = { ...parent, id: 'ft', sourceTicketId: 'tk1', subtaskIds: [] };
+  const ticket = { id: 'tk1', code: '000123', subject: 'Printer jam' };
+
+  it('shows the ticket and goes back to it', () => {
+    state = { ...makeStore(), tasks: [fromTicket], taskById: { ft: fromTicket }, tickets: [ticket] };
+    const back = vi.fn();
+    render(<TaskDetailDrawer taskId="ft" onClose={() => {}} onBackToTicket={back} />);
+    fireEvent.click(screen.getByRole('button', { name: /Ticket #123 · Printer jam/ }));
+    expect(back).toHaveBeenCalled();
+  });
+
+  it('is not shown on a task that has no ticket', () => {
+    state = { ...makeStore(), tasks: [parent], taskById: { p: parent }, tickets: [ticket] };
+    render(<TaskDetailDrawer taskId="p" onClose={() => {}} />);
+    expect(screen.queryByText('From Ticket')).toBeNull();
+  });
+
+  it('the From Ticket filter keeps only tasks from tickets', async () => {
+    const { matchesFilter, EMPTY_FILTER } = await import('./lib');
+    const f = { ...EMPTY_FILTER, fromTicket: true };
+    expect(matchesFilter(fromTicket, f)).toBe(true);
+    expect(matchesFilter(parent, f)).toBe(false);
+    expect(matchesFilter(parent, EMPTY_FILTER)).toBe(true);
+  });
+});
+
+// Save as Template (Neil, Oct 14 2026): from the task's More Actions menu,
+// keeping what is ticked.
+describe('Save as Template', () => {
+  it('saves the task as a template with the parts asked for', async () => {
+    const saveTaskAsTemplate = vi.fn(() => Promise.resolve({ id: 'tpl1', name: 'Remove IT items duplicates' }));
+    const kid = { ...sub, id: 's', parentTaskId: 'p' };
+    state = { ...makeStore(), tasks: [parent, kid], taskById: { p: parent, s: kid }, saveTaskAsTemplate, deleteTemplate: vi.fn() };
+    render(<TaskDetailDrawer taskId="p" onClose={() => {}} />);
+    fireEvent.click(screen.getByTitle('More Actions'));
+    fireEvent.click(screen.getByText('Save as Template'));
+    const dialog = screen.getByRole('dialog', { name: /Save as Template/ });
+    fireEvent.click(within(dialog).getByLabelText('Assignees'));
+    await act(async () => { fireEvent.click(within(dialog).getByRole('button', { name: 'Save Template' })); });
+    expect(saveTaskAsTemplate).toHaveBeenCalledWith('p', {
+      name: 'Remove IT items duplicates', description: '',
+      parts: ['subtasks', 'followers', 'fields', 'description', 'checklist'],
+    });
+  });
+});
+
+describe('Save as Template on a task with no subtasks', () => {
+  it('still lists Subtasks and Recurrence, greyed out with the reason', () => {
+    const lone = { ...parent, id: 'l', subtaskIds: [] };
+    state = { ...makeStore(), tasks: [lone], taskById: { l: lone }, saveTaskAsTemplate: vi.fn(), deleteTemplate: vi.fn() };
+    render(<TaskDetailDrawer taskId="l" onClose={() => {}} />);
+    fireEvent.click(screen.getByTitle('More Actions'));
+    fireEvent.click(screen.getByText('Save as Template'));
+    const dialog = screen.getByRole('dialog', { name: /Save as Template/ });
+    expect(within(dialog).getByLabelText(/Subtasks/).disabled).toBe(true);
+    expect(within(dialog).getByText(/this task has none/)).toBeTruthy();
+    expect(within(dialog).getByLabelText(/Recurrence/).disabled).toBe(true);
+    expect(within(dialog).getByText(/this task does not repeat/)).toBeTruthy();
+  });
+});
+
+describe('Duplicate on a task with no subtasks', () => {
+  it('still lists Subtasks and Recurrence, greyed out with the reason', () => {
+    const lone = { ...parent, id: 'l', subtaskIds: [] };
+    state = { ...makeStore(), tasks: [lone], taskById: { l: lone } };
+    render(<TaskDetailDrawer taskId="l" onClose={() => {}} />);
+    fireEvent.click(screen.getByTitle('More Actions'));
+    fireEvent.click(screen.getByText('Duplicate Task'));
+    const dialog = screen.getByRole('dialog', { name: /Duplicate Task/ });
+    expect(within(dialog).getByLabelText(/Subtasks/).disabled).toBe(true);
+    expect(within(dialog).getByLabelText(/Recurrence/).disabled).toBe(true);
+    expect(within(dialog).getByText(/this task does not repeat/)).toBeTruthy();
   });
 });
