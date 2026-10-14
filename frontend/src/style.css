@@ -6130,3 +6130,24 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
   .bi-search { min-width: 0; flex: 1; }
   .bi-filters { width: 100%; }
 }
+
+/* Status labels and the priority signal (components/StatusLabel.jsx, Oct 14):
+   soft, sized to their words, shades mixed from the one color so custom task
+   statuses work too. Replaces the solid edge-to-edge cell fills. */
+.nx-label { --c: #64748b; display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-width: 0;
+  padding: 2px 9px 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; line-height: 18px; white-space: nowrap;
+  background: color-mix(in srgb, var(--c) 12%, transparent); color: color-mix(in srgb, var(--c) 70%, #000); }
+.nx-label::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--c); flex-shrink: 0; }
+.nx-label-sm { font-size: 11px; padding: 1px 7px 1px 6px; gap: 5px; line-height: 16px; }
+.nx-label-sm::before { width: 6px; height: 6px; }
+.nx-label-text { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+[data-theme="dark"] .nx-label { background: color-mix(in srgb, var(--c) 20%, transparent); color: color-mix(in srgb, var(--c) 55%, #fff); }
+.nx-prio { --c: #64748b; display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%;
+  font-size: 12.5px; font-weight: 500; color: var(--nx-dim, var(--muted)); white-space: nowrap; }
+.nx-prio-bars { display: inline-flex; align-items: flex-end; gap: 1.5px; height: 11px; flex-shrink: 0; }
+.nx-prio-bars i { width: 3px; border-radius: 1px; background: var(--nx-border, var(--line)); }
+.nx-prio-bars i:nth-child(1) { height: 5px; } .nx-prio-bars i:nth-child(2) { height: 8px; } .nx-prio-bars i:nth-child(3) { height: 11px; }
+.nx-prio-bars i.on { background: var(--nx-dim, var(--muted)); }
+.nx-prio-loud { font-weight: 600; color: color-mix(in srgb, var(--c) 72%, #000); }
+.nx-prio-loud .nx-prio-bars i.on { background: var(--c); }
+[data-theme="dark"] .nx-prio-loud { color: color-mix(in srgb, var(--c) 55%, #fff); }

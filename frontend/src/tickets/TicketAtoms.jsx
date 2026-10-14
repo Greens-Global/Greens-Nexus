@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { NX, FONT, chip, btn, input as inputStyle } from '../tasks/theme';
 import { PersonSelect, PersonMultiSelect, DateField, SearchSelect } from '../tasks/components';
+import { StatusLabel } from '../components/StatusLabel';
 import {
   TICKET_TYPE_META, TICKET_STATUS_META, SLA_META, slaState, toEmailList, fmtDate,
 } from './ticketMeta';
@@ -180,9 +181,9 @@ export function SlaBadge({ t, compact = false }) {
   );
 }
 
-export function TicketStatusChip({ status }) {
-  const m = TICKET_STATUS_META[status] || { label: status, color: NX.dim, tint: NX.border2 };
-  return <span style={chip(m.color, m.tint)}>{m.label}</span>;
+export function TicketStatusChip({ status, size }) {
+  const m = TICKET_STATUS_META[status] || { label: status, color: '#64748b' };
+  return <StatusLabel label={m.label} color={m.color} size={size} />;
 }
 
 

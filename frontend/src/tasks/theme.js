@@ -54,11 +54,14 @@ export const MISSED_TITLE = 'Missed - closed when the next occurrence came due. 
 // Aug 12). Board columns and status sorts share this order on purpose.
 export const STATUS_ORDER = ['not_started', 'in_progress', 'recurring', 'completed'];
 
+// Priority is a signal, not a color block (Neil, Oct 14 2026): only Urgent
+// (red) and High (amber) carry color; Medium and Low are slate. Drawn by
+// components/StatusLabel.jsx's PrioritySignal in lists.
 export const PRIORITY_META = {
-  low:    { label: 'Low',    color: '#579bfc', tint: 'rgba(87,155,252,0.16)' },
-  medium: { label: 'Medium', color: '#5559df', tint: 'rgba(85,89,223,0.15)' },
-  high:   { label: 'High',   color: '#a25ddc', tint: 'rgba(162,93,220,0.16)' },
-  urgent: { label: 'Urgent', color: '#e2445c', tint: 'rgba(226,68,92,0.15)' },
+  low:    { label: 'Low',    color: '#94a3b8', tint: 'rgba(148,163,184,0.16)' },
+  medium: { label: 'Medium', color: '#64748b', tint: 'rgba(100,116,139,0.14)' },
+  high:   { label: 'High',   color: '#d97706', tint: 'rgba(217,119,6,0.15)' },
+  urgent: { label: 'Urgent', color: '#dc2626', tint: 'rgba(220,38,38,0.14)' },
 };
 export const PRIORITY_ORDER = ['urgent', 'high', 'medium', 'low'];
 

@@ -33,13 +33,17 @@ const { default: TicketsView, TicketDrawer, CreateTicketModal } = await import('
 afterEach(cleanup);
 
 describe('Ticket summary tiles', () => {
-  it('lead with Unassigned, tinted yellow, then Open', async () => {
+  // White cards with a dot (Neil, Oct 14 2026); Unassigned still leads, its
+  // dot amber, and its number amber while anything is unassigned.
+  it('lead with Unassigned, amber dot, then Open', async () => {
     const { container } = render(<TicketsView />);
     await screen.findByText('Printer jam');
     const tiles = [...container.querySelector('[data-tour="ticket-tiles"]').children];
     expect(tiles[0].textContent).toContain('Unassigned');
     expect(tiles[1].textContent).toContain('Open');
-    expect(tiles[0].style.background).toContain('245, 158, 11');   // amber/yellow, not red or white
+    expect(tiles[0].style.background).toBe('var(--nx-surface)');
+    const dot = tiles[0].querySelector('span > span');
+    expect(dot.style.background).toMatch(/217, 119, 6|#d97706/);
   });
 });
 
