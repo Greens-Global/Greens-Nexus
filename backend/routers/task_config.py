@@ -2,7 +2,7 @@
 intake forms, custom fields, tickets, the module's own notification bell, and the
 changelog/"What's New" feature. Single router, absolute paths, email-keyed.
 """
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, func
 from sqlalchemy.exc import IntegrityError
@@ -178,9 +178,16 @@ def list_rule_runs(rule_id: str = "", limit: int = 50, user: dict = Depends(get_
 
 # ── Templates ────────────────────────────────────────────────────────────────
 def template_to_dict(t: models.TaskTemplate) -> dict:
+    subs = t.subtasks if isinstance(t.subtasks, list) else []
     return {"id": t.id, "name": t.name, "description": t.description or "",
             "patch": t.patch if isinstance(t.patch, dict) else {},
-            "subtaskTitles": t.subtask_titles or []}
+            # Whole subtasks when saved from a task; the titles are kept in
+            # step so every older reader still lists them.
+            "subtaskTitles": [s.get("title", "") for s in subs] if subs else (t.subtask_titles or []),
+            "subtasks": subs,
+            "checklist": t.checklist if isinstance(t.checklist, list) else [],
+            "sourceTaskId": t.source_task_id or "", "createdBy": t.created_by or "",
+            "createdAt": t.created_at or ""}
 
 
 class TemplateBody(BaseModel):
@@ -207,17 +214,220 @@ def create_template(body: TemplateBody, db: Session = Depends(get_db)):
     return template_to_dict(t)
 
 
-@router.delete("/task-templates/{template_id}", status_code=204, dependencies=[Depends(require_manager)])
+@router.delete("/task-templates/{template_id}", status_code=204)
 def delete_template(template_id: str, user: dict = Depends(get_current_user),
                     db: Session = Depends(get_db)):
     # Soft delete -> Recycle Bin, like every other deletable thing in the
     # module. The row stays, hidden by database.py's _hide_soft_deleted hook.
+    # A manager, or whoever saved it from their task (Oct 14 2026).
     t = (db.query(models.TaskTemplate).execution_options(include_deleted=True)
          .filter(models.TaskTemplate.id == template_id).first())
+    if t and not is_manager(user) and (t.created_by or "").lower() != user["email"].lower():
+        raise HTTPException(403, "Only a manager or whoever saved this template can delete it.")
     if t:
         t.deleted_at = now_iso()
         t.deleted_by = user["email"]
     db.commit()
+
+
+# ── Save as Template / Use (Neil, Oct 14 2026) ──────────────────────────────
+# "Convert to task template", the way project templates work: the yearly tax
+# return with its eleven subtasks, saved once, started again for each entity.
+# Saving reads the task server-side (what it is, never its comments, files or
+# history); using builds the task, its subtasks and checklists in ONE commit.
+_RULE_MARKERS = ("nextOccurrenceId", "closedAsMissed", "count")
+TEMPLATE_PARTS = ("subtasks", "assignees", "followers", "fields", "recurrence", "description", "checklist")
+
+
+def _days_between(a: str, b: str):
+    try:
+        return (datetime.strptime(b[:10], "%Y-%m-%d") - datetime.strptime(a[:10], "%Y-%m-%d")).days
+    except (TypeError, ValueError):
+        return None
+
+
+def _clean_rule(rec):
+    if not isinstance(rec, dict):
+        return None
+    out = {k: v for k, v in rec.items() if k not in _RULE_MARKERS}
+    return out or None
+
+
+def _checklist_of(db: Session, task_id: str) -> list:
+    rows = (db.query(models.TaskChecklistItem).filter(models.TaskChecklistItem.task_id == task_id)
+            .order_by(models.TaskChecklistItem.position).all())
+    return [{"title": r.title, "assigneeId": r.assignee_email or ""} for r in rows]
+
+
+class SaveAsTemplateBody(BaseModel):
+    name: Optional[str] = ""
+    description: Optional[str] = ""
+    # What to keep - TEMPLATE_PARTS; absent means all of them.
+    parts: Optional[list] = None
+
+
+@router.post("/tasks/{task_id}/as-template", status_code=201)
+def save_task_as_template(task_id: str, body: SaveAsTemplateBody, user: dict = Depends(get_current_user),
+                          db: Session = Depends(get_db)):
+    from routers.task_util import require_task_role, task_assignees
+    t = db.query(models.Task).filter(models.Task.id == task_id).first()
+    if not t:
+        raise HTTPException(404, "Task not found")
+    import auth
+    auth.assert_company(getattr(t, "company_id", "") or "", user, db)
+    # Reading the task and everything under it into a shared blueprint takes
+    # the same tier as saving a project as one: editor.
+    require_task_role(db, user, t, "editor")
+    keep = set(body.parts) & set(TEMPLATE_PARTS) if body.parts is not None else set(TEMPLATE_PARTS)
+    name = (body.name or t.title or "").strip()
+    if not name:
+        raise HTTPException(422, "Template name is required")
+
+    patch = {"priority": t.priority or "medium", "type": t.type or "task",
+             "projectId": t.project_id or "", "teamId": t.team_id or "", "tags": list(t.tags or [])}
+    if t.estimate_hours is not None:
+        patch["estimateHours"] = t.estimate_hours
+    if "description" in keep and t.description:
+        patch["description"] = t.description
+    if "assignees" in keep:
+        patch["assigneeIds"] = task_assignees(t)
+    if "followers" in keep:
+        patch["followerIds"] = list(t.follower_emails or [])
+    if "fields" in keep:
+        patch["customFieldValues"] = dict(t.custom_field_values or {})
+    rule = _clean_rule(t.recurrence) if "recurrence" in keep else None
+    if rule and rule.get("freq"):
+        patch["recurrence"] = rule
+
+    subtasks = []
+    if "subtasks" in keep:
+        kids = (db.query(models.Task)
+                .filter(models.Task.parent_task_id == t.id,
+                        (models.Task.deleted_at == "") | (models.Task.deleted_at.is_(None)))
+                .order_by(models.Task.position).all())
+        for s in kids:
+            sub = {"title": s.title, "priority": s.priority or "medium", "type": s.type or "task",
+                   "dueOffsetDays": _days_between(t.due_on, s.due_on) if (t.due_on and s.due_on) else None,
+                   "estimateHours": s.estimate_hours}
+            if "description" in keep and s.description:
+                sub["description"] = s.description
+            if "assignees" in keep:
+                sub["assigneeIds"] = task_assignees(s)
+            if "followers" in keep:
+                sub["followerIds"] = list(s.follower_emails or [])
+            if "fields" in keep:
+                sub["customFieldValues"] = dict(s.custom_field_values or {})
+            if "recurrence" in keep and isinstance(s.recurrence, dict) and (s.recurrence.get("freq") or s.recurrence.get("skip")):
+                sub["recurrence"] = _clean_rule(s.recurrence)
+            if "checklist" in keep:
+                sub["checklist"] = _checklist_of(db, s.id)
+            subtasks.append(sub)
+
+    tpl = models.TaskTemplate(
+        id=gen_id(), name=name, description=(body.description or "").strip(), patch=patch,
+        subtask_titles=[s["title"] for s in subtasks], subtasks=subtasks,
+        checklist=_checklist_of(db, t.id) if "checklist" in keep else [],
+        source_task_id=t.id, created_by=user["email"].lower(), created_at=now_iso())
+    db.add(tpl)
+    db.commit()
+    db.refresh(tpl)
+    return template_to_dict(tpl)
+
+
+class UseTemplateBody(BaseModel):
+    title: Optional[str] = ""
+    due_on: Optional[str] = ""
+    # "" = the project the template was saved in (if any).
+    project_id: Optional[str] = None
+    # Field values for the new task - changed ones also go onto its subtasks.
+    custom_field_values: Optional[dict] = None
+
+
+@router.post("/task-templates/{template_id}/use", status_code=201)
+def use_template(template_id: str, body: UseTemplateBody, background_tasks: BackgroundTasks,
+                 user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Start a task from a template: the main task through create_task (its
+    permission, required-field and notification rules), and its subtasks and
+    checklists in the same commit. Subtask due dates land as far from the new
+    due date as they were from the original's."""
+    from routers import tasks as tasks_router
+    from routers.task_util import set_task_assignees, task_notify
+    tpl = db.query(models.TaskTemplate).filter(models.TaskTemplate.id == template_id).first()
+    if not tpl:
+        raise HTTPException(404, "Template not found")
+    p = tpl.patch if isinstance(tpl.patch, dict) else {}
+    due = (body.due_on or "")[:10]
+    values = dict(p.get("customFieldValues") or {})
+    changed = {}
+    for k, v in (body.custom_field_values or {}).items():
+        if values.get(k) != v:
+            changed[k] = v
+        values[k] = v
+    # What the subtasks take on: only values the field definitions accept,
+    # the same check create_task gives the main task's.
+    changed = coerce_custom_field_values(db, changed)
+    rule = p.get("recurrence") if isinstance(p.get("recurrence"), dict) and p["recurrence"].get("freq") else None
+    project_id = body.project_id if body.project_id is not None else (p.get("projectId") or "")
+    if project_id and not db.query(models.TaskProject).filter(models.TaskProject.id == project_id).first():
+        project_id = ""   # the template's project has since gone
+    status = p.get("status") if p.get("status") and not rule else ("recurring" if rule else "not_started")
+    main = tasks_router.TaskCreate(
+        title=(body.title or tpl.name or "").strip() or tpl.name, description=p.get("description") or "",
+        type=p.get("type") or "task", status=status, priority=p.get("priority") or "medium",
+        assignee_emails=list(p.get("assigneeIds") or []), follower_emails=list(p.get("followerIds") or []),
+        project_id=project_id, team_id=(p.get("teamId") or "") if project_id == (p.get("projectId") or "") else "",
+        tags=list(p.get("tags") or []), custom_field_values=values, due_on=due,
+        estimate_hours=p.get("estimateHours"), recurrence=rule,
+    )
+    subs = tpl.subtasks if isinstance(tpl.subtasks, list) and tpl.subtasks else [
+        {"title": x} for x in (tpl.subtask_titles or []) if x]
+    actor = user["email"].lower()
+
+    def add_children(parent: models.Task) -> None:
+        now = parent.created_at or now_iso()
+        ids = []
+        for i, s in enumerate(subs):
+            off = s.get("dueOffsetDays")
+            sdue = ""
+            if due and isinstance(off, int):
+                sdue = (datetime.strptime(due, "%Y-%m-%d") + timedelta(days=off)).date().isoformat()
+            srec = s.get("recurrence") if isinstance(s.get("recurrence"), dict) else None
+            row = models.Task(
+                id=gen_id(), company_id=parent.company_id or "", code=tasks_router._next_code(db),
+                title=s.get("title") or "Subtask", description=s.get("description") or "",
+                type=s.get("type") or "task", status="recurring" if (srec or {}).get("freq") else "not_started",
+                priority=s.get("priority") or "medium", owner_email="",
+                follower_emails=list(s.get("followerIds") or []), liked_by_emails=[],
+                access_level=parent.access_level or "org", project_id=parent.project_id or "",
+                section_id="", team_id=parent.team_id or "", parent_task_id=parent.id, position=float(i),
+                subtask_ids=[], blocked_by_ids=[], blocking_ids=[], dependency_types={}, tags=[],
+                custom_field_values={**dict(s.get("customFieldValues") or {}), **changed},
+                start_on="", due_on=sdue, estimate_hours=s.get("estimateHours"), actual_hours=None,
+                recurrence=srec, is_milestone=False, approval_status="none", completed=False, completed_at="",
+                comment_ids=[], attachment_ids=[], activity_ids=[],
+                created_at=now, modified_at=now, created_by=actor)
+            set_task_assignees(row, list(s.get("assigneeIds") or []))
+            db.add(row)
+            _add_checklist(db, row, s.get("checklist"), actor, now)
+            ids.append(row.id)
+            for who in row.assignee_emails or []:
+                if who != actor:
+                    task_notify(db, kind="task_assigned", for_email=who, title="You were assigned a task",
+                                body=row.title, task_id=row.id,
+                                nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
+        parent.subtask_ids = ids
+        _add_checklist(db, parent, tpl.checklist, actor, now)
+
+    return tasks_router._create_task(main, background_tasks, user, db, before_commit=add_children)
+
+
+def _add_checklist(db: Session, task: models.Task, items, actor: str, now: str) -> None:
+    items = [x for x in (items if isinstance(items, list) else []) if isinstance(x, dict) and x.get("title")]
+    for i, x in enumerate(items):
+        db.add(models.TaskChecklistItem(id=gen_id(), task_id=task.id, title=x["title"], done=False,
+                                        assignee_email=(x.get("assigneeId") or "").lower(), position=float(i),
+                                        created_at=now, created_by=actor))
+    task.checklist_total, task.checklist_done = len(items), 0
 
 
 # ── Intake forms ─────────────────────────────────────────────────────────────
