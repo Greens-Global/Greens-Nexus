@@ -13,7 +13,7 @@ import { control } from './reportControls';
 //
 // The server is the lock (routers/pfs_access.py answers 423 on every route of
 // a file that is not open); this screen only follows it. A code goes to the
-// viewer's own email and opens ONE file in THIS tab for 30 minutes. When the
+// viewer's own email and opens ONE file in THIS tab for 90 minutes (Urmi, 10/14; was 30). When the
 // status cannot be read the screen simply tries the file - the server still
 // decides, and a 423 brings the lock panel up.
 
@@ -33,7 +33,7 @@ export function usePfsLocks() {
       .catch(() => { if (alive) setState((x) => ({ ...x, known: false })); });
     return () => { alive = false; };
   }, []);
-  // The 30 minutes run out on their own: look again every half minute.
+  // The 90 minutes run out on their own: look again every half minute.
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 30_000); return () => clearInterval(t); }, []);
   const isOpen = useCallback((id) => {
     if (!id) return false;
@@ -94,7 +94,7 @@ export function PfsUnlockPanel({ file, onUnlocked }) {
         </div>
       </div>
       <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-        The code opens this one file, in this tab, for 30 minutes. The borrowers are emailed each time their file is opened, and every open is kept in the access log.
+        The code opens this one file, in this tab, for 90 minutes. The borrowers are emailed each time their file is opened, and every open is kept in the access log.
       </div>
       {!sentTo && (
         <button type="button" className="primary-btn" onClick={send} disabled={!!busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.8rem' }}>
@@ -120,7 +120,7 @@ export function PfsUnlockPanel({ file, onUnlocked }) {
   );
 }
 
-/** "Lock Now": closes the open file in this tab before its 30 minutes are up. */
+/** "Lock Now": closes the open file in this tab before its 90 minutes are up. */
 export function PfsLockNow({ fileId, until, onLocked }) {
   const [busy, setBusy] = useState(false);
   if (!fileId) return null;

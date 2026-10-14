@@ -109,6 +109,22 @@ class BudgetProxyTests(unittest.TestCase):
         self.assertEqual(self.client.get("/accounting/budgets?year=2026").status_code, 422)
         self.assertEqual(self.client.get("/accounting/budgets?location=90000&year=1999").status_code, 400)
 
+    def test_read_keeps_the_section_when_the_app_names_it(self):
+        """Actual vs Budget (Charmi, 10/15) places each budget line under its
+        income statement section; the app's section travels through."""
+        _as(EDITOR)
+        orig = accounting_budgets._get
+
+        async def with_section(params):
+            data = await orig(params)
+            return {**data, "rows": [{**r, "section": "expense"} for r in data.get("rows") or []]}
+        accounting_budgets._get = with_section
+        try:
+            out = self.client.get("/accounting/budgets?location=90000&year=2026").json()
+        finally:
+            accounting_budgets._get = orig
+        self.assertEqual(out["rows"][0]["section"], "expense")
+
     def test_limited_caller_reads_only_their_entities(self):
         _as(LIMITED)
         self.assertEqual(self.client.get("/accounting/budgets?location=15000&year=2026").status_code, 200)

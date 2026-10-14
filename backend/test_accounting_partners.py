@@ -134,16 +134,35 @@ class PartnerChangeTests(unittest.TestCase):
         self.assertEqual(ids, ["V00012", "V00014"], "another entity's vendor is out; one with no entity stays")
         self.assertEqual(self.client.get("/accounting/partners?kind=supplier").status_code, 400)
 
-    def test_not_available_until_the_accounting_app_ships_it(self):
+    def test_ledger_list_until_the_accounting_app_ships_it(self):
+        """Oct 14 (Neil: "not working at all"): with the partners route missing
+        (501) the list is the ledger's vendor / customer codes - number, name,
+        status - searched by number or name; a limited person is refused."""
         from fastapi import HTTPException
 
         async def missing(params):
             raise HTTPException(status_code=501, detail=accounting_partners._NOT_READY)
+
+        asked = []
+
+        async def dims(path, params):
+            asked.append((path, params))
+            return {"ok": True, "values": [{"code": "C00498", "name": "Zeta Tenant LLC", "lines": 12, "status": "active"},
+                                           {"code": "C00012", "name": "Acme Leasing", "lines": 3}, {"code": "", "name": "blank"}]}
         accounting_partners._get = missing
+        accounting._acct_get = dims
         _as(REQUESTER)
         r = self.client.get("/accounting/partners?kind=customer")
-        self.assertEqual(r.status_code, 501)
-        self.assertIn("accounting app needs its update", r.json()["detail"])
+        self.assertEqual(r.status_code, 200, r.text)
+        body = r.json()
+        self.assertEqual(body["source"], "ledger")
+        self.assertEqual(asked[-1], ("/api/internal/reports/dimensions", {"kind": "customer"}))
+        self.assertEqual([(p["id"], p["name"], p["status"], p["lines"]) for p in body["partners"]],
+                         [("C00012", "Acme Leasing", "", 3), ("C00498", "Zeta Tenant LLC", "active", 12)])
+        self.assertEqual([p["id"] for p in self.client.get("/accounting/partners?kind=customer&q=c00498").json()["partners"]], ["C00498"])
+        self.assertEqual([p["id"] for p in self.client.get("/accounting/partners?kind=customer&q=acme").json()["partners"]], ["C00012"])
+        _as(LIMITED)
+        self.assertEqual(self.client.get("/accounting/partners?kind=customer").status_code, 403)
 
     # ── the request ─────────────────────────────────────────────────────────
     def test_create_keeps_only_real_changes_and_bells_the_deciders(self):

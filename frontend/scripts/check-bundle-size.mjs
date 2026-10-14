@@ -211,7 +211,18 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // reached dev, and this release also brings the Weather Call, Tasks (automation,
 // checklists, threads, timer) and Motion stacks. CI measured 12065 KB with all
 // of them together. No dependency beyond three.js. Deliberate.
-const TOTAL_KB     = 12250;
+// Oct 14, 2026: 12250 -> 12350. dev itself measured 12226 KB on CI, so any
+// feature tipped it; #561 (task templates, recurring subtasks, the shared
+// Repeat menu, ticket collaborators, tasks from tickets) measured 12252 KB.
+// All app code, no new dependency. Deliberate.
+// Oct 15, 2026: 12350 -> 12550. The accounting feedback batch (Visesh, 10/14 -
+// 10/15): Loan Planning (#568), the Import Hub statement and payroll
+// converters (#566, #570), and on top of them the Profitability / Employee
+// Compensation reports (#569, measured 12376 KB) and Flux review / Actual vs
+// Budget / books on every report (#571). All app code, no new dependency.
+// Same lines in #569 and #571 so the second to merge does not conflict.
+// Deliberate.
+const TOTAL_KB     = 12550;
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a

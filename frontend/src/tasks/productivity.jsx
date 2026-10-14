@@ -14,6 +14,7 @@ import { emailToName, rootZoom } from '../lib/utils';
 import { matchPeople } from '../lib/peopleSearch';
 import { useListNav } from '../lib/listNav';
 import { requiredFieldsFor, isBlankValue } from './lib';
+import { recurrenceLabel } from './recurrence';
 import { CustomFieldInput } from './TaskDetailDrawer';
 
 const SORT_OPTIONS = [
@@ -94,7 +95,7 @@ function SelectedChips({ items, onRemove }) {
 
 // ── Category bodies - shared by the desktop popovers and the mobile drill-in sheet ──
 function FiltersBody({ filters, setFilters, people, projects, teams = [], lockedProjectId, hideAssignee, statusOrder = STATUS_ORDER, statusMeta = STATUS_META, customFields = [] }) {
-  const activeFilterCount = (hideAssignee ? 0 : filters.assigneeIds.length) + (filters.collaboratorIds || []).length + filters.statuses.length + filters.priorities.length + (lockedProjectId ? 0 : filters.projectIds.length)
+  const activeFilterCount = (hideAssignee ? 0 : filters.assigneeIds.length) + (filters.collaboratorIds || []).length + filters.statuses.length + filters.priorities.length + (filters.fromTicket ? 1 : 0) + (lockedProjectId ? 0 : filters.projectIds.length)
     + (filters.teamIds || []).length
     + Object.values(filters.customFields || {}).reduce((n, v) => n + (v?.length || 0), 0);
   // Only select fields are filterable - a bounded option list is what makes a
@@ -139,6 +140,14 @@ function FiltersBody({ filters, setFilters, people, projects, teams = [], locked
         <div style={groupHead}>Priority</div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
           {PRIORITY_ORDER.map((p) => { const on = filters.priorities.includes(p); const m = PRIORITY_META[p]; return <button key={p} onClick={() => setFilters({ ...filters, priorities: toggle(filters.priorities, p) })} style={pill(on, m.color, m.tint)}>{m.label}</button>; })}
+        </div>
+      </div>
+      {/* Where the task came from (Oct 14 2026): the work raised by tickets. */}
+      <div>
+        <div style={groupHead}>Source</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+          <button onClick={() => setFilters({ ...filters, fromTicket: !filters.fromTicket })} aria-pressed={!!filters.fromTicket}
+            style={pill(!!filters.fromTicket, NX.primary, `${NX.primary}1a`)}>From Ticket</button>
         </div>
       </div>
       {!hideAssignee && (
@@ -249,7 +258,7 @@ function FiltersBody({ filters, setFilters, people, projects, teams = [], locked
       ))}
 
       {activeFilterCount > 0 && (
-        <button onClick={() => setFilters({ ...filters, assigneeIds: [], collaboratorIds: [], statuses: [], priorities: [], projectIds: [], teamIds: [], customFields: {} })} style={{ ...btn('outline'), justifyContent: 'center' }}>Clear Filters</button>
+        <button onClick={() => setFilters({ ...filters, assigneeIds: [], collaboratorIds: [], statuses: [], priorities: [], projectIds: [], teamIds: [], customFields: {}, fromTicket: false })} style={{ ...btn('outline'), justifyContent: 'center' }}>Clear Filters</button>
       )}
     </div>
   );
@@ -328,7 +337,7 @@ export function ProductivityBar({ filters, setFilters, sort, setSort, lockedProj
   const people = usePeople();
   const isMobile = useIsMobile();
 
-  const activeFilterCount = (hideAssignee ? 0 : filters.assigneeIds.length) + (filters.collaboratorIds || []).length + filters.statuses.length + filters.priorities.length
+  const activeFilterCount = (hideAssignee ? 0 : filters.assigneeIds.length) + (filters.collaboratorIds || []).length + filters.statuses.length + filters.priorities.length + (filters.fromTicket ? 1 : 0)
     + (lockedProjectId ? 0 : filters.projectIds.length) + (filters.teamIds || []).length;
   const dateActive = (filters.due && filters.due !== 'any') || filters.dueFrom || filters.dueTo;
 
@@ -371,7 +380,7 @@ export function ProductivityBar({ filters, setFilters, sort, setSort, lockedProj
         <button onClick={() => setIntakeOpen(true)} title="Intake" style={{ ...btn('outline'), padding: isMobile && !sheet ? 7 : '0 9px', height: sheet ? undefined : CONTROL_H, fontSize: sheet ? undefined : CONTROL_FS, gap: 5, width: sheet ? '100%' : undefined, justifyContent: sheet ? 'flex-start' : undefined }}><Inbox size={CONTROL_ICON} />{(!isMobile || sheet) && 'Intake'}</button>
       )}
 
-      {templatesOpen && <TemplatesModal templates={templates} createTask={createTask} onOpenTask={onOpenTask} onClose={() => setTemplatesOpen(false)} />}
+      {templatesOpen && <TemplatesModal templates={templates} onOpenTask={onOpenTask} onClose={() => setTemplatesOpen(false)} />}
       {intakeOpen && <IntakeModal forms={intakeForms} projectName={projectName} createTask={createTask} myEmail={myEmail} onOpenTask={onOpenTask} onClose={() => setIntakeOpen(false)} />}
     </div>
   );
@@ -388,7 +397,7 @@ export function MobileFilters({ filters, setFilters, sort, setSort, group, setGr
   const people = usePeople();
   const [cat, setCat] = useState(null);
 
-  const activeFilterCount = (hideAssignee ? 0 : filters.assigneeIds.length) + (filters.collaboratorIds || []).length + filters.statuses.length + filters.priorities.length + (lockedProjectId ? 0 : filters.projectIds.length)
+  const activeFilterCount = (hideAssignee ? 0 : filters.assigneeIds.length) + (filters.collaboratorIds || []).length + filters.statuses.length + filters.priorities.length + (filters.fromTicket ? 1 : 0) + (lockedProjectId ? 0 : filters.projectIds.length)
     + (filters.teamIds || []).length
     + Object.values(filters.customFields || {}).reduce((n, v) => n + (v?.length || 0), 0);
   const dateActive = (filters.due && filters.due !== 'any') || filters.dueFrom || filters.dueTo;
@@ -470,19 +479,9 @@ function SavedViews({ savedViews, createSavedView, deleteSavedView, current, fil
   );
 }
 
-function TemplatesModal({ templates, createTask, onOpenTask, onClose }) {
-  const [busy, setBusy] = useState(false);
-  const apply = async (tpl) => {
-    if (busy) return; setBusy(true);
-    try {
-      const patch = tpl.patch || {};
-      const parent = await createTask({ title: tpl.name, type: 'task', status: 'not_started', priority: patch.priority || 'medium', ...patch });
-      for (const st of (tpl.subtaskTitles || [])) {
-        await createTask({ title: st, parentTaskId: parent.id, status: 'not_started', priority: 'medium', type: 'task' }).catch(() => {});
-      }
-      onClose(); onOpenTask?.(parent.id);
-    } catch { /* store refetch surfaces errors */ } finally { setBusy(false); }
-  };
+function TemplatesModal({ templates, onOpenTask, onClose }) {
+  const [using, setUsing] = useState(null);   // the template being started
+  if (using) return <UseTemplateModal template={using} onBack={() => setUsing(null)} onOpenTask={onOpenTask} onClose={onClose} />;
   return (
     <Modal title="Task Templates" onClose={onClose} width={560}>
       <p style={{ margin: '0 0 16px', fontSize: 13, color: NX.dim }}>Start from a standardized checklist. Applying a template creates a parent task with its subtasks pre-filled.</p>
@@ -497,10 +496,79 @@ function TemplatesModal({ templates, createTask, onOpenTask, onClose }) {
                 {(t.subtaskTitles || []).map((s) => <span key={s} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: NX.surface2, borderRadius: 6, padding: '2px 6px', fontSize: 11, color: NX.dim }}><ListChecks size={10} />{s}</span>)}
               </div>
             </div>
-            <button onClick={() => apply(t)} disabled={busy} style={{ ...btn('primary'), opacity: busy ? 0.6 : 1 }}>Use</button>
+            <button onClick={() => setUsing(t)} style={btn('primary')}>Use</button>
           </div>
         ))}
         {templates.length === 0 && <div style={{ fontSize: 13, color: NX.faint }}>No templates defined yet.</div>}
+      </div>
+    </Modal>
+  );
+}
+
+/** Start a task from a template (Oct 14 2026): its name, the due date its
+ *  subtasks are dated from, and the field values that make this one
+ *  different (the Entity) - a changed value goes onto every subtask too.
+ *  The server builds the task, subtasks and checklists in one go. */
+function UseTemplateModal({ template: t, onBack, onOpenTask, onClose }) {
+  const { startFromTemplate, customFields = [], projectName } = useTasks();
+  const patch = t.patch || {};
+  const fields = customFields.filter((f) => !f.readOnly && Object.prototype.hasOwnProperty.call(patch.customFieldValues || {}, f.id));
+  const [title, setTitle] = useState(t.name);
+  const [dueOn, setDueOn] = useState('');
+  const [values, setValues] = useState(() => ({ ...(patch.customFieldValues || {}) }));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const subs = t.subtasks?.length ? t.subtasks : (t.subtaskTitles || []).map((title) => ({ title }));
+  const dated = subs.some((s) => Number.isInteger(s.dueOffsetDays));
+  const go = async () => {
+    if (!title.trim() || busy) return;
+    setBusy(true); setError('');
+    try {
+      const task = await startFromTemplate(t.id, { title: title.trim(), dueOn, customFieldValues: values });
+      onClose(); onOpenTask?.(task.id);
+    } catch (e) {
+      setError(e?.message || 'Could not start the task.');
+    } finally { setBusy(false); }
+  };
+  const footer = (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+      <button type="button" onClick={onBack} style={btn('ghost')}>Back</button>
+      <button type="button" onClick={go} disabled={busy || !title.trim()} style={{ ...btn('primary'), opacity: busy || !title.trim() ? 0.6 : 1 }}>
+        {busy ? 'Creating…' : 'Create Task'}
+      </button>
+    </div>
+  );
+  const head = { fontSize: 12.5, fontWeight: 600, color: NX.dim };
+  return (
+    <Modal title={`Use "${t.name}"`} onClose={onClose} footer={footer} width="min(540px, 100vw)">
+      <div style={{ display: 'grid', gap: 16, fontFamily: FONT, fontSize: 13 }}>
+        <label style={{ display: 'grid', gap: 5 }}>
+          <span style={head}>Task Name</span>
+          <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && go()} style={inputStyle} />
+        </label>
+        <div style={{ display: 'grid', gap: 5 }}>
+          <span style={head}>Due Date</span>
+          <DateField value={dueOn} onChange={(v) => setDueOn(v || '')} noPast placeholder="No due date"
+            style={{ ...inputStyle, width: 'auto', padding: '7px 10px', fontSize: 13 }} />
+          {dated && <span style={{ fontSize: 12, color: NX.faint }}>The subtasks are dated from this, as they were in the original.</span>}
+        </div>
+        {fields.length > 0 && (
+          <div style={{ display: 'grid', gap: 8 }}>
+            <span style={head}>Field Values{subs.length ? ' on the Task and Its Subtasks' : ''}</span>
+            {fields.map((f) => (
+              <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <span style={{ width: 110, color: NX.faint }}>{f.name}</span>
+                <CustomFieldInput field={f} value={values[f.id]} onChange={(v) => setValues((x) => ({ ...x, [f.id]: v }))} />
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{ fontSize: 12.5, color: NX.dim, lineHeight: 1.5 }}>
+          {subs.length > 0 && <div>{subs.length} subtask{subs.length === 1 ? '' : 's'}: {subs.map((s) => s.title).join(', ')}</div>}
+          {patch.recurrence?.freq && <div>Repeats: {recurrenceLabel(patch.recurrence)}</div>}
+          {patch.projectId && projectName?.(patch.projectId) && <div>Project: {projectName(patch.projectId)}</div>}
+        </div>
+        {error && <div role="alert" style={{ fontSize: 12.5, color: NX.red }}>{error}</div>}
       </div>
     </Modal>
   );

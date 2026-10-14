@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FolderUp, Loader2, Mail, Maximize2, Minimize2, Pencil, Search, Share2, ChevronDown, ChevronRight, Trash2, X } from 'lucide-react';
+import { Check, FolderUp, Loader2, Mail, Maximize2, Minimize2, Pencil, RotateCcw, Search, Share2, ChevronDown, ChevronRight, Trash2, X } from 'lucide-react';
 import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
@@ -15,12 +15,12 @@ import { useAccountingPrefs } from './prefs';
 import { useColumnWidths, useCustomizePrefs } from './tableHooks';
 import Amount, { Figure } from './Amount';
 import {
-  AccountsPicker, ClearButton, ColumnResizer, CustomizeButton, DENSITIES, EntitiesPicker, ExportMenu, FiltersButton, MemorizeButton, Pager, PeriodStepper,
+  AccountsPicker, ClearButton, ColumnResizer, CustomizeButton, DENSITIES, EntitiesPicker, ExportMenu, FiltersButton, MemorizeButton, OpFilter, Pager, PeriodStepper,
   SavedReportsMenu, control,
 } from './reportControls';
 import {
-  EMPTY_DIMS, NUM_OPS, POPOVER_DIMS, REPORTS, activeColumns, bookLabel, bookOptions, canPickAccounts, canPickBook, canUseDims, cellText, columnModes, columnsForPicks, csvFileName, csvRows,
-  defaultConfig, downloadBlob, downloadCsv, entityText, filterChips, hideInactive, iso, numberFilterHit, periodText, presetLabel, reportDef, reportPages, resolveConfig, runReport, setUserBooks, withFluxNotes,
+  EMPTY_DIMS, FLUX_AMOUNT_TARGETS, FLUX_STATUS_FILTERS, NUM_OPS, POPOVER_DIMS, REPORTS, activeColumns, bookOptions, canBothBooks, canPickAccounts, canPickBook, canUseDims, cellText, columnModes, columnsForPicks, csvFileName, csvRows,
+  reportTitle, defaultConfig, downloadBlob, downloadCsv, entityText, filterChips, filterFlux, fluxAmountOn, fluxNoteOf, hideInactive, iso, numberFilterHit, periodText, presetLabel, reportDef, reportPages, resolveConfig, runReport, setUserBooks, withFluxNotes,
 } from './reportModel';
 
 // Accounting -> Reports. Pull any statement for any entity straight from the
@@ -83,12 +83,17 @@ const storable = (c) => ({
   ...(c.asofToday === false ? { asof: c.asof, asofToday: false } : {}),
   book: c.book, cols: c.cols, entities: c.entities, dims: c.dims,
   ...(c.accounts?.length ? { accounts: c.accounts } : {}), ...(c.showZero ? { showZero: true } : {}),
-  ...(c.report === 'flux' ? { fluxPct: c.fluxPct, fluxAmount: c.fluxAmount } : {}),
+  ...(c.report === 'flux' ? { fluxPct: c.fluxPct, fluxAmount: c.fluxAmount, ...(c.fluxStatus && c.fluxStatus !== 'all' ? { fluxStatus: c.fluxStatus } : {}), ...(fluxAmountOn(c.fluxFilter) ? { fluxFilter: c.fluxFilter } : {}) } : {}),
 });
+// What the ledger is read for: the view filters on the lines (the flux
+// review state) narrow what is on screen and never re-read the ledger.
+const VIEW_ONLY = new Set(['fluxStatus', 'fluxFilter']);
+const runnable = (c) => Object.fromEntries(Object.entries(storable(c)).filter(([k]) => !VIEW_ONLY.has(k)));
 const sameView = (a, b) => JSON.stringify(storable(a)) === JSON.stringify(storable(b));
 
-export default function ReportsTab({ search = null, searchText: outerText = '', onSearchText = null, onWaiting = null }) {
-  const [config, setConfig] = useState(() => defaultConfig());
+export default function ReportsTab({ canEdit = true, search = null, searchText: outerText = '', onSearchText = null, onWaiting = null, report = null, onReportChange = null }) {
+  // Oct 14 (Urmi): `report` opens a statement straight from the Reporting menu.
+  const [config, setConfig] = useState(() => (report ? resolveConfig({ ...defaultConfig(), report }) : defaultConfig()));
   const [entities, setEntities] = useState([]);
   const [limited, setLimited] = useState(false);
   const [result, setResult] = useState(null);
@@ -114,18 +119,31 @@ export default function ReportsTab({ search = null, searchText: outerText = '', 
   const custom = useCustomizePrefs(['pageSize', 'inactiveAccounts']);
   const widths = useColumnWidths(`report:${config.report}`, Number(prefs.accountWidth) ? { __label: Number(prefs.accountWidth) } : {}, { min: 60 });
   const patch = useCallback((p) => setConfig((c) => resolveConfig({ ...c, ...p })), []);
+  // The menu picked another statement: show it (a new pick, not an edit).
+  useEffect(() => {
+    if (report) setConfig((c) => (c.report === report ? c : resolveConfig({ ...c, report, accounts: [] })));
+  }, [report]);
+  // The report on screen changed here (the Report box, a memorized report):
+  // tell the bar so the menu lights the right item. Not on the first draw.
+  const shownReport = useRef(config.report);
+  useEffect(() => {
+    if (shownReport.current === config.report) return;
+    shownReport.current = config.report;
+    if (config.report !== report) onReportChange?.(config.report);
+  }, [config.report]); // eslint-disable-line react-hooks/exhaustive-deps
   const toggleSection = (key) => setCollapsed((c) => { const n = new Set(c); if (n.has(key)) n.delete(key); else n.add(key); return n; });
   // A journal entry opened from its number on a General Ledger line (item 33).
   const [entry, setEntry] = useState(null);   // { id, no }
 
   // Books the accounting app lists (item 35: Fair Market, KJE ...), and
   // whether it lists its journals - the Journals filter hides until it does.
-  const [books, setBooks] = useState(() => bookOptions());
+  // `booksListed` re-reads the options once the app's list arrives.
+  const [booksListed, setBooksListed] = useState(0);
   const [journalsOn, setJournalsOn] = useState(true);
   useEffect(() => {
     let alive = true;
     api.getAccountingBooks?.()
-      .then((d) => { if (alive && d?.available) { setUserBooks(d.books); setBooks(bookOptions()); } })
+      .then((d) => { if (alive && d?.available) { setUserBooks(d.books); setBooksListed((n) => n + 1); } })
       .catch(() => { /* Accrual / Cash / both, as before */ });
     api.getAccountingJournals?.()
       .then((d) => { if (alive) setJournalsOn(d?.available !== false); })
@@ -211,7 +229,7 @@ export default function ReportsTab({ search = null, searchText: outerText = '', 
 
   // Run on every control change so the tab always shows what the controls say.
   const seq = useRef(0);
-  const key = JSON.stringify(storable(config)) + config.from + config.to + config.asof;
+  const key = JSON.stringify(runnable(config)) + config.from + config.to + config.asof;
   const started = useRef(false);
   useEffect(() => {
     const mine = ++seq.current;
@@ -280,7 +298,7 @@ export default function ReportsTab({ search = null, searchText: outerText = '', 
     try {
       // pdf-lib is large; it loads only when a PDF is asked for.
       const { buildPackagePdf } = await import('./reportPdf');
-      const title = activeSaved?.name || r.def.label;
+      const title = reportTitle(r.config, activeSaved?.name || r.def.label);
       const bytes = await buildPackagePdf({ name: title, statements: [{ title: r.def.label, result: r, entities }], cover: false });
       downloadBlob(csvFileName(r).replace(/\.csv$/, '.pdf'), new Blob([bytes], { type: 'application/pdf' }));
     } catch (e) {
@@ -336,7 +354,8 @@ export default function ReportsTab({ search = null, searchText: outerText = '', 
   const def = reportDef(config.report);
   const cols = activeColumns(config);
   const modes = columnModes(config.report, config);
-  const showColumns = modes.length > 1 && config.book !== 'both';
+  const showColumns = modes.length > 1 && !(config.book === 'both' && canBothBooks(config));
+  const books = useMemo(() => bookOptions(config), [config.report, config.book, booksListed]); // eslint-disable-line react-hooks/exhaustive-deps
   const chips = filterChips(config, entities, dimNames);
   const entityLabel = entityText(config, entities);
   // A column of one entity drills into that entity, whatever the report covers.
@@ -354,7 +373,7 @@ export default function ReportsTab({ search = null, searchText: outerText = '', 
     const codes = config.entities.length ? [...config.entities] : limited ? entities.map((e) => e.code) : [];
     return { entity: codes.length ? [...new Set(codes)].sort().join(',') : 'all', period: `${config.from}_${config.to}` };
   }, [config.report, config.entities, config.from, config.to, limited, entities]);
-  const [fluxNotes, setFluxNotes] = useState({});     // accountNo -> text
+  const [fluxNotes, setFluxNotes] = useState({});     // accountNo -> { note, closed, closedBy, closedAt }
   // Item 26a (Charmi's Friday list): the explanation is edited in its cell -
   // the pencil opens a box in place (Enter or leaving it saves, Esc cancels,
   // Shift+Enter a new line), the trash asks "Remove / Keep" in place.
@@ -367,7 +386,7 @@ export default function ReportsTab({ search = null, searchText: outerText = '', 
     let alive = true;
     setFluxNotes({});
     api.getAccountingFluxNotes(fluxKey.entity, fluxKey.period)
-      .then((d) => { if (alive) setFluxNotes(Object.fromEntries((d?.notes || []).map((n) => [n.accountNo, n.note]))); })
+      .then((d) => { if (alive) setFluxNotes(Object.fromEntries((d?.notes || []).map((n) => [n.accountNo, fluxNoteOf(n)]))); })
       .catch(() => { /* the column reads empty; writing will say why */ });
     return () => { alive = false; };
   }, [fluxKey?.entity, fluxKey?.period]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -376,17 +395,29 @@ export default function ReportsTab({ search = null, searchText: outerText = '', 
     const note = (text || '').trim();
     setNoteEdit(null);
     setNoteRemove(null);
-    if (note === (fluxNotes[code] || '')) return;
+    if (note === fluxNoteOf(fluxNotes[code]).note) return;
     setNoteBusy(code);
     setNoteError(null);
     api.saveAccountingFluxNote({ entity: fluxKey.entity, period: fluxKey.period, accountNo: code, note })
-      .then((n) => setFluxNotes((m) => ({ ...m, [code]: n?.note || '' })))
+      .then((n) => setFluxNotes((m) => ({ ...m, [code]: n && typeof n === 'object' && 'closed' in n ? fluxNoteOf(n) : { ...fluxNoteOf(m[code]), note: n?.note || '' } })))
       .catch((err) => setNoteError({ code, text: err?.message || 'Could not save the explanation.' }))
       .finally(() => setNoteBusy(''));
   };
+  // Charmi, 10/15: a written explanation answers the review; the reviewer
+  // closes the line (and may reopen it). Kept in Nexus like the notes.
+  const setReview = (code, closed) => {
+    if (noteBusy || !fluxKey) return;
+    setNoteBusy(code);
+    setNoteError(null);
+    api.saveAccountingFluxReview({ entity: fluxKey.entity, period: fluxKey.period, accountNo: code, closed })
+      .then((n) => setFluxNotes((m) => ({ ...m, [code]: fluxNoteOf(n) })))
+      .catch((err) => setNoteError({ code, text: err?.message || (closed ? 'Could not close the review.' : 'Could not reopen the review.') }))
+      .finally(() => setNoteBusy(''));
+  };
   const noteProps = {
-    notes: fluxNotes, edit: noteEdit, remove: noteRemove, error: noteError, busy: noteBusy,
-    onEdit: (code) => { setNoteError(null); setNoteRemove(null); setNoteEdit({ code, text: fluxNotes[code] || '' }); },
+    notes: fluxNotes, edit: noteEdit, remove: noteRemove, error: noteError, busy: noteBusy, canEdit,
+    onEdit: (code) => { setNoteError(null); setNoteRemove(null); setNoteEdit({ code, text: fluxNoteOf(fluxNotes[code]).note }); },
+    onReview: setReview,
     onText: (text) => setNoteEdit((n) => (n ? { ...n, text } : n)),
     onCancel: () => setNoteEdit(null),
     onSave: saveNote,
@@ -394,10 +425,18 @@ export default function ReportsTab({ search = null, searchText: outerText = '', 
     onKeep: () => setNoteRemove(null),
   };
   const showInactive = !!custom.showInactiveAccounts;
-  const shown = useMemo(() => {
+  const noted = useMemo(() => {
     if (!result || result.config.report !== config.report) return null;
     return hideInactive(result.flux ? withFluxNotes(result, fluxNotes) : result, showInactive);
   }, [result, config.report, fluxNotes, showInactive]);
+  // The flux lines in the review state picked (Charmi, 10/15); the counts
+  // are over every line. What is on screen is what an export takes.
+  const shown = useMemo(() => (noted?.flux ? filterFlux(noted, { status: config.fluxStatus, amount: config.fluxFilter }) : noted), [noted, config.fluxStatus, config.fluxFilter]);
+  const fluxCounts = useMemo(() => {
+    if (!noted?.flux) return null;
+    const lines = noted.rows.filter((r) => r.kind === 'account');
+    return { ...(noted.fluxCounts || {}), all: lines.length, flagged: lines.filter((r) => r.flag).length };
+  }, [noted]);
   // The first column (code and name) and the report's own; each one drags to a width (item 32).
   const headCols = shown ? [{ key: '__label', label: shown.glLabel || 'Account', type: 'label' }, ...shown.columns] : [];
   // Oct 2 (Charmi): the "contains" box under every column, on every report,
@@ -522,6 +561,24 @@ export default function ReportsTab({ search = null, searchText: outerText = '', 
           <FiltersButton dims={config.dims} onNames={onNames} showHistorical={!!prefs.showHistoricalAccounts} kinds={filterKinds}
             onChange={(dims) => { const mode = columnsForPicks(config, dims); setCollapsed(new Set()); patch({ dims, ...(mode ? { cols: mode } : {}) }); }} />
         )}
+        {/* Flux review state (Charmi, 10/15): Open, Answered, Closed, with counts. */}
+        {config.report === 'flux' && (
+          <select value={config.fluxStatus} onChange={(e) => patch({ fluxStatus: e.target.value })} aria-label="Review Status" title="Show the lines in one review state" style={select(config.fluxStatus !== 'all')}>
+            {FLUX_STATUS_FILTERS.map((o) => (
+              <option key={o.key} value={o.key}>{o.key === 'all' ? 'Review: All Lines' : `${o.label}${fluxCounts ? ` (${(fluxCounts[o.key] || 0).toLocaleString('en-US')})` : ''}`}</option>
+            ))}
+          </select>
+        )}
+        {/* Flux amount filter (Charmi, 10/15): what to compare, an operator and a value. */}
+        {config.report === 'flux' && (
+          <span className="acct-flux-amount" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+            <select value={config.fluxFilter.target} onChange={(e) => patch({ fluxFilter: { ...config.fluxFilter, target: e.target.value } })} aria-label="Amount to Filter" title="Which figure the amount filter compares"
+              style={{ ...select(fluxAmountOn(config.fluxFilter)), maxWidth: 190 }}>
+              {FLUX_AMOUNT_TARGETS.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+            </select>
+            <OpFilter label="Amount" value={config.fluxFilter} onChange={(v) => patch({ fluxFilter: { ...config.fluxFilter, ...v } })} placeholder={config.fluxFilter.target === 'pct' ? '%' : '0.00'} />
+          </span>
+        )}
         {canPickAccounts(config) && <AccountsPicker accounts={shown?.pickable || []} value={config.accounts} onChange={(accounts) => patch({ accounts })} showHistorical={!!prefs.showHistoricalAccounts} />}
 
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -590,7 +647,7 @@ export default function ReportsTab({ search = null, searchText: outerText = '', 
           onClose={() => setSending(null)} onDone={(text, url) => { setSending(null); setSent({ text, url }); }} />
       )}
       {sending && !searching && shown && (
-        <SendReportDialog mode={sending} result={shown} entities={entities} title={activeSaved?.name || def.label} config={storable(config)}
+        <SendReportDialog mode={sending} result={shown} entities={entities} title={reportTitle(config, activeSaved?.name || def.label)} config={storable(config)}
           onClose={() => setSending(null)} onDone={(text, url) => { setSending(null); setSent({ text, url }); }} />
       )}
 
@@ -618,9 +675,9 @@ export default function ReportsTab({ search = null, searchText: outerText = '', 
         <div style={{ ...card, padding: 10 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', minWidth: 0 }}>
-              <h3 style={{ fontSize: '0.98rem', margin: 0 }}>{def.label}</h3>
+              <h3 style={{ fontSize: '0.98rem', margin: 0 }}>{reportTitle(config)}</h3>
               <span style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
-                {[shown.org, entityLabel, periodText(config), shown.mode === 'compare' ? `vs ${shown.otherLabel}` : '', cols !== 'total' && shown.mode !== 'compare' ? modes.find((m) => m.key === cols)?.label : '', canPickBook(config) ? bookLabel(config.book) : ''].filter(Boolean).join(' · ')}
+                {[shown.org, entityLabel, periodText(config), shown.mode === 'compare' ? `vs ${shown.otherLabel}` : '', cols !== 'total' && shown.mode !== 'compare' ? modes.find((m) => m.key === cols)?.label : ''].filter(Boolean).join(' · ')}
                 {loading ? ' · updating' : ''}
               </span>
             </div>
@@ -644,7 +701,7 @@ export default function ReportsTab({ search = null, searchText: outerText = '', 
                 </span>
               ))}
               {chips.length > 1 && (
-                <button type="button" onClick={() => patch({ entities: [], dims: { ...EMPTY_DIMS }, accounts: [] })}
+                <button type="button" onClick={() => patch({ entities: [], dims: { ...EMPTY_DIMS }, accounts: [], fluxStatus: 'all', fluxFilter: { ...config.fluxFilter, a: '', b: '' } })}
                   style={{ border: 'none', background: 'none', font: 'inherit', fontSize: '0.74rem', color: 'var(--text-muted)', cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>
                   Clear all filters
                 </button>
@@ -693,8 +750,9 @@ export default function ReportsTab({ search = null, searchText: outerText = '', 
                       );
                     }
                     const nf = f && typeof f === 'object' ? f : { op: '=', a: '', b: '' };
+                    const fw = widths.width(c.key);
                     return (
-                      <td key={c.key}>
+                      <td key={c.key} style={fw ? { minWidth: fw, maxWidth: fw } : undefined}>
                         <span className="acct-op-filter">
                           <select value={nf.op} onChange={(e) => setF({ ...nf, op: e.target.value })} aria-label={`Operator for ${c.label}`} title="Compare with">
                             {NUM_OPS.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
@@ -788,13 +846,18 @@ function StatementRow({ row, columns, open, width = () => undefined, onToggle, o
     const v = values[i];
     const w = width(c.key);
     const cap = w ? { maxWidth: w, overflow: 'hidden', textOverflow: 'ellipsis' } : {};
+    // Oct 14 (Vinod: Debit, Credit and Balance would not resize on the General
+    // Ledger): an amount cell keeps to its column's dragged width too, like text.
+    const numCap = w ? { minWidth: w, maxWidth: w, overflow: 'hidden', textOverflow: 'ellipsis' } : {};
     if (c.type === 'date') return <td key={c.key} style={{ color: 'var(--text-secondary)', ...cap }}>{v || (row.kind === 'account' ? '-' : '')}</td>;
     if (c.type === 'text' && c.key === 'note' && note && row.kind === 'account' && row.code) {
       return <NoteCell key={c.key} row={row} value={v} note={note} maxWidth={w || 360} />;
     }
+    if (c.type === 'text' && c.key === 'flag' && note && row.kind === 'account' && row.code) {
+      return <ReviewCell key={c.key} row={row} value={v} note={note} />;
+    }
     if (c.type === 'text' && c.key === 'flag' && v) {
-      const done = v === 'Explained';
-      return <td key={c.key}><span className={`acct-chip${done ? ' acct-chip-muted' : ' acct-chip-warn'}`} title={done ? 'Flagged, and explained' : 'Over the flux thresholds - needs an explanation'}>{v}</span></td>;
+      return <td key={c.key}><span className={`acct-chip ${REVIEW_CHIP[v] || 'acct-chip-muted'}`}>{v}</span></td>;
     }
     if (c.type === 'text' && c.key === 'entry' && row.kind === 'line' && row.entryId && onEntry && v) {
       return (
@@ -804,14 +867,14 @@ function StatementRow({ row, columns, open, width = () => undefined, onToggle, o
       );
     }
     if (c.type === 'text') return <td key={c.key} title={v || undefined} style={{ maxWidth: w || (c.key === 'description' ? 460 : 220), overflow: 'hidden', textOverflow: 'ellipsis', color: row.kind === 'line' ? undefined : 'var(--text-secondary)' }}>{v || ''}</td>;
-    if (c.type === 'pct') return <td key={c.key} className="acct-num" style={{ color: tint(values[variance]) }}><Figure text={v || '-'} /></td>;
-    if (row.kind === 'margin') return <td key={c.key} className="acct-num" style={{ ...(c.emphasis ? EMPHASIS : {}), color: tint(v) }}><Figure text={cellText(row, c, v) || '-'} /></td>;
-    if (v === '' || v == null) return <td key={c.key} className="acct-num" />;
-    if (c.type === 'variance') return <td key={c.key} className="acct-num" style={{ color: tint(v) }}><Amount value={v} zero="dash" /></td>;
+    if (c.type === 'pct') return <td key={c.key} className="acct-num" style={{ ...numCap, color: tint(values[variance]) }}><Figure text={v || '-'} /></td>;
+    if (row.kind === 'margin') return <td key={c.key} className="acct-num" style={{ ...numCap, ...(c.emphasis ? EMPHASIS : {}), color: tint(v) }}><Figure text={cellText(row, c, v) || '-'} /></td>;
+    if (v === '' || v == null) return <td key={c.key} className="acct-num" style={w ? numCap : undefined} />;
+    if (c.type === 'variance') return <td key={c.key} className="acct-num" style={{ ...numCap, color: tint(v) }}><Amount value={v} zero="dash" /></td>;
     // A zero is a dash on the statement; a ledger line leaves its empty side blank.
     const figure = <Amount value={v} zero={row.kind === 'line' ? 'blank' : 'dash'} />;
     const look = row.tone ? { color: v >= 0 ? 'var(--ok-fg, #15803d)' : 'var(--bad-fg, #dc2626)' } : c.key === 'other' && columns.length > 2 ? { color: 'var(--text-secondary)' } : row.kind === 'account' && v < 0 && columns.length === 2 && columns[1].type === 'date' ? { color: 'var(--bad-fg, #dc2626)' } : undefined;
-    const style = c.emphasis ? { ...EMPHASIS, ...look } : look;
+    const style = c.emphasis ? { ...numCap, ...EMPHASIS, ...look } : { ...numCap, ...look };
     const drill = row.drills?.[i] || c.drill;
     const drills = drill && !row.noDrill && DRILL_KINDS.has(row.kind) && (row.kind !== 'section' || !row.values.every((x) => typeof x !== 'number'));
     return (
@@ -869,6 +932,30 @@ function StatementRow({ row, columns, open, width = () => undefined, onToggle, o
   );
 }
 
+// The Review cell of a Flux line (Charmi, 10/15): Open (flagged, nothing
+// written - amber, someone has to act), Answered (an explanation is written -
+// the reviewer's turn), Closed (signed off - quiet). The check mark closes
+// the review, the arrow reopens it; only an editor sees them.
+const REVIEW_CHIP = { Open: 'acct-chip-warn', Answered: 'acct-chip-info', Closed: 'acct-chip-muted' };
+const REVIEW_HINT = { Open: 'Over the flux thresholds - needs an explanation', Answered: 'Explained - waiting for the reviewer to close it', Closed: 'Reviewed and closed' };
+function ReviewCell({ row, value, note }) {
+  const busy = note.busy === row.code;
+  const name = `${row.code} ${row.title}`;
+  const closed = row.status === 'closed';
+  const iconBtn = { border: 'none', background: 'none', padding: 2, cursor: busy ? 'wait' : 'pointer', color: 'var(--text-muted)', display: 'inline-flex' };
+  const by = closed && row.closedBy ? ` by ${row.closedBy}` : '';
+  return (
+    <td style={{ whiteSpace: 'nowrap' }}>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+        {value ? <span className={`acct-chip ${REVIEW_CHIP[value] || 'acct-chip-muted'}`} title={`${REVIEW_HINT[value] || ''}${by}`}>{value}</span> : null}
+        {note.canEdit && (closed
+          ? <button type="button" style={iconBtn} disabled={busy} onClick={() => note.onReview(row.code, false)} aria-label={`Reopen the review of ${name}`} title="Reopen the review"><RotateCcw size={13} /></button>
+          : (value || row.flag) && <button type="button" style={iconBtn} disabled={busy} onClick={() => note.onReview(row.code, true)} aria-label={`Close the review of ${name}`} title="Reviewed - close this line"><Check size={13} /></button>)}
+      </span>
+    </td>
+  );
+}
+
 // The Explanation cell of a Flux line (item 26a): the text with a pencil and
 // a trash can; the pencil turns the cell into a box (Enter or leaving it
 // saves, Esc cancels, Shift+Enter starts a new line), the trash asks
@@ -907,8 +994,8 @@ function NoteCell({ row, value, note, maxWidth }) {
         ) : (
           <>
             <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', color: value ? undefined : 'var(--text-muted)' }}>{busy ? 'Saving...' : value || ''}</span>
-            <button type="button" style={iconBtn} onClick={() => note.onEdit(row.code)} aria-label={`${value ? 'Edit' : 'Add'} explanation for ${name}`} title={value ? 'Edit the explanation' : 'Write why this account moved'}><Pencil size={13} /></button>
-            {value && <button type="button" style={iconBtn} onClick={() => note.onAskRemove(row.code)} aria-label={`Remove explanation for ${name}`} title="Remove the explanation"><Trash2 size={13} /></button>}
+            {note.canEdit && <button type="button" style={iconBtn} onClick={() => note.onEdit(row.code)} aria-label={`${value ? 'Edit' : 'Add'} explanation for ${name}`} title={value ? 'Edit the explanation' : 'Write why this account moved'}><Pencil size={13} /></button>}
+            {value && note.canEdit && <button type="button" style={iconBtn} onClick={() => note.onAskRemove(row.code)} aria-label={`Remove explanation for ${name}`} title="Remove the explanation"><Trash2 size={13} /></button>}
           </>
         )}
       </span>

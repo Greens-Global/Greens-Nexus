@@ -78,12 +78,22 @@ describe('LedgerSearch grid', () => {
     expect(api.searchAccountingLedger.mock.calls.at(-1)[0].location).toBeUndefined();
   });
 
+  it('keeps a drill-down from a user-defined book in that book (Charmi, 10/15)', async () => {
+    render(<LedgerSearch term="" entities={['15000']} entityName="Greens Escondido" onClose={() => {}} onClearDrill={() => {}}
+      drill={{ account: '71100', accountName: 'General', from: '2026-08-01', to: '2026-08-31', book: 'fmv' }} />);
+    await screen.findByText('Amazon Marketplace Pay - Mop stainless steel');
+    expect(api.searchAccountingLedger.mock.calls.at(-1)[0]).toMatchObject({ account: '71100', book: 'fmv' });
+    const book = screen.getByLabelText('Book');
+    expect(book.value).toBe('fmv');
+    expect([...book.options].map((o) => o.textContent)).toEqual(['All Books', 'Accrual Book', 'Cash Book', 'FMV Book']);
+  });
+
   it('a drill-down from a vendor or a department column stays on that vendor or department', async () => {
     const { unmount } = render(<LedgerSearch term="" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}}
       drill={{ account: '62101', accountName: 'Repairs', from: '2026-01-01', to: '2026-09-28', book: 'accrual', party: { kind: 'vendor', code: 'V00412', name: 'Home Depot' } }} />);
     await screen.findByText('Amazon Marketplace Pay - Mop stainless steel');
     expect(api.searchAccountingLedger.mock.calls.at(-1)[0]).toMatchObject({ account: '62101', party_kind: 'vendor', party: 'V00412' });
-    expect(screen.getByText('Vendor: Home Depot')).toBeTruthy();
+    expect(screen.getByText('Vendor: V00412 Home Depot')).toBeTruthy();
     unmount();
     render(<LedgerSearch term="" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}}
       drill={{ account: '62101', accountName: 'Repairs', from: '2026-01-01', to: '2026-09-28', book: 'accrual', department: '9100' }} />);
@@ -100,10 +110,10 @@ describe('LedgerSearch grid', () => {
     // One account behind every line is not a choice, so it is not offered.
     expect(screen.queryByLabelText('Accounts')).toBeNull();
     const vendors = screen.getByLabelText('Vendors');
-    expect([...vendors.options].map((o) => o.textContent)).toEqual(['Vendors (2)', 'American Express - 2 lines, net 40.00', 'Home Depot - 1 lines, net 20.00']);
+    expect([...vendors.options].map((o) => o.textContent)).toEqual(['Vendors (2)', 'V00225 American Express - 2 lines, net 40.00', 'V00412 Home Depot - 1 lines, net 20.00']);
     fireEvent.change(vendors, { target: { value: 'V00412' } });
     await waitFor(() => expect(api.searchAccountingLedger.mock.calls.at(-1)[0]).toMatchObject({ party_kind: 'vendor', party: 'V00412' }));
-    expect(screen.getByText('Vendor: Home Depot')).toBeTruthy();
+    expect(screen.getByText('Vendor: V00412 Home Depot')).toBeTruthy();
   });
 
   it('scrolls with the page in a window and keeps its own scroller only in full screen (Charmi, 10/02)', async () => {
@@ -230,7 +240,7 @@ describe('LedgerSearch grid', () => {
     expect(within(dialog).getAllByRole('columnheader').map((h) => h.textContent))
       .toEqual(['Account', 'Debit', 'Credit', 'Department', 'Location', 'Memo', 'Vendor', 'Project-Job', 'Item', 'Employee', 'Customer']);
     const row = within(dialog).getByText('Supplies').closest('tr');
-    expect([...row.cells].map((c) => c.textContent)).toEqual(['71100General', '22.46', '', 'Personal', 'Rajesh and D', 'Amazon Marketplace Pay', 'American Express', 'Valley Center', 'Supplies', '', '']);
+    expect([...row.cells].map((c) => c.textContent)).toEqual(['71100General', '22.46', '', 'Personal', 'Rajesh and D', 'Amazon Marketplace Pay', 'V00225 American Express', 'Valley Center', 'Supplies', '', '']);
   });
 
   it('opens the entry the dashboard tile handed over on top of the lines, once', async () => {

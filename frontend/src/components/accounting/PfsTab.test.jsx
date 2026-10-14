@@ -57,7 +57,7 @@ const statement = {
     assets: [
       { key: 'cash', label: 'Cash on Hand', ownership: '', count: 0, amount: 0 },
       { key: 'bank', label: 'Bank Accounts / Cash Equivalents', ownership: '7.5%', count: 1, amount: 75000 },
-      { key: 'securities', label: 'Marketable Securities', ownership: '', count: 0, amount: 0 },
+      { key: 'investments', label: 'Investments', ownership: '', count: 0, amount: 0 },
       { key: 'retirement', label: 'Retirement Accounts', ownership: '100%', count: 1, amount: 120000 },
       { key: 'real_estate', label: 'Real Estate', ownership: '50%', count: 1, amount: 1500000 },
       { key: 'vehicles', label: 'Vehicles', ownership: '', count: 0, amount: 0 },
@@ -125,6 +125,7 @@ vi.mock('../../api', () => ({
     addPfsLinesBulk: vi.fn(async (id, body) => ({ added: body.accounts.length, lines: [] })),
     movePfsLine: vi.fn(async (id, lineId, section, category) => ({ id: lineId, section, category })),
     reorderPfsLines: vi.fn(async (id, ids) => ({ ok: true, ids })),
+    reorderPfsProfiles: vi.fn(async (ids) => ({ ok: true, ids })),
     getPfsExecutiveProfiles: vi.fn(async () => ({ profiles: [{ key: 'primary', name: 'Test Guarantor', text: 'Founder of the company.' }, { key: 'co', name: 'Second Person', text: '' }] })),
     savePfsExecutiveProfile: vi.fn(async () => ({ profiles: [] })),
     getAccountingPrefs: vi.fn(async () => ({ prefs: {} })),
@@ -209,6 +210,35 @@ describe('PfsTab', () => {
     expect(screen.getByRole('dialog', { name: 'New guarantor' })).toBeTruthy();
   });
 
+  it('moves a guarantor up and down the dropdown, kept on the server (Neil, 10/14)', async () => {
+    const three = [
+      { id: 'p1', name: 'Test Guarantor', displayName: 'Test Guarantor and Second Person', kind: 'joint', archived: false },
+      { id: 'p3', name: 'Another File', displayName: 'Another File', kind: 'individual', archived: false },
+      { id: 'p9', name: 'Closed File', displayName: 'Closed File', kind: 'individual', archived: true },
+    ];
+    api.getPfsProfiles.mockResolvedValueOnce(three).mockResolvedValueOnce([three[1], three[0], three[2]]);
+    render(<PfsTab canEdit />);
+    await loaded();
+    fireEvent.click(screen.getByRole('button', { name: /Test Guarantor and Second Person/ }));
+    const menu = screen.getByRole('dialog', { name: 'Guarantors' });
+    expect(within(menu).getByRole('button', { name: 'Move Test Guarantor and Second Person up' }).disabled).toBe(true);
+    // An archived file stays below the others.
+    expect(within(menu).getByRole('button', { name: 'Move Another File down' }).disabled).toBe(true);
+    fireEvent.click(within(menu).getByRole('button', { name: 'Move Another File up' }));
+    await waitFor(() => expect(api.reorderPfsProfiles).toHaveBeenCalledWith(['p3', 'p1', 'p9']));
+    await waitFor(() => expect(within(menu).getAllByRole('option').map((o) => o.title)).toEqual(['Another File', 'Test Guarantor and Second Person', 'Closed File']));
+  });
+
+  it('has Statement Type in the bar at the top, saved when picked (Neil, 10/14)', async () => {
+    render(<PfsTab canEdit />);
+    await loaded();
+    tab('Borrower(s)');
+    // Not in the borrower's fields any more.
+    expect(screen.getAllByLabelText('Statement Type')).toHaveLength(1);
+    fireEvent.change(screen.getByLabelText('Statement Type'), { target: { value: 'trust' } });
+    await waitFor(() => expect(api.updatePfsProfile).toHaveBeenCalledWith('p1', expect.objectContaining({ kind: 'trust', name: 'Test Guarantor' })));
+    expect(api.updatePfsProfile.mock.calls[0][1].details).toBeUndefined();
+  });
   it('shows each line with where its figure comes from', async () => {
     render(<PfsTab canEdit />);
     await loaded();
@@ -629,6 +659,30 @@ describe('PfsTab', () => {
     expect(api.updatePfsProfile.mock.calls[0][1].details).toMatchObject({ state: 'CA', zip: '92025-1234', coBorrower: { zip: '92025' } });
   });
 
+  it('is clean after a save, whatever order the server keeps the fields in (Neil, 10/14)', async () => {
+    // The server drops blanks, formats a ZIP and (Postgres) hands keys back in its own order.
+    const kept = { ...profile, details: { zip: '92025-1234', ssn_last4: '6789', phone: '(916) 555-0100', members: profile.details.members, address: '1 Main St' } };
+    api.updatePfsProfile.mockImplementationOnce(async () => kept);
+    let after = false;
+    api.getPfsProfile.mockImplementation(async () => (after ? kept : profile));
+    try {
+      render(<PfsTab canEdit />);
+      await loaded();
+      tab('Borrower(s)');
+      fireEvent.change(screen.getAllByLabelText('Phone')[0], { target: { value: '(916) 555-0100' } });
+      fireEvent.change(screen.getAllByLabelText('ZIP')[0], { target: { value: '920251234' } });
+      fireEvent.change(screen.getAllByLabelText('Email')[0], { target: { value: '' } });
+      expect(screen.getByText('Unsaved Changes')).toBeTruthy();
+      after = true;
+      fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }));
+      await screen.findByText('Saved. The statement reads these details now.');
+      expect(screen.queryByText('Unsaved Changes')).toBeNull();
+      expect(screen.getByRole('button', { name: 'Save Changes' }).disabled).toBe(true);
+      expect(screen.getAllByLabelText('ZIP')[0].value).toBe('92025-1234');
+    } finally {
+      api.getPfsProfile.mockImplementation(async () => profile);
+    }
+  });
   it('keeps a co-borrower, with four digits of the Social Security number at most', async () => {
     render(<PfsTab canEdit />);
     await loaded();
@@ -696,9 +750,9 @@ describe('PfsTab', () => {
     fireEvent.change(within(dialog).getByLabelText('Statement Type'), { target: { value: 'joint' } });
     await within(dialog).findAllByRole('option', { name: /Sahil Desai/ });   // both pickers list People once it has loaded
     fireEvent.change(within(dialog).getByLabelText('Prefill From People'), { target: { value: 'sahil@greensglobal.com' } });
-    expect(within(dialog).getByLabelText('Name on the Statement').value).toBe('Sahil Desai');
+    expect(within(dialog).getByLabelText('Borrower').value).toBe('Sahil Desai');
     fireEvent.change(within(dialog).getByLabelText('Second Person From People'), { target: { value: 'charmi@greensglobal.com' } });
-    expect(within(dialog).getByLabelText('Second Name on the Statement').value).toBe('Charmi Desai');
+    expect(within(dialog).getByLabelText('Co-Borrower').value).toBe('Charmi Desai');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
     await waitFor(() => expect(api.createPfsProfile).toHaveBeenCalled());
     expect(api.createPfsProfile.mock.calls[0][0]).toEqual({ name: 'Sahil Desai', kind: 'joint', details: { email: 'sahil@greensglobal.com', coBorrower: { name: 'Charmi Desai' } } });

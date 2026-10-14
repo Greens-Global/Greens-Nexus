@@ -68,15 +68,18 @@ class DoneBatchTests(unittest.TestCase):
     def _comments(self):
         return self.db.query(models.TaskComment).filter_by(task_id="t1").all()
 
-    def test_fields_and_a_reply_save_together_with_one_email_and_one_dm(self):
+    def test_fields_and_a_reply_save_together_with_one_email_and_one_dm_per_sender(self):
         emails, dms = self._save(AGENT, priority="high", status="in_progress",
                                  assignee_email=OTHER, comment="<p>On it - swapping the toner.</p>")
         t = self.db.get(models.TaskTicket, "t1")
         self.assertEqual((t.priority, t.status, t.assignee_email), ("high", "in_progress", OTHER))
         self.assertEqual(len(self._comments()), 1)
         self.assertEqual(len(emails), 1)
-        self.assertEqual(len(dms), 1)
-        self.assertEqual(self.db.query(models.TicketTeamsMessage).count(), 1)
+        # The new assignee tells the requester it is theirs; the agent's reply
+        # is its own message (Neil, 10/14 - the assigner never announces it).
+        self.assertEqual(len(dms), 2)
+        self.assertEqual({r.agent_email for r in self.db.query(models.TicketTeamsMessage)},
+                         {OTHER, AGENT["email"]})
         # The reply rides in the one email that went out.
         self.assertIn("swapping the toner", emails[0].kwargs.get("latest_comment", ""))
 

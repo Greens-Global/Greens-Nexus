@@ -14,6 +14,9 @@ scenarios per loan (Charmi and Neil, 10/06).
                  calculate if the income will support the loan." The figures
                  are computed on screen; a scenario worth keeping (its
                  inputs only) is saved here.
+  Planning       (Charmi, item 25, Oct 15) planned loans - not yet taken -
+                 saved by name per entity for the Loan Planning tab's
+                 mortgage calculator, comparison and DSCR impact.
 
 The loan itself is a fin_loans row in the accounting app - Nexus never keeps
 a copy. Every route resolves the loan through accounting_loans._loan_rows,
@@ -287,6 +290,184 @@ async def set_stress_excluded(loan_id: str, body: StressExcludeBody, user: dict 
             db.close()
     await asyncio.to_thread(_save)
     return {"ok": True, "loanId": loan_id, "excluded": bool(body.excluded)}
+
+
+# ── Loan Planning: planned loans (Charmi, item 25, Oct 15) ──────────────────
+# "New Loan Planning / Mortgage Calculator": a loan the company is thinking of
+# taking - not in the ledger, not a fin_loans row - saved by name per entity
+# so two or three can be compared and their effect on the entity's debt
+# service / DSCR seen beside its real loans. Kept in the same
+# accounting_loan_stress_scenarios table as the stress scenarios (it already
+# has RLS, an entity code, a name and a JSON params column - no new table):
+# a planned loan is a row whose loan_id is PLANNED, a value no fin_loans id
+# (a uuid) can take, so the per-loan scenario routes never see them (their
+# _loan lookup answers 404 for it). Only the inputs are kept; every figure is
+# recomputed on screen (loanMath.js). Reading takes the Accounting grant,
+# writing its editor level; a person limited to certain entities lists and
+# changes only theirs. Audited.
+PLANNED = "planned"
+MAX_PLANNED = 50                 # per entity
+FREQUENCIES = ("monthly", "quarterly", "semiannual", "annual")
+_PLAN_NUMBERS = {                # field: (low, high)
+    "loanAmount": (0, 1e11), "purchasePrice": (0, 1e11), "downPct": (0, 100), "ratePct": (0, 50),
+    "amortYears": (0, 100), "termYears": (0, 100), "ioMonths": (0, 1200), "closingCosts": (0, 1e10),
+    "pointsPct": (0, 20), "dscrTarget": (0, 10), "noi": (-1e12, 1e12),
+}
+_PLAN_TEXT = {"lender": 120, "notes": 2000}
+_PLAN_DATES = ("startDate", "closeDate")
+
+
+def clean_plan_params(p: Any) -> dict:
+    """The planned loan's inputs as kept: the known fields only, numbers in
+    range (blank = not given), dates YYYY-MM-DD, text trimmed and capped."""
+    if not isinstance(p, dict):
+        raise HTTPException(status_code=400, detail="The planned loan's settings are not readable.")
+    out: dict = {}
+    for k, (lo, hi) in _PLAN_NUMBERS.items():
+        v = p.get(k)
+        if v is None or v == "":
+            continue
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail=f"{k} must be a number.")
+        if f != f or f < lo or f > hi:
+            raise HTTPException(status_code=400, detail=f"{k} is out of range.")
+        out[k] = round(f, 4)
+    for k, cap in _PLAN_TEXT.items():
+        v = p.get(k)
+        if v is not None:
+            out[k] = str(v).strip()[:cap]
+    for k in _PLAN_DATES:
+        v = str(p.get(k) or "").strip()[:10]
+        if not v:
+            continue
+        try:
+            if not _DATE.match(v):
+                raise ValueError
+            date.fromisoformat(v)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"{k} must be a date (YYYY-MM-DD).")
+        out[k] = v
+    freq = str(p.get("frequency") or "monthly")
+    if freq not in FREQUENCIES:
+        raise HTTPException(status_code=400, detail="Payment frequency is Monthly, Quarterly, Semiannual or Annual.")
+    out["frequency"] = freq
+    out["usePurchase"] = bool(p.get("usePurchase"))
+    return out
+
+
+def _ser_planned(s: models.AccountingLoanStressScenario) -> dict:
+    return {"id": s.id, "entityCode": s.entity_code or "", "name": s.name or "", "params": s.params or {}, "by": s.saved_by or "", "at": s.saved_at or ""}
+
+
+async def _reach(scope: dict) -> Optional[set]:
+    allowed = scope["allowed"]
+    return None if allowed is None else (await accounting._with_children(allowed) if allowed else set())
+
+
+class PlannedBody(BaseModel):
+    name: str
+    entityCode: str
+    params: dict = {}
+
+
+def _planned_input(body: PlannedBody) -> tuple[str, str, dict]:
+    name = (body.name or "").strip()[:120]
+    if not name:
+        raise HTTPException(status_code=400, detail="Name the planned loan.")
+    code = (body.entityCode or "").strip()
+    if not code or len(code) > 40:
+        raise HTTPException(status_code=400, detail="Pick the entity the loan is for.")
+    return name, code, clean_plan_params(body.params)
+
+
+@router.get("/planned")
+async def list_planned(scope: dict = Depends(entity_scope)):
+    """Every planned loan of the entities the caller may read, newest first."""
+    reach = await _reach(scope)
+
+    def _load():
+        db = SessionLocal()
+        try:
+            q = db.query(models.AccountingLoanStressScenario).filter(models.AccountingLoanStressScenario.loan_id == PLANNED)
+            if reach is not None:
+                q = q.filter(models.AccountingLoanStressScenario.entity_code.in_(tuple(reach) or ("",)))
+            return [_ser_planned(s) for s in q.order_by(models.AccountingLoanStressScenario.saved_at.desc()).all()]
+        finally:
+            db.close()
+    return {"planned": await asyncio.to_thread(_load)}
+
+
+@router.post("/planned", status_code=201)
+async def create_planned(body: PlannedBody, user: dict = Depends(_edit), scope: dict = Depends(entity_scope)):
+    name, code, params = _planned_input(body)
+    await accounting._limit(scope, code, None)
+    me = user["email"].lower()
+
+    def _save():
+        db = SessionLocal()
+        try:
+            have = db.query(models.AccountingLoanStressScenario).filter(models.AccountingLoanStressScenario.loan_id == PLANNED,
+                                                                        models.AccountingLoanStressScenario.entity_code == code).count()
+            if have >= MAX_PLANNED:
+                raise HTTPException(status_code=400, detail=f"An entity keeps up to {MAX_PLANNED} planned loans - remove one first.")
+            s = models.AccountingLoanStressScenario(id=str(uuid.uuid4()), loan_id=PLANNED, entity_code=code, name=name, params=params, saved_by=me, saved_at=_now())
+            db.add(s)
+            out = _ser_planned(s)
+            _audit(db, user, "accounting_loan_planned_created", s.id, {"after": out})
+            db.commit()
+            return out
+        finally:
+            db.close()
+    return {"planned": await asyncio.to_thread(_save)}
+
+
+def _get_planned(db, plan_id: str, reach: Optional[set]):
+    s = db.query(models.AccountingLoanStressScenario).filter(models.AccountingLoanStressScenario.loan_id == PLANNED,
+                                                            models.AccountingLoanStressScenario.id == plan_id).first()
+    if not s or (reach is not None and s.entity_code not in reach):
+        raise HTTPException(status_code=404, detail="Planned loan not found in your entities.")
+    return s
+
+
+@router.put("/planned/{plan_id}")
+async def update_planned(plan_id: str, body: PlannedBody, user: dict = Depends(_edit), scope: dict = Depends(entity_scope)):
+    name, code, params = _planned_input(body)
+    await accounting._limit(scope, code, None)
+    reach = await _reach(scope)
+    me = user["email"].lower()
+
+    def _save():
+        db = SessionLocal()
+        try:
+            s = _get_planned(db, plan_id, reach)
+            before = _ser_planned(s)
+            s.name, s.entity_code, s.params, s.saved_by, s.saved_at = name, code, params, me, _now()
+            after = _ser_planned(s)
+            _audit(db, user, "accounting_loan_planned_saved", plan_id, {"before": before, "after": after})
+            db.commit()
+            return after
+        finally:
+            db.close()
+    return {"planned": await asyncio.to_thread(_save)}
+
+
+@router.delete("/planned/{plan_id}")
+async def delete_planned(plan_id: str, user: dict = Depends(_edit), scope: dict = Depends(entity_scope)):
+    reach = await _reach(scope)
+
+    def _del():
+        db = SessionLocal()
+        try:
+            s = _get_planned(db, plan_id, reach)
+            _audit(db, user, "accounting_loan_planned_deleted", plan_id, {"before": _ser_planned(s)})
+            db.delete(s)
+            db.commit()
+        finally:
+            db.close()
+    await asyncio.to_thread(_del)
+    return {"ok": True}
 
 
 @router.get("/{loan_id}/schedule")

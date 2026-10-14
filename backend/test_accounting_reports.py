@@ -133,6 +133,21 @@ class ReportsProxyTests(unittest.TestCase):
         r = self.client.get("/accounting/search", params={"account": "12000", "book": "x" * 40})
         self.assertEqual(r.status_code, 400)
 
+    def test_both_books_stay_refused_on_a_single_read(self):
+        """10/15 (Charmi, Urmi: books on every report): "Accrual and Cash" is
+        two reads side by side, never one - every single read refuses it, the
+        ledger search included; the user books still travel everywhere."""
+        rng = {"from": "2026-01-01", "to": "2026-09-30"}
+        for path, params in (("/accounting/reports/pnl", rng), ("/accounting/reports/trial-balance", rng),
+                             ("/accounting/reports/balance-sheet", {"asof": "2026-09-30"}),
+                             ("/accounting/reports/buckets", {**rng, "by": "month"}),
+                             ("/accounting/search", {"account": "12000"})):
+            r = self.client.get(path, params={**params, "book": "both"})
+            self.assertEqual(r.status_code, 400, path)
+            r = self.client.get(path, params={**params, "book": "KJE"})
+            self.assertEqual(r.status_code, 200, f"{path}: {r.text}")
+            self.assertEqual(self.calls[-1][1]["book"], "kje", path)
+
     def test_books_list(self):
         r = self.client.get("/accounting/books")
         self.assertEqual(r.status_code, 200, r.text)

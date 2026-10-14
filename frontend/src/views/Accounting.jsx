@@ -27,6 +27,11 @@ import PartnersTab from '../components/accounting/PartnersTab';
 import AllocationsTab from '../components/accounting/AllocationsTab';
 import AmaTab from '../components/accounting/AmaTab';
 import { Calculator, Handshake, Split, Users } from 'lucide-react';
+import { ArrowLeftRight, BookOpen, PieChart, Scale, Target, Activity } from 'lucide-react';
+// Oct 15 (Charmi + Neil): Profitability and Employee Compensation under Reporting.
+import { ChartColumn, HandCoins } from 'lucide-react';
+import ProfitabilityReport from '../components/accounting/ProfitabilityReport';
+import CompensationReport from '../components/accounting/CompensationReport';
 
 // Accounting in Nexus reads the Nexus Accounting ledger (a one-way Intacct ->
 // Supabase mirror; Intacct stays the source of truth and nothing is written
@@ -52,11 +57,27 @@ import { Calculator, Handshake, Split, Users } from 'lucide-react';
 // hands off through Nexus); Leasing became a section of MRI, Monthly
 // Recurring Income.
 
+// Oct 14: Reporting opens the five statements directly (Urmi); Loans &
+// Financing is a menu - Loans, Intercompany, Investments (Charmi); Import Hub
+// converts a bank or brokerage statement into an Intacct import file (Neil).
+
 // Oct 6 (Charmi and Neil, 10/04): the bar was fourteen tabs long. It is now
 // six, three of them dropdowns: Dashboard (Overview / Cash / Performance /
 // Close), Reporting (Reports / Packages / PFS / MRI / MRE) and Tools (Data /
 // Access / Allocations / Import Hub). The sub keys did not change - a group
 // is only how the bar draws them - so every deep link still lands.
+// Oct 14 (Urmi: "Reporting should have the sub menu of the reports"): each of
+// these opens Reports on that statement (sub key `rpt-<report>`).
+const REPORT_SHORTCUTS = [
+  { report: 'balance-sheet', label: 'Balance Sheet', Icon: Scale },
+  { report: 'pnl', label: 'Income Statement', Icon: TrendingUp },
+  { report: 'cash-position', label: 'Cash Position', Icon: Wallet },
+  { report: 'general-ledger', label: 'General Ledger', Icon: BookOpen },
+  { report: 'cash-flow', label: 'Statement of Cash Flows', Icon: ArrowLeftRight },
+  // Oct 15 (Charmi): the two review reports, one click from the menu too.
+  { report: 'flux', label: 'Flux Analysis', Icon: Activity },
+  { report: 'budget', label: 'Actual vs Budget', Icon: Target },
+];
 const TABS = [
   { key: 'dashboard', label: 'Dashboard', Icon: LayoutGrid, items: [
     { key: 'overview', label: 'Overview', Icon: LayoutGrid },
@@ -65,7 +86,9 @@ const TABS = [
     { key: 'close', label: 'Close', Icon: CheckSquare },
   ] },
   { key: 'reporting', label: 'Reporting', Icon: FileText, items: [
-    { key: 'reports', label: 'Reports', Icon: FileText },
+    // Oct 14 (Urmi): the statements themselves, one click each from the bar.
+    ...REPORT_SHORTCUTS.map(({ report, label, Icon }) => ({ key: `rpt-${report}`, label, Icon })),
+    { key: 'reports', label: 'All Reports', Icon: FileText },
     { key: 'packages', label: 'Packages', Icon: FileStack },
     { key: 'pfs', label: 'PFS', Icon: Landmark },
     { key: 'mri', label: 'MRI', Icon: KeyRound },
@@ -73,11 +96,22 @@ const TABS = [
     { key: 'mre', label: 'MRE', Icon: Receipt },
     // Oct 7 (Priyanka): Asset Management Agreements, billed read from the ledger.
     { key: 'ama', label: 'AMA', Icon: Handshake },
+    // Oct 15: per-entity NOI / net income / debt service vs prior year, and
+    // wages and hours per employee (Full level on Accounting only).
+    { key: 'profitability', label: 'Profitability', Icon: ChartColumn },
+    { key: 'compensation', label: 'Employee Compensation', Icon: HandCoins },
   ] },
   // Oct 2 (Neil and Charmi): loans set up from the ledger and reviewed per
   // month - balances, principal and interest paid, NOI, DSCR against the
   // covenant. Per entity, so a limited person gets it too.
-  { key: 'loans', label: 'Loans & Financing', Icon: Banknote },
+  // Oct 14 (Charmi: "take them out under Tools and under Loan"): Intercompany
+  // and Investments left Tools > Data for this menu; Data's own Loans grid was
+  // the same loans as this screen, so it is gone from Tools.
+  { key: 'financing', label: 'Loans & Financing', Icon: Banknote, items: [
+    { key: 'loans', label: 'Loans', Icon: Banknote },
+    { key: 'intercompany', label: 'Intercompany', Icon: ArrowLeftRight },
+    { key: 'investments', label: 'Investments', Icon: PieChart },
+  ] },
   // Oct 2 (Charmi and Neil, 10/01 call): a budget per entity and year, vendor
   // and customer records with changes sent for approval, and the monthly
   // payroll allocation entry from Time Clock hours.
@@ -91,10 +125,13 @@ const TABS = [
     { key: 'imports', label: 'Import Hub', Icon: Upload },
   ] },
 ];
-const LIMITED_TABS = ['reports', 'packages', 'mri', 'mre', 'loans', 'budget', 'partners', 'imports', 'ama'];
+const LIMITED_TABS = ['reports', ...REPORT_SHORTCUTS.map((r) => `rpt-${r.report}`), 'packages', 'mri', 'mre', 'loans', 'budget', 'partners', 'imports', 'ama', 'profitability'];
 // Links made before a rename still land; a group's own key opens its first item.
-const ALIAS = { leasing: 'mri' };
+const ALIAS = { leasing: 'mri', financing: 'loans' };
 const leafKeys = (tabs) => tabs.flatMap((t) => (t.items ? t.items.map((i) => i.key) : [t.key]));
+/** Reports, or one of the statements opened straight from the Reporting menu. */
+const isReports = (key) => key === 'reports' || String(key || '').startsWith('rpt-');
+const reportOf = (key) => (String(key || '').startsWith('rpt-') ? key.slice(4) : null);
 const DASH_SUBS = ['overview', 'cash', 'performance', 'close'];
 
 export default function Accounting({ activeSub, onSubChange }) {
@@ -133,14 +170,20 @@ export default function Accounting({ activeSub, onSubChange }) {
   // Oct 6: the person's Dashboard density (Overview > Density), on every Dashboard tab.
   const [prefs] = useAccountingPrefs();
   const dashDensity = dashDensityOf(prefs);
-  const allowed = (key) => (key === 'pfs' ? canPfs : limited ? LIMITED_TABS.includes(key) : (key !== 'data' || canEdit) && (key !== 'access' || canManage));
-  // Groups keep only the items this person may open; an empty group goes.
+  // Data, Intercompany and Investments are the editable reference grids (editors and up).
+  const allowed = (key) => (key === 'pfs' ? canPfs : limited ? LIMITED_TABS.includes(key)
+    : (!['data', 'intercompany', 'investments'].includes(key) || canEdit) && (key !== 'access' || canManage) && (key !== 'compensation' || canManage));
+  // Groups keep only the items this person may open; an empty group goes, and
+  // a group left with one item is a plain tab under the group's name.
   const tabs = TABS.map((t) => (t.items ? { ...t, items: t.items.filter((i) => allowed(i.key)) } : t))
-    .filter((t) => (t.items ? t.items.length > 0 : allowed(t.key)));
+    .filter((t) => (t.items ? t.items.length > 0 : allowed(t.key)))
+    .map((t) => (t.items?.length === 1 && t.key === 'financing' ? { key: t.items[0].key, label: t.label, Icon: t.Icon } : t));
   const leaves = leafKeys(tabs);
   const group = tabs.find((t) => t.key === activeSub && t.items);
-  const wanted = group ? group.items[0].key : (ALIAS[activeSub] || activeSub);
-  const sub = leaves.includes(wanted) ? wanted : leaves[0];
+  // A group opens its first item - Reporting opens All Reports, not the first statement.
+  const firstOf = (t) => (t.items ? (t.items.find((i) => i.key === 'reports') || t.items[0]).key : t.key);
+  const wanted = group ? firstOf(group) : (ALIAS[activeSub] || activeSub);
+  const sub = leaves.includes(wanted) ? wanted : (tabs[0] ? firstOf(tabs[0]) : leaves[0]);
   useEffect(() => { if (access && sub !== activeSub) onSubChange?.(sub); }, [access, sub, activeSub, onSubChange]);
 
   // The ledger search, from any tab (Oct 6, Neil: "search bar should always
@@ -154,18 +197,29 @@ export default function Accounting({ activeSub, onSubChange }) {
   const searchTimer = useRef(null);
   const goSearch = (text) => {
     if (text.trim().length < 2) return;
-    if (sub !== 'reports') onSubChange?.('reports');
+    if (!isReports(sub)) onSubChange?.('reports');
   };
   useEffect(() => {
     clearTimeout(searchTimer.current);
-    if (sub !== 'reports' && searchText.trim().length >= 2) searchTimer.current = setTimeout(() => goSearch(searchText), 600);
+    if (!isReports(sub) && searchText.trim().length >= 2) searchTimer.current = setTimeout(() => goSearch(searchText), 600);
     return () => clearTimeout(searchTimer.current);
   }, [searchText]); // eslint-disable-line react-hooks/exhaustive-deps
   const lastSub = useRef(sub);
   useEffect(() => {
-    if (lastSub.current === 'reports' && sub !== 'reports') { setSearchText(''); setSearchWaiting(false); }
+    if (isReports(lastSub.current) && !isReports(sub)) { setSearchText(''); setSearchWaiting(false); }
     lastSub.current = sub;
   }, [sub]);
+  // Reports on one statement from the Reporting menu; picking another report
+  // in its own Report box moves the bar along (a statement in the menu lights
+  // that item, any other lights All Reports).
+  const onReportPicked = (report) => {
+    const next = REPORT_SHORTCUTS.some((r) => r.report === report) ? `rpt-${report}` : 'reports';
+    if (next !== sub) onSubChange?.(next);
+  };
+  const reportsTab = isReports(sub) && (
+    <ReportsTab report={reportOf(sub)} onReportChange={onReportPicked} canEdit={canEdit}
+      searchText={searchText} onSearchText={setSearchText} onWaiting={setSearchWaiting} />
+  );
 
   const subtitle = {
     overview: 'Your dashboard view of the ledger - arrange the widgets that matter to your role',
@@ -177,15 +231,19 @@ export default function Accounting({ activeSub, onSubChange }) {
     mri: 'Monthly recurring income - leases, and the interest and loan payments coming in',
     loans: 'Every loan from the ledger - balances, principal and interest paid, NOI and DSCR against the covenant',
     pfs: 'Personal financial statements of the guarantors, for any date',
-    data: 'Loans, intercompany, investments, partner capital, cap rates, close plan and filing calendar',
+    data: 'Partner capital, cap rates, close plan, filing calendar and close history',
+    intercompany: 'Due-from and due-to balances between the entities, matched before consolidation',
+    investments: 'Brokerage and money-market holdings at market value, against the book value in the ledger',
     access: 'Which entities each person on the accounting team may read',
     budget: 'The budget per entity and year, by account and month, against the actuals',
     partners: 'Vendor and customer records, with changes sent to a manager for approval before they are keyed into Intacct',
     allocations: 'The monthly payroll allocation entry - wages split across entities by hours worked at each site',
     mre: 'Monthly recurring expenses - what posts every month, by vendor and entity',
-    imports: 'Every setup that reads the ledger - loans, leases and recurring expenses',
+    imports: 'Turn a bank or brokerage statement into an Intacct journal entry import file',
     ama: 'Asset management agreements - the fee per managed entity, billed against expected',
-  }[sub];
+    profitability: 'Revenue, NOI, net income and cash flow after debt service per entity, against the prior year',
+    compensation: 'Hours and gross wages per employee from Time Clock, with payroll expense on the ledger',
+  }[isReports(sub) ? 'reports' : sub];
   // Every tab has the same one-line header (10/02): the statement still
   // starts high on the page (Neil, Sep 25; Charmi, 10/02) and nothing moves
   // when switching tabs.
@@ -209,7 +267,7 @@ export default function Accounting({ activeSub, onSubChange }) {
           {/* Oct 7 (Neil, screenshot 3): no ledger search on the PFS tab. */}
           {access && sub !== 'pfs' && (
             <form role="search" onSubmit={(e) => { e.preventDefault(); clearTimeout(searchTimer.current); goSearch(searchText); }} style={{ position: 'relative', width: '100%' }}>
-              {searchWaiting && sub === 'reports'
+              {searchWaiting && isReports(sub)
                 ? <Loader2 size={14} className="spin" aria-label="Searching" style={{ position: 'absolute', left: 9, top: 8, color: 'var(--wk-brand, #2b45e1)' }} />
                 : <Search size={14} style={{ position: 'absolute', left: 9, top: 8, color: 'var(--text-muted)' }} />}
               <input type="text" value={searchText} onChange={(e) => setSearchText(e.target.value)} aria-label="Search the ledger"
@@ -233,7 +291,7 @@ export default function Accounting({ activeSub, onSubChange }) {
         // No dashboard provider for a limited person: it loads the
         // consolidated ledger the moment it mounts.
         <div style={{ marginTop: 8 }}>
-          {sub === 'reports' && <ReportsTab searchText={searchText} onSearchText={setSearchText} onWaiting={setSearchWaiting} />}
+          {reportsTab}
           {sub === 'packages' && <PackagesTab />}
           {sub === 'mri' && <MriTab canEdit={canEdit} canDelete={canManage} />}
           {sub === 'loans' && <LoansTab canEdit={canEdit} />}
@@ -241,8 +299,9 @@ export default function Accounting({ activeSub, onSubChange }) {
           {sub === 'budget' && <BudgetTab canEdit={canEdit} />}
           {sub === 'partners' && <PartnersTab canApprove={canApprovePartners} />}
           {sub === 'mre' && <MreTab canEdit={canEdit} canDelete={canManage} />}
-          {sub === 'imports' && <ImportHub available={leaves} onOpen={(k) => onSubChange?.(k)} />}
+          {sub === 'imports' && <ImportHub />}
           {sub === 'ama' && <AmaTab canEdit={canEdit} />}
+          {sub === 'profitability' && <ProfitabilityReport limited />}
         </div>
       ) : (
         <DashProvider>
@@ -252,19 +311,23 @@ export default function Accounting({ activeSub, onSubChange }) {
               {sub === 'cash' && <CashTab />}
               {sub === 'performance' && <PerformanceTab canEdit={canEdit} />}
               {sub === 'close' && <CloseTab canEdit={canEdit} meName={meName} />}
-              {sub === 'reports' && <ReportsTab searchText={searchText} onSearchText={setSearchText} onWaiting={setSearchWaiting} />}
+              {reportsTab}
               {sub === 'packages' && <PackagesTab />}
               {sub === 'mri' && <MriTab canEdit={canEdit} canDelete={canManage} />}
               {sub === 'loans' && <LoansTab canEdit={canEdit} />}
               {sub === 'pfs' && canPfs && <PfsTab canEdit={canPfsEdit} />}
-              {sub === 'data' && canEdit && <DataTab />}
+              {sub === 'data' && canEdit && <DataTab exclude={['loans', 'intercompany', 'holdings']} />}
+              {sub === 'intercompany' && canEdit && <DataTab key="intercompany" only={['intercompany']} />}
+              {sub === 'investments' && canEdit && <DataTab key="investments" only={['holdings']} />}
               {sub === 'access' && canManage && <AccessTab />}
               {sub === 'budget' && <BudgetTab canEdit={canEdit} />}
               {sub === 'partners' && <PartnersTab canApprove={canApprovePartners} />}
               {sub === 'allocations' && <AllocationsTab canEdit={canManage} />}
               {sub === 'mre' && <MreTab canEdit={canEdit} canDelete={canManage} />}
-              {sub === 'imports' && <ImportHub available={leaves} onOpen={(k) => onSubChange?.(k)} />}
+              {sub === 'imports' && <ImportHub />}
               {sub === 'ama' && <AmaTab canEdit={canEdit} />}
+              {sub === 'profitability' && <ProfitabilityReport />}
+              {sub === 'compensation' && canManage && <CompensationReport />}
             </div>
           </DashNav.Provider>
         </DashProvider>

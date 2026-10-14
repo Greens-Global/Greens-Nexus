@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   bookLabel, bookOptions, cashFlowFigures, defaultConfig, glGroupOf, glLineParams, hideInactive, lineMatchesDims, numberFilterHit, parseFigure,
-  reportPages, resolveConfig, runReport, setUserBooks, withFluxNotes,
+  reportPages, resolveConfig, runReport, setUserBooks, withFluxNotes, filterFlux, fluxStatus, filterChips, fluxAmountText, csvRows, canUseDims, canPickAccounts,
+  canBothBooks, canPickBook, reportTitle, reportFileName,
 } from './reportModel';
 
 // Accounting > Reports, Oct 7 batch (Charmi, Neil): the General Ledger's
@@ -156,22 +157,83 @@ describe('General Ledger groups, counter and inactive accounts (items 20 / 22 / 
   });
 });
 
-describe('Flux explanations (item 26b)', () => {
-  it('reads Explained once a flagged line has an explanation, and splits the count', () => {
-    const result = {
-      flux: { period: 'p' },
-      summary: [{ label: 'Flagged', value: '2' }],
+describe('Flux explanations (item 26b) and review status (Charmi, 10/15)', () => {
+  const result = {
+    flux: { period: 'p' },
+    summary: [{ label: 'Review', value: '3 Open' }],
+    rows: [
+      { kind: 'section', section: 'revenue', label: 'Revenue', count: 1, values: [1, 1, 0, '', '', ''] },
+      { kind: 'account', section: 'revenue', code: '41000', flag: false, values: [1, 1, 0, '', '', ''] },
+      { kind: 'section', section: 'expense', label: 'Operating Expenses', count: 3, values: [3, 6, 9, '', '', ''] },
+      { kind: 'account', section: 'expense', code: '61000', flag: true, values: [1, 2, 3, '4%', 'Open', ''] },
+      { kind: 'account', section: 'expense', code: '62000', flag: true, values: [1, 2, 3, '4%', 'Open', ''] },
+      { kind: 'account', section: 'expense', code: '63000', flag: true, values: [1, 2, 3, '4%', 'Open', ''] },
+      { kind: 'grand', label: 'Net Income', values: [1, 2, 3, '', '', ''] },
+    ],
+  };
+  it('a comment answers the review; a reviewer closes it; removing the comment does not reopen a closed line', () => {
+    const r = withFluxNotes(result, {
+      61000: 'Roof repair.', 41000: 'Steady.',
+      63000: { note: '', closed: true, closedBy: 'charmi@greensglobal.com' },
+    });
+    const by = Object.fromEntries(r.rows.filter((x) => x.code).map((x) => [x.code, x]));
+    expect([by[61000].values[4], by[62000].values[4], by[63000].values[4], by[41000].values[4]]).toEqual(['Answered', 'Open', 'Closed', 'Answered']);
+    expect([by[61000].status, by[62000].status, by[63000].status]).toEqual(['answered', 'open', 'closed']);
+    expect(by[61000].explained).toBe(true);
+    expect(by[63000].closedBy).toBe('charmi@greensglobal.com');
+    expect(by[41000].values[5]).toBe('Steady.');
+    expect(r.fluxCounts).toEqual({ open: 1, answered: 2, closed: 1 });
+    expect(r.summary[0].value).toBe('1 Open · 2 Answered · 1 Closed');
+    expect(fluxStatus(true, { note: 'x', closed: false })).toBe('answered');
+    expect(fluxStatus(true, { note: '', closed: false })).toBe('open');
+    expect(fluxStatus(false, '')).toBe('');
+  });
+  it('filters the lines by review state, keeping their headings and the totals', () => {
+    const r = withFluxNotes(result, { 61000: 'Roof repair.', 63000: { note: 'Ok', closed: true } });
+    const codes = (x) => x.rows.filter((y) => y.kind === 'account').map((y) => y.code);
+    expect(filterFlux(r, { status: 'all' })).toBe(r);
+    expect(codes(filterFlux(r, { status: 'open' }))).toEqual(['62000']);
+    expect(codes(filterFlux(r, { status: 'answered' }))).toEqual(['61000']);
+    expect(codes(filterFlux(r, { status: 'closed' }))).toEqual(['63000']);
+    expect(codes(filterFlux(r, { status: 'flagged' }))).toEqual(['61000', '62000', '63000']);
+    const open = filterFlux(r, { status: 'open' });
+    expect(open.rows.map((y) => y.label || y.code)).toEqual(['Operating Expenses', '62000', 'Net Income']);
+    expect(open.rows[0].count).toBe(1);
+    expect(resolveConfig({ report: 'flux', fluxStatus: 'answered' }).fluxStatus).toBe('answered');
+    expect(resolveConfig({ report: 'flux', fluxStatus: 'nope' }).fluxStatus).toBe('all');
+  });
+  it('filters by an amount with an operator, on the figure picked (Charmi, 10/15)', () => {
+    const lines = {
+      flux: { period: 'p' }, summary: [],
       rows: [
-        { kind: 'account', code: '61000', flag: true, values: [1, 2, 3, '4%', 'Review', ''] },
-        { kind: 'account', code: '62000', flag: true, values: [1, 2, 3, '4%', 'Review', ''] },
-        { kind: 'account', code: '41000', flag: false, values: [1, 1, 0, '', '', ''] },
+        { kind: 'section', section: 'expense', label: 'Operating Expenses', count: 3, values: [0, 0, 0, '', '', ''] },
+        { kind: 'account', section: 'expense', code: '61000', flag: true, values: [12000, 4000, 8000, '200.0%', 'Open', ''] },
+        { kind: 'account', section: 'expense', code: '62000', flag: true, values: [1000, 7000, -6000, '(85.7%)', 'Open', ''] },
+        { kind: 'account', section: 'expense', code: '63000', flag: false, values: [5000, 4900, 100, '2.0%', '', ''] },
+        { kind: 'grand', label: 'Net Income', values: [0, 0, 0, '', '', ''] },
       ],
     };
-    const r = withFluxNotes(result, { 61000: 'Roof repair.', 41000: 'Steady.' });
-    expect(r.rows.map((x) => x.values[4])).toEqual(['Explained', 'Review', '']);
-    expect(r.rows[0].explained).toBe(true);
-    expect(r.rows[2].values[5]).toBe('Steady.');
-    expect(r.summary[0].value).toBe('1 to review · 1 explained');
+    const codes = (amount, status = 'all') => filterFlux(lines, { status, amount }).rows.filter((y) => y.kind === 'account').map((y) => y.code);
+    // Either way: a $6,000 drop is as big a move as an $8,000 rise.
+    expect(codes({ target: 'abs-var', op: '>=', a: '5,000' })).toEqual(['61000', '62000']);
+    expect(codes({ target: 'var', op: '>=', a: '5000' })).toEqual(['61000']);
+    expect(codes({ target: 'var', op: '<', a: '0' })).toEqual(['62000']);
+    expect(codes({ target: 'var', op: '=', a: '100' })).toEqual(['63000']);
+    expect(codes({ target: 'var', op: '<=', a: '100' })).toEqual(['62000', '63000']);
+    expect(codes({ target: 'cur', op: '>', a: '4999.99' })).toEqual(['61000', '63000']);
+    expect(codes({ target: 'prior', op: 'between', a: '4000', b: '5000' })).toEqual(['61000', '63000']);
+    expect(codes({ target: 'pct', op: '>', a: '50' })).toEqual(['61000']);
+    // An empty value is no filter; the amount and the review state combine.
+    expect(filterFlux(lines, { amount: { target: 'var', op: '>', a: '' } })).toBe(lines);
+    expect(codes({ target: 'abs-var', op: '>', a: '50' }, 'flagged')).toEqual(['61000', '62000']);
+    // The config keeps it, the chip names it and takes it off.
+    const c = resolveConfig({ report: 'flux', fluxFilter: { target: 'abs-var', op: '>=', a: '5000' } });
+    expect(c.fluxFilter).toEqual({ target: 'abs-var', op: '>=', a: '5000', b: '' });
+    expect(resolveConfig({ report: 'flux', fluxFilter: { target: 'x', op: '~' } }).fluxFilter).toEqual({ target: 'abs-var', op: '>=', a: '', b: '' });
+    expect(fluxAmountText({ target: 'pct', op: 'between', a: '10', b: '20' })).toBe('Variance % Between 10 and 20');
+    const chip = filterChips(c).find((x) => x.key === 'flux-amount');
+    expect(chip.label).toBe('Variance $ (Either Way) >= 5000');
+    expect(chip.patch.fluxFilter.a).toBe('');
   });
 });
 
@@ -250,6 +312,70 @@ describe('books (item 35)', () => {
     setUserBooks([]);
   });
 
+  it('offers a book on every financial report, two side by side only where they can be drawn (Charmi, Urmi, 10/15)', () => {
+    setUserBooks([{ key: 'kje', label: 'KJECA - Greens Global' }]);
+    const keys = (report) => bookOptions({ report }).map((b) => b.key);
+    ['pnl', 'balance-sheet', 'trial-balance'].forEach((r) => expect(keys(r)).toEqual(['accrual', 'cash', 'kje', 'both']));
+    ['general-ledger', 'cash-position', 'cash-flow', 'flux', 'budget'].forEach((r) => {
+      expect(canPickBook({ report: r })).toBe(true);
+      expect(canBothBooks({ report: r })).toBe(false);
+      expect(keys(r)).toEqual(['accrual', 'cash', 'kje']);
+      // "Accrual and Cash" carried over from an Income Statement reads Accrual here.
+      expect(resolveConfig({ report: r, book: 'both' }, NOW).book).toBe('accrual');
+      expect(resolveConfig({ report: r, book: 'kje' }, NOW).book).toBe('kje');
+    });
+    expect(resolveConfig({ report: 'pnl', book: 'both' }, NOW).book).toBe('both');
+    // The book is in the title, the export and the file name.
+    expect(reportTitle({ report: 'pnl', book: 'cash' })).toBe('Income Statement (Cash Book)');
+    expect(reportTitle({ report: 'flux', book: 'kje' })).toBe('Flux Analysis (KJECA - Greens Global Book)');
+    expect(reportTitle({ report: 'balance-sheet', book: 'both' }, 'Lender Package')).toBe('Lender Package (Accrual and Cash Books)');
+    expect(reportTitle({ report: 'pnl', book: 'cash' }, 'Income Statement (Cash Book)')).toBe('Income Statement (Cash Book)');
+    const result = { config: resolveConfig({ report: 'pnl', book: 'cash', preset: 'custom', from: '2026-01-01', to: '2026-09-30' }, NOW), def: { label: 'Income Statement', period: 'range' } };
+    expect(reportFileName(result, [], 'excel')).toBe('Income Statement - All entities - 01-01-2026 to 09-30-2026 - Cash Book.xlsx');
+    expect(reportFileName({ ...result, config: { ...result.config, book: 'accrual' } }, [], 'pdf')).toBe('Income Statement - All entities - 01-01-2026 to 09-30-2026.pdf');
+    setUserBooks([]);
+  });
+
+  it('reads every report in the book picked, and drills into that book (10/15)', async () => {
+    setUserBooks([{ key: 'fmv', label: 'Fair Market Journal' }]);
+    const pnl = { sections: [{ key: 'revenue', accounts: [{ account_no: '41000', title: 'Rental Income', amount: 1200 }] }] };
+    const bs = { sections: [{ key: 'asset', accounts: [{ account_no: '10100', title: 'Chase Operating', amount: 4321 }] }] };
+    const api = {
+      getAccountingPnl: vi.fn(async () => pnl),
+      getAccountingBalanceSheet: vi.fn(async () => bs),
+      getAccountingCashPosition: vi.fn(async () => ({ accounts: [{ gl_code: '10100', account_name: 'Chase Operating', balance: 5000, last_activity: '2026-10-01' }, { gl_code: '10200', account_name: 'Petty Cash', balance: 10 }], total: 5010 })),
+      readAccountingReport: vi.fn(async (kind) => (kind === 'pnl' ? pnl : bs)),
+      getAccountingReportBudget: vi.fn(async () => ({ available: false, rows: [] })),
+      getAccountingBudget: vi.fn(async () => ({ source: 'none', rows: [] })),
+    };
+    // Flux: both periods from the cash book; its amounts drill into the cash book.
+    const flux = await runReport(api, resolveConfig({ ...defaultConfig(NOW), report: 'flux', book: 'cash' }, NOW));
+    expect(api.getAccountingPnl.mock.calls.map((c) => c[4])).toEqual(['cash', 'cash']);
+    expect(flux.columns[0].drill.book).toBe('cash');
+    // Actual vs Budget: the Actual from the book.
+    await runReport(api, resolveConfig({ ...defaultConfig(NOW), report: 'budget', book: 'cash' }, NOW));
+    expect(api.getAccountingPnl.mock.calls.at(-1)[4]).toBe('cash');
+    // Cash Flows: the income statement and balance sheets from the book.
+    await runReport(api, resolveConfig({ ...defaultConfig(NOW), report: 'cash-flow', book: 'cash' }, NOW));
+    expect(api.getAccountingBalanceSheet.mock.calls.at(-1)[3]).toBe('cash');
+    // Cash Position: the cash book's bank balances are the accrual ones; a
+    // user book's come from its balance sheet, with a note saying so.
+    const cashBook = await runReport(api, resolveConfig({ ...defaultConfig(NOW), report: 'cash-position', book: 'cash' }, NOW));
+    expect(cashBook.rows.at(-1).values[0]).toBe(5010);
+    expect(cashBook.columns[0].drill.book).toBe('cash');
+    const fmv = await runReport(api, resolveConfig({ ...defaultConfig(NOW), report: 'cash-position', book: 'fmv' }, NOW));
+    expect(api.readAccountingReport).toHaveBeenLastCalledWith('balance-sheet', expect.objectContaining({ book: 'fmv' }));
+    expect(fmv.rows.map((r) => r.values[0])).toEqual([4321, 0, 4321]);
+    expect(fmv.rows[0].values[1]).toBe('10/01/2026');
+    expect(fmv.notes[0]).toMatch(/Fair Market Journal Book balance sheet/);
+    expect(fmv.columns[0].drill.book).toBe('fmv');
+    // General Ledger: "both" never reaches a single read.
+    const glApi = { getAccountingTrialBalance: vi.fn(async () => ({ rows: [], totals: {} })), searchAccountingLedger: vi.fn(async () => ({ rows: [], total: 0 })) };
+    await runReport(glApi, { ...resolveConfig({ ...defaultConfig(NOW), report: 'general-ledger' }, NOW), book: 'both' });
+    expect(glApi.getAccountingTrialBalance.mock.calls[0][4]).toBe('accrual');
+    setUserBooks([]);
+  });
+
   it('reads a user book through the generic report read', async () => {
     setUserBooks([{ key: 'fmv', label: 'Fair Market Journal' }]);
     const api = { readAccountingReport: vi.fn(async () => ({ sections: [] })), getAccountingPnl: vi.fn() };
@@ -269,7 +395,7 @@ describe('Actual vs Budget (item 43)', () => {
       getAccountingBudget: vi.fn(),
     };
     const r = await runReport(api, resolveConfig({ ...defaultConfig(NOW), cols: 'budget', entities: ['15000'] }, NOW));
-    expect(r.columns.map((c) => c.label)).toEqual(['Actual', 'Budget', '$ Variance', '% Variance']);
+    expect(r.columns.map((c) => c.label)).toEqual(['Actual', 'Budget', 'Variance $', 'Variance %']);
     expect(r.rows.find((x) => x.code === '41000').values.slice(0, 3)).toEqual([1200, 1000, 200]);
     expect(r.notes[0]).toMatch(/Intacct budget STD/);
     expect(api.getAccountingBudget).not.toHaveBeenCalled();
@@ -288,5 +414,46 @@ describe('Actual vs Budget (item 43)', () => {
     expect(r.columns[1].label).toBe('Budget (Nexus)');
     expect(r.rows.find((x) => x.code === '41000').values[1]).toBe(300);
     expect(r.notes[0]).toMatch(/saved in Nexus/);
+  });
+
+  it('is a report of its own, the Budget column filled from a Nexus budget that names no sections (Charmi, 10/15)', async () => {
+    const actual = { org: 'Greens Global', generated_at: '2026-10-06', sections: [
+      { key: 'revenue', accounts: [{ account_no: '41000', title: 'Rental Income', amount: 1200 }] },
+      { key: 'expense', accounts: [{ account_no: '61000', title: 'Repairs', amount: 500 }] },
+    ] };
+    const months = (v) => { const m = Array(12).fill(0); m[0] = v; return m; };
+    const api = {
+      getAccountingPnl: vi.fn(async () => actual),
+      getAccountingReportBudget: vi.fn(async () => { throw new Error('404'); }),
+      // The budget answer before 10/15 carried no `section`: placed where the
+      // ledger has the account, or by the account number when it has none.
+      getAccountingBudget: vi.fn(async () => ({ source: 'nexus', rows: [
+        { accountNo: '41000', title: 'Rental Income', months: months(1000) },
+        { accountNo: '61000', title: 'Repairs', months: months(800) },
+        { accountNo: '62500', title: 'Landscaping', months: months(250) },
+      ] })),
+    };
+    const c = resolveConfig({ ...defaultConfig(NOW), report: 'budget', entities: ['15000'] }, NOW);
+    expect(c.report).toBe('budget');
+    expect(canUseDims(c)).toBe(false);
+    expect(canPickAccounts(c)).toBe(true);
+    const r = await runReport(api, c);
+    expect(r.def.label).toBe('Actual vs Budget');
+    expect(r.columns.map((x) => x.label)).toEqual(['Actual', 'Budget (Nexus)', 'Variance $', 'Variance %']);
+    const by = Object.fromEntries(r.rows.filter((x) => x.code).map((x) => [x.code, x.values]));
+    expect(by['41000']).toEqual([1200, 1000, 200, '20.0%']);
+    expect(by['61000']).toEqual([500, 800, -300, '(37.5%)']);
+    expect(by['62500']).toEqual([0, 250, -250, '(100.0%)']);
+    expect(r.rows.find((x) => x.label === 'Net Income').values.slice(0, 3)).toEqual([700, -50, 750]);
+    expect(r.notes[0]).toMatch(/saved in Nexus/);
+    // The export carries the Budget column, filled.
+    const csv = csvRows(r);
+    expect(csv[0]).toEqual(['Actual vs Budget (Accrual Book)']);
+    const head = csv.find((row) => row[0] === 'Section');
+    expect(head.slice(3)).toEqual(['Actual', 'Budget (Nexus)', 'Variance $', 'Variance %']);
+    expect(csv.find((row) => row[1] === '62500').slice(3)).toEqual([0, 250, -250, '(100.0%)']);
+    // "Accrual and Cash" cannot sit beside a budget: the Actual reads one book.
+    await runReport(api, { ...c, book: 'both' });
+    expect(api.getAccountingPnl.mock.calls.at(-1)[4]).toBe('accrual');
   });
 });
