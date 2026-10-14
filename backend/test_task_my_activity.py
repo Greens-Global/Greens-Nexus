@@ -76,8 +76,9 @@ class MyActivityTests(unittest.TestCase):
                                         actor_email=actor, at=at or now_iso(), detail=detail))
 
     def test_the_route_is_registered_where_the_task_id_route_cannot_shadow_it(self):
-        paths = [r.path for r in T.router.routes if isinstance(r, APIRoute) and "GET" in r.methods]
-        self.assertIn("/tasks/activity/mine", paths)
+        route = next(r for r in T.router.routes
+                     if isinstance(r, APIRoute) and "GET" in r.methods and r.path == "/tasks/activity/mine")
+        self.assertIs(route.endpoint, T.my_task_activity)
 
     def test_only_other_peoples_changes_on_my_tasks_newest_first(self):
         assigned = self._task("TASK-A", assignee_emails=[ME["email"]])

@@ -13,7 +13,7 @@ import io
 import json
 import re
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
@@ -3366,23 +3366,29 @@ def my_task_activity(limit: int = 30, days: int = 14, user: dict = Depends(get_c
         return []
     limit = max(1, min(int(limit or 30), 100))
     days = max(1, min(int(days or 14), 90))
-    from datetime import timezone as _tz
-    since = (datetime.now(_tz.utc) - timedelta(days=days)).isoformat()
-    mine = {}
-    for t in db.query(models.Task.id, models.Task.assignee_email, models.Task.assignee_emails,
-                      models.Task.follower_emails).all():
-        if me in task_assignees(t):
-            mine[t.id] = "assignee"
-        elif me in email_list(t.follower_emails):
-            mine[t.id] = "collaborator"
-    if not mine:
-        return []
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    # The bounded activity slice first; only the tasks it names are read
+    # (not every task's assignee list), in chunks that stay under SQLite's
+    # bound-parameter limit.
     rows = (db.query(models.TaskActivity)
             .filter(models.TaskActivity.entity_kind == "task",
                     models.TaskActivity.at >= since,
                     models.TaskActivity.type != "synced_from_asana",
-                    func.lower(models.TaskActivity.actor_email) != me)
+                    func.lower(func.coalesce(models.TaskActivity.actor_email, "")) != me)
             .order_by(models.TaskActivity.at.desc()).limit(2000).all())
+    ids = list({a.entity_id for a in rows if a.entity_id})
+    if not ids:
+        return []
+    mine = {}
+    for i in range(0, len(ids), 500):
+        for t in db.query(models.Task.id, models.Task.assignee_email, models.Task.assignee_emails,
+                          models.Task.follower_emails).filter(models.Task.id.in_(ids[i:i + 500])).all():
+            if me in task_assignees(t):
+                mine[t.id] = "assignee"
+            elif me in email_list(t.follower_emails):
+                mine[t.id] = "collaborator"
+    if not mine:
+        return []
     out = []
     for a in rows:
         rel = mine.get(a.entity_id or "")

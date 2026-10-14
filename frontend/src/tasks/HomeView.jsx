@@ -97,7 +97,7 @@ const ago = (iso) => {
   const m = Math.floor(ms / 60e3); if (m < 60) return `${m}m ago`;
   const h = Math.floor(m / 60); if (h < 24) return `${h}h ago`;
   const d = Math.floor(h / 24); if (d < 7) return `${d}d ago`;
-  return fmtDate(String(iso).slice(0, 10));
+  return fmtDate(new Date(iso));   // the local date, not the UTC one
 };
 // Activity rows without a sentence of their own, by type.
 const VERBS = {
@@ -135,9 +135,11 @@ export default function HomeView({ onNavigate }) {
   // /task-prefs, Oct 2026) so the Home they arranged at a desk is the Home
   // they get on a laptop. The pre-Oct-2026 localStorage copy is lifted once.
   const [homeData, setHomeData] = useTableValue('home', 'data', undefined);
+  const [prefsReady, setPrefsReady] = useState(false);
   useEffect(() => {
     let alive = true;
     whenTablePrefsLoaded().then(({ prefs, fromServer }) => {
+      if (alive) setPrefsReady(true);
       // Only after the server answered (not the offline fallback) and only
       // when the profile has no layout yet.
       if (!alive || !fromServer || prefs?.home?.data !== undefined) return;
@@ -200,19 +202,26 @@ export default function HomeView({ onNavigate }) {
   // debounced, whenever the task list moves - a task_events ping refreshes
   // `tasks`, so that is the signal that something happened.
   const [updates, setUpdates] = useState(null);   // null = not read yet
+  const [updatesFailed, setUpdatesFailed] = useState(false);
   const [allUpdates, setAllUpdates] = useState(false);
   const updatesRead = useRef(false);
-  const showUpdates = widgets.includes('updates');
+  // Not before the layout is known (the default layout has the card, the
+  // person may have taken it off) and not before the first task data is in
+  // (that load would only trigger a second read).
+  const showUpdates = prefsReady && !store.loading && widgets.includes('updates');
+  // The 45s poll hands back a new `tasks` array even when nothing changed;
+  // this stamp only moves when a task did.
+  const tasksStamp = useMemo(() => `${tasks.length}:${tasks.reduce((m, t) => ((t.modifiedAt || '') > m ? t.modifiedAt : m), '')}`, [tasks]);
   useEffect(() => {
     if (!showUpdates) return undefined;
     let alive = true;
     const timer = setTimeout(() => {
       api.getMyTaskActivity()
-        .then((rows) => { if (!alive) return; updatesRead.current = true; setUpdates(Array.isArray(rows) ? rows : []); })
-        .catch(() => { if (alive) setUpdates((u) => u || []); });
+        .then((rows) => { if (!alive) return; updatesRead.current = true; setUpdatesFailed(false); setUpdates(Array.isArray(rows) ? rows : []); })
+        .catch(() => { if (alive) setUpdatesFailed(true); });
     }, updatesRead.current ? 800 : 0);
     return () => { alive = false; clearTimeout(timer); };
-  }, [tasks, showUpdates]);
+  }, [tasksStamp, showUpdates]);
   // "Sagar changed the status to In Progress" - the activity row's own
   // sentence, with a raw status key swapped for its label.
   const whatHappened = (r) => {
@@ -404,7 +413,9 @@ export default function HomeView({ onNavigate }) {
             <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Updates</h2>
             <span style={{ fontSize: 12.5, color: NX.faint, whiteSpace: 'nowrap' }}>Your tasks, last 14 days</span>
           </div>
-          {updates === null ? (
+          {updates === null && updatesFailed ? (
+            <p style={{ padding: '18px 0', textAlign: 'center', fontSize: 13, color: NX.faint }}>Updates could not be loaded. They will be tried again when something changes.</p>
+          ) : updates === null ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '6px 0' }}>
               {[0, 1, 2].map((i) => (
                 <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

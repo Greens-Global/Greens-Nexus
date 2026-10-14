@@ -24,7 +24,7 @@ vi.mock('./tableCols', async (orig) => {
   const real = await orig();
   return {
     ...real,
-    whenTablePrefsLoaded: () => Promise.resolve({ prefs: {}, fromServer: false }),
+    whenTablePrefsLoaded: () => Promise.resolve({ prefs: {}, fromServer: true }),
     useTableValue: (table, name, fallback) => {
       const [v, setV] = useState(table === 'home' ? savedHome : fallback);
       return [v, (next) => setV((cur) => (typeof next === 'function' ? next(cur) : next))];
@@ -70,7 +70,9 @@ describe('Tasks Home on a phone', () => {
     expect(picker.closest('div').parentElement.textContent).toContain('Tasks');
     fireEvent.click(picker);
     fireEvent.click(screen.getByText('My Day'));
-    expect(screen.getByText('My Day')).toBeTruthy();
+    expect(screen.queryByText('My Month')).toBeNull();                 // the menu closed...
+    expect(screen.getByText('My Day').tagName).toBe('BUTTON');         // ...and the pick is on the button
+    expect(screen.queryByText('My Week')).toBeNull();
   });
 
   it('keeps the tiles at a desk', async () => {
@@ -97,6 +99,28 @@ describe('the Updates card', () => {
     expect(rows[1].textContent).toContain('3h ago');
     fireEvent.click(rows[0]);
     expect(screen.getByTestId('drawer').textContent).toBe('t1');
+  });
+
+  it('reads once on open, and again only when a task actually changed', async () => {
+    const { rerender } = render(<HomeView onNavigate={() => {}} />);
+    await flush();
+    expect(activity).toHaveBeenCalledTimes(1);
+    store = { ...store, tasks: store.tasks.map((t) => ({ ...t })) };        // the 45s poll: same data, new array
+    rerender(<HomeView onNavigate={() => {}} />);
+    await act(() => new Promise((r) => setTimeout(r, 900)));
+    expect(activity).toHaveBeenCalledTimes(1);
+    store = { ...store, tasks: store.tasks.map((t) => (t.id === 't1' ? { ...t, modifiedAt: '2099-01-01T00:00:00Z' } : t)) };
+    rerender(<HomeView onNavigate={() => {}} />);
+    await act(() => new Promise((r) => setTimeout(r, 900)));
+    expect(activity).toHaveBeenCalledTimes(2);
+  });
+
+  it('says when the read failed instead of claiming nothing happened', async () => {
+    activity.mockImplementation(() => Promise.reject(new Error('500')));
+    render(<HomeView onNavigate={() => {}} />);
+    await flush();
+    expect(screen.getByText(/Updates could not be loaded/)).toBeTruthy();
+    expect(screen.queryByText(/Nothing new/)).toBeNull();
   });
 
   it('says so when nothing happened', async () => {
