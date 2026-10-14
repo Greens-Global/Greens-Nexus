@@ -30,6 +30,12 @@ export const REPORTS = [
   // capital moves between two balance sheets, investing and financing; the
   // ending cash ties to Cash Position. Mapping by account type and title.
   { key: 'cash-flow', label: 'Statement of Cash Flows', period: 'range' },
+  // Actual vs Budget (Charmi, 10/15: "Actual is what we already have. Budget
+  // is what is missing and needs to be added into the template"): the income
+  // statement's Actual beside the Budget - the Intacct budget, else the one
+  // saved in Nexus (Accounting > Budget) - with Variance $ and Variance %, as
+  // a report of its own; the Income Statement keeps it as a Columns choice.
+  { key: 'budget', label: 'Actual vs Budget', period: 'range' },
 ];
 /** The flag thresholds a Flux Analysis starts with: both must be passed for a line to be flagged. */
 export const FLUX_DEFAULTS = { fluxPct: 10, fluxAmount: 5000 };
@@ -125,9 +131,28 @@ export function setUserBooks(list) {
   userBooks = (Array.isArray(list) ? list : []).filter((b) => b && isUserBook(String(b.key || '').toLowerCase()))
     .map((b) => ({ key: String(b.key).toLowerCase(), label: String(b.label || b.key).trim() || String(b.key).toUpperCase() }));
 }
-/** The Book selector's options: Accrual, Cash, the user books, then Accrual and Cash. */
-export const bookOptions = () => [BOOKS[0], BOOKS[1], ...userBooks, BOOKS[2]];
+/**
+ * The Book selector's options: Accrual, Cash, the user books, then Accrual and
+ * Cash - the last only where a report can lay two books side by side (Income
+ * Statement, Balance Sheet, Trial Balance).
+ */
+export function bookOptions(config = null) {
+  return [BOOKS[0], BOOKS[1], ...userBooks, ...(!config || canBothBooks(config) ? [BOOKS[2]] : [])];
+}
 export const bookLabel = (key) => BOOKS.find((b) => b.key === key)?.label || userBooks.find((b) => b.key === key)?.label || (isUserBook(key) ? key.toUpperCase() : 'Accrual');
+/** The book in words for a title: "Accrual Book", "Fair Market Journal Book", "Accrual and Cash Books". */
+export const bookTitle = (key) => (key === 'both' ? 'Accrual and Cash Books' : `${bookLabel(key)} Book`);
+/**
+ * A report's title with its book (Charmi / Urmi, 10/15: "different books in
+ * Intacct" - which book a figure came from is part of its name): on the
+ * screen, in Excel, the PDF, the CSV and an email. "Income Statement (Cash Book)".
+ */
+export function reportTitle(config, name = '') {
+  const label = name || reportDef(config?.report).label;
+  if (!config || !canPickBook(config)) return label;
+  const suffix = `(${bookTitle(config.book)})`;
+  return label.endsWith(suffix) ? label : `${label} ${suffix}`;
+}
 
 // The dimensions a report can be narrowed by, in the order Charmi listed
 // them. Entities have their own dropdown; every other dimension, department
@@ -256,7 +281,7 @@ const ISO = /^\d{4}-\d{2}-\d{2}$/;
 
 export function defaultConfig(now = new Date()) {
   const [f, t] = presetRange('ytd', now).map(iso);
-  return { report: 'pnl', preset: 'ytd', from: f, to: t, asof: iso(now), asofToday: true, book: 'accrual', cols: 'total', entities: [], dims: { ...EMPTY_DIMS }, accounts: [], showZero: false, ...FLUX_DEFAULTS };
+  return { report: 'pnl', preset: 'ytd', from: f, to: t, asof: iso(now), asofToday: true, book: 'accrual', cols: 'total', entities: [], dims: { ...EMPTY_DIMS }, accounts: [], showZero: false, ...FLUX_DEFAULTS, fluxStatus: 'all' };
 }
 
 // A config as it should run TODAY: a named period ("Year-to-Date") moves with
@@ -275,6 +300,10 @@ export function resolveConfig(config, now = new Date()) {
   if (c.from > c.to) c.to = c.from;
   if (c.asofToday !== false || !ISO.test(c.asof || '')) { c.asof = iso(now); c.asofToday = c.asofToday !== false; }
   c.book = BOOKS.some((b) => b.key === c.book) || userBooks.some((b) => b.key === c.book) ? c.book : 'accrual';
+  // Two books side by side are one read per book; a report that cannot lay
+  // them out reads Accrual rather than say "Accrual and Cash" over one book
+  // (the API refuses book=both on a single read).
+  if (c.book === 'both' && !canBothBooks(c)) c.book = 'accrual';
   c.entities = Array.isArray(c.entities) ? c.entities.filter((x) => typeof x === 'string' && x) : [];
   c.accounts = Array.isArray(c.accounts) ? c.accounts.filter((x) => typeof x === 'string' && x) : [];
   // Zero balances are hidden unless asked for (Charmi, 09/29 call: "the
@@ -292,16 +321,34 @@ export function resolveConfig(config, now = new Date()) {
   // Flux thresholds: a number each, never below zero.
   c.fluxPct = Number.isFinite(Number(c.fluxPct)) && Number(c.fluxPct) >= 0 ? Number(c.fluxPct) : FLUX_DEFAULTS.fluxPct;
   c.fluxAmount = Number.isFinite(Number(c.fluxAmount)) && Number(c.fluxAmount) >= 0 ? Number(c.fluxAmount) : FLUX_DEFAULTS.fluxAmount;
+  // Flux review filter (Charmi, 10/15): which review state the lines show.
+  c.fluxStatus = ['all', 'flagged', 'open', 'answered', 'closed'].includes(c.fluxStatus) ? c.fluxStatus : 'all';
+  // Flux amount filter (Charmi, 10/15): { target, op, a, b }.
+  const fa = c.fluxFilter && typeof c.fluxFilter === 'object' ? c.fluxFilter : {};
+  c.fluxFilter = {
+    target: FLUX_AMOUNT_TARGETS.some((x) => x.key === fa.target) ? fa.target : FLUX_AMOUNT_DEFAULT.target,
+    op: NUM_OPS.some((o) => o.key === fa.op) ? fa.op : FLUX_AMOUNT_DEFAULT.op,
+    a: typeof fa.a === 'string' || typeof fa.a === 'number' ? String(fa.a) : '',
+    b: typeof fa.b === 'string' || typeof fa.b === 'number' ? String(fa.b) : '',
+  };
   return c;
 }
 
 /** The layout in force: two books side by side leave no room for columns. */
-export const activeColumns = (config) => (config.book === 'both' && canPickBook(config) ? 'total' : config.cols);
+export const activeColumns = (config) => (config.book === 'both' && canBothBooks(config) ? 'total' : config.cols);
 // The Statement of Cash Flows ties to Cash Position, which reads the accrual
 // book for whole entities - so neither a book nor the dimension filters apply.
-export const canPickBook = (config) => config.report !== 'cash-position' && config.report !== 'cash-flow';
-export const canUseDims = (config) => config.report !== 'cash-position' && config.report !== 'cash-flow';
-export const canPickAccounts = (config) => ['pnl', 'balance-sheet', 'general-ledger', 'flux'].includes(config.report);
+// Oct 15 (Charmi, Urmi: "different books in Intacct"): every financial
+// report reads the book picked - the Statement of Cash Flows reads its income
+// statement and balance sheets from it, Cash Position its bank and cash
+// balances (see cashPosition), Flux and Actual vs Budget their actuals.
+export const canPickBook = (config) => REPORTS.some((r) => r.key === config?.report);
+/** The reports that can lay Accrual and Cash side by side. */
+export const canBothBooks = (config) => ['pnl', 'balance-sheet', 'trial-balance'].includes(config?.report);
+// Actual vs Budget: a budget is kept per entity and account, never per
+// department or vendor, so the other filters would narrow only one side.
+export const canUseDims = (config) => config.report !== 'cash-position' && config.report !== 'cash-flow' && config.report !== 'budget';
+export const canPickAccounts = (config) => ['pnl', 'balance-sheet', 'general-ledger', 'flux', 'budget'].includes(config.report);
 
 export const periodText = (config) => {
   const def = reportDef(config.report);
@@ -336,6 +383,12 @@ export function filterChips(config, entities = [], names = {}) {
   (config.accounts || []).forEach((code) => {
     out.push({ key: `account:${code}`, label: `Account: ${code}`, patch: { accounts: config.accounts.filter((c) => c !== code) } });
   });
+  if (config.report === 'flux' && fluxAmountOn(config.fluxFilter)) {
+    out.push({ key: 'flux-amount', label: fluxAmountText(config.fluxFilter), patch: { fluxFilter: { ...config.fluxFilter, a: '', b: '' } } });
+  }
+  if (config.report === 'flux' && config.fluxStatus && config.fluxStatus !== 'all') {
+    out.push({ key: 'flux-status', label: `Review: ${config.fluxStatus === 'flagged' ? 'Flagged' : config.fluxStatus[0].toUpperCase() + config.fluxStatus.slice(1)}`, patch: { fluxStatus: 'all' } });
+  }
   return out;
 }
 export function dimsText(config) {
@@ -449,6 +502,13 @@ function statementsByBucket(rows, sectionKeys) {
   });
   return out;
 }
+// The income statement section an account number falls in when nothing
+// else says (Greens' chart: 4xxxx revenue, 5xxxx cost of sales, 6xxxx-7xxxx
+// operating expenses, 8xxxx other income, 9xxxx other expenses).
+function accountSection(code) {
+  const d = String(code || '').trim()[0];
+  return { 4: 'revenue', 5: 'cogs', 6: 'expense', 7: 'expense', 8: 'other_income', 9: 'other_expense' }[d] || '';
+}
 const asSections = (report, bySection) => SECTIONS[report].map(([key, label]) => ({ key, label, accounts: bySection?.get(key) || [] }));
 
 // A dimension column per code can be thousands of columns. Keep the largest
@@ -521,9 +581,14 @@ export function balanceAsOf(rows, asof) {
 // entities on the report (GET /accounting/reports/budget); until the app has
 // one, the budget saved in Nexus for the one picked entity, labeled
 // "Budget (Nexus)". A month counts in full when the period covers part of it.
-async function readBudget(api, config) {
+async function readBudget(api, config, actualSections = []) {
   const bySection = new Map();
-  const add = (section, code, title, amount) => {
+  // A budget line the source does not place (the Nexus budget answered
+  // without sections before 10/15) goes where the ledger has the account.
+  const home = new Map();
+  (actualSections || []).forEach((s) => (s.accounts || []).forEach((a) => { if (a.account_no) home.set(a.account_no, s.key); }));
+  const add = (given, code, title, amount) => {
+    const section = PL_KEYS.includes(given) ? given : home.get(code) || accountSection(code);
     if (!PL_KEYS.includes(section) || !Number.isFinite(Number(amount))) return;
     const list = bySection.get(section) || [];
     const at = list.find((a) => a.account_no === code);
@@ -580,8 +645,9 @@ async function readColumns(api, config, entities = []) {
     return { cols, derived: null, mode: 'books' };
   }
   if (mode === 'budget' && !isBs) {
-    const [actual, budget] = await Promise.all([one(range, 'Actual', book, 'cur'), readBudget(api, config)]);
-    return { cols: [actual, { key: 'budget', label: budget.label, drill: null, sections: budget.sections }], derived: 'compare', mode: 'compare', otherLabel: budget.label, budgetNote: budget.note };
+    const actual = await one(range, 'Actual', book, 'cur');
+    const budget = await readBudget(api, config, actual.sections);
+    return { cols: [actual, { key: 'budget', label: budget.label, drill: null, sections: budget.sections }], derived: 'compare', mode: 'compare', otherLabel: budget.label, budgetNote: budget.note, varianceLabels: ['Variance $', 'Variance %'] };
   }
   if (isCompare(mode)) {
     let prior;
@@ -685,7 +751,8 @@ function layout(config, read) {
     return v;
   };
   const columns = cols.map((c) => ({ key: c.key, label: c.label, type: 'amount', drill: c.drill }));
-  if (derived === 'compare') columns.push({ key: 'var', label: '$ Variance', type: 'variance' }, { key: 'pct', label: '% Variance', type: 'pct' });
+  const [varLabel, pctLabel] = read.varianceLabels || ['$ Variance', '% Variance'];
+  if (derived === 'compare') columns.push({ key: 'var', label: varLabel, type: 'variance' }, { key: 'pct', label: pctLabel, type: 'pct' });
   if (derived === 'total') columns.push({ key: 'total', label: 'Total', type: 'amount', drill: read.totalDrill, emphasis: true });
 
   const wanted = config.accounts?.length ? new Set(config.accounts) : null;
@@ -779,16 +846,16 @@ function layout(config, read) {
  */
 export async function runReport(api, config, entities = []) {
   const def = reportDef(config.report);
-  const both = canPickBook(config) && config.book === 'both';
-  const book = both ? 'accrual' : config.book;
+  const both = canBothBooks(config) && config.book === 'both';
+  const book = both || config.book === 'both' ? 'accrual' : config.book;
   const base = { config, def, org: '', generatedAt: '', mode: 'single', otherLabel: '', summary: [], pickable: [] };
   const drillCur = { from: def.period === 'asof' ? '' : config.from, to: def.period === 'asof' ? config.asof : config.to, book };
 
   if (config.report === 'cash-position') {
-    const a = await fetchStatement(api, config, { asof: config.asof }, 'accrual');
+    const a = await cashPosition(api, config, config.asof, book);
     const rows = (a.accounts || []).map((x) => ({ kind: 'account', code: x.gl_code, title: x.account_name, values: [x.balance, x.last_activity ? formatDate(x.last_activity) : ''] }));
     rows.push({ kind: 'grand', label: `Total Cash as of ${formatDate(config.asof)}`, tone: true, values: [a.total, ''] });
-    return { ...base, org: a.org || '', generatedAt: a.generated_at || '', columns: [{ key: 'balance', label: 'Balance', type: 'amount', drill: { ...drillCur, book: 'accrual' } }, { key: 'last', label: 'Last Activity', type: 'date' }], rows };
+    return { ...base, org: a.org || '', generatedAt: a.generated_at || '', columns: [{ key: 'balance', label: 'Balance', type: 'amount', drill: drillCur }, { key: 'last', label: 'Last Activity', type: 'date' }], rows, ...(a.note ? { notes: [a.note] } : {}) };
   }
 
   if (config.report === 'trial-balance') {
@@ -817,6 +884,12 @@ export async function runReport(api, config, entities = []) {
   if (config.report === 'general-ledger') return { ...base, ...(await generalLedger(api, config, book, drillCur)) };
   if (config.report === 'cash-flow') return { ...base, ...(await cashFlowReport(api, config)) };
   if (config.report === 'flux') return { ...base, ...(await fluxAnalysis(api, config, book)) };
+  if (config.report === 'budget') {
+    // The income statement read with the Budget beside the Actual.
+    const pnlConfig = { ...config, report: 'pnl', cols: 'budget', book: config.book === 'both' ? 'accrual' : config.book };
+    const read = await readColumns(api, pnlConfig, entities);
+    return { ...base, org: read.cols[0]?.org || '', generatedAt: read.cols[0]?.generatedAt || '', mode: read.mode, otherLabel: read.otherLabel || '', ...layout(pnlConfig, read), notes: [read.budgetNote].filter(Boolean), budgetLabel: read.otherLabel || 'Budget' };
+  }
 
   const read = await readColumns(api, config, entities);
   return { ...base, org: read.cols[0]?.org || '', generatedAt: read.cols[0]?.generatedAt || '', mode: read.mode, otherLabel: read.otherLabel || '', ...layout(config, read), ...(read.budgetNote ? { notes: [read.budgetNote] } : {}) };
@@ -1092,7 +1165,7 @@ async function fluxAnalysis(api, config, book) {
     { key: 'cur', label: rangeText(range), type: 'amount', drill: drillOf(range) },
     { key: 'prior', label: rangeText(prior), type: 'amount', drill: drillOf(prior) },
     { key: 'var', label: 'Variance $', type: 'variance' }, { key: 'pct', label: 'Variance %', type: 'pct' },
-    { key: 'flag', label: 'Flag', type: 'text' }, { key: 'note', label: 'Explanation', type: 'text' },
+    { key: 'flag', label: 'Review', type: 'text' }, { key: 'note', label: 'Explanation', type: 'text' },
   ];
   const lines = fluxRows(a.sections, b.sections, config);
   const wanted = config.accounts?.length ? new Set(config.accounts) : null;
@@ -1108,7 +1181,7 @@ async function fluxAnalysis(api, config, book) {
     const shown = config.showZero ? accounts : accounts.filter((r) => Math.abs(r.cur) >= 0.005 || Math.abs(r.prior) >= 0.005);
     if (!shown.length && totals[key].every((v) => Math.abs(v) < 0.005)) return;
     rows.push({ kind: 'section', section: key, label, count: shown.length, values: vals(...totals[key]) });
-    shown.forEach((r) => rows.push({ kind: 'account', section: key, code: r.code, title: r.title, flag: r.flag, values: [r.cur, r.prior, r.variance, share(r.pct), r.flag ? 'Review' : '', ''], ...(r.inactive ? { inactive: true } : {}) }));
+    shown.forEach((r) => rows.push({ kind: 'account', section: key, code: r.code, title: r.title, flag: r.flag, values: [r.cur, r.prior, r.variance, share(r.pct), r.flag ? 'Open' : '', ''], ...(r.inactive ? { inactive: true } : {}) }));
   });
   const t = (k) => totals[k] || [0, 0];
   const at = (i) => {
@@ -1127,30 +1200,103 @@ async function fluxAnalysis(api, config, book) {
     { label: 'Net Income', value: money(c.net), amount: c.net, tone: c.net >= 0 ? 'good' : 'bad' },
     { label: 'Prior', value: money(p.net), amount: p.net },
     { label: 'Change', value: [money(c.net - p.net), pct(c.net, p.net)].filter(Boolean).join(' · '), tone: c.net - p.net >= 0 ? 'good' : 'bad' },
-    { label: 'Flagged', value: String(flagged) },
+    { label: 'Review', value: `${flagged.toLocaleString('en-US')} Open` },
   ];
-  const notes = [`A line is flagged when its variance passes both ${config.fluxPct}% and ${money(config.fluxAmount)} (Customize changes the thresholds). Write why an account moved in its Explanation cell (the pencil edits it, the trash removes it); a flagged line with an explanation reads Explained. Notes are kept for this entity set and period.`];
+  const notes = [`A line is flagged when its variance passes both ${config.fluxPct}% and ${money(config.fluxAmount)} (Customize changes the thresholds). A flagged line is Open until its Explanation is written (the pencil edits it, the trash removes it), then Answered; a reviewer Closes it with the check mark. Removing an explanation reopens the line unless it was closed. Notes are kept for this entity set and period.`];
   return { org: a.org || '', generatedAt: a.generated_at || '', mode: 'compare', otherLabel: rangeText(prior), columns, rows, summary, pickable, notes, flux: { period: `${config.from}_${config.to}` } };
 }
-const FLUX_FLAG_AT = 4;    // the Flag column's index
+const FLUX_FLAG_AT = 4;    // the Review column's index
+/** The review states of a flux line, in the order they are worked (Charmi, 10/15). */
+export const FLUX_STATUSES = [
+  { key: 'open', label: 'Open', hint: 'Flagged, no explanation yet' },
+  { key: 'answered', label: 'Answered', hint: 'An explanation is written, waiting for the reviewer' },
+  { key: 'closed', label: 'Closed', hint: 'Reviewed and signed off' },
+];
+const STATUS_LABEL = Object.fromEntries(FLUX_STATUSES.map((s) => [s.key, s.label]));
+/** One kept note as { note, closed, closedBy, closedAt } - an older answer was the text alone. */
+export const fluxNoteOf = (n) => (n && typeof n === 'object' ? { note: n.note || '', closed: !!n.closed, closedBy: n.closedBy || '', closedAt: n.closedAt || '' } : { note: n || '', closed: false, closedBy: '', closedAt: '' });
 /**
- * The flux result with the kept explanations filled in: `notes` = { accountNo: text }.
- * A flagged line with an explanation reads "Explained" instead of "Review"
- * (Charmi's Friday list, item 26b) and stays a flagged line; the Flagged
- * figure up top reads "N to review · M explained".
+ * The review state of one flux line: closed (a reviewer signed it off) >
+ * answered (an explanation is written) > open (flagged, nothing written).
+ * A line that is neither flagged nor noted has none ('').
+ */
+export function fluxStatus(flag, kept) {
+  const k = fluxNoteOf(kept);
+  if (k.closed) return 'closed';
+  if (k.note) return 'answered';
+  return flag ? 'open' : '';
+}
+/**
+ * The flux result with the kept explanations filled in: `notes` =
+ * { accountNo: { note, closed, closedBy } } (or the text alone). Charmi,
+ * 10/15: a comment answers the review - the Review column reads Open,
+ * Answered or Closed, and the Flagged figure up top counts each.
  */
 export function withFluxNotes(result, notes) {
   if (!result?.flux) return result;
-  let review = 0;
-  let explained = 0;
+  const counts = { open: 0, answered: 0, closed: 0 };
   const rows = result.rows.map((r) => {
     if (r.kind !== 'account' || !r.code) return r;
-    const note = notes?.[r.code] || '';
-    if (r.flag) { if (note) explained += 1; else review += 1; }
-    return { ...r, explained: !!(r.flag && note), values: r.values.map((v, i) => (i === FLUX_NOTE_AT ? note : i === FLUX_FLAG_AT ? (r.flag ? (note ? 'Explained' : 'Review') : '') : v)) };
+    const kept = fluxNoteOf(notes?.[r.code]);
+    const status = fluxStatus(r.flag, kept);
+    if (status) counts[status] += 1;
+    return {
+      ...r, status, explained: !!(r.flag && (kept.note || kept.closed)), closedBy: kept.closed ? kept.closedBy : '',
+      values: r.values.map((v, i) => (i === FLUX_NOTE_AT ? kept.note : i === FLUX_FLAG_AT ? (STATUS_LABEL[status] || '') : v)),
+    };
   });
-  const summary = (result.summary || []).map((f) => (f.label === 'Flagged' ? { ...f, value: `${review.toLocaleString('en-US')} to review · ${explained.toLocaleString('en-US')} explained` } : f));
-  return { ...result, rows, summary };
+  const n = (x) => x.toLocaleString('en-US');
+  const summary = (result.summary || []).map((f) => (f.label === 'Review' ? { ...f, value: `${n(counts.open)} Open · ${n(counts.answered)} Answered · ${n(counts.closed)} Closed` } : f));
+  return { ...result, rows, summary, fluxCounts: counts };
+}
+/**
+ * What the Flux amount filter compares (Charmi, 10/15: "Filter to include
+ * amount and also >, <, >=, <=, ="): the variance either way (the usual flux
+ * question - did it move by more than $5,000, up or down), the signed
+ * variance, the variance %, or either period's amount. `at` is the column.
+ */
+export const FLUX_AMOUNT_TARGETS = [
+  { key: 'abs-var', label: 'Variance $ (Either Way)', at: 2, abs: true },
+  { key: 'var', label: 'Variance $', at: 2 },
+  { key: 'pct', label: 'Variance %', at: 3 },
+  { key: 'cur', label: 'Current Period', at: 0 },
+  { key: 'prior', label: 'Prior Period', at: 1 },
+];
+export const FLUX_AMOUNT_DEFAULT = { target: 'abs-var', op: '>=', a: '', b: '' };
+/** Whether a flux amount filter { target, op, a, b } is in force. */
+export const fluxAmountOn = (f) => !!f && (String(f.a ?? '').trim() !== '' || (f.op === 'between' && String(f.b ?? '').trim() !== ''));
+/** The amount filter as words: "Variance $ (Either Way) >= 5,000". */
+export function fluxAmountText(f) {
+  if (!fluxAmountOn(f)) return '';
+  const t = FLUX_AMOUNT_TARGETS.find((x) => x.key === f.target) || FLUX_AMOUNT_TARGETS[0];
+  const v = (x) => String(x ?? '').trim();
+  return f.op === 'between' ? `${t.label} Between ${v(f.a) || '...'} and ${v(f.b) || '...'}` : `${t.label} ${f.op || '='} ${v(f.a)}`;
+}
+/** The Review Status filter's choices: every line, the flagged ones, or one state. */
+export const FLUX_STATUS_FILTERS = [{ key: 'all', label: 'All Lines' }, { key: 'flagged', label: 'Flagged' }, ...FLUX_STATUSES.map(({ key, label }) => ({ key, label }))];
+/**
+ * The flux lines a filter keeps (after withFluxNotes): `status` = all |
+ * flagged | open | answered | closed. A section heading stays while a line
+ * under it stays; subtotals and Net Income stay (they are the whole report's).
+ */
+export function filterFlux(result, { status = 'all', amount = null } = {}) {
+  const byAmount = fluxAmountOn(amount);
+  if (!result?.flux || ((status === 'all' || !status) && !byAmount)) return result;
+  const t = FLUX_AMOUNT_TARGETS.find((x) => x.key === amount?.target) || FLUX_AMOUNT_TARGETS[0];
+  const amountHit = (r) => {
+    if (!byAmount) return true;
+    const v = t.key === 'pct' ? parseFigure(r.values[t.at]) : Number(r.values[t.at]);
+    // A filter on a signed value keeps its sign; "either way" compares the size.
+    const f = t.abs ? { ...amount, a: String(amount.a ?? '').replace(/[-()]/g, ''), b: String(amount.b ?? '').replace(/[-()]/g, '') } : amount;
+    return Number.isFinite(v) && numberFilterHit(t.abs ? Math.abs(v) : v, { ...f, op: f.op || '=' });
+  };
+  const statusHit = (r) => (status === 'all' || !status ? true : status === 'flagged' ? !!r.flag : r.status === status);
+  const keep = (r) => statusHit(r) && amountHit(r);
+  const accounts = new Set(result.rows.filter((r) => r.kind === 'account' && keep(r)));
+  const sections = new Set([...accounts].map((r) => r.section));
+  const rows = result.rows.filter((r) => (r.kind === 'account' ? accounts.has(r) : r.kind === 'section' ? sections.has(r.section) : true))
+    .map((r) => (r.kind === 'section' ? { ...r, count: [...accounts].filter((a) => a.section === r.section).length } : r));
+  return { ...result, rows, fluxFiltered: true };
 }
 
 // ── Statement of Cash Flows (item 26c) ───────────────────────────────────────
@@ -1241,15 +1387,16 @@ export function cashFlowFigures({ pnl, bsBegin, bsEnd, cashBegin = null, cashEnd
   };
 }
 async function cashFlowReport(api, config) {
-  const book = 'accrual';
+  // The book picked (10/15); two books side by side are not a cash flow.
+  const book = config.book && config.book !== 'both' ? config.book : 'accrual';
   const begin = dayBefore(config.from);
   const cfg = { ...config, dims: { ...EMPTY_DIMS } };
   const [pnl, bsBegin, bsEnd, cashBegin, cashEnd] = await Promise.all([
     fetchStatement(api, { ...cfg, report: 'pnl' }, { from: config.from, to: config.to }, book),
     fetchStatement(api, { ...cfg, report: 'balance-sheet' }, { asof: begin }, book),
     fetchStatement(api, { ...cfg, report: 'balance-sheet' }, { asof: config.to }, book),
-    fetchStatement(api, { ...cfg, report: 'cash-position' }, { asof: begin }, book).catch(() => null),
-    fetchStatement(api, { ...cfg, report: 'cash-position' }, { asof: config.to }, book).catch(() => null),
+    cashPosition(api, cfg, begin, book).catch(() => null),
+    cashPosition(api, cfg, config.to, book).catch(() => null),
   ]);
   const f = cashFlowFigures({ pnl, bsBegin, bsEnd, cashBegin, cashEnd });
   const drill = { from: config.from, to: config.to, book };
@@ -1273,6 +1420,27 @@ async function cashFlowReport(api, config) {
   const notes = [`Indirect method. The ending cash ties to Cash Position as of ${formatDate(config.to)}${cashEnd ? '' : ' (Cash Position could not be read - cash is the cash and bank accounts on the balance sheet)'}. Accounts are sorted into operating, investing and financing by type and title (v1).`];
   if (Math.abs(f.unexplained) >= 0.005) notes.push('Not Explained by the Balance Sheet: cash moved by more (or less) than the balance sheet accounts did - an entity or book difference to look into.');
   return { org: pnl?.org || '', generatedAt: pnl?.generated_at || '', mode: 'single', columns, rows, summary, notes, cashFlow: f };
+}
+
+// ── Cash Position in a book (Charmi, Urmi, 10/15) ───────────────────────────
+// The accounting app's cash position reads the accrual book. A bank or cash
+// account holds the same balance on the cash basis (the bases differ in
+// receivables and payables, never in cash), so Cash reads it as it is. In a
+// user-defined book (FMV, KJE ...) the bank and cash accounts it lists keep
+// their names and last activity, and take their balances from that book's
+// balance sheet as of the same date (an account the book does not carry
+// reads zero).
+export async function cashPosition(api, config, asof, book = 'accrual') {
+  const cp = await fetchStatement(api, { ...config, report: 'cash-position' }, { asof }, 'accrual');
+  if (!isUserBook(book)) return cp;
+  const bs = await fetchStatement(api, { ...config, report: 'balance-sheet', dims: { ...EMPTY_DIMS } }, { asof }, book);
+  const inBook = new Map();
+  (bs?.sections || []).filter((s) => s.key === 'asset').forEach((s) => (s.accounts || []).forEach((x) => { if (x.account_no) inBook.set(x.account_no, round2((inBook.get(x.account_no) || 0) + (x.amount || 0))); }));
+  const accounts = (cp?.accounts || []).map((x) => ({ ...x, balance: inBook.get(x.gl_code) ?? 0 }));
+  return {
+    ...cp, accounts, total: round2(accounts.reduce((s, x) => s + (x.balance || 0), 0)),
+    note: `Balances from the ${bookTitle(book)} balance sheet as of ${formatDate(asof)}; the accounts and their last activity from the ledger.`,
+  };
 }
 
 // ── Inactive accounts (item 34) ──────────────────────────────────────────────
@@ -1472,7 +1640,7 @@ export function cellText(row, column, value, raw = false) {
 // The table as it is shown, for the CSV: one header row, then every row.
 export function csvRows(result, entities = []) {
   const { config, def, columns } = result;
-  const out = [[def.label], [entityText(config, entities)], [periodText(config)], [`Book: ${bookLabel(config.book)}`], [], ['Section', 'Account', 'Title', ...columns.map((c) => c.label)]];
+  const out = [[reportTitle(config, def.label)], [entityText(config, entities)], [periodText(config)], [`Book: ${bookLabel(config.book)}`], [], ['Section', 'Account', 'Title', ...columns.map((c) => c.label)]];
   const cells = (r) => columns.map((c, i) => cellText(r, c, r.values[i], true));
   // A section's total follows its accounts, the way the statement reads.
   let open = null;
@@ -1510,7 +1678,9 @@ export function reportFileName(result, entities = [], format = 'pdf') {
   const when = def.period === 'asof' ? `as of ${d(config.asof)}` : `${d(config.from)} to ${d(config.to)}`;
   const safe = (s) => String(s || '').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
   const ext = format === 'excel' ? 'xlsx' : format === 'csv' ? 'csv' : 'pdf';
-  return `${safe(def.label)} - ${safe(entityText(config, entities))} - ${when}.${ext}`;
+  // A book other than Accrual is in the name, so two books never overwrite each other (10/15).
+  const book = config.book && config.book !== 'accrual' ? ` - ${safe(bookTitle(config.book))}` : '';
+  return `${safe(def.label)} - ${safe(entityText(config, entities))} - ${when}${book}.${ext}`;
 }
 
 const csvCell = (v) => {

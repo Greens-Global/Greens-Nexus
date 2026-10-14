@@ -5905,6 +5905,8 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
 .acct-report .acct-chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 0.7rem; font-weight: 600; line-height: 1.5; }
 .acct-report .acct-chip-warn { background: color-mix(in srgb, #f59e0b 22%, var(--bg-card)); color: var(--warn-fg, #b45309); }
 .acct-report .acct-chip-muted { background: var(--bg-secondary); color: var(--text-secondary); border: 1px solid var(--border-color); }
+/* Flux review: Answered - written, the reviewer's turn (Charmi, 10/15). */
+.acct-report .acct-chip-info { background: var(--wk-brand-tint, #e8ecfd); color: var(--wk-brand, #2b45e1); }
 .acct-report tbody tr.acct-flag.acct-flag-done td { background: color-mix(in srgb, #f59e0b 6%, var(--bg-card)); }
 .acct-report .acct-op-filter { display: flex; gap: 3px; align-items: center; }
 .acct-report .acct-op-filter select {
@@ -5921,6 +5923,14 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
   background: var(--bg-card); color: var(--text-secondary); flex: 0 0 auto; max-width: 64px;
 }
 .acct-lines .acct-op-filter input { min-width: 48px; text-align: right; }
+/* The Flux toolbar's amount filter (Charmi, 10/15): the same operator box, toolbar height. */
+.acct-flux-amount .acct-op-filter { display: inline-flex; gap: 3px; align-items: center; }
+.acct-flux-amount .acct-op-filter select,
+.acct-flux-amount .acct-op-filter input {
+  height: 30px; padding: 0 6px; border: 1px solid var(--border-color); border-radius: 8px; font: inherit; font-size: 0.78rem;
+  background: var(--bg-card); color: var(--text-primary);
+}
+.acct-flux-amount .acct-op-filter input { width: 92px; text-align: right; }
 
 /* Two lines, then an ellipsis - the Support ticket list's Title and Latest
    Comment cells (Neil, 10/08: two-row cells so both can actually be read). */

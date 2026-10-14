@@ -1048,6 +1048,10 @@ def _run_migrations():
             "ALTER TABLE recurring_expenses ADD COLUMN account_number VARCHAR DEFAULT ''",
             "ALTER TABLE recurring_expenses ADD COLUMN account_details VARCHAR DEFAULT ''",
             "ALTER TABLE recurring_expenses ADD COLUMN contact_info VARCHAR DEFAULT ''",
+            # Flux review status (Charmi, Oct 15). models.AccountingFluxNote.closed_*.
+            "ALTER TABLE accounting_flux_notes ADD COLUMN closed INTEGER DEFAULT 0",
+            "ALTER TABLE accounting_flux_notes ADD COLUMN closed_by VARCHAR DEFAULT ''",
+            "ALTER TABLE accounting_flux_notes ADD COLUMN closed_at VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2322,6 +2326,10 @@ def _run_migrations():
         "ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS account_number VARCHAR DEFAULT ''",
         "ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS account_details VARCHAR DEFAULT ''",
         "ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS contact_info VARCHAR DEFAULT ''",
+        # Flux review status (Charmi, Oct 15). models.AccountingFluxNote.closed_*.
+        "ALTER TABLE accounting_flux_notes ADD COLUMN IF NOT EXISTS closed BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE accounting_flux_notes ADD COLUMN IF NOT EXISTS closed_by VARCHAR DEFAULT ''",
+        "ALTER TABLE accounting_flux_notes ADD COLUMN IF NOT EXISTS closed_at VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

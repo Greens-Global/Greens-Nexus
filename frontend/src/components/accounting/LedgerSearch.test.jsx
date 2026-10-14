@@ -78,6 +78,16 @@ describe('LedgerSearch grid', () => {
     expect(api.searchAccountingLedger.mock.calls.at(-1)[0].location).toBeUndefined();
   });
 
+  it('keeps a drill-down from a user-defined book in that book (Charmi, 10/15)', async () => {
+    render(<LedgerSearch term="" entities={['15000']} entityName="Greens Escondido" onClose={() => {}} onClearDrill={() => {}}
+      drill={{ account: '71100', accountName: 'General', from: '2026-08-01', to: '2026-08-31', book: 'fmv' }} />);
+    await screen.findByText('Amazon Marketplace Pay - Mop stainless steel');
+    expect(api.searchAccountingLedger.mock.calls.at(-1)[0]).toMatchObject({ account: '71100', book: 'fmv' });
+    const book = screen.getByLabelText('Book');
+    expect(book.value).toBe('fmv');
+    expect([...book.options].map((o) => o.textContent)).toEqual(['All Books', 'Accrual Book', 'Cash Book', 'FMV Book']);
+  });
+
   it('a drill-down from a vendor or a department column stays on that vendor or department', async () => {
     const { unmount } = render(<LedgerSearch term="" entities={[]} entityName="All entities" onClose={() => {}} onClearDrill={() => {}}
       drill={{ account: '62101', accountName: 'Repairs', from: '2026-01-01', to: '2026-09-28', book: 'accrual', party: { kind: 'vendor', code: 'V00412', name: 'Home Depot' } }} />);

@@ -4,7 +4,7 @@ import { api } from '../../api';
 import { SkeletonBlocks } from '../AsyncState';
 import AnchoredMenu from '../AnchoredMenu';
 import { formatDate } from '../../lib/datetime';
-import { EMPTY_DIMS, JOURNAL_KINDS, POPOVER_DIMS, PRESETS, countDims, isHistorical, isHistoricalEntity, iso, presetRange, stepAsOf, stepRange } from './reportModel';
+import { EMPTY_DIMS, JOURNAL_KINDS, NUM_OPS, POPOVER_DIMS, PRESETS, countDims, isHistorical, isHistoricalEntity, iso, presetRange, stepAsOf, stepRange } from './reportModel';
 
 // The Reports toolbar's controls (Neil and Charmi, Sep 25): everything is a
 // dropdown on ONE slim row, so the statement starts high on the page - no
@@ -841,6 +841,24 @@ export function SavedReportsMenu({ reports, loading, error, activeId, onOpen, on
 }
 
 // A small "x" for a text box.
+// The operator box for an amount: =, >, <, >=, <=, Between and a value
+// ({ op, a, b }) - under an amount column on the Reports tables and the
+// ledger lines (item 26d), and in the Flux toolbar (Charmi, 10/15).
+export function OpFilter({ label, value, onChange, placeholder = '0.00' }) {
+  const v = value && typeof value === 'object' ? value : { op: '=', a: '', b: '' };
+  return (
+    <span className="acct-op-filter">
+      <select value={v.op || '='} onChange={(e) => onChange({ ...v, op: e.target.value })} aria-label={`Operator for ${label}`} title="Compare with">
+        {NUM_OPS.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+      </select>
+      <input type="text" inputMode="decimal" value={v.a || ''} onChange={(e) => onChange({ ...v, a: e.target.value })} aria-label={`Filter ${label}`} placeholder={placeholder} className="acct-num" />
+      {v.op === 'between' && (
+        <input type="text" inputMode="decimal" value={v.b || ''} onChange={(e) => onChange({ ...v, b: e.target.value })} aria-label={`Filter ${label} up to`} placeholder="and" className="acct-num" />
+      )}
+    </span>
+  );
+}
+
 export function ClearButton({ onClick, label }) {
   return (
     <button type="button" onClick={onClick} aria-label={label}

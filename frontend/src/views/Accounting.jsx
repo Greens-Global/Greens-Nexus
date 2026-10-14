@@ -27,7 +27,7 @@ import PartnersTab from '../components/accounting/PartnersTab';
 import AllocationsTab from '../components/accounting/AllocationsTab';
 import AmaTab from '../components/accounting/AmaTab';
 import { Calculator, Handshake, Split, Users } from 'lucide-react';
-import { ArrowLeftRight, BookOpen, PieChart, Scale } from 'lucide-react';
+import { ArrowLeftRight, BookOpen, PieChart, Scale, Target, Activity } from 'lucide-react';
 // Oct 15 (Charmi + Neil): Profitability and Employee Compensation under Reporting.
 import { ChartColumn, HandCoins } from 'lucide-react';
 import ProfitabilityReport from '../components/accounting/ProfitabilityReport';
@@ -74,6 +74,9 @@ const REPORT_SHORTCUTS = [
   { report: 'cash-position', label: 'Cash Position', Icon: Wallet },
   { report: 'general-ledger', label: 'General Ledger', Icon: BookOpen },
   { report: 'cash-flow', label: 'Statement of Cash Flows', Icon: ArrowLeftRight },
+  // Oct 15 (Charmi): the two review reports, one click from the menu too.
+  { report: 'flux', label: 'Flux Analysis', Icon: Activity },
+  { report: 'budget', label: 'Actual vs Budget', Icon: Target },
 ];
 const TABS = [
   { key: 'dashboard', label: 'Dashboard', Icon: LayoutGrid, items: [
@@ -214,7 +217,7 @@ export default function Accounting({ activeSub, onSubChange }) {
     if (next !== sub) onSubChange?.(next);
   };
   const reportsTab = isReports(sub) && (
-    <ReportsTab report={reportOf(sub)} onReportChange={onReportPicked}
+    <ReportsTab report={reportOf(sub)} onReportChange={onReportPicked} canEdit={canEdit}
       searchText={searchText} onSearchText={setSearchText} onWaiting={setSearchWaiting} />
   );
 
