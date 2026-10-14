@@ -83,10 +83,10 @@ export function usDay(iso) {
   return m ? `${m[2]}/${m[3]}/${m[1]}` : (iso || '');
 }
 
-const Overlay = ({ children, onClose, wide }) => (
+const Overlay = ({ children, onClose }) => (
   <div onClick={e => e.target === e.currentTarget && onClose()}
     style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1250, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-    <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: wide ? 'clamp(560px, 60vw, 1100px)' : 'clamp(560px, 60vw, 1100px)', maxHeight: 'min(92dvh, 820px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
+    <div style={{ background: 'var(--card)', borderRadius: 16, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
       {children}
     </div>
   </div>

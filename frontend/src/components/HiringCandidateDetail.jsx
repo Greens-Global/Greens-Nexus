@@ -215,8 +215,7 @@ export default function CandidateDetailModal({
   }[c.stage] || [];
 
   const TABS = [
-    ['overview', 'Overview'],
-    ['notes', 'Notes'],
+    ['overview', 'Overview & Notes'],
     ...(live.length > 0 || ['interview', 'offer'].includes(c.stage) ? [['interviews', `Interviews${live.length ? ` (${live.length})` : ''}`]] : []),
     ...(['offer', 'hired'].includes(c.stage) ? [['documents', 'Offer & Documents']] : []),
   ];
@@ -243,6 +242,10 @@ export default function CandidateDetailModal({
           {resumeBusy ? 'Uploading...' : c.resumeUrl ? 'Replace' : 'Upload Resume'}</button>}
       </div>
       {c.inactive && <div style={{ ...row, color: 'hsl(var(--color-orange))', borderBottom: 'none' }}>Inactive - off the board (removed, or rejected more than 90 days ago). Reopen to bring them back.</div>}
+      <div style={{ fontSize: 13, fontWeight: 800, margin: '22px 0 10px' }}>Notes And History</div>
+      <CandidateNotes candidateId={c.id} refreshKey={`${refreshKey}-${c.stage}-${notesKey}`} draft={note} onDraft={setNote}
+        canAdd={c.stage !== 'hired'} toastErr={toastErr} />
+      {!closed && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>A note still in the box goes with the next move you make here.</div>}
     </div>
   );
 
@@ -299,7 +302,7 @@ export default function CandidateDetailModal({
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: 'var(--card)', borderRadius: 18, width: '100%', maxWidth: 780, maxHeight: 'min(92dvh, 860px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
+      <div style={{ background: 'var(--card)', borderRadius: 18, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
         <div style={{ padding: '18px 28px 0', flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -329,13 +332,6 @@ export default function CandidateDetailModal({
 
         <div style={{ overflowY: 'auto', flex: 1, padding: '16px 28px 20px' }}>
           {shownTab === 'overview' && overview}
-          {shownTab === 'notes' && (
-            <div>
-              <CandidateNotes candidateId={c.id} refreshKey={`${refreshKey}-${c.stage}-${notesKey}`} draft={note} onDraft={setNote}
-                canAdd={c.stage !== 'hired'} toastErr={toastErr} />
-              {!closed && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>A note still in the box goes with the next move you make here.</div>}
-            </div>
-          )}
           {shownTab === 'interviews' && interviews}
           {shownTab === 'documents' && documents}
           {/* The packet status is read even when its tab is not open - the footer depends on it. */}
