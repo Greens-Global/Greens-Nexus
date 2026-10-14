@@ -123,7 +123,7 @@ class TestPrecedence(_Base):
         self.assertFalse(eff["stepupRequireMfa"])
         self.assertEqual(eff["webSessionIdleDays"], 30)
         self.assertEqual(eff["actAsMinutes"], 240)
-        self.assertEqual(eff["vaultOtpUnlockSec"], 300)
+        self.assertEqual(eff["vaultOtpUnlockSec"], 900)
         self.assertEqual(eff["vaultPersonalUnlockSec"], 600)
         self.assertEqual((eff["guestCodeTtlMin"], eff["guestMaxAttempts"], eff["guestLockoutMin"],
                           eff["guestInviteTtlDays"], eff["guestRequestsPerHour"]), (10, 5, 15, 7, 5))

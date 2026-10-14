@@ -803,14 +803,16 @@ function TeamOverviewTab({ team, teamProjects, onSeeMembers, onNavigate }) {
   );
 }
 
-function AddMemberInline({ team, people, onDone }) {
+function AddMemberInline({ team, people, onDone, addButton = false }) {
   const { updateTeam } = useTasks();
   const add = (email) => {
     if (!email) return;
     updateTeam(team.id, { memberIds: [...(team.memberIds || []), email] }).catch(() => {});
     onDone();
   };
-  return <PersonSelect value={null} onChange={add} people={people} placeholder="Add member…" />;
+  return addButton
+    ? <PersonSelect value={null} onChange={add} people={people} placeholder="Add member…" addButton />
+    : <PersonSelect value={null} onChange={add} people={people} placeholder="Add member…" />;
 }
 
 function TeamMembersTab({ team }) {
@@ -823,7 +825,7 @@ function TeamMembersTab({ team }) {
     <div style={{ maxWidth: 640, margin: '0 auto' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
         <div style={{ fontSize: 15, fontWeight: 700 }}>{members.length} member{members.length === 1 ? '' : 's'}</div>
-        <div style={{ width: 220 }}><AddMemberInline team={team} people={people.filter((p) => !members.includes(p.email))} onDone={() => {}} /></div>
+        <div style={{ width: 220 }}><AddMemberInline team={team} people={people.filter((p) => !members.includes(p.email))} onDone={() => {}} addButton /></div>
       </div>
       <div style={{ border: `1px solid ${NX.border}`, borderRadius: 16, background: NX.surface, overflow: 'hidden' }}>
         {members.map((email) => (

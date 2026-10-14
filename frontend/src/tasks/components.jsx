@@ -4,10 +4,10 @@ import { isBypassing, confirmDiscard } from '../lib/dialogGuard';
 import { useExit } from '../lib/motion';
 import { createPortal } from 'react-dom';
 import { X, Check, ChevronDown, ChevronLeft, ChevronRight, Plus,
-  ListTree, MessageSquare, Paperclip, Download, CalendarDays, UserPlus,
+  ListTree, MessageSquare, Paperclip, Download, CalendarDays, UserPlus, Repeat,
   LayoutGrid, List, FileText, Sheet } from 'lucide-react';
 import { api } from '../api';
-import { NX, FONT, colorForKey, initialsOf, statusChip, priorityChip, btn, chip, STATUS_META, input as inputStyle } from './theme';
+import { NX, FONT, colorForKey, initialsOf, btn, STATUS_META, input as inputStyle } from './theme';
 import { fmtDate, teamInProject, teamProjectIds } from './lib';
 import { rootZoom } from '../lib/utils';
 import AnchoredMenu from '../components/AnchoredMenu';
@@ -25,6 +25,7 @@ import { useBackToClose } from '../lib/useBackToClose';
 import { toDownloadUrl } from '../lib/storageView';
 import { frequentRows } from './frequentPeople';
 import TeamPicks, { pickableTeams, firstTeamPick, toggleRoster } from './teamPicks';
+import { StatusLabel, PrioritySignal } from '../components/StatusLabel';
 
 // `card={false}` opts a call site out of the hover card - for avatars that are
 // already inside an interactive row (menu items, pickers), where a second click
@@ -50,17 +51,15 @@ export function Avatar({ email, name, size = 26, card = true }) {
   return <PersonHover email={email} name={label} disabled={!card}>{img}</PersonHover>;
 }
 
-export function StatusChip({ status }) {
+// Soft labels (Oct 14 2026) - see components/StatusLabel.jsx.
+export function StatusChip({ status, size }) {
   // Reflect custom statuses (Manage → Custom Statuses) in addition to built-ins.
   const { statusMeta } = useTasks();
-  const m = statusMeta?.[status];
-  if (m) return <span style={{ ...chip(m.color, m.tint) }}>{m.label}</span>;
-  const { label, ...s } = statusChip(status);
-  return <span style={s}>{label}</span>;
+  const m = statusMeta?.[status] || STATUS_META[status] || { label: status, color: '#64748b' };
+  return <StatusLabel label={m.label} color={m.color} size={size} />;
 }
 export function PriorityChip({ priority }) {
-  const { label, ...s } = priorityChip(priority);
-  return <span style={s}>{label}</span>;
+  return <PrioritySignal priority={priority} />;
 }
 
 // Single floating "+" action, styled like the create segment of MobileTaskBar
@@ -300,7 +299,7 @@ const sameYMD = (a, b) => !!a && !!b && a.getFullYear() === b.getFullYear() && a
 // flipped up when there isn't room below - so it works inside modals/sheets too.
 // `min` (YYYY-MM-DD): days before it are shown but cannot be picked, and
 // months/years wholly before it are greyed out the same way.
-function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min = '' }) {
+function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min = '', repeat = null }) {
   const selected = value ? isoToDate(value) : null;
   const today = new Date();
   const minDate = min ? isoToDate(min) : null;
@@ -314,6 +313,9 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
   // page of years, and picking one zooms straight back in. Lets you cross
   // years in two clicks instead of paging a month at a time.
   const [zoom, setZoom] = useState('days');
+  // 'repeat': the footer's Repeat button swapped the days for the repeat
+  // panel the caller supplied (`repeat.render`).
+  const [panel, setPanel] = useState('days');
   const ref = useRef(null);
   // Touch screens only; null on desktop, which keeps measuring the window as before.
   const vv = useVisualViewport(useTouchUi());
@@ -321,6 +323,9 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
     const onDoc = (e) => {
       if (ref.current && ref.current.contains(e.target)) return;
       if (anchorRef?.current && anchorRef.current.contains(e.target)) return;
+      // A calendar opened FROM this one (the repeat panel's end date) is its
+      // own portal; picking a day there must not close this one.
+      if (e.target.closest?.('[data-nx-calendar]')) return;
       onClose();
     };
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
@@ -380,10 +385,20 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
   };
 
   return createPortal(
-    <div ref={ref} style={{
+    <div ref={ref} data-nx-calendar="" style={{
       position: 'fixed', left, width: W, ...vpos, background: NX.surface, border: `1px solid ${NX.border}`,
       borderRadius: 14, boxShadow: '0 16px 44px rgba(0,0,0,0.22)', zIndex: 5000, padding: 14, fontFamily: FONT,
     }}>
+      {panel === 'repeat' && repeat ? (
+        <div style={{ minHeight: H - 28, display: 'flex', flexDirection: 'column' }}>
+          <button type="button" onClick={() => setPanel('days')} style={{ ...linkBtn, alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 4, marginBottom: 6 }}>
+            <ChevronLeft size={15} /> Back to Calendar
+          </button>
+          <div className="nx-scroll" style={{ flex: 1, maxHeight: H - 70, overflowY: 'auto' }}>
+            {repeat.render({ back: () => setPanel('days'), close: onClose })}
+          </div>
+        </div>
+      ) : (<>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
           {zoom === 'days' && (
@@ -458,10 +473,21 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
       )}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, borderTop: `1px solid ${NX.border2}`, paddingTop: 8 }}>
         <button onClick={() => { onChange(null); onClose(); }} style={linkBtn}>Clear</button>
-        {!beforeMin(new Date(today.getFullYear(), today.getMonth(), today.getDate())) && (
-          <button onClick={() => { onChange(dateToISO(today)); onClose(); }} style={linkBtn}>Today</button>
+        {/* Repeat sits with the date it repeats from (Sagar, Oct 14 2026),
+            the way Asana's date picker has it. Only where the caller can
+            save a rule - due dates, not start or end dates. */}
+        {repeat && (
+          <button type="button" onClick={() => setPanel('repeat')} title={repeat.label}
+            style={{ ...linkBtn, display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0, maxWidth: 150, color: repeat.on ? NX.blue : NX.dim }}>
+            <Repeat size={13} style={{ flexShrink: 0 }} />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{repeat.on ? repeat.label : 'Repeat'}</span>
+          </button>
         )}
+        {!beforeMin(new Date(today.getFullYear(), today.getMonth(), today.getDate())) ? (
+          <button onClick={() => { onChange(dateToISO(today)); onClose(); }} style={linkBtn}>Today</button>
+        ) : <span />}
       </div>
+      </>)}
     </div>,
     document.body,
   );
@@ -477,7 +503,9 @@ function CalendarPopover({ value, onChange, onClose, anchorRect, anchorRef, min 
 // `noPast`: the calendar will not offer a day before today - for DUE dates
 // (a task cannot be made due in the past). An existing overdue date still
 // displays as it is; it just cannot be moved to another past day.
-export function DateField({ value, onChange, placeholder = '-', color, style, title, disabled, compact = false, noPast = false }) {
+// `repeat`: { on, label, render({ back, close }) } adds a Repeat button to the
+// calendar's footer that opens the caller's repeat controls in its place.
+export function DateField({ value, onChange, placeholder = '-', color, style, title, disabled, compact = false, noPast = false, repeat = null }) {
   const min = noPast ? localTodayISO() : '';
   const [open, setOpen] = useState(false);
   const [rect, setRect] = useState(null);
@@ -502,7 +530,7 @@ export function DateField({ value, onChange, placeholder = '-', color, style, ti
             padding: 0, cursor: disabled ? 'default' : 'pointer', flexShrink: 0,
           }}
         ><CalendarDays size={13} strokeWidth={2} /></button>
-        {open && rect && <CalendarPopover value={value} onChange={onChange} onClose={() => setOpen(false)} anchorRect={rect} anchorRef={btnRef} min={min} />}
+        {open && rect && <CalendarPopover value={value} onChange={onChange} onClose={() => setOpen(false)} anchorRect={rect} anchorRef={btnRef} min={min} repeat={repeat} />}
       </span>
     );
   }
@@ -525,7 +553,7 @@ export function DateField({ value, onChange, placeholder = '-', color, style, ti
           onClick={toggle}
         />
       )}
-      {open && rect && <CalendarPopover value={value} onChange={onChange} onClose={() => setOpen(false)} anchorRect={rect} anchorRef={btnRef} min={min} />}
+      {open && rect && <CalendarPopover value={value} onChange={onChange} onClose={() => setOpen(false)} anchorRect={rect} anchorRef={btnRef} min={min} repeat={repeat} />}
     </span>
   );
 }
@@ -1059,7 +1087,10 @@ export function MenuCaption({ children, inset = 12 }) {
 // PersonSelect's "Unassigned" row, as an item the keyboard can land on.
 const UNASSIGNED_ROW = { email: '', name: 'Unassigned' };
 
-export function PersonSelect({ value, onChange, people, placeholder = 'Unassigned', disabled = false }) {
+/** `addButton`: for adding someone rather than filling a field - a green
+ *  plus button joins the dropdown on its right (either opens the list), and
+ *  the list has no Unassigned row. */
+export function PersonSelect({ value, onChange, people, placeholder = 'Unassigned', disabled = false, addButton = false }) {
   const [open, setOpen] = useState(false);
   const isMobile = useIsMobile();
   const touch = useTouchUi();
@@ -1075,7 +1106,8 @@ export function PersonSelect({ value, onChange, people, placeholder = 'Unassigne
   // "Unassigned" is a row the keyboard can reach only while nothing is typed -
   // a search that matches nobody must not make Enter clear the field.
   const typed = q.trim() !== '';
-  const items = typed ? filtered : [UNASSIGNED_ROW, ...filtered];
+  const noneRow = !typed && !addButton;
+  const items = noneRow ? [UNASSIGNED_ROW, ...filtered] : filtered;
   const close = (refocus = true) => { setOpen(false); setQ(''); if (refocus) triggerRef.current?.focus(); };
   const choose = (p) => { onChange(p === UNASSIGNED_ROW ? null : p.email); close(); };
   const nav = useListNav(items, {
@@ -1088,16 +1120,26 @@ export function PersonSelect({ value, onChange, people, placeholder = 'Unassigne
     },
   });
   return (
-    <div ref={ref} style={{ position: 'relative' }}>
+    <div ref={ref} style={{ position: 'relative', ...(addButton ? { display: 'flex' } : null) }}>
       <button ref={triggerRef} type="button" disabled={disabled} onClick={() => setOpen((o) => !o)}
         onKeyDown={(e) => { if (!open && !touch) openPickerOnKey(e, (k) => { setQ(k); setOpen(true); }); }}
-        style={{ ...btn('outline'), width: '100%', justifyContent: 'space-between', opacity: disabled ? 0.6 : 1, cursor: disabled ? 'not-allowed' : 'pointer' }}>
+        style={{ ...btn('outline'), width: '100%', justifyContent: 'space-between', opacity: disabled ? 0.6 : 1, cursor: disabled ? 'not-allowed' : 'pointer',
+          ...(addButton ? { flex: 1, minWidth: 0, borderTopRightRadius: 0, borderBottomRightRadius: 0 } : null) }}>
         <span style={{ display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
           {chosen ? <Avatar email={chosen.email} name={chosen.name} size={20} card={false} /> : null}
           <span style={{ color: chosen ? NX.ink : NX.faint, overflow: 'hidden', textOverflow: 'ellipsis' }}>{chosen ? chosen.name : placeholder}</span>
         </span>
         <ChevronDown size={15} style={{ color: NX.faint }} />
       </button>
+      {addButton && (
+        <button type="button" disabled={disabled} tabIndex={-1} aria-label={placeholder.replace(/…$/, '')} title={placeholder.replace(/…$/, '')}
+          onClick={() => setOpen((o) => !o)}
+          style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 36, flexShrink: 0, padding: 0,
+            background: NX.green, color: '#fff', border: `1px solid ${NX.green}`, borderRadius: '0 8px 8px 0',
+            cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.6 : 1 }}>
+          <Plus size={16} strokeWidth={2.5} />
+        </button>
+      )}
       {open && !disabled && (
         <SelectMenu anchorRef={ref} onClose={() => close(false)}>
           {/* Desktop focuses the search box on open; a phone waits for a tap
@@ -1106,10 +1148,12 @@ export function PersonSelect({ value, onChange, people, placeholder = 'Unassigne
             {...nav.inputProps} onFocus={caretToEnd} onKeyDown={nav.onKeyDown}
             style={menuSearchStyle(touch)} />
           <div role="listbox">
-            <div className="nx-menu-row" {...(typed ? null : nav.optionProps(0))} onClick={() => choose(UNASSIGNED_ROW)}
-              style={{ padding: '8px 12px', fontSize: 13, color: NX.dim, cursor: 'pointer', ...(isMobile ? { display: 'flex', alignItems: 'center', ...menuRowTall(true) } : null) }}>Unassigned</div>
+            {!addButton && (
+              <div className="nx-menu-row" {...(typed ? null : nav.optionProps(0))} onClick={() => choose(UNASSIGNED_ROW)}
+                style={{ padding: '8px 12px', fontSize: 13, color: NX.dim, cursor: 'pointer', ...(isMobile ? { display: 'flex', alignItems: 'center', ...menuRowTall(true) } : null) }}>Unassigned</div>
+            )}
             {filtered.map((p, i) => (
-              <div key={p.email} className="nx-menu-row" {...nav.optionProps(typed ? i : i + 1)} onClick={() => choose(p)}
+              <div key={p.email} className="nx-menu-row" {...nav.optionProps(noneRow ? i + 1 : i)} onClick={() => choose(p)}
                 style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink, ...menuRowTall(isMobile) }}>
                 <Avatar email={p.email} name={p.name} size={22} card={false} />
                 <span style={{ flex: 1 }}>{p.name}</span>

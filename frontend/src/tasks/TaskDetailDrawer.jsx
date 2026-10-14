@@ -7,9 +7,9 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { createPortal } from 'react-dom';
 import {
   ArrowLeft, ArrowRightToLine, CornerDownRight, GripVertical, Copy, CheckCircle2, Circle, XCircle, ChevronDown, ChevronRight,
-  ChevronLeft, Diamond, Repeat, ThumbsUp, Trash2, Link2, X, Clock, ShieldCheck,
+  Diamond, Repeat, ThumbsUp, Trash2, Link2, X, Clock, ShieldCheck,
   Paperclip, Download, Pin, Pencil, Plus, Maximize2, Minimize2,
-  RotateCcw, ThumbsDown, Share2, MoreHorizontal, UserPlus, Globe, Lock, Check, Ban, Ticket,
+  RotateCcw, ThumbsDown, Share2, MoreHorizontal, UserPlus, Globe, Lock, Check, Ban, Ticket, LayoutTemplate,
 } from 'lucide-react';
 import { api } from '../api';
 import { useTasks } from './TasksContext';
@@ -18,86 +18,33 @@ import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, fmtHours, teamInPro
 // Drawer shows an em-dash for an unset date rather than an empty cell.
 const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '-');
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER, isMissed, MISSED_TITLE } from './theme';
-import { Avatar, PersonSelect, PersonMultiSelect, usePeople, useIsMobile, DateField, AttachmentViewer, ExternalTag, MenuCaption, PersonDot } from './components';
+import { Avatar, Modal, PersonMultiSelect, usePeople, useIsMobile, DateField, AttachmentViewer, ExternalTag, MenuCaption, PersonDot } from './components';
 import { matchPeople } from '../lib/peopleSearch';
 import { useListNav } from '../lib/listNav';
 import { useFrequentCollaborators, frequentRows } from './frequentPeople';
 import TeamPicks, { pickableTeams, firstTeamPick, toggleRoster } from './teamPicks';
 import RichDescription, { isEmptyDoc } from './RichDescription';
-import ProjectPicker from './ProjectPicker';
+import { myProjectIds } from './ProjectPicker';
 import DueBadge from './DueBadge';
 import DueNegotiation from './DueNegotiation';
 import Checklist from './Checklist';
 import CommentThread from './CommentThread';
 import TimeTracking from './TimeTracking';
 import { toDownloadUrl } from '../lib/storageView';
+import { openNotificationTarget } from '../lib/openTarget';
+import { useRole } from '../contexts/RoleContext';
+import { ticketNo } from '../tickets/ticketMeta';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { Spinner, LoadingState } from '../components/AsyncState';
-import { DAYS, DAY_ABBR, recurrenceLabel, monthRuleOf, yearRuleOf, PERIODIC_PRESETS, clampDays, MAX_PERIODIC_DAYS, ruleFromDate } from './recurrence';
-import { MonthDayControls, YearDayControls } from './RecurrenceParts';
+import { recurrenceLabel } from './recurrence';
 import { useCustomSections } from './customSections';
+import { RecurrenceMenu, RecurrenceEnds, repeatOption, repeatSummary } from './RecurrenceMenu';
+// Moved to RecurrenceMenu.jsx with the rest of the Repeat controls; still
+// importable from here.
+export { CommitNumberInput } from './RecurrenceMenu';
+import { StatusLabel, PrioritySignal } from '../components/StatusLabel';
 
 const DEP_TYPES = { FS: 'Finish → Start', SS: 'Start → Start', FF: 'Finish → Finish', SF: 'Start → Finish' };
-/** A whole-number box for the Recurrence menu (Oct 13 2026). It used to save
- *  - clamped to at least 1 - on every keystroke: clearing "1" put it straight
- *  back, so typing "2" made "12", and each key sent a save and a "Changes
- *  saved" toast. Now the box holds what is typed and saves once, on Enter or
- *  leaving it, only a whole number >= `min`; Escape or anything else puts the
- *  saved value back. `allowEmpty` lets clearing it save `null` (no count). */
-export function CommitNumberInput({ value, onCommit, min = 1, max = 9999, allowEmpty = false, style, ...rest }) {
-  const shown = value == null ? '' : String(value);
-  const [text, setText] = useState(shown);
-  const [synced, setSynced] = useState(shown);
-  if (synced !== shown) { setSynced(shown); setText(shown); }   // saved elsewhere
-  const commit = () => {
-    const raw = text.trim();
-    if (raw === '' && allowEmpty) { if (value != null) onCommit(null); return; }
-    const n = Number(raw);
-    if (raw === '' || !Number.isInteger(n) || n < min) { setText(shown); return; }
-    const v = Math.min(max, n);
-    setText(String(v));
-    if (v !== Number(value)) onCommit(v);
-  };
-  return (
-    <input type="number" inputMode="numeric" min={min} max={max} step="1" value={text} {...rest}
-      onChange={(e) => setText(e.target.value)}
-      onFocus={(e) => e.target.select()}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') { e.preventDefault(); commit(); }
-        else if (e.key === 'Escape') { e.stopPropagation(); setText(shown); }
-      }}
-      style={style} />
-  );
-}
-
-/** Toggling a day in or out of a recurrence's days - never down to none: a
- *  rule with no days has nothing to land on. */
-const toggleDay = (days, i) => (days.includes(i)
-  ? (days.length > 1 ? days.filter((x) => x !== i) : days)
-  : [...days, i].sort((a, b) => a - b));
-
-/** "On these days" - the S M T W T F S row Weekly and Custom(week) share
- *  inside the Recurrence popover. Multi-toggle, stays open (no close-on-pick)
- *  since more than one day is usually wanted. */
-function RecurDayPicker({ value, onToggle }) {
-  return (
-    <div style={{ display: 'flex', gap: 3 }}>
-      {DAY_ABBR.map((d, i) => {
-        const on = value.includes(i);
-        return (
-          <button key={d} type="button" title={DAYS[i]} onClick={() => onToggle(i)}
-            style={{
-              width: 24, height: 24, borderRadius: '50%', border: `1px solid ${on ? NX.primary : NX.border}`,
-              background: on ? NX.primary : 'transparent', color: on ? '#fff' : NX.dim,
-              fontSize: 10.5, fontWeight: 700, cursor: 'pointer', padding: 0, fontFamily: FONT,
-            }}>{d[0]}</button>
-        );
-      })}
-    </div>
-  );
-}
-
 // ── tiny inline primitives ───────────────────────────────────────────────────
 // The chevron used to be decorative - it pointed down on a section that could
 // not fold, which is the same "affordance that lies" the My Tasks title had.
@@ -202,12 +149,19 @@ function MenuItem({ icon, onClick, danger, children }) {
 // only when someone converts - the Tickets module is a large chunk.
 const CreateTicketModal = lazy(() => import('../tickets/TicketsView').then((m) => ({ default: m.CreateTicketModal })));
 
-export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab = 'overview', zIndex = 3500 }) {
+// `onBackToTicket`: opened from a ticket's Tasks list - its "From Ticket" link
+// then just closes back onto that ticket instead of leaving for the Tickets
+// screen (Oct 14 2026).
+export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab = 'overview', zIndex = 3500, onBackToTicket = null }) {
   const store = useTasks();
   const { taskById, tasks, teams, projects, projectName, teamName, nameOf, myEmail, customFields = [], updateTask, deleteTask, createTask, getComments, addComment, offerUndo } = store;
   // Externals included: Assignee and Collaborators are who does the work, and
   // an external partner on a task has to be nameable there (Sagar, Sept 2 2026).
   const people = usePeople(true);
+  // Where a ticket opens for this person: the desk's Tickets screen, or
+  // Support (their own requests) - same rule as dashboard/teamWidgets.
+  const { can, myGrantedModules } = useRole() || {};
+  const ticketView = (typeof can === 'function' && can('administrator')) || myGrantedModules?.has?.('tickets') ? 'tickets' : 'support';
 
   const [activeId, setActiveId] = useState(taskId);
   // The tasks stepped through to get here - opening a subtask from its parent
@@ -221,6 +175,8 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
   useEffect(() => setTab(initialTab), [activeId, initialTab]);
   const [shareOpen, setShareOpen] = useState(false);
   const [converting, setConverting] = useState(false);
+  const [duplicating, setDuplicating] = useState(false);
+  const [savingTemplate, setSavingTemplate] = useState(false);
 
   const task = taskById[activeId];
   const parent = task?.parentTaskId ? taskById[task.parentTaskId] : null;
@@ -339,14 +295,22 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
     return result;
   };
 
-  // Duplicate (Oct 13 2026): a copy of this task and its subtasks
-  // (duplicateTaskData - what the task is, not its comments, files or
-  // recurrence), opened straight away; Undo deletes the copy again.
-  const duplicate = async () => {
+  // Duplicate (Oct 13 2026; asks what to bring over since Oct 14 - see
+  // DuplicateTaskModal): a copy of this task and, if asked, its subtasks -
+  // what the task is, never its comments or files - opened straight away;
+  // Undo deletes the copy again. A field value changed in the dialog (the
+  // Entity) goes onto every subtask too; untouched ones keep their own.
+  const duplicate = async ({ title, parts, values }) => {
     try {
-      const copy = await createTask(duplicateTaskData(task));
-      for (const sub of subtasks) {
-        await createTask(duplicateTaskData(sub, { title: sub.title, parentTaskId: copy.id })).catch(() => {});
+      const copy = await createTask(duplicateWith(task, { parts, values }, { title }));
+      if (parts.subtasks) {
+        const before = task.customFieldValues || {};
+        const changed = Object.fromEntries(Object.entries(values).filter(([k, v]) => !sameValue(v, before[k])));
+        for (const sub of subtasks) {
+          await createTask(duplicateWith(sub, { parts, values: changed },
+            { title: sub.title, parentTaskId: copy.id, position: sub.position })).catch(() => {});
+        }
+        if (task.subtaskOrder) updateTask(copy.id, { subtaskOrder: task.subtaskOrder }).catch(() => {});
       }
       offerUndo(`Duplicated "${(task.title || '').slice(0, 40)}"`, () => deleteTask(copy.id));
       setTrail([]);
@@ -396,6 +360,7 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
           subtasks={subtasks} createTask={createTask} updateTask={updateTask} onOpenSub={openSub}
           nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} refresh={store.refresh}
           onViewAllComments={() => setTab('comments')}
+          onOpenTicket={() => (onBackToTicket ? onBackToTicket() : openSourceTicket(task.sourceTicketId, onClose, ticketView))}
         />
       );
       case 'comments':     return <CommentsTab task={task} nameOf={nameOf} myEmail={myEmail} getComments={getComments} addComment={addComment} />;
@@ -453,8 +418,9 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
                   {onEdit && <MenuItem icon={<Pencil size={14} />} onClick={() => { onEdit(activeId); close(); }}>Edit Task</MenuItem>}
                   {/* Filed as a task when it is really a request for a team
                       (Neil, 10/05: "employees ... may still do it as a task"). */}
-                  <MenuItem icon={<Copy size={14} />} onClick={() => { close(); duplicate(); }}>Duplicate Task</MenuItem>
+                  <MenuItem icon={<Copy size={14} />} onClick={() => { close(); setDuplicating(true); }}>Duplicate Task</MenuItem>
                   <MenuItem icon={<Ticket size={14} />} onClick={() => { setConverting(true); close(); }}>Convert to Ticket</MenuItem>
+                  <MenuItem icon={<LayoutTemplate size={14} />} onClick={() => { close(); setSavingTemplate(true); }}>Save as Template</MenuItem>
                   <MenuItem icon={<Diamond size={14} style={{ color: task.isMilestone ? NX.purple : undefined }} />} onClick={() => { patch({ isMilestone: !task.isMilestone }); close(); }}>
                     {task.isMilestone ? 'Unmark milestone' : 'Mark as milestone'}
                   </MenuItem>
@@ -545,18 +511,195 @@ export default function TaskDetailDrawer({ taskId, onClose, onEdit, initialTab =
             </>
           ) : paneFor(tab)}
         </div>
+        {savingTemplate && <SaveTemplateModal task={task} subtasks={subtasks} onClose={() => setSavingTemplate(false)} />}
+        {duplicating && <DuplicateTaskModal task={task} subtasks={subtasks} onClose={() => setDuplicating(false)} onDuplicate={duplicate} />}
         {shareOpen && <ShareModal task={task} people={people} nameOf={nameOf} patch={patch} onClose={() => setShareOpen(false)} />}
         {converting && (
           <Suspense fallback={null}>
             <CreateTicketModal onClose={() => setConverting(false)} onCreated={() => store.refresh?.()}
               fromTask={{ id: task.id, title: task.title, description: task.description, priority: task.priority,
-                ownerId: task.ownerId, fileCount: (task.attachmentIds || []).length }} />
+                ownerId: task.ownerId, fileCount: (task.attachmentIds || []).length,
+                // The task's people come over as the ticket's collaborators.
+                collaboratorIds: [...taskAssignees(task), ...(task.followerIds || [])] }} />
           </Suspense>
         )}
       </aside>
     </div>,
     document.body,
   );
+}
+
+// ── Duplicate ────────────────────────────────────────────────────────────────
+/** What a duplicate brings over (Neil, Oct 14 2026: "when you duplicate
+ *  something it should ask what you want to come over"). Built for the
+ *  one-checklist-per-entity case: copy the yearly tax return with its eleven
+ *  subtasks and set the copy's Entity right here, on the copy AND every
+ *  subtask, instead of opening each of them afterwards. */
+const DUP_PARTS = [
+  ['subtasks', 'Subtasks'], ['assignees', 'Assignees'], ['followers', 'Collaborators'],
+  ['dates', 'Start and due dates'], ['recurrence', 'Recurrence'], ['fields', 'Field values'],
+  ['description', 'Description'],
+];
+
+function DuplicateTaskModal({ task, subtasks, onClose, onDuplicate }) {
+  const { customFields = [] } = useTasks();
+  const fields = fieldsForTask(customFields, task).filter((f) => !f.readOnly);
+  const [title, setTitle] = useState(`${task.title} (copy)`);
+  const [parts, setParts] = useState(() => Object.fromEntries(DUP_PARTS.map(([k]) => [k, k !== 'recurrence' || !!task.recurrence?.freq])));
+  const [values, setValues] = useState(() => ({ ...(task.customFieldValues || {}) }));
+  const [busy, setBusy] = useState(false);
+  // Every part is listed, as in Save as Template (Oct 14 2026); one this task
+  // has nothing of is greyed out, says why, and is never brought over.
+  const nothing = {
+    subtasks: !subtasks.length && 'this task has none',
+    recurrence: !task.recurrence?.freq && 'this task does not repeat',
+    // Values can outlive the field list shown here (a field from another
+    // project) - they still travel, so only an empty task is "none".
+    fields: !fields.length && !Object.keys(task.customFieldValues || {}).length && 'this task has none',
+  };
+  const go = async () => {
+    if (!title.trim() || busy) return;
+    setBusy(true);
+    const kept = Object.fromEntries(DUP_PARTS.map(([k]) => [k, !nothing[k] && !!parts[k]]));
+    try { await onDuplicate({ title: title.trim(), parts: kept, values }); onClose(); } finally { setBusy(false); }
+  };
+  const footer = (
+    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+      <button type="button" onClick={onClose} style={btn('outline')}>Cancel</button>
+      <button type="button" onClick={go} disabled={busy || !title.trim()} style={{ ...btn('primary'), opacity: busy || !title.trim() ? 0.6 : 1 }}>
+        {busy ? 'Duplicating…' : 'Duplicate'}
+      </button>
+    </div>
+  );
+  return (
+    <Modal title="Duplicate Task" onClose={onClose} footer={footer} width="min(520px, 100vw)">
+      <div style={{ display: 'grid', gap: 16, fontFamily: FONT, fontSize: 13 }}>
+        <label style={{ display: 'grid', gap: 5 }}>
+          <span style={{ fontSize: 12.5, fontWeight: 600, color: NX.dim }}>Task Name</span>
+          <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && go()} style={inputStyle} />
+        </label>
+        <div style={{ display: 'grid', gap: 6 }}>
+          <span style={{ fontSize: 12.5, fontWeight: 600, color: NX.dim }}>Bring Over</span>
+          {DUP_PARTS.map(([k, label]) => (
+            <label key={k} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: nothing[k] ? 'default' : 'pointer', color: nothing[k] ? NX.faint : NX.ink }}>
+              <input type="checkbox" disabled={!!nothing[k]} checked={!nothing[k] && !!parts[k]} onChange={(e) => setParts((p) => ({ ...p, [k]: e.target.checked }))} />
+              {label}
+              {k === 'subtasks' && subtasks.length > 0 && <span style={{ color: NX.faint }}>({subtasks.length})</span>}
+              {nothing[k] && <span style={{ fontSize: 12, color: NX.faint }}>- {nothing[k]}</span>}
+            </label>
+          ))}
+        </div>
+        {parts.fields && fields.length > 0 && (
+          <div style={{ display: 'grid', gap: 8 }}>
+            <span style={{ fontSize: 12.5, fontWeight: 600, color: NX.dim }}>
+              Field Values on the Copy{parts.subtasks && subtasks.length ? ' and Its Subtasks' : ''}
+            </span>
+            {fields.map((f) => (
+              <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <span style={{ width: 110, color: NX.faint }}>{f.name}</span>
+                <CustomFieldInput field={f} value={values[f.id]} onChange={(v) => setValues((x) => ({ ...x, [f.id]: v }))} />
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+// ── Save as Template ─────────────────────────────────────────────────────────
+/** "Convert to task template" (Neil, Oct 14 2026), the way project templates
+ *  work: the task, its subtasks and checklists saved as a blueprint anyone can
+ *  start again from the Templates button - the yearly tax return set up once,
+ *  started for each entity. The server reads the task itself. */
+const TEMPLATE_PARTS = [
+  ['subtasks', 'Subtasks'], ['assignees', 'Assignees'], ['followers', 'Collaborators'],
+  ['fields', 'Field values'], ['recurrence', 'Recurrence'], ['description', 'Description'], ['checklist', 'Checklists'],
+];
+
+function SaveTemplateModal({ task, subtasks, onClose }) {
+  const { saveTaskAsTemplate, deleteTemplate, offerUndo } = useTasks();
+  const [name, setName] = useState(task.title || '');
+  const [description, setDescription] = useState('');
+  const [parts, setParts] = useState(() => Object.fromEntries(TEMPLATE_PARTS.map(([k]) => [k, true])));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  // Every part is listed, so none looks missing (Sagar, Oct 14 2026: "what
+  // about the subtasks?" on a task that had none); one this task has nothing
+  // of is greyed out and says why.
+  const nothing = { subtasks: !subtasks.length && 'this task has none', recurrence: !task.recurrence?.freq && 'this task does not repeat' };
+  const shown = TEMPLATE_PARTS.filter(([k]) => !nothing[k]);
+  const save = async () => {
+    if (!name.trim() || busy) return;
+    setBusy(true); setError('');
+    try {
+      const tpl = await saveTaskAsTemplate(task.id, {
+        name: name.trim(), description: description.trim(),
+        parts: shown.map(([k]) => k).filter((k) => parts[k]),
+      });
+      offerUndo?.(`Saved "${tpl.name.slice(0, 40)}" as a template`, () => deleteTemplate(tpl.id));
+      onClose();
+    } catch (e) {
+      setError(e?.message || 'Could not save the template.');
+    } finally { setBusy(false); }
+  };
+  const footer = (
+    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+      <button type="button" onClick={onClose} style={btn('outline')}>Cancel</button>
+      <button type="button" onClick={save} disabled={busy || !name.trim()} style={{ ...btn('primary'), opacity: busy || !name.trim() ? 0.6 : 1 }}>
+        {busy ? 'Saving…' : 'Save Template'}
+      </button>
+    </div>
+  );
+  return (
+    <Modal title="Save as Template" onClose={onClose} footer={footer} width="min(520px, 100vw)">
+      <div style={{ display: 'grid', gap: 16, fontFamily: FONT, fontSize: 13 }}>
+        <label style={{ display: 'grid', gap: 5 }}>
+          <span style={{ fontSize: 12.5, fontWeight: 600, color: NX.dim }}>Template Name</span>
+          <input autoFocus value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && save()} style={inputStyle} />
+        </label>
+        <label style={{ display: 'grid', gap: 5 }}>
+          <span style={{ fontSize: 12.5, fontWeight: 600, color: NX.dim }}>Description</span>
+          <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What it is for (optional)" style={inputStyle} />
+        </label>
+        <div style={{ display: 'grid', gap: 6 }}>
+          <span style={{ fontSize: 12.5, fontWeight: 600, color: NX.dim }}>Keep</span>
+          {TEMPLATE_PARTS.map(([k, label]) => (
+            <label key={k} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: nothing[k] ? 'default' : 'pointer', color: nothing[k] ? NX.faint : NX.ink }}>
+              <input type="checkbox" disabled={!!nothing[k]} checked={!nothing[k] && !!parts[k]} onChange={(e) => setParts((p) => ({ ...p, [k]: e.target.checked }))} />
+              {label}
+              {k === 'subtasks' && subtasks.length > 0 && <span style={{ color: NX.faint }}>({subtasks.length})</span>}
+              {nothing[k] && <span style={{ fontSize: 12, color: NX.faint }}>- {nothing[k]}</span>}
+            </label>
+          ))}
+          <span style={{ fontSize: 12, color: NX.faint }}>
+            Dates are kept relative to the due date, so a template starts on whatever date you pick. Comments, files and history are never copied.
+          </span>
+        </div>
+        {error && <div role="alert" style={{ fontSize: 12.5, color: NX.red }}>{error}</div>}
+      </div>
+    </Modal>
+  );
+}
+
+/** The task data for one copy, trimmed to the parts asked for. `fieldValues`
+ *  replaces the copied ones for the fields the dialog showed (the main task's
+ *  fields); a subtask's own extra fields stay as they were. */
+function duplicateWith(t, { parts, values }, overrides = {}) {
+  const d = duplicateTaskData(t, overrides);
+  if (!parts.assignees) { d.assigneeIds = []; d.ownerId = ''; }
+  if (!parts.followers) d.followerIds = [];
+  if (!parts.dates) { d.dueOn = ''; d.startOn = ''; }
+  if (!parts.description) d.description = '';
+  d.customFieldValues = parts.fields ? { ...(d.customFieldValues || {}), ...(values || {}) } : {};
+  if (parts.recurrence && t.recurrence?.freq && !t.parentTaskId) {
+    const rule = { ...t.recurrence };
+    delete rule.nextOccurrenceId; delete rule.closedAsMissed;
+    d.recurrence = rule;
+    d.status = 'recurring';
+  }
+  if (t.parentTaskId && t.recurrence?.skip) d.recurrence = { skip: true };
+  return d;
 }
 
 // ── Members (collaborators) menu ─────────────────────────────────────────────
@@ -624,29 +767,38 @@ function CollaboratorMenuBody({ people, selected, onChange }) {
   );
 }
 
-// Same shape as CollaboratorMenuBody, for adding an EXTRA project - `exclude`
-// keeps out the primary project and whatever's already added, so a project
-// only ever appears once in this list.
-function ProjectMenuBody({ projects, exclude, onPick }) {
+// The Projects field's menu: tick any number (the first ticked is home). Your
+// own projects first, as ProjectPicker orders them, then the rest; search
+// covers the long tail.
+function ProjectMenuBody({ projects, selected, mine, onToggle }) {
   const [q, setQ] = useState('');
   const needle = q.trim().toLowerCase();
-  const filtered = (projects || [])
-    .filter((p) => !p.archived && !exclude.includes(p.id) && (!needle || (p.name || '').toLowerCase().includes(needle)))
-    .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base', numeric: true }));
-  const nav = useListNav(filtered, { query: q, onPick: (p) => onPick(p.id) });
+  const byName = (a, b) => (a.name || '').localeCompare(b.name || '', 'en', { sensitivity: 'base', numeric: true });
+  const live = (projects || [])
+    .filter((p) => (!p.archived || selected.includes(p.id)) && (!needle || (p.name || '').toLowerCase().includes(needle)));
+  const top = live.filter((p) => mine.has(p.id)).sort(byName);
+  const rest = live.filter((p) => !mine.has(p.id)).sort(byName);
+  const rows = [...top, ...rest];
+  const nav = useListNav(rows, { query: q, onPick: (p) => onToggle(p.id) });
+  const row = (p, i) => (
+    <label key={p.id} {...nav.optionProps(i)} className="nx-menu-row" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 13, cursor: 'pointer', color: NX.ink }}>
+      <input type="checkbox" checked={selected.includes(p.id)} onChange={() => onToggle(p.id)} />
+      <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+      {selected[0] === p.id && <span style={{ fontSize: 10.5, fontWeight: 700, color: NX.faint }}>HOME</span>}
+    </label>
+  );
   return (
     <div>
-      <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, padding: '4px 6px' }}>Also in Project</div>
+      <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, padding: '4px 6px' }}>Projects</div>
       <input className="nx-inline-edit" autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search projects…"
         {...nav.inputProps} onKeyDown={nav.onKeyDown}
         style={{ width: '100%', boxSizing: 'border-box', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: '6px 8px', fontSize: 13, fontFamily: FONT, color: NX.ink }} />
-      <div className="nx-scroll" style={{ maxHeight: 220, overflowY: 'auto' }}>
-        {filtered.map((p, i) => (
-          <button key={p.id} type="button" tabIndex={-1} className="nx-menu-row" {...nav.optionProps(i)} onClick={() => onPick(p.id)} style={{ display: 'flex', width: '100%', textAlign: 'left', alignItems: 'center', gap: 8, padding: '6px 8px', fontSize: 13, border: 'none', background: 'transparent', cursor: 'pointer', color: NX.ink, fontFamily: FONT }}>
-            {p.name}
-          </button>
-        ))}
-        {filtered.length === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>{needle ? 'No match' : 'No other projects'}</div>}
+      <div className="nx-scroll" style={{ maxHeight: 260, overflowY: 'auto' }}>
+        {top.length > 0 && <MenuCaption inset={8}>My Projects</MenuCaption>}
+        {top.map((p, i) => row(p, i))}
+        {top.length > 0 && rest.length > 0 && <MenuCaption inset={8}>Other Projects</MenuCaption>}
+        {rest.map((p, i) => row(p, top.length + i))}
+        {rows.length === 0 && <div style={{ padding: 8, fontSize: 12, color: NX.faint }}>{needle ? 'No match' : 'No projects'}</div>}
       </div>
     </div>
   );
@@ -736,177 +888,312 @@ function TitleInput({ value, completed, onCommit }) {
   );
 }
 
+// ── From Ticket ─────────────────────────────────────────────────────────────
+/** Leave the task for the ticket it came from: the Tickets screen for
+ *  whoever works the desk, Support (their own requests) for everyone else,
+ *  with that ticket's drawer opened (lib/openTarget). */
+function openSourceTicket(ticketId, closeDrawer, view = 'tickets') {
+  if (!ticketId) return;
+  closeDrawer?.();
+  window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view } }));
+  openNotificationTarget({ ticketId });
+}
+
+/** "Ticket #123 · Printer jammed" - the store's copy when the Tickets screen
+ *  has loaded it, else a summary read. Someone who cannot see the ticket gets
+ *  its number-less name and no link. */
+function SourceTicketLink({ ticketId, onOpen }) {
+  const { tickets = [] } = useTasks();
+  const known = tickets.find((x) => x.id === ticketId);
+  const [fetched, setFetched] = useState(null);   // summary | 'denied'
+  useEffect(() => {
+    if (known) return undefined;
+    let alive = true;
+    api.getTicketSummary(ticketId).then((r) => { if (alive) setFetched(r); }).catch(() => { if (alive) setFetched('denied'); });
+    return () => { alive = false; };
+  }, [ticketId, known]);
+  const tk = known || (fetched && fetched !== 'denied' ? fetched : null);
+  if (fetched === 'denied' && !known) return <span style={{ fontSize: 13, color: NX.faint, paddingTop: 5 }}>A ticket you cannot open</span>;
+  if (!tk) return <span className="skel" style={{ display: 'block', width: 180, height: 14, marginTop: 8 }} />;
+  return (
+    <button type="button" onClick={onOpen} title="Open the ticket"
+      style={{ ...btn('ghost'), padding: '5px 8px', fontSize: 13, color: NX.primary, fontWeight: 600, maxWidth: '100%', minWidth: 0 }}>
+      <Ticket size={14} style={{ flexShrink: 0 }} />
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ticketNo(tk.code)} · {tk.subject}</span>
+    </button>
+  );
+}
+
+// ── Recurrence ──────────────────────────────────────────────────────────────
+/** The Recurrence row: the Repeat menu (RecurrenceMenu.jsx) under a button
+ *  naming the rule, with Ends beside it once the task has a schedule of its
+ *  own. A subtask may also repeat with its main task, or stay behind. Keyed
+ *  by task, so the Ends mode is read again for each one. */
+function RecurrencePicker({ value, seedDate, onChange, subtask = false, mainRule = null }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
+      <Pop width={300} trigger={(t) => (
+        <button type="button" onClick={t} aria-label="Recurrence" style={{ ...btn('ghost'), padding: '5px 8px', fontSize: 12, textAlign: 'left' }}>
+          <Repeat size={13} style={{ flexShrink: 0 }} /> {repeatSummary(value, { subtask, mainRule })}
+        </button>
+      )}>
+        {(close) => <RecurrenceMenu value={value} seedDate={seedDate} onChange={onChange} close={close} subtask={subtask} mainRule={mainRule} />}
+      </Pop>
+      {value?.freq && <RecurrenceEnds value={value} onChange={onChange} />}
+    </div>
+  );
+}
+
+// Every field control on the Overview is this wide at least, so the column of
+// boxes lines up (Neil, Oct 14 2026: "this is too small, make it wider").
+const FIELD_W = 300;
+const sameValue = (x, y) => JSON.stringify(x ?? null) === JSON.stringify(y ?? null);
+
+/** A real dropdown for Status / Priority / Team: an outlined box, the value's
+ *  color on a dot, a chevron (Neil, Oct 14 2026 - a bare chip did not read as
+ *  something that could be changed). */
+function MenuSelect({ label, color, options, current, onPick, ariaLabel, width = 200 }) {
+  const dot = (c) => <span style={{ width: 9, height: 9, borderRadius: '50%', background: c || NX.faint, flexShrink: 0 }} />;
+  return (
+    <Pop width={width} trigger={(t) => (
+      <button type="button" onClick={t} aria-label={ariaLabel} aria-haspopup="menu"
+        style={{ ...btn('outline'), minWidth: width, justifyContent: 'space-between', padding: '6px 10px', fontSize: 13, color: NX.ink }}>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 0 }}>{dot(color)}{label}</span>
+        <ChevronDown size={15} style={{ color: NX.faint, flexShrink: 0 }} />
+      </button>
+    )}>
+      {(close) => options.map((o) => (
+        <MenuItem key={o.key} icon={dot(o.color)} onClick={() => { onPick(o.key); close(); }}>
+          <span style={{ flex: 1 }}>{o.label}</span>
+          {o.key === current && <Check size={13} style={{ color: NX.blue }} />}
+        </MenuItem>
+      ))}
+    </Pop>
+  );
+}
+
+/** "Also do this on the subtasks?" under the row that changed. */
+function CascadeAsk({ ask, onClose }) {
+  return (
+    <div role="status" style={{
+      marginLeft: 108, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '7px 10px',
+      borderRadius: 10, background: `${NX.blue}12`, border: `1px solid ${NX.blue}40`, fontSize: 12.5, color: NX.ink,
+    }}>
+      <CornerDownRight size={14} style={{ color: NX.blue, flexShrink: 0 }} />
+      <span style={{ flex: 1, minWidth: 160 }}>{ask.text}</span>
+      <button type="button" onClick={() => { ask.apply(); onClose(); }} style={{ ...btn('primary'), padding: '5px 10px', fontSize: 12 }}>Apply to Subtasks</button>
+      <button type="button" onClick={onClose} style={{ ...btn('ghost'), padding: '5px 10px', fontSize: 12 }}>Not Now</button>
+    </div>
+  );
+}
+
+/** Projects - the task's own project and the ones it is "also in", as ONE
+ *  multi-select (Neil, Oct 14 2026: they were two rows). The first is its
+ *  home project, whose statuses, sections and teams it uses; taking that one
+ *  off makes the next one home. */
+function ProjectsField({ task, projects, teams, myEmail, projectName, patch }) {
+  const ids = [...new Set([task.projectId, ...(task.projectIds || [])].filter(Boolean))];
+  const set = (next) => {
+    const home = next[0] || '';
+    patch({ projectId: home, projectIds: next.slice(1), ...(home !== (task.projectId || '') ? { teamId: '' } : {}) });
+  };
+  const toggle = (id) => set(ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]);
+  return (
+    <Pop width={320} trigger={(t) => (
+      <button type="button" onClick={t} aria-label="Projects"
+        style={{ ...btn('outline'), minWidth: FIELD_W, maxWidth: '100%', justifyContent: 'space-between', height: 'auto', minHeight: 36, padding: '5px 10px' }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', minWidth: 0 }}>
+          {ids.length === 0 && <span style={{ color: NX.faint, fontWeight: 400 }}>No project</span>}
+          {ids.map((id, i) => (
+            <span key={id} title={i === 0 ? 'Home project - its statuses and sections apply' : 'Also in this project'}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: NX.surface2, border: `1px solid ${NX.border}`, borderRadius: 20, padding: '2px 8px', fontSize: 12, color: NX.ink, fontWeight: i === 0 ? 600 : 400 }}>
+              {projectName(id) || id}
+              <span role="button" tabIndex={-1} title={`Remove from ${projectName(id) || 'this project'}`}
+                onClick={(e) => { e.stopPropagation(); toggle(id); }}
+                style={{ display: 'inline-flex', cursor: 'pointer', color: NX.faint }}><X size={11} /></span>
+            </span>
+          ))}
+        </span>
+        <ChevronDown size={15} style={{ color: NX.faint, flexShrink: 0 }} />
+      </button>
+    )}>
+      {() => <ProjectMenuBody projects={projects} selected={ids} mine={myProjectIds(projects, teams, myEmail)} onToggle={toggle} />}
+    </Pop>
+  );
+}
+
 // ── Overview ────────────────────────────────────────────────────────────────
-function OverviewTab({ task, patch, people, projectName, teamName, teams, projects, blockedBy, depCandidates, addDependency, removeDependency, setDependencyType, subtasks, createTask, updateTask, onOpenSub, nameOf, myEmail, getComments, addComment, refresh, onViewAllComments }) {
+function OverviewTab({ task, patch, people, projectName, teamName, teams, projects, blockedBy, depCandidates, addDependency, removeDependency, setDependencyType, subtasks, createTask, updateTask, onOpenSub, nameOf, myEmail, getComments, addComment, refresh, onViewAllComments, onOpenTicket }) {
   const isMobile = useIsMobile();
   // Whether the folding sections below have anything in them.
   const hasApproval = !!task.approvalStatus && task.approvalStatus !== 'none';
   const hasComments = (task.commentIds || []).length > 0;
-  const { statusMeta, statusOrder, statusOrderFor, customFields = [], tasks: allTasks = [] } = useTasks();
+  const { statusMeta, statusOrder, statusOrderFor, customFields = [], tasks: allTasks = [], taskById = {} } = useTasks();
   // The task's own project, not the view's: this drawer opens from My Tasks and
   // from search, where no project is locked.
   const taskStatusOrder = statusOrderFor ? statusOrderFor(task.projectId) : statusOrder;
-  const [recStep, setRecStep] = useState('root');
-  // Recurrence end condition ("Ends" - Never / On date / After occurrences).
-  // Local mode so "On date"/"After" stay selected before a value is entered
-  // (an empty until/count is falsy and would otherwise read back as "Never").
-  const [recEndMode, setRecEndMode] = useState('never');
-  useEffect(() => {
-    const r = task.recurrence;
-    setRecEndMode(r?.until ? 'on' : r?.count != null ? 'after' : 'never');
-  }, [task.id]);
+  const parent = task.parentTaskId ? taskById[task.parentTaskId] : null;
   // Setting any recurrence flips the task to "Recurring"; clearing it reverts a
   // still-recurring status back to Not Started.
   const setRecurrence = (rec) => patch({
     recurrence: rec,
-    status: rec ? 'recurring' : (task.status === 'recurring' ? 'not_started' : task.status),
+    status: rec?.freq ? 'recurring' : (task.status === 'recurring' ? 'not_started' : task.status),
   });
-  // Pick a frequency from the popover, carrying any existing end condition over.
-  const pickFreq = (base) => {
-    const cur = task.recurrence || {};
-    const r = { ...base };
-    if (cur.until) r.until = cur.until;
-    if (cur.count != null) r.count = cur.count;
-    setRecEndMode(cur.until ? 'on' : cur.count != null ? 'after' : 'never');
-    setRecurrence(r);
-  };
-  // Replace the end condition on the current recurrence (strips until+count first).
-  const patchRecEnd = (changes) => {
-    const base = { ...(task.recurrence || {}) };
-    delete base.until; delete base.count;
-    setRecurrence({ ...base, ...changes });
-  };
-  const onRecEndMode = (m) => {
-    setRecEndMode(m);
-    if (m === 'never') patchRecEnd({});
-    else if (m === 'on') patchRecEnd(task.recurrence?.until ? { until: task.recurrence.until } : {});
-    else if (m === 'after') patchRecEnd(task.recurrence?.count != null ? { count: task.recurrence.count } : {});
-  };
-  const recSel = { ...inputStyle, width: 'auto', padding: '5px 8px', fontSize: 12, cursor: 'pointer' };
+  const repeatCtx = { subtask: !!task.parentTaskId, mainRule: parent?.recurrence || null };
   const sm = statusMeta[task.status] || {};
   const pm = PRIORITY_META[task.priority] || {};
   const projectTeams = (teams || []).filter((tm) => teamInProject(tm, task.projectId));
   const followers = task.followerIds || [];
-  const toggleFollower = (email) => patch({ followerIds: followers.includes(email) ? followers.filter((e) => e !== email) : [...followers, email] });
+
+  // Changes on a main task offered to its subtasks (Neil, Oct 14 2026: "the
+  // subtask is the child of the parent" - change the entity on the main task
+  // and it should ask whether its subtasks change too). Asked, not done
+  // silently: a subtask can carry its own value on purpose. Only OPEN
+  // subtasks that differ are counted.
+  const [ask, setAsk] = useState(null);           // { at: 'followers' | 'fields', text, apply }
+  useEffect(() => setAsk(null), [task.id]);
+  const openSubs = (subtasks || []).filter((x) => !x.completed);
+  const plural = (n) => `${n} subtask${n === 1 ? '' : 's'}`;
+  const setFollowers = (next) => {
+    patch({ followerIds: next });
+    const added = next.filter((e) => !followers.includes(e));
+    const removed = followers.filter((e) => !next.includes(e));
+    const subs = openSubs.filter((x) => {
+      const f = x.followerIds || [];
+      return added.some((e) => !f.includes(e)) || removed.some((e) => f.includes(e));
+    });
+    if (!subs.length) { setAsk(null); return; }
+    const who = [...added.map((e) => `add ${nameOf(e)}`), ...removed.map((e) => `take ${nameOf(e)} off`)].join(', ');
+    setAsk({
+      at: 'followers', text: `Also ${who} on the ${plural(subs.length)}?`,
+      apply: () => subs.forEach((x) => updateTask(x.id, {
+        followerIds: [...new Set([...(x.followerIds || []).filter((e) => !removed.includes(e)), ...added])],
+      })),
+    });
+  };
+  const patchFields = (p) => {
+    const before = task.customFieldValues || {};
+    const after = p.customFieldValues || {};
+    const result = patch(p);
+    const changed = Object.keys(after).filter((k) => !sameValue(after[k], before[k]));
+    const subs = openSubs.filter((x) => changed.some((k) => !sameValue((x.customFieldValues || {})[k], after[k])));
+    if (!changed.length || !subs.length) return result;
+    const names = changed.map((k) => customFields.find((f) => f.id === k)?.name).filter(Boolean).join(', ') || 'this field';
+    setAsk({
+      at: 'fields', text: `Change ${names} on the ${plural(subs.length)} too?`,
+      apply: () => subs.forEach((x) => updateTask(x.id, {
+        customFieldValues: { ...(x.customFieldValues || {}), ...Object.fromEntries(changed.map((k) => [k, after[k]])) },
+      })),
+    });
+    return result;
+  };
+  const askBar = (at) => ask?.at === at && <CascadeAsk ask={ask} onClose={() => setAsk(null)} />;
 
   return (
     <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 8, fontSize: 13 }}>
+      {/* The ticket it was made from, or linked to (Oct 14 2026). */}
+      {task.sourceTicketId && (
+        <Row label="From Ticket"><SourceTicketLink ticketId={task.sourceTicketId} onOpen={onOpenTicket} /></Row>
+      )}
       <Row label="Assignee">
-        <div style={{ minWidth: 220 }}>
+        <div style={{ minWidth: FIELD_W }}>
           {/* Several people can hold one task; any of them completing it
-              completes it for all (one row, one flag). Subtask rows below
-              keep the single picker - a subtask is a unit of one person's
-              work, and the multi picker does not fit an 18px inline row. */}
+              completes it for all (one row, one flag). */}
           <PersonMultiSelect value={taskAssignees(task)} people={people} addTitle="Add assignee"
             onChange={(list) => patch({ assigneeIds: list })} placeholder="Unassigned" />
         </div>
       </Row>
 
+      {/* The same box as Assignee - chips, the dashed add, a chevron (Neil,
+          Oct 14 2026: the two rows looked like different kinds of control). */}
       <Row label="Collaborators">
-        {followers.map((em) => (
-          <span key={em} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: `1px solid ${NX.border}`, borderRadius: 999, padding: '3px 9px 3px 3px', fontSize: 12 }}>
-            <Avatar email={em} name={nameOf(em)} size={20} /> {nameOf(em)}
-            <button onClick={() => toggleFollower(em)} title="Remove" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, padding: 0, display: 'flex' }}><X size={12} /></button>
-          </span>
-        ))}
-        <Pop width={220} trigger={(t) => (
-          <button onClick={t} title="Add collaborators" style={{
-            width: 26, height: 26, borderRadius: '50%', border: `1.5px dashed ${NX.border}`,
-            background: 'transparent', color: NX.faint, cursor: 'pointer', padding: 0,
-            display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-          }}><UserPlus size={13} /></button>
+        <Pop width={240} trigger={(t) => (
+          <button type="button" onClick={t} aria-label="Collaborators"
+            style={{ ...btn('outline'), minWidth: FIELD_W, justifyContent: 'space-between', height: 'auto', minHeight: 36, padding: '5px 10px' }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+              {followers.length === 0 && <span style={{ color: NX.faint, fontWeight: 400 }}>No collaborators</span>}
+              {followers.map((em) => (
+                <span key={em} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: NX.surface2, border: `1px solid ${NX.border}`, borderRadius: 20, padding: '2px 7px 2px 2px', fontSize: 12, color: NX.ink, fontWeight: 400 }}>
+                  <Avatar email={em} name={nameOf(em)} size={18} card={false} />
+                  {nameOf(em)}
+                  {/* A span: it sits inside the trigger button. */}
+                  <span role="button" tabIndex={-1} title={`Remove ${nameOf(em)}`}
+                    onClick={(e) => { e.stopPropagation(); setFollowers(followers.filter((x) => x !== em)); }}
+                    style={{ display: 'inline-flex', cursor: 'pointer', color: NX.faint }}><X size={11} /></span>
+                </span>
+              ))}
+              <span aria-hidden="true" style={{
+                width: 22, height: 22, borderRadius: '50%', border: `1.5px dashed ${NX.border}`, color: NX.faint, flexShrink: 0,
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              }}><UserPlus size={12} /></span>
+            </span>
+            <ChevronDown size={15} style={{ color: NX.faint, flexShrink: 0 }} />
+          </button>
         )}>
-          {/* Same as the assignee picker: on a phone the menu covers the form,
-              so adding a name closes it. Unchecking one keeps it open. */}
+          {/* On a phone the menu covers the form, so adding a name closes it. */}
           {(close) => <CollaboratorMenuBody people={people} selected={followers}
-            onChange={(next, adding) => { patch({ followerIds: next }); if (isMobile && adding) close(); }} />}
+            onChange={(next, adding) => { setFollowers(next); if (isMobile && adding) close(); }} />}
         </Pop>
       </Row>
+      {askBar('followers')}
 
-      <Row label="Status">
-        <Pop width={176} trigger={(t) => <button onClick={t} style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0 }}><Chip color={sm.color} tint={sm.tint}>{sm.label}</Chip></button>}>
-          {(close) => taskStatusOrder.map((s) => <MenuItem key={s} onClick={() => { patch({ status: s }); close(); }}>{statusMeta[s]?.label || s}</MenuItem>)}
-        </Pop>
+      {/* Project and Also In are one field now (Neil, Oct 14 2026), moved up
+          under the people. A subtask lives in its main task's project. */}
+      {!task.parentTaskId && (
+        <Row label="Projects">
+          <ProjectsField task={task} projects={projects} teams={teams} myEmail={myEmail} projectName={projectName} patch={patch} />
+        </Row>
+      )}
+
+      {/* Everything after Projects sits two to a line (Sagar, Oct 14 2026):
+          Due Date | Recurrence, Start Date | Status, Priority | Team, then
+          Section and the custom fields in pairs. One column on a phone. */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'minmax(0, 1fr)' : 'repeat(2, minmax(0, 1fr))', columnGap: 20, rowGap: 8, alignItems: 'start' }}>
+      <Row label="Due Date">
+        <DateField value={task.dueOn || ''} onChange={(v) => patch({ dueOn: v || '' })} compact noPast
+          repeat={repeatOption({ value: task.recurrence, seedDate: task.dueOn, onChange: setRecurrence, ...repeatCtx })}
+          style={task.dueOn ? { ...inputStyle, width: 'auto', padding: '6px 9px', fontSize: 12 } : undefined} />
+        <DueBadge task={task} nameOf={nameOf} />
+      </Row>
+      {/* Beside the due date it repeats from. A subtask repeats with its
+          main task by default, and can stay behind or keep its own schedule
+          (Sagar, Oct 14 2026). */}
+      <Row label="Recurrence">
+        <RecurrencePicker key={task.id} value={task.recurrence} seedDate={task.dueOn} onChange={setRecurrence} {...repeatCtx} />
       </Row>
 
-      <Row label="Priority">
-        <Pop width={160} trigger={(t) => <button onClick={t} style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0 }}><Chip color={pm.color} tint={pm.tint}>{pm.label}</Chip></button>}>
-          {(close) => PRIORITY_ORDER.map((p) => <MenuItem key={p} onClick={() => { patch({ priority: p }); close(); }}>{PRIORITY_META[p].label}</MenuItem>)}
-        </Pop>
-      </Row>
+      <div style={{ gridColumn: '1 / -1' }}><DueNegotiation task={task} /></div>
 
-      {/* Start Date was print-only here (it appears in the export block below)
-          while the List view's Timeline cell was the one place that could set
-          it. Editable, above Due Date, so the pair reads as the range the
-          Timeline column draws. Empty is normal - it fills itself when the task
-          leaves Not Started. */}
+      {/* Empty is normal - it fills itself when the task leaves Not Started. */}
       <Row label="Start Date">
         <DateField value={task.startOn || ''} onChange={(v) => patch({ startOn: v || '' })} compact
           style={task.startOn ? { ...inputStyle, width: 'auto', padding: '6px 9px', fontSize: 12 } : undefined} />
       </Row>
 
-      <Row label="Due Date">
-        <DateField value={task.dueOn || ''} onChange={(v) => patch({ dueOn: v || '' })} compact noPast
-          style={task.dueOn ? { ...inputStyle, width: 'auto', padding: '6px 9px', fontSize: 12 } : undefined} />
-        <DueBadge task={task} nameOf={nameOf} />
-      </Row>
-      <DueNegotiation task={task} />
-
-      <Row label="Project">
-        <div style={{ minWidth: 220 }}>
-          <ProjectPicker
-            projects={projects} teams={teams} myEmail={myEmail}
-            value={task.projectId || ''} allowNone noneLabel="No project"
-            onChange={(id) => { if (id !== task.projectId) patch({ projectId: id, teamId: '', projectIds: (task.projectIds || []).filter((p) => p !== id) }); }}
-          />
-        </div>
+      {/* Status and Priority are dropdowns, not chips (Neil, Oct 14 2026: a
+          chip did not say it could be changed). */}
+      <Row label="Status">
+        <MenuSelect ariaLabel="Status" label={sm.label || task.status} color={sm.color} current={task.status}
+          options={taskStatusOrder.map((x) => ({ key: x, label: statusMeta[x]?.label || x, color: statusMeta[x]?.color }))}
+          onPick={(x) => patch({ status: x })} />
       </Row>
 
-      <Row label="Also In">
-        {(task.projectIds || []).map((pid) => (
-          <span key={pid} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: `1px solid ${NX.border}`, borderRadius: 999, padding: '3px 9px 3px 9px', fontSize: 12 }}>
-            {projectName(pid) || pid}
-            <button onClick={() => patch({ projectIds: (task.projectIds || []).filter((p) => p !== pid) })} title="Remove" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: NX.faint, padding: 0, display: 'flex' }}><X size={12} /></button>
-          </span>
-        ))}
-        {task.projectId ? (
-          <Pop width={360} trigger={(t) => (
-            <button onClick={t} title="Add another project" style={{
-              width: 26, height: 26, borderRadius: '50%', border: `1.5px dashed ${NX.border}`,
-              background: 'transparent', color: NX.faint, cursor: 'pointer', padding: 0,
-              display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-            }}><Plus size={13} /></button>
-          )}>
-            {(close) => <ProjectMenuBody projects={projects} exclude={[task.projectId, ...(task.projectIds || [])]}
-              onPick={(id) => { patch({ projectIds: [...(task.projectIds || []), id] }); close(); }} />}
-          </Pop>
-        ) : (
-          <span style={{ color: NX.faint, fontSize: 13 }}>Pick a project first</span>
-        )}
+      <Row label="Priority">
+        <MenuSelect ariaLabel="Priority" label={pm.label || task.priority} color={pm.color} current={task.priority}
+          options={PRIORITY_ORDER.map((x) => ({ key: x, label: PRIORITY_META[x].label, color: PRIORITY_META[x].color }))}
+          onPick={(x) => patch({ priority: x })} />
       </Row>
 
-      <Row label="Team">
-        {task.projectId ? (
-          <Pop width={200} trigger={(t) => (
-            <button onClick={t} style={{ display: 'flex', alignItems: 'center', gap: 5, border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, color: task.teamId ? NX.ink : NX.faint, fontSize: 13, fontFamily: FONT }}>
-              {teamName(task.teamId) || 'No team'} <ChevronDown size={13} style={{ color: NX.faint }} />
-            </button>
-          )}>
-            {(close) => (
-              <>
-                <MenuItem icon={!task.teamId ? <Check size={13} /> : <span style={{ width: 13, display: 'inline-block' }} />} onClick={() => { patch({ teamId: '' }); close(); }}>No team</MenuItem>
-                {projectTeams.length === 0 ? (
-                  <div style={{ padding: 9, fontSize: 12, color: NX.faint }}>No teams in this project</div>
-                ) : projectTeams.map((tm) => (
-                  <MenuItem key={tm.id} icon={task.teamId === tm.id ? <Check size={13} /> : <span style={{ width: 13, display: 'inline-block' }} />} onClick={() => { patch({ teamId: tm.id }); close(); }}>{tm.name}</MenuItem>
-                ))}
-              </>
-            )}
-          </Pop>
-        ) : (
-          <span style={{ color: NX.faint, fontSize: 13 }}>Pick a project first</span>
-        )}
-      </Row>
+      {/* Team only where the project HAS teams (or the task is already on
+          one) - otherwise it was a row that could only say "No team" and
+          read as a feature nobody could explain (Neil, Oct 14 2026). */}
+      {task.projectId && (projectTeams.length > 0 || task.teamId) && (
+        <Row label="Team">
+          <MenuSelect ariaLabel="Team" label={teamName(task.teamId) || 'No Team'} color={task.teamId ? undefined : NX.border} current={task.teamId || ''}
+            options={[{ key: '', label: 'No Team', color: NX.border }, ...projectTeams.map((tm) => ({ key: tm.id, label: tm.name, color: tm.color }))]}
+            onPick={(x) => patch({ teamId: x })} />
+        </Row>
+      )}
 
       {/* Which of the project's Custom sections it is filed under. */}
       <TaskSectionRow task={task} patch={patch} />
@@ -914,7 +1201,9 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
       {/* The project's custom columns, right here on the task (Oct 13 2026) -
           they used to live only on the Properties tab, which most people
           never opened and phones do not show. */}
-      <TaskCustomFieldRows task={task} customFields={customFields} projectName={projectName} patch={patch} />
+      <TaskCustomFieldRows task={task} customFields={customFields} projectName={projectName} patch={patchFields} />
+      </div>
+      {askBar('fields')}
 
       <Row label="Blocked By">
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}>
@@ -947,154 +1236,6 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
         </div>
       </Row>
 
-      <Row label="Recurrence">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-start' }}>
-          <Pop width={300} trigger={(t) => <button onClick={() => { setRecStep('root'); t(); }} style={{ ...btn('ghost'), padding: '5px 8px', fontSize: 12 }}><Repeat size={13} /> {recurrenceLabel(task.recurrence)}</button>}>
-            {(close) => {
-              if (recStep === 'weekly') {
-                const cur = task.recurrence?.freq === 'weekly' ? task.recurrence : {};
-                const days = cur.daysOfWeek ?? (cur.dayOfWeek != null ? [cur.dayOfWeek] : [1]);
-                const toggle = (i) => { const next = toggleDay(days, i); if (next !== days) pickFreq({ freq: 'weekly', daysOfWeek: next }); };
-                return (<>
-                  <MenuItem icon={<ChevronLeft size={14} />} onClick={() => setRecStep('root')}>Back</MenuItem>
-                  <div style={{ padding: '4px 10px 8px' }}>
-                    <div style={{ fontSize: 11, color: NX.faint, marginBottom: 6 }}>On these days</div>
-                    <RecurDayPicker value={days} onToggle={toggle} />
-                  </div>
-                </>);
-              }
-              // Monthly and Yearly name their day with the shared controls
-              // (recurrence.js): "Day 15" / "Last Day", or "the Fourth
-              // Friday" - applied as each one changes, like the rest of the
-              // drawer.
-              if (recStep === 'monthly') {
-                const cur = task.recurrence?.freq === 'monthly' ? monthRuleOf(task.recurrence) : { dayOfMonth: 1 };
-                return (<>
-                  <MenuItem icon={<ChevronLeft size={14} />} onClick={() => setRecStep('root')}>Back</MenuItem>
-                  <div style={{ padding: '4px 10px 10px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <div style={{ fontSize: 11, color: NX.faint }}>Every month on</div>
-                    <MonthDayControls value={cur} seedDate={task.dueOn} selectStyle={recSel}
-                      onChange={(v) => pickFreq({ freq: 'monthly', ...v })} />
-                  </div>
-                </>);
-              }
-              if (recStep === 'yearly') {
-                const cur = task.recurrence?.freq === 'yearly' ? yearRuleOf(task.recurrence) : {};
-                return (<>
-                  <MenuItem icon={<ChevronLeft size={14} />} onClick={() => setRecStep('root')}>Back</MenuItem>
-                  <div style={{ padding: '4px 10px 10px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <div style={{ fontSize: 11, color: NX.faint }}>Every year on</div>
-                    <YearDayControls value={cur} seedDate={task.dueOn} selectStyle={recSel}
-                      onChange={(v) => pickFreq({ freq: 'yearly', ...v })} />
-                  </div>
-                </>);
-              }
-              if (recStep === 'periodic') {
-                const cur = task.recurrence?.freq === 'periodic' ? Number(task.recurrence.daysAfterCompletion) || 1 : null;
-                return (<>
-                  <MenuItem icon={<ChevronLeft size={14} />} onClick={() => setRecStep('root')}>Back</MenuItem>
-                  {/* Any number of days: type one, Enter or Set. */}
-                  <form onSubmit={(e) => { e.preventDefault(); const n = clampDays(e.currentTarget.days.value); pickFreq({ freq: 'periodic', daysAfterCompletion: n }); close(); }}
-                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px 8px', fontSize: 12 }}>
-                    <input name="days" type="number" min="1" max={MAX_PERIODIC_DAYS} step="1" defaultValue={cur ?? ''} placeholder="Other"
-                      aria-label="Days after completion" style={{ ...inputStyle, width: 72, padding: '4px 6px', fontSize: 12 }} />
-                    <span style={{ color: NX.faint, flex: 1 }}>days after completion</span>
-                    <button type="submit" style={{ ...btn('outline'), padding: '3px 9px', fontSize: 12 }}>Set</button>
-                  </form>
-                  <div className="nx-scroll" style={{ maxHeight: 260, overflowY: 'auto' }}>
-                    {PERIODIC_PRESETS.map((d) => (
-                      <MenuItem key={d} icon={cur === d ? <Check size={13} /> : <span style={{ width: 13, display: 'inline-block' }} />}
-                        onClick={() => { pickFreq({ freq: 'periodic', daysAfterCompletion: d }); close(); }}>
-                        {d} day{d === 1 ? '' : 's'} after completion
-                      </MenuItem>
-                    ))}
-                  </div>
-                </>);
-              }
-              if (recStep === 'custom') {
-                const cur = task.recurrence?.freq === 'custom' ? task.recurrence : {};
-                const unit = cur.unit || 'week';
-                const interval = cur.interval || 1;
-                const days = cur.daysOfWeek ?? (cur.dayOfWeek != null ? [cur.dayOfWeek] : [1]);
-                const applyCustom = (partial) => {
-                  const next = { unit, interval, ...partial };
-                  const rec = { freq: 'custom', unit: next.unit, interval: next.interval };
-                  if (next.unit === 'week') rec.daysOfWeek = next.daysOfWeek ?? days;
-                  // The day a month / year unit names - kept across an
-                  // interval change, dropped when the unit changes.
-                  const sameUnit = next.unit === unit;
-                  if (next.unit === 'month') Object.assign(rec, next.monthRule ?? (sameUnit ? monthRuleOf(cur) : { dayOfMonth: ruleFromDate(task.dueOn).dayOfMonth }));
-                  if (next.unit === 'year') Object.assign(rec, next.yearRule ?? (sameUnit ? yearRuleOf({ ...cur, unit: 'year' }) : {}));
-                  pickFreq(rec);
-                };
-                return (<>
-                  <MenuItem icon={<ChevronLeft size={14} />} onClick={() => setRecStep('root')}>Back</MenuItem>
-                  <div style={{ padding: '4px 10px 8px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-                      <span style={{ color: NX.faint }}>Every</span>
-                      <CommitNumberInput value={interval} min={1} max={365} aria-label="Repeat every"
-                        onCommit={(n) => applyCustom({ interval: n })}
-                        style={{ ...inputStyle, width: 50, padding: '4px 6px', fontSize: 12 }} />
-                      <select value={unit} onChange={(e) => applyCustom({ unit: e.target.value })} style={recSel}>
-                        <option value="day">Day{interval === 1 ? '' : 's'}</option>
-                        <option value="week">Week{interval === 1 ? '' : 's'}</option>
-                        <option value="month">Month{interval === 1 ? '' : 's'}</option>
-                        <option value="year">Year{interval === 1 ? '' : 's'}</option>
-                      </select>
-                    </div>
-                    {unit === 'week' && (<>
-                      <div style={{ fontSize: 11, color: NX.faint }}>On these days</div>
-                      <RecurDayPicker value={days} onToggle={(i) => { const next = toggleDay(days, i); if (next !== days) applyCustom({ unit: 'week', daysOfWeek: next }); }} />
-                    </>)}
-                    {unit === 'month' && (<>
-                      <div style={{ fontSize: 11, color: NX.faint }}>On</div>
-                      <MonthDayControls value={monthRuleOf(cur)} seedDate={task.dueOn} selectStyle={recSel}
-                        onChange={(v) => applyCustom({ monthRule: v })} />
-                    </>)}
-                    {unit === 'year' && (<>
-                      <div style={{ fontSize: 11, color: NX.faint }}>On</div>
-                      <YearDayControls value={yearRuleOf({ ...cur, unit: 'year' })} seedDate={task.dueOn} selectStyle={recSel}
-                        onChange={(v) => applyCustom({ yearRule: v })} />
-                    </>)}
-                  </div>
-                </>);
-              }
-              return (<>
-                <MenuItem onClick={() => { setRecEndMode('never'); setRecurrence(null); close(); }}>Does not repeat</MenuItem>
-                <MenuItem onClick={() => { pickFreq({ freq: 'daily' }); close(); }}>Daily</MenuItem>
-                <MenuItem onClick={() => setRecStep('weekly')}>Weekly</MenuItem>
-                <MenuItem onClick={() => setRecStep('monthly')}>Monthly</MenuItem>
-                <MenuItem onClick={() => setRecStep('yearly')}>Yearly</MenuItem>
-                <MenuItem onClick={() => setRecStep('periodic')}>Periodically</MenuItem>
-                <MenuItem onClick={() => setRecStep('custom')}>Custom</MenuItem>
-              </>);
-            }}
-          </Pop>
-          {task.recurrence && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: NX.dim }}>
-              <span style={{ color: NX.faint }}>Ends</span>
-              <select value={recEndMode} onChange={(e) => onRecEndMode(e.target.value)} style={recSel}>
-                <option value="never">Never</option>
-                <option value="on">On date</option>
-                <option value="after">After occurrences</option>
-              </select>
-              {recEndMode === 'on' && (
-                <DateField value={task.recurrence.until || ''} onChange={(v) => patchRecEnd(v ? { until: v } : {})}
-                  placeholder="Pick a date" style={{ ...inputStyle, width: 'auto', padding: '5px 8px', fontSize: 12 }} />
-              )}
-              {recEndMode === 'after' && (
-                <>
-                  <CommitNumberInput value={task.recurrence.count ?? null} min={1} allowEmpty placeholder="e.g. 10" aria-label="Occurrences"
-                    onCommit={(n) => patchRecEnd(n == null ? {} : { count: n })}
-                    style={{ ...inputStyle, width: 72, padding: '5px 8px', fontSize: 12 }} />
-                  <span style={{ color: NX.faint }}>times</span>
-                </>
-              )}
-            </div>
-          )}
-        </div>
-      </Row>
-
       {/* Description */}
       <Section title="Description">
         <DescriptionInput task={task} value={task.description || ''} refresh={refresh}
@@ -1102,8 +1243,15 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
       </Section>
 
       {/* Checklist (Oct 2026) - open when it has lines, folded when empty so
-          a task that never needed one is not pushed down by an add box. */}
-      <Section defaultOpen={(task.checklistTotal || 0) > 0} title={task.checklistTotal ? `Checklist ${task.checklistDone || 0}/${task.checklistTotal}` : 'Checklist'}>
+          a task that never needed one is not pushed down by an add box. The
+          hint rides on the heading, where it shows while folded too: neither
+          Neil nor Sagar could tell what the section was for (Oct 14 2026). */}
+      <Section defaultOpen={(task.checklistTotal || 0) > 0} title={<>
+        {task.checklistTotal ? `Checklist ${task.checklistDone || 0}/${task.checklistTotal}` : 'Checklist'}
+        <span style={{ fontWeight: 400, fontSize: 12, color: NX.faint, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          Quick steps for this task. Use Subtasks for work that needs its own date or owner.
+        </span>
+      </>}>
         <Checklist task={task} people={people} />
       </Section>
 
@@ -1597,18 +1745,27 @@ function AttachmentsTab({ task, refresh }) {
 /** A subtask row's people: its assignees as faces, and a click opens a
  *  searchable list to tick several on or off - right in the row, without
  *  opening the subtask (Oct 13 2026: it was one person, display only). */
+// The subtask rows' people and date columns.
+const SUB_PEOPLE_W = 64;
+const SUB_DATE_W = 84;
+
 function SubtaskAssignee({ subtask, people, updateTask }) {
+  return <FacePicker value={taskAssignees(subtask)} people={people} label={`Assignees of ${subtask.title}`}
+    onChange={(list) => updateTask(subtask.id, { assigneeIds: list })} />;
+}
+
+/** Faces, not names: who a subtask is for, in the width of a few avatars
+ *  (Neil, Oct 14 2026 - the add row used a full-name picker). */
+function FacePicker({ value, people, onChange, label }) {
   const [q, setQ] = useState('');
-  const on = taskAssignees(subtask);
+  const on = value || [];
   const filtered = matchPeople(people, q);
-  const toggle = (email) => updateTask(subtask.id, {
-    assigneeIds: on.includes(email) ? on.filter((x) => x !== email) : [...on, email],
-  });
+  const toggle = (email) => onChange(on.includes(email) ? on.filter((x) => x !== email) : [...on, email]);
   const nav = useListNav(filtered, { query: q, onPick: (p) => toggle(p.email) });
   return (
     <div onClick={(e) => e.stopPropagation()}>
       <Pop width={240} trigger={(t) => (
-        <button type="button" onClick={() => { setQ(''); t(); }} aria-label={`Assignees of ${subtask.title}`}
+        <button type="button" onClick={() => { setQ(''); t(); }} aria-label={label}
           title={on.length ? `Assigned to ${on.length === 1 ? '1 person' : `${on.length} people`} - change` : 'Assign'}
           style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center' }}>
           {on.length
@@ -1640,20 +1797,35 @@ function SubtaskAssignee({ subtask, people, updateTask }) {
 function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub, hideHeading }) {
   const [title, setTitle] = useState('');
   const [dueOn, setDueOn] = useState('');
-  const [assigneeId, setAssigneeId] = useState('');
+  // Who it is for: the main task's assignees until changed here.
+  const [assignees, setAssignees] = useState(null);
+  const [priority, setPriority] = useState('');
+  // How it repeats: with the main task ({}) until changed in its calendar.
+  const [rec, setRec] = useState({});
   const done = subtasks.filter((s) => s.completed).length;
+  const forWhom = assignees ?? taskAssignees(task);
+  const pri = priority || task.priority || 'medium';
+  const mainRule = task.recurrence?.freq ? task.recurrence : null;
+  const repeats = !!mainRule && !rec.skip;
+  const subRepeat = (value, onChange, seedDate) => repeatOption({ value, seedDate, onChange, subtask: true, mainRule });
+  const setSubRecurrence = (s, r) => updateTask(s.id, {
+    recurrence: r, status: r?.freq ? 'recurring' : (s.status === 'recurring' ? 'not_started' : s.status),
+  });
 
-  // A new subtask starts with the main task's collaborators, project and team
-  // (Oct 13 2026) - take anyone off on the subtask itself. No due date unless
-  // one is picked here.
+  // A new subtask is its main task's child (Neil, Oct 14 2026): it starts
+  // with the main task's assignees, collaborators, project, team, priority
+  // and field values (the Entity), and repeats with it - all changeable on
+  // the subtask afterwards. No due date unless one is picked here.
   const add = async () => {
     const t = title.trim(); if (!t) return;
     await createTask({
       title: t, parentTaskId: task.id, projectId: task.projectId, teamId: task.teamId,
       followerIds: [...(task.followerIds || [])],
-      assigneeId, dueOn, status: 'not_started', priority: 'medium', type: 'task',
+      customFieldValues: { ...(task.customFieldValues || {}) },
+      assigneeIds: forWhom, dueOn, status: rec.freq ? 'recurring' : 'not_started', priority: pri, type: 'task',
+      ...(rec.freq || rec.skip ? { recurrence: rec } : {}),
     }).catch((e) => alert(e?.message || 'Could not add the subtask.'));
-    setTitle(''); setDueOn(''); setAssigneeId('');
+    setTitle(''); setDueOn(''); setAssignees(null); setPriority(''); setRec({});
   };
 
   // Manual order: drag a row by its handle (or focus the handle and press Up /
@@ -1730,13 +1902,18 @@ function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub
               {s.completed ? <CheckCircle2 size={15} style={{ color: NX.green }} /> : <Circle size={15} />}
             </button>
             <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, color: s.completed ? NX.faint : NX.ink, textDecoration: s.completed ? 'line-through' : 'none' }}>{s.title}</span>
-            {/* Due date, set or changed right here (Oct 13 2026). */}
-            <span onClick={(e) => e.stopPropagation()} style={{ display: 'inline-flex', fontSize: 11.5, color: NX.faint }}>
-              <DateField value={s.dueOn || ''} onChange={(v) => updateTask(s.id, { dueOn: v || '' })} compact
-                title={s.dueOn ? 'Change due date' : 'Set due date'} />
+            {/* People, then the date, each in a fixed-width slot so every
+                row lines up (Neil, Oct 14 2026: "people on the left, the
+                date on the right"). */}
+            <span style={{ width: SUB_PEOPLE_W, display: 'flex', justifyContent: 'flex-start', flexShrink: 0 }}>
+              <SubtaskAssignee subtask={s} people={people} updateTask={updateTask} />
             </span>
-            <SubtaskAssignee subtask={s} people={people} updateTask={updateTask} />
-            <ChevronRight size={14} style={{ color: NX.faint }} />
+            <span onClick={(e) => e.stopPropagation()} style={{ width: SUB_DATE_W, display: 'flex', justifyContent: 'flex-end', fontSize: 11.5, color: NX.faint, flexShrink: 0 }}>
+              <DateField value={s.dueOn || ''} onChange={(v) => updateTask(s.id, { dueOn: v || '' })} compact
+                title={s.dueOn ? 'Change due date' : 'Set due date'}
+                repeat={subRepeat(s.recurrence, (r) => setSubRecurrence(s, r), s.dueOn)} />
+            </span>
+            <ChevronRight size={14} style={{ color: NX.faint, flexShrink: 0 }} />
           </div>
         ))}
       </div>
@@ -1744,16 +1921,31 @@ function SubtasksTab({ task, subtasks, createTask, updateTask, people, onOpenSub
         <Plus size={14} style={{ color: NX.faint, flexShrink: 0 }} />
         <input className="nx-inline-edit" value={title} onChange={(e) => setTitle(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && add()} placeholder="Add subtask"
           style={{ flex: 1, minWidth: 0, border: 'none', fontFamily: FONT, fontSize: 13 }} />
-        {/* The Nexus calendar, the one every task date uses (Oct 13 2026) -
-            this was the browser's own date picker, which opened off the
-            bottom of the drawer, half cut off and unclickable. It places
-            itself on screen, flipping above when there is no room below. */}
-        <span style={{ display: 'inline-flex', fontSize: 11.5, color: NX.faint }}>
-          <DateField value={dueOn} onChange={(v) => setDueOn(v || '')} compact noPast title="Due Date" />
+        {/* A repeating main task brings its subtasks to every occurrence;
+            the calendar's Repeat changes that for this one. */}
+        {(repeats || rec.freq) && (
+          <span title={repeatSummary(rec, { subtask: true, mainRule })} style={{ display: 'inline-flex', color: rec.freq ? NX.blue : NX.faint, flexShrink: 0 }}>
+            <Repeat size={13} />
+          </span>
+        )}
+        <Pop width={150} trigger={(t) => (
+          <button type="button" onClick={t} title={`Priority: ${PRIORITY_META[pri]?.label || pri}`} aria-label="Priority"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 3, border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, fontSize: 11.5, fontWeight: 600, fontFamily: FONT, color: PRIORITY_META[pri]?.color || NX.dim, flexShrink: 0 }}>
+            {PRIORITY_META[pri]?.label || pri}<ChevronDown size={11} />
+          </button>
+        )}>
+          {(close) => PRIORITY_ORDER.map((x) => <MenuItem key={x} onClick={() => { setPriority(x); close(); }}>{PRIORITY_META[x].label}</MenuItem>)}
+        </Pop>
+        <span style={{ width: SUB_PEOPLE_W, display: 'flex', flexShrink: 0 }}>
+          <FacePicker value={forWhom} people={people} label="Assignees of the new subtask" onChange={setAssignees} />
         </span>
-        <div style={{ minWidth: 150 }}>
-          <PersonSelect value={assigneeId || null} people={people} onChange={(email) => setAssigneeId(email || '')} placeholder="Assignee" />
-        </div>
+        {/* The Nexus calendar, the one every task date uses (Oct 13 2026) -
+            it places itself on screen, flipping above when there is no room
+            below. */}
+        <span style={{ width: SUB_DATE_W, display: 'flex', justifyContent: 'flex-end', fontSize: 11.5, color: NX.faint, flexShrink: 0 }}>
+          <DateField value={dueOn} onChange={(v) => setDueOn(v || '')} compact noPast title="Due Date"
+            repeat={subRepeat(rec, (r) => setRec(r || {}), dueOn)} />
+        </span>
         <button onClick={add} style={{ ...btn('primary'), padding: '6px 10px', fontSize: 12 }}>Add</button>
       </div>
     </div>
@@ -1841,8 +2033,8 @@ function PropertiesTab({ task, nameOf, projectName, teamName, customFields, patc
   const sm = statusMeta[task.status] || {};
   const pm = PRIORITY_META[task.priority] || {};
   const rows = [
-    ['Status', <Chip color={sm.color} tint={sm.tint}>{sm.label}</Chip>],
-    ['Priority', <Chip color={pm.color} tint={pm.tint}>{pm.label}</Chip>],
+    ['Status', <StatusLabel label={sm.label} color={sm.color} />],
+    ['Priority', <PrioritySignal priority={task.priority} />],
     ['Assignee', taskAssignees(task).length
       ? <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           {taskAssignees(task).map((e) => (
@@ -1852,8 +2044,7 @@ function PropertiesTab({ task, nameOf, projectName, teamName, customFields, patc
           ))}
         </span>
       : 'Unassigned'],
-    ['Project', task.projectId ? projectName(task.projectId) : '-'],
-    ['Also In', (task.projectIds || []).length ? task.projectIds.map((id) => projectName(id) || id).join(', ') : '-'],
+    ['Projects', [task.projectId, ...(task.projectIds || [])].filter(Boolean).map((id) => projectName(id) || id).join(', ') || '-'],
     ['Team', task.teamId ? teamName(task.teamId) : '-'],
     ['Start Date', fmtDate(task.startOn)],
     ['Due Date', fmtDate(task.dueOn)],

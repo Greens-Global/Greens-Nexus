@@ -23,6 +23,9 @@ import Amount, { formatAmount } from './Amount';
 
 const BOOK_LABEL = { both: 'Both books', actual_only: 'Accrual only', tax_only: 'Cash only' };
 const named = (name, id) => name || id || '';
+// Oct 14 (Charmi): a vendor's or customer's number before the
+// name - "V00412 Home Depot" - everywhere in the accounting module.
+const numbered = (name, id) => (id && name && name !== id ? `${id} ${name}` : name || id || '');
 
 // The columns, in the order Neil listed them.
 const COLUMNS = [
@@ -95,11 +98,11 @@ export default function EntryDetail({ entryId, entryNo, onClose }) {
       case 'department': return named(l.department_name, l.department);
       case 'location': return named(l.location_name, l.location);
       case 'memo': return l.description || g?.memo || '';
-      case 'vendor': return named(g?.vendor_name, g?.vendor_id);
+      case 'vendor': return numbered(g?.vendor_name, g?.vendor_id);
       case 'project': return named(g?.class_name, g?.class_id || g?.project_id);
       case 'item': return named(g?.item_name, g?.item_id);
       case 'employee': return named(g?.employee_name, g?.employee_id);
-      case 'customer': return named(g?.customer_name, g?.customer_id);
+      case 'customer': return numbered(g?.customer_name, g?.customer_id);
       default: return '';
     }
   };

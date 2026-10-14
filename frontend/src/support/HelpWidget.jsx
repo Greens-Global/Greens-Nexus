@@ -17,7 +17,7 @@ import { useMsal } from '@azure/msal-react';
 import {
   X, Search, ChevronRight, ChevronLeft, ArrowUpRight, Home as HomeIcon, MessageSquare, CircleHelp,
   BookOpen, ListChecks, Layers, Lightbulb, ShieldCheck, FileText, GraduationCap, Send, Ticket as TicketIcon,
-  Compass,
+  Compass, PlayCircle,
 } from 'lucide-react';
 import { api } from '../api';
 import { DOCS, DOC_GROUPS } from './docsContent';
@@ -49,8 +49,20 @@ const nav = (view, sub) => window.dispatchEvent(
 // A guide page as an article the widget can show (same shape as a search result).
 const moduleArticle = (d) => ({ source: 'guide', kind: 'module', docId: d.id, docName: d.name, title: d.name, anchor: null, body: [] });
 
+// Screens with a guided tour, and the event their module listens for to
+// start it (each module owns its tour's state). The Tour used to be a row in
+// the profile dropdown; it lives here under Help with This Page (Neil, Oct
+// 13 2026) - help with the screen you are on, in one place.
+export const PAGE_TOURS = {
+  tasks: 'nexus:tasks-tour',
+  tickets: 'nexus:tickets-tour',
+  support: 'nexus:support-tour',
+  documents: 'nexus:documents-tour',
+};
+
 // ── Home ────────────────────────────────────────────────────────────────────
-function HomeTab({ firstName, pageDoc, onSearch, onAsk, onWhatsNew, onOpenArticle, onClose }) {
+function HomeTab({ firstName, pageDoc, tourEvent, onSearch, onAsk, onWhatsNew, onOpenArticle, onClose }) {
+  const startTour = () => { onClose(); window.dispatchEvent(new CustomEvent(tourEvent)); };
   return (
     <div className="hw-scroll">
       <div className="hw-hero">
@@ -83,8 +95,18 @@ function HomeTab({ firstName, pageDoc, onSearch, onAsk, onWhatsNew, onOpenArticl
           <button type="button" className="hw-card hw-card-quiet" onClick={() => onOpenArticle(moduleArticle(pageDoc))}>
             <Compass size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />
             <span className="hw-card-text">
-              <span className="hw-card-title" style={{ fontSize: 13 }}>Help for This Page</span>
+              <span className="hw-card-title" style={{ fontSize: 13 }}>Help with This Page</span>
               <span className="hw-card-sub">{pageDoc.name}: {pageDoc.tagline}</span>
+            </span>
+            <ChevronRight size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+          </button>
+        )}
+        {tourEvent && (
+          <button type="button" className="hw-card hw-card-quiet" onClick={startTour}>
+            <PlayCircle size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+            <span className="hw-card-text">
+              <span className="hw-card-title" style={{ fontSize: 13 }}>Take the Tour</span>
+              <span className="hw-card-sub">A guided walk through {pageDoc ? pageDoc.name : 'this page'}</span>
             </span>
             <ChevronRight size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />
           </button>
@@ -388,7 +410,7 @@ export default function HelpWidget({ activeView, initialTab = 'home', onTabChang
       )}
 
       {tab === 'home' && (
-        <HomeTab firstName={firstName} pageDoc={pageDoc}
+        <HomeTab firstName={firstName} pageDoc={pageDoc} tourEvent={PAGE_TOURS[activeView] || null}
           onSearch={() => setTab('help', { search: true })}
           onAsk={() => onAsk?.()}
           onWhatsNew={onWhatsNew ? () => { onClose(false); onWhatsNew(); } : null}

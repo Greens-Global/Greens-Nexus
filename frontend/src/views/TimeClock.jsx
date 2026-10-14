@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useIsMobile } from '../lib/useIsMobile';
 import {
-  Clock, LogIn, LogOut, Coffee, Play, MapPin, MapPinOff, AlertTriangle,
+  LogIn, LogOut, Coffee, Play, MapPin, MapPinOff, AlertTriangle,
   CheckCircle, Plus, X, CalendarDays, Monitor, Lock,
-  ChevronDown, Check, ClipboardCheck, ArrowRight,
+  ChevronDown, Check, ArrowRight,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -14,10 +15,10 @@ import DayTimeline from '../components/DayTimeline';
 import ModuleTabs from '../components/ModuleTabs';
 import PayrollTimecard from '../components/PayrollTimecard';
 import BodModal from '../components/BodModal';
-import { pollWhileVisible } from '../lib/pollWhileVisible';
+import { useTimeStatus, patchTimeStatus } from '../lib/useTimeStatus';
 import { punchDurable, replayPending, readPending, utcStamp } from '../lib/punchQueue';
 import { replayPendingBods } from '../lib/bodQueue';
-import { formatTime, formatDate, formatWeekday, formatHHMM, formatMonthDay, greetingFor } from '../lib/datetime';
+import { formatTime, formatDate, formatWeekday, formatHHMM, formatMonthDay } from '../lib/datetime';
 import { getPosition, punchPosition } from '../lib/geoPosition';
 import { MyHROverview } from './MyHR';
 import { leaveRequestDays, openShiftMinutes } from '../lib/workdayStats';
@@ -57,9 +58,9 @@ const KIND_DONE = { in: 'Punched in', out: 'Punched out', break_start: 'Break st
 // "Time Clock" no matter which tab was open). `title` also drives the
 // breadcrumb via <ModuleTabs syncTitle> below.
 const TAB_META = {
-  overview:  { title: 'Workday', label: 'Overview',   subtitle: 'Your clock, hours, documents and time off - only you see this' },
-  timesheet: { title: 'Time Sheet', label: 'Time Sheet', subtitle: 'Your hours this pay period, day by day' },
-  timeoff:   { title: 'Time Off',   label: 'Time Off',   subtitle: 'Request time off and see what’s coming up' },
+  overview:  { title: 'Workday',    label: 'Overview' },
+  timesheet: { title: 'Time Sheet', label: 'Time Sheet' },
+  timeoff:   { title: 'Time Off',   label: 'Time Off' },
 };
 // The Clock tab folded into Overview (Oct 2) - a bookmark, a bell or an
 // email that still says 'clock' lands there.
@@ -84,11 +85,11 @@ if (typeof document !== 'undefined' && !document.getElementById('ts-anim')) {
        band, then the punch panel left and today/this week right. Brand-
        derived tints only, so a company's accent color carries through. */
     .wd-clock { background: var(--card); border: 1px solid var(--wk-line2); border-radius: 18px; box-shadow: var(--wk-shadow); overflow: hidden; }
-    .wd-intro { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin: 2px 0 14px; }
-    .wd-intro-greet { margin: 0; font-size: 21px; font-weight: 700; color: var(--ink); letter-spacing: -.015em; }
     .wd-clock-body { display: grid; grid-template-columns: auto minmax(0, 1fr); }
-    .wd-clock-main { padding: 18px 26px; display: flex; align-items: center; gap: 22px; min-width: 0; }
-    .wd-clock-info { width: 250px; display: flex; flex-direction: column; gap: 10px; }
+    .wd-clock-main { padding: 18px 26px; display: grid; grid-template-columns: auto 250px; grid-template-rows: auto auto; align-items: center; column-gap: 22px; row-gap: 12px; min-width: 0; }
+    .wd-clock-main > :first-child { grid-row: 1 / span 2; }
+    .wd-clock-info { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+    .wd-punch-row { display: flex; gap: 10px; flex-wrap: wrap; min-width: 0; }
     .wd-clock--in .wd-clock-main { background: radial-gradient(circle at 16% 50%, color-mix(in srgb, var(--wk-brand) 8%, transparent) 0, transparent 60%); }
     .wd-clock--break .wd-clock-main { background: radial-gradient(circle at 16% 50%, rgba(180,83,9,.08) 0, transparent 60%); }
     .wd-state { display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px 5px 10px; border-radius: 999px; font-size: 13px; font-weight: 700; }
@@ -174,8 +175,31 @@ if (typeof document !== 'undefined' && !document.getElementById('ts-anim')) {
     .wd-stat .dk-stat-label { margin-top: 1px; font-size: 12.5px; }
     .wd-stat .dk-stat-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11.5px; }
     .wd-stat .dk-stat-arrow { flex-shrink: 0; }
-    @media (max-width: 900px) { .wd-clock-body { grid-template-columns: 1fr; } .wd-clock-main { justify-content: center; flex-wrap: wrap; } .wd-clock-side { border-left: none; border-top: 1px solid var(--line); } }
-    @media (max-width: 560px) { .wd-clock-head { padding: 12px 16px; } .wd-clock-main { padding: 16px; gap: 16px; } .wd-clock-info { width: 100%; } .wd-clock-side { padding: 14px 16px; } .wd-punch { flex: 1; justify-content: center; } }
+    @media (max-width: 900px) { .wd-clock-body { grid-template-columns: 1fr; } .wd-clock-main { justify-content: center; } .wd-clock-side { border-left: none; border-top: 1px solid var(--line); } }
+    /* Phone (Oct 13): the dial beside the status, the punch button the full
+       width under both; no greeting line (the module header already says
+       Workday and the Dashboard greeted them); the clock card leads the page
+       - the punch is what a phone opens Workday for - with the summary
+       tiles under it; cards and gaps tighten so the page is one column of
+       even rhythm, not a column of white space. */
+    @media (max-width: 640px) {
+      .wd-clock-main { padding: 14px 16px 16px; grid-template-columns: auto minmax(0, 1fr); column-gap: 14px; row-gap: 12px; justify-content: stretch; }
+      .wd-punch-row { grid-column: 1 / -1; }
+      .wd-punch { flex: 1; justify-content: center; padding: 12px 16px; }
+      .wd-state { font-size: 12.5px; }
+      .wd-since { font-size: 12.5px; margin-top: 5px; }
+      .wd-clock-side { padding: 12px 14px 14px; }
+      .wd-hp-head { margin: 12px 0 10px; gap: 10px 16px; }
+      .wd-hp-total { font-size: 26px; }
+      .wd-hp-facts { gap: 16px; }
+      .wd-bars-plot { height: 76px; }
+      .wd-overview { display: flex; flex-direction: column; }
+      .wd-overview > .wd-clock-wrap { order: -1; margin-bottom: 12px; }
+      .wd-overview > .wd-statgrid { margin-bottom: 12px; }
+      .wd-overview .myhr-grid, .wd-overview .myhr-grid > div, .wd-overview .myhr-main { gap: 12px; }
+      .wd-overview .dash-card { padding: 16px; }
+      .wd-overview .dash-card-head { margin-bottom: 10px; }
+    }
     /* Clocked-in hero: pinging live dot, per-second digit tick, smooth ring sweep. */
     @keyframes tcPing { 0% { box-shadow: 0 0 0 0 var(--ping, rgba(34,150,83,.4)); } 70% { box-shadow: 0 0 0 10px rgba(0,0,0,0); } 100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); } }
     @keyframes tcTick { from { transform: translateY(-40%); opacity: 0; } to { transform: none; opacity: 1; } }
@@ -203,8 +227,8 @@ function TimerDigits({ seconds, color, size = 24 }) {
 // 8h day - India runs 9h - so the workday denominator is gone entirely).
 // Digits inside are the CURRENT session's stopwatch. On break the arc becomes
 // the 60m allowance draining (that one is real policy, not an assumption).
-function SessionRing({ seconds, pct, color, label, sub }) {
-  const size = 128, stroke = 8;
+function SessionRing({ seconds, pct, color, label, sub, size = 128 }) {
+  const stroke = 8;
   const r = (size - stroke) / 2, c = 2 * Math.PI * r;
   const off = c * (1 - Math.min(1, Math.max(0, pct)));
   return (
@@ -226,8 +250,8 @@ function SessionRing({ seconds, pct, color, label, sub }) {
 
 // Clocked-out dial - the same footprint as SessionRing so the widget never
 // jumps when you punch: an empty track around the wall-clock time.
-function IdleDial({ now }) {
-  const size = 128, stroke = 8;
+function IdleDial({ now, size = 128 }) {
+  const stroke = 8;
   const r = (size - stroke) / 2;
   const [hm, ap] = formatTime(now).split(' ');
   return (
@@ -409,6 +433,9 @@ function GeoChip({ p }) {
 }
 
 export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange } = {}) {
+  // Phone layout (Oct 13): the clock card leads, the dial sits beside the
+  // status and the punch button runs the full width - see the wd-* rules.
+  const phone = useIsMobile('(max-width: 640px)');
   // The URL's sub segment is the source of truth once it names a real tab
   // (deep link, browser back/forward, or a bare /myhr landing on its default);
   // initialTab only seeds the very first render before that's known. Every
@@ -437,7 +464,10 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     if (onSubChange && activeSub !== tab && activeSub !== 'shifts') onSubChange(tab);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
-  const [status, setStatus] = useState(null);
+  // The shared read (lib/useTimeStatus): this screen, the floating timer and
+  // the dashboard tiles are one request per poll (20s here - see the
+  // cross-device note below).
+  const { status, error: statusError, errorAt: statusErrorAt, reload: load } = useTimeStatus({ pollMs: 20000 });
   const [busy, setBusy] = useState('');
   const [msg, setMsg] = useState(null);        // {ok, text}
   const [bodMode, setBodMode] = useState(null);   // 'bod' | 'eod' | null - day-message modal
@@ -482,10 +512,15 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     msgTimer.current = setTimeout(() => setMsg(null), 6000);
   };
 
-  const load = useCallback(() => {
-    api.timeStatus().then(setStatus).catch(e => toast(false, e?.message || 'Could not load your time clock.'));
-  }, []);
-  useEffect(() => { load(); }, [load]);
+  // Every failed read says so, as it always did. Only failures that happen
+  // while this screen is open - not one left over from before it mounted.
+  const seenStatusError = useRef(statusErrorAt);
+  useEffect(() => {
+    if (!statusErrorAt || statusErrorAt === seenStatusError.current) return;
+    seenStatusError.current = statusErrorAt;
+    toast(false, statusError?.message || 'Could not load your time clock.');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusErrorAt]);
   // Landing a parked punch happens from four places - the background retry, the
   // Retry button, a DIFFERENT punch flushing the queue first, and a fresh page
   // load. One routine for all of them, so they can never drift apart on what
@@ -548,11 +583,10 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   }, []);
   // Cross-device sync: punch state lives on the server, so a break/punch on ANY
   // of your devices must show up here without a manual refresh. Re-fetch on a
-  // short poll, and - for the common "I just switched to this device" case -
-  // instantly when the tab regains focus/visibility. Same-device punches fire
-  // nexus:timeclock-changed locally.
+  // short poll (useTimeStatus, above), and - for the common "I just switched to
+  // this device" case - instantly when the tab regains focus/visibility.
+  // Same-device punches fire nexus:timeclock-changed locally.
   useEffect(() => {
-    const stopPoll = pollWhileVisible(load, 20000);
     // A day message parked by bodQueue.js (the server could not be reached when
     // it was sent) goes out the moment anything can reach the server again.
     const replayBods = () => { replayPendingBods().catch(() => {}); };
@@ -564,7 +598,6 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     window.addEventListener('online', replayBods);
     window.addEventListener('nexus:timeclock-changed', onChange);
     return () => {
-      stopPoll();
       document.removeEventListener('visibilitychange', onVis);
       window.removeEventListener('focus', onVis);
       window.removeEventListener('online', replayBods);
@@ -710,7 +743,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     setMonBusy(true);
     try {
       await api.timeMonitoringConsent();
-      setStatus(s => (s?.monitoring ? { ...s, monitoring: { ...s.monitoring, consentRequired: false } } : s));
+      patchTimeStatus(s => (s?.monitoring ? { ...s, monitoring: { ...s.monitoring, consentRequired: false } } : s));
       setMonGate(null);
       setMonBusy(false);
       actualPunch('in', true);
@@ -846,10 +879,11 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     window.addEventListener('nexus:timeclock-changed', refresh);
     return () => window.removeEventListener('nexus:timeclock-changed', refresh);
   }, [tab]);
-  // Which hours the clock card shows - Today / This Week / Pay Period. A
-  // per-viewer convenience, so it is remembered in this browser only.
+  // Which hours the clock card shows - Today / This Week / Pay Period. Today
+  // by default (Neil, Oct 14 2026); a pick is a per-viewer convenience, so it
+  // is remembered in this browser only.
   const [hoursView, setHoursView] = useState(() => {
-    try { return localStorage.getItem('nx-wd-hours-view') || 'week'; } catch { return 'week'; }
+    try { return localStorage.getItem('nx-wd-hours-view') || 'today'; } catch { return 'today'; }
   });
   const pickHoursView = (v) => {
     setHoursView(v);
@@ -888,10 +922,8 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     window.addEventListener('nexus:timesheet-review-changed', load);
     return () => { live = false; window.removeEventListener('nexus:timesheet-review-changed', load); };
   }, []);
-  const reviewRef = useRef(null);
   // Stable: TimesheetsToReview reloads whenever its onCount changes identity.
   const onReviewCount = useCallback((n) => { if (n != null) setToReview(n); }, []);
-  const showReview = tab === 'timesheet' && toReview > 0;
   // Whether this person is time-tracking exempt, before /time/status answers
   // (Neil, 10/06: the Time Sheet tab showed for a moment, then vanished, on
   // every visit; 10/08: so did the clock card's skeleton). The last answer is
@@ -905,7 +937,6 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   useEffect(() => {
     if (status) rememberTimeExempt(myEmail, status.timeTrackingExempt);
   }, [status, myEmail]);
-  const openReview = () => reviewRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   // Review opens that employee's full timecard in People > Time - only for
   // those who can open it (administrator, or the HR grant - App.jsx's gate).
   const openTimecardFor = mayOpenTime ? (r) => {
@@ -991,23 +1022,18 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   // day and today's shift, as plain page text - then MyHR's summary tiles,
   // then `card` - the clock itself, which opens straight onto the punch
   // panel and the hours panel (no header band of its own).
-  const clockIntro = (firstName) => (
-    <div className="wd-intro">
-      <div style={{ minWidth: 0 }}>
-        <h3 className="wd-intro-greet">{greetingFor(now)}{firstName ? `, ${firstName}` : ''}</h3>
-      </div>
-    </div>
-  );
   // `exempt` travels with the widget so Overview's Hours tile can hide itself
   // on the remembered answer too, instead of waiting on /time/me.
-  const clockWidget = (firstName) => ({ intro: clockIntro(firstName), card: clockCard(), shift: todayShift, exempt: exemptKnown });
+  // No greeting line (Neil, Oct 14 2026: the Dashboard already greets; here
+  // it only pushed the clock down).
+  const clockWidget = () => ({ card: clockCard(), shift: todayShift, exempt: exemptKnown });
   // Salaried/exempt people get no clock card at all (Neil, 10/06: "if it's
   // off, please take it off so the data that's coming in is relevant") - the
   // old "Time Tracking Is Off for You" note was a card about nothing. Not
   // even its loading skeleton (10/08): the remembered answer decides before
   // the status comes back.
   const clockCard = () => exemptKnown ? null : (
-    <div style={{ marginBottom: 18 }}>
+    <div className="wd-clock-wrap" style={{ marginBottom: 18 }}>
       {showLongBanner && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 12, padding: '12px 16px', borderRadius: 12, background: 'rgba(180,83,9,0.09)', border: '1.5px solid rgba(180,83,9,0.4)' }}>
           <AlertTriangle size={17} style={{ color: '#b45309', flexShrink: 0 }} />
@@ -1038,12 +1064,12 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
               {clockedIn ? (
                 /* Working: stopwatch dial, one sweep per hour of this session.
                    On break: arc = the 60m allowance draining (red once over). */
-                <SessionRing seconds={sinceSec}
+                <SessionRing seconds={sinceSec} size={phone ? 104 : 128}
                   pct={onBreak && showAllowance ? breakUsedMin / BREAK_ALLOWANCE_MIN : (sinceSec % 3600) / 3600}
                   color={onBreak ? (showAllowance && breakLeftMin < 0 ? '#b91c1c' : '#b45309') : 'var(--wk-brand)'}
                   label={onBreak ? 'On Break' : 'This Session'}
                   sub={onBreak && showAllowance ? (breakLeftMin >= 0 ? `${breakLeftMin}m of 60m left` : `${-breakLeftMin}m over 60m`) : undefined} />
-              ) : <IdleDial now={now} />}
+              ) : <IdleDial now={now} size={phone ? 104 : 128} />}
               <div className="wd-clock-info">
                 <div>
                   <span className={`wd-state wd-state--${tone}`}>
@@ -1100,7 +1126,10 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
                     </button>
                   </div>
                 )}
-                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              </div>
+              {/* The punch row is its own grid cell: under the status on a
+                  desktop, the full width of the card on a phone. */}
+              <div className="wd-punch-row">
                   {(status.allowed || []).map(kind => {
                     const M = KIND_META[kind];
                     return (
@@ -1128,7 +1157,6 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
                       </button>
                     );
                   })}
-                </div>
               </div>
             </div>
 
@@ -1183,30 +1211,11 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
 
   return (
     <div style={{ fontFamily: 'var(--wk-font)', animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
-      {/* Standard module header band (view-header carries the hairline divider
-          that separates every module's title from its content). */}
-      <div className="view-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
-          <span style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            {tab === 'timeoff' ? <CalendarDays size={19} /> : <Clock size={19} />}
-          </span>
-          <div className="view-title-group">
-            <h2 style={{ margin: 0 }}>{TAB_META[tab].title}</h2>
-            <p style={{ margin: '2px 0 0' }}>{TAB_META[tab].subtitle}</p>
-          </div>
-        </div>
-        {showReview && (
-          <button type="button" className={toReview > 0 ? 'primary-btn' : 'secondary-btn'} onClick={openReview}
-            title="Jump to the timesheets submitted to you - agree to them or send them back"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 7, fontSize: 13, alignSelf: 'center', whiteSpace: 'nowrap' }}>
-            <ClipboardCheck size={15} /> Timesheets to Review
-            {toReview > 0 && (
-              <span aria-label={`${toReview} waiting`} style={{ minWidth: 20, height: 20, padding: '0 6px', borderRadius: 999, background: '#fff', color: 'var(--wk-brand)',
-                fontSize: 11.5, fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{toReview}</span>
-            )}
-          </button>
-        )}
-      </div>
+      {/* No module header band here (Neil, Oct 14 2026): the breadcrumb and
+          the centered tabs already say where you are, and the band with its
+          icon and subtitle only pushed the clock down. Timesheets to Review
+          sits at the top of the Time Sheet tab, so the jump button that lived
+          in the band is gone with it. */}
 
       {/* Tabs - one job per screen (the everything-in-one page read as clutter).
           Desktop renders them centered in the top header; phones keep the
@@ -1240,7 +1249,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       {/* Timesheets submitted to me, not decided yet - above my own timesheet,
           for exempt reviewers too. Renders nothing when nothing is waiting. */}
       {tab === 'timesheet' && (
-        <div ref={reviewRef} style={{ scrollMarginTop: 80 }}>
+        <div>
           <TimesheetsToReview toastOk={t => toast(true, t)} toastErr={t => toast(false, t)}
             onCount={onReviewCount} onOpen={openTimecardFor} />
         </div>
@@ -1411,8 +1420,8 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
           Oct 1: "old and useless") - the year's approved total is a tile on
           Overview. */}
       <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, overflow: 'hidden', marginBottom: 24, boxShadow: 'var(--wk-shadow)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '13px 16px', borderBottom: '1px solid var(--line)' }}>
-          <span style={HD}>My Requests</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px 9px', padding: '13px 16px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
+          <span style={{ ...HD, whiteSpace: 'nowrap' }}>My Requests</span>
           {(timeoff || []).some(r => r.status === 'pending') && (
             <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 10px', borderRadius: 999, background: TO_TINT.pending, color: TO_STATUS.pending }}>
               {(timeoff || []).filter(r => r.status === 'pending').length} Pending

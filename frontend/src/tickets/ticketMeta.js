@@ -341,8 +341,11 @@ export const linkTypeLabel = (k) => (LINK_TYPES.find((l) => l.key === k) || {}).
 // Blue is deliberately not a status color: it is the app's link/selection
 // color, and on a status chip it read as "nothing to see here".
 export const TICKET_STATUS_META = {
-  new:         { label: 'New',         color: NX.red,    tint: 'rgba(220,38,38,0.14)' },
-  open:        { label: 'Open',        color: NX.red,    tint: 'rgba(220,38,38,0.14)' },
+  // Slate, not red (Neil, Oct 14 2026): Open is the resting state of every new
+  // ticket, so in red the whole queue read as an alarm. Red now means a breach
+  // or an Urgent priority and nothing else.
+  new:         { label: 'New',         color: '#64748b', tint: 'rgba(100,116,139,0.14)' },
+  open:        { label: 'Open',        color: '#64748b', tint: 'rgba(100,116,139,0.14)' },
   in_progress: { label: 'In Progress', color: NX.amber,  tint: 'rgba(217,119,6,0.16)' },
   // Waiting states are separate from On hold because they answer "waiting on
   // WHOM", and that is the difference between a clock that should keep running
@@ -351,6 +354,9 @@ export const TICKET_STATUS_META = {
   // actually move.
   waiting_user:   { label: 'Waiting for User',   color: NX.purple, tint: 'rgba(124,58,237,0.14)' },
   waiting_vendor: { label: 'Waiting for Vendor', color: '#6d28d9', tint: 'rgba(109,40,217,0.14)' },
+  // Legacy value some older tickets still carry: it meant waiting on the
+  // requester. Without an entry it rendered as the raw lowercase "waiting".
+  waiting:        { label: 'Waiting for User',   color: NX.purple, tint: 'rgba(124,58,237,0.14)' },
   on_hold:     { label: 'On Hold',     color: '#8b5cf6',  tint: 'rgba(139,92,246,0.16)' },
   resolved:    { label: 'Resolved',    color: NX.green,  tint: 'rgba(22,163,74,0.15)' },
   // Green, not gray (Neil, 10/08: "Closed color should be Green") - a deeper

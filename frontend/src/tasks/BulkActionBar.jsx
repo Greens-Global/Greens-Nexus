@@ -33,6 +33,11 @@ export default function BulkActionBar({ selected, clearSel, store, people, locke
     closeField();
     clearSel();
   };
+  // SearchSelect's wrapper is minWidth:0 (so it can ellipsize in a table
+  // cell); in this row that let it shrink to nothing once the bar ran out of
+  // room, and Assign / Move To / Duplicate painted on top of each other
+  // (phone, Oct 13 2026). Each picker sits in one of these instead.
+  const keep = { display: 'inline-flex', flexShrink: 0 };
   const selStyle = { ...inputStyle, width: 'auto', padding: '5px 8px', background: 'rgba(255,255,255,0.14)', color: '#fff', border: '1px solid rgba(255,255,255,0.3)', flexShrink: 0 };
   const duplicate = async () => {
     const picked = tasks.filter((t) => selected.has(t.id));
@@ -73,26 +78,30 @@ export default function BulkActionBar({ selected, clearSel, store, people, locke
           reading when the selection holds tasks with different people on
           them. Adding somebody alongside is a per-task action, done in the
           drawer. */}
-      <SearchSelect placeholder="Assign…" searchPlaceholder="Search people…"
-        buttonStyle={{ ...selStyle, minWidth: 132 }} emptyText="No people in the directory."
-        options={[{ id: '-', label: 'Unassigned' },
-                  ...people.map((p) => ({ id: p.email, label: p.name, keywords: p.email }))]}
-        onPick={(id) => { bulkUpdate([...selected], { assigneeIds: id === '-' ? [] : [id] }); clearSel(); }} />
+      <span style={keep}>
+        <SearchSelect placeholder="Assign…" searchPlaceholder="Search people…"
+          buttonStyle={{ ...selStyle, minWidth: 132 }} emptyText="No people in the directory."
+          options={[{ id: '-', label: 'Unassigned' },
+                    ...people.map((p) => ({ id: p.email, label: p.name, keywords: p.email }))]}
+          onPick={(id) => { bulkUpdate([...selected], { assigneeIds: id === '-' ? [] : [id] }); clearSel(); }} />
+      </span>
       {/* Move to another project. The server drops the old project's
           section and team on the way (see bulk_update) - both are
           project-scoped, so carrying them over would file the task under a
           group the destination does not have. Archived projects are left
           out: moving work INTO one is nobody's intent. */}
-      <SearchSelect placeholder="Move To…" searchPlaceholder="Search projects…"
-        buttonStyle={{ ...selStyle, minWidth: 140 }} menuMinWidth={300}
-        emptyText="No other projects to move into."
-        options={[{ id: '-', label: 'No project' },
-                  ...(store.projects || []).filter((p) => !p.archived && p.id !== lockedProjectId)
-                    .slice().sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'en', { sensitivity: 'base' }))
-                    .map((p) => ({ id: p.id, label: p.name }))]}
-        onPick={(id) => { bulkUpdate([...selected], { projectId: id === '-' ? '' : id }); clearSel(); }} />
+      <span style={keep}>
+        <SearchSelect placeholder="Move To…" searchPlaceholder="Search projects…"
+          buttonStyle={{ ...selStyle, minWidth: 140 }} menuMinWidth={300}
+          emptyText="No other projects to move into."
+          options={[{ id: '-', label: 'No project' },
+                    ...(store.projects || []).filter((p) => !p.archived && p.id !== lockedProjectId)
+                      .slice().sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'en', { sensitivity: 'base' }))
+                      .map((p) => ({ id: p.id, label: p.name }))]}
+          onPick={(id) => { bulkUpdate([...selected], { projectId: id === '-' ? '' : id }); clearSel(); }} />
+      </span>
       {fields.length > 0 && (
-        <span ref={fieldRef} style={{ display: 'inline-flex', flexShrink: 0 }}>
+        <span ref={fieldRef} style={keep}>
           <SearchSelect placeholder="Set Field…" searchPlaceholder="Search fields…"
             buttonStyle={{ ...selStyle, minWidth: 124 }} emptyText="No fields to set."
             options={fields.map((f) => ({ id: f.id, label: f.name }))}
@@ -119,10 +128,12 @@ export default function BulkActionBar({ selected, clearSel, store, people, locke
       {/* Custom grouping's sections (Oct 13 2026): file the selection under
           one at once - "these are the annual ones". */}
       {sections?.sections?.length > 0 && (
-        <SearchSelect placeholder="Move to Section…" searchPlaceholder="Search sections…"
-          buttonStyle={{ ...selStyle, minWidth: 150 }} emptyText="No sections yet."
-          options={[{ id: '-', label: 'No Section' }, ...sections.sections.map((x) => ({ id: x.id, label: x.name }))]}
-          onPick={(id) => { sections.move([...selected], id).catch((e) => alert(e?.message || 'Could not move the tasks.')); clearSel(); }} />
+        <span style={keep}>
+          <SearchSelect placeholder="Move to Section…" searchPlaceholder="Search sections…"
+            buttonStyle={{ ...selStyle, minWidth: 150 }} emptyText="No sections yet."
+            options={[{ id: '-', label: 'No Section' }, ...sections.sections.map((x) => ({ id: x.id, label: x.name }))]}
+            onPick={(id) => { sections.move([...selected], id).catch((e) => alert(e?.message || 'Could not move the tasks.')); clearSel(); }} />
+        </span>
       )}
       <button onClick={duplicate} title="Duplicate the selected tasks" style={{ ...btn('ghost'), color: '#fff', flexShrink: 0 }}><Copy size={14} />Duplicate</button>
       <button onClick={() => { if (confirm(`Delete ${selected.size} task(s)?`)) { [...selected].forEach(deleteTask); clearSel(); } }} style={{ ...btn('ghost'), color: '#fff', flexShrink: 0 }}><Trash2 size={15} />Delete</button>

@@ -220,6 +220,21 @@ function dimsQuery(dims) {
     .join("");
 }
 
+// fetch() itself failed - no answer from the server at all. The raw error says
+// "Failed to fetch" (or "signal is aborted..." for our own timeout), which is
+// what hundreds of `toast(e.message)` call sites then showed people. Same
+// failure, readable words. What callers rely on is kept: still no `.status`
+// (lib/punchQueue and bodQueue read that as "outcome unknown"), the original
+// `name` ('TypeError', or 'AbortError' for the timeout), and the raw error as
+// `cause` for whoever is debugging.
+const UNREACHABLE_MESSAGE = "Can't reach Nexus right now. Check your connection and try again.";
+function _networkError(err) {
+  const out = new Error(UNREACHABLE_MESSAGE, { cause: err });
+  if (err?.name) out.name = err.name;
+  out.isNetworkError = true;
+  return out;
+}
+
 async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
   const authHeader = await getAuthHeader(tokenRefreshed);
   const timeoutMs = options.timeoutMs ?? FETCH_TIMEOUT_MS;
@@ -257,7 +272,7 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
       return req(path, options, attempt + 1, tokenRefreshed);
     }
     _setBackendDown(true);
-    throw err;
+    throw _networkError(err);
   }
 
   // BFF mode: a 401 means the session cookie is dead/absent -> server-side login
@@ -356,7 +371,7 @@ async function reqBlob(path, options = {}, attempt = 1, tokenRefreshed = false) 
       await new Promise(r => setTimeout(r, 800 * attempt));
       return reqBlob(path, options, attempt + 1, tokenRefreshed);
     }
-    throw err;
+    throw _networkError(err);
   }
   if (res.status === 401 && BFF_MODE) {
     // Same as req(): absorb a transient 401 with one retry before a full-page re-login.
@@ -489,6 +504,7 @@ export const api = {
   confirmTaskDue: (id) => req(`/tasks/${id}/due/confirm`, { method: "POST" }),
   proposeTaskDue: (id, dueOn, note = "") => req(`/tasks/${id}/due/propose`, { method: "POST", body: JSON.stringify({ due_on: dueOn, note }) }),
   respondTaskDue: (id, accept, note = "", counterOn = "") => req(`/tasks/${id}/due/respond`, { method: "POST", body: JSON.stringify({ accept, note, counter_on: counterOn }) }),
+  withdrawTaskDue: (id) => req(`/tasks/${id}/due/withdraw`, { method: "POST" }),
   // Sections & custom statuses (board columns)
   getTaskSections: () => req("/tasks/meta/sections"),
   createTaskSection: (data) => req("/tasks/meta/sections", { method: "POST", body: JSON.stringify(data) }),
@@ -572,6 +588,10 @@ export const api = {
   getTaskTemplates: () => req("/task-templates"),
   createTaskTemplate: (data) => req("/task-templates", { method: "POST", body: JSON.stringify(data) }),
   deleteTaskTemplate: (id) => req(`/task-templates/${id}`, { method: "DELETE" }),
+  // Save as Template / Use (Oct 14 2026) - the server reads the task and its
+  // subtasks itself, and builds them back in one go.
+  saveTaskAsTemplate: (taskId, data) => req(`/tasks/${taskId}/as-template`, { method: "POST", body: JSON.stringify(data) }),
+  useTaskTemplate: (id, data) => req(`/task-templates/${id}/use`, { method: "POST", body: JSON.stringify(data || {}) }),
   // Project templates - a whole project saved as a reusable blueprint. Distinct
   // from the single-task templates above (see models.TaskProjectTemplate).
   // Building a project can mint a hundred rows, so use/duplicate get a longer
@@ -600,6 +620,9 @@ export const api = {
   // company, so filtering in the browser would still ship them all.
   getMyTickets: () => req("/task-tickets?mine=true"),
   createTaskTicket: (data) => req("/task-tickets", { method: "POST", body: JSON.stringify(data) }),
+  // Create Task from Ticket (Oct 14 2026): one call, both sides linked -> { task, ticket }.
+  createTaskFromTicket: (id) => req(`/task-tickets/${id}/tasks`, { method: "POST" }),
+  getTicketSummary: (id) => req(`/task-tickets/${id}/summary`),
   updateTaskTicket: (id, data) => req(`/task-tickets/${id}`, { method: "PATCH", body: JSON.stringify(data) }),
   deleteTaskTicket: (id) => req(`/task-tickets/${id}`, { method: "DELETE" }),
   getTicketComments: (id) => req(`/task-tickets/${id}/comments`),
@@ -1124,6 +1147,8 @@ export const api = {
     req(`/pfs/profiles/${encodeURIComponent(id)}/lines/${encodeURIComponent(lineId)}/move`, { method: "PATCH", body: JSON.stringify({ section, category }) }),
   // The order of lines within a section, kept per guarantor (Charmi, 10/04).
   reorderPfsLines: (id, ids) => req(`/pfs/profiles/${encodeURIComponent(id)}/line-order`, { method: "PUT", body: JSON.stringify({ ids }) }),
+  // The order of the guarantor dropdown (Neil, Oct 14).
+  reorderPfsProfiles: (ids) => req("/pfs/profile-order", { method: "PUT", body: JSON.stringify({ ids }) }),
   // Leasing: tenants, the rent as it changes, and each month's expected
   // against what the ledger received.
   getLeasingRentRoll: (year) => req(`/leasing/rent-roll?year=${year}`),
@@ -1278,6 +1303,18 @@ export const api = {
   retryLifeEventApply: (id)       => req(`/hr/life-events/${id}/retry-apply`, { method: 'POST' }),
   previewPromotion:    (eid, data) => req(`/hr/employees/${eid}/promotion/preview`, { method: 'POST', body: JSON.stringify(data) }),
   sendPromotion:       (eid, data) => req(`/hr/employees/${eid}/promotion`, { method: 'POST', body: JSON.stringify(data) }),
+  // Role change without a promotion: asks the manager / HR, who approve (Pranshu, Oct 13).
+  requestRoleChange:   (data)      => req('/hr/role-change-requests', { method: 'POST', body: JSON.stringify(data) }),
+  getRoleChangeRequests: ({ employeeId = '', email = '' } = {}) =>
+    req(`/hr/role-change-requests?employee_id=${encodeURIComponent(employeeId)}&email=${encodeURIComponent(email)}`),
+  getRoleChangeRequest: (id)       => req(`/hr/role-change-requests/${id}`),
+  approveRoleChange:   (id)        => req(`/hr/role-change-requests/${id}/approve`, { method: 'POST' }),
+  declineRoleChange:   (id, note)  => req(`/hr/role-change-requests/${id}/decline`, { method: 'POST', body: JSON.stringify({ note }) }),
+  cancelRoleChange:    (id)        => req(`/hr/role-change-requests/${id}/cancel`, { method: 'POST' }),
+  // From People, HR changes the role directly - no approval (Pranshu, Oct 14).
+  changeRoleNow:       (eid, data) => req(`/hr/employees/${eid}/role`, { method: 'POST', body: JSON.stringify(data) }),
+  getRoleHistory:      ({ employeeId = '', email = '' } = {}) =>
+    req(`/hr/role-history?employee_id=${encodeURIComponent(employeeId)}&email=${encodeURIComponent(email)}`),
   previewOffboard:     (eid, data) => req(`/hr/employees/${eid}/offboard/preview`, { method: 'POST', body: JSON.stringify(data) }),
   offboard:            (eid, data) => req(`/hr/employees/${eid}/offboard`, { method: 'POST', body: JSON.stringify(data) }),
   cancelOffboarding:   (id)        => req(`/hr/life-events/${id}/cancel-offboarding`, { method: 'POST' }),
@@ -1449,6 +1486,8 @@ export const api = {
   timeApprove:       (data)      => req('/timeclock/approvals', { method: 'POST', body: JSON.stringify(data) }),
   timeApprovalRevoke: (id)       => req(`/timeclock/approvals/${id}`, { method: 'PATCH' }),
   timeBodRecord:     (data)      => req('/timeclock/bod', { method: 'POST', body: JSON.stringify(data) }),
+  // BOD/EOD location tag (Remote / site / Off-Site Punch) for a position.
+  timeWhere:         (pos)       => req(`/timeclock/where?lat=${encodeURIComponent(pos?.lat || '')}&lng=${encodeURIComponent(pos?.lng || '')}&accuracy_m=${pos?.accuracy_m || 0}`),
   // My Teams chats, listed server-side via the session's Graph token (no MSAL popup).
   timeMyChats:       ()          => req('/timeclock/my-chats', { timeoutMs: 30000 }),
   // Channels of every team the caller is in - binding BOD/EOD to a channel (Oct 6).
@@ -1627,6 +1666,14 @@ export const api = {
   cvPersonalLockVerify: (password) => req('/credvault/personal/lock/verify', { method: 'POST', body: JSON.stringify({ password }) }),
   cvPersonalLockForgot: (channel)  => req('/credvault/personal/lock/forgot', { method: 'POST', body: JSON.stringify({ channel }) }),
   cvPersonalLockReset:  (challengeId, code, newPassword) => req('/credvault/personal/lock/reset', { method: 'POST', body: JSON.stringify({ challengeId, code, newPassword }) }),
+  cvTransfer:       (id, ownerEmail) => req(`/credvault/credentials/${id}/transfer`, { method: 'POST', body: JSON.stringify({ ownerEmail }) }),
+  // Oct 14 2026 rebuild: ask for access, who has it, end a grant early,
+  // the identity-check window, edit a personal credential.
+  cvRequest:        (id, body)   => req(`/credvault/credentials/${id}/request`, { method: 'POST', body: JSON.stringify(body || {}) }),
+  cvAccess:         (id)         => req(`/credvault/credentials/${id}/access`),
+  cvRevokeGrant:    (grantId)    => req(`/credvault/grants/${grantId}`, { method: 'DELETE' }),
+  cvOtpStatus:      ()           => req('/credvault/otp/status'),
+  cvPersonalUpdate: (id, body)   => req(`/credvault/personal/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
 
   // ── Documents (DMS) - Phase 1: folders + drafts/library, next to E-Sign ──
   getDocFolders:      ()             => req('/documents/folders'),
@@ -2188,6 +2235,38 @@ export const api = {
   weatherCallMine:      ()                    => req('/weather-call/mine'),
   weatherCallMyPrefs:   ()                    => req('/weather-call/my-prefs'),
   weatherCallMyPrefsSave: (data)              => req('/weather-call/my-prefs', { method: 'PUT', body: JSON.stringify(data) }),
+  // ── Documents: signature blocks + Publish (Oct 14) ──────────────────────────
+  // The document as Nexus Sign gets it: {fileName, pdf (base64), fields, roles},
+  // with a field on every signature line the template drew.
+  documentSigningPdf: (id) => req(`/documents/${id}/signing-pdf`),
+  // Release a template's current wording to the HR packets that use it.
+  publishDocTemplate: (id, note = '') => req(`/documents/templates/${id}/publish`, { method: 'POST', body: JSON.stringify({ note }) }),
+  // ── HR packets built from Documents (Oct 14) ───────────────────────────────
+  saveDocumentsPacket: (data) => req('/hr/packets/documents', { method: 'PUT', body: JSON.stringify(data) }),
+  // Who holds each signing role today for a company (the editor's "today: ...").
+  packetRoleHolders:   (entityId = '') => req(`/hr/packets/role-holders?entity_id=${encodeURIComponent(entityId)}`),
+  // One template as the packet prints it, filled with a sample person -> {blob}.
+  renderPacketPreview: (data) => reqBlob('/hr/packets/render-preview', { method: 'POST', body: JSON.stringify(data), headers: { 'Content-Type': 'application/json' } }),
+  // Start -> review -> Verify And Send. Only the verifier can send.
+  startHiringPacket:   (cid, data) => req(`/hr/candidates/${cid}/hiring-packet/start`, { method: 'POST', body: JSON.stringify(data) }),
+  getPacketReview:     (eid) => req(`/hr/life-events/${eid}/review`),
+  patchPacketValues:   (eid, data) => req(`/hr/life-events/${eid}/values`, { method: 'PATCH', body: JSON.stringify(data) }),
+  regeneratePacket:    (eid) => req(`/hr/life-events/${eid}/regenerate`, { method: 'POST' }),
+  packetDocumentPdf:   (eid, did) => reqBlob(`/hr/life-events/${eid}/documents/${did}/pdf`),
+  verifyAndSendPacket: (eid, data) => req(`/hr/life-events/${eid}/verify-and-send`, { method: 'POST', body: JSON.stringify(data) }),
+  // Ask the candidate for their details again - a fresh link, the old one dead.
+  reopenPacketIntake:  (eid) => req(`/hr/life-events/${eid}/reopen-intake`, { method: 'POST' }),
+  // A promotion letter built from Documents: generated, then verified and sent.
+  startPromotion:      (eid, data) => req(`/hr/employees/${eid}/promotion/start`, { method: 'POST', body: JSON.stringify(data) }),
+  // Documents > HR Records: every document HR packets generated (HR only).
+  listPacketDocuments: ({ q = '', status = '' } = {}) => req(`/hr/packet-documents?${new URLSearchParams({ q, status })}`),
+  // Signs Once (Oct 14): the company signs a packet once - a one-time code,
+  // then the signature goes on every packet until someone else holds the role.
+  // Ready To Send (Oct 14): the packet's checklist, read again after a fix.
+  packetReadiness:     (sid) => req(`/hr/packets/${sid}/readiness`),
+  signOnceStatus:      (sid, entityId = '') => req(`/hr/packets/${sid}/sign-once?entity_id=${encodeURIComponent(entityId)}`),
+  signOnceCode:        (sid, data) => req(`/hr/packets/${sid}/sign-once/code`, { method: 'POST', body: JSON.stringify(data) }),
+  signOnce:            (sid, data) => req(`/hr/packets/${sid}/sign-once`, { method: 'POST', body: JSON.stringify(data) }),
   // Accounting > Loans & Financing > Loan Planning (Charmi, item 25, Oct 15):
   // planned loans saved by name per entity (routers/accounting_loan_plans.py).
   getPlannedLoans:   ()         => req('/accounting/loan-plans/planned'),
@@ -2199,6 +2278,22 @@ export const api = {
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
 // no MSAL involved, the token in the URL is the credential.
 export const API_BASE = BASE;
+
+// A candidate's details page (/intake/{token}, Oct 14) - no Nexus login; the
+// link's token is the credential, so these are plain fetches.
+async function _publicIntake(token, init) {
+  const res = await fetch(`${BASE}/hr/intake/public/${encodeURIComponent(token)}`, init);
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json())?.detail; } catch { /* not JSON */ }
+    throw new Error(typeof detail === 'string' && detail ? detail : `Could not load this page (${res.status})`);
+  }
+  return res.json();
+}
+export const fetchPublicIntake = (token) => _publicIntake(token);
+export const submitPublicIntake = (token, values) => _publicIntake(token, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ values }),
+});
 
 // Public unit finder (/map/{propertyId}) - a customer looking for their unit
 // has no Nexus login, so this is a plain fetch of the customer-safe model.

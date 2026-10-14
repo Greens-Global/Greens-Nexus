@@ -13,6 +13,7 @@ import { WorkforceViewProvider, useWorkforceView, useWorkforceViews } from './wo
 import Scorecard from './workforce/Scorecard';
 import { useRole } from '../contexts/RoleContext';
 import { Spinner, LoadingState } from './AsyncState';
+import { pollWhileVisible } from '../lib/pollWhileVisible';
 
 // Human "last seen" from a seconds delta.
 function relSeen(secs) {
@@ -122,12 +123,12 @@ function AgentInstall() {
     api.timeAgentInstallCommand().then(setInfo).catch(e => setInfo(e && e.status === 403 ? 'forbidden' : false));
     loadDevices();
     // Refresh the roster so the status dots track live (heartbeat is every 60s).
-    const iv = setInterval(loadDevices, 20000);
+    const stop = pollWhileVisible(loadDevices, 20000);
     // Curated Nexus People list for the "assign owner" picker (never M365/GAL).
     api.getPeopleDirectory()
       .then(rows => setPeople((rows || []).map(u => ({ email: (u.email || '').toLowerCase(), name: u.name || u.display_name || u.email })).filter(p => p.email)))
       .catch(() => setPeople([]));
-    return () => clearInterval(iv);
+    return stop;
   }, [loadDevices]);
 
   async function remove(id, label) {
@@ -396,8 +397,7 @@ function LiveCoverage({ onOpenPerson }) {
   }, []);
   useEffect(() => {
     load();
-    const iv = setInterval(load, 20000);   // keep the roster live
-    return () => clearInterval(iv);
+    return pollWhileVisible(load, 20000);   // keep the roster live
   }, [load]);
   // Presence (who's watching / giving support) refreshes faster than the roster
   // so the eye/wrench badges feel live.
@@ -407,8 +407,8 @@ function LiveCoverage({ onOpenPerson }) {
       .then(r => { if (alive) setPresence((r && r.bySubject) || {}); })
       .catch(() => {});
     tick();
-    const iv = setInterval(tick, 5000);
-    return () => { alive = false; clearInterval(iv); };
+    const stop = pollWhileVisible(tick, 5000);
+    return () => { alive = false; stop(); };
   }, []);
 
   const { inView } = useWorkforceView();

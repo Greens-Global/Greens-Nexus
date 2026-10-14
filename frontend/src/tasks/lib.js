@@ -12,6 +12,8 @@ export const EMPTY_FILTER = {
   // is copied on, which is why it sits next to assignee rather than inside it.
   assigneeIds: [], collaboratorIds: [], statuses: [], priorities: [], teamIds: [], projectIds: [],
   tags: [], due: 'any', dueFrom: null, dueTo: null, search: '',
+  // Only tasks made from (or linked to) a ticket - Task.sourceTicketId (Oct 14 2026).
+  fromTicket: false,
   // {fieldId: [selectedOptionId, ...]} - only select-type fields are filterable;
   // a free-text or number field has no bounded option list to offer.
   customFields: {},
@@ -165,6 +167,7 @@ export function matchesFilter(task, f = EMPTY_FILTER, taskById = null) {
     if (!f.projectIds.some((id) => ids.includes(id))) return false;
   }
   if (f.tags?.length && !f.tags.some((t) => (task.tags || []).includes(t))) return false;
+  if (f.fromTicket && !task.sourceTicketId) return false;
   // Each selected field narrows independently (AND across fields, OR within
   // one) - the same shape as the assignee/status/priority filters above.
   for (const [fieldId, wanted] of Object.entries(f.customFields || {})) {

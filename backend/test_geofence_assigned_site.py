@@ -30,7 +30,7 @@ os.environ.setdefault("NEXUS_SKIP_AUTH", "true")
 import database                                                                  # noqa: E402
 import models                                                                    # noqa: E402
 from models import HrCompanyWorkSite, HrWorkSite, NexusEmployee, TimePunch       # noqa: E402
-from routers.timeclock import _compute_timecard, _geofence                       # noqa: E402
+from routers.timeclock import _compute_timecard, _geofence, where_label           # noqa: E402
 
 models.Base.metadata.create_all(bind=database.engine)
 
@@ -171,6 +171,32 @@ class PunchLocationTest(unittest.TestCase):
     def test_remote_is_fine_anywhere_but_still_resolves_to_a_site(self):
         self.assertEqual(self.judge(FAR, work_remote=1)["geo_status"], "remote")
         self.assertEqual(self.judge(B)["work_site_id"], self.b)
+
+    def where(self, pt, acc=10, **emp):
+        db = database.SessionLocal()
+        try:
+            if emp:
+                row = db.query(NexusEmployee).filter(NexusEmployee.id == self.emp_id).first()
+                for k, v in emp.items():
+                    setattr(row, k, v)
+                db.commit()
+            lat, lng = near(pt) if pt else ("", "")
+            return where_label(lat, lng, acc, user={"email": self.email}, db=db)["label"]
+        finally:
+            db.close()
+
+    def test_bod_eod_location_tag(self):
+        # Pranshu, 10/14: an allowed site by name, anywhere else Off-Site Punch
+        # (a company site they are not allowed at too), Remote always reads Remote.
+        self.assertEqual(self.where(A), "Menifee")
+        self.assertEqual(self.where(B), "Temecula")
+        self.assertEqual(self.where(C), "Off-Site Punch")
+        self.assertEqual(self.where(FAR), "Off-Site Punch")
+        self.assertEqual(self.where(None), "")
+        self.assertEqual(self.where(A, acc=5000), "")
+        self.assertEqual(self.where(C, work_site_ids="[]", work_site_id=""), "Other")
+        self.assertEqual(self.where(A, work_remote=1), "Remote")
+        self.assertEqual(self.where(None), "Remote")
 
     def test_timecard_rejudges_old_stamps_and_keeps_manager_sites(self):
         db = database.SessionLocal()

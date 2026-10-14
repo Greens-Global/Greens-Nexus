@@ -17,12 +17,21 @@ manager." Three pieces, all kept on the task row (see models.Task):
     another date ("proposed"), which the requester accepts or declines. A date
     the assignee sets themselves is theirs by definition ("accepted").
 
+  • Extension approval (Sagar, Oct 13 2026) - an extension needs a yes from
+    the requester or an assignee's manager when it would be the 3rd or later,
+    or would land more than a calendar month after the first agreed date
+    (baseline_of). It is held as a request ("extension_requested", the date in
+    due_proposal) and the task keeps its current date until one of them
+    approves; declined or unanswered, the current date stands. Someone who can
+    approve it (or a manager) moving the date is not asked anything.
+
 Every due_on write in the app goes through record_due_change so the three can
 never disagree. No emails are sent from here - the caller decides, because the
 bulk and Asana paths must not mail anyone per row.
 """
 from __future__ import annotations
 
+import calendar
 from datetime import date, timedelta
 
 from sqlalchemy.orm import Session
@@ -31,7 +40,13 @@ import models
 from routers.task_util import log_activity, now_iso, task_assignees, task_notify
 
 AGREED = ("", "accepted")      # "" = legacy row, or a date nobody needs to confirm
-SOURCES = ("app", "bulk", "asana", "proposal", "counter", "automation", "cascade")   # automation: task_automation.py; cascade: task_schedule.py (Oct 2026)
+# While an extension waits for approval the CURRENT date is still the agreed one.
+REQUESTED = "extension_requested"
+SOURCES = ("app", "bulk", "asana", "proposal", "counter", "automation", "cascade",   # automation: task_automation.py; cascade: task_schedule.py (Oct 2026)
+           "approved")
+# The 3rd extension onward needs approval - and so does any that lands more
+# than a calendar month after the first agreed date.
+APPROVAL_FROM = 3
 # Managers hear about a task on its 3rd extension, then every 3rd after that -
 # "I would love to know that the task was extended 9 times" without a bell
 # ping for every single push.
@@ -69,7 +84,94 @@ def is_extension(t: models.Task, old: str, new: str, source: str) -> bool:
     """A later date replacing an agreed one. Read BEFORE the agreement moves."""
     old, new = (old or "")[:10], (new or "")[:10]
     return (bool(old) and bool(new) and new > old and source != "proposal"
-            and (t.due_agreement or "") in AGREED)
+            and (t.due_agreement or "") in (*AGREED, REQUESTED))
+
+
+def add_month(iso: str) -> str:
+    """The same day a calendar month later, kept inside short months
+    (01/31 -> 02/28)."""
+    d = date.fromisoformat(iso[:10])
+    y, m = (d.year + 1, 1) if d.month == 12 else (d.year, d.month + 1)
+    return date(y, m, min(d.day, calendar.monthrange(y, m)[1])).isoformat()
+
+
+def baseline_of(t: models.Task, current: str | None = None) -> str:
+    """The first agreed date: where the first extension started from, or -
+    with none yet - the agreed date now (`current`, when the caller has
+    already written the new one onto the task)."""
+    for h in (t.due_history or []):
+        if h.get("extension") and h.get("from"):
+            return h["from"][:10]
+    return ((t.due_on if current is None else current) or "")[:10]
+
+
+def approvers_of(db: Session, t: models.Task) -> list[str]:
+    """Who can approve an extension: the requester (unless they are doing the
+    work themselves) and each assignee's manager."""
+    assignees = task_assignees(t)
+    out = []
+    req = requester_of(t)
+    if req and req not in assignees:
+        out.append(req)
+    if assignees:
+        rows = db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email.in_(assignees)).all()
+        for e in rows:
+            mgr = (e.manager_email or "").strip().lower()
+            if mgr and mgr not in assignees and mgr not in out:
+                out.append(mgr)
+    return out
+
+
+def needs_approval(db: Session, t: models.Task, old: str, new: str, actor: str,
+                   privileged: bool = False) -> list[str]:
+    """The people to ask before `actor` may move the date from `old` to `new`,
+    or [] when the move can simply happen. Read BEFORE the date is written
+    back - call with the agreement as it stands."""
+    old, new = (old or "")[:10], (new or "")[:10]
+    if privileged or not is_extension(t, old, new, "app"):
+        return []
+    number = int(t.due_extension_count or 0) + 1
+    base = baseline_of(t, old)
+    if number < APPROVAL_FROM and new <= add_month(base):
+        return []
+    who = approvers_of(db, t)
+    actor = (actor or "").strip().lower()
+    if not who or actor in who:
+        return []     # nobody to ask, or the asker is the one who would say yes
+    return who
+
+
+def request_extension(db: Session, t: models.Task, actor: str, new: str, approvers: list[str],
+                      note: str = "", notify: bool = True) -> None:
+    """Hold an extension for approval. The caller has put t.due_on back to the
+    current date; it stays until an approver says yes (respond)."""
+    actor = (actor or "").strip().lower()
+    number = int(t.due_extension_count or 0) + 1
+    base = baseline_of(t) or (t.due_on or "")[:10]
+    over_month = new[:10] > add_month(base)
+    t.due_agreement = REQUESTED
+    t.due_proposal = {"dueOn": new[:10], "by": actor, "at": now_iso(), "note": (note or "")[:500],
+                      "kind": "extension", "number": number, "approvers": list(approvers),
+                      "overMonth": over_month, "baseline": base}
+    detail = (f"asked to extend the due date from {us_date(t.due_on)} to {us_date(new)}"
+              f" - extension #{number}, needs approval")
+    if note:
+        detail += f": {note[:200]}"
+    _log(db, t, "due_extension_requested", actor, detail)
+    if notify:
+        for who in approvers:
+            if who != actor:
+                task_notify(db, kind="task_due_extension_requested", for_email=who,
+                            title="Extension needs your approval",
+                            body=f"{t.title} - {extension_reason(number, over_month, base)}: "
+                                 f"{us_date(t.due_on)} → {us_date(new)}",
+                            task_id=t.id, nexus_action={"view": "tasks", "sub": "mine", "label": "Review"})
+
+
+def extension_reason(number: int, over_month: bool, base: str) -> str:
+    if number >= APPROVAL_FROM:
+        return f"extension #{number}"
+    return f"more than a month past {us_date(base)}"
 
 
 def settle_agreement(t: models.Task, actor: str) -> None:
@@ -113,7 +215,7 @@ def record_due_change(db: Session, t: models.Task, old: str, new: str, *, actor:
     if ext:
         t.due_extension_count = int(t.due_extension_count or 0) + 1
 
-    if source == "proposal":
+    if source in ("proposal", "approved"):
         t.due_agreement, t.due_proposal = "accepted", None
     elif source != "asana":
         # An Asana edit has no Nexus actor to attribute a confirmation to, so
@@ -131,8 +233,11 @@ def record_due_change(db: Session, t: models.Task, old: str, new: str, *, actor:
         detail += f" - extension #{n}"
     if source == "asana":
         detail += " (in Asana)"
+    if source == "approved":
+        detail += " (approved)"
     _log(db, t, "due_changed", actor or "asana", detail)
-    if ext:
+    if ext and source != "approved":
+        # An approved one was already put to the managers as a request.
         _alert_managers(db, t, actor)
     return entry
 
@@ -195,6 +300,9 @@ def respond(db: Session, t: models.Task, actor: str, accept: bool, note: str = "
     confirm. A counter is still negotiation, never an extension."""
     prop = t.due_proposal or {}
     proposer = (prop.get("by") or "").lower()
+    if prop.get("kind") == "extension":
+        _answer_extension(db, t, actor, accept, note)
+        return
     if counter_on:
         old = t.due_on or ""
         t.due_on = counter_on[:10]
@@ -220,6 +328,38 @@ def respond(db: Session, t: models.Task, actor: str, accept: bool, note: str = "
             task_notify(db, kind="task_due_answered", for_email=who, title=title,
                         body=f"{t.title} - due {us_date(t.due_on)}", task_id=t.id,
                         nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
+
+
+def _answer_extension(db: Session, t: models.Task, actor: str, accept: bool, note: str = "") -> None:
+    """An approver's yes moves the date (and counts the extension); a no keeps
+    the agreed date as it is."""
+    prop = t.due_proposal or {}
+    proposer = (prop.get("by") or "").lower()
+    if accept:
+        old = t.due_on or ""
+        t.due_agreement = "accepted"      # the date being replaced is the agreed one
+        t.due_on = prop.get("dueOn") or old
+        record_due_change(db, t, old, t.due_on, actor=actor, source="approved", note=note)
+        title, detail = "Extension approved", f"approved the extension to {us_date(t.due_on)}"
+    else:
+        t.due_agreement, t.due_proposal = "accepted", None
+        title = "Extension declined"
+        detail = f"declined the extension to {us_date(prop.get('dueOn') or '')} - still due {us_date(t.due_on)}"
+    if note:
+        detail += f": {note[:200]}"
+    _log(db, t, "due_answered", actor, detail)
+    for who in {proposer, *task_assignees(t)}:
+        if who and who != actor:
+            task_notify(db, kind="task_due_answered", for_email=who, title=title,
+                        body=f"{t.title} - due {us_date(t.due_on)}", task_id=t.id,
+                        nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
+
+
+def withdraw_extension(db: Session, t: models.Task, actor: str) -> None:
+    """The asker takes the request back; the agreed date never moved."""
+    prop = t.due_proposal or {}
+    t.due_agreement, t.due_proposal = "accepted", None
+    _log(db, t, "due_answered", actor, f"withdrew the extension to {us_date(prop.get('dueOn') or '')}")
 
 
 # ── Per-person record ───────────────────────────────────────────────────────
@@ -251,6 +391,7 @@ def person_record(tasks: list, email: str, *, days: int = 90, today: date | None
                    if h.get("extension") and (h.get("by") or "").lower() == email)
     stale = [t for t in in_window if not t.completed and int(t.due_extension_count or 0) >= 3]
     awaiting = [t for t in in_window if not t.completed and (t.due_agreement or "") == "pending"]
+    ext_waiting = [t for t in in_window if not t.completed and (t.due_agreement or "") == REQUESTED]
 
     on_time_pct = round(100 * (len(dated_done) - len(late)) / len(dated_done)) if dated_done else None
     flags = []
@@ -275,6 +416,7 @@ def person_record(tasks: list, email: str, *, days: int = 90, today: date | None
         "totalExtensions": total_ext,
         "selfExtensions": self_ext,
         "awaitingConfirmation": len(awaiting),
+        "extensionsAwaitingApproval": len(ext_waiting),
         "mostExtended": [brief(t) for t in sorted(extended, key=lambda t: -int(t.due_extension_count or 0))[:5]],
         "flags": flags,
     }

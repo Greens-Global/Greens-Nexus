@@ -355,6 +355,20 @@ export function TasksProvider({ children }) {
     setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
   }, []);
 
+  // A later due date can come back held for approval (Oct 13 2026, backend
+  // task_due.needs_approval): the task keeps its date, so say what happened -
+  // otherwise the picked date just snaps back. offerUndo is defined below.
+  const offerRef = useRef(null);
+  const announceHeld = useCallback((rows, patch) => {
+    if (!patch || !('dueOn' in patch) || !patch.dueOn) return;
+    const held = rows.filter((r) => r?.dueAgreement === 'extension_requested' && r.dueProposal?.dueOn === patch.dueOn);
+    if (!held.length) return;
+    offerRef.current?.(
+      held.length === 1 ? 'Extension sent for approval' : `${held.length} extensions sent for approval`,
+      () => Promise.all(held.map((r) => api.withdrawTaskDue(r.id).then((t) => patchLocalTask(t.id, t)))).catch(() => {}),
+    );
+  }, [patchLocalTask]);
+
   // ── Task actions ─────────────────────────────────────────────────────────
   const createTask = useCallback(async (data) => {
     const created = await api.createTask(toBody(data));
@@ -367,6 +381,7 @@ export function TasksProvider({ children }) {
     try {
       const saved = await api.updateTask(id, toBody(patch));
       setTasks((prev) => prev.map((t) => (t.id === id ? saved : t)));
+      announceHeld([saved], patch);
       return saved;
     } catch (e) {
       refetchTasks().catch(() => {});
@@ -376,7 +391,7 @@ export function TasksProvider({ children }) {
       if (e?.status && e.status !== 401) alert(e.message || 'Could not update this task.');
       throw e;
     }
-  }, [patchLocalTask, refetchTasks]);
+  }, [patchLocalTask, refetchTasks, announceHeld]);
 
   // Undo toast - one at a time; label + a run() that reverses the action.
   const [undo, setUndo] = useState(null);
@@ -386,6 +401,7 @@ export function TasksProvider({ children }) {
     setUndo({ label, run });
     undoTimer.current = setTimeout(() => setUndo(null), 6000);
   }, []);
+  useEffect(() => { offerRef.current = offerUndo; }, [offerUndo]);
   const runUndo = useCallback(() => {
     clearTimeout(undoTimer.current);
     setUndo((u) => { if (u) u.run(); return null; });
@@ -445,12 +461,13 @@ export function TasksProvider({ children }) {
       const rows = await api.bulkUpdateTasks(ids, toBody(patch));
       const map = Object.fromEntries(rows.map((r) => [r.id, r]));
       setTasks((prev) => prev.map((t) => map[t.id] || t));
+      announceHeld(rows, patch);
       return rows;
     } catch (e) {
       if (e?.status && e.status !== 401) alert(e.message || 'Could not update these tasks.');
       throw e;
     }
-  }, []);
+  }, [announceHeld]);
 
   // Comments (loaded on demand, cached)
   const getComments = useCallback(async (taskId) => {
@@ -573,6 +590,14 @@ export function TasksProvider({ children }) {
     addTicketLink: async (id, targetId, type) => { const r = await api.addTicketLink(id, { ticket_id: targetId, type }); await reloadTicketsInto(setTickets); return r; },
     removeTicketLink: async (id, targetId) => { const r = await api.removeTicketLink(id, targetId); await reloadTicketsInto(setTickets); return r; },
     escalateTicket: async (id) => { const r = await api.escalateTicket(id); setTickets((p) => p.map((x) => (x.id === id ? r : x))); return r; },
+    // A task made from a ticket (Oct 14 2026): the server links both sides in
+    // one save and hands both back.
+    createTaskFromTicket: async (id) => {
+      const r = await api.createTaskFromTicket(id);
+      setTasks((p) => [r.task, ...p.filter((x) => x.id !== r.task.id)]);
+      setTickets((p) => p.map((x) => (x.id === id ? r.ticket : x)));
+      return r;
+    },
     createSavedView: mk(api.createTaskSavedView, setSavedViews),
     deleteSavedView: mkDel(api.deleteTaskSavedView, setSavedViews),
     createTicketView: mk(api.createTicketView, setTicketViews),
@@ -582,6 +607,18 @@ export function TasksProvider({ children }) {
     deleteRule: mkDel(api.deleteTaskAutomationRule, setRules),
     createTemplate: mk(api.createTaskTemplate, setTemplates),
     deleteTemplate: mkDel(api.deleteTaskTemplate, setTemplates),
+    saveTaskAsTemplate: async (taskId, data) => {
+      const r = await api.saveTaskAsTemplate(taskId, toBody(data));
+      setTemplates((p) => [r, ...p]);
+      return r;
+    },
+    // The main task comes back; its subtasks arrive with the refetch.
+    startFromTemplate: async (id, data) => {
+      const r = await api.useTaskTemplate(id, toBody(data));
+      setTasks((p) => [r, ...p.filter((x) => x.id !== r.id)]);
+      refetchTasks().catch(() => {});
+      return r;
+    },
     // Project templates. Saving one is a pure read of the project, so nothing
     // else on screen changes; USING one mints a project plus its sections and
     // tasks, so the core is reloaded rather than patched - the same reason

@@ -4,7 +4,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 // What's New is a page in the app now, not an overlay over it, and the profile
 // dropdown's "Help with this page" is gone - the header's Help panel has
-// "Help for This Page" (Neil, Oct 12 2026).
+// "Help with This Page" (Neil, Oct 12 2026; wording Oct 13).
 
 vi.mock('@azure/msal-react', () => ({
   useMsal: () => ({ instance: {}, accounts: [{ name: 'Pat Lee', username: 'pat@greensglobal.com' }] }),

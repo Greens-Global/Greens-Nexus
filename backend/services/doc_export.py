@@ -141,7 +141,13 @@ def _walk_blocks(nodes, merge: dict) -> list:
                            "spacingAfter": attrs.get("spacingAfter")})
         elif t in ("bulletList", "orderedList"):
             items = [_walk_blocks(li.get("content"), merge) for li in (n.get("content") or [])]
-            blocks.append({"type": t, "items": items})
+            # A numbered list that continues an earlier one (Word's "2." after
+            # a paragraph) keeps its number - it used to restart at 1.
+            try:
+                start = max(1, int((n.get("attrs") or {}).get("start") or 1))
+            except (TypeError, ValueError):
+                start = 1
+            blocks.append({"type": t, "items": items, "start": start})
         elif t == "table":
             rows = []
             for row in n.get("content") or []:
@@ -174,6 +180,15 @@ def _walk_blocks(nodes, merge: dict) -> list:
             blocks.append({"type": "textbox", "blocks": _walk_blocks(n.get("content"), merge)})
         elif t == "mergeField":
             blocks.append({"type": "paragraph", "align": "left", "runs": _text_runs([n], merge)})
+        elif t == "signatureBlock":
+            # Where a signer signs is part of the template (Neil, Oct 14: "the
+            # signatures are in as it is"). An atom node with no content, so
+            # without this branch the generic fallback below would drop it.
+            a = n.get("attrs") or {}
+            blocks.append({"type": "signature", "role": str(a.get("role") or "").strip().lower(),
+                           "label": _fill_text_tokens(str(a.get("label") or ""), merge),
+                           "withName": a.get("withName", True) is not False,
+                           "withDate": a.get("withDate", True) is not False})
         elif t == "sectionBox":
             # The live editor renders this as a bordered box (no export
             # primitive for that yet) - fall back to a bold label line so the
@@ -368,6 +383,20 @@ def _pdf_inline_image_markup(image: dict) -> str:
         return ""
 
 
+# Characters the built-in PDF fonts (WinAnsi) do not have print as a black box.
+# An India offer letter's "₹45,000 per month" printed "■45,000" (Oct 14), and a
+# Word form's ☐ checkboxes did too - print the plain equivalent instead.
+_PDF_FALLBACKS = {"₹": "Rs. ", "☐": "[  ]", "☑": "[X]", "☒": "[X]", "✓": "[X]",
+                  "✔": "[X]", "✗": "X", "→": "->", "←": "<-", "≤": "<=",
+                  "≥": ">=", "−": "-", " ": " ", " ": " ", "​": ""}
+_PDF_FALLBACK_RE = re.compile("|".join(map(re.escape, _PDF_FALLBACKS)))
+
+
+def _pdf_text(text: str) -> str:
+    out = _PDF_FALLBACK_RE.sub(lambda m: _PDF_FALLBACKS[m.group(0)], text or "")
+    return out.replace("Rs.  ", "Rs. ")
+
+
 def _runs_to_markup(runs: list) -> str:
     parts = []
     for r in runs or []:
@@ -376,7 +405,7 @@ def _runs_to_markup(runs: list) -> str:
             if markup:
                 parts.append(markup)
             continue
-        t = _esc(r.get("text") or "").replace("\n", "<br/>")
+        t = _esc(_pdf_text(r.get("text") or "")).replace("\n", "<br/>")
         if r.get("bold"):
             t = f"<b>{t}</b>"
         if r.get("italic"):
@@ -496,14 +525,86 @@ def _bordered_para(flowable, content_width: float, border: str):
     return tbl
 
 
-def _blocks_to_flow(blocks: list, body_style, styles, content_width: float) -> list:
+_ANCHOR_CLASS = None
+
+
+def _anchor_class():
+    """The signature line flowable, built on first use (reportlab is imported
+    lazily throughout this module)."""
+    global _ANCHOR_CLASS
+    if _ANCHOR_CLASS is not None:
+        return _ANCHOR_CLASS
+    from reportlab.platypus import Flowable
+
+    class SignatureAnchor(Flowable):
+        """One box of a signature block: draws the line and its caption, and
+        records where it landed (page points) so Nexus Sign puts the signer's
+        field exactly there - positions are never stored, they are measured on
+        every render, because the text reflows per person."""
+        CAP = 9                                   # caption strip under the line, points
+
+        def __init__(self, sink, role, ftype, width, height, caption):
+            super().__init__()
+            self.sink, self.role, self.ftype, self.caption = sink, role, ftype, caption
+            self.width, self.height = width, height
+
+        def wrap(self, avail_w, avail_h):
+            return self.width, self.height
+
+        def draw(self):                           # drawOn() wraps this in save/restoreState
+            c = self.canv
+            c.setLineWidth(0.6)
+            c.setStrokeGray(0.25)
+            c.line(0, self.CAP, self.width, self.CAP)
+            c.setFont("Helvetica", 7.5)
+            c.setFillGray(0.42)
+            c.drawString(0, 1, self.caption)
+            if self.sink is not None:
+                x, y = c.absolutePosition(0, self.CAP)   # honors table-cell translations
+                self.sink.append({"role": self.role, "type": self.ftype,
+                                  "page": c.getPageNumber() - 1, "x0": x, "y0": y,
+                                  "w": self.width, "h": self.height - self.CAP})
+
+    _ANCHOR_CLASS = SignatureAnchor
+    return _ANCHOR_CLASS
+
+
+def _signature_flow(b: dict, body_style, content_width: float, anchors) -> list:
+    """A signature block: optional caption, the signature line, then Name and
+    Date lines, as one unit that never splits across pages."""
+    from reportlab.lib.units import inch, mm
+    from reportlab.platypus import Paragraph, Spacer, Table, TableStyle
+    Anchor = _anchor_class()
+    role = b.get("role") or ""
+    width = min(3.2 * inch, content_width)
+    parts = [Spacer(1, 4 * mm)]
+    if b.get("label"):
+        parts.append(Paragraph(f"<b>{_esc(b['label'])}</b>", body_style))
+    parts.append(Anchor(anchors, role, "sign", width, 0.45 * inch + Anchor.CAP, "Signature"))
+    if b.get("withName", True):
+        parts.append(Anchor(anchors, role, "name", width, 0.24 * inch + Anchor.CAP, "Name"))
+    if b.get("withDate", True):
+        parts.append(Anchor(anchors, role, "date", width * 0.6, 0.24 * inch + Anchor.CAP, "Date"))
+    parts.append(Spacer(1, 3 * mm))
+    # A one-row table never splits across pages and, unlike KeepTogether, can
+    # sit inside a table cell (a two-column signature row).
+    box = Table([[parts]], colWidths=[width])
+    box.hAlign = "LEFT"
+    box.setStyle(TableStyle([("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                             ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0)]))
+    return [box]
+
+
+def _blocks_to_flow(blocks: list, body_style, styles, content_width: float, anchors=None) -> list:
     from reportlab.lib import colors
     from reportlab.lib.units import mm
     from reportlab.platypus import Paragraph, Spacer, Table, TableStyle, PageBreak, ListFlowable, ListItem
     flow = []
     for b in blocks or []:
         t = b["type"]
-        if t == "paragraph":
+        if t == "signature":
+            flow.extend(_signature_flow(b, body_style, content_width, anchors))
+        elif t == "paragraph":
             style = _pdf_align_style(body_style, b.get("align"))
             style = _para_style_for_runs(style, b["runs"])
             style = _para_spacing_style(style, b)
@@ -519,14 +620,18 @@ def _blocks_to_flow(blocks: list, body_style, styles, content_width: float) -> l
         elif t in ("bulletList", "orderedList"):
             items = []
             for item_blocks in b["items"]:
-                sub = _blocks_to_flow(item_blocks, body_style, styles, content_width) or [Paragraph("", body_style)]
+                sub = _blocks_to_flow(item_blocks, body_style, styles, content_width, anchors) or [Paragraph("", body_style)]
                 items.append(ListItem(sub))
-            flow.append(ListFlowable(items, bulletType="bullet" if t == "bulletList" else "1"))
+            if t == "bulletList":
+                flow.append(ListFlowable(items, bulletType="bullet"))
+            else:
+                flow.append(ListFlowable(items, bulletType="1", start=b.get("start") or 1))
         elif t == "table":
             rows = b["rows"]
             if rows:
                 ncols = max((len(r) for r in rows), default=1)
-                data = [[(_blocks_to_flow(cell["blocks"], body_style, styles, content_width) or [Paragraph("", body_style)])
+                data = [[(_blocks_to_flow(cell["blocks"], body_style, styles, content_width / max(ncols, 1) - 12,
+                                          anchors) or [Paragraph("", body_style)])
                          for cell in row] for row in rows]
                 tbl = Table(data, colWidths=[content_width / max(ncols, 1)] * ncols)
                 style_cmds = [
@@ -567,7 +672,7 @@ def _blocks_to_flow(blocks: list, body_style, styles, content_width: float) -> l
             flow.append(_shape_drawing(b))
             flow.append(Spacer(1, 3 * mm))
         elif t == "textbox":
-            inner = _blocks_to_flow(b.get("blocks"), body_style, styles, content_width * 0.9) or [Paragraph("", body_style)]
+            inner = _blocks_to_flow(b.get("blocks"), body_style, styles, content_width * 0.9, anchors) or [Paragraph("", body_style)]
             tbl = Table([[inner]], colWidths=[content_width])
             tbl.setStyle(TableStyle([
                 ("BOX", (0, 0), (-1, -1), 1, colors.HexColor("#9ca3af")),
@@ -626,7 +731,11 @@ def _letterhead_flow(letterhead: dict, content_width: float) -> list:
 
 
 def render_pdf(title: str, header_blocks: list, pages_blocks: list, footer_blocks: list,
-               letterhead: dict = None, page_setup: dict = None) -> bytes:
+               letterhead: dict = None, page_setup: dict = None, anchors: list = None) -> bytes:
+    """`anchors`, when a list is passed, receives one entry per signature-block
+    box as it lands: {role, type: sign|name|date, page, x, y, w, h}, with x/y
+    from the page's top-left and every value a fraction of the page - the
+    convention Nexus Sign's fields use (esign._stamp_pdf)."""
     from reportlab.lib.units import inch
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib import colors
@@ -650,6 +759,7 @@ def render_pdf(title: str, header_blocks: list, pages_blocks: list, footer_block
     # name. It still goes into the PDF's metadata title below, which is where a
     # file name belongs.
     flow = []
+    raw_anchors = [] if anchors is not None else None
     # pages_blocks: one block-list per page (Document Builder's Pages panel -
     # each page is now a real, independent unit, not a pageBreak marker
     # inside one continuous body). Force a real page boundary between them;
@@ -659,7 +769,7 @@ def render_pdf(title: str, header_blocks: list, pages_blocks: list, footer_block
     for i, blocks in enumerate(pages_blocks):
         if i > 0:
             flow.append(PageBreak())
-        flow.extend(_blocks_to_flow(blocks, body_style, styles, content_width))
+        flow.extend(_blocks_to_flow(blocks, body_style, styles, content_width, raw_anchors))
     if not flow:
         flow.append(Paragraph("", body_style))
 
@@ -728,6 +838,12 @@ def render_pdf(title: str, header_blocks: list, pages_blocks: list, footer_block
     # the letterhead reprints on all of them - it only switches when the flow
     # says so. Queued ahead of the content, so it takes effect from page 2.
     doc_tmpl.build([NextPageTemplate("rest"), *flow])
+    if anchors is not None:
+        pw, ph = pagesize
+        for a in raw_anchors:
+            anchors.append({"role": a["role"], "type": a["type"], "page": a["page"],
+                            "x": a["x0"] / pw, "y": (ph - (a["y0"] + a["h"])) / ph,
+                            "w": a["w"] / pw, "h": a["h"] / ph})
     return buf.getvalue()
 
 
@@ -998,6 +1114,16 @@ def _blocks_to_docx(doc, blocks: list) -> None:
                 _add_runs(p, cb.get("runs") or [])
                 first = False
             doc.add_paragraph()
+        elif t == "signature":
+            # A Word export is never signed - a plain line with its caption.
+            if b.get("label"):
+                doc.add_paragraph().add_run(b["label"]).bold = True
+            doc.add_paragraph("_" * 34)
+            doc.add_paragraph("Signature")
+            if b.get("withName", True):
+                doc.add_paragraph("Name: " + "_" * 28)
+            if b.get("withDate", True):
+                doc.add_paragraph("Date: " + "_" * 18)
         elif t == "pageBreak":
             doc.add_page_break()
 

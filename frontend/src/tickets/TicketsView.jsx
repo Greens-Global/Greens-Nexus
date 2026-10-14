@@ -26,7 +26,7 @@ import TaskDetailDrawer from '../tasks/TaskDetailDrawer';
 import { Avatar, PriorityChip, StatusChip, EmptyState, Modal, PersonSelect, usePeople, useIsMobile, UnassignedAvatar, SelectMenu, useImageZoom } from '../tasks/components';
 import MobileTaskBar, { BottomSheet } from '../tasks/MobileTaskBar';
 import { Card, LightBar, Donut } from '../tasks/views/charts';
-import { useTableColumns, useTableSetting, ColResizer } from '../tasks/tableCols';
+import { useTableColumns, ColResizer } from '../tasks/tableCols';
 import {
   fmtDate, today, requiredHint, TICKET_TYPE_META, TICKET_TYPE_ORDER, TICKET_TYPE_KEYS, TYPE_FIELDS, NO_RECORDING_TYPES,
   TICKET_RESOLUTION, LINK_TYPES, TICKET_STATUS_META, TICKET_STATUS_ORDER, CLOSED_STATES,
@@ -43,7 +43,7 @@ import {
 import { HELP_SUBTOPIC_KEY, HELP_SUBTOPIC_LABEL, topicOptions, helpWithLabel } from './ticketMeta';
 import { useTicketConfig, COMPANY_FIELD, typeRequiresApproval } from './ticketConfig';
 import {
-  TypeFieldInput, TicketTypeIcon, SlaBadge, TicketStatusChip, TicketSelect,
+  TypeFieldInput, TicketTypeIcon, SlaBadge, TicketStatusChip, TicketSelect, TicketPeopleMultiSelect,
 } from './TicketAtoms';
 import { SkeletonBlocks, Spinner } from '../components/AsyncState';
 import GuidedTour from '../components/GuidedTour';
@@ -55,8 +55,10 @@ import TicketOpening from './TicketOpening';
 import { PropertySelect } from './PropertySelect';
 import { uploadTicketEvidence } from './evidenceUpload';
 import { groupTakesProperty, isBuildingGroup } from './propertyMeta';
+import { StatusLabel, PrioritySignal } from '../components/StatusLabel';
 import { LatestCommentPreview, latestCommentText } from './LatestComment';
 import { TicketAssignSheet, MobileAssignField } from './TicketAssignSheet';
+import { useFrequentCollaborators } from '../tasks/frequentPeople';
 import { useTicketAccess } from './ticketAccess';
 
 // Tour id this module reports to the server (routers/user_tours.py) - see
@@ -719,14 +721,13 @@ export default function TicketsView() {
     table: 'tickets', cols: columnDefs,
   });
   // Completed tickets (resolved/closed) collapse into their own section below
-  // the main list by default (Pranshu, Sept 8 2026) rather than sitting inline
-  // with the work still in flight. Same per-table settings document as the
-  // column arrangement, so it also follows the person between devices.
-  const [collapsedList, setCollapsedList] = useTableSetting('tickets', 'collapsed', ['completed']);
-  const completedCollapsed = collapsedList.includes('completed');
-  const toggleCompleted = () => setCollapsedList(
-    completedCollapsed ? collapsedList.filter((k) => k !== 'completed') : [...collapsedList, 'completed'],
-  );
+  // the main list (Pranshu, Sept 8 2026) rather than sitting inline with the
+  // work still in flight. Collapsed on EVERY visit (Neil, Oct 13 2026: "make
+  // sure the completed section is collapsed by default so it doesn't add to
+  // the confusion") - opening it is for this visit only. It used to be a saved
+  // preference, so one click left it open on every screen from then on.
+  const [completedCollapsed, setCompletedCollapsed] = useState(true);
+  const toggleCompleted = () => setCompletedCollapsed((c) => !c);
 
   // Assignee filter options - every distinct current assignee across the
   // tickets already on screen, not a separate directory fetch: this only
@@ -1032,14 +1033,20 @@ export default function TicketsView() {
         // ticket having no assignee is not work waiting for someone.
         const unassignedCount = tickets.filter(
           (t) => !t.assigneeId && !CLOSED_STATES.includes(t.status)).length;
-        const tile = (label, bandBg, bandFg, n, sub, onGo, active, bodyBg) => (
-          <button key={label} onClick={onGo}
-            style={{ textAlign: 'left', border: `1px solid ${active ? bandFg : NX.border}`, borderRadius: 14, overflow: 'hidden', background: bodyBg || NX.surface, cursor: 'pointer', fontFamily: FONT, padding: 0, boxShadow: active ? `0 0 0 1px ${bandFg}` : 'none', transition: 'transform .15s, box-shadow .15s' }}
+        // White cards with a dot (Neil, Oct 14 2026) - the tinted header bands
+        // made a row of five different colors. Only Unassigned and SLA
+        // Breached color their number, and only when it is above zero; the
+        // selected tile takes the Nexus green outline.
+        const tile = (label, dot, n, sub, onGo, active, alarm) => (
+          <button key={label} onClick={onGo} aria-pressed={active}
+            style={{ textAlign: 'left', border: `1px solid ${active ? 'var(--wk-brand, #15803d)' : NX.border}`, borderRadius: 12, background: NX.surface, cursor: 'pointer', fontFamily: FONT, padding: '11px 14px 12px', boxShadow: active ? '0 0 0 1px var(--wk-brand, #15803d)' : 'none', transition: 'transform .15s, box-shadow .15s', display: 'flex', flexDirection: 'column', gap: 4 }}
             onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 20px rgba(0,0,0,.08)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = active ? `0 0 0 1px ${bandFg}` : 'none'; }}>
-            <span style={{ display: 'block', padding: '6px 14px', background: bandBg, color: bandFg, fontSize: 12.5, fontWeight: 700 }}>{label}</span>
-            <span style={{ display: 'flex', alignItems: 'baseline', gap: 8, padding: '10px 14px 12px' }}>
-              <span style={{ fontSize: 24, fontWeight: 800, color: NX.ink, fontVariantNumeric: 'tabular-nums' }}>{n}</span>
+            onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = active ? '0 0 0 1px var(--wk-brand, #15803d)' : 'none'; }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, fontWeight: 600, color: NX.dim }}>
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: dot, flexShrink: 0 }} />{label}
+            </span>
+            <span style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+              <span style={{ fontSize: 24, fontWeight: 800, color: alarm && n > 0 ? dot : NX.ink, fontVariantNumeric: 'tabular-nums' }}>{n}</span>
               <span style={{ fontSize: 12, color: NX.faint }}>{sub}</span>
             </span>
           </button>
@@ -1055,19 +1062,19 @@ export default function TicketsView() {
             {/* Unassigned leads the row, in yellow (Pranshu, Oct 6): the major
                 item - tickets nobody is working - so it is the first thing
                 the desk sees, the whole card tinted, not only its band. */}
-            {tile('Unassigned', 'rgba(245,158,11,0.24)', '#b45309', unassignedCount, 'nobody working them',
+            {tile('Unassigned', NX.amber, unassignedCount, 'nobody working them',
               () => { setScope('all'); setSlaFilter('all'); setStatusFilter(statusFilter === 'unassigned' ? 'all' : 'unassigned'); },
-              statusFilter === 'unassigned', 'rgba(245,158,11,0.09)')}
-            {tile('Open', TICKET_STATUS_META.open.tint, TICKET_STATUS_META.open.color, openCount, 'not yet resolved',
+              statusFilter === 'unassigned', true)}
+            {tile('Open', TICKET_STATUS_META.open.color, openCount, 'not yet resolved',
               () => { setScope('all'); setSlaFilter('all'); setStatusFilter(statusFilter === 'open' ? 'all' : 'open'); },
               statusFilter === 'open')}
-            {tile('SLA breached', 'rgba(220,38,38,0.12)', NX.red, breachedCount, 'past their target',
+            {tile('SLA Breached', NX.red, breachedCount, 'past their target',
               () => { setScope('all'); setStatusFilter('all'); setSlaFilter(slaFilter === 'breached' ? 'all' : 'breached'); },
-              slaFilter === 'breached')}
-            {tile('Resolved', 'rgba(22,163,74,0.14)', NX.green, resolvedCount, 'awaiting closure',
+              slaFilter === 'breached', true)}
+            {tile('Resolved', TICKET_STATUS_META.resolved.color, resolvedCount, 'awaiting closure',
               () => { setScope('all'); setSlaFilter('all'); setStatusFilter(statusFilter === 'resolved' ? 'all' : 'resolved'); },
               statusFilter === 'resolved')}
-            {tile('Closed', TICKET_STATUS_META.closed.tint, TICKET_STATUS_META.closed.color, closedCount, 'done and filed',
+            {tile('Closed', TICKET_STATUS_META.closed.color, closedCount, 'done and filed',
               () => { setScope('all'); setSlaFilter('all'); setStatusFilter(statusFilter === 'closed' ? 'all' : 'closed'); },
               statusFilter === 'closed')}
           </div>
@@ -1111,7 +1118,7 @@ export default function TicketsView() {
                 sitting inline with the ones still in flight - see toggleCompleted. */}
             {sortedCompleted.length > 0 && (
               <div className="nx-edge-card" style={{ border: `1px solid ${NX.border}`, borderRadius: 12, background: NX.surface, overflow: 'hidden' }}>
-                <button onClick={toggleCompleted} style={{
+                <button onClick={toggleCompleted} aria-expanded={!completedCollapsed} style={{
                   display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '9px 16px', background: NX.surface2,
                   border: 'none', borderBottom: completedCollapsed ? 'none' : `1px solid ${NX.border2}`, cursor: 'pointer', fontFamily: FONT, textAlign: 'left',
                 }}>
@@ -1179,10 +1186,10 @@ export default function TicketsView() {
               ))}
               {/* Resolved/closed tickets collapse into their own section instead
                   of sitting inline with the ones still in flight (Pranshu, Sept
-                  8 2026) - see toggleCompleted/collapsedList above. */}
+                  8 2026) - see toggleCompleted above. */}
               {sortedCompleted.length > 0 && (
                 <div>
-                  <button onClick={toggleCompleted} style={{
+                  <button onClick={toggleCompleted} aria-expanded={!completedCollapsed} style={{
                     display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '9px 16px', background: NX.surface2,
                     border: 'none', borderTop: `1px solid ${NX.border}`, borderBottom: completedCollapsed ? 'none' : `1px solid ${NX.border2}`,
                     cursor: 'pointer', fontFamily: FONT, textAlign: 'left',
@@ -1352,7 +1359,7 @@ function TicketListHeader({ cols, widths, startResize, resetWidth, autofitWidth,
 
 // Click-to-edit State/Priority directly from the list, no drawer (Pranshu,
 // Sep 2026 - clicking the pill offers a dropdown right there). Shows
-// `children` (the row's existing SolidCellPair/chip) unchanged at rest; when
+// `children` (the row's status label / priority signal) unchanged at rest; when
 // `editable`, a click opens a small anchored option list and picking one
 // fires `onChange` immediately. Gated by the SAME canWorking the drawer
 // enforces for these exact fields (see TicketRow below) - this is UI
@@ -1371,13 +1378,13 @@ function InlineTicketSelect({ value, options, onChange, editable, meta, children
   };
   return (
     <div ref={anchorRef} onClick={(e) => { e.stopPropagation(); if (!busy) setOpen((o) => !o); }}
-      style={{ width: '100%', height: '100%', cursor: busy ? 'wait' : 'pointer', opacity: busy ? 0.65 : 1 }}>
+      style={{ display: 'flex', alignItems: 'center', minWidth: 0, width: '100%', height: '100%', cursor: busy ? 'wait' : 'pointer', opacity: busy ? 0.65 : 1 }}>
       {children}
       {open && (
         // Portaled to document.body (SelectMenu, position:fixed off the anchor's
         // own rect) rather than absolutely positioned inside this cell - the
-        // State/Priority cells are `overflow:hidden` (SolidCellPair needs that to
-        // clip its solid fill to the cell edge), which silently clipped an
+        // State/Priority cells are `overflow:hidden` (the solid fills that used
+        // to live there needed it to clip to the cell edge), which silently clipped an
         // in-place dropdown to invisible: it existed in the DOM, computed
         // visible/display:block, and still never painted (Pranshu, Sep 9 2026 -
         // reported as "clicking State/Priority does nothing").
@@ -1402,29 +1409,6 @@ function InlineTicketSelect({ value, options, onChange, editable, meta, children
   );
 }
 
-// Solid, edge-to-edge colored cell fill - matches the task rich-list's
-// monday-style Priority/Status columns (tasks/views/richlist.jsx PillSelect
-// `solid`) instead of a floating pastel chip. The primary segment grows to
-// fill whatever width the secondary badge (approval / SLA) doesn't need, so
-// the block always covers the cell edge-to-edge regardless of label length.
-function SolidCellPair({ primaryLabel, primaryColor, secondaryLabel, secondaryColor, SecondaryIcon }) {
-  const seg = (color) => ({
-    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, height: '100%',
-    padding: '0 10px', background: color, color: '#fff', fontSize: 12, fontWeight: 700,
-    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontFamily: FONT,
-  });
-  return (
-    <div style={{ display: 'flex', width: '100%', height: '100%' }}>
-      <div style={{ ...seg(primaryColor), flex: 1, minWidth: 0 }}>{primaryLabel}</div>
-      {secondaryLabel && (
-        <div style={{ ...seg(secondaryColor), flexShrink: 0, fontSize: 11 }}>
-          {SecondaryIcon && <SecondaryIcon size={11} />}{secondaryLabel}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // `mobile` comes from TicketsView, never from a useIsMobile() of the row's own:
 // two hooks listening to the same media query flip on separate renders, so on a
 // rotate across 640px a row could switch to the desktop grid while its parent
@@ -1440,10 +1424,6 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, myLevel, updat
   // Every cell shares this base (minHeight/padding/border) - the same cellPad
   // contract the task rich-list rows use, so the two grids read identically.
   const cell = { minWidth: 0, minHeight: TICKET_ROW_H, display: 'flex', alignItems: 'center', padding: '0 12px', borderRight: `1px solid ${NX.border2}`, boxSizing: 'border-box' };
-  // Flush - no padding, stretched to the row's full height - so the solid
-  // State/Priority fills sit truly edge-to-edge inside their cell.
-  const flushCell = { minWidth: 0, minHeight: TICKET_ROW_H, display: 'flex', padding: 0, borderRight: `1px solid ${NX.border2}`, boxSizing: 'border-box' };
-  const overdue = t.slaDueOn && t.slaDueOn < today() && !CLOSED_STATES.includes(t.status);
   const sla = slaState(t);
   const slaM = (sla === 'breached' || sla === 'at_risk') ? SLA_META[sla] : null;
   const approvalM = t.approvalStatus === 'pending' ? APPROVAL_META.pending : null;
@@ -1598,38 +1578,37 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, myLevel, updat
         <span style={{ fontSize: 12.5, color: NX.dim, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{companyName(t.companyId) || '-'}</span>
       </div>
     ),
-    // Solid, edge-to-edge fill - matches the task rich-list's Priority/Status
-    // columns exactly, with the approval/SLA badge as a second solid segment
-    // rather than a floating chip. Wrapped in InlineTicketSelect so clicking
-    // it offers a dropdown to change the value right there - no drawer.
+    // Soft labels, not solid fills (Neil, Oct 14 2026): the status as a label,
+    // an approval wait as a small label beside it, priority as a signal. Each
+    // problem flag lives in its own column - SLA in Due Date, a quiet ticket in
+    // Latest Comment - so nothing borrows these cells. Wrapped in
+    // InlineTicketSelect so clicking offers a dropdown right there - no drawer.
     state: (
-      <div style={{ ...flushCell, overflow: 'hidden' }} title={approvalM ? `${stateM.label} · awaiting approval` : stateM.label}>
+      <div style={{ ...cell, overflow: 'hidden' }} title={approvalM ? `${stateM.label} · awaiting approval` : stateM.label}>
         <InlineTicketSelect value={t.status} options={statusOptions()} meta={TICKET_STATUS_META} editable={canWorking}
           onChange={(v) => updateTicket(t.id, { status: v })}>
-          <SolidCellPair primaryLabel={stateM.label} primaryColor={stateM.color}
-            secondaryLabel={approvalM?.label} secondaryColor={approvalM?.color} />
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0, maxWidth: '100%' }}>
+            <StatusLabel label={stateM.label} color={stateM.color} />
+            {approvalM && <StatusLabel size="sm" label={approvalM.label} color={approvalM.color} />}
+          </span>
         </InlineTicketSelect>
       </div>
     ),
-    // staleM wins the one secondary slot over slaM when both apply - the Due
-    // Date column (below) still shows the SLA breach in red regardless, so
-    // it's never fully hidden, and "needs a comment" is the more actionable
-    // of the two right now.
     priority: (
-      <div style={{ ...flushCell, overflow: 'hidden' }}
-        title={staleM ? `${priM.label} · ${staleM.label}` : slaM ? `${priM.label} · ${slaM.label}` : priM.label}>
+      <div style={{ ...cell, overflow: 'hidden' }} title={priM.label}>
         <InlineTicketSelect value={t.priority} options={priorityOptions()} meta={PRIORITY_META} editable={canWorking}
           onChange={(v) => updateTicket(t.id, { priority: v })}>
-          <SolidCellPair primaryLabel={priM.label} primaryColor={priM.color}
-            secondaryLabel={staleM?.label || slaM?.label} secondaryColor={staleM?.color || slaM?.color}
-            SecondaryIcon={staleM?.Icon || slaM?.Icon} />
+          <PrioritySignal priority={t.priority} title={priM.label} />
         </InlineTicketSelect>
       </div>
     ),
+    // The SLA lives here: red with a shield once breached, amber when due
+    // within a day, plain otherwise.
     due: (
-      <div style={{ ...cell, justifyContent: 'flex-start', gap: 5, overflow: 'hidden' }}>
-        <Clock size={12} style={{ color: overdue ? NX.red : NX.faint, flexShrink: 0 }} />
-        <span style={{ fontSize: 12, color: overdue ? NX.red : NX.dim, fontWeight: overdue ? 700 : 400, textAlign: 'left' }}>{t.slaDueOn ? fmtDate(t.slaDueOn) : '-'}</span>
+      <div style={{ ...cell, justifyContent: 'flex-start', gap: 5, overflow: 'hidden' }}
+        title={slaM ? `${slaM.label} - SLA due ${fmtDate(t.slaDueOn)}` : undefined}>
+        {slaM ? <slaM.Icon size={12} style={{ color: slaM.color, flexShrink: 0 }} /> : <Clock size={12} style={{ color: NX.faint, flexShrink: 0 }} />}
+        <span style={{ fontSize: 12, color: slaM ? slaM.color : NX.dim, fontWeight: slaM ? 600 : 400, textAlign: 'left' }}>{t.slaDueOn ? fmtDate(t.slaDueOn) : '-'}</span>
       </div>
     ),
     requester: (
@@ -1640,10 +1619,10 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, myLevel, updat
     ),
     assignee: (
       <div style={{ ...cell, justifyContent: 'flex-start', gap: 6, overflow: 'hidden' }} title={`Assignee: ${t.assigneeId ? nameOf(t.assigneeId) : 'Unassigned'}`}>
-        {/* Unassigned is the dashed avatar alone - the word said no more than
-            the empty space it filled, and the icon keeps the column reading as
-            a column of faces. The cell's title still spells it out on hover. */}
+        {/* Unassigned is said here, once (Neil, Oct 14 2026): the dashed avatar
+            and the word in amber - the row itself is never tinted for it. */}
         {t.assigneeId ? <Avatar email={t.assigneeId} name={nameOf(t.assigneeId)} size={22} /> : <UnassignedAvatar size={22} />}
+        {!t.assigneeId && !CLOSED_STATES.includes(t.status) && <span style={{ fontSize: 12.5, fontWeight: 600, color: NX.amber, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>Unassigned</span>}
         {t.assigneeId && <span style={{ fontSize: 12.5, color: NX.dim, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf(t.assigneeId)}</span>}
       </div>
     ),
@@ -1652,9 +1631,22 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, myLevel, updat
         <span style={{ fontSize: 12, color: NX.dim, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.createdAt ? fmtDate(t.createdAt) : '-'}</span>
       </div>
     ),
+    // A ticket past its priority's check-in window says so here, beside the
+    // last comment it is missing (Oct 14 2026 - it used to be a second solid
+    // block in the Priority cell).
     latestComment: (
-      <div style={{ ...cell, overflow: 'hidden', padding: '0 10px' }}>
-        <LatestCommentPreview comment={t.latestComment} nameOf={nameOf} onOpen={onOpenConversation || onOpen} />
+      <div style={{ ...cell, overflow: 'hidden', padding: '0 10px', gap: 8 }}>
+        {staleM && (
+          <span title={`No comment in over ${COMMENT_STALE_HOURS[t.priority] ?? 24}h - past this priority's check-in window`}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0, fontSize: 12, fontWeight: 600, color: staleM.color, whiteSpace: 'nowrap' }}>
+            <staleM.Icon size={13} /> {staleM.label}
+          </span>
+        )}
+        {(t.latestComment || !staleM) && (
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <LatestCommentPreview comment={t.latestComment} nameOf={nameOf} onOpen={onOpenConversation || onOpen} />
+          </div>
+        )}
       </div>
     ),
     // The resolved gutter doubles as the row's Mark Resolved action: a faint
@@ -1843,9 +1835,36 @@ function PendingFileChip({ file, onRemove }) {
 // and left empty saves "<p></p>"; a screenshot on its own still counts.
 const hasRichText = (html) => !!html && (!isEmptyDoc(html) || /<img\b/i.test(html));
 
+/** The task module's Collaborators extras for a ticket's picker: the
+ *  module's teams (approved, plus your own personal ones), "Save as a Team"
+ *  (a personal team, as in the task module), and the people you share the
+ *  most tasks with. */
+function useCollaboratorExtras() {
+  const { teams = [], createTeam } = useTasks();
+  const frequent = useFrequentCollaborators();
+  return {
+    teams, frequent,
+    onSaveTeam: createTeam ? ({ name, memberIds }) => createTeam({ name, memberIds, personal: true }) : null,
+  };
+}
+
+// Who can be a ticket's collaborator: the People list (staff, A-Z) as the
+// Requester dropdown shows it, plus anyone already on it who is not in the
+// list, less the requester (already on the ticket).
+function collaboratorOptions(people, keep, requester) {
+  const req = (requester || '').toLowerCase();
+  const rows = people.filter((p) => !p.external)
+    .sort((a, b) => String(a.name).localeCompare(String(b.name), 'en', { sensitivity: 'base' }))
+    .map((p) => ({ id: p.email, label: p.name, desc: p.email }));
+  const known = new Set(rows.map((r) => r.id));
+  for (const e of keep || []) if (e && !known.has(e)) { rows.push({ id: e, label: e, desc: e }); known.add(e); }
+  return rows.filter((r) => r.id !== req);
+}
+
 // ── Create ───────────────────────────────────────────────────────────────────
 // `fromTask` (Convert to Ticket, Neil 10/05): { id, title, description,
-// priority, ownerId, fileCount } - the form opens pre-filled from the task,
+// priority, ownerId, fileCount, collaboratorIds } - the form opens pre-filled
+// from the task (its assignees and collaborators as the ticket's collaborators),
 // names every required field the task could not supply, and on create the
 // server links the ticket to the task, copies its files and (when asked)
 // closes the task. `onCreated(ticket)` runs after a successful create.
@@ -1865,6 +1884,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
   const me = (myEmail || roleEmail || '').toLowerCase();
   // The curated Nexus People list (/myhr/directory) - never M365/GAL.
   const people = usePeople();
+  const collabExtras = useCollaboratorExtras();
   const isMobile = useIsMobile();
   const [companies, setCompanies] = useState([]);
   const [allDepts, setAllDepts] = useState([]);
@@ -1898,6 +1918,10 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
     // Who the ticket is FOR (Neil, Oct 1): you, unless you pick a colleague.
     // A converted task is for whoever owns it - they asked for the work.
     requesterId: (fromTask?.ownerId || myEmail || '').toLowerCase() || null, companyId: '', hrDepartmentId: '', application: '',
+    // Collaborators (Oct 14 2026): others pulled onto it from the start - a
+    // converted task's assignees and collaborators, less whoever it is for.
+    watcherIds: [...new Set((fromTask?.collaboratorIds || []).map((e) => (e || '').toLowerCase()).filter(Boolean))]
+      .filter((e) => e !== (fromTask?.ownerId || myEmail || '').toLowerCase()),
     propertyAssetId: forProperty?.id || '',
   });
   // Close the task once the ticket exists, so the work is not tracked twice.
@@ -2110,6 +2134,8 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
         // date is derived from priority; the service area from the topic.
         requesterId: requester || '', companyId: form.companyId || '', hrDepartmentId: form.hrDepartmentId || '',
         application: form.application.trim(),
+        // Collaborators - the server adds you too when it is for someone else.
+        watcherIds: (form.watcherIds || []).filter((e) => e && e !== requester),
         slaDueOn: slaDueFromPriority(form.priority),
         typeFields,
         ...(fromTask ? { fromTaskId: fromTask.id, closeSourceTask: closeSource } : {}),
@@ -2201,6 +2227,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
   const fieldLabel = (k) => ({ subject: 'Title', companyId: 'Company', hrDepartmentId: 'Department',
     application: 'What Do You Need Help With?' }[k] || typeFieldDefs.find((f) => f.key === k)?.label || k);
   const carried = fromTask ? ['title', 'description', 'priority', 'requester',
+    ...((form.watcherIds || []).length ? ['collaborators'] : []),
     ...(fromTask.fileCount ? [`${fromTask.fileCount} file${fromTask.fileCount > 1 ? 's' : ''}`] : [])] : [];
 
   return shell(fromTask ? 'Convert to Ticket' : 'Create a Ticket', {
@@ -2274,14 +2301,25 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
           section, which was really asking who this is for. You by default;
           anyone on the People list otherwise. They get the updates, see it as
           theirs, and confirm or reopen it; you stay on it as a watcher. */}
-      <div style={field}>
-        <label style={label}>Requester</label>
-        <TicketSelect value={requester} onChange={(v) => set('requesterId', v || me || null)}
-          options={requesterOptions} placeholder="Select a person" searchPlaceholder="Search people…"
-          emptyText="No one matches." style={sel} />
-        {sub(onBehalf
-          ? 'Raising this on their behalf - they get the updates, and you can still follow it.'
-          : 'Who is this for? Pick a colleague if you are raising it for someone else.')}
+      {/* Collaborators beside it (Sagar, Oct 14 2026), as on a task: anyone
+          else who should follow it - they can open it, reply and get its
+          updates, and are told they were added. */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'minmax(0, 1fr)' : 'repeat(2, minmax(0, 1fr))', columnGap: 14 }}>
+        <div style={field}>
+          <label style={label}>Requester</label>
+          <TicketSelect value={requester} onChange={(v) => set('requesterId', v || me || null)}
+            options={requesterOptions} placeholder="Select a person" searchPlaceholder="Search people…"
+            emptyText="No one matches." style={sel} />
+          {sub(onBehalf
+            ? 'Raising this on their behalf - they get the updates, and you can still follow it.'
+            : 'Who is this for? Pick a colleague if you are raising it for someone else.')}
+        </div>
+        <div style={field}>
+          <label style={label}>Collaborators</label>
+          <TicketPeopleMultiSelect value={form.watcherIds || []} options={requesterOptions.filter((o) => o.id !== requester)} {...collabExtras}
+            onChange={(list) => set('watcherIds', list)} />
+          {sub('Anyone else who should follow it and can reply.')}
+        </div>
       </div>
 
       {/* Rich description (Neil, Oct 1): the Task module's own editor, with
@@ -2654,12 +2692,13 @@ function readOnlyFieldValue(f, value, nameOf) {
 // Support list's pencil (Neil, Sep 30) lands here.
 export function TicketDrawer({ ticketId, onClose, startEditing = false, initialTab = null }) {
   const { tickets, ticketsLoaded, tasks, projects = [], loading: tasksLoading,
-    addTicketLink, removeTicketLink, escalateTicket, createTask, myEmail, nameOf, updateTicket, deleteTicket,
+    addTicketLink, removeTicketLink, escalateTicket, createTaskFromTicket, myEmail, nameOf, updateTicket, deleteTicket,
     refresh } = useTasks();
   // An approval decision changes status/resolution server-side, so pull the whole
   // list rather than patching one field locally.
   const onDecided = () => refresh?.();
   const people = usePeople();
+  const collabExtras = useCollaboratorExtras();
   const sites = useTicketSites();
   const isMobile = useIsMobile();
   const { myLevel, canAccessModule } = useRole();
@@ -2682,6 +2721,9 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   // A linked task opened in place, over the ticket - so working on it does not
   // mean closing the ticket and hunting for the task in the Task module.
   const [openTaskId, setOpenTaskId] = useState(null);
+  // A task opened from this ticket closes back onto the ticket's Overview,
+  // where its Tasks list is (Sagar, Oct 14 2026).
+  const closeTask = () => { setOpenTaskId(null); setTab('overview'); };
   // Title/description editor, and the resolve/confirm/reopen dialog - up
   // here with the other hooks for the same reason as requestingControl.
   const [editing, setEditing] = useState(startEditing);
@@ -2853,6 +2895,11 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   // And only for a desk supervisor - the server's delete route requires one
   // (ticket_roles.can_delete), so offering it to anybody else is a dead button.
   const canDelete = deskAccess.canDelete && (privileged || (!requesterLocked && isRequester));
+  // Collaborators (Oct 14 2026): whoever may edit the ticket at all - its
+  // requester or the desk - may add or remove them, whatever its state. They
+  // are not the ticket's content, so neither lock above applies (mirrors
+  // _COLLABORATOR_FIELDS in routers/tickets.py).
+  const canEditCollaborators = privileged || isRequester || deskAccess.canWorkQueue;
   // Escalate is a distress flare, not a priority bump: it mails the ticket's
   // department head that it needs instant care. The assignee or a manager -
   // whoever is actually working it - can raise it any time it's open,
@@ -2942,10 +2989,14 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   const reopen = () => setDialog({ mode: 'reopen' });
   // ticket → many tasks: union of the spawned list + the legacy single linkedTaskId
   const taskIds = [...(t.taskIds || []), ...(t.linkedTaskId && !(t.taskIds || []).includes(t.linkedTaskId) ? [t.linkedTaskId] : [])];
+  // One server call links both sides (Oct 14 2026) - it used to create the
+  // task, then PATCH the ticket, and a failed second save left a task nobody
+  // could trace back. The new task opens straight away; closing it comes back
+  // here, to the Overview.
   const spawnTask = async () => {
     try {
-      const task = await createTask({ title: t.subject, description: t.description || '', assigneeId: t.assigneeId || '', priority: t.priority || 'medium' });
-      await patch({ taskIds: [...(t.taskIds || []), task.id] });
+      const { task } = await createTaskFromTicket(t.id);
+      setOpenTaskId(task.id);
     } catch (e) { alert(`Could not create task: ${e.message || e}`); }
   };
   const linkTask = (taskId) => { if (taskId && !taskIds.includes(taskId)) patch({ taskIds: [...(t.taskIds || []), taskId] }); };
@@ -2969,7 +3020,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
         used to pass read as a cramped tab next to that (Pranshu, Sept 8 2026). */}
     {/* While a linked task is open on top, Escape (which Modal also listens
         for) closes the task first rather than the ticket underneath it. */}
-    <Modal title={ticketNo(t.code) || 'Ticket'} onClose={() => (openTaskId ? setOpenTaskId(null) : closeDrawer())} footer={
+    <Modal title={ticketNo(t.code) || 'Ticket'} onClose={() => (openTaskId ? closeTask() : closeDrawer())} footer={
       <>
         {canDelete && (
           <button style={{ ...btn('outline'), color: NX.red, borderColor: NX.border, marginRight: 'auto' }} onClick={remove}><Trash2 size={14} /> Delete</button>
@@ -3172,6 +3223,26 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
             </div>
           </div>
         )}
+        {/* Collaborators, as on a task (Sagar, Oct 14 2026): the people
+            pulled in to help. They are the ticket's watchers - they can open
+            it, reply and hear about every change, and each one added gets a
+            bell. Saved with the rest on Done. */}
+        <div style={{ ...field, gridColumn: '1 / -1' }}>
+          <label style={label}>Collaborators</label>
+          {canEditCollaborators ? (
+            <TicketPeopleMultiSelect value={v.watcherIds || []} onChange={(list) => stage({ watcherIds: list })} {...collabExtras}
+              options={collaboratorOptions(people, [t.requesterId, ...(v.watcherIds || [])], t.requesterId)} />
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', minHeight: 34 }}>
+              {(v.watcherIds || []).length ? (v.watcherIds || []).map((em) => (
+                <span key={em} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: NX.ink }}>
+                  <Avatar email={em} name={nameOf(em)} size={22} />{nameOf(em)}
+                </span>
+              )) : <span style={{ fontSize: 13, color: NX.faint }}>-</span>}
+            </div>
+          )}
+          <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 4 }}>They can open this ticket, reply and get its updates.</div>
+        </div>
         <div style={field}>
           <label style={label}>Company</label>
           {canEditCompany ? (
@@ -3360,7 +3431,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
         {tab === 'activity' && <TicketActivity ticketId={t.id} nameOf={nameOf} companies={companies} allDepts={allDepts} />}
       </div>
     </Modal>
-    {openTaskId && <TaskDetailDrawer taskId={openTaskId} onClose={() => setOpenTaskId(null)} zIndex={4100} />}
+    {openTaskId && <TaskDetailDrawer taskId={openTaskId} onClose={closeTask} onBackToTicket={closeTask} zIndex={4100} />}
     {dialog && (
       <TicketActionDialog mode={dialog.mode} targetStatus={dialog.targetStatus} ticket={v}
         // Resolving is a status change like any other - held for Done. Confirm

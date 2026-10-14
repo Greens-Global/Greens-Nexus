@@ -3,7 +3,7 @@ import { render, screen, fireEvent, cleanup, act, within } from '@testing-librar
 
 // The ticket list (Neil, Oct 1 2026): a Latest Comment column at the end that
 // opens the ticket on its Conversation, whole-row hover, the requester's own
-// Mark Resolved, and status colors with a logic (Open is red, never blue).
+// Mark Resolved, and status colors with a logic (Open is slate, never blue).
 
 vi.mock('@azure/msal-react', () => ({ useMsal: () => ({ instance: {}, accounts: [] }) }));
 let ME = 'agent@example.com';
@@ -43,8 +43,9 @@ describe('Ticket list - Latest Comment column', () => {
     expect(await screen.findByText('Latest Comment')).toBeTruthy();
     const cell = screen.getByRole('button', { name: /Latest comment by Ava Agent, 2h ago/ });
     expect(within(cell).getByText(/Swapping the toner now/)).toBeTruthy();
-    // A ticket nobody has replied to says so instead of rendering blank.
-    expect(screen.getByText('No comments yet')).toBeTruthy();
+    // A ticket nobody has replied to, past its check-in window, says it needs
+    // a comment here - the flag left the Priority cell (Oct 14 2026).
+    expect(screen.getAllByText('Needs a Comment').length).toBeGreaterThan(0);
   });
 
   it('opens the ticket on its Conversation when clicked', async () => {
@@ -62,8 +63,11 @@ describe('Ticket list - Latest Comment column', () => {
 });
 
 describe('Ticket status colors', () => {
-  it('Open is red and In Progress amber - blue is not a status color', () => {
-    expect(TICKET_STATUS_META.open.color).toBe('#dc2626');
+  // Open moved from red to slate (Neil, Oct 14 2026): red is kept for a
+  // breach or an Urgent priority, so a queue of new tickets no longer reads
+  // as an alarm. Still never blue.
+  it('Open is slate and In Progress amber - blue is not a status color', () => {
+    expect(TICKET_STATUS_META.open.color).toBe('#64748b');
     expect(TICKET_STATUS_META.in_progress.color).toBe('#d97706');
     const blue = '#2563eb';
     expect(Object.values(TICKET_STATUS_META).some((m) => m.color === blue)).toBe(false);

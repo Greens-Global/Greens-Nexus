@@ -96,6 +96,57 @@ export const SectionBox = Node.create({
   },
 });
 
+// Where a signer signs (Oct 14 - Neil: "the signatures are in as it is").
+// Block, non-editable. The PDF render draws a signature line (plus Name and
+// Date lines) here and reports where it landed, so Nexus Sign puts that
+// signer's fields exactly on it - nobody places boxes by hand. `role` is a
+// signer key from the template's Signers list; `label` is a caption above the
+// line and may hold {{variables}} ("For {{company_legal}}").
+export const SignatureBlock = Node.create({
+  name: 'signatureBlock',
+  group: 'block',
+  atom: true,
+
+  addAttributes() {
+    return {
+      role: { default: 'employee' },
+      label: { default: '' },
+      withName: { default: true },
+      withDate: { default: true },
+    };
+  },
+
+  parseHTML() {
+    return [{
+      tag: 'div[data-signature-role]',
+      getAttrs: el => ({
+        role: el.getAttribute('data-signature-role') || 'employee',
+        label: el.getAttribute('data-label') || '',
+        withName: el.getAttribute('data-with-name') !== 'false',
+        withDate: el.getAttribute('data-with-date') !== 'false',
+      }),
+    }];
+  },
+
+  renderHTML({ node }) {
+    const { role, label, withName, withDate } = node.attrs;
+    const who = String(role || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    const lines = ['Signature', withName ? 'Name' : '', withDate ? 'Date' : ''].filter(Boolean).join(' · ');
+    return ['div', {
+      class: 'doc-signature-block',
+      'data-signature-role': role, 'data-label': label,
+      'data-with-name': String(!!withName), 'data-with-date': String(!!withDate),
+      contenteditable: 'false',
+      title: `${who} signs here`,
+      style: 'border:1px dashed hsl(var(--color-blue));border-radius:8px;padding:8px 12px;margin:10px 0;max-width:340px;background:hsla(var(--color-blue), 0.06);font-family:Inter,sans-serif;',
+    },
+    ['div', { style: 'font-size:11px;font-weight:700;letter-spacing:.02em;color:hsl(var(--color-blue));' }, `Signature - ${who}`],
+    ...(label ? [['div', { style: 'font-size:12.5px;font-weight:600;margin-top:4px;color:#111827;' }, label]] : []),
+    ['div', { style: 'border-bottom:1px solid #6b7280;height:22px;margin-top:4px;' }],
+    ['div', { style: 'font-size:10.5px;color:#6b7280;margin-top:3px;' }, lines]];
+  },
+});
+
 // Block, non-editable divider - visual-only for now; Phase 4's PDF export
 // will honor it as an actual page boundary.
 export const PageBreak = Node.create({

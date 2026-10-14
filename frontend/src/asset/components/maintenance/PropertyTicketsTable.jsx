@@ -1,5 +1,5 @@
 // A property's Open / Closed Tickets as the same table Support and the Ticket
-// module use (Pranshu, 10/06): Ticket No, Title, a solid status cell, Assigned
+// module use (Pranshu, 10/06): Ticket No, Title, a status label, Assigned
 // To, Created Date, Last Updated, Latest Comment - uppercase sortable headers,
 // drag-to-resize, one border per row, zebra bands. Clicking a row opens the
 // ticket (or its summary for someone the ticket rules keep out); the latest
@@ -11,26 +11,26 @@ import { Avatar } from '../../../tasks/components';
 import { useTableColumns, ColResizer } from '../../../tasks/tableCols';
 import { TICKET_STATUS_META, TICKET_STATUS_ORDER } from '../../../tickets/ticketMeta';
 import { LatestCommentPreview } from '../../../tickets/LatestComment';
+import { StatusLabel } from '../../../components/StatusLabel';
 import { formatDateTime } from '../../../lib/datetime.js';
 
 const COLUMNS = [
   { key: 'ticket', label: 'Ticket No', width: 110, sort: (t) => Number(String(t.code || '').replace(/\D/g, '')) || 0 },
   { key: 'title', label: 'Title', width: 340, sort: (t) => (t.subject || '').toLowerCase() },
-  { key: 'status', label: 'Status', width: 140, sort: (t) => TICKET_STATUS_ORDER.indexOf(t.status) },
+  { key: 'status', label: 'Status', width: 160, sort: (t) => TICKET_STATUS_ORDER.indexOf(t.status) },
   { key: 'assignedTo', label: 'Assigned To', width: 170, sort: (t) => (t.assigneeName || '').toLowerCase() },
   { key: 'created', label: 'Created Date', width: 160, sort: (t) => t.createdAt || '' },
   { key: 'updated', label: 'Last Updated', width: 160, sort: (t) => t.modifiedAt || t.createdAt || '' },
   { key: 'latestComment', label: 'Latest Comment', width: 280, sort: (t) => t.latestComment?.createdAt || '' },
 ];
 
+// The soft status label every ticket list uses (Neil, Oct 14 2026).
 function StatusCell({ status }) {
-  const m = TICKET_STATUS_META[status] || { label: status, color: NX.dim };
+  const m = TICKET_STATUS_META[status] || { label: status, color: '#64748b' };
   return (
-    <div style={{
-      display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%',
-      padding: '0 10px', background: m.color, color: '#fff', fontSize: 12, fontWeight: 700,
-      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontFamily: FONT,
-    }}>{m.label}</div>
+    <div style={{ display: 'flex', alignItems: 'center', height: '100%', padding: '0 10px', minWidth: 0, overflow: 'hidden' }}>
+      <StatusLabel label={m.label} color={m.color} />
+    </div>
   );
 }
 

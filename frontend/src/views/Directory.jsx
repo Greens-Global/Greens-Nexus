@@ -107,16 +107,8 @@ export default function Directory() {
     return () => window.removeEventListener(CONTACT_EVENT, onContact);
   }, []);
 
-  // "/" focuses search from anywhere on the page, Escape clears it.
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.key === '/' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName) && !e.metaKey && !e.ctrlKey) {
-        e.preventDefault(); searchRef.current?.focus();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  // "/" focuses this box: the header's shortcut handler (TopHeader) sends
+  // "/" to the page's own search when one is tagged data-slash-search.
 
   useEffect(() => { try { localStorage.setItem(LENS_KEY, lens); } catch { /* private mode */ } }, [lens]);
 
@@ -234,7 +226,7 @@ export default function Directory() {
     <div style={{ padding: 12, borderBottom: `1px solid ${NX.border}`, display: 'flex', flexDirection: horizontal ? 'row' : 'column', flexWrap: horizontal ? 'wrap' : 'nowrap', alignItems: horizontal ? 'center' : 'stretch', gap: 9 }}>
       <div style={{ position: 'relative', flex: horizontal ? '1 1 240px' : undefined, minWidth: horizontal ? 200 : undefined, maxWidth: horizontal ? 380 : undefined }}>
         <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)', pointerEvents: 'none' }} />
-        <input ref={searchRef} type="search" className="form-input" value={query} onChange={(e) => { setQuery(e.target.value); setCursor(-1); }}
+        <input data-slash-search="" ref={searchRef} type="search" className="form-input" value={query} onChange={(e) => { setQuery(e.target.value); setCursor(-1); }}
           onKeyDown={onListKey} placeholder={chart ? 'Find someone on the chart…' : 'Search name, title, department, office…'} aria-label="Search people"
           style={{ width: '100%', paddingLeft: 30, paddingRight: query ? 30 : 12, fontSize: mobile ? 16 : 13.5 }} />
         {query && (
@@ -442,6 +434,7 @@ function PersonRow({ p, me, active, focused, onSelect, depth = 0, mobile = false
   // tap away on the card. Three buttons plus tree indentation left no room
   // for the name at 390px.
   const step = mobile ? 14 : 22;
+  const pills = <StatusPills p={p} />;   // beside the name on a desktop, after the title on a phone
   return (
     <div data-email={p.email} data-flip={flip || p.email} className={`dir-row${active ? ' is-active' : ''}${focused ? ' is-focused' : ''}`}
       role="button" tabIndex={0} onClick={() => onSelect(p.email)}
@@ -453,14 +446,14 @@ function PersonRow({ p, me, active, focused, onSelect, depth = 0, mobile = false
           <span style={{ fontSize: 13.5, fontWeight: 600, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>
             {p.name}{p.email === (me || '').toLowerCase() && <span style={{ color: NX.faint, fontWeight: 500 }}> (you)</span>}<RoleBadge role={p.departmentRole} />
           </span>
-          {!mobile && <StatusPills p={p} />}
+          {!mobile && pills}
         </div>
-        <div style={{ fontSize: 12, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', gap: 6, alignItems: 'center' }}>
-          {/* On a phone the status takes the title's line: whether they are
-              on shift is what matters when you are about to call someone. */}
-          {mobile && (p.availability || p.presence)
-            ? <StatusPills p={p} />
-            : <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.jobTitle || p.email}</span>}
+        <div style={{ fontSize: 12, color: NX.dim, display: 'flex', gap: 6, alignItems: 'center', minWidth: 0, overflow: 'hidden' }}>
+          {/* The title always has its line (Neil, 10/13). On a phone the
+              status pills follow it there instead of the name line, so the
+              row still says whether they are on shift before you call. */}
+          <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.jobTitle || p.email}</span>
+          {mobile && pills}
         </div>
       </div>
       <div className="dir-row-actions" style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
