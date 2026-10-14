@@ -166,19 +166,63 @@ def _overlay(records: list[dict], db: Session, kind: str) -> list[dict]:
     return records
 
 
+async def _ledger_dimension(kind: str) -> list:
+    """The vendor or customer codes on the ledger, with names and status
+    (the Reports filter list). Tests replace this."""
+    data = await acct._acct_get("/api/internal/reports/dimensions", {"kind": kind})
+    return data.get("values") or data.get("rows") or []
+
+
+async def _ledger_partners(kind: str, text: str, scope: dict, db: Session) -> dict:
+    """Vendors or customers as the ledger knows them, when the accounting app
+    does not serve the full Intacct record yet. The ledger keeps no entity
+    against a vendor or customer, so - like the Reports filter list - the
+    list is not open to a person limited to certain entities."""
+    if scope["allowed"] is not None:
+        raise HTTPException(status_code=403, detail="Your accounting access is limited to certain entities. The vendor and customer list covers every entity, so it is not available to you yet.")
+    values = await _ledger_dimension(kind)
+    needle = text.lower()
+    records = []
+    for v in values:
+        if not isinstance(v, dict):
+            continue
+        code = str(v.get("code") or v.get("id") or "").strip()
+        if not code:
+            continue
+        name = str(v.get("name") or "")
+        if needle and needle not in code.lower() and needle not in name.lower():
+            continue
+        rec = _record({"id": code, "kind": kind, "name": name, "status": v.get("status") or ""})
+        rec["lines"] = v.get("lines") if isinstance(v.get("lines"), int) else v.get("count")
+        records.append(rec)
+    records.sort(key=lambda r: (r["displayName"] or r["id"]).lower())
+    return {"kind": kind, "source": "ledger", "partners": await asyncio.to_thread(_overlay, records, db, kind)}
+
+
 @router.get("")
 async def list_partners(kind: str = "vendor", q: str = "", scope: dict = Depends(entity_scope), db: Session = Depends(get_db)):
     """Vendors or customers as Intacct has them, searched by `q`, with the
     approved-but-not-yet-keyed changes shown as current values."""
     k = _kind(kind)
-    raw = await _get({"kind": k, "q": (q or "").strip()[:120]})
+    text = (q or "").strip()[:120]
+    try:
+        raw = await _get({"kind": k, "q": text})
+    except HTTPException as e:
+        if e.status_code != 501:
+            raise
+        # Oct 14 (Neil: "Vendor and Customer, not working at all"): the
+        # accounting app's partners route was reverted before it reached
+        # production, so every read here was a 501 and the screen only said
+        # "not available yet". Until it ships, the list is the ledger's own
+        # vendor / customer codes (number, name, status) - read-only.
+        return await _ledger_partners(k, text, scope, db)
     records = [_record(p) for p in raw if isinstance(p, dict)]
     for r in records:
         r["kind"] = r["kind"] or k
     if scope["allowed"] is not None:
         reach = await _with_children(scope["allowed"]) if scope["allowed"] else set()
         records = [r for r in records if not r["entity"] or r["entity"] in reach]
-    return {"kind": k, "partners": await asyncio.to_thread(_overlay, records, db, k)}
+    return {"kind": k, "source": "intacct", "partners": await asyncio.to_thread(_overlay, records, db, k)}
 
 
 # ── Change requests ──────────────────────────────────────────────────────────

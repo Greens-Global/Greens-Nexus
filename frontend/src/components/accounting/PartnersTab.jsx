@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, Download, Pencil, Search, X } from 'lucide-react';
+import { Check, Download, List, Pencil, Search, X } from 'lucide-react';
 import { api } from '../../api';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
 import { control } from './reportControls';
-import { downloadBlob } from './reportModel';
+import { downloadBlob, iso } from './reportModel';
+import { requestReportDrill } from './drill';
 import { formatDateTime } from '../../lib/datetime';
 import { dialog } from '../../ui/dialog';
 
@@ -19,7 +20,16 @@ import { dialog } from '../../ui/dialog';
 //
 // Until the accounting app ships the partners route (404 -> 501 from the
 // backend) the Records section says so; Requests still works.
+//
+// Oct 14 (Neil: "activate Vendor and Customer, not working at all"): that
+// route never reached production, so the screen only ever said "not
+// available yet". The backend now falls back to the ledger's own vendor and
+// customer codes (`source: 'ledger'`): number, name and how many ledger
+// lines each has, read-only (no contact details to edit until the full
+// Intacct record is served). Every row opens its ledger lines in Reports.
+// Charmi (10/14): the number is the first column, before the name.
 
+const MAX_ROWS = 300;
 const KINDS = [{ key: 'vendor', label: 'Vendors' }, { key: 'customer', label: 'Customers' }];
 const SECTIONS = [{ key: 'records', label: 'Records' }, { key: 'requests', label: 'Requests' }];
 const FIELDS = [
@@ -57,6 +67,7 @@ export default function PartnersTab({ canApprove = false }) {
   const [section, setSection] = useState('records');
   const [q, setQ] = useState('');
   const [records, setRecords] = useState(null);
+  const [source, setSource] = useState('intacct');   // 'ledger': codes and names only, read-only
   const [recState, setRecState] = useState({ loading: false, error: '', notReady: false });
   const [editing, setEditing] = useState(null);     // { before, after }
   const [requests, setRequests] = useState(null);
@@ -70,6 +81,7 @@ export default function PartnersTab({ canApprove = false }) {
     api.getAccountingPartners(k, text).then((d) => {
       if (mine !== seq.current) return;
       setRecords(d?.partners || []);
+      setSource(d?.source === 'ledger' ? 'ledger' : 'intacct');
       setRecState({ loading: false, error: '', notReady: false });
     }).catch((e) => {
       if (mine !== seq.current) return;
@@ -123,6 +135,10 @@ export default function PartnersTab({ canApprove = false }) {
   }
 
   const kindLabel = kind === 'vendor' ? 'vendor' : 'customer';
+  const fromLedger = source === 'ledger';
+  const visible = shown.slice(0, MAX_ROWS);
+  // The ledger lines of one vendor or customer, every date, in Reports.
+  const openLines = (r) => requestReportDrill({ party: { kind, code: r.id, name: r.displayName || r.name || r.id }, from: '', to: iso(new Date()) });
 
   return (
     <div style={{ display: 'grid', gap: 10 }}>
@@ -146,7 +162,7 @@ export default function PartnersTab({ canApprove = false }) {
         {section === 'records' ? (
           <form onSubmit={(e) => { e.preventDefault(); loadRecords(kind, q.trim()); }} style={{ position: 'relative', flex: '1 1 220px', maxWidth: 380 }}>
             <Search size={13} style={{ position: 'absolute', left: 9, top: 9, color: 'var(--text-muted)' }} />
-            <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Search ${kindLabel}s by name, ID, email`} aria-label={`Search ${kindLabel}s`} style={{ ...control, width: '100%', paddingLeft: 28 }} />
+            <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder={`Search ${kindLabel}s by number, name, email`} aria-label={`Search ${kindLabel}s`} style={{ ...control, width: '100%', paddingLeft: 28 }} />
           </form>
         ) : (
           <>
@@ -168,23 +184,48 @@ export default function PartnersTab({ canApprove = false }) {
         </div>
       ) : (
         <AsyncSection loading={records === null} error={!!recState.error} errorMessage={recState.error} onRetry={() => loadRecords(kind, q.trim())} skeleton={<SkeletonBlocks count={2} />}>
+          {fromLedger && (
+            <p role="note" style={{ margin: '0 0 8px', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+              The {kindLabel} numbers and names on the ledger. Contact details and edits open once the accounting app serves the full Intacct record.
+            </p>
+          )}
           <div style={{ ...card, overflow: 'auto' }}>
             {!shown.length ? (
               <p style={{ margin: 0, padding: 24, color: 'var(--text-secondary)', fontSize: '0.86rem', textAlign: 'center' }}>No {kindLabel}s{q ? ' match' : ' came back from the ledger'}.</p>
+            ) : fromLedger ? (
+              <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+                <thead><tr><th style={th}>{kind === 'vendor' ? 'Vendor Number' : 'Customer Number'}</th><th style={th}>Name</th><th style={th}>Status</th><th style={{ ...th, textAlign: 'right' }}>Ledger Lines</th><th style={th}></th></tr></thead>
+                <tbody>
+                  {visible.map((r) => (
+                    <tr key={r.id}>
+                      <td style={{ ...td, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{r.id}</td>
+                      <td style={td}><strong>{r.displayName || r.name}</strong></td>
+                      <td style={td}>{r.status || <span style={{ color: 'var(--text-muted)' }} title="The status is on the Intacct record">-</span>}</td>
+                      <td style={{ ...td, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{Number.isFinite(r.lines) ? r.lines.toLocaleString('en-US') : ''}</td>
+                      <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <button type="button" className="secondary-btn" onClick={() => openLines(r)} aria-label={`Ledger lines of ${r.displayName || r.name || r.id}`}
+                          style={{ fontSize: '0.72rem', padding: '2px 8px', display: 'inline-flex', alignItems: 'center', gap: 4 }}><List size={12} /> View Lines</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             ) : (
               <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-                <thead><tr><th style={th}>ID</th><th style={th}>Name</th><th style={th}>Email</th><th style={th}>Phone</th><th style={th}>City</th><th style={th}>Terms</th><th style={th}>Status</th><th style={th}>Entity</th><th style={th}></th></tr></thead>
+                <thead><tr><th style={th}>{kind === 'vendor' ? 'Vendor Number' : 'Customer Number'}</th><th style={th}>Name</th><th style={th}>Email</th><th style={th}>Phone</th><th style={th}>City</th><th style={th}>Terms</th><th style={th}>Status</th><th style={th}>Entity</th><th style={th}></th></tr></thead>
                 <tbody>
-                  {shown.map((r) => (
+                  {visible.map((r) => (
                     <tr key={r.id}>
-                      <td style={td}>{r.id}</td>
+                      <td style={{ ...td, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{r.id}</td>
                       <td style={td}>
                         <strong>{r.displayName || r.name}</strong>
                         {r.awaitingIntacct && <span style={{ ...chip(STATUS.approved), marginLeft: 6 }} title={`Approved changes not yet keyed into Intacct: ${Object.keys(r.intacctValues || {}).map((f) => FIELD_LABEL[f] || f).join(', ')}`}>Awaiting Intacct</span>}
                         {r.pendingChange && <span style={{ ...chip(STATUS.pending), marginLeft: 6 }}>Pending Approval</span>}
                       </td>
                       <td style={td}>{r.email}</td><td style={td}>{r.phone}</td><td style={td}>{r.address?.city}</td><td style={td}>{r.terms}</td><td style={td}>{r.status}</td><td style={td}>{r.entity}</td>
-                      <td style={{ ...td, textAlign: 'right' }}>
+                      <td style={{ ...td, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <button type="button" aria-label={`Ledger lines of ${r.displayName || r.name || r.id}`} title="Ledger lines" onClick={() => openLines(r)}
+                          style={{ border: 'none', background: 'none', padding: 4, cursor: 'pointer', display: 'inline-flex', color: 'var(--text-muted)' }}><List size={14} /></button>
                         <button type="button" aria-label={`Edit ${r.displayName || r.name}`} disabled={r.pendingChange} title={r.pendingChange ? 'A change is already waiting for approval' : 'Edit - the change goes to a manager for approval'}
                           onClick={() => setEditing({ before: r, after: { ...r, address: { ...(r.address || {}) } } })}
                           style={{ border: 'none', background: 'none', padding: 4, cursor: r.pendingChange ? 'default' : 'pointer', display: 'inline-flex', color: 'var(--text-muted)' }}><Pencil size={14} /></button>
@@ -193,6 +234,9 @@ export default function PartnersTab({ canApprove = false }) {
                   ))}
                 </tbody>
               </table>
+            )}
+            {shown.length > MAX_ROWS && (
+              <p style={{ margin: 0, padding: '8px 12px', fontSize: '0.76rem', color: 'var(--text-muted)' }}>Showing the first {MAX_ROWS} of {shown.length.toLocaleString('en-US')} - search by number or name to narrow the list.</p>
             )}
           </div>
         </AsyncSection>
