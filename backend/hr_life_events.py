@@ -222,7 +222,7 @@ def is_documents(s: Optional[HrPacketSetting]) -> bool:
 
 
 def resolve_setting(db: Session, entity_id: str, event: str, worker_type: str,
-                    role_id: str = "", country: str = "") -> Optional[HrPacketSetting]:
+                    role_id: str = "", country: str = "", documents_only: bool = False) -> Optional[HrPacketSetting]:
     """The packet a company sends for an event. A packet made for the
     person's job role wins outright - the company's, else the one for every
     company - because a role packet is the more deliberate choice (Pranshu,
@@ -233,7 +233,8 @@ def resolve_setting(db: Session, entity_id: str, event: str, worker_type: str,
     it needs a different document. If it's a contractor, it needs a different
     document. If it's an Indian contractor, it needs a different document").
     A packet for another country never matches. A row without a template does
-    not count."""
+    not count. documents_only: the packet that follows a signed offer starts
+    by itself, which an uploaded-PDF packet cannot - those are skipped."""
     role_id = (role_id or "").strip()
     country = (country or "").strip().upper()
     levels = []
@@ -241,7 +242,7 @@ def resolve_setting(db: Session, entity_id: str, event: str, worker_type: str,
         levels.append([r for r in (db.query(HrPacketSetting)
                                    .filter(HrPacketSetting.entity_id == ent, HrPacketSetting.event == event,
                                            _sendable()).all())
-                       if (r.country or "").upper() in ("", country)])
+                       if (r.country or "").upper() in ("", country) and (not documents_only or is_documents(r))])
     if role_id:
         for rows in levels:
             for r in rows:
@@ -1056,7 +1057,7 @@ def offer_options(db: Session, cand: HrCandidate, worker_type: str, country: str
         return out
     letter = packet_choice(db, cand.company, "offer", chosen) if chosen else None
     letter = letter or resolve_setting(db, cand.company, "offer", wt, role_id, country)
-    packet = resolve_setting(db, cand.company, "hire", wt, role_id, country)
+    packet = resolve_setting(db, cand.company, "hire", wt, role_id, country, documents_only=True)
     from models import NexusGroup
     role = db.query(NexusGroup).filter(NexusGroup.id == role_id).first() if role_id else None
     department = (role.department if role is not None else "") or cand.department or ""
@@ -1106,7 +1107,7 @@ def plan_offer(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[di
                           f"yet - add one under People > Hiring > Packets > Offer Letter.", 409)
     if not is_documents(setting):
         raise PacketError("Offer letters are built from Documents - set this one up again there.", 409)
-    packet = resolve_setting(db, cand.company, "hire", d["worker_type"], d["role_id"], d["country"])
+    packet = resolve_setting(db, cand.company, "hire", d["worker_type"], d["role_id"], d["country"], documents_only=True)
     dp = hpd.plan(db, setting, ctx=hire_ctx(db, cand, d, entity, user["email"]),
                   overrides=hpd.event_values(db, "offer", d), pay=clean, can_see_pay=bool(clean),
                   candidate_id=cand.id, entity_id=cand.company or "")
@@ -1205,7 +1206,8 @@ def start_packet_after_offer(db: Session, offer: HrLifeEvent, by: str) -> tuple:
     wt = d.get("worker_type") or worker_type_of(d.get("employment_type", ""))
     setting = (packet_choice(db, offer.entity_id or "", "hire", d["hire_packet_id"])
                if d.get("hire_packet_id") else None)
-    setting = setting or resolve_setting(db, offer.entity_id or "", "hire", wt, d.get("role_id", ""), d.get("country", ""))
+    setting = setting or resolve_setting(db, offer.entity_id or "", "hire", wt, d.get("role_id", ""), d.get("country", ""),
+                                         documents_only=True)
     entity = db.query(HrEntity).filter(HrEntity.id == offer.entity_id).first() if offer.entity_id else None
     company = entity.name if entity else "this company"
     if setting is None:

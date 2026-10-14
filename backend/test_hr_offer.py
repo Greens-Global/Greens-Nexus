@@ -115,6 +115,17 @@ class OptionsTests(OfferCase):
         india = self.client.get(base, params={"worker_type": "contractor", "country": "IN"}).json()
         self.assertEqual(india["offerLetter"]["name"], "India Contractor Offer")
 
+    def test_an_uploaded_pdf_packet_never_follows_an_offer(self):
+        # it cannot start by itself - the Documents packet is picked instead
+        db = database.SessionLocal()
+        db.add(models.HrPacketSetting(id="s-old-pdf", entity_id=CO, event="hire", worker_type="any", engine="pdf",
+                                      template_id="old-tpl", name="", role_ids=[], subject_role="employee"))
+        db.query(models.HrCandidate).filter_by(id="cand-1").update({"role_id": ""})
+        db.commit()
+        db.close()
+        opts = self.client.get("/hr/candidates/cand-1/offer/options", params={"worker_type": "employee"}).json()
+        self.assertEqual(opts["hiringPacket"]["name"], "Analyst Hiring")
+
     def test_hr_must_say_employee_or_contractor(self):
         r = self._offer(worker_type="")
         self.assertEqual(r.status_code, 400)
