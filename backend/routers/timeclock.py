@@ -9963,3 +9963,303 @@ def cancel_timeoff(req_id: str, user: dict = Depends(get_current_user), db: Sess
         _tell_reports_manager_off(db, row, "Your manager's time off is cancelled", "is no longer off")
     db.commit()
     return _ser_timeoff(row, priv=_TimeoffPrivacy(db, user["email"]))
+
+
+# ── Add Time (Neil, Oct 14 2026) ─────────────────────────────────────────────
+# A manager adds a whole shift - or a run of them - for someone who did not
+# clock in right ("Dean forgot all week"). One request, every day judged with
+# the same three guards a single manager punch gets (finalized period, review
+# lock, punch order), a day that cannot take time is SKIPPED with its reason
+# rather than failing the batch, one notice pair instead of one per punch,
+# and a batch id on every punch written together so the whole batch can be
+# undone. The day picker in the modal reads /add-time/days first, so the
+# manager sees what each day already holds before choosing it.
+
+class AddTimeDay(BaseModel):
+    date: str                      # the employee's local date, YYYY-MM-DD
+    in_at: str = ""                # UTC ISO
+    out_at: str = ""               # UTC ISO
+    break_start_at: str = ""       # UTC ISO - an unpaid break inside the shift (optional)
+    break_min: int = 0
+    force: bool = False            # a second segment on a day that already has time
+    tz_offset_min: Optional[int] = None   # this day's own offset (DST can differ across a batch)
+
+
+class AddTimeIn(BaseModel):
+    employee_email: str
+    reason: str
+    days: List[AddTimeDay] = []
+    tz_offset_min: Optional[int] = 0   # the zone the times were typed in (JS getTimezoneOffset)
+    category: Optional[str] = ""       # job / leave type on each in-punch ("Sick Day", "Vacation"...)
+    dry_run: bool = False
+
+
+_ADD_TIME_MAX_DAYS = 31
+
+
+def _add_time_scope(db: Session, user: dict, email: str) -> str:
+    em = (email or "").strip().lower()
+    if not em:
+        raise HTTPException(400, "employee_email is required")
+    scope = _visible_emails(db, user)
+    if scope is not None and em not in scope:
+        raise HTTPException(403, "You can only add time for your own team.")
+    return em
+
+
+def _add_time_day_state(db: Session, email: str, d: str) -> dict:
+    """What a day already holds, in the words the modal shows: `empty`,
+    `needs_out` (an open shift), `needs_in` (a clock-out with no clock-in),
+    `has_time` (closed pairs) or `live` (on the clock right now)."""
+    punches = _live_punches(db, email, d, d)
+    summ = _day_summaries(punches, _round_min(db), break_cfg=_break_cfg_for(db, email)).get(d, {})
+    flags = set(summ.get("flags", []))
+    if _clocked_in_now(db, email) == d:
+        state = "live"
+    elif "missing_out" in flags:
+        state = "needs_out"
+    elif "out_without_in" in flags:
+        state = "needs_in"
+    elif summ.get("workedMin") or any(p.kind in ("in", "out") for p in punches):
+        state = "has_time"
+    else:
+        state = "empty"
+    ins = [p for p in punches if p.kind == "in"]
+    outs = [p for p in punches if p.kind == "out"]
+    return {"state": state, "workedMin": int(summ.get("workedMin") or 0),
+            "firstIn": ins[0].at if ins else "", "lastOut": outs[-1].at if outs else "",
+            "openIn": ins[-1].at if state == "needs_out" and ins else "",
+            "loneOut": outs[0].at if state == "needs_in" and outs else ""}
+
+
+def _add_time_lock(db: Session, email: str, d: str, actor: str) -> str:
+    """Why this day cannot take time right now ('' when it can)."""
+    try:
+        _guard_not_finalized(db, email, d)
+        _guard_review(db, email, d, actor)
+    except HTTPException as e:
+        return str(e.detail)
+    return ""
+
+
+def _usual_hours(db: Session, email: str) -> Optional[dict]:
+    """The person's usual shift (their assigned preset), for prefilling."""
+    a = db.query(ShiftAssignment).filter(ShiftAssignment.employee_email == email).first()
+    if not a or not a.shift_id:
+        return None
+    s = db.query(Shift).filter(Shift.id == a.shift_id).first()
+    if not s:
+        return None
+    days = [int(x) for x in str(s.days or "").split(",") if x.strip().isdigit()]
+    return {"start": s.start_hhmm or "09:00", "end": s.end_hhmm or "17:00",
+            "breakMin": int(getattr(s, "break_min", 0) or 0), "days": days,
+            "timezone": s.timezone or "", "name": s.name or ""}
+
+
+@router.get("/add-time/days")
+def add_time_days(email: str, start: str, end: str, user: dict = Depends(require_team_write),
+                  db: Session = Depends(get_db)):
+    """One row per day of [start, end] for the Add Time picker: what the day
+    holds, whether it is locked, the published shift or usual hours to
+    prefill from, and approved time off / a company holiday to warn about."""
+    em = _add_time_scope(db, user, email)
+    try:
+        d0, d1 = date.fromisoformat(start[:10]), date.fromisoformat(end[:10])
+    except ValueError:
+        raise HTTPException(400, "start and end must be YYYY-MM-DD")
+    if d1 < d0:
+        d0, d1 = d1, d0
+    if (d1 - d0).days >= 62:
+        raise HTTPException(400, "Pick a range of two months or less.")
+    shifts = {r.work_date: r for r in db.query(ScheduledShift)
+              .filter(ScheduledShift.employee_email == em, ScheduledShift.published == 1,
+                      ScheduledShift.work_date >= d0.isoformat(), ScheduledShift.work_date <= d1.isoformat()).all()}
+    offs = (db.query(TimeOffRequest)
+            .filter(TimeOffRequest.employee_email == em, TimeOffRequest.status == "approved",
+                    TimeOffRequest.start_date <= d1.isoformat(), TimeOffRequest.end_date >= d0.isoformat()).all())
+    holidays = _company_holidays_for_employee(db, em, d0.isoformat(), d1.isoformat())
+    usual = _usual_hours(db, em)
+    out = []
+    d = d0
+    while d <= d1:
+        ds = d.isoformat()
+        st = _add_time_day_state(db, em, ds)
+        sh = shifts.get(ds)
+        off = next((o for o in offs if (o.start_date or "") <= ds <= (o.end_date or "")), None)
+        usual_today = usual if usual and (not usual["days"] or d.isoweekday() in usual["days"]) else None
+        out.append({
+            "date": ds, **st,
+            "locked": _add_time_lock(db, em, ds, user["email"]),
+            "shift": ({"start": sh.start_hhmm, "end": sh.end_hhmm, "breakMin": int(getattr(sh, "break_min", 0) or 0),
+                       "label": sh.label or ""} if sh else None),
+            "usual": ({"start": usual_today["start"], "end": usual_today["end"], "breakMin": usual_today["breakMin"]}
+                      if usual_today else None),
+            "timeOff": (off.type or "other") if off else "",
+            "holiday": (holidays.get(ds) or {}).get("name", ""),
+        })
+        d += timedelta(days=1)
+    return {"email": em, "name": _display_name(db, em), "days": out,
+            "timezone": (usual or {}).get("timezone", "")}
+
+
+def _add_time_plan(db: Session, em: str, body: AddTimeIn, actor: str) -> list:
+    """Judge every requested day: what will be written, or why it is skipped."""
+    seen, plan, extra = set(), [], []
+    for day in sorted(body.days, key=lambda x: x.date or ""):
+        ds = (day.date or "")[:10]
+        try:
+            date.fromisoformat(ds)
+        except ValueError:
+            raise HTTPException(400, f"Bad date: {day.date!r}")
+        if ds in seen:
+            continue
+        seen.add(ds)
+        row = {"date": ds, "action": "skip", "reason": "", "inAt": "", "outAt": "", "breakMin": 0, "minutes": 0}
+        plan.append(row)
+        st = _add_time_day_state(db, em, ds)
+        row["state"] = st["state"]
+        lock = _add_time_lock(db, em, ds, actor)
+        if lock:
+            row["reason"] = lock
+            continue
+        if st["state"] == "live":
+            row["reason"] = "On the clock right now - the shift has not ended."
+            continue
+        t_in, t_out = _parse_iso(day.in_at), _parse_iso(day.out_at)
+        tz = int(day.tz_offset_min if day.tz_offset_min is not None else (body.tz_offset_min or 0))
+        row["tz"] = tz
+        if st["state"] == "needs_out":
+            if not t_out:
+                row["reason"] = "This day needs a clock-out time."
+                continue
+            open_in = _parse_iso(st["openIn"])
+            if open_in and t_out <= open_in:
+                row["reason"] = f"The clock-out must be after the open clock-in ({_fmt_local(st['openIn'], tz)})."
+                continue
+            row.update(action="fill_out", inAt=st["openIn"], outAt=day.out_at[:19],
+                       minutes=int((t_out - open_in).total_seconds() // 60) if open_in else 0)
+            writes = [("out", day.out_at[:19])]
+        elif st["state"] == "needs_in":
+            if not t_in:
+                row["reason"] = "This day needs a clock-in time."
+                continue
+            lone_out = _parse_iso(st["loneOut"])
+            if lone_out and t_in >= lone_out:
+                row["reason"] = f"The clock-in must be before the clock-out ({_fmt_local(st['loneOut'], tz)})."
+                continue
+            row.update(action="fill_in", inAt=day.in_at[:19], outAt=st["loneOut"],
+                       minutes=int((lone_out - t_in).total_seconds() // 60) if lone_out else 0)
+            writes = [("in", day.in_at[:19])]
+        else:
+            if st["state"] == "has_time" and not day.force:
+                row["reason"] = f"Already has {st['workedMin'] // 60}h {st['workedMin'] % 60:02d}m - add anyway to put a second shift on this day."
+                continue
+            if not t_in or not t_out:
+                row["reason"] = "Both a clock-in and a clock-out time are needed."
+                continue
+            if t_out <= t_in:
+                row["reason"] = "The clock-out must be after the clock-in."
+                continue
+            if (t_out - t_in) > timedelta(hours=16):
+                row["reason"] = "A shift longer than 16 hours cannot be added in one go."
+                continue
+            if _local_date(day.in_at, tz) != ds:
+                row["reason"] = "The clock-in is not on this date in the employee's time zone."
+                continue
+            brk = max(0, int(day.break_min or 0))
+            writes = [("in", day.in_at[:19])]
+            if brk:
+                b0 = _parse_iso(day.break_start_at) or (t_in + (t_out - t_in) / 2 - timedelta(minutes=brk // 2))
+                b1 = b0 + timedelta(minutes=brk)
+                if b0 <= t_in or b1 >= t_out:
+                    row["reason"] = "The break has to sit inside the shift."
+                    continue
+                writes += [("break_start", b0.strftime("%Y-%m-%dT%H:%M:%S")), ("break_end", b1.strftime("%Y-%m-%dT%H:%M:%S"))]
+            writes.append(("out", day.out_at[:19]))
+            row.update(action="add", inAt=day.in_at[:19], outAt=day.out_at[:19], breakMin=brk,
+                       minutes=int((t_out - t_in).total_seconds() // 60) - brk)
+        try:
+            for kind, at in writes:
+                if kind in ("in", "out"):
+                    _guard_punch_order(db, em, kind=kind, at=at, local_date=ds, extra=extra)
+        except HTTPException as e:
+            row.update(action="skip", reason=str(e.detail), minutes=0)
+            continue
+        row["writes"] = writes
+        extra += [SimpleNamespace(id=f"new-{ds}-{k}", kind=k, at=at, local_date=ds) for k, at in writes]
+    return plan
+
+
+@router.post("/add-time")
+def add_time(body: AddTimeIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    """Write the days the plan admits. `dry_run` answers with the plan only -
+    the modal's preview, so what is shown is exactly what will be written."""
+    em = _add_time_scope(db, user, body.employee_email)
+    reason = (body.reason or "").strip()
+    if len(reason) < 3:
+        raise HTTPException(400, "Say why this time is being added - it goes on every punch.")
+    if not body.days:
+        raise HTTPException(400, "Pick at least one day.")
+    if len(body.days) > _ADD_TIME_MAX_DAYS:
+        raise HTTPException(400, f"Add at most {_ADD_TIME_MAX_DAYS} days at a time.")
+    plan = _add_time_plan(db, em, body, user["email"])
+    doing = [r for r in plan if r["action"] != "skip"]
+    total = sum(r["minutes"] for r in doing)
+    public = [{k: v for k, v in r.items() if k not in ("writes", "tz")} for r in plan]
+    if body.dry_run:
+        return {"dryRun": True, "days": public, "added": len(doing), "totalMin": total}
+    if not doing:
+        return {"batchId": "", "days": public, "added": 0, "totalMin": 0}
+    batch_id = str(uuid.uuid4())
+    now = _now_iso()
+    cat = (body.category or "").strip()[:80]
+    for r in doing:
+        for kind, at in r["writes"]:
+            db.add(TimePunch(id=str(uuid.uuid4()), employee_email=em, kind=kind, at=at,
+                             local_date=r["date"], tz_offset_min=r.get("tz", int(body.tz_offset_min or 0)), geo_status="no_location",
+                             note=reason[:300], source="manual", category=cat if kind == "in" else "",
+                             created_by=user["email"], created_at=now, batch_id=batch_id))
+    dates = ", ".join(_us_day(r["date"]) for r in doing)
+    hrs = f"{total // 60}h {total % 60:02d}m"
+    n = len(doing)
+    if em != user["email"]:
+        _hr_notify(db, em, "Time added to your timecard",
+                   f"{hrs} over {n} day{'' if n == 1 else 's'} ({dates}) was added to your timecard by a manager: "
+                   f"{reason[:200]}. Open your timecard to review.",
+                   ref_id=batch_id, action={"view": "timeclock", "sub": "timecard"})
+    _notify_timecard_change(
+        db, employee_email=em, actor_email=user["email"], local_date=doing[0]["date"],
+        body=f"{_display_name(db, user['email'])} added {hrs} over {n} day{'' if n == 1 else 's'} ({dates}) "
+             f"to {_display_name(db, em)}'s timecard: {reason[:200]}",
+        ref_id=batch_id)
+    db.commit()
+    return {"batchId": batch_id, "days": public, "added": n, "totalMin": total}
+
+
+@router.post("/add-time/{batch_id}/undo")
+def add_time_undo(batch_id: str, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    """Void every punch an Add Time wrote together. Refused as a whole when any
+    of its days has since been finalized or gone out for signature."""
+    rows = db.query(TimePunch).filter(TimePunch.batch_id == batch_id, TimePunch.voided == 0).all()
+    if not rows:
+        raise HTTPException(404, "Nothing left to undo for this batch.")
+    em = _add_time_scope(db, user, rows[0].employee_email)
+    for ds in sorted({r.local_date for r in rows}):
+        _guard_not_finalized(db, em, ds)
+        _guard_review(db, em, ds, user["email"])
+    now = _now_iso()
+    for r in rows:
+        r.voided = 1
+        r.adjusted_by = user["email"]
+        r.adjusted_at = now
+        r.adjust_note = "Undo of Add Time"
+    dates = ", ".join(_us_day(d) for d in sorted({r.local_date for r in rows}))
+    if em != user["email"]:
+        _hr_notify(db, em, "Added time was undone",
+                   f"The time a manager added to your timecard for {dates} was taken back. Open your timecard to review.",
+                   ref_id=batch_id, action={"view": "timeclock", "sub": "timecard"})
+    _notify_timecard_change(db, employee_email=em, actor_email=user["email"], local_date=rows[0].local_date,
+                            body=f"{_display_name(db, user['email'])} undid the time added to {_display_name(db, em)}'s timecard for {dates}.",
+                            ref_id=batch_id)
+    db.commit()
+    return {"voided": len(rows)}

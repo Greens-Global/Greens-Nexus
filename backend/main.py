@@ -1052,6 +1052,9 @@ def _run_migrations():
             "ALTER TABLE accounting_flux_notes ADD COLUMN closed INTEGER DEFAULT 0",
             "ALTER TABLE accounting_flux_notes ADD COLUMN closed_by VARCHAR DEFAULT ''",
             "ALTER TABLE accounting_flux_notes ADD COLUMN closed_at VARCHAR DEFAULT ''",
+            # Add Time batches (Oct 14) - see the Postgres list.
+            "ALTER TABLE time_punches ADD COLUMN batch_id TEXT DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS ix_time_punches_batch_id ON time_punches (batch_id)",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2330,6 +2333,10 @@ def _run_migrations():
         "ALTER TABLE accounting_flux_notes ADD COLUMN IF NOT EXISTS closed BOOLEAN DEFAULT FALSE",
         "ALTER TABLE accounting_flux_notes ADD COLUMN IF NOT EXISTS closed_by VARCHAR DEFAULT ''",
         "ALTER TABLE accounting_flux_notes ADD COLUMN IF NOT EXISTS closed_at VARCHAR DEFAULT ''",
+        # Add Time (Oct 14): the punches one manager batch wrote together share
+        # an id, so the batch can be undone as one.
+        "ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS batch_id TEXT DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_time_punches_batch_id ON time_punches (batch_id)",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

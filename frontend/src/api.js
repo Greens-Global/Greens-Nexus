@@ -2290,6 +2290,12 @@ export const api = {
   // Tasks Home > Updates (Oct 14): what other people did lately on the tasks
   // I am assigned to or follow.
   getMyTaskActivity:   ({ limit = 30, days = 14 } = {}) => req(`/tasks/activity/mine?limit=${limit}&days=${days}`),
+  // Add Time (Oct 14): a manager adds a shift, or a run of them, for someone
+  // who did not clock in right - the picker's day states, the batch (dry run
+  // = the preview), and the undo of a batch.
+  timeAddTimeDays:     (email, start, end) => req(`/timeclock/add-time/days?email=${encodeURIComponent(email)}&start=${start}&end=${end}`),
+  timeAddTime:         (data) => req('/timeclock/add-time', { method: 'POST', body: JSON.stringify(data) }),
+  timeAddTimeUndo:     (batchId) => req(`/timeclock/add-time/${encodeURIComponent(batchId)}/undo`, { method: 'POST' }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
