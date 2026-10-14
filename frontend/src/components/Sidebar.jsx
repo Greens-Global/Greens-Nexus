@@ -264,7 +264,6 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
           {!collapsed && (
             <div className="company-info">
               <span className="company-name">Nexus</span>
-              <span className="brand-sub">Master portal</span>
             </div>
           )}
         </div>
