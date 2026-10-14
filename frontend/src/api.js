@@ -2258,6 +2258,12 @@ export const api = {
   signOnceStatus:      (sid, entityId = '') => req(`/hr/packets/${sid}/sign-once?entity_id=${encodeURIComponent(entityId)}`),
   signOnceCode:        (sid, data) => req(`/hr/packets/${sid}/sign-once/code`, { method: 'POST', body: JSON.stringify(data) }),
   signOnce:            (sid, data) => req(`/hr/packets/${sid}/sign-once`, { method: 'POST', body: JSON.stringify(data) }),
+  // The offer letter first, then the hiring packet (Neil, Oct 14). Options: which
+  // letter this kind of hire gets and what it asks of HR; start: generated and
+  // sent to the verifier; after-offer: start the packet when it could not start itself.
+  offerOptions:        (cid, params = {}) => req(`/hr/candidates/${cid}/offer/options?${new URLSearchParams(params)}`),
+  startOffer:          (cid, data) => req(`/hr/candidates/${cid}/offer/start`, { method: 'POST', body: JSON.stringify(data) }),
+  startPacketAfterOffer: (cid) => req(`/hr/candidates/${cid}/hiring-packet/after-offer`, { method: 'POST' }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

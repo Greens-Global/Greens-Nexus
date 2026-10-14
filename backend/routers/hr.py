@@ -860,8 +860,8 @@ def update_candidate(cid: str, body: CandidateUpdate, user: dict = Depends(requi
             # A hiring packet still out would hire them the moment they sign.
             import hr_life_events as hle
             if hle.active_hire_event(db, row.id):
-                raise HTTPException(409, "Their hiring packet is still out for signature - void it first "
-                                         "(on the packet card), then reject.")
+                raise HTTPException(409, "Their offer letter or hiring packet is still open - void it first "
+                                         "(on its card), then reject.")
         db.add(HrStageEvent(id=str(uuid.uuid4()), candidate_id=row.id, from_stage=row.stage,
                             to_stage=body.stage, note=(body.stage_note or "").strip(),
                             by_email=user["email"], created_at=now))

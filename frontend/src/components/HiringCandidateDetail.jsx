@@ -7,8 +7,12 @@
 //                schedule an interview")
 //   Interview  - the rounds with date, time and who it is with; Open the
 //                Interview Room when they come in; Move To Offer, or Reject
-//   Offer      - Send Hiring Packet; another round still possible (moves them
-//                back to Interview); Mark Hired By Hand for a paper offer
+//   Offer      - the offer letter (Neil, Oct 14): Move To Offer opens Make An
+//                Offer, the letter is verified and signed by both sides, and
+//                that signature is the hire; another round still possible
+//                (moves them back to Interview); Mark Hired By Hand for paper
+//   Hired      - the hiring packet ("right to work compliance") follows the
+//                signed offer by itself - its status shows here
 //   Rejected   - Reopen
 //
 // The Interview Room only exists once screening is done. Scheduling is one
@@ -38,10 +42,10 @@ export const candName = c => [c.firstName, c.lastName].filter(Boolean).join(' ')
 const NEXT_STEP = {
   applied: 'Look at the resume, then move them to Screening - or reject.',
   screening: 'Write your screening notes, then schedule the interview - or reject.',
-  interview: 'Open the Interview Room when they come in. After the interview, move them to Offer - or reject.',
-  offer: 'Send the hiring packet. When they sign it, they are hired automatically.',
+  interview: 'Open the Interview Room when they come in. After the interview, Move To Offer - you answer the offer questions and Nexus fills in the right offer letter.',
+  offer: 'The offer letter is checked, then signed by the company and by them (no login). When both have signed, they are hired and their hiring packet goes out by itself.',
   rejected: 'Closed. Reopen to put them back in the pipeline.',
-  hired: 'Hired - their record is in People.',
+  hired: 'Hired - their record is in People. Their hiring packet (right to work paperwork) is tracked below and on their Checklist.',
 };
 const ROUND_STATUS = {
   scheduled: ['Scheduled', 'blue'], live: ['In Progress', 'orange'], completed: ['Completed', 'gray'],
@@ -56,7 +60,7 @@ const rejectBtn = { background: 'none', border: '1px solid hsla(var(--color-red)
 
 export default function CandidateDetailModal({
   candidate: c, onClose, onStage, onUpdated, busy, refreshKey,
-  onEdit, onSchedule, onOpenRoom, onSendPacket, onSignPacket, onSendForSignature, onOpenPerson, toastOk, toastErr,
+  onEdit, onSchedule, onOpenRoom, onSendPacket, onMakeOffer, onSignPacket, onSendForSignature, onOpenPerson, toastOk, toastErr,
 }) {
   const [history, setHistory] = useState(null);
   const [rounds, setRounds] = useState(null);
@@ -83,7 +87,15 @@ export default function CandidateDetailModal({
   const roomAllowed = ['interview', 'offer'].includes(c.stage) && live.length > 0;
   const packetOut = packetIsActive(packetEvents);
   // HR's own turn on the hiring packet: the footer's Sign & Offer (Pranshu, Oct 8).
-  const awaitingMe = (packetEvents || []).find(e => e.kind === 'hire' && e.status === 'awaiting_sender' && e.senderPartyId) || null;
+  const awaitingMe = (packetEvents || []).find(e => ['offer', 'hire'].includes(e.kind) && e.status === 'awaiting_sender' && e.senderPartyId) || null;
+  // Offer letters this company can send (Oct 14). With none set up, the old
+  // packet-only send stays available so nothing is stuck.
+  const [offerChoices, setOfferChoices] = useState(null);
+  useEffect(() => {
+    if (!['interview', 'offer'].includes(c.stage) || !onMakeOffer) { setOfferChoices(null); return; }
+    api.offerOptions(c.id).then(o => setOfferChoices(o.choices || [])).catch(() => setOfferChoices([]));
+  }, [c.id, c.stage, refreshKey, onMakeOffer]);
+  const offers = onMakeOffer && (offerChoices === null || offerChoices.length > 0);
   // Once an interview is on the books the record is settled - no more editing
   // of who they are or which company; the email goes with the packet.
   const canEdit = ['applied', 'screening'].includes(c.stage);
@@ -115,8 +127,11 @@ export default function CandidateDetailModal({
     catch (e) { toastErr?.(e?.message || 'Could not cancel it.'); }
   }
   async function toOffer() {
-    if (!hadInterview && !await dialog.confirm('No interview has been completed yet. Move them to Offer anyway?', { title: 'Move To Offer', confirmText: 'Move To Offer' })) return;
-    onStage(c, 'offer', note);
+    if (!hadInterview && !await dialog.confirm('No interview has been completed yet. Make the offer anyway?', { title: 'Move To Offer', confirmText: 'Continue' })) return;
+    // The offer questions come up right here (Neil: "right when you click move
+    // to offer, these questions should come up").
+    if (offers) onMakeOffer(c);
+    else onStage(c, 'offer', note);
   }
   async function markHiredByHand() {
     if (!await dialog.confirm(`Mark ${candName(c)} hired without the hiring packet? Use this only when they signed on paper - nothing is sent or filed.`,
@@ -148,7 +163,8 @@ export default function CandidateDetailModal({
       secondary('Another Interview', () => onSchedule(c), <Undo2 size={13} />),
       secondary('Mark Hired By Hand', markHiredByHand, null),
       awaitingMe && onSignPacket && primary('Sign & Offer', () => onSignPacket(awaitingMe.senderPartyId), <FileSignature size={14} />),
-      !packetOut && primary(packetPick?.picked?.engine === 'documents' ? 'Start Hiring Packet' : 'Send Hiring Packet',
+      !packetOut && offers && primary('Make Offer', () => onMakeOffer(c), <FileSignature size={14} />, packetEvents === null),
+      !packetOut && !offers && primary(packetPick?.picked?.engine === 'documents' ? 'Start Hiring Packet' : 'Send Hiring Packet',
         () => onSendPacket(c), <FileText size={14} />, packetEvents === null)],
     rejected: [primary('Reopen', () => onStage(c, 'applied', note || 'Reopened'), <RotateCcw size={14} />)],
     hired: [c.employeeId && onOpenPerson && primary('Open In People', () => onOpenPerson(c), <ChevronRight size={14} />)],
@@ -237,7 +253,7 @@ export default function CandidateDetailModal({
             <HiringPacketStatus candidateId={c.id} refreshKey={refreshKey} onEvents={setPacketEvents} hideSign
               onSignNow={onSignPacket} onChanged={() => onUpdated?.(null)} toastOk={toastOk} toastErr={toastErr} />
           )}
-          {c.stage === 'offer' && !packetOut && packetPick && (
+          {c.stage === 'offer' && !packetOut && packetPick && !offers && (
             <div style={{ marginTop: 10, fontSize: 12.5, display: 'flex', gap: 8, alignItems: 'flex-start', padding: '9px 12px', borderRadius: 10, background: 'var(--mist)' }}>
               <FileSignature size={13} style={{ flexShrink: 0, marginTop: 2, color: 'var(--muted)' }} />
               <span>{packetPick.picked

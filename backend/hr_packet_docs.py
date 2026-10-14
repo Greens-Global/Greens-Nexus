@@ -62,7 +62,9 @@ VERIFY_ROLES = tuple(r for r in FLOW_ROLES if r not in (SUBJECT_ROLE, "sender"))
 # would be signed by the wrong person.
 ONCE_ROLES = tuple(r for r in FLOW_ROLES if r not in (SUBJECT_ROLE, "manager", "sender"))
 PAY_MODES = ("", "always", "auto")
-EVENT_NOUN = {"hire": "hiring packet", "promotion": "promotion letter", "separation": "separation package"}
+EVENT_NOUN = {"offer": "offer letter", "hire": "hiring packet", "promotion": "promotion letter",
+              "separation": "separation package"}
+CANDIDATE_KINDS = ("offer", "hire")
 
 
 class PacketProblem(ValueError):
@@ -439,10 +441,10 @@ def config_problems(db: Session, setting: HrPacketSetting, snaps: Optional[list]
         out.append("Exactly one step must be The Person (the one the packet is about).")
     elif subjects[0]["action"] != "sign":
         out.append("The Person must sign the packet.")
-    elif setting.event in ("hire", "separation"):
+    elif setting.event in ("offer", "hire", "separation"):
         signs = [s for s in flow if s["action"] == "sign"]
         if signs and signs[-1]["role"] != SUBJECT_ROLE:
-            out.append("The Person signs last on a hiring packet or a separation package - "
+            out.append("The Person signs last on an offer letter, a hiring packet or a separation package - "
                        "move their step to the end of the signing order.")
     for step in flow:
         if not step.get("once"):
@@ -620,10 +622,14 @@ def event_values(db: Session, kind: str, d: dict) -> dict:
     """The non-pay variables an event fills, from what HR picked. Dates stay
     ISO here - the print pass formats them (MM/DD/YYYY)."""
     out = {}
-    if kind == "hire":
+    if kind in CANDIDATE_KINDS:
         out.update({"job_title": d.get("job_title", ""), "department": d.get("department", ""),
                     "start_date": d.get("start_date", ""), "offer_expires": d.get("offer_expires", ""),
-                    "employment_type": (d.get("employment_type") or "full_time").replace("_", "-").title()})
+                    "employment_type": (d.get("employment_type") or "full_time").replace("_", "-").title(),
+                    # What HR answered on the offer (Oct 14).
+                    "worker_type": {"employee": "Employee", "contractor": "Independent Contractor"}.get(
+                        d.get("worker_type") or "", ""),
+                    "work_location": d.get("work_location", ""), "work_country": _country_name(d.get("country", ""))})
         if d.get("manager_email"):
             out["manager"] = out["supervisor"] = name_of(db, d["manager_email"])
         if d.get("employee_code"):
@@ -645,6 +651,15 @@ def event_values(db: Session, kind: str, d: dict) -> dict:
                     "job_title": d.get("job_title", ""), "department": d.get("department", "")})
     out.update(timings(d))
     return {k: str(v) for k, v in out.items() if str(v or "").strip()}
+
+
+_COUNTRY_NAMES = {"US": "United States", "IN": "India", "CA": "Canada", "GB": "United Kingdom", "AE": "United Arab Emirates",
+                  "PH": "Philippines", "MX": "Mexico", "AU": "Australia"}
+
+
+def _country_name(code: str) -> str:
+    code = (code or "").strip().upper()
+    return _COUNTRY_NAMES.get(code, code)
 
 
 def plan(db: Session, setting: HrPacketSetting, *, ctx: dict, overrides: dict, pay: Optional[dict],
@@ -732,7 +747,7 @@ def event_ctx(db: Session, ev, setting: HrPacketSetting, sender: str) -> dict:
     from models import HrCandidate
     entity = db.query(HrEntity).filter(HrEntity.id == ev.entity_id).first() if ev.entity_id else None
     d = ev.inputs or {}
-    if ev.kind == "hire":
+    if ev.kind in CANDIDATE_KINDS:
         import hr_life_events as hle
         cand = db.query(HrCandidate).filter(HrCandidate.id == ev.candidate_id).first()
         ctx = hle.hire_ctx(db, cand, d, entity, sender) if cand else {"entity": entity, "owners": {}}
@@ -930,7 +945,7 @@ def review_out(db: Session, ev, user: dict, *, can_see_pay: bool) -> dict:
                      "printsPay": prints, "canOpen": can_see_pay or not prints,
                      "unresolved": unresolved_by_tpl.get(e.get("templateId"), [])})
     problems = list(p["problems"])
-    if ev.kind == "hire":
+    if ev.kind in CANDIDATE_KINDS:
         problems += _hire_problems(db, ev)
     if setting.verify_distinct and (user["email"] or "").lower() == (ev.created_by or "").lower():
         problems.append("This packet must be verified by someone other than who started it.")
@@ -976,25 +991,33 @@ def review_out(db: Session, ev, user: dict, *, can_see_pay: bool) -> dict:
 
 
 def _hire_problems(db: Session, ev) -> list:
-    """A hire's own checks at review and send: the candidate still at Offer,
-    the offer still open, and the packet still the one their role gets."""
+    """An offer's or a hire's own checks at review and send: the candidate
+    still at Offer (or, for the packet that follows a signed offer, still
+    hired), the offer still open, and the letter or packet still the one
+    their role gets."""
     import hr_life_events as hle
     from models import HrCandidate
     out = []
+    d = ev.inputs or {}
     cand = db.query(HrCandidate).filter(HrCandidate.id == ev.candidate_id).first()
     if cand is None:
         return ["The candidate was deleted - void this packet."]
+    if d.get("after_offer"):
+        if cand.stage == "rejected":
+            out.append(f"{ev.subject_name} is Rejected - void this packet.")
+        return out
     if cand.stage != "offer":
-        out.append(f"{ev.subject_name} is no longer at Offer - move them back to Offer or void this packet.")
-    exp = (ev.inputs or {}).get("offer_expires") or ""
+        out.append(f"{ev.subject_name} is no longer at Offer - move them back to Offer or void this "
+                   f"{EVENT_NOUN.get(ev.kind, 'packet')}.")
+    exp = d.get("offer_expires") or ""
     if exp and exp < hle._today():
         out.append("The offer expiry date has passed - change Offer Expires before sending.")
-    d = ev.inputs or {}
     if not d.get("packet_id"):
-        want = hle.resolve_setting(db, ev.entity_id or "", "hire", hle.worker_type_of(d.get("employment_type", "")),
-                                   d.get("role_id", ""))
+        wt = d.get("worker_type") or hle.worker_type_of(d.get("employment_type", ""))
+        want = hle.resolve_setting(db, ev.entity_id or "", ev.kind, wt, d.get("role_id", ""), d.get("country", ""))
         if want is not None and want.id != ev.setting_id:
-            out.append(f'This role now uses the "{want.name or "other"}" packet - void this one and start again.')
+            out.append(f'This hire now gets the "{want.name or "other"}" {EVENT_NOUN.get(ev.kind, "packet")} - void this '
+                       f'one and start again.')
     return out
 
 
@@ -1026,7 +1049,7 @@ def verify_and_send(db: Session, ev, user: dict, *, seen: dict, excluded_ack: bo
             str(seen.get(e["documentId"])) != str(e.get("version", 1)) for e in ev.documents or []):
         db.commit()
         raise hle.PacketError("The documents changed while you were reviewing - look again.", 409)
-    problems = list(p["problems"]) + (_hire_problems(db, ev) if ev.kind == "hire" else [])
+    problems = list(p["problems"]) + (_hire_problems(db, ev) if ev.kind in CANDIDATE_KINDS else [])
     if problems:
         raise hle.PacketError(problems[0], 409)
     if not excluded_ack:
@@ -1087,7 +1110,8 @@ def build_envelope(db: Session, ev, setting: HrPacketSetting, user: dict, p: dic
             db, user, documents=docs, parties=parties, title=title, employee_id=ev.employee_id or "",
             candidate_id=ev.candidate_id or "", entity_id=ev.entity_id or "",
             message=setting.email_message or "",
-            expires_on=(ev.inputs or {}).get("offer_expires", "") if ev.kind == "hire" else "",
+            expires_on=((ev.inputs or {}).get("due_on") or (ev.inputs or {}).get("offer_expires", "")
+                        if ev.kind in CANDIDATE_KINDS else ""),
             ip=ip, user_agent=user_agent, excluded_ack=excluded_ack, document_class="employment",
             link_kind="life_event", link_id=ev.id, sender_signs_first=sender_first,
             prints_pay=p["printsPay"], saved=saved)
@@ -1246,7 +1270,8 @@ def event_template_ids(ev, setting: Optional[HrPacketSetting]) -> list:
     """Every template an event's packet prints: the packet's own documents,
     then the job description picked for this hire."""
     ids = list((setting.doc_template_ids or []) if setting is not None else [])
-    jd = (ev.inputs or {}).get("jd_template_id") or ""
+    # The job description goes with the hiring packet, never the offer letter.
+    jd = (ev.inputs or {}).get("jd_template_id") or "" if ev.kind != "offer" else ""
     if jd and jd not in ids:
         ids.append(jd)
     return ids
@@ -1467,7 +1492,7 @@ def adopt_signature(db: Session, setting: HrPacketSetting, *, step_key: str, ent
 # nothing said so until deep in the flow). Every check a packet needs before a
 # hire can go out, each with what fixes it. A pure read.
 
-_PAY_EVENTS = ("hire", "promotion")
+_PAY_EVENTS = ("offer", "hire", "promotion")
 
 
 def _check(key: str, ok: bool, label: str, detail: str = "", severity: str = "block", fix: Optional[dict] = None) -> dict:

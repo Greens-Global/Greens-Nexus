@@ -79,11 +79,17 @@ function PreviewModal({ templateId, name, companyId, flow, letterheadId, onClose
 
 /** The editor. `packet` is a saved documents row from /hr/packets (null for a
  *  new one, or a seed like {roleIds}); `catalog` is that same response. */
+const COUNTRY_NAMES = { US: 'United States', IN: 'India', CA: 'Canada', GB: 'United Kingdom', AE: 'United Arab Emirates', PH: 'Philippines', MX: 'Mexico', AU: 'Australia' };
+
 export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, companyName, defaultSubfolder, catalog, onClose, onSaved, toastErr }) {
   const [p, setP] = useState(() => ({
     id: packet?.engine === 'documents' ? packet.id : '',
     name: packet?.name || '',
     roleIds: packet?.roleIds || [],
+    // Who it is for (Oct 14): employees or contractors, and where they work -
+    // "if it's an Indian contractor, it needs a different document" (Neil).
+    workerType: packet?.workerType || 'any',
+    country: packet?.country || '',
     docIds: packet?.docTemplateIds || [],
     flow: packet?.flow?.map(({ key, role, action, once }) => ({ key, role, action, ...(once ? { once: true } : {}) })) || [],
     detailsForm: (packet?.detailsForm || []).map(f => ({ ...f, options: f.options || [] })),
@@ -128,8 +134,8 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
   const verifyOpts = catalog?.verifyRoles || [];
   const actionOpts = catalog?.actions || [];
   const today = (role) => {
-    if (role === 'employee') return event === 'hire' ? 'the new hire' : event === 'separation' ? 'the person leaving' : 'the employee';
-    if (role === 'manager') return event === 'hire' ? 'the supervisor on the offer' : 'their manager';
+    if (role === 'employee') return event === 'offer' ? 'the candidate - no login' : event === 'hire' ? 'the new hire - no login' : event === 'separation' ? 'the person leaving' : 'the employee';
+    if (role === 'manager') return ['offer', 'hire'].includes(event) ? 'the supervisor on the offer' : 'their manager';
     if (role === 'sender') return 'whoever starts it';
     if (!holders) return '...';
     const h = holders[role];
@@ -183,6 +189,7 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
     try {
       const saved = await api.saveDocumentsPacket({
         id: p.id, entity_id: companyId || '', event, name: p.name.trim(), role_ids: p.roleIds,
+        worker_type: p.workerType, country: p.country,
         doc_template_ids: p.docIds, flow: p.flow, verify_role: p.verifyRole, letterhead_id: p.letterheadId,
         pay_mode: p.payMode, email_message: p.emailMessage, egnyte_subfolder: p.egnyteSubfolder,
         details_form: event === 'hire' ? p.detailsForm.map(({ key, label, type, required, sensitive, last4, options, help }) => ({
@@ -203,7 +210,15 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
     window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: 'documents-templates' } }));
   };
   const available = templates.filter(t => !p.docIds.includes(t.id));
-  const who = event === 'hire' ? 'new hire' : event === 'promotion' ? 'employee' : 'person leaving';
+  const who = event === 'offer' ? 'candidate' : event === 'hire' ? 'new hire' : event === 'promotion' ? 'employee' : 'person leaving';
+  // What the documents ask by themselves (Oct 14): the person's questions go
+  // on their form, HR's are asked when the offer is made.
+  const asked = { person: [], hr: [] };
+  docs.forEach(d => {
+    (d.personQuestions || []).forEach(l => { if (!asked.person.includes(l)) asked.person.push(l); });
+    (d.hrQuestions || []).forEach(l => { if (!asked.hr.includes(l)) asked.hr.push(l); });
+  });
+  const countries = [...new Set([...(catalog?.countries || ['US', 'IN']), p.country].filter(Boolean))];
   const verifyHolder = holders && holders[p.verifyRole];
 
   return (
@@ -253,7 +268,28 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
               )}
             </div>
           </div>
-          <div style={hint}>Nexus picks the packet by company and job role when {event === 'hire' ? 'a candidate reaches Offer' : event === 'promotion' ? 'someone is promoted' : 'someone is offboarded'}. "Every role" covers the roles with no packet of their own.</div>
+          {['offer', 'hire'].includes(event) && (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '0 16px' }}>
+              <div>
+                <label style={lbl} htmlFor="pk-wt">Hired As</label>
+                <select id="pk-wt" className="form-input" style={{ width: '100%' }} value={p.workerType} onChange={e => set('workerType', e.target.value)}>
+                  <option value="any">Employees And Contractors</option>
+                  <option value="employee">Employees Only</option>
+                  <option value="contractor">Contractors Only</option>
+                </select>
+              </div>
+              <div>
+                <label style={lbl} htmlFor="pk-country">Works In</label>
+                <select id="pk-country" className="form-input" style={{ width: '100%' }} value={p.country} onChange={e => set('country', e.target.value)}>
+                  <option value="">Any Country</option>
+                  {countries.map(k => <option key={k} value={k}>{COUNTRY_NAMES[k] || k}</option>)}
+                </select>
+              </div>
+            </div>
+          )}
+          <div style={hint}>{event === 'offer'
+            ? 'Nexus picks the offer letter from what HR answers on Make An Offer - employee or contractor, and where they work (a contractor\'s letter never says employment). A role-specific letter wins; "Every role" covers the rest.'
+            : <>Nexus picks the packet by company and job role{event === 'hire' ? ' (and employee or contractor, and where they work) once the offer is signed' : event === 'promotion' ? ' when someone is promoted' : ' when someone is offboarded'}. "Every role" covers the roles with no packet of their own.</>}</div>
 
           <label style={lbl}>Documents (From Documents &gt; Templates)</label>
           {docs.length === 0 && (
@@ -296,7 +332,15 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
             <button type="button" className="secondary-btn" disabled={!adding} onClick={() => { setDocs([...p.docIds, adding]); setAdding(''); }}
               style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={12} /> Add Document</button>
           </div>
-          <div style={hint}>The Job Description is picked per {who} when the packet starts - it does not need to be here.</div>
+          <div style={hint}>{event === 'offer' ? 'An offer is one document, signed by both sides (Neil: "a single document called an offer letter") - usually one template here.'
+            : `The Job Description is picked per ${who} when the offer is made - it does not need to be here.`}</div>
+          {(asked.person.length > 0 || asked.hr.length > 0) && (
+            <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '10px 12px', marginTop: 8, fontSize: 12.5, background: 'var(--mist)' }}>
+              {asked.hr.length > 0 && <div><b>HR answers on Make An Offer:</b> {asked.hr.join(', ')}</div>}
+              {asked.person.length > 0 && <div style={{ marginTop: asked.hr.length ? 4 : 0 }}><b>Asked of the {who} on their form (no login):</b> {asked.person.join(', ')}</div>}
+              <div style={{ ...hint, marginTop: 4 }}>Set in each template (who fills each variable) - nothing to keep in sync here.</div>
+            </div>
+          )}
 
           <label style={lbl}>Signing Order (By Role)</label>
           {p.flow.length === 0 && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Add a document - each signer its signature blocks name gets a step here.</div>}
@@ -445,7 +489,8 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
           <label style={lbl}>When Signed</label>
           <div style={{ fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 8 }}>
             <ListChecks size={14} style={{ color: 'var(--muted)' }} />
-            {event === 'hire' ? 'They are hired, and their Onboarding Checklist starts (People > Checklists).'
+            {event === 'offer' ? 'They are hired - their People record and Onboarding Checklist start - and the hiring packet goes out to them by itself.'
+              : event === 'hire' ? 'Their onboarding paperwork is complete - it shows on their Checklist (People > Checklists).'
               : event === 'promotion' ? 'The new role, title and pay apply from the effective date.'
                 : 'Their Offboarding Checklist starts with the offboarding (People > Checklists).'}
           </div>

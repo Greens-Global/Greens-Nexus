@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense, Frag
 import { QuestionnairesModal, InterviewPanel, LeaderboardModal, EmployeeInterviews } from '../components/Interviews';
 import { PacketsModal, SendHiringPacketModal, PacketSigner, PersonLifeEvents, usDay } from '../components/HiringPacket';
 import PacketReview from '../components/PacketReview';
+import OfferModal from '../components/OfferModal';
 import { PromoteModal, OffboardModal, RoleChangeModal } from '../components/HrPersonActions';
 import { RoleChangeRequestCard, RoleChangeDecisionModal, RoleHistory } from '../components/RoleChangeRequests';
 import CandidateDetailModal, { STAGES, STAGE_META, candName } from '../components/HiringCandidateDetail';
@@ -2139,6 +2140,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
   const [scheduling, setScheduling] = useState(null);      // { candidate, replace } - the one scheduling path
   const [packetsOpen, setPacketsOpen] = useState(false);   // Hiring > Packets (per-company setup)
   const [packetFor, setPacketFor] = useState(null);        // candidate the hiring packet is being sent to
+  const [offerFor, setOfferFor] = useState(null);          // candidate the offer is being made to (Oct 14)
   const [signParty, setSignParty] = useState(null);        // HR's own signature on a packet
   const [reviewFor, setReviewFor] = useState(null);        // a packet built from Documents, being reviewed (Oct 14)
   const [packetRefresh, setPacketRefresh] = useState(0);
@@ -2336,8 +2338,17 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
         onEdit={cand => setEditing(cand)}
         onSchedule={(cand, replace) => setScheduling({ candidate: cand, replace: replace || null })}
         onOpenRoom={cand => { setDetail(null); setIvFor(cand); }}
-        onSendPacket={cand => setPacketFor(cand)} onSignPacket={setSignParty}
+        onSendPacket={cand => setPacketFor(cand)} onMakeOffer={cand => setOfferFor(cand)} onSignPacket={setSignParty}
         toastOk={toastOk} toastErr={toastErr} />}
+      {offerFor && <OfferModal candidate={offerFor} canSeePay={canSeePay} toastErr={toastErr}
+        onClose={() => setOfferFor(null)}
+        onMoveWithout={cand => { setOfferFor(null); moveStage(cand, 'offer', 'Moved to Offer - no offer letter set up yet'); }}
+        onStarted={ev => {
+          setOfferFor(null); setPacketRefresh(n => n + 1); refreshBoard();
+          setDetail(d => (d && d.id === ev.candidateId ? { ...d, stage: 'offer' } : d));
+          // Check the filled-in letter and send it - the same review every packet uses.
+          setReviewFor(ev.id);
+        }} />}
       {scheduling && <ScheduleInterviewModal candidate={scheduling.candidate} replace={scheduling.replace}
         onClose={() => setScheduling(null)} toastOk={toastOk} toastErr={toastErr}
         onScheduled={() => { setScheduling(null); setPacketRefresh(n => n + 1); refreshBoard(); }} />}
@@ -2366,7 +2377,8 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
       {ivFor && <InterviewPanel candidate={ivFor} onClose={() => { setIvFor(null); refreshBoard(); }} toastOk={toastOk} toastErr={toastErr}
         onDecision={(kind, cand) => {
           if (kind === 'another') setScheduling({ candidate: cand, replace: null });
-          else moveStage(cand, kind === 'offer' ? 'offer' : 'rejected', kind === 'offer' ? 'After the interview' : 'Not a fit after the interview');
+          else if (kind === 'offer') setOfferFor(cand);       // the offer questions come up here (Oct 14)
+          else moveStage(cand, 'rejected', 'Not a fit after the interview');
         }} />}
     </div>
   );

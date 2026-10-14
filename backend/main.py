@@ -1032,6 +1032,10 @@ def _run_migrations():
             # Packet Details Form + Signs Once (Oct 14). models.HrPacketSetting.
             "ALTER TABLE hr_packet_settings ADD COLUMN details_form JSON DEFAULT '[]'",
             "ALTER TABLE hr_packet_settings ADD COLUMN saved_signatures JSON DEFAULT '[]'",
+            # Offer letters and packets picked by where the person works (Oct 14).
+            "ALTER TABLE hr_packet_settings ADD COLUMN country VARCHAR DEFAULT ''",
+            # Packets assembled from building blocks: a team's / role's documents (Oct 14).
+            "ALTER TABLE hr_packet_settings ADD COLUMN extra_docs JSON DEFAULT '[]'",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2290,6 +2294,10 @@ def _run_migrations():
         # Packet Details Form + Signs Once (Oct 14). models.HrPacketSetting.
         "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS details_form JSONB DEFAULT '[]'::jsonb",
         "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS saved_signatures JSONB DEFAULT '[]'::jsonb",
+        # Offer letters and packets picked by where the person works (Oct 14).
+        "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS country VARCHAR DEFAULT ''",
+        # Packets assembled from building blocks: a team's / role's documents (Oct 14).
+        "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS extra_docs JSONB DEFAULT '[]'::jsonb",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

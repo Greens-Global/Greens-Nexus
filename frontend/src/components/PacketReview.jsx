@@ -93,7 +93,7 @@ export default function PacketReview({ eventId, onClose, onChanged, onSignNow, t
   const o = data.offer || {};
   const d = data.details || {};
   const inReview = ev.status === 'review';
-  const isHire = ev.kind === 'hire';
+  const isHire = ['offer', 'hire'].includes(ev.kind);      // the offer letter reads like a hire (Oct 14)
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   const startEdit = (what) => {

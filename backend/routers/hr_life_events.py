@@ -1,6 +1,7 @@
 """HR life events API - packet settings per company, the hiring packet send,
 and the event list each person/candidate shows. The engine is
 hr_life_events.py; this file is permissions and shapes only."""
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Optional
@@ -144,16 +145,23 @@ def list_packets(user: dict = Depends(require_hr_read), db: Session = Depends(ge
         out = []
         for tok in sorted(hpd.content_tokens(t.content)):
             fd = defs.get(tok) or {}
-            if tok in reserved or "." in tok or hpd.is_pay_token(tok, defs) or str(fd.get("default") or "").strip():
+            if (tok in reserved or "." in tok or hpd.is_pay_token(tok, defs) or str(fd.get("default") or "").strip()
+                    or hpd.def_source(fd)):          # asked of the person or of HR by itself (Oct 14)
                 continue
             out.append({"token": tok, "label": fd.get("label") or tok.replace("_", " ").title(),
                         "type": fd.get("type") or "text"})
         return out
+    def _asks(t, source):
+        printed = hpd.content_tokens(t.content)
+        return [str(fd.get("label") or fd.get("token")) for fd in (t.field_defs or [])
+                if isinstance(fd, dict) and hpd.def_source(fd) == source and fd.get("token") in printed]
     doc_templates = []
     for t in (db.query(DocTemplate).filter(DocTemplate.status == "active", DocTemplate.doc_type != "email")
               .order_by(DocTemplate.name).all()):
         doc_templates.append({"id": t.id, "name": t.name, "category": t.category or "",
                               "variables": own_variables(t),
+                              # Who the template asks (Oct 14) - shown on the packet.
+                              "personQuestions": _asks(t, "person"), "hrQuestions": _asks(t, "hr"),
                               "department": t.department or "",
                               "publishedVersion": t.published_version or 0,
                               "hasUnpublishedChanges": bool(t.published_version) and (t.version or 0) > t.published_version,
@@ -173,12 +181,17 @@ def list_packets(user: dict = Depends(require_hr_read), db: Session = Depends(ge
                       for t in tpls],
         "events": [{"key": k, "label": hle.EVENT_TITLES[k], "defaultSubfolder": hle.DEFAULT_SUBFOLDERS[k]}
                    for k in hle.EVENTS],
+        # Where people work - the companies' own countries (Oct 14).
+        "countries": sorted({(e.country or "").strip().upper()[:2] for e in db.query(HrEntity).all()
+                             if (e.country or "").strip()} | {"US", "IN"}),
         "workerTypes": list(hle.WORKER_TYPES),
     }
 
 
 @router.put("/packets")
 def save_packet(body: PacketSettingIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    if body.event == "offer":
+        raise HTTPException(400, "An offer letter is built from Documents - pick its template under Offer Letter.")
     entity_id = (body.entity_id or "").strip()
     _setting_in_scope(entity_id, hr_scope(user, db), write=True)
     wt = (body.worker_type or "any").strip()
@@ -220,7 +233,7 @@ def save_whole_packet(body: PacketIn, user: dict = Depends(require_hr_write), db
     from routers.esign import _clean_attachments
     entity_id = (body.entity_id or "").strip()
     _setting_in_scope(entity_id, hr_scope(user, db), write=True)
-    if body.event not in hle.EVENTS:
+    if body.event not in hle.EVENTS or body.event == "offer":
         raise HTTPException(400, "Unknown event")
     name = (body.name or "").strip()
     if not name:
@@ -293,6 +306,7 @@ class DocumentsPacketIn(BaseModel):
     email_message:    Optional[str] = ""
     egnyte_subfolder: Optional[str] = ""
     details_form:     Optional[list] = None        # the packet's own Details Form (hiring packets)
+    country:          Optional[str] = ""           # where the person works: US, IN ... ('' = any)
 
 
 @router.put("/packets/documents")
@@ -328,6 +342,7 @@ def save_documents_packet(body: DocumentsPacketIn, user: dict = Depends(require_
         db.add(row)
     row.entity_id, row.event, row.engine = entity_id, body.event, "documents"
     row.worker_type = (body.worker_type or "any").strip()
+    row.country = re.sub(r"[^A-Za-z]", "", body.country or "").upper()[:2]
     row.name = name
     row.role_ids = _clean_role_ids(db, entity_id, body.role_ids)
     row.doc_template_ids = list(dict.fromkeys(str(t).strip() for t in (body.doc_template_ids or []) if str(t).strip()))
@@ -655,16 +670,11 @@ def _pay_values_allowed(values: Optional[dict], user: dict, db: Session) -> Opti
     return None
 
 
-def _intake_link(token: str) -> str:
-    from app_url import app_url
-    return f"{app_url()}/intake/{token}"
-
-
 def _mail_intake(db: Session, ev: HrLifeEvent, token: str, background: BackgroundTasks) -> str:
     """Email the candidate their details link (after the response, like the
     role-change emails). Returns the link, for HR to copy."""
     import hr_life_email
-    link = _intake_link(token)
+    link = hle.intake_link(token)
     subject, html = hr_life_email.intake_email(db, ev, link)
     background.add_task(rc.send_emails, [(ev.subject_email, subject, html)])
     return link
@@ -687,6 +697,67 @@ def start_hiring_packet(cid: str, body: StartPacketIn, background: BackgroundTas
     except hle.PacketError as e:
         db.rollback()
         _raise(e)
+    out = hle.ser_event(db, ev, show_pay=_has_comp(user, db))
+    if token:
+        out["intakeUrl"] = _mail_intake(db, ev, token, background)
+    return out
+
+
+# ── the offer letter (Neil, Oct 14) ─────────────────────────────────────────
+
+@router.get("/candidates/{cid}/offer/options")
+def offer_options(cid: str, worker_type: str = "", country: str = "", role_id: str = "", packet_id: str = "",
+                  user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """The Move To Offer form: which offer letter this hire gets (by employee
+    or contractor, and where they work), the hiring packet that follows it,
+    and every question either asks of HR."""
+    try:
+        cand = hle._load_candidate(db, cid, hr_scope(user, db))
+    except hle.PacketError as e:
+        _raise(e)
+    return hle.offer_options(db, cand, worker_type, country, role_id, packet_id)
+
+
+class OfferIn(BaseModel):
+    inputs:     Optional[dict] = None   # worker_type, country, role, start, expiry, supervisor, timings, JD, merge{}
+    pay:        Optional[dict] = None   # structured pay - Pay & Benefits only
+    pay_values: Optional[dict] = None   # typed pay per pay variable - Pay & Benefits only
+    details:    Optional[dict] = None   # their legal name / address, when the letter prints them
+
+
+@router.post("/candidates/{cid}/offer/start")
+def start_offer(cid: str, body: OfferIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """Move To Offer: the offer letter is generated from HR's answers and the
+    verifier checks it. Nothing goes to the candidate until Verify And Send."""
+    pay = _pay_allowed(HirePacketIn(pay=body.pay), user, db)
+    try:
+        ev = hle.start_offer(db, user, cid, body.inputs or {}, pay, _pay_values_allowed(body.pay_values, user, db),
+                             body.details or {}, hr_scope(user, db))
+    except hle.PacketError as e:
+        db.rollback()
+        _raise(e)
+    return hle.ser_event(db, ev, show_pay=_has_comp(user, db))
+
+
+@router.post("/candidates/{cid}/hiring-packet/after-offer")
+def start_packet_after_offer(cid: str, background: BackgroundTasks, user: dict = Depends(require_hr_write),
+                             db: Session = Depends(get_db)):
+    """Start the hiring packet for a candidate whose offer is signed - for
+    when it could not start by itself (no packet was set up yet)."""
+    try:
+        cand = hle._load_candidate(db, cid, hr_scope(user, db), lock=True)
+    except hle.PacketError as e:
+        _raise(e)
+    offer = hle.signed_offer(db, cand.id)
+    if offer is None:
+        raise HTTPException(409, "They have no signed offer letter - the hiring packet follows the offer.")
+    try:
+        ev, token = hle.start_packet_after_offer(db, offer, user["email"])
+    except hle.PacketError as e:
+        db.rollback()
+        _raise(e)
+    offer.flags = [f for f in (offer.flags or []) if f.get("code") != "packet_not_started"]
+    db.commit()
     out = hle.ser_event(db, ev, show_pay=_has_comp(user, db))
     if token:
         out["intakeUrl"] = _mail_intake(db, ev, token, background)

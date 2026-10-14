@@ -5770,7 +5770,7 @@ class HrPacketSetting(Base):
     __tablename__ = "hr_packet_settings"
     id               = Column(String, primary_key=True)           # uuid
     entity_id        = Column(String, default="", index=True)     # HrEntity.id ('' = every company)
-    event            = Column(String, nullable=False)             # hire | promotion | separation
+    event            = Column(String, nullable=False)             # offer | hire | promotion | separation
     worker_type      = Column(String, default="any")              # any | employee | contractor
     template_id      = Column(String, default="")                 # HrSignTemplate.id
     subject_role     = Column(String, default="employee")         # template role the person signs as
@@ -5810,6 +5810,14 @@ class HrPacketSetting(Base):
     # consentVersion, otpChallengeId, ip, userAgent, replacedAt}] - never
     # deleted; a new holder's adoption marks the old one replaced.
     saved_signatures = Column(JSON, default=list)
+    # Offer letters (event 'offer', Oct 14) and hiring packets are also picked
+    # by where the person works - "if it's an Indian contractor, it needs a
+    # different document" (Neil): ISO country code, '' = any country.
+    country          = Column(String, default="")
+    # Building blocks (Oct 14): documents added for a team or a role on top
+    # of doc_template_ids - "there's a different confidentiality agreement for
+    # each team" (Neil). [{match: department | role, value, templateIds: []}]
+    extra_docs       = Column(JSON, default=list)
 
 
 class HrLifeEvent(Base):
@@ -5821,7 +5829,7 @@ class HrLifeEvent(Base):
     New table - RLS per CLAUDE.md (main.py list + the startup sweep)."""
     __tablename__ = "hr_life_events"
     id              = Column(String, primary_key=True)            # uuid
-    kind            = Column(String, nullable=False, index=True)  # hire | promotion | separation
+    kind            = Column(String, nullable=False, index=True)  # offer | hire | promotion | separation
     status          = Column(String, default="awaiting_sender")   # awaiting_sender | sent | completed | declined | voided | expired
     entity_id       = Column(String, default="", index=True)      # HrEntity.id
     candidate_id    = Column(String, default="", index=True)      # hire: HrCandidate.id

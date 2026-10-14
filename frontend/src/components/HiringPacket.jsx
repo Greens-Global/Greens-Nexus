@@ -29,7 +29,7 @@ import { DocumentsPacketEditor } from './DocumentsPacketEditor';
 import { readinessSummary } from '../lib/packetFlow';
 import PacketReview from './PacketReview';
 
-const ENABLED_EVENTS = ['hire', 'promotion', 'separation'];
+const ENABLED_EVENTS = ['offer', 'hire', 'promotion', 'separation'];
 const OTHER_ROLE = '__other__';
 
 // The email a packet sends, exactly as the person receives it (sample person,
@@ -716,9 +716,11 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hid
   const [busy, setBusy] = useState('');
   const [reviewOpen, setReviewOpen] = useState(false);
   const docs = ev.engine === 'documents';
-  const [label, tone] = ev.status === 'sent' && ev.kind !== 'hire' ? ['Out For Signature', 'blue']
-    : docs && ev.status === 'awaiting_sender' ? ['Awaiting Company Sign-Off', 'orange']
-      : (EVENT_STATUS[ev.status] || [ev.status, 'gray']);
+  const [label, tone] = ev.status === 'sent' && ev.kind === 'offer' ? ['Waiting On The Candidate', 'blue']
+    : ev.status === 'sent' && ev.kind !== 'hire' ? ['Out For Signature', 'blue']
+      : docs && ev.status === 'awaiting_sender' ? ['Awaiting Company Sign-Off', 'orange']
+        : ev.kind === 'offer' && ev.status === 'completed' ? ['Signed - Hired', 'green']
+          : (EVENT_STATUS[ev.status] || [ev.status, 'gray']);
   const what = ev.title || 'Packet';
   async function act(kind) {
     if (kind === 'void' && !await dialog.confirm(`Void this ${what.toLowerCase()}? It can no longer be signed. To change the pay or any other detail, void it and send a new one with the new values - a letter that is out is never edited.`, { title: 'Void', confirmText: 'Void' })) return;
@@ -737,6 +739,18 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hid
   // Signed in Nexus Sign, but Nexus could not apply it (the hire that never
   // became an employee) - the one state that must never sit quietly.
   const failed = (ev.flags || []).find(f => f.code === 'apply_failed');
+  // The offer is signed but the hiring packet could not start by itself (no
+  // packet set up yet) - HR starts it here once it is (Oct 14).
+  const notStarted = ev.kind === 'offer' && ev.status === 'completed' && (ev.flags || []).find(f => f.code === 'packet_not_started');
+  async function startPacket() {
+    setBusy('packet');
+    try {
+      const out = await api.startPacketAfterOffer(ev.candidateId);
+      toastOk?.(out.intakeUrl ? `Hiring packet started - ${ev.subjectName} was emailed a link for their details.` : 'Hiring packet started.');
+      onChanged?.();
+    } catch (e) { toastErr?.(e?.message || 'Could not start the hiring packet.'); }
+    setBusy('');
+  }
   return (
     <div style={{ marginTop: 14, border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -753,11 +767,14 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hid
           </button>
         </div>
       )}
-      {ev.kind === 'hire' && ev.inputs?.offer_expires && ['awaiting_sender', 'sent'].includes(ev.status) && (
+      {['offer', 'hire'].includes(ev.kind) && (ev.inputs?.due_on || ev.inputs?.offer_expires) && ['awaiting_sender', 'sent', 'intake'].includes(ev.status) && (
         <div style={{ fontSize: 12.5, marginTop: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Clock size={13} style={{ color: 'var(--muted)' }} /> Offer open through {usDay(ev.inputs.offer_expires)} - the link expires after that day.
+          <Clock size={13} style={{ color: 'var(--muted)' }} />
+          {ev.inputs?.after_offer ? `Paperwork link open through ${usDay(ev.inputs.due_on)} - no login needed.`
+            : `Offer open through ${usDay(ev.inputs.offer_expires)} - the link expires after that day.`}
         </div>
       )}
+      {notStarted && <Problem>The hiring packet did not start: {notStarted.message}</Problem>}
       {ev.applyNote && (ev.status === 'completed' || ev.applyStatus) && <div style={{ fontSize: 12, marginTop: 6 }}>{ev.applyNote}</div>}
       <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
         {ev.parties.map(p => (
@@ -812,6 +829,11 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hid
             {busy === 'void' ? <Spinner size={12} /> : <Ban size={12} />} Void
           </button>
         )}
+        {notStarted && (
+          <button className="primary-btn" onClick={startPacket} disabled={!!busy} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            {busy === 'packet' ? <Spinner size={12} /> : <Send size={12} />} Start Hiring Packet
+          </button>
+        )}
         {failed && ev.status !== 'completed' && (
           <button className="primary-btn" onClick={() => act('apply')} disabled={!!busy} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
             {busy === 'apply' ? <Spinner size={12} /> : <RefreshCw size={12} />} Retry
@@ -837,11 +859,16 @@ export function HiringPacketStatus({ candidateId, refreshKey, onSignNow, onChang
     .then(rows => { setEvents(rows); onEvents?.(rows); })
     .catch(() => { setEvents([]); onEvents?.([]); });
   useEffect(() => { load(); }, [candidateId, refreshKey]);
-  const ev = useMemo(() => (events || []).find(e => e.kind === 'hire') || null, [events]);
+  // The offer letter, then the hiring packet that follows it (Oct 14) - the
+  // latest of each, a voided one only when nothing newer stands.
+  const shown = useMemo(() => ['offer', 'hire'].map(kind => {
+    const mine = (events || []).filter(e => e.kind === kind);
+    return mine.find(e => e.status !== 'voided') || mine[0] || null;
+  }).filter(Boolean), [events]);
   if (events === null) return <div style={{ padding: '8px 0' }}><Spinner size={16} /></div>;
-  if (!ev) return null;
-  return <LifeEventCard ev={ev} onSignNow={onSignNow} toastOk={toastOk} toastErr={toastErr} hideSign={hideSign}
-    onChanged={() => { load(); onChanged?.(); }} />;
+  if (!shown.length) return null;
+  return <>{shown.map(ev => <LifeEventCard key={ev.id} ev={ev} onSignNow={onSignNow} toastOk={toastOk} toastErr={toastErr} hideSign={hideSign}
+    onChanged={() => { load(); onChanged?.(); }} />)}</>;
 }
 
 // The letters on a person (People > profile): anything still out for
@@ -859,7 +886,8 @@ export function PersonLifeEvents({ employeeId, refreshKey, onSignNow, toastOk, t
   return <div>{shown.map(ev => <LifeEventCard key={ev.id} ev={ev} onSignNow={onSignNow} onChanged={load} toastOk={toastOk} toastErr={toastErr} />)}</div>;
 }
 
-// Whether a packet is out (so the Offer stage hides "Send" and shows the status).
+// Whether an offer letter or packet is out (so the Offer stage hides "Make
+// Offer" / "Send" and shows the status).
 export function packetIsActive(events) {
-  return (events || []).some(e => e.kind === 'hire' && ['intake', 'review', 'awaiting_sender', 'sent'].includes(e.status));
+  return (events || []).some(e => ['offer', 'hire'].includes(e.kind) && ['intake', 'review', 'awaiting_sender', 'sent'].includes(e.status));
 }
