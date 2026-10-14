@@ -1320,12 +1320,18 @@ def intake_public(db: Session, ev: HrLifeEvent) -> dict:
     setting = hpd.event_setting(db, ev)
     # The packet's Details Form plus every Ask The Person variable of its
     # documents (Oct 14) - one form, each question once.
-    form = [{k: f.get(k) for k in ("key", "label", "type", "required", "options", "last4", "help")}
+    form = [{k: f.get(k) for k in ("key", "label", "type", "required", "options", "last4", "help", "sensitive",
+                                   "fromTemplate")}
             for f in hpd.event_form(db, ev, setting).details_form if isinstance(f, dict)]
+    # What is already known - from the offer, or an earlier round of this
+    # form - so the person confirms instead of typing it again. Never an
+    # answer to the packet's own questions (some are private).
+    known = {k: str((ev.intake or {}).get(k) or "") for k in INTAKE_FIELDS if str((ev.intake or {}).get(k) or "").strip()}
     return {"state": state, "company": (entity.legal_name or entity.name) if entity else "",
             "firstName": (cand.first_name if cand else "") or "", "lastName": (cand.last_name if cand else "") or "",
             "phone": (cand.phone if cand else "") or "", "role": (ev.inputs or {}).get("job_title", ""),
-            "expiresOn": ev.intake_expires_on or "",
+            "expiresOn": ev.intake_expires_on or "", "prefill": known,
+            "afterOffer": bool((ev.inputs or {}).get("after_offer")),
             "fields": [{"key": k, "required": k in ("first_name", "last_name", "phone", "address")} for k in INTAKE_FIELDS],
             # The packet's own Details Form (Oct 14) - any country, any field.
             "form": form}

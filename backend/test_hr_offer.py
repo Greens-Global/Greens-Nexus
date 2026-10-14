@@ -169,6 +169,10 @@ class JourneyTests(OfferCase):
         # the person fills their details - the documents' own question included
         page = self.client.get(f"/hr/intake/public/{token}").json()
         self.assertEqual([f["key"] for f in page["form"]], ["pan_number"])
+        self.assertTrue(page["form"][0]["sensitive"])
+        self.assertTrue(page["afterOffer"])
+        self.assertEqual(page["prefill"]["first_name"], "Jen")          # what the offer already knew
+        self.assertNotIn("salary", str(page))                            # never pay
         r = self.client.post(f"/hr/intake/public/{token}", json={"values": {
             "first_name": "Jane", "last_name": "Doe", "phone": "555-0100", "address": "12 Pine St",
             "answers": {"pan_number": "ABCDE1234F"}}})
