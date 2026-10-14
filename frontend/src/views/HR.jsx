@@ -2,6 +2,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react';
 import { QuestionnairesModal, InterviewPanel, LeaderboardModal, EmployeeInterviews } from '../components/Interviews';
 import { PacketsModal, SendHiringPacketModal, PacketSigner, PersonLifeEvents, usDay } from '../components/HiringPacket';
+import PacketReview from '../components/PacketReview';
 import { PromoteModal, OffboardModal, RoleChangeModal } from '../components/HrPersonActions';
 import { RoleChangeRequestCard, RoleChangeDecisionModal, RoleHistory } from '../components/RoleChangeRequests';
 import CandidateDetailModal, { STAGES, STAGE_META, candName } from '../components/HiringCandidateDetail';
@@ -1695,6 +1696,7 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
   const [roleAction, setRoleAction] = useState(null);      // 'choose' (Change Role asks first) | 'promotion'
   const [offboardOpen, setOffboardOpen] = useState(false);
   const [signParty, setSignParty] = useState(null);        // HR's own signature on a letter
+  const [reviewEvent, setReviewEvent] = useState(null);    // a letter / package built from Documents, being reviewed (Oct 14)
   const [eventsKey, setEventsKey] = useState(0);
   const [requestsKey, setRequestsKey] = useState(0);   // the pending role change card
   const [welcomeBusy, setWelcomeBusy] = useState(false);
@@ -1913,7 +1915,8 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
         onClose={() => setRoleAction(null)}
         onSent={ev => {
           setRoleAction(null); setEventsKey(n => n + 1);
-          if (ev.senderPartyId) setSignParty(ev.senderPartyId);
+          if (ev.openReview) setReviewEvent(ev.id);
+          else if (ev.senderPartyId) setSignParty(ev.senderPartyId);
           else toastOk(`Letter sent - ${e.firstName} signs first, then their manager.`);
         }} />}
       {offboardOpen && <OffboardModal employee={e} companyName={companyName} toastErr={toastErr}
@@ -1926,8 +1929,11 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
           toastOk(ev.applyStatus === 'applied'
             ? `${e.firstName} is offboarded${extra ? ` - ${extra}` : ''}.`
             : `Offboarding scheduled - last day ${usDay(ev.effectiveDate)}, Nexus marks them Left the morning after.`);
-          if (ev.senderPartyId) setSignParty(ev.senderPartyId);
+          if (ev.status === 'review') setReviewEvent(ev.id);
+          else if (ev.senderPartyId) setSignParty(ev.senderPartyId);
         }} />}
+      {reviewEvent && <PacketReview eventId={reviewEvent} onClose={() => setReviewEvent(null)}
+        onChanged={() => setEventsKey(n => n + 1)} onSignNow={setSignParty} toastOk={toastOk} toastErr={toastErr} />}
       <PacketSigner partyId={signParty} toastOk={toastOk} toastErr={toastErr}
         onClose={() => { setSignParty(null); setEventsKey(n => n + 1); }}
         onDone={() => { setSignParty(null); setEventsKey(n => n + 1); toastOk('Signed.'); }} />
@@ -2131,6 +2137,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
   const [packetsOpen, setPacketsOpen] = useState(false);   // Hiring > Packets (per-company setup)
   const [packetFor, setPacketFor] = useState(null);        // candidate the hiring packet is being sent to
   const [signParty, setSignParty] = useState(null);        // HR's own signature on a packet
+  const [reviewFor, setReviewFor] = useState(null);        // a packet built from Documents, being reviewed (Oct 14)
   const [packetRefresh, setPacketRefresh] = useState(0);
   const { canAccessModule } = useRole();
   const canSeePay = canAccessModule('hr_comp', 'owner', 'viewer');
@@ -2338,9 +2345,13 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
         onClose={() => setPacketFor(null)}
         onSent={ev => {
           setPacketFor(null); setPacketRefresh(n => n + 1);
-          if (ev.senderPartyId) setSignParty(ev.senderPartyId);
+          if (ev.openReview) setReviewFor(ev.id);
+          else if (ev.intakeUrl) toastOk(`Details link sent to ${ev.subjectEmail}. The documents are generated when they fill it in.`);
+          else if (ev.senderPartyId) setSignParty(ev.senderPartyId);
           else toastOk(`Hiring packet sent to ${ev.subjectEmail}.`);
         }} />}
+      {reviewFor && <PacketReview eventId={reviewFor} onClose={() => setReviewFor(null)}
+        onChanged={() => setPacketRefresh(n => n + 1)} onSignNow={setSignParty} toastOk={toastOk} toastErr={toastErr} />}
       <PacketSigner partyId={signParty} toastOk={toastOk} toastErr={toastErr}
         onClose={() => { setSignParty(null); setPacketRefresh(n => n + 1); }}
         onDone={() => {
@@ -3428,7 +3439,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
   // Pydantic's exclude_unset leaves whatever a company already has in the DB
   // untouched (still rendered in signatures); this form just stops offering
   // a way to view/set it.
-  const blank = { name: '', legal_name: '', country: '', tax_id: '', physical_address: '', mailing_address: '', signatory: '', notes: '', domains: '', manager_emails: [], hr_contact_email: '', logo_url: '', website: '', main_phone: '', main_phone_type: 'phone', main_phone_country: 'US', facebook_url: '', twitter_url: '', instagram_url: '' };
+  const blank = { name: '', legal_name: '', country: '', tax_id: '', physical_address: '', mailing_address: '', signatory: '', signatory_email: '', notes: '', domains: '', manager_emails: [], hr_contact_email: '', logo_url: '', website: '', main_phone: '', main_phone_type: 'phone', main_phone_country: 'US', facebook_url: '', twitter_url: '', instagram_url: '' };
   const [mode, setMode] = useState(null);   // null = list · 'new' · <id> editing
   const [tab, setTab] = useState('overview');
   const { can } = useRole();
@@ -3477,7 +3488,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
     }
     const seeded = { name: en.name, legal_name: en.legalName || '', country: en.country || '', tax_id: en.taxId || '',
       physical_address: en.physicalAddress || '', mailing_address: en.mailingAddress || '',
-      signatory: en.signatory || '', notes: en.notes || '', domains: en.domains || '',
+      signatory: en.signatory || '', signatory_email: en.signatoryEmail || '', notes: en.notes || '', domains: en.domains || '',
       manager_emails: en.managerEmails && en.managerEmails.length ? en.managerEmails : (en.managerEmail ? [en.managerEmail] : []),
       hr_contact_email: en.hrContactEmail || '',
       logo_url: en.logoUrl || '', website: en.website || '', main_phone: phoneNumber, main_phone_type: phoneType, main_phone_country: phoneCountry, facebook_url: en.facebookUrl || '', twitter_url: en.twitterUrl || '', instagram_url: en.instagramUrl || '' };
@@ -3571,6 +3582,24 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                 </div>
                 {field('TAX ID (EIN / GSTIN)', 'tax_id')}
                 {field('AUTHORIZED SIGNATORY', 'signatory', { placeholder: 'name, title' })}
+                {/* Who signs when an HR packet's signing order says Authorized
+                    Signatory (Oct 14). The text above is what a letter prints
+                    ({{signatory}}); this is the person who actually signs. */}
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label style={FL}>AUTHORIZED SIGNATORY (PERSON)</label>
+                  <select className="form-input" style={{ width: '100%' }} value={f.signatory_email || ''}
+                    onChange={e => set('signatory_email', e.target.value)}>
+                    <option value="">- not set -</option>
+                    {people.map(p => <option key={p.email} value={p.email}>{p.name} ({p.email})</option>)}
+                  </select>
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Signs HR packets for the company when a packet's signing order says Authorized Signatory.</div>
+                  {f.signatory_email && f.signatory.trim() && personName(f.signatory_email)
+                    && !f.signatory.toLowerCase().includes((personName(f.signatory_email).split(' ')[0] || '').toLowerCase()) && (
+                    <div style={{ fontSize: 11.5, color: 'hsl(var(--color-orange))', marginTop: 4 }}>
+                      Letters print "{f.signatory}" as the signatory, but {personName(f.signatory_email)} signs - make the two match.
+                    </div>
+                  )}
+                </div>
                 <div style={{ gridColumn: '1 / -1' }}>
                   <label style={FL}>COMPANY MANAGER(S)</label>
                   {f.manager_emails.length > 0 && (

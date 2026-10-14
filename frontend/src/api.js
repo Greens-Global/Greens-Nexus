@@ -2224,11 +2224,52 @@ export const api = {
   weatherCallMine:      ()                    => req('/weather-call/mine'),
   weatherCallMyPrefs:   ()                    => req('/weather-call/my-prefs'),
   weatherCallMyPrefsSave: (data)              => req('/weather-call/my-prefs', { method: 'PUT', body: JSON.stringify(data) }),
+  // ── Documents: signature blocks + Publish (Oct 14) ──────────────────────────
+  // The document as Nexus Sign gets it: {fileName, pdf (base64), fields, roles},
+  // with a field on every signature line the template drew.
+  documentSigningPdf: (id) => req(`/documents/${id}/signing-pdf`),
+  // Release a template's current wording to the HR packets that use it.
+  publishDocTemplate: (id, note = '') => req(`/documents/templates/${id}/publish`, { method: 'POST', body: JSON.stringify({ note }) }),
+  // ── HR packets built from Documents (Oct 14) ───────────────────────────────
+  saveDocumentsPacket: (data) => req('/hr/packets/documents', { method: 'PUT', body: JSON.stringify(data) }),
+  // Who holds each signing role today for a company (the editor's "today: ...").
+  packetRoleHolders:   (entityId = '') => req(`/hr/packets/role-holders?entity_id=${encodeURIComponent(entityId)}`),
+  // One template as the packet prints it, filled with a sample person -> {blob}.
+  renderPacketPreview: (data) => reqBlob('/hr/packets/render-preview', { method: 'POST', body: JSON.stringify(data), headers: { 'Content-Type': 'application/json' } }),
+  // Start -> review -> Verify And Send. Only the verifier can send.
+  startHiringPacket:   (cid, data) => req(`/hr/candidates/${cid}/hiring-packet/start`, { method: 'POST', body: JSON.stringify(data) }),
+  getPacketReview:     (eid) => req(`/hr/life-events/${eid}/review`),
+  patchPacketValues:   (eid, data) => req(`/hr/life-events/${eid}/values`, { method: 'PATCH', body: JSON.stringify(data) }),
+  regeneratePacket:    (eid) => req(`/hr/life-events/${eid}/regenerate`, { method: 'POST' }),
+  packetDocumentPdf:   (eid, did) => reqBlob(`/hr/life-events/${eid}/documents/${did}/pdf`),
+  verifyAndSendPacket: (eid, data) => req(`/hr/life-events/${eid}/verify-and-send`, { method: 'POST', body: JSON.stringify(data) }),
+  // Ask the candidate for their details again - a fresh link, the old one dead.
+  reopenPacketIntake:  (eid) => req(`/hr/life-events/${eid}/reopen-intake`, { method: 'POST' }),
+  // A promotion letter built from Documents: generated, then verified and sent.
+  startPromotion:      (eid, data) => req(`/hr/employees/${eid}/promotion/start`, { method: 'POST', body: JSON.stringify(data) }),
+  // Documents > HR Records: every document HR packets generated (HR only).
+  listPacketDocuments: ({ q = '', status = '' } = {}) => req(`/hr/packet-documents?${new URLSearchParams({ q, status })}`),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
 // no MSAL involved, the token in the URL is the credential.
 export const API_BASE = BASE;
+
+// A candidate's details page (/intake/{token}, Oct 14) - no Nexus login; the
+// link's token is the credential, so these are plain fetches.
+async function _publicIntake(token, init) {
+  const res = await fetch(`${BASE}/hr/intake/public/${encodeURIComponent(token)}`, init);
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json())?.detail; } catch { /* not JSON */ }
+    throw new Error(typeof detail === 'string' && detail ? detail : `Could not load this page (${res.status})`);
+  }
+  return res.json();
+}
+export const fetchPublicIntake = (token) => _publicIntake(token);
+export const submitPublicIntake = (token, values) => _publicIntake(token, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ values }),
+});
 
 // Public unit finder (/map/{propertyId}) - a customer looking for their unit
 // has no Nexus login, so this is a plain fetch of the customer-safe model.

@@ -24,6 +24,8 @@ import { Spinner } from './AsyncState';
 import PersonSearchSelect from './PersonSearchSelect';
 import { SignModal } from './ESign';
 import { PacketEditor, describeRoles } from './PacketTemplates';
+import { DocumentsPacketEditor } from './DocumentsPacketEditor';
+import PacketReview from './PacketReview';
 
 const ENABLED_EVENTS = ['hire', 'promotion', 'separation'];
 const OTHER_ROLE = '__other__';
@@ -104,6 +106,9 @@ export const Problem = ({ children }) => (
 
 // ── Status chips ─────────────────────────────────────────────────────────────
 const EVENT_STATUS = {
+  // Packets built from Documents (Oct 14) exist before they are sent.
+  intake:          ['Waiting On Details', 'blue'],
+  review:          ['Ready For Review', 'orange'],
   awaiting_sender: ['Awaiting Your Signature', 'orange'],
   sent:            ['Waiting On The New Hire', 'blue'],
   completed:       ['Fully Signed', 'green'],
@@ -157,6 +162,7 @@ function PacketRow({ row, onEdit, onRemoved, toastErr, companyName }) {
         {companyName !== undefined && <td style={{ ...TD, whiteSpace: 'nowrap' }}>{companyName || <span style={{ color: 'var(--muted)' }}>Every company</span>}</td>}
         <td style={TD}>
           <div style={{ fontWeight: 700 }}>{row.templateName || 'Unnamed packet'}</div>
+          {row.engine === 'pdf' && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>Uploaded PDFs - rebuild it from Documents</div>}
           {(row.problems || []).map(p => <div key={p} style={{ color: 'hsl(var(--color-orange))', fontSize: 11.5, marginTop: 3 }}>{p}</div>)}
         </td>
         <td style={TD}>
@@ -273,7 +279,7 @@ export function PacketsModal({ onClose, toastOk, toastErr }) {
                   {inherited.length
                     ? `${company} uses the default: ${inherited.map(s => `${s.templateName} (${describeRoles(s.roleNames)})`).join(', ')}. Add a packet to give it its own.`
                     : companyId ? `${company} cannot send one until a packet is added here or for every company.`
-                      : 'Add a packet: upload the PDF, place the signature boxes and an Offer Field for the salary, and save. A packet added here, with no company picked, is for every company.'}
+                      : 'Add a packet: pick its documents from Documents > Templates and set who signs, by role. A packet added here, with no company picked, is for every company.'}
                 </div>
                 <button type="button" className="primary-btn" onClick={() => setEditing({ event: ev, row: null })} style={{ fontSize: 12.5, marginTop: 14, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                   <Plus size={13} /> Add Packet
@@ -305,7 +311,16 @@ export function PacketsModal({ onClose, toastOk, toastErr }) {
           </>
         )}
       </div>
-      {editing && (
+      {editing && (editing.row ? editing.row.engine === 'documents' : true) && (
+        <DocumentsPacketEditor packet={editing.row || editing.seed || null} event={editing.event.key} eventLabel={editing.event.label}
+          catalog={data}
+          companyId={editing.row ? (editing.row.entityId || '') : (editing.companyId ?? companyId)}
+          companyName={editing.row ? (entityName(editing.row.entityId) || 'Every company') : (editing.companyId ? (entityName(editing.companyId) || 'This company') : company)}
+          defaultSubfolder={editing.event.defaultSubfolder} toastErr={toastErr}
+          onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); load(); toastOk('Packet saved.'); }} />
+      )}
+      {editing && editing.row && editing.row.engine !== 'documents' && (
         <PacketEditor packet={editing.row || editing.seed || null} event={editing.event.key} eventLabel={editing.event.label}
           companyId={editing.row ? (editing.row.entityId || '') : (editing.companyId ?? companyId)}
           companyName={editing.row ? (entityName(editing.row.entityId) || 'Every company') : (editing.companyId ? (entityName(editing.companyId) || 'This company') : company)}
@@ -343,6 +358,20 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
       .catch(() => setPackets({ pickedId: '', picked: null, options: [] }));
   }, [c.id, f.role_id, f.employment_type]);
   const [mail, setMail] = useState(null);           // the email preview being shown
+  // A packet built from Documents (Oct 14) starts instead of sending: the Four
+  // Options (role, pay, timings, job description) and the person's details,
+  // then the documents are generated and HR verifies them before anything goes.
+  const [timing, setTiming] = useState({ work_start: '09:00', work_end: '17:00', work_days: ['mon', 'tue', 'wed', 'thu', 'fri'], timings_text: '' });
+  const [jds, setJds] = useState([]);
+  const [jdId, setJdId] = useState('');
+  const [payText, setPayText] = useState('');
+  const [fills, setFills] = useState('hr');           // who fills in the details: 'hr' now, or 'candidate' (a link)
+  const [details, setDetails] = useState({ first_name: c.firstName || '', last_name: c.lastName || '', preferred_name: '', phone: c.phone || '',
+    address: '', permanent_address: '', emergency_name: '', emergency_relationship: '', emergency_phone: '' });
+  useEffect(() => {
+    api.getDocTemplates({ category: 'job_description', status: 'active' }).then(r => setJds(r || [])).catch(() => setJds([]));
+  }, []);
+  const setD = (k, v) => setDetails(p => ({ ...p, [k]: v }));
   const [pay, setPay] = useState({ base: '', payBasis: 'salary', frequency: 'annual', currency: 'USD' });
   const [extra, setExtra] = useState({});          // fields the template needs that Nexus can't fill
   const [preview, setPreview] = useState(null);
@@ -375,6 +404,23 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
     excluded_ack: ack,
   });
   const missing = (preview?.unresolved || []).filter(k => !(extra[k] || '').trim());
+  const chosen = (packets?.options || []).find(o => o.id === f.packet_id);
+  const docsMode = chosen?.engine === 'documents';
+  async function start() {
+    setBusy('start');
+    try {
+      const b = body();
+      const ev = await api.startHiringPacket(c.id, {
+        intake: fills,
+        inputs: { ...b.inputs, ...timing, jd_template_id: jdId },
+        pay: b.pay,
+        pay_values: canSeePay && payText.trim() ? { salary: payText.trim() } : null,
+        details: fills === 'hr' ? details : {},
+      });
+      onSent(fills === 'hr' ? { ...ev, openReview: true } : ev);
+    } catch (e) { toastErr(e?.message || 'Could not start the packet.'); setBusy(''); }
+  }
+  const DAYS = [['mon', 'Mon'], ['tue', 'Tue'], ['wed', 'Wed'], ['thu', 'Thu'], ['fri', 'Fri'], ['sat', 'Sat'], ['sun', 'Sun']];
 
   async function review() {
     setBusy('preview');
@@ -400,7 +446,9 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
   );
   return (
     <Overlay onClose={onClose} wide>
-      <Head title={`Send Hiring Packet - ${name}`} sub={`Goes to ${c.email || 'their personal email'}. You sign first, then ${c.firstName || 'they'} signs.`} onClose={onClose} />
+      <Head title={docsMode ? `Start Hiring Packet - ${name}` : `Send Hiring Packet - ${name}`}
+        sub={docsMode ? `Pick the four options and enter ${c.firstName || 'their'} details - the documents are generated at once, and HR checks them before anything goes to ${c.email || 'them'}.`
+          : `Goes to ${c.email || 'their personal email'}. You sign first, then ${c.firstName || 'they'} signs.`} onClose={onClose} />
       <div style={{ overflowY: 'auto', flex: 1, padding: '6px 22px 18px' }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0 14px' }}>
           <div><label style={lbl}>Job Title *</label>
@@ -477,14 +525,74 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
               <select className="form-input" style={{ width: '100%' }} value={pay.currency} onChange={e => setP('currency', e.target.value)}>
                 {currencyOptions().map(c => <option key={c.code} value={c.code}>{c.label}</option>)}
               </select></div>
-            <div style={{ gridColumn: '1 / -1', ...hint }}>Printed in the offer letter and set as their pay from the start date once they sign.</div>
+            {docsMode && (
+              <div style={{ gridColumn: '1 / -1' }}><label style={lbl}>Or Pay As Written (Optional)</label>
+                <input className="form-input" style={{ width: '100%' }} value={payText} onChange={e => setPayText(e.target.value)}
+                  placeholder="e.g. $22.00 per hour plus commission - printed instead of the amount above" /></div>
+            )}
+            <div style={{ gridColumn: '1 / -1', ...hint }}>Printed in the offer letter and set as their pay from the start date once they sign.{docsMode ? ' Pay written as text is printed but not set on Pay & Benefits.' : ''}</div>
           </div>
+        ) : docsMode ? (
+          <div style={hint}>Pay & Benefits access is needed to enter pay - whoever verifies the packet can add it at review.</div>
         ) : (
           <>{input('Pay As Written In The Letter', 'salary_text', { placeholder: 'e.g. $85,000 per year' })}
             <div style={hint}>Pay & Benefits access is needed to set their payroll rate - HR can add it on their profile after they sign.</div></>
         )}
 
-        {preview && (
+        {docsMode && (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '0 14px' }}>
+              <div><label style={lbl}>Starts At</label>
+                <input className="form-input" type="time" style={{ width: '100%' }} value={timing.work_start} onChange={e => setTiming(t => ({ ...t, work_start: e.target.value }))} /></div>
+              <div><label style={lbl}>Ends At</label>
+                <input className="form-input" type="time" style={{ width: '100%' }} value={timing.work_end} onChange={e => setTiming(t => ({ ...t, work_end: e.target.value }))} /></div>
+              <div style={{ gridColumn: '1 / -1' }}><label style={lbl}>Work Days</label>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {DAYS.map(([k, l]) => {
+                    const on = timing.work_days.includes(k);
+                    return <button key={k} type="button" onClick={() => setTiming(t => ({ ...t, work_days: on ? t.work_days.filter(x => x !== k) : [...t.work_days, k] }))}
+                      style={{ padding: '4px 10px', borderRadius: 999, border: '1px solid var(--line)', fontSize: 12, cursor: 'pointer', fontFamily: 'Inter,sans-serif',
+                        background: on ? 'var(--pine)' : 'var(--card)', color: on ? '#fff' : 'var(--ink)' }}>{l}</button>;
+                  })}
+                </div></div>
+              <div style={{ gridColumn: '1 / -1' }}><label style={lbl}>Or Describe The Timings (Optional)</label>
+                <input className="form-input" style={{ width: '100%' }} value={timing.timings_text} onChange={e => setTiming(t => ({ ...t, timings_text: e.target.value }))}
+                  placeholder="e.g. Rotating shifts, 40 hours a week - printed instead of the hours above" /></div>
+              <div style={{ gridColumn: '1 / -1' }}><label style={lbl}>Job Description</label>
+                <select className="form-input" style={{ width: '100%' }} value={jdId} onChange={e => setJdId(e.target.value)}>
+                  <option value="">None</option>
+                  {jds.map(t => <option key={t.id} value={t.id}>{t.name}{t.publishedVersion ? '' : ' (Not Published)'}</option>)}
+                </select>
+                <div style={hint}>{jds.length ? 'Added to the packet as its own document.' : 'No job descriptions yet - create one in Documents > Templates with category Job Description.'}</div></div>
+            </div>
+            <div style={{ marginTop: 16, borderTop: '1px solid var(--line)', paddingTop: 4 }}>
+              <div style={{ fontSize: 13, fontWeight: 800, marginTop: 10 }}>{c.firstName || 'Their'}'s Details</div>
+              <div style={{ display: 'flex', gap: 4, background: 'var(--mist)', borderRadius: 10, padding: 3, width: 'fit-content', marginTop: 8 }}>
+                {[['candidate', `${c.firstName || 'They'} Fills Them In`], ['hr', 'I Will']].map(([k, l]) => (
+                  <button key={k} type="button" onClick={() => setFills(k)}
+                    style={{ border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif',
+                      background: fills === k ? 'var(--card)' : 'transparent', color: 'var(--ink)', boxShadow: fills === k ? '0 1px 3px rgba(0,0,0,0.15)' : 'none' }}>{l}</button>
+                ))}
+              </div>
+              {fills === 'candidate' ? (
+                <div style={hint}>{c.firstName || 'They'} gets an email at {c.email || 'their personal email'} with a link to enter their legal name, address, phone and an emergency contact. The documents are generated the moment they send them, and HR is asked to verify.</div>
+              ) : <div style={hint}>Printed in the documents and saved on People when they sign. Use their legal name.</div>}
+              {fills === 'hr' && <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 14px' }}>
+                {[['Legal First Name *', 'first_name'], ['Legal Last Name *', 'last_name'], ['Preferred Name', 'preferred_name'], ['Phone', 'phone']].map(([l, k]) => (
+                  <div key={k}><label style={lbl}>{l}</label><input className="form-input" style={{ width: '100%' }} value={details[k]} onChange={e => setD(k, e.target.value)} /></div>
+                ))}
+                {[['Current Address', 'address'], ['Permanent Address', 'permanent_address']].map(([l, k]) => (
+                  <div key={k} style={{ gridColumn: '1 / -1' }}><label style={lbl}>{l}</label><input className="form-input" style={{ width: '100%' }} value={details[k]} onChange={e => setD(k, e.target.value)} /></div>
+                ))}
+                {[['Emergency Contact', 'emergency_name'], ['Relationship', 'emergency_relationship'], ['Emergency Phone', 'emergency_phone']].map(([l, k]) => (
+                  <div key={k}><label style={lbl}>{l}</label><input className="form-input" style={{ width: '100%' }} value={details[k]} onChange={e => setD(k, e.target.value)} /></div>
+                ))}
+              </div>}
+            </div>
+          </>
+        )}
+
+        {preview && !docsMode && (
           <div style={{ marginTop: 18, border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', background: 'var(--mist)' }}>
             <div style={{ fontWeight: 800, fontSize: 13.5 }}>{preview.title}</div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14, marginTop: 8 }}>
@@ -549,7 +657,15 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
       {mail && <EmailPreviewModal {...mail} onClose={() => setMail(null)} />}
       <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
         <button className="secondary-btn" onClick={onClose} disabled={!!busy}>Cancel</button>
-        {!preview ? (
+        {docsMode ? (
+          <button className="primary-btn" onClick={start}
+            disabled={!!busy || !f.role_id || (isOther && (!f.new_role_name.trim() || !f.department)) || !f.start_date || !f.offer_expires
+              || (fills === 'hr' && (!details.first_name.trim() || !details.last_name.trim()))}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            {busy === 'start' ? <Spinner size={14} /> : fills === 'hr' ? <FileSignature size={14} /> : <Send size={14} />}
+            {fills === 'hr' ? 'Generate Documents' : 'Send Details Link'}
+          </button>
+        ) : !preview ? (
           <button className="primary-btn" onClick={review} disabled={!!busy || !f.role_id || (isOther && (!f.new_role_name.trim() || !f.department)) || !f.start_date || !f.offer_expires}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             {busy === 'preview' ? <Spinner size={14} /> : <FileSignature size={14} />} Review Packet
@@ -571,7 +687,11 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
 // has signed, Sign Now for HR's own turn, Void, and where it was filed.
 export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hideSign = false }) {
   const [busy, setBusy] = useState('');
-  const [label, tone] = ev.status === 'sent' && ev.kind !== 'hire' ? ['Out For Signature', 'blue'] : (EVENT_STATUS[ev.status] || [ev.status, 'gray']);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const docs = ev.engine === 'documents';
+  const [label, tone] = ev.status === 'sent' && ev.kind !== 'hire' ? ['Out For Signature', 'blue']
+    : docs && ev.status === 'awaiting_sender' ? ['Awaiting Company Sign-Off', 'orange']
+      : (EVENT_STATUS[ev.status] || [ev.status, 'gray']);
   const what = ev.title || 'Packet';
   async function act(kind) {
     if (kind === 'void' && !await dialog.confirm(`Void this ${what.toLowerCase()}? It can no longer be signed. To change the pay or any other detail, void it and send a new one with the new values - a letter that is out is never edited.`, { title: 'Void', confirmText: 'Void' })) return;
@@ -637,13 +757,30 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hid
               : `Filing in Egnyte${ev.filingError ? ` - last try: ${ev.filingError}` : '...'}`}</span>
         </div>
       )}
+      {['intake', 'review'].includes(ev.status) && (
+        <div style={{ fontSize: 12.5, marginTop: 6, color: 'var(--muted)' }}>
+          {ev.status === 'review'
+            ? `${(ev.documents || []).length} document${(ev.documents || []).length === 1 ? '' : 's'} generated - nothing is sent until HR verifies them.`
+            : `Waiting for ${ev.subjectName} to fill in their details.`}
+        </div>
+      )}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+        {['intake', 'review'].includes(ev.status) && (
+          <button className="primary-btn" onClick={() => setReviewOpen(true)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <FileSignature size={12} /> Open Review
+          </button>
+        )}
+        {docs && !['intake', 'review'].includes(ev.status) && (
+          <button className="secondary-btn" onClick={() => setReviewOpen(true)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <FileSignature size={12} /> Documents
+          </button>
+        )}
         {ev.senderPartyId && onSignNow && !hideSign && (
           <button className="primary-btn" onClick={() => onSignNow(ev.senderPartyId)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
             <FileSignature size={12} /> Sign Now
           </button>
         )}
-        {['awaiting_sender', 'sent'].includes(ev.status) && (
+        {['awaiting_sender', 'sent', 'intake', 'review'].includes(ev.status) && (
           <button className="secondary-btn" onClick={() => act('void')} disabled={!!busy} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
             {busy === 'void' ? <Spinner size={12} /> : <Ban size={12} />} Void
           </button>
@@ -659,6 +796,10 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hid
           </button>
         )}
       </div>
+      {reviewOpen && (
+        <PacketReview eventId={ev.id} onClose={() => setReviewOpen(false)} onChanged={onChanged}
+          onSignNow={onSignNow} toastOk={toastOk} toastErr={toastErr} />
+      )}
     </div>
   );
 }
@@ -693,5 +834,5 @@ export function PersonLifeEvents({ employeeId, refreshKey, onSignNow, toastOk, t
 
 // Whether a packet is out (so the Offer stage hides "Send" and shows the status).
 export function packetIsActive(events) {
-  return (events || []).some(e => e.kind === 'hire' && ['awaiting_sender', 'sent'].includes(e.status));
+  return (events || []).some(e => e.kind === 'hire' && ['intake', 'review', 'awaiting_sender', 'sent'].includes(e.status));
 }

@@ -68,6 +68,7 @@ const Support             = lazy(() => import("./views/Support"));
 const Placeholder         = lazy(() => import("./views/Placeholder"));
 const Directory           = lazy(() => import("./views/Directory"));   // Contact Directory (Support, Oct 2026)
 const PublicSign          = lazy(() => import("./views/PublicSign"));
+const PublicIntake        = lazy(() => import("./views/PublicIntake"));
 const PublicVerify        = lazy(() => import("./views/PublicVerify"));
 const PublicUnitFinder    = lazy(() => import("./views/PublicUnitFinder"));
 const ExternalActivate    = lazy(() => import("./views/ExternalActivate"));
@@ -480,6 +481,16 @@ export default function App() {
     return (
       <Suspense fallback={<ViewLoading minHeight="100dvh" />}>
         <PublicSign token={token} />
+      </Suspense>
+    );
+  }
+  // A candidate's details page (/intake/{token}, Oct 14) - same reasoning as
+  // /sign/{token}: the candidate has no login; the emailed token is the credential.
+  if (parsePath().view === 'intake') {
+    const token = window.location.pathname.split('/').filter(Boolean)[1] || '';
+    return (
+      <Suspense fallback={<ViewLoading minHeight="100dvh" />}>
+        <PublicIntake token={token} />
       </Suspense>
     );
   }

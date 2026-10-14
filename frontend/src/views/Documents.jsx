@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { FileSignature, LayoutDashboard, Folder, LayoutTemplate, FileText } from 'lucide-react';
+import { FileSignature, LayoutDashboard, Folder, LayoutTemplate, FileText, Users } from 'lucide-react';
 import { api } from '../api';
 import { useEntities } from '../lib/queries';
 import ESign from '../components/ESign';
@@ -7,6 +7,7 @@ import PdfEditorModule from './PdfEditorModule';
 import DocumentsDashboard from '../components/DocumentsDashboard';
 import DocumentsBrowser from '../components/DocumentsBrowser';
 import DocumentTemplates from '../components/DocumentTemplates';
+import HrRecords from '../components/HrRecords';
 import ModuleTabs from '../components/ModuleTabs';
 import GuidedTour from '../components/GuidedTour';
 import { useIsMobile } from '../lib/useIsMobile';
@@ -30,6 +31,8 @@ const TABS = [
   { key: 'documents-esign', label: 'Nexus Sign', Icon: FileSignature },
   { key: 'documents-pdf', label: 'PDF Tools', Icon: FileText },
 ];
+// HR packet documents (Oct 14) - a tab only HR sees (the server is the gate).
+const HR_TAB = { key: 'documents-hr-records', label: 'HR Records', Icon: Users };
 
 // Tour id this module reports to the server (routers/user_tours.py) - same
 // pattern as the Task, Ticket and Support tours' own ids.
@@ -39,7 +42,15 @@ export default function Documents({ activeSub, onSubChange }) {
   // Deep-links: 'documents-esign' / 'documents-esign-requests' both live on the
   // E-Sign tab - ESign reads the raw activeSub to pick its own sub-tab.
   const navSub = String(activeSub || '').startsWith('documents-esign') ? 'documents-esign' : activeSub;
-  const sub = TABS.some(t => t.key === navSub) ? navSub : 'documents-dashboard';
+  // HR Records shows only when the caller may read People (the probe 200s).
+  const [hrAccess, setHrAccess] = useState(false);
+  useEffect(() => {
+    let live = true;
+    api.listPacketDocuments({ q: '__probe__' }).then(() => { if (live) setHrAccess(true); }).catch(() => {});
+    return () => { live = false; };
+  }, []);
+  const tabs = hrAccess ? [...TABS.slice(0, 3), HR_TAB, ...TABS.slice(3)] : TABS;
+  const sub = tabs.some(t => t.key === navSub) ? navSub : 'documents-dashboard';
   // "New Document"/"New Template" from the Dashboard hand off to the relevant
   // tab and ask it to pop its create dialog open - a bumped counter (not a
   // bool) so a second click while already on that tab still re-triggers it.
@@ -140,7 +151,7 @@ export default function Documents({ activeSub, onSubChange }) {
           icon-over-label treatment the Task and Item modules use), so the
           in-page strip is suppressed there - two strips would be the same
           navigation twice. */}
-      {!pdfFullBleed && <ModuleTabs tabs={TABS} active={sub} onChange={onSubChange} mobileInline={false} />}
+      {!pdfFullBleed && <ModuleTabs tabs={tabs} active={sub} onChange={onSubChange} mobileInline={false} />}
 
       <div data-tour={`documents-screen-${sub}`}>
       {sub === 'documents-dashboard' && (
@@ -171,6 +182,8 @@ export default function Documents({ activeSub, onSubChange }) {
             if (docId) api.updateDocument(docId, { signRequestId: sent.id, status: 'final' }).catch(toastErr);
           }} />
       )}
+
+      {sub === 'documents-hr-records' && <HrRecords toastErr={toastErr} />}
 
       {sub === 'documents-pdf' && <PdfEditorModule />}
       </div>

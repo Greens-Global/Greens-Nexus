@@ -997,6 +997,38 @@ def _run_migrations():
             # Time entries (Oct 2026). models.Task.time_entry_count.
             "ALTER TABLE tasks ADD COLUMN time_entry_count INTEGER DEFAULT 0",
             "CREATE UNIQUE INDEX IF NOT EXISTS ux_task_time_running ON task_time_entries (person_email) WHERE ended_at = ''",
+            # Pay-printing envelopes need Pay & Benefits to download (Oct 14). models.HrSignRequest.prints_pay.
+            "ALTER TABLE hr_sign_requests ADD COLUMN prints_pay INTEGER DEFAULT 0",
+            # Template Publish (Oct 14). models.DocTemplate.published_*.
+            "ALTER TABLE doc_templates ADD COLUMN published_version INTEGER DEFAULT 0",
+            "ALTER TABLE doc_templates ADD COLUMN published_meta JSON DEFAULT '{}'",
+            "ALTER TABLE doc_templates ADD COLUMN published_by VARCHAR DEFAULT ''",
+            "ALTER TABLE doc_templates ADD COLUMN published_at VARCHAR DEFAULT ''",
+            # HR packets built from Documents (Oct 14). models.HrPacketSetting / HrEntity.signatory_email.
+            "ALTER TABLE hr_packet_settings ADD COLUMN name VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_packet_settings ADD COLUMN engine VARCHAR DEFAULT 'pdf'",
+            "ALTER TABLE hr_packet_settings ADD COLUMN doc_template_ids JSON DEFAULT '[]'",
+            "ALTER TABLE hr_packet_settings ADD COLUMN flow JSON DEFAULT '[]'",
+            "ALTER TABLE hr_packet_settings ADD COLUMN verify_role VARCHAR DEFAULT 'hr'",
+            "ALTER TABLE hr_packet_settings ADD COLUMN verify_distinct INTEGER DEFAULT 0",
+            "ALTER TABLE hr_packet_settings ADD COLUMN letterhead_id VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_packet_settings ADD COLUMN pay_mode VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_entities ADD COLUMN signatory_email VARCHAR DEFAULT ''",
+            # HR packets: review, verify, send (Oct 14). models.HrLifeEvent / Document.
+            "ALTER TABLE hr_life_events ADD COLUMN documents JSON DEFAULT '[]'",
+            "ALTER TABLE hr_life_events ADD COLUMN pay_values JSON DEFAULT '{}'",
+            "ALTER TABLE hr_life_events ADD COLUMN intake JSON DEFAULT '{}'",
+            "ALTER TABLE hr_life_events ADD COLUMN verified_by VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_life_events ADD COLUMN verified_at VARCHAR DEFAULT ''",
+            "ALTER TABLE documents ADD COLUMN life_event_id VARCHAR DEFAULT ''",
+            "ALTER TABLE documents ADD COLUMN candidate_id VARCHAR DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS ix_documents_life_event_id ON documents (life_event_id)",
+            # The candidate's details link (Oct 14). models.HrLifeEvent.intake_*.
+            "ALTER TABLE hr_life_events ADD COLUMN intake_token_hash VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_life_events ADD COLUMN intake_expires_on VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_life_events ADD COLUMN intake_sent_at VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_life_events ADD COLUMN intake_submitted_at VARCHAR DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS ix_hr_life_events_intake_token_hash ON hr_life_events (intake_token_hash)",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2220,6 +2252,38 @@ def _run_migrations():
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_task_time_running ON task_time_entries (person_email) WHERE ended_at = ''",
         # Role change approvals (Pranshu, Oct 13). New table - RLS per CLAUDE.md. models.HrRoleChangeRequest.
         "ALTER TABLE hr_role_change_requests ENABLE ROW LEVEL SECURITY",
+        # Pay-printing envelopes need Pay & Benefits to download (Oct 14). models.HrSignRequest.prints_pay.
+        "ALTER TABLE hr_sign_requests ADD COLUMN IF NOT EXISTS prints_pay INTEGER DEFAULT 0",
+        # Template Publish (Oct 14). models.DocTemplate.published_*.
+        "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS published_version INTEGER DEFAULT 0",
+        "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS published_meta JSONB DEFAULT '{}'::jsonb",
+        "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS published_by VARCHAR DEFAULT ''",
+        "ALTER TABLE doc_templates ADD COLUMN IF NOT EXISTS published_at VARCHAR DEFAULT ''",
+        # HR packets built from Documents (Oct 14). models.HrPacketSetting / HrEntity.signatory_email.
+        "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS name VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS engine VARCHAR DEFAULT 'pdf'",
+        "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS doc_template_ids JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS flow JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS verify_role VARCHAR DEFAULT 'hr'",
+        "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS verify_distinct INTEGER DEFAULT 0",
+        "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS letterhead_id VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS pay_mode VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS signatory_email VARCHAR DEFAULT ''",
+        # HR packets: review, verify, send (Oct 14). models.HrLifeEvent / Document.
+        "ALTER TABLE hr_life_events ADD COLUMN IF NOT EXISTS documents JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE hr_life_events ADD COLUMN IF NOT EXISTS pay_values JSONB DEFAULT '{}'::jsonb",
+        "ALTER TABLE hr_life_events ADD COLUMN IF NOT EXISTS intake JSONB DEFAULT '{}'::jsonb",
+        "ALTER TABLE hr_life_events ADD COLUMN IF NOT EXISTS verified_by VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_life_events ADD COLUMN IF NOT EXISTS verified_at VARCHAR DEFAULT ''",
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS life_event_id VARCHAR DEFAULT ''",
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS candidate_id VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_documents_life_event_id ON documents (life_event_id)",
+        # The candidate's details link (Oct 14). models.HrLifeEvent.intake_*.
+        "ALTER TABLE hr_life_events ADD COLUMN IF NOT EXISTS intake_token_hash VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_life_events ADD COLUMN IF NOT EXISTS intake_expires_on VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_life_events ADD COLUMN IF NOT EXISTS intake_sent_at VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_life_events ADD COLUMN IF NOT EXISTS intake_submitted_at VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_hr_life_events_intake_token_hash ON hr_life_events (intake_token_hash)",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

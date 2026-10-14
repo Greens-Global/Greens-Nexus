@@ -1424,6 +1424,10 @@ class HrEntity(Base):
     # the employee too (NexusEmployee.signature_closing): "Admin should not
     # have the control of Sign off... it should be employee specific."
     signature_closing  = Column(String, default="")
+    # The authorized signatory as a Nexus person (Oct 14) - who signs when an
+    # HR packet's flow says "Authorized Signatory". `signatory` above stays the
+    # printed name/title a letter shows ({{signatory}}).
+    signatory_email    = Column(String, default="")
 
 
 class NexusSetting(Base):
@@ -1740,6 +1744,9 @@ class HrSignRequest(Base):
     # that record along: link_kind "timesheet" + link_id = TimesheetReview.id.
     link_kind        = Column(String, default="", index=True)
     link_id          = Column(String, default="", index=True)
+    # 1 = the documents print pay (offer / promotion letters): the sealed PDF,
+    # the party links and party re-pointing need Pay & Benefits (hr_comp).
+    prints_pay       = Column(Integer, default=0)
 
 
 class HrSignParty(Base):
@@ -2040,6 +2047,18 @@ class DocTemplate(Base):
     created_at          = Column(String, default="")
     updated_by          = Column(String, default="")
     updated_at          = Column(String, default="")
+    # Publish (Oct 14). The editor autosaves every 1.5 s and each save bumps
+    # `version`, so "the latest version" is routinely half a sentence. HR
+    # packets read the PUBLISHED version instead: a finished edit is released
+    # on purpose with Publish, and packets pick it up from that moment.
+    # 0 = never published. The content lives in the DocTemplateVersion row with
+    # version_no == published_version; published_meta freezes what that table
+    # does not hold: {fieldDefs, signerRoles, mergeOverrides, letterheadId,
+    # requiresLetterhead}.
+    published_version   = Column(Integer, default=0)
+    published_meta      = Column(JSON, default=dict)
+    published_by        = Column(String, default="")
+    published_at        = Column(String, default="")
 
 
 class Document(Base):
@@ -2072,6 +2091,10 @@ class Document(Base):
     updated_by       = Column(String, default="")
     updated_at       = Column(String, default="")
     archived_at      = Column(String, default="")
+    # An HR packet document (source "hr-packet", Oct 14): the life event it
+    # belongs to, and the candidate it is about (a hire has no employee yet).
+    life_event_id    = Column(String, default="", index=True)
+    candidate_id     = Column(String, default="")
 
 
 class DocumentVersion(Base):
@@ -5760,6 +5783,22 @@ class HrPacketSetting(Base):
     # role the company has no role-specific packet for. A company hiring for
     # IT and Accounting sends each its own packet (Pranshu, Oct 8).
     role_ids         = Column(JSON, default=list)
+    # Packets built from the Documents module (Neil, Oct 14). engine 'pdf' is
+    # the uploaded-PDF packet above (template_id); 'documents' is an ordered
+    # list of Documents templates (doc_template_ids, read at their PUBLISHED
+    # version) signed in an order defined by ROLE, never by person:
+    # flow = [{key, role, action}] - key is the signer key the templates'
+    # signature blocks name, role is a checklist role (hr_checklists.ROLES)
+    # or signatory / sender, action is sign | approve | copy. The verifier
+    # (verify_role) checks the generated documents before anything is sent.
+    name             = Column(String, default="")
+    engine           = Column(String, default="pdf")              # pdf | documents
+    doc_template_ids = Column(JSON, default=list)                 # DocTemplate ids, in order
+    flow             = Column(JSON, default=list)                 # [{key, role, action}]
+    verify_role      = Column(String, default="hr")               # who checks before it is sent
+    verify_distinct  = Column(Integer, default=0)                 # 1 = the verifier cannot be who started it
+    letterhead_id    = Column(String, default="")                 # DocLetterhead for templates that require one
+    pay_mode         = Column(String, default="")                 # '' by event | always | auto
 
 
 class HrLifeEvent(Base):
@@ -5798,6 +5837,23 @@ class HrLifeEvent(Base):
     created_at      = Column(String, default="")
     updated_at      = Column(String, default="")
     completed_at    = Column(String, default="")
+    # Packets built from Documents (Oct 14). The generated Document rows
+    # ([{documentId, templateId, templateVersion, valuesHash, title}]); the
+    # pay HR typed per pay variable ("$22.00 per hour plus commission") -
+    # RESTRICTED like `pay`, never written onto a document; the person's
+    # details (legal name, address, phone, emergency contact) whoever typed
+    # them; and who verified the documents before they went out.
+    documents       = Column(JSON, default=list)
+    pay_values      = Column(JSON, default=dict)
+    intake          = Column(JSON, default=dict)
+    verified_by     = Column(String, default="")
+    verified_at     = Column(String, default="")
+    # The candidate fills in their own details through a link (Oct 14). Only
+    # the token's sha256 is stored; the link dies after the offer expires.
+    intake_token_hash   = Column(String, default="", index=True)
+    intake_expires_on   = Column(String, default="")
+    intake_sent_at      = Column(String, default="")
+    intake_submitted_at = Column(String, default="")
 
 
 class NexusWorkforceScorecardLog(Base):

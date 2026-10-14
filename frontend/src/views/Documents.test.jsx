@@ -13,6 +13,8 @@ const getDocFolders = vi.fn(() => Promise.resolve([]));
 const getDocTemplates = vi.fn(() => Promise.resolve([]));
 const getDocLetterheads = vi.fn(() => Promise.resolve([]));
 const getEmployees = vi.fn(() => Promise.resolve([]));
+// The HR Records probe (Oct 14): 403 for anyone who is not HR.
+const listPacketDocuments = vi.fn(() => Promise.reject(new Error('403')));
 vi.mock('../api', () => ({
   api: {
     getDocuments: (...a) => getDocuments(...a),
@@ -21,6 +23,7 @@ vi.mock('../api', () => ({
     getDocTemplates: (...a) => getDocTemplates(...a),
     getDocLetterheads: (...a) => getDocLetterheads(...a),
     getEmployees: (...a) => getEmployees(...a),
+    listPacketDocuments: (...a) => listPacketDocuments(...a),
     searchDocuments: () => Promise.resolve([]),
     // The Documents tour (Oct 1) as already seen, so these tests see the module itself.
     getToursSeen: () => Promise.resolve({ seen: { documents: '2026-10-01' } }),
@@ -112,5 +115,14 @@ describe('Documents module', () => {
     renderDocs('documents-dashboard');
     expect(publishedTabs()).toContain('Dashboard');
     await waitFor(() => expect(mySignatures).toHaveBeenCalled());
+  });
+
+  it('shows the HR Records tab only when the HR probe answers', async () => {
+    renderDocs('documents-dashboard');
+    await waitFor(() => expect(listPacketDocuments).toHaveBeenCalled());
+    expect(publishedTabs()).not.toContain('HR Records');
+    listPacketDocuments.mockResolvedValueOnce([]);
+    renderDocs('documents-dashboard');
+    await waitFor(() => expect(screen.getAllByTestId('published-tabs').some(n => n.textContent.includes('HR Records'))).toBe(true));
   });
 });

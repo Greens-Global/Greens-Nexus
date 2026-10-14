@@ -92,11 +92,37 @@ BUILTIN_VARIABLES = [
     ("employee_code", "Employee code", "Person"),
     ("manager", "Manager", "Person"),
     ("salary", "Salary", "Person"),
+    ("preferred_name", "Preferred name", "Person"),
+    ("address", "Current address", "Person"),
+    ("permanent_address", "Permanent address", "Person"),
     ("company", "Company", "Company"),
     ("company_legal", "Company legal name", "Company"),
     ("company_address", "Company address", "Company"),
     ("signatory", "Company signatory", "Company"),
+    ("hr_contact", "Company HR contact", "Company"),
     ("today", "Today's date", "Document"),
+    # HR packets (Oct 14) - filled from what HR picks when a packet starts
+    # (the role, pay, timings and job description) and from the event.
+    ("employment_type", "Employment type", "HR Packet"),
+    ("supervisor", "Supervisor", "HR Packet"),
+    ("offer_expires", "Offer expires", "HR Packet"),
+    ("work_schedule", "Work schedule (hours and days)", "HR Packet"),
+    ("work_hours", "Work hours", "HR Packet"),
+    ("work_days", "Work days", "HR Packet"),
+    ("effective_date", "Effective date", "HR Packet"),
+    ("old_title", "Previous title", "HR Packet"),
+    ("new_title", "New title", "HR Packet"),
+    ("old_role", "Previous role", "HR Packet"),
+    ("new_role", "New role", "HR Packet"),
+    ("change_type", "Change type", "HR Packet"),
+    ("responsibilities", "Responsibilities", "HR Packet"),
+    ("last_day", "Last day", "HR Packet"),
+    ("separation_type", "Separation type", "HR Packet"),
+    # Whoever the packet's signing order puts in a signer slot: {{signer.company}}
+    # prints the name of the person who actually signs for the company.
+    ("signer.company", "Signer - company (name)", "Signers"),
+    ("signer.company.title", "Signer - company (title)", "Signers"),
+    ("signer.manager", "Signer - manager (name)", "Signers"),
     # About the template itself - filled by the system, never asked for.
     ("template.name", "Template name", "Template"),
     ("template.version", "Template version", "Template"),
@@ -115,14 +141,18 @@ def resolve_merge_data(db: Session, employee_id: str = "", candidate_id: str = "
     if employee_id:
         e = db.query(NexusEmployee).filter(NexusEmployee.id == employee_id).first()
         if e:
+            personal = e.personal if isinstance(getattr(e, "personal", None), dict) else {}
             data.update({
                 "first_name": e.first_name, "last_name": e.last_name,
                 "full_name": f"{e.first_name} {e.last_name}".strip(),
+                "preferred_name": personal.get("preferredName") or "",
                 "email": e.work_email or e.personal_email, "work_email": e.work_email,
                 "personal_email": e.personal_email, "phone": e.phone,
                 "job_title": e.job_title, "department": e.department,
                 "start_date": e.start_date, "location": e.location,
                 "employee_code": e.employee_code, "manager": e.manager_email,
+                "address": personal.get("currentAddress") or "",
+                "permanent_address": personal.get("permanentAddress") or "",
             })
     if candidate_id:
         c = db.query(HrCandidate).filter(HrCandidate.id == candidate_id).first()
@@ -136,8 +166,17 @@ def resolve_merge_data(db: Session, employee_id: str = "", candidate_id: str = "
     if entity_id:
         en = db.query(HrEntity).filter(HrEntity.id == entity_id).first()
         if en:
+            # physical_address first: since the Sep 22 address split the
+            # legacy registered_address is often blank (esign._merge_data
+            # already reads it this way).
             data.update({"company": en.name, "company_legal": en.legal_name or en.name,
-                         "company_address": en.registered_address, "signatory": en.signatory})
+                         "company_address": getattr(en, "physical_address", "") or en.registered_address,
+                         "signatory": en.signatory})
+            hr_email = (getattr(en, "hr_contact_email", "") or "").strip().lower()
+            if hr_email and db is not None:
+                hr = db.query(NexusEmployee).filter(NexusEmployee.work_email == hr_email).first()
+                data["hr_contact"] = (f"{hr.first_name} {hr.last_name}".strip() if hr
+                                      else hr_email.split("@")[0].replace(".", " ").title())
     for k, v in (overrides or {}).items():
         if isinstance(v, (str, int, float)) and is_valid_token(str(k)):
             data[str(k)] = str(v)

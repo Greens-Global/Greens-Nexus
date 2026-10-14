@@ -161,6 +161,17 @@ export function PromoteModal({ employee: e, mode = 'promotion', canSeePay, onClo
     try { onSent(await api.sendPromotion(e.id, body())); }
     catch (err) { toastErr(err?.message || 'Could not send the letter.'); setBusy(''); }
   }
+  // A letter built from Documents (Oct 14): generated now, verified by HR,
+  // then sent - the review opens next.
+  const docsMode = preview?.engine === 'documents';
+  async function start() {
+    setBusy('send');
+    try {
+      const b = body();
+      const ev = await api.startPromotion(e.id, { inputs: b.inputs, pay: b.pay });
+      onSent({ ...ev, openReview: true });
+    } catch (err) { toastErr(err?.message || 'Could not start the letter.'); setBusy(''); }
+  }
   const input = (label, key, props = {}) => (
     <div><label style={lbl}>{label}</label>
       <input className="form-input" style={{ width: '100%' }} value={f[key]} onChange={ev => set(key, ev.target.value)} {...props} /></div>
@@ -222,7 +233,31 @@ export function PromoteModal({ employee: e, mode = 'promotion', canSeePay, onClo
           )}
           {input('Reason (kept on the record)', 'reason', { placeholder: 'e.g. Annual review - exceeded targets' })}
 
-          {preview && (
+          {preview && docsMode && (
+            <div style={{ marginTop: 18, border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', background: 'var(--mist)' }}>
+              <div style={{ fontWeight: 800, fontSize: 13.5 }}>{preview.title}</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, marginTop: 8 }}>
+                <div>
+                  <div style={{ ...lbl, marginTop: 0 }}>Documents</div>
+                  {preview.documents.map((d, i) => <div key={i} style={{ fontSize: 12.5 }}>{i + 1}. {d}</div>)}
+                </div>
+                <div>
+                  <div style={{ ...lbl, marginTop: 0 }}>Signing Order</div>
+                  {preview.recipients.map(r => <div key={`${r.order}-${r.email}`} style={{ fontSize: 12.5 }}>{r.order}. {r.name} ({r.isSubject ? 'the employee' : r.roleLabel}) - {r.actionLabel}</div>)}
+                </div>
+                <div>
+                  <div style={{ ...lbl, marginTop: 0 }}>The Change</div>
+                  <div style={{ fontSize: 12.5 }}>{preview.fromTitle || '-'} to <b>{preview.toTitle}</b>, effective <b>{usDay(preview.effectiveDate)}</b></div>
+                </div>
+              </div>
+              <div style={{ fontSize: 12.5, marginTop: 10, padding: '8px 11px', borderRadius: 10, background: 'var(--card)' }}>
+                Nothing goes to {name} yet: the letter is generated from Documents, and <b>{preview.verifier?.name || 'HR'}</b> ({preview.verifier?.roleLabel || 'HR'}) checks it and sends it.
+              </div>
+              {(preview.signedPeriods || []).length > 0 && <Warn>Already signed for the new pay period: {preview.signedPeriods.map(p => p.label).join(', ')}. These will be flagged for HR to review - not repriced.</Warn>}
+              {(preview.problems || []).map(p => <Problem key={p}>{p}</Problem>)}
+            </div>
+          )}
+          {preview && !docsMode && (
             <div style={{ marginTop: 18, border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', background: 'var(--mist)' }}>
               <div style={{ fontWeight: 800, fontSize: 13.5 }}>{preview.title}</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, marginTop: 8 }}>
@@ -269,6 +304,10 @@ export function PromoteModal({ employee: e, mode = 'promotion', canSeePay, onClo
           {!preview ? (
             <button className="primary-btn" onClick={review} disabled={!!busy || !f.role_id || !f.effective_date} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               {busy === 'preview' ? <Spinner size={14} /> : <FileSignature size={14} />} Review Letter
+            </button>
+          ) : docsMode ? (
+            <button className="primary-btn" onClick={start} disabled={!!busy || (preview.problems || []).length > 0} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              {busy === 'send' ? <Spinner size={14} /> : <FileSignature size={14} />} Generate Letter
             </button>
           ) : (
             <button className="primary-btn" onClick={send} disabled={!!busy || !ack || missing.length > 0} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -324,7 +363,7 @@ export function OffboardModal({ employee: e, companyName, onClose, onSent, toast
   }
   async function go() {
     setBusy('send');
-    try { onSent(await api.offboard(e.id, body())); }
+    try { onSent(await api.offboard(e.id, { ...body(), excluded_ack: preview?.engine === 'documents' ? true : ack })); }
     catch (err) { toastErr(err?.message || 'Could not offboard.'); setBusy(''); }
   }
   const radio = (val, label, sub) => (
@@ -403,7 +442,25 @@ export function OffboardModal({ employee: e, companyName, onClose, onSent, toast
           {preview && (
             <div style={{ marginTop: 18, border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', background: 'var(--mist)' }}>
               <div style={{ fontWeight: 800, fontSize: 13.5 }}>{preview.immediate ? `${name} leaves today` : `${name} leaves on ${usDay(preview.lastDay)}`}</div>
-              {preview.package ? (
+              {preview.package && preview.engine === 'documents' ? (
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, marginTop: 8 }}>
+                    <div>
+                      <div style={{ ...lbl, marginTop: 0 }}>Package</div>
+                      {preview.documents.map((d, i) => <div key={i} style={{ fontSize: 12.5 }}>{i + 1}. {d}</div>)}
+                      <div style={hint}>Goes to {preview.sendTo} - {preview.why}.</div>
+                    </div>
+                    <div>
+                      <div style={{ ...lbl, marginTop: 0 }}>Signing Order</div>
+                      {preview.recipients.map(r => <div key={`${r.order}-${r.email}`} style={{ fontSize: 12.5 }}>{r.order}. {r.name} ({r.isSubject ? 'leaving' : r.roleLabel}) - {r.actionLabel}</div>)}
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 12.5, marginTop: 10, padding: '8px 11px', borderRadius: 10, background: 'var(--card)' }}>
+                    The offboarding goes ahead as set above. The package is generated from Documents and sent once <b>{preview.verifier?.name || 'HR'}</b> ({preview.verifier?.roleLabel || 'HR'}) has checked it.
+                  </div>
+                  {(preview.problems || []).map(p => <Problem key={p}>{p}</Problem>)}
+                </>
+              ) : preview.package ? (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, marginTop: 8 }}>
                   <div>
                     <div style={{ ...lbl, marginTop: 0 }}>Package</div>
@@ -430,7 +487,7 @@ export function OffboardModal({ employee: e, companyName, onClose, onSent, toast
                   ))}
                 </div>
               )}
-              {preview.package && (
+              {preview.package && preview.engine !== 'documents' && (
                 <label style={{ display: 'flex', gap: 9, alignItems: 'flex-start', cursor: 'pointer', marginTop: 14 }}>
                   <input type="checkbox" checked={ack} onChange={ev => setAck(ev.target.checked)} style={{ width: 15, height: 15, marginTop: 1, flexShrink: 0, accentColor: 'var(--pine)' }} />
                   <span style={{ fontSize: 12, lineHeight: 1.5 }}>I confirm this is not a record that cannot be signed electronically.</span>
@@ -448,7 +505,9 @@ export function OffboardModal({ employee: e, companyName, onClose, onSent, toast
               {busy === 'preview' ? <Spinner size={14} /> : <FileSignature size={14} />} Review
             </button>
           ) : (
-            <button className="primary-btn" onClick={go} disabled={!!busy || (preview.package && !ack) || missing.length > 0}
+            <button className="primary-btn" onClick={go}
+              disabled={!!busy || (preview.package && preview.engine !== 'documents' && !ack) || missing.length > 0
+                || (preview.engine === 'documents' && (preview.problems || []).length > 0)}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: preview.immediate ? 'hsl(var(--color-red))' : undefined }}>
               {busy === 'send' ? <Spinner size={14} /> : <LogOut size={14} />} {preview.immediate ? 'Offboard Now' : 'Schedule Offboarding'}
             </button>

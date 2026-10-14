@@ -716,6 +716,34 @@ export const DOCS = [
           'Save it to a folder, or send it for signature.',
         ],
       },
+      {
+        title: 'Add a Signature Block',
+        steps: [
+          'Open a template (or a document) and go to the Insert tab.',
+          'Click the pen icon (Signature Block).',
+          'Pick Who Signs Here - or type a new signer, such as Manager, and click Add Signer.',
+          'Add a caption if you want one (it can use variables, like For {{company_legal}}), and choose whether to include the Name and Date lines.',
+          'Click Insert Signature Block. When the document is sent for signature, that signer\'s signature, name and date fields are already on the line - nobody places boxes by hand.',
+        ],
+      },
+      {
+        title: "Find a Person's HR Documents",
+        steps: [
+          'Open Documents > HR Records (shown to People editors only).',
+          'Every document an HR packet generated is listed - offer letters, NDAs, promotion letters, separation packages - with the person, the template version it came from and where it stands (In Review, Out For Signature, Signed...).',
+          'Open shows the document (the sealed, signed copy once it is signed). Documents that show pay open only with Pay & Benefits access.',
+          'These records are never edited. To change the wording for future packets, click Open Template, edit it and Publish.',
+        ],
+      },
+      {
+        title: 'Publish Template Changes',
+        steps: [
+          'Edits to a template save as you type, but HR packets keep printing the last PUBLISHED version, so a half-finished edit never reaches a candidate.',
+          'When the wording is final, click Publish Changes at the top of the template (a template that was never published shows Publish).',
+          'Every HR packet that has not been sent yet switches to the new wording. Documents already out for signature never change.',
+          'In the Templates list, Not Published and Unpublished Changes show which templates still need a Publish.',
+        ],
+      },
     ],
     features: [
       { name: 'Dashboard', desc: 'Shortcuts to New Document, New Template and Send for Signature, plus what is waiting.' },
@@ -731,6 +759,7 @@ export const DOCS = [
       points: [
         'Set a template as the default for its type so everyone starts from the approved version.',
         'Copy a signer\'s link or fix their name, email or access code if they cannot open it.',
+        'Envelopes that show pay (offer and promotion letters) can be downloaded, have their links copied, or have a signer changed only by people with Pay & Benefits access. Everyone in HR still sees their status.',
         'Signed documents are filed to Egnyte automatically.',
       ],
     },
@@ -1116,10 +1145,35 @@ export const DOCS = [
       {
         title: 'Set Up a Hiring Packet',
         steps: [
-          'In People > Hiring, click Packets. Pick the company, or leave All Companies to see every packet with its company and add one that every company shares. Under Hiring Packet click Add Packet.',
-          'Name the packet and pick the job role it is for from the dropdown, which lists every role the company has - IT gets one packet, Accounting another. A packet made for a role is always used for that role, even when the company also has an "Every role" packet; "Every role" covers the roles that have no packet of their own. A role can be in one packet only.',
-          "Upload your hiring packet PDF - the merged offer letter, NDA and other documents are fine as one file, or add several. Click Place Fields: drop a Signature box where each signer signs, and an Offer Field on the blank salary line (pick Salary). An Offer Field is printed from the offer every time the packet is sent, so one packet serves every pay; Start Date, Job Title and the others work the same way.",
-          'Check the signers (Company Representative, then Employee / Candidate - the new hire signs last), write the welcome note for the email, set the Egnyte subfolder (blank uses Hiring Documents), and click Save Packet.',
+          'First write each document once in Documents > Templates - the offer letter, the NDA, each addendum, a Job Description per role - each its own template. Use variables for whatever changes per person ({{first_name}}, {{job_title}}, {{salary}}, {{start_date}}, {{work_schedule}}...), insert a Signature Block wherever someone signs (Company, Employee...), and click Publish.',
+          'In People > Hiring, click Packets. Pick the company, or leave All Companies to add one that every company shares. Under Hiring Packet click Add Packet.',
+          'Name the packet and pick the job role it is for - IT gets one packet, Accounting another. A packet made for a role is always used for that role; "Every role" covers the roles that have no packet of their own. A role can be in one packet only.',
+          'Add the documents from the template list, in order. Preview shows each one filled with a sample person; Open In Documents takes you to the wording. A template must be published to be used, and the packet always prints its published version - edit and Publish Changes in Documents, and every packet that has not been sent yet updates.',
+          'Check the Signing Order. Each signer named by the signature blocks in the documents gets a step, set by ROLE: HR, Manager, Authorized Signatory, IT, Payroll... - the same roles People > Checklists uses - with who holds it today shown beside it. The new hire signs last. A step can also Approve or just Get A Copy.',
+          'Pick who verifies the packet (normally HR), the letterhead for templates that need one, write the welcome note and set the Egnyte subfolder (blank uses Hiring Documents). Click Save Packet - anything that would stop it from going out is listed for you to fix.',
+          'A letter that prints {{signatory}} must be signed by the Authorized Signatory (set the person in People > Companies); a letter HR signs should print {{signer.company}} instead, which always names whoever actually signs.',
+        ],
+      },
+      {
+        title: 'Start a Hiring Packet',
+        steps: [
+          'Move the candidate to Offer and open them. When their company and role have a packet built from Documents, the button reads Start Hiring Packet.',
+          'Pick the four things that change per person: the Role (job title), the Pay (Pay & Benefits access needed - or write it out, e.g. "$22.00 per hour plus commission"), the Timings (start and end time and the work days, or a description), and the Job Description. Add the start date and the date the offer expires, and the supervisor.',
+          'Choose who fills in their details. "They Fill Them In" emails the candidate a link (no login needed) to enter their legal name, address, phone and an emergency contact; the documents are generated the moment they send it. "I Will" lets you type the details now.',
+          'Click Send Details Link or Generate Documents. Whoever holds the Verified By role (normally HR) is asked to check the documents once they exist. Nothing goes to the candidate to sign yet.',
+          'The details link works once and stops working after the offer expires. If they lost it or made a mistake, open the packet and click Send Link Again - the old link stops working.',
+        ],
+      },
+      {
+        title: 'Review And Verify a Packet',
+        steps: [
+          'Open the packet from the candidate (Open Review) or from the bell. You see the offer, the details, every document, the signing order with real names, and anything that stops it from going out.',
+          'Preview each document - it is exactly what will be signed. A document that shows pay opens only for people with Pay & Benefits access.',
+          'Fix anything with Edit: the documents regenerate. The role cannot be changed here - it decides which packet goes; void the packet and start again for another role.',
+          'If a template is published in Documents while the packet waits, its documents update by themselves. Documents already sent never change.',
+          'Only the verifier sees Verify And Send - the person who holds the Verified By role today (change the company\'s HR contact or Checklist Owners and the verifier changes with it). Tick both confirmations and click Verify And Send.',
+          'If you sign first for the company, the signing screen opens straight away; the candidate is emailed the moment the company has signed, and signs last. When they sign they are hired: their details land on People, their pay is set from the start date, and their onboarding checklist starts.',
+          'Void Packet stops a packet before it is sent - nothing reaches the candidate.',
         ],
       },
       {
