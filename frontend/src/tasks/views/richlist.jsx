@@ -194,9 +194,9 @@ function PillSelect({ label, color, tint, icon, options, currentKey, onSelect, c
   const close = () => setOpen(false);
   useClickOutside([ref, panelRef], close, open);
   return (
-    <div ref={ref} style={{ position: 'relative', display: 'flex', justifyContent: center ? 'center' : 'flex-start', minWidth: 0, maxWidth: '100%' }}>
+    <div ref={ref} style={{ position: 'relative', display: 'flex', justifyContent: center ? 'center' : 'flex-start', minWidth: 0, maxWidth: '100%', ...(variant ? { width: '100%', alignSelf: 'stretch' } : {}) }}>
       <button onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }} style={variant ? {
-        display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0, maxWidth: '100%', padding: 0,
+        display: 'flex', alignItems: 'center', justifyContent: center ? 'center' : 'flex-start', gap: 4, minWidth: 0, width: '100%', padding: 0,
         background: 'none', border: 'none', cursor: 'pointer', fontFamily: FONT, color: NX.dim,
       } : {
         display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: '100%', padding: '2px 8px', borderRadius: 999,

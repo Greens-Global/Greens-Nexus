@@ -1377,7 +1377,7 @@ function InlineTicketSelect({ value, options, onChange, editable, meta, children
   };
   return (
     <div ref={anchorRef} onClick={(e) => { e.stopPropagation(); if (!busy) setOpen((o) => !o); }}
-      style={{ display: 'flex', alignItems: 'center', minWidth: 0, maxWidth: '100%', height: '100%', cursor: busy ? 'wait' : 'pointer', opacity: busy ? 0.65 : 1 }}>
+      style={{ display: 'flex', alignItems: 'center', minWidth: 0, width: '100%', height: '100%', cursor: busy ? 'wait' : 'pointer', opacity: busy ? 0.65 : 1 }}>
       {children}
       {open && (
         // Portaled to document.body (SelectMenu, position:fixed off the anchor's

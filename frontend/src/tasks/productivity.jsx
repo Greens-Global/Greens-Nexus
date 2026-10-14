@@ -72,7 +72,9 @@ function Popover({ label, icon: Icon, active, width = 240, children, sheet = fal
 }
 const capWord = (s = '') => s.replace(/^\w/, (c) => c.toUpperCase());
 const groupHead = { fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: NX.faint, marginBottom: 6 };
-const pill = (on, color, tint) => ({ borderRadius: 999, padding: '3px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer', border: 'none', background: on ? color : tint, color: on ? '#fff' : color });
+// Selected = a deep shade of the color (Oct 14 2026: Low/Medium priority are
+// light slates now, too pale for white text on the raw color).
+const pill = (on, color, tint) => ({ borderRadius: 999, padding: '3px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer', border: 'none', background: on ? `color-mix(in srgb, ${color} 75%, #000)` : tint, color: on ? '#fff' : `color-mix(in srgb, ${color} 72%, #000)` });
 
 // Chips for the currently-selected ids in a multi-select list, shown above the
 // search box so picks stay visible without scrolling through the full list.

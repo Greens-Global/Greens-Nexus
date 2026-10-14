@@ -24,10 +24,11 @@ const BARS = { low: 1, medium: 2, high: 3, urgent: 3 };
 const LOUD = new Set(['high', 'urgent']);
 
 export function PrioritySignal({ priority, title }) {
-  const m = PRIORITY_META[priority] || { label: priority || '-', color: '#64748b' };
+  const known = PRIORITY_META[priority];
+  const m = known || { label: priority || '-', color: '#64748b' };
   const n = BARS[priority] || 0;
   return (
-    <span className={`nx-prio${LOUD.has(priority) ? ' nx-prio-loud' : ''}`} style={{ '--c': m.color }} title={title || (m.label ? `${m.label} priority` : undefined)}>
+    <span className={`nx-prio${LOUD.has(priority) ? ' nx-prio-loud' : ''}`} style={{ '--c': m.color }} title={title || (known ? `${known.label} priority` : undefined)}>
       <span className="nx-prio-bars" aria-hidden="true">
         {[0, 1, 2].map((i) => <i key={i} className={i < n ? 'on' : ''} />)}
       </span>
