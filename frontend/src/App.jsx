@@ -13,6 +13,7 @@ import TopHeader from "./components/TopHeader";
 import { HeaderTabsProvider } from "./components/ModuleTabs";
 import NotificationToasts from "./components/NotificationToasts";
 import PriorityBar from "./components/PriorityBar";
+import { RoleChangeDeepLinkFallback } from "./components/RoleChangeRequests";
 import TimeclockWidget from "./components/TimeclockWidget";
 import { StepUpOverlay } from "./stepup/StepUp";
 import GlobalSearch from "./components/GlobalSearch";
@@ -331,6 +332,14 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
   useEffect(() => {
     if (isExternal && !hasAccess && firstGranted) onNavigate(firstGranted);
   }, [isExternal, hasAccess, firstGranted, onNavigate]);
+
+  // A role-change approver sent here by the bell or the email, who cannot
+  // open People itself: the decision dialog alone, then the dashboard (see
+  // RoleChangeDeepLinkFallback). The API decides whether they may act.
+  const roleLink = !isExternal && activeView === 'hr' ? String(activeSub || '').match(/^hr-role-change-(.+)$/) : null;
+  if (!hasAccess && roleLink) {
+    return <RoleChangeDeepLinkFallback requestId={roleLink[1]} onDone={() => onNavigate('dashboard')} />;
+  }
 
   if (!hasAccess) {
     return (

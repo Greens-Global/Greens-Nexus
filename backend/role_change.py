@@ -252,6 +252,11 @@ def change_now(db: Session, user: dict, emp: models.NexusEmployee, role_id: str,
     from routers.jobroles import apply_job_role
     emp, email, jr, cur, warning = _checked(db, user, emp, role_id)
     me = user["email"].lower()
+    # A People editor below administrator may hand out up to the Manager tier
+    # (check_can_assign, hr_path) - to others. Their own role is somebody
+    # else's call: the request path asks their manager and HR, never them.
+    if email == me:
+        raise RoleChangeError("Your own role change needs your manager or HR - ask for it from Settings > Access.", 403)
     reason = (reason or "").strip()[:1000]
     from_title = emp.job_title or (cur.name if cur else "")
     apply_job_role(db, jr, email, me)

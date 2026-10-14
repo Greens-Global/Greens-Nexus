@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 import hr_life_events as hle
 import role_change as rc
-from auth import get_current_user, hr_scope
+from auth import get_current_user, hr_scope, hr_team_limited
 from database import get_db
 from models import HrCandidate, HrEntity, HrLifeEvent, HrPacketSetting, HrSignTemplate, NexusEmployee
 from routers.hr import _has_comp, require_hr_read, require_hr_write
@@ -451,8 +451,11 @@ def list_role_change_requests(employee_id: str = "", email: str = "", user: dict
     elif email:
         q = q.filter(HrRoleChangeRequest.employee_email == email.strip().lower())
     editor = _hr_editor(user, db)
+    # A team-limited manager (Oct 6 rule) is not an HR-wide reader here: they
+    # get the requests they may decide or asked for, which is their own team.
+    team_only = hr_team_limited(user)
     return [rc.ser(db, r, user["email"], editor) for r in q.order_by(HrRoleChangeRequest.created_at.desc()).all()
-            if rc.can_see(db, r, user["email"], _hr_reader(user, db, r.company))]
+            if rc.can_see(db, r, user["email"], (not team_only) and _hr_reader(user, db, r.company))]
 
 
 @router.get("/role-history")
