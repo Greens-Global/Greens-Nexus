@@ -235,6 +235,22 @@ class AddTimeTests(unittest.TestCase):
         self.assertEqual(res["days"][0]["action"], "skip")
         self.assertIn("overlaps", res["days"][0]["reason"])
 
+    def test_a_shift_carried_over_from_the_night_before_blocks_an_overlapping_add(self):
+        self._punch("2026-10-04", "in", "2026-10-05T05:00:00")            # Sun 10pm Pacific
+        self._punch(WEEK[0], "out", "2026-10-05T14:00:00")                # Mon 7am Pacific
+        self.db.commit()
+        res = self._add([T.AddTimeDay(date=WEEK[0], in_at="2026-10-05T12:00:00", out_at="2026-10-05T16:00:00")])
+        self.assertEqual(res["days"][0]["action"], "skip")
+        self.assertIn("overlaps", res["days"][0]["reason"])
+
+    def test_an_overnight_add_into_a_finalized_next_day_is_skipped(self):
+        self.db.add(models.TimeApproval(id="f2", employee_email=EMP, kind="final", period_start=WEEK[1],
+                                        period_end=WEEK[1], revoked=0))
+        self.db.commit()
+        res = self._add([T.AddTimeDay(date=WEEK[0], in_at=f"{WEEK[1]}T04:00:00", out_at=f"{WEEK[1]}T13:00:00")])
+        self.assertEqual(res["days"][0]["action"], "skip")
+        self.assertIn("finalized", res["days"][0]["reason"].lower())
+
     def test_closing_an_open_shift_is_capped_at_16_hours(self):
         self._punch(WEEK[0], "in", f"{WEEK[0]}T15:30:00")
         self.db.commit()

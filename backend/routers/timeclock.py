@@ -10040,7 +10040,9 @@ def _add_time_day_state(db: Session, email: str, d: str) -> dict:
         if p.kind == "in":
             open_in = p
         elif p.kind == "out" and open_in:
-            if open_in.local_date == d:
+            # Any shift touching this day - one that started the night
+            # before and ran into it counts too.
+            if open_in.local_date == d or p.local_date == d:
                 pairs.append((open_in.at, p.at))
             open_in = None
     return {"state": state, "workedMin": int(summ.get("workedMin") or 0),
@@ -10196,7 +10198,9 @@ def _add_time_plan(db: Session, em: str, body: AddTimeIn, actor: str) -> list:
             if _local_date(day.in_at, tz) != ds:
                 row["reason"] = "The clock-in is not on this date in the employee's time zone."
                 continue
-            clash = next((pr for pr in st.get("pairs", [])
+            # Shifts already on the card, and ones planned earlier in this batch.
+            planned = [(a.at, b.at) for a, b in zip(extra, extra[1:]) if a.kind == "in" and b.kind == "out"]
+            clash = next((pr for pr in st.get("pairs", []) + planned
                           if (_parse_iso(pr[0]) or t_in) < t_out and (_parse_iso(pr[1]) or t_out) > t_in), None)
             if clash:
                 row["reason"] = f"It overlaps the time already on this day ({_fmt_local(clash[0], tz)} - {_fmt_local(clash[1], tz)})."
@@ -10216,6 +10220,12 @@ def _add_time_plan(db: Session, em: str, body: AddTimeIn, actor: str) -> list:
         # Every punch is dated by its own time (an overnight clock-out lands
         # on the next local day), the same as every other write path.
         writes = [(k, at, _local_date(at, tz)) for k, at in writes]
+        # A punch that lands on the next day (an overnight clock-out) must
+        # not slip into a period that is locked there.
+        later = next((lk for lk in (_add_time_lock(db, em, ld, actor) for _, _, ld in writes if ld != ds) if lk), "")
+        if later:
+            row.update(action="skip", reason=later, minutes=0)
+            continue
         mine = []
         try:
             for kind, at, ld in writes:
