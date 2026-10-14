@@ -5,6 +5,7 @@ import { Check, ChevronDown, X } from 'lucide-react';
 import { NX, FONT, chip, btn, input as inputStyle } from '../tasks/theme';
 import { PersonSelect, PersonMultiSelect, DateField, SearchSelect, SelectMenu, Avatar, useIsMobile } from '../tasks/components';
 import { StatusLabel } from '../components/StatusLabel';
+import TeamPicks, { pickableTeams, firstTeamPick, toggleRoster } from '../tasks/teamPicks';
 import {
   TICKET_TYPE_META, TICKET_STATUS_META, SLA_META, slaState, toEmailList, fmtDate,
 } from './ticketMeta';
@@ -66,16 +67,48 @@ export function TicketSelect({
 // then email). The list stays open while people are ticked; the field shows
 // them as small chips that can be taken off without opening it.
 // `options` is [{ id: email, label: name, desc: email }]; value/onChange are arrays.
-export function TicketPeopleMultiSelect({ value, onChange, options, placeholder = 'No collaborators', searchPlaceholder = 'Search people…', emptyText = 'No one matches.', label = 'Collaborators' }) {
+// And the task module's Collaborators extras (Neil, Oct 14 2026: "use the
+// same functionality that is in the task module"): `teams` adds a Teams
+// group - a whole roster in one click - with "Save as a Team" once two or
+// more are picked (`onSaveTeam`); `frequent` (emails, best first) puts the
+// people you work with most above everyone else while nothing is typed.
+export function TicketPeopleMultiSelect({ value, onChange, options, placeholder = 'No collaborators', searchPlaceholder = 'Search people…', emptyText = 'No one matches.', label = 'Collaborators', teams = null, onSaveTeam = null, frequent = null }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const ref = useRef(null);
+  const queryRef = useRef(null);
   const isMobile = useIsMobile();
   const picked = Array.isArray(value) ? value : [];
   const nameOf = (id) => options.find((o) => o.id === id)?.label || id;
   const query = q.trim().toLowerCase();
   const shown = query ? options.filter((o) => `${o.label} ${o.desc || ''}`.toLowerCase().includes(query)) : options;
-  const toggle = (id) => onChange(picked.includes(id) ? picked.filter((x) => x !== id) : [...picked, id]);
+  // TeamPicks speaks the people-directory shape.
+  const people = options.map((o) => ({ email: o.id, name: o.label }));
+  const top = query ? [] : (frequent || []).map((em) => options.find((o) => o.id === em)).filter(Boolean).slice(0, 5);
+  const teamRows = teams ? pickableTeams(teams, people, q).length : 0;
+  // Once a name is ticked the search that found it is done: clear it, so the
+  // next name can be typed straight away - as in the task module.
+  const toggle = (id) => {
+    const adding = !picked.includes(id);
+    onChange(adding ? [...picked, id] : picked.filter((x) => x !== id));
+    if (adding && query) { setQ(''); queryRef.current?.focus(); }
+  };
+  const pickTeam = (next, adding) => { onChange(next); if (adding) { setQ(''); queryRef.current?.focus(); } };
+  const caption = (text) => <div style={{ padding: '9px 12px 4px', fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: NX.faint }}>{text}</div>;
+  const row = (o, keyPrefix = '') => {
+    const on = picked.includes(o.id);
+    return (
+      <div key={keyPrefix + o.id} role="option" aria-selected={on} className="nx-menu-row" onClick={() => toggle(o.id)}
+        style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink,
+          background: on ? `${NX.blue}12` : undefined, ...(isMobile ? { minHeight: 40, boxSizing: 'border-box' } : null) }}>
+        <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <span style={{ fontWeight: 600 }}>{o.label}</span>
+          {o.desc && <span style={{ fontSize: 11.5, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.desc}</span>}
+        </span>
+        {on && <Check size={14} style={{ color: NX.blue, flexShrink: 0 }} />}
+      </div>
+    );
+  };
   return (
     <div ref={ref} style={{ position: 'relative', minWidth: 0 }}>
       <button type="button" aria-label={label} aria-haspopup="listbox" onClick={() => { setOpen((o) => !o); setQ(''); }}
@@ -98,25 +131,26 @@ export function TicketPeopleMultiSelect({ value, onChange, options, placeholder 
       </button>
       {open && (
         <SelectMenu anchorRef={ref} onClose={() => { setOpen(false); setQ(''); }} minWidth={260}>
-          <input autoFocus={!isMobile} value={q} onChange={(e) => setQ(e.target.value)} placeholder={searchPlaceholder}
-            onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); } }}
+          <input ref={queryRef} autoFocus={!isMobile} value={q} onChange={(e) => setQ(e.target.value)} placeholder={searchPlaceholder}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); return; }
+              // Enter on a search that names a team and nobody takes the team.
+              if (e.key === 'Enter' && teams) {
+                e.preventDefault();
+                if (shown.length) { toggle(shown[0].id); return; }
+                const team = firstTeamPick(teams, people, q);
+                if (team) { const r = toggleRoster(picked, team.roster); pickTeam(r.next, r.adding); }
+              }
+            }}
             style={{ width: '100%', border: 'none', borderBottom: `1px solid ${NX.border}`, padding: isMobile ? '11px 12px' : '9px 12px',
               fontSize: isMobile ? 16 : 13, fontFamily: FONT, boxSizing: 'border-box', background: 'transparent', color: NX.ink }} />
-          {shown.map((o) => {
-            const on = picked.includes(o.id);
-            return (
-              <div key={o.id} role="option" aria-selected={on} className="nx-menu-row" onClick={() => toggle(o.id)}
-                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: NX.ink,
-                  background: on ? `${NX.blue}12` : undefined, ...(isMobile ? { minHeight: 40, boxSizing: 'border-box' } : null) }}>
-                <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                  <span style={{ fontWeight: 600 }}>{o.label}</span>
-                  {o.desc && <span style={{ fontSize: 11.5, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.desc}</span>}
-                </span>
-                {on && <Check size={14} style={{ color: NX.blue, flexShrink: 0 }} />}
-              </div>
-            );
-          })}
-          {shown.length === 0 && <div style={{ padding: '10px 12px', fontSize: 12.5, color: NX.faint }}>{query ? `No matches for “${q.trim()}”.` : emptyText}</div>}
+          {teams && <TeamPicks teams={teams} people={people} selected={picked} query={q} inset={12} rowPad="8px 12px"
+            onSaveTeam={onSaveTeam} onChange={pickTeam} />}
+          {top.length > 0 && caption('Frequent')}
+          {top.map((o) => row(o, 'f:'))}
+          {top.length > 0 ? caption('All') : (teamRows > 0 && shown.length > 0 && caption('People'))}
+          {shown.map((o) => row(o))}
+          {shown.length === 0 && teamRows === 0 && <div style={{ padding: '10px 12px', fontSize: 12.5, color: NX.faint }}>{query ? `No matches for “${q.trim()}”.` : emptyText}</div>}
         </SelectMenu>
       )}
     </div>

@@ -924,6 +924,13 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
                  detail=json.dumps(_ticket_snapshot(t)))
     if source is not None:
         _copy_task_files(db, source, t, user["email"])
+        # The converted task points back at its ticket - its drawer's "From
+        # Ticket" and the From Ticket filter - and both histories say so
+        # (Oct 14 2026). A task already tied to another ticket keeps that one.
+        if not source.source_ticket_id:
+            source.source_ticket_id = t.id
+        _log_task_link(db, t, source, user["email"].lower(), "task_converted",
+                       "converted from task", "converted this task into")
     tk_action = {"view": "tickets", "label": "View ticket"}
     if t.assignee_email and t.assignee_email != user["email"].lower():
         task_notify(db, kind="ticket_assigned", for_email=t.assignee_email,

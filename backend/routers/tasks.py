@@ -936,7 +936,9 @@ def _tell_ticket_task_done(db: Session, t: models.Task, user: dict) -> None:
     fixed."""
     from ticket_code import ticket_no
     tk = db.query(models.TaskTicket).filter(models.TaskTicket.id == t.source_ticket_id).first()
-    if tk is None:
+    # The task a ticket was CONVERTED from is closed because its work moved
+    # onto the ticket - that is not work done for it.
+    if tk is None or tk.linked_task_id == t.id:
         return
     actor = user["email"].lower()
     log_activity(db, type="task_completed", actor_email=actor, entity_kind="ticket", entity_id=tk.id,

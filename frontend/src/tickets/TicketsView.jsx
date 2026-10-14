@@ -58,6 +58,7 @@ import { groupTakesProperty, isBuildingGroup } from './propertyMeta';
 import { StatusLabel, PrioritySignal } from '../components/StatusLabel';
 import { LatestCommentPreview, latestCommentText } from './LatestComment';
 import { TicketAssignSheet, MobileAssignField } from './TicketAssignSheet';
+import { useFrequentCollaborators } from '../tasks/frequentPeople';
 import { useTicketAccess } from './ticketAccess';
 
 // Tour id this module reports to the server (routers/user_tours.py) - see
@@ -1834,6 +1835,19 @@ function PendingFileChip({ file, onRemove }) {
 // and left empty saves "<p></p>"; a screenshot on its own still counts.
 const hasRichText = (html) => !!html && (!isEmptyDoc(html) || /<img\b/i.test(html));
 
+/** The task module's Collaborators extras for a ticket's picker: the
+ *  module's teams (approved, plus your own personal ones), "Save as a Team"
+ *  (a personal team, as in the task module), and the people you share the
+ *  most tasks with. */
+function useCollaboratorExtras() {
+  const { teams = [], createTeam } = useTasks();
+  const frequent = useFrequentCollaborators();
+  return {
+    teams, frequent,
+    onSaveTeam: createTeam ? ({ name, memberIds }) => createTeam({ name, memberIds, personal: true }) : null,
+  };
+}
+
 // Who can be a ticket's collaborator: the People list (staff, A-Z) as the
 // Requester dropdown shows it, plus anyone already on it who is not in the
 // list, less the requester (already on the ticket).
@@ -1870,6 +1884,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
   const me = (myEmail || roleEmail || '').toLowerCase();
   // The curated Nexus People list (/myhr/directory) - never M365/GAL.
   const people = usePeople();
+  const collabExtras = useCollaboratorExtras();
   const isMobile = useIsMobile();
   const [companies, setCompanies] = useState([]);
   const [allDepts, setAllDepts] = useState([]);
@@ -2301,7 +2316,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
         </div>
         <div style={field}>
           <label style={label}>Collaborators</label>
-          <TicketPeopleMultiSelect value={form.watcherIds || []} options={requesterOptions.filter((o) => o.id !== requester)}
+          <TicketPeopleMultiSelect value={form.watcherIds || []} options={requesterOptions.filter((o) => o.id !== requester)} {...collabExtras}
             onChange={(list) => set('watcherIds', list)} />
           {sub('Anyone else who should follow it and can reply.')}
         </div>
@@ -2683,6 +2698,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   // list rather than patching one field locally.
   const onDecided = () => refresh?.();
   const people = usePeople();
+  const collabExtras = useCollaboratorExtras();
   const sites = useTicketSites();
   const isMobile = useIsMobile();
   const { myLevel, canAccessModule } = useRole();
@@ -3214,7 +3230,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
         <div style={{ ...field, gridColumn: '1 / -1' }}>
           <label style={label}>Collaborators</label>
           {canEditCollaborators ? (
-            <TicketPeopleMultiSelect value={v.watcherIds || []} onChange={(list) => stage({ watcherIds: list })}
+            <TicketPeopleMultiSelect value={v.watcherIds || []} onChange={(list) => stage({ watcherIds: list })} {...collabExtras}
               options={collaboratorOptions(people, [t.requesterId, ...(v.watcherIds || [])], t.requesterId)} />
           ) : (
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', minHeight: 34 }}>
