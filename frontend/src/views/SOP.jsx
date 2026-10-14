@@ -489,7 +489,7 @@ export default function SOP({ activeSub, onSubChange }) {
   const [sidebarOpen, setSidebarOpen] = useState(() => { try { return localStorage.getItem('kbSidebar') !== '0'; } catch { return true; } }); // Playbook side panel
   const [help, setHelp] = useState(null); // page key of the contextual help drawer, or null
   const openHelp = (key) => setHelp(key || 'playbook');
-  const helpBtn = (key) => <button onClick={() => openHelp(key)} title="Help for this page" aria-label="Help" style={{ width: 34, height: 34, borderRadius: 9, border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-secondary)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><HelpCircle size={16} /></button>;
+  const helpBtn = (key) => <button onClick={() => openHelp(key)} title="Help with this page" aria-label="Help" style={{ width: 34, height: 34, borderRadius: 9, border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-secondary)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><HelpCircle size={16} /></button>;
   const [ask, setAsk] = useState({ q: '', loading: false, answer: null, sources: [], grounded: true });
 
   // runnable checklists (Process Street-style "runs" of an SOP)
@@ -2849,7 +2849,7 @@ export default function SOP({ activeSub, onSubChange }) {
               </button>
             );
           })()}
-          <button onClick={() => openHelp(sub === 'tasks' ? 'tasks' : ['manage', 'matrix', 'insights', 'signoffs'].includes(sub) ? 'manage' : sub === 'lms' ? (lmsManage ? 'authoring' : 'learn') : 'playbook')} title="Help for this page" aria-label="Help" style={{ width: 34, height: 34, borderRadius: 9, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--muted)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><HelpCircle size={17} /></button>
+          <button onClick={() => openHelp(sub === 'tasks' ? 'tasks' : ['manage', 'matrix', 'insights', 'signoffs'].includes(sub) ? 'manage' : sub === 'lms' ? (lmsManage ? 'authoring' : 'learn') : 'playbook')} title="Help with this page" aria-label="Help" style={{ width: 34, height: 34, borderRadius: 9, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--muted)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flex: '0 0 auto' }}><HelpCircle size={17} /></button>
         </div>
       </div>
       {helpModal()}
