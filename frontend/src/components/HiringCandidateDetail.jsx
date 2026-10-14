@@ -77,13 +77,17 @@ function StageBar({ stage }) {
         const hue = STAGE_META[s].hue;
         return (
           <div key={s} role="listitem" aria-current={here ? 'step' : undefined} style={{ display: 'flex', alignItems: 'center', flex: i < STAGES.length - 1 ? 1 : 'none', minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7, whiteSpace: 'nowrap' }}>
-              <span style={{ width: 22, height: 22, borderRadius: 11, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800,
+            {/* The stage they are at stands out; the others stay small. */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: here ? 8 : 6, whiteSpace: 'nowrap',
+              padding: here ? '6px 14px 6px 8px' : '0', borderRadius: 999,
+              background: here ? `hsla(${hue},0.12)` : 'transparent', boxShadow: here ? `0 0 0 1.5px hsla(${hue},0.35)` : 'none',
+              transform: here ? 'scale(1.06)' : 'none', transformOrigin: 'center', transition: 'transform .15s' }}>
+              <span style={{ width: here ? 26 : 18, height: here ? 26 : 18, borderRadius: 13, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: here ? 12.5 : 10, fontWeight: 800,
                 background: here ? `hsl(${hue})` : done ? 'hsla(var(--color-green),0.15)' : 'var(--mist)',
                 color: here ? '#fff' : done ? 'hsl(var(--color-green))' : 'var(--muted)', border: here ? 'none' : '1px solid var(--line)' }}>
-                {done ? <Check size={12} /> : i + 1}
+                {done ? <Check size={11} /> : i + 1}
               </span>
-              <span style={{ fontSize: 12.5, fontWeight: here ? 800 : 600, color: here ? 'var(--ink)' : done ? 'var(--ink)' : 'var(--muted)' }}>{STAGE_META[s].label}</span>
+              <span style={{ fontSize: here ? 14 : 11.5, fontWeight: here ? 800 : 600, color: here ? `hsl(${hue})` : done ? 'var(--ink)' : 'var(--muted)' }}>{STAGE_META[s].label}</span>
             </div>
             {i < STAGES.length - 1 && <span style={{ flex: 1, height: 2, margin: '0 10px', background: done ? 'hsla(var(--color-green),0.4)' : 'var(--line)', minWidth: 14 }} />}
           </div>
