@@ -1987,6 +1987,13 @@ export const api = {
   // QuickBooks IIF on the team timecard.
   timeExportIntacct:    (start, end, { journal = 'PYRJ', expense = '', clearing = '', location = '' } = {}) =>
     reqBlob(`/timeclock/export-intacct.csv?start=${start || ''}&end=${end || ''}&journal=${encodeURIComponent(journal)}&expense=${encodeURIComponent(expense)}&clearing=${encodeURIComponent(clearing)}&location=${encodeURIComponent(location)}`),
+  // Accounting > Import Hub, Payroll Hours card (Neil, 10/15): the period's
+  // hours by pay class (no pay) for one company, optionally approved time
+  // sheets only, and the QuickBooks IIF with the same filters.
+  timeExportHours:      (start, end, { company = '', approvedOnly = false } = {}) =>
+    req(`/timeclock/export-hours?start=${start || ''}&end=${end || ''}&company=${encodeURIComponent(company)}&approved_only=${approvedOnly ? 'true' : 'false'}`, { timeoutMs: 120_000 }),
+  timeExportIifFor:     (start, end, { company = '', approvedOnly = false } = {}) =>
+    reqBlob(`/timeclock/export.iif?start=${start || ''}&end=${end || ''}&company=${encodeURIComponent(company)}&approved_only=${approvedOnly ? 'true' : 'false'}`, { timeoutMs: 120_000 }),
   // Accounting > Loans & Financing (Oct 2): loans proposed from the ledger's
   // liability accounts, the ledger-driven review (balances, principal and
   // interest paid, NOI, DSCR) for a month, and the typed fields (rate,
@@ -2162,7 +2169,7 @@ export const api = {
   resolvePfsShareMismatches: (id, ids, action) => req(`/pfs/profiles/${encodeURIComponent(id)}/share-mismatches`, { method: 'POST', body: JSON.stringify({ ids, action }) }),
   encryptPfsPdf:          (id, body) => req(`/pfs/profiles/${encodeURIComponent(id)}/pdf/encrypt`, { method: 'POST', body: JSON.stringify(body) }),
   getPfsAccessPeople:     () => req('/pfs-access/people'),
-  setPfsAccessLevel:      (email, level) => req(`/pfs-access/people/${encodeURIComponent(email)}`, { method: 'PUT', body: JSON.stringify({ level }) }),
+  setPfsAccessLevel:      (email, level, files) => req(`/pfs-access/people/${encodeURIComponent(email)}`, { method: 'PUT', body: JSON.stringify(files ? { level, files } : { level }) }),
   // ── Accounting > Reports, Oct 7 (Charmi, item 35): the books a report can
   //    read ({available, books: [{key, label, kind, journals}]}; available
   //    false = the accounting app lists none yet), and one report read with
@@ -2267,6 +2274,12 @@ export const api = {
   signOnceStatus:      (sid, entityId = '') => req(`/hr/packets/${sid}/sign-once?entity_id=${encodeURIComponent(entityId)}`),
   signOnceCode:        (sid, data) => req(`/hr/packets/${sid}/sign-once/code`, { method: 'POST', body: JSON.stringify(data) }),
   signOnce:            (sid, data) => req(`/hr/packets/${sid}/sign-once`, { method: 'POST', body: JSON.stringify(data) }),
+  // Accounting > Loans & Financing > Loan Planning (Charmi, item 25, Oct 15):
+  // planned loans saved by name per entity (routers/accounting_loan_plans.py).
+  getPlannedLoans:   ()         => req('/accounting/loan-plans/planned'),
+  createPlannedLoan: (body)     => req('/accounting/loan-plans/planned', { method: 'POST', body: JSON.stringify(body) }),
+  updatePlannedLoan: (id, body) => req(`/accounting/loan-plans/planned/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deletePlannedLoan: (id)       => req(`/accounting/loan-plans/planned/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   // Accounting > Reporting > Profitability and Employee Compensation (10/15).
   getProfitability:      (from, to, { locations = [], book = 'accrual', expand = false, compare = true } = {}) => req(`/accounting/profitability?from=${from}&to=${to}${locations.length ? `&locations=${encodeURIComponent(locations.join(','))}` : ''}${book && book !== 'accrual' ? `&book=${encodeURIComponent(book)}` : ''}${expand ? '&expand=true' : ''}${compare ? '' : '&compare=false'}`, { timeoutMs: 120_000 }),
   getCompensationPeople: (from, to) => req(`/accounting/compensation/people?from=${from}&to=${to}`, { timeoutMs: 180_000 }),

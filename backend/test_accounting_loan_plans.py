@@ -129,6 +129,8 @@ class EndpointTests(unittest.TestCase):
             ids = tuple(r["id"] for r in LOANS)
             db.query(models.AccountingLoanSchedule).filter(models.AccountingLoanSchedule.loan_id.in_(ids)).delete(synchronize_session=False)
             db.query(models.AccountingLoanStressScenario).filter(models.AccountingLoanStressScenario.loan_id.in_(ids)).delete(synchronize_session=False)
+            db.query(models.AccountingLoanStressScenario).filter(models.AccountingLoanStressScenario.loan_id == accounting_loan_plans.PLANNED,
+                                                                 models.AccountingLoanStressScenario.saved_by.in_(EVERYONE)).delete(synchronize_session=False)
             db.query(models.AccountingLoanSetting).filter(models.AccountingLoanSetting.loan_id.in_(ids)).delete(synchronize_session=False)
             db.query(models.AccountingLoanStressEntity).filter(models.AccountingLoanStressEntity.updated_by.in_(EVERYONE)).delete(synchronize_session=False)
             db.query(models.AuditLog).filter(models.AuditLog.user_email.in_(EVERYONE)).delete(synchronize_session=False)
@@ -239,6 +241,50 @@ class EndpointTests(unittest.TestCase):
         self.assertEqual(self.client.put("/accounting/loan-plans/NOPE/stress-excluded", json={"excluded": True}).status_code, 404)
         _as(LIMITED)
         self.assertEqual(self.client.put("/accounting/loan-plans/LP-T2/stress-excluded", json={"excluded": True}).status_code, 404)
+
+    # ── Loan Planning (Charmi, item 25, Oct 15) ─────────────────────────────
+    PLAN = {"lender": "  Chase  ", "loanAmount": 1000000, "ratePct": 6, "amortYears": 30, "termYears": 10, "ioMonths": 12,
+            "frequency": "monthly", "closeDate": "2026-12-15", "notes": "Refi of the F&M note", "junk": "dropped"}
+
+    def test_planned_loans_crud_and_audit(self):
+        _as(EDITOR)
+        for bad in ({"name": " "}, {"params": {**self.PLAN, "ratePct": 90}}, {"params": {**self.PLAN, "closeDate": "12/15/2026"}},
+                    {"params": {**self.PLAN, "frequency": "weekly"}}, {"entityCode": ""}):
+            body = {"name": "A", "entityCode": "15000", "params": self.PLAN, **bad}
+            self.assertEqual(self.client.post("/accounting/loan-plans/planned", json=body).status_code, 400, bad)
+        r = self.client.post("/accounting/loan-plans/planned", json={"name": "Chase 10/30", "entityCode": "15000", "params": self.PLAN})
+        self.assertEqual(r.status_code, 201, r.text)
+        p = r.json()["planned"]
+        self.assertEqual((p["name"], p["entityCode"], p["params"]["lender"], p["params"]["loanAmount"], p["by"]), ("Chase 10/30", "15000", "Chase", 1000000, EDITOR))
+        self.assertNotIn("junk", p["params"])
+        got = self.client.get("/accounting/loan-plans/planned").json()["planned"]
+        self.assertEqual([x["id"] for x in got], [p["id"]])
+        r = self.client.put(f"/accounting/loan-plans/planned/{p['id']}", json={"name": "Chase 10/25", "entityCode": "15000", "params": {**self.PLAN, "amortYears": 25}})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["planned"]["params"]["amortYears"], 25)
+        # Planned loans never leak into a real loan's stress scenarios.
+        self.assertEqual(self.client.get("/accounting/loan-plans/LP-T1/scenarios").json()["scenarios"], [])
+        self.assertEqual(self.client.get(f"/accounting/loan-plans/{accounting_loan_plans.PLANNED}/scenarios").status_code, 404)
+        self.assertEqual(self.client.delete(f"/accounting/loan-plans/planned/{p['id']}").status_code, 200)
+        self.assertEqual(self.client.delete(f"/accounting/loan-plans/planned/{p['id']}").status_code, 404)
+        self.assertEqual((self._audits("accounting_loan_planned_created"), self._audits("accounting_loan_planned_saved"),
+                          self._audits("accounting_loan_planned_deleted")), (1, 1, 1))
+
+    def test_planned_loans_viewer_and_limited(self):
+        _as(EDITOR)
+        a = self.client.post("/accounting/loan-plans/planned", json={"name": "Escondido", "entityCode": "15000", "params": self.PLAN}).json()["planned"]
+        b = self.client.post("/accounting/loan-plans/planned", json={"name": "Golden", "entityCode": "12000", "params": self.PLAN}).json()["planned"]
+        _as(VIEWER)
+        self.assertEqual(len(self.client.get("/accounting/loan-plans/planned").json()["planned"]), 2)
+        self.assertEqual(self.client.post("/accounting/loan-plans/planned", json={"name": "x", "entityCode": "15000", "params": {}}).status_code, 403)
+        self.assertEqual(self.client.delete(f"/accounting/loan-plans/planned/{a['id']}").status_code, 403)
+        _as(LIMITED)
+        self.assertEqual([x["id"] for x in self.client.get("/accounting/loan-plans/planned").json()["planned"]], [a["id"]])
+        self.assertEqual(self.client.post("/accounting/loan-plans/planned", json={"name": "x", "entityCode": "12000", "params": {}}).status_code, 403)
+        self.assertEqual(self.client.put(f"/accounting/loan-plans/planned/{b['id']}", json={"name": "x", "entityCode": "15000", "params": {}}).status_code, 404)
+        self.assertEqual(self.client.put(f"/accounting/loan-plans/planned/{a['id']}", json={"name": "x", "entityCode": "12000", "params": {}}).status_code, 403)
+        self.assertEqual(self.client.delete(f"/accounting/loan-plans/planned/{b['id']}").status_code, 404)
+        self.assertEqual(self.client.put(f"/accounting/loan-plans/planned/{a['id']}", json={"name": "Mine", "entityCode": "15000", "params": {}}).status_code, 200)
 
 
 if __name__ == "__main__":
