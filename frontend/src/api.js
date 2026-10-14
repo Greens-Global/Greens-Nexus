@@ -2267,6 +2267,12 @@ export const api = {
   signOnceStatus:      (sid, entityId = '') => req(`/hr/packets/${sid}/sign-once?entity_id=${encodeURIComponent(entityId)}`),
   signOnceCode:        (sid, data) => req(`/hr/packets/${sid}/sign-once/code`, { method: 'POST', body: JSON.stringify(data) }),
   signOnce:            (sid, data) => req(`/hr/packets/${sid}/sign-once`, { method: 'POST', body: JSON.stringify(data) }),
+  // Accounting > Loans & Financing > Loan Planning (Charmi, item 25, Oct 15):
+  // planned loans saved by name per entity (routers/accounting_loan_plans.py).
+  getPlannedLoans:   ()         => req('/accounting/loan-plans/planned'),
+  createPlannedLoan: (body)     => req('/accounting/loan-plans/planned', { method: 'POST', body: JSON.stringify(body) }),
+  updatePlannedLoan: (id, body) => req(`/accounting/loan-plans/planned/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deletePlannedLoan: (id)       => req(`/accounting/loan-plans/planned/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
