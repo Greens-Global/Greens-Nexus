@@ -30,6 +30,18 @@ export function parseCsv(text) {
   return rows.map((r) => r.map((c) => c.trim()));
 }
 
+/** A picked file (CSV, or the first sheet of an XLSX/XLS) -> rows of trimmed strings. */
+export async function readSheetFile(file) {
+  const name = (file.name || '').toLowerCase();
+  if (/\.(xlsx|xls)$/.test(name)) {
+    const XLSX = await import('xlsx');
+    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: false });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    return XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' }).map((r) => r.map((c) => String(c ?? '').trim()));
+  }
+  return parseCsv(await file.text());
+}
+
 const norm = (h) => String(h || '').toLowerCase().replace(/\(.*?\)/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
 
 // Header names seen on common exports, best first. Fidelity: Run Date,

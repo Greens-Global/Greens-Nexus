@@ -2101,8 +2101,39 @@ def export_csv(start: str = "", end: str = "", mode: str = "summary",
                              headers={"Content-Disposition": f"attachment; filename={fname}"})
 
 
+def _export_scope(db: Session, user: dict, company: str = ""):
+    """The caller's team scope (_visible_emails), narrowed to one company's
+    people when `company` (an HrEntity id) is given - the Import Hub's company
+    picker (Neil, 10/15)."""
+    scope = _visible_emails(db, user)
+    company = (company or "").strip()
+    if not company:
+        return scope
+    co = {(e.work_email or "").lower() for e in db.query(NexusEmployee).filter(NexusEmployee.company == company).all() if e.work_email}
+    return co if scope is None else set(scope) & co
+
+
+def _approved_emails(db: Session, rows: list, start: str, end: str) -> set:
+    """Who is approved for the period: a manager approval or HR finalization of
+    the exact period, or every worked day approved one by one - the same rule as
+    the summary CSV's Approved column. An employee's own signature alone is not
+    an approval."""
+    ok = {a.employee_email for a in db.query(TimeApproval)
+          .filter(TimeApproval.period_start == start, TimeApproval.period_end == end,
+                  TimeApproval.revoked == 0).all() if (a.kind or "manager") != "employee_sign"}
+    day_ok = {(a.employee_email, a.period_start) for a in db.query(TimeApproval)
+              .filter(TimeApproval.revoked == 0,
+                      TimeApproval.period_start == TimeApproval.period_end,
+                      TimeApproval.period_start >= (start or "0"),
+                      TimeApproval.period_end <= (end or "9")).all() if (a.kind or "manager") != "employee_sign"}
+    for r in rows:
+        if r["days"] and all((r["email"], d) in day_ok for d in r["days"]):
+            ok.add(r["email"])
+    return ok
+
+
 @router.get("/export.iif")
-def export_iif(start: str = "", end: str = "",
+def export_iif(start: str = "", end: str = "", company: str = "", approved_only: bool = False,
                user: dict = Depends(require_team_read_pay),
                _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
     """QuickBooks Desktop time import (IIF TIMEACT rows) - Charmi keys every
@@ -2111,9 +2142,14 @@ def export_iif(start: str = "", end: str = "",
     in decimal hours from the SAME engine as the timecard, so what QuickBooks
     imports is exactly what was approved. EMP must match the employee's name in
     QuickBooks; the payroll item names (Regular Pay / Overtime Pay / Double-time
-    Pay / Sick Pay / Vacation Pay) must exist in QuickBooks or be mapped at import."""
-    scope = _visible_emails(db, user)
+    Pay / Sick Pay / Vacation Pay) must exist in QuickBooks or be mapped at import.
+    `company` keeps one company's people; `approved_only` keeps the approved
+    time sheets (_approved_emails) - both optional (Import Hub, Neil 10/15)."""
+    scope = _export_scope(db, user, company)
     rows = _team_rows(db, start, end, only_emails=scope)
+    if approved_only:
+        ok = _approved_emails(db, rows, start, end)
+        rows = [r for r in rows if r["email"] in ok]
 
     def _mdy(ds: str) -> str:
         y, m, d = ds.split("-")
@@ -2153,6 +2189,41 @@ def export_iif(start: str = "", end: str = "",
     fname = f"timeclock-{start or 'all'}-to-{end or 'now'}.iif"
     return PlainTextResponse(body, media_type="application/octet-stream",
                              headers={"Content-Disposition": f"attachment; filename={fname}"})
+
+
+@router.get("/export-hours")
+def export_hours(start: str = "", end: str = "", company: str = "", approved_only: bool = False,
+                 user: dict = Depends(require_team_read_pay),
+                 _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
+    """The period's hours per hourly employee by pay class, off the SAME engine
+    as the timecard and the IIF - for Accounting > Import Hub's Payroll Hours
+    card (Neil, 10/15: "Payroll export to QB is not there"), which previews
+    them, then downloads the QuickBooks IIF (export.iif with the same filters)
+    or the Intacct statistical hours import built in the browser. Hours only,
+    no pay; payroll/HR callers only (require_team_read_pay) behind step-up,
+    like the other payroll files."""
+    if not start or not end:
+        raise HTTPException(400, "start and end are required")
+    scope = _export_scope(db, user, company)
+    rows = _team_rows(db, start, end, only_emails=scope)
+    ok = _approved_emails(db, rows, start, end)
+    emps = {(e.work_email or "").lower(): e for e in db.query(NexusEmployee).all() if e.work_email}
+    out = []
+    for r in rows:
+        approved = r["email"] in ok
+        if approved_only and not approved:
+            continue
+        t = _compute_timecard(db, r["email"], start, end)["totals"]
+        emp = emps.get(r["email"])
+        def h(k, t=t):
+            return round(float(t.get(k) or 0) / 60, 2)
+        out.append({"email": r["email"], "name": r["name"], "approved": approved,
+                    "employeeCode": (emp.employee_code if emp else "") or "",
+                    "department": (emp.department if emp else "") or "",
+                    "company": (emp.company if emp else "") or "",
+                    "hours": {"regular": h("regMin"), "overtime": h("otMin"), "doubleTime": h("dtMin"),
+                              "sick": h("sickMin"), "vacation": h("vacationMin"), "personal": h("personalMin")}})
+    return {"start": start, "end": end, "rows": out}
 
 
 # The pay classes an Intacct payroll line is written for, in order, with the
