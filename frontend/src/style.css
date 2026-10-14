@@ -412,7 +412,7 @@ h1,h2,h3,h4,h5,h6,
    since line sits under both at the small size the tooltips use */
 .sbclock-line { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; line-height: 1.15; }
 .sbclock-state { font-size: 13.5px; font-weight: 700; white-space: nowrap; letter-spacing: -.01em; }
-.sbclock-sub { font-size: 11px; font-weight: 500; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 3px; line-height: 1.2; }
+.sbclock-sub { font-size: 11px; font-weight: 500; color: var(--muted); white-space: nowrap; margin-top: 3px; line-height: 1.2; }
 .sbclock-alert { display: block; width: 100%; box-sizing: border-box; text-align: left; font-family: inherit; font-size: 10.5px; font-weight: 600; line-height: 1.3; color: #b91c1c; background: rgba(185,28,28,.07); border: 1px solid rgba(185,28,28,.2); border-radius: 8px; padding: 5px 8px; }
 .sbclock-alert--btn { cursor: pointer; }
 .sbclock-alert--btn:hover { background: rgba(185,28,28,.11); }
@@ -445,6 +445,13 @@ h1,h2,h3,h4,h5,h6,
   border: 2px solid var(--sb-tone, var(--wk-brand)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--sb-tone, var(--wk-brand)) 18%, transparent);
   transition: transform .24s cubic-bezier(.22,1,.36,1), border-color .25s ease, box-shadow .25s ease; pointer-events: none; }
 .sbtr--break .sbtr-lit { --sb-tone: #b45309; }
+/* a state change: the outline is re-keyed, slides from where it was and
+   lands with a small pop (the slide is the transform transition above) */
+.sbtr-lit { animation: sbLand .36s cubic-bezier(.22,1,.36,1); }
+@keyframes sbLand { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--sb-tone, var(--wk-brand)) 30%, transparent); } 55% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--sb-tone, var(--wk-brand)) 14%, transparent); } 100% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--sb-tone, var(--wk-brand)) 18%, transparent); } }
+/* a punch-out: the dial drains and turns red in place (stroke-dashoffset
+   and stroke transition on .sbring-arc), the card loses its tint */
+.sbclock--out .sbring-arc { transition: stroke-dashoffset .8s cubic-bezier(.22,1,.36,1), stroke .4s ease; }
 .sbtr--out .sbtr-lit { --sb-tone: var(--wk-brand); }
 .sbtt { position: relative; display: block; min-width: 0; }
 .sbtr-btn {
@@ -464,11 +471,11 @@ h1,h2,h3,h4,h5,h6,
 .sbtr-btn--stop:not(.is-dim) { background: rgba(185,28,28,.1); color: #b91c1c; box-shadow: none; }
 .sbtr-btn:focus-visible { outline: 2px solid var(--sb-tone, var(--wk-brand)); outline-offset: 2px; }
 /* the coffee cup that rises out of Pause when a break starts */
-.sbtr-coffee { position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px; color: #b45309; pointer-events: none; animation: sbCup .8s cubic-bezier(.22,1,.36,1) forwards; }
-.sbtr-coffee svg { width: 18px; height: 18px; fill: none; }
-.sbtr-coffee i { position: absolute; left: 6px; top: -6px; width: 2px; height: 6px; border-radius: 2px; background: currentColor; opacity: 0; animation: sbSteam .8s ease-out .15s forwards; }
-.sbtr-coffee i + i { left: 11px; animation-delay: .3s; }
-@keyframes sbCup { 0% { opacity: 0; transform: translateY(0) scale(.6); } 25% { opacity: 1; transform: translateY(-14px) scale(1.15); } 70% { opacity: 1; transform: translateY(-22px) scale(1); } 100% { opacity: 0; transform: translateY(-30px) scale(.9); } }
+.sbtr-coffee { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; color: #b45309; pointer-events: none; animation: sbCup 1.1s cubic-bezier(.22,1,.36,1) forwards; filter: drop-shadow(0 2px 4px rgba(180,83,9,.25)); }
+.sbtr-coffee svg { width: 22px; height: 22px; fill: none; stroke-width: 2.4; }
+.sbtr-coffee i { position: absolute; left: 7px; top: -7px; width: 2.5px; height: 7px; border-radius: 2px; background: currentColor; opacity: 0; animation: sbSteam 1s ease-out .2s forwards; }
+.sbtr-coffee i + i { left: 13px; animation-delay: .45s; }
+@keyframes sbCup { 0% { opacity: 0; transform: translateY(0) scale(.5); } 25% { opacity: 1; transform: translateY(-18px) scale(1.2); } 70% { opacity: 1; transform: translateY(-28px) scale(1.05); } 100% { opacity: 0; transform: translateY(-38px) scale(.9); } }
 @keyframes sbSteam { 0% { opacity: 0; transform: translateY(0); } 40% { opacity: .9; } 100% { opacity: 0; transform: translateY(-8px); } }
 /* our tooltip: a dark pill that rises in, a bold line and a quiet one */
 .sbtt-pop {
@@ -499,7 +506,7 @@ h1,h2,h3,h4,h5,h6,
 .sbclock:hover .sbclock-monwrap, .sbclock:focus-within .sbclock-monwrap, .sbclock-monwrap.is-needed { grid-template-rows: 1fr; margin-top: 0; }
 @media (hover: none) { .sbclock-monwrap { grid-template-rows: 1fr; margin-top: 0; } }
 .sbclock-mon { display: flex; align-items: center; justify-content: flex-end; gap: 4px; min-height: 0; overflow: hidden; }
-.sbclock-mon-label { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 5px; font-size: 10.5px; font-weight: 700; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sbclock-mon-label { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 5px; font-size: 10.5px; font-weight: 700; color: var(--muted); white-space: nowrap; }
 .sbclock-mon-label.is-on { color: #b91c1c; }
 .sbclock-mon-label.is-paused { color: #b45309; }
 .sbclock-mon-label em { font-style: normal; font-weight: 500; color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -529,7 +536,7 @@ h1,h2,h3,h4,h5,h6,
 .sbclock-ringbtn { width: 36px; height: 36px; }
 .sbclock-ringbtn:focus-visible, .sbclock-head:focus-visible { outline: 2px solid var(--sb-tone, var(--wk-brand)); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) {
-  .sbclock, .sbclock-rail, .sbclock-timer, .sbring-arc, .sbring--in, .sbring--break, .sbtr-btn--play.is-next, .sbtr-coffee, .sbtr-coffee i, .sbring-sweep { animation: none; }
+  .sbclock, .sbclock-rail, .sbclock-timer, .sbring-arc, .sbring--in, .sbring--break, .sbtr-btn--play.is-next, .sbtr-coffee, .sbtr-coffee i, .sbring-sweep, .sbtr-lit { animation: none; }
   .sbring-arc, .sbtr-lit { transition: none; }
   .sbtr-coffee { display: none; }
 }

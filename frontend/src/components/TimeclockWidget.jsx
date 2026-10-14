@@ -441,7 +441,10 @@ export default function TimeclockWidget() {
   // says the display is extended (no permission needed), so one shared stream
   // on an extended display means a screen is going uncaptured.
   const expectedScreens = (typeof window !== 'undefined' && window.screen?.isExtended === true) ? 2 : 1;
-  const vm = !live ? { state: mine.state, sinceLabel: mine.lastOutLabel } : {
+  // Off the clock the line reads like the live one ("since 4:30 PM"), never
+  // a sentence that has to be cropped; nothing yet today reads as such.
+  const offSince = mine.lastOutLabel.startsWith('Last clocked out at ') ? mine.lastOutLabel.replace('Last clocked out at ', 'since ') : mine.lastOutLabel;
+  const vm = !live ? { state: mine.state, sinceLabel: offSince } : {
     state: mine.state,
     timer: fmtHM(onBreak ? Math.floor(elapsedSec / 60) : mine.todayMin),
     todayMin: mine.todayMin,

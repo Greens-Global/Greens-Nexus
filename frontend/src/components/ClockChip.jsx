@@ -82,7 +82,7 @@ export default function ClockChip({ vm, variant = 'wide', onAfterAction, leaving
     else if (from === 'break' && state === 'in') setFlourish('sweep');
     else if (from === 'out' && state === 'in') setFlourish('sweep');
     else return undefined;
-    const t = setTimeout(() => setFlourish(''), 800);
+    const t = setTimeout(() => setFlourish(''), 1100);
     return () => clearTimeout(t);
   }, [state]);
   if (!vm || (state !== 'in' && state !== 'break' && state !== 'out')) return null;
@@ -125,7 +125,7 @@ export default function ClockChip({ vm, variant = 'wide', onAfterAction, leaving
   const vertical = variant === 'rail';
   const transport = (
     <div className={`sbtr sbtr--${tone}`} role="group" aria-label="Punch">
-      <span className="sbtr-lit" style={{ transform: vertical ? `translateY(${lit * 100}%)` : `translateX(${lit * 100}%)` }} aria-hidden="true" />
+      <span className="sbtr-lit" key={`${tone}-${lit}`} style={{ transform: vertical ? `translateY(${lit * 100}%)` : `translateX(${lit * 100}%)` }} aria-hidden="true" />
       <Tip title={play.label} sub={play.sub} edge={vertical ? '' : 'start'}>
         <button type="button" className={`sbtr-btn sbtr-btn--play${play.lit ? ' is-lit' : ''}${play.next ? ' is-next' : ''}${!play.onClick ? ' is-inert' : ''}`}
           onClick={play.onClick || undefined} disabled={busyAny} aria-disabled={!play.onClick || undefined} aria-pressed={play.lit && !off ? true : undefined} aria-label={play.label}>
@@ -188,7 +188,7 @@ export default function ClockChip({ vm, variant = 'wide', onAfterAction, leaving
         <div className="sbclock-mon" role="group" aria-label="Screen capture">
           <span className={`sbclock-mon-label${capture.paused ? ' is-paused' : capture.screens ? ' is-on' : ''}`}>
             {capture.paused ? 'Paused for Break' : capture.screens ? 'Recording' : 'Not Recording'}
-            {capture.screens > 0 && <em>{capture.expected > capture.screens ? `${capture.screens} of ${capture.expected}` : `${capture.screens} screen${capture.screens === 1 ? '' : 's'}`}</em>}
+            {capture.screens > 0 && !capture.paused && <em>{capture.expected > capture.screens ? `${capture.screens} of ${capture.expected}` : `${capture.screens} screen${capture.screens === 1 ? '' : 's'}`}</em>}
           </span>
           <button type="button" className={`sbclock-mon-ico${capture.paused ? ' is-paused' : capture.screens ? ' is-on' : capture.needed ? ' is-needed' : ''}`}
             onClick={capture.screens ? a.stopCapture : a.startCapture} title={captureTitle(capture)}
