@@ -2,14 +2,21 @@
 // documents on the document module, and then ... create packages, so it pulls
 // from the document module and it pulls in the appropriate documents".
 //
+// Set up in four short steps (Pranshu, Oct 15: the one-page form was "very
+// messy ... over populated"): 1 Who It's For, 2 Documents, 3 Who Signs,
+// 4 Ready To Send. Each step asks only what it needs; the settings most
+// packets never change (letterhead, pay visibility, the welcome note, the
+// Egnyte folder) sit under More Options. Problems show when Continue is
+// pressed, on the step they belong to - never before anything is typed.
+//
 //   Documents      - templates from Documents > Templates, in order. The packet
 //                    stores which templates, never a copy: an edit published in
 //                    Documents is the edit, for every packet that uses it.
-//   Signing Order  - by ROLE, never by person ("HR has to do this, this
+//   Who Signs      - by ROLE, never by person ("HR has to do this, this
 //                    person's manager has to do this"). The same roles People
 //                    > Checklists uses, plus the company's Authorized Signatory;
 //                    each step shows who holds that role today.
-//   Verified By    - the role whose holder checks the filled-in documents
+//   Checked By     - the role whose holder checks the filled-in documents
 //                    before anything goes out for signature.
 //   Signs Once     - a company step (HR, Authorized Signatory...) can sign
 //                    the packet ONCE; that signature then goes on every packet
@@ -21,7 +28,7 @@
 // The server (backend/hr_packet_docs.py) owns every rule; the problems it
 // returns are shown as they are.
 import { useEffect, useMemo, useState } from 'react';
-import { X, Plus, Trash2, FileText, ChevronUp, ChevronDown, CheckCircle, AlertTriangle, Eye, ExternalLink, ListChecks, PenTool, Heading } from 'lucide-react';
+import { X, Plus, Trash2, FileText, ChevronUp, ChevronDown, CheckCircle, AlertTriangle, Eye, ExternalLink, PenTool, Heading, ArrowLeft, ArrowRight, Check } from 'lucide-react';
 import { api } from '../api';
 import { setPendingOpen } from '../lib/pendingOpen';
 import { flowFor, keyLabel, formKey, readinessSummary } from '../lib/packetFlow';
@@ -30,13 +37,18 @@ import SignOnceModal from './SignOnceModal';
 import PacketReadiness from './PacketReadiness';
 import { formatDate } from '../lib/datetime';
 
-const lbl = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', margin: '14px 0 5px', textTransform: 'uppercase', letterSpacing: '.04em' };
-const hint = { fontSize: 11.5, color: 'var(--muted)', marginTop: 5, lineHeight: 1.5 };
+// Roomy, plain: normal-case labels, one short hint only where it helps.
+const lbl = { fontSize: 13, fontWeight: 600, color: 'var(--ink)', display: 'block', margin: '18px 0 6px' };
+const hint = { fontSize: 12.5, color: 'var(--muted)', marginTop: 6, lineHeight: 1.55 };
+const h2 = { fontSize: 17, fontWeight: 800, margin: '22px 0 4px', color: 'var(--ink)' };
+const lead = { fontSize: 13, color: 'var(--muted)', lineHeight: 1.55, margin: 0 };
+const card = { border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', background: 'var(--card)' };
 const iconBtn = { padding: '4px 6px', display: 'inline-flex', alignItems: 'center' };
+const smallBtn = { fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 };
 
 const Problem = ({ children }) => (
-  <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'hsla(var(--color-orange),0.1)', color: 'hsl(var(--color-orange))', borderRadius: 10, padding: '8px 12px', fontSize: 12, marginTop: 8 }}>
-    <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} /><span>{children}</span>
+  <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', background: 'hsla(var(--color-orange),0.1)', color: 'hsl(var(--color-orange))', borderRadius: 10, padding: '9px 12px', fontSize: 12.5, marginTop: 10 }}>
+    <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 2 }} /><span>{children}</span>
   </div>
 );
 const Chip = ({ tone = 'gray', children, title }) => (
@@ -44,11 +56,21 @@ const Chip = ({ tone = 'gray', children, title }) => (
     background: tone === 'gray' ? 'var(--mist)' : `hsla(var(--color-${tone}),0.12)`,
     color: tone === 'gray' ? 'var(--muted)' : `hsl(var(--color-${tone}))` }}>{children}</span>
 );
+// A section most people never open - closed by default, one line to open it.
+const More = ({ title, children, open = false }) => (
+  <details open={open} style={{ ...card, marginTop: 18, padding: '10px 14px' }}>
+    <summary style={{ cursor: 'pointer', fontSize: 13, fontWeight: 700, color: 'var(--ink)', listStyle: 'none', display: 'flex', alignItems: 'center', gap: 8 }}>
+      <ChevronDown size={14} style={{ color: 'var(--muted)' }} /> {title}
+    </summary>
+    <div style={{ marginTop: 4 }}>{children}</div>
+  </details>
+);
 
 // Roles the company holds - only these can Sign Once (the server re-checks).
 const ONCE_ROLES = (role) => !['employee', 'manager', 'sender'].includes(role);
 const FIELD_TYPES = [['text', 'Text'], ['longtext', 'Long Text'], ['number', 'Number'], ['date', 'Date'], ['email', 'Email'],
   ['phone', 'Phone'], ['yesno', 'Yes / No'], ['choice', 'Dropdown']];
+const COUNTRY_NAMES = { US: 'United States', IN: 'India', CA: 'Canada', GB: 'United Kingdom', AE: 'United Arab Emirates', PH: 'Philippines', MX: 'Mexico', AU: 'Australia' };
 
 function PreviewModal({ templateId, name, companyId, flow, letterheadId, onClose, toastErr }) {
   const [url, setUrl] = useState('');
@@ -77,10 +99,10 @@ function PreviewModal({ templateId, name, companyId, flow, letterheadId, onClose
   );
 }
 
+const STEPS = [['who', 'Who It\'s For'], ['docs', 'Documents'], ['signs', 'Who Signs'], ['ready', 'Ready To Send']];
+
 /** The editor. `packet` is a saved documents row from /hr/packets (null for a
  *  new one, or a seed like {roleIds}); `catalog` is that same response. */
-const COUNTRY_NAMES = { US: 'United States', IN: 'India', CA: 'Canada', GB: 'United Kingdom', AE: 'United Arab Emirates', PH: 'Philippines', MX: 'Mexico', AU: 'Australia' };
-
 export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, companyName, defaultSubfolder, catalog, onClose, onSaved, toastErr }) {
   const [p, setP] = useState(() => ({
     id: packet?.engine === 'documents' ? packet.id : '',
@@ -102,6 +124,9 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
     emailMessage: packet?.emailMessage || '',
     egnyteSubfolder: packet?.egnyteSubfolder || '',
   }));
+  // A saved packet opens on its checklist; a new one starts at the beginning.
+  const [step, setStep] = useState(packet?.engine === 'documents' ? 'ready' : 'who');
+  const [tried, setTried] = useState(false);          // Continue pressed on this step - show its problems
   const [companyRoles, setCompanyRoles] = useState(null);
   const [departments, setDepartments] = useState([]);
   const [holders, setHolders] = useState(null);
@@ -140,13 +165,14 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
   const roleOpts = catalog?.flowRoles || [];
   const verifyOpts = catalog?.verifyRoles || [];
   const actionOpts = catalog?.actions || [];
+  const who = event === 'offer' ? 'candidate' : event === 'hire' ? 'new hire' : event === 'promotion' ? 'employee' : 'person leaving';
   const today = (role) => {
-    if (role === 'employee') return event === 'offer' ? 'the candidate - no login' : event === 'hire' ? 'the new hire - no login' : event === 'separation' ? 'the person leaving' : 'the employee';
+    if (role === 'employee') return `the ${who}${['offer', 'hire'].includes(event) ? ' - no login needed' : ''}`;
     if (role === 'manager') return ['offer', 'hire'].includes(event) ? 'the supervisor on the offer' : 'their manager';
     if (role === 'sender') return 'whoever starts it';
     if (!holders) return '...';
     const h = holders[role];
-    return h?.email ? `today: ${h.name}` : 'nobody yet';
+    return h?.email ? `today: ${h.name}` : 'nobody holds this yet';
   };
 
   const setDocs = (ids) => {
@@ -155,13 +181,13 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
     setServerProblems([]);
   };
   const move = (list, i, d) => { const n = [...list]; const j = i + d; if (j < 0 || j >= n.length) return list; [n[i], n[j]] = [n[j], n[i]]; return n; };
-  const setStep = (i, patch) => set('flow', p.flow.map((s, j) => j === i ? { ...s, ...patch } : s));
-  const addStep = () => {
+  const setFlowStep = (i, patch) => set('flow', p.flow.map((s, j) => j === i ? { ...s, ...patch } : s));
+  const addFlowStep = () => {
     let key = 'copy'; let n = 1;
     while (p.flow.some(s => s.key === key)) { n += 1; key = `copy_${n}`; }
     const at = p.flow.findIndex(s => s.role === 'employee');
-    const step = { key, role: 'hr', action: 'copy' };
-    set('flow', at >= 0 && event !== 'promotion' ? [...p.flow.slice(0, at), step, ...p.flow.slice(at)] : [...p.flow, step]);
+    const row = { key, role: 'hr', action: 'copy' };
+    set('flow', at >= 0 && event !== 'promotion' ? [...p.flow.slice(0, at), row, ...p.flow.slice(at)] : [...p.flow, row]);
   };
 
   // ── Details Form ──
@@ -177,25 +203,38 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
     const add = vars.filter(v => !have.has(v.token)).map(v => ({ key: v.token, label: v.label, required: true, sensitive: false, last4: false, options: [],
       type: ['date', 'email', 'number'].includes(v.type) ? v.type : 'text' }));
     if (add.length) set('detailsForm', [...p.detailsForm, ...add]);
-    setFormNote(`Added ${add.length} field${add.length === 1 ? '' : 's'} to the Details Form below - click Save Packet to keep them.`);
+    setFormNote(`Added ${add.length} field${add.length === 1 ? '' : 's'} to the form on the Documents step - click Save Packet to keep them.`);
   };
   const summary = readinessSummary(readiness);
   const addField = (f) => set('detailsForm', [...p.detailsForm, { label: '', type: 'text', required: false, sensitive: false, last4: false, options: [], ...f }]);
 
-  // Quick checks while typing; the server's full list arrives on Save.
-  const local = [];
-  if (!p.name.trim()) local.push('Give the packet a name.');
-  if (!p.docIds.length) local.push('Add at least one document from Documents > Templates.');
-  docs.filter(d => !d.missing && !d.publishedVersion).forEach(d => local.push(`"${d.name}" has not been published yet - open it in Documents and click Publish.`));
-  if (!p.flow.some(s => s.role === 'employee')) local.push('One step must be The Person (the one the packet is about).');
-  p.detailsForm.forEach(f => { if (!String(f.label || '').trim()) local.push('Every field on the Details Form needs a label.'); });
-  p.extraDocs.forEach(r => {
-    if ((r.value || r.templateIds.length) && !r.value) local.push('Pick the team or role each added document is for.');
-    if (r.value && !r.templateIds.length) local.push(`Add a document for ${r.match === 'role' ? (companyRoles || []).find(x => x.id === r.value)?.name || 'the role' : r.value}, or remove that row.`);
-  });
-  const problems = [...new Set([...local, ...serverProblems])];
+  // Quick checks per step; the server's full list arrives on Save.
+  const problemsFor = {
+    who: [!p.name.trim() && 'Give the packet a name.'],
+    docs: [
+      !p.docIds.length && 'Add at least one document.',
+      ...docs.filter(d => !d.missing && !d.publishedVersion).map(d => `"${d.name}" is not published yet - open it in Documents and click Publish.`),
+      ...p.detailsForm.map(f => !String(f.label || '').trim() && 'Every field on the form needs a label.'),
+      ...p.extraDocs.map(r => (r.value || r.templateIds.length) && !r.value && 'Pick the team or role each added document is for.'),
+      ...p.extraDocs.map(r => r.value && !r.templateIds.length && `Add a document for ${r.match === 'role' ? (companyRoles || []).find(x => x.id === r.value)?.name || 'the role' : r.value}, or remove that row.`),
+    ],
+    signs: [!p.flow.some(s => s.role === 'employee') && `One step must be The Person (the ${who}).`],
+    ready: [],
+  };
+  const stepProblems = (k) => [...new Set(problemsFor[k].filter(Boolean))];
+  const allLocal = STEPS.flatMap(([k]) => stepProblems(k));
+  const stepIndex = STEPS.findIndex(([k]) => k === step);
+  const shown = tried ? [...stepProblems(step), ...serverProblems] : serverProblems;
 
+  const goTo = (k) => { setStep(k); setTried(false); setServerProblems([]); };
+  const next = () => {
+    if (stepProblems(step).length) { setTried(true); return; }
+    goTo(STEPS[stepIndex + 1][0]);
+  };
   async function save() {
+    // Everything checked before saving - the first problem opens its step.
+    const bad = STEPS.find(([k]) => stepProblems(k).length);
+    if (bad) { setStep(bad[0]); setTried(true); return; }
     setBusy(true);
     try {
       const saved = await api.saveDocumentsPacket({
@@ -211,6 +250,7 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
       // Stay open on the checklist: what is still missing shows at once.
       setP(x => ({ ...x, id: saved.id }));
       setReadiness(saved.readiness || []);
+      setStep('ready'); setTried(false);
       onSaved(saved);
     } catch (e) {
       setServerProblems([e?.message || 'Could not save the packet.']);
@@ -222,7 +262,6 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
     window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: 'documents-templates' } }));
   };
   const available = templates.filter(t => !p.docIds.includes(t.id));
-  const who = event === 'offer' ? 'candidate' : event === 'hire' ? 'new hire' : event === 'promotion' ? 'employee' : 'person leaving';
   // What the documents ask by themselves (Oct 14): the person's questions go
   // on their form, HR's are asked when the offer is made.
   const asked = { person: [], hr: [] };
@@ -233,348 +272,399 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
   const countries = [...new Set([...(catalog?.countries || ['US', 'IN']), p.country].filter(Boolean))];
   const verifyHolder = holders && holders[p.verifyRole];
 
-  return (
-    <div onClick={e => e.target === e.currentTarget && onClose()}
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(560px, 64vw, 1120px)', maxHeight: 'min(94dvh, 920px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
-        <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontWeight: 800, fontSize: 15.5 }}>{p.id ? 'Edit' : 'New'} {eventLabel} - {companyName}</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>Built from Documents &gt; Templates. The wording is edited there; this packet always uses the published version.</div>
+  // ── the steps ──
+  const whoStep = (
+    <>
+      <h2 style={h2}>Who is this {eventLabel.toLowerCase()} for?</h2>
+      <p style={lead}>Nexus picks it by itself for each person from these answers.</p>
+      <label style={lbl} htmlFor="pk-name">Name</label>
+      <input id="pk-name" className="form-input" style={{ width: '100%', fontSize: 14 }} value={p.name} onChange={e => set('name', e.target.value)}
+        placeholder={`e.g. ${eventLabel} - IT Dev Associate`} autoFocus={!p.id} />
+      <label style={lbl} htmlFor="pk-role">Role</label>
+      {companyRoles === null ? <Spinner size={14} /> : (
+        <select id="pk-role" className="form-input" style={{ width: '100%' }} value={p.roleIds[0] || ''} onChange={e => set('roleIds', e.target.value ? [e.target.value] : [])}>
+          <option value="">Every role</option>
+          <optgroup label={`${companyName || 'Company'} Roles`}>
+            {companyRoles.filter(r => r.companyId).map(r => <option key={r.id} value={r.id}>{r.name}{r.department ? ` - ${r.department}` : ''}</option>)}
+          </optgroup>
+          <optgroup label="Shared Roles">
+            {companyRoles.filter(r => !r.companyId).map(r => <option key={r.id} value={r.id}>{r.name}{r.department ? ` - ${r.department}` : ''}</option>)}
+          </optgroup>
+        </select>
+      )}
+      <div style={hint}>"Every role" covers the roles that have no {eventLabel.toLowerCase()} of their own. A role with its own always gets that one.</div>
+      {['offer', 'hire'].includes(event) && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '0 18px' }}>
+          <div>
+            <label style={lbl} htmlFor="pk-wt">Hired As</label>
+            <select id="pk-wt" className="form-input" style={{ width: '100%' }} value={p.workerType} onChange={e => set('workerType', e.target.value)}>
+              <option value="any">Employees And Contractors</option>
+              <option value="employee">Employees Only</option>
+              <option value="contractor">Contractors Only</option>
+            </select>
           </div>
-          <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+          <div>
+            <label style={lbl} htmlFor="pk-country">Works In</label>
+            <select id="pk-country" className="form-input" style={{ width: '100%' }} value={p.country} onChange={e => set('country', e.target.value)}>
+              <option value="">Any Country</option>
+              {countries.map(k => <option key={k} value={k}>{COUNTRY_NAMES[k] || k}</option>)}
+            </select>
+          </div>
+          <div style={{ ...hint, gridColumn: '1 / -1' }}>
+            {event === 'offer' ? "HR says employee or contractor when making the offer - a contractor's letter never says employment."
+              : 'Picked from what HR answered on the offer, once it is signed.'}
+          </div>
         </div>
-        <div style={{ overflowY: 'auto', flex: 1, padding: '2px 22px 18px' }}>
-          {p.id && readiness.length > 0 && (
-            <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '10px 12px', marginTop: 12 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                <b style={{ fontSize: 13 }}>Ready To Send</b>
-                {summary && <Chip tone={summary.tone}>{summary.label}</Chip>}
-                <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Everything a hire needs before this packet can go out.</span>
-              </div>
-              <PacketReadiness checks={readiness} toastErr={toastErr}
-                meEmails={onceStatus.filter(s => s.isMe).map(s => s.email)}
-                onChanged={refreshReady}
-                onSignOnce={(step) => setSigning(onceStatus.find(s => s.key === step) || { key: step, roleLabel: 'HR', name: '' })}
-                onAddToForm={addVariables} />
-              {formNote && <div style={{ ...hint, color: 'hsl(var(--color-orange))' }}>{formNote}</div>}
-            </div>
-          )}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '0 16px' }}>
-            <div>
-              <label style={lbl}>Packet Name</label>
-              <input className="form-input" style={{ width: '100%' }} value={p.name} onChange={e => set('name', e.target.value)} placeholder={`e.g. ${eventLabel} - IT Dev Associate`} autoFocus />
-            </div>
-            <div>
-              <label style={lbl}>For Which Role</label>
-              {companyRoles === null ? <Spinner size={14} /> : (
-                <select className="form-input" style={{ width: '100%' }} value={p.roleIds[0] || ''} onChange={e => set('roleIds', e.target.value ? [e.target.value] : [])}>
-                  <option value="">Every role</option>
-                  <optgroup label={`${companyName || 'Company'} Roles`}>
-                    {companyRoles.filter(r => r.companyId).map(r => <option key={r.id} value={r.id}>{r.name}{r.department ? ` - ${r.department}` : ''}</option>)}
-                  </optgroup>
-                  <optgroup label="Shared Roles">
-                    {companyRoles.filter(r => !r.companyId).map(r => <option key={r.id} value={r.id}>{r.name}{r.department ? ` - ${r.department}` : ''}</option>)}
-                  </optgroup>
-                </select>
-              )}
-            </div>
-          </div>
-          {['offer', 'hire'].includes(event) && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '0 16px' }}>
-              <div>
-                <label style={lbl} htmlFor="pk-wt">Hired As</label>
-                <select id="pk-wt" className="form-input" style={{ width: '100%' }} value={p.workerType} onChange={e => set('workerType', e.target.value)}>
-                  <option value="any">Employees And Contractors</option>
-                  <option value="employee">Employees Only</option>
-                  <option value="contractor">Contractors Only</option>
-                </select>
-              </div>
-              <div>
-                <label style={lbl} htmlFor="pk-country">Works In</label>
-                <select id="pk-country" className="form-input" style={{ width: '100%' }} value={p.country} onChange={e => set('country', e.target.value)}>
-                  <option value="">Any Country</option>
-                  {countries.map(k => <option key={k} value={k}>{COUNTRY_NAMES[k] || k}</option>)}
-                </select>
-              </div>
-            </div>
-          )}
-          <div style={hint}>{event === 'offer'
-            ? 'Nexus picks the offer letter from what HR answers on Make An Offer - employee or contractor, and where they work (a contractor\'s letter never says employment). A role-specific letter wins; "Every role" covers the rest.'
-            : <>Nexus picks the packet by company and job role{event === 'hire' ? ' (and employee or contractor, and where they work) once the offer is signed' : event === 'promotion' ? ' when someone is promoted' : ' when someone is offboarded'}. "Every role" covers the roles with no packet of their own.</>}</div>
+      )}
+    </>
+  );
 
-          <label style={lbl}>Documents (From Documents &gt; Templates)</label>
-          {docs.length === 0 && (
-            <div style={{ fontSize: 12.5, color: 'var(--muted)', border: '1px dashed var(--line)', borderRadius: 12, padding: '12px 14px' }}>
-              No documents yet. Add the offer letter, NDA, addendums - each its own template, written once in Documents with variables and signature blocks.
-            </div>
-          )}
-          {docs.map((d, i) => (
-            <div key={d.id} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '10px 12px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <span style={{ width: 22, height: 22, borderRadius: '50%', background: 'var(--mist)', fontSize: 11, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{i + 1}</span>
-              <FileText size={16} style={{ color: 'var(--pine)', flexShrink: 0 }} />
-              <div style={{ flex: '1 1 220px', minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</div>
-                <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 4, alignItems: 'center' }}>
-                  {d.missing ? <Chip tone="red">Not Available</Chip>
-                    : !d.publishedVersion ? <Chip tone="orange" title="Open it in Documents and click Publish">Not Published</Chip>
-                      : <Chip tone="green">Published v{d.publishedVersion}</Chip>}
-                  {d.hasUnpublishedChanges && <Chip tone="orange" title="Someone is editing it - packets keep the published version until Publish Changes">Unpublished Changes</Chip>}
-                  <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>
-                    {(d.signs || []).length ? `Signs: ${d.signs.map(keyLabel).join(', ')}` : 'No signature blocks'}
-                  </span>
+  const docRow = (d, i) => (
+    <div key={d.id} style={{ ...card, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+      <span style={{ width: 24, height: 24, borderRadius: '50%', background: 'var(--mist)', fontSize: 11.5, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{i + 1}</span>
+      <FileText size={16} style={{ color: 'var(--pine)', flexShrink: 0 }} />
+      <div style={{ flex: '1 1 220px', minWidth: 0 }}>
+        <div style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.name}</div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4, alignItems: 'center' }}>
+          {d.missing ? <Chip tone="red">Not Available</Chip>
+            : !d.publishedVersion ? <Chip tone="orange" title="Open it in Documents and click Publish">Not Published</Chip>
+              : <Chip tone="green">Published v{d.publishedVersion}</Chip>}
+          {d.hasUnpublishedChanges && <Chip tone="orange" title="Someone is editing it - packets keep the published version until Publish Changes">Unpublished Changes</Chip>}
+          <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+            {(d.signs || []).length ? `Signed by: ${d.signs.map(keyLabel).join(', ')}` : 'No signature spots'}
+          </span>
+        </div>
+      </div>
+      {!d.missing && d.publishedVersion > 0 && (
+        <button type="button" className="secondary-btn" onClick={() => setPreview(d)} style={smallBtn} title="See it filled with a sample person"><Eye size={12} /> Preview</button>
+      )}
+      {!d.missing && (
+        <button type="button" className="secondary-btn" onClick={() => openTemplate(d.id)} title="Change the wording in Documents" style={iconBtn} aria-label="Open in Documents"><ExternalLink size={13} /></button>
+      )}
+      <button type="button" className="secondary-btn" disabled={i === 0} onClick={() => setDocs(move(p.docIds, i, -1))} style={iconBtn} aria-label="Move up"><ChevronUp size={13} /></button>
+      <button type="button" className="secondary-btn" disabled={i === docs.length - 1} onClick={() => setDocs(move(p.docIds, i, 1))} style={iconBtn} aria-label="Move down"><ChevronDown size={13} /></button>
+      <button type="button" className="secondary-btn" onClick={() => setDocs(p.docIds.filter(x => x !== d.id))} style={iconBtn} aria-label="Remove document"><Trash2 size={13} /></button>
+    </div>
+  );
+
+  const docsStep = (
+    <>
+      <h2 style={h2}>Which documents go out?</h2>
+      <p style={lead}>Each one is a template from Documents &gt; Templates, in this order. {event === 'offer' ? 'An offer is one document, signed by both sides.' : `The Job Description is added per ${who} when the offer is made.`}</p>
+      <div style={{ marginTop: 16 }}>
+        {docs.length === 0 && (
+          <div style={{ fontSize: 13, color: 'var(--muted)', border: '1.5px dashed var(--line)', borderRadius: 12, padding: '18px 16px', textAlign: 'center' }}>
+            No documents yet - pick one below.
+          </div>
+        )}
+        {docs.map(docRow)}
+      </div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 10 }}>
+        <select className="form-input" style={{ flex: '1 1 260px' }} value={adding} onChange={e => setAdding(e.target.value)} aria-label="Pick a template to add">
+          <option value="">{available.length ? 'Pick a template to add...' : 'Every active template is already in this packet'}</option>
+          {available.map(t => <option key={t.id} value={t.id}>{t.name}{t.publishedVersion ? '' : ' (Not Published)'}</option>)}
+        </select>
+        <button type="button" className="primary-btn" disabled={!adding} onClick={() => { setDocs([...p.docIds, adding]); setAdding(''); }} style={smallBtn}><Plus size={13} /> Add Document</button>
+      </div>
+
+      {(asked.person.length > 0 || asked.hr.length > 0) && (
+        <div style={{ ...card, marginTop: 18, background: 'var(--mist)', fontSize: 13, lineHeight: 1.6 }}>
+          {asked.hr.length > 0 && <div><b>HR answers when making the offer:</b> {asked.hr.join(', ')}</div>}
+          {asked.person.length > 0 && <div><b>The {who} is asked on their form:</b> {asked.person.join(', ')}</div>}
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>These come from the templates themselves - nothing to set up here.</div>
+        </div>
+      )}
+
+      {['offer', 'hire'].includes(event) && (
+        <More title={`Documents for one team or role only${p.extraDocs.length ? ` (${p.extraDocs.length})` : ''}`} open={p.extraDocs.length > 0}>
+          <div style={hint}>Like each team's own confidentiality agreement - added only for people in that team or role, so one packet covers everyone.</div>
+          <datalist id="pk-departments">{departments.map(d => <option key={d} value={d} />)}</datalist>
+          {p.extraDocs.map((r, i) => {
+            const setRow = (patch) => set('extraDocs', p.extraDocs.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+            const left = templates.filter(t => !r.templateIds.includes(t.id));
+            return (
+              <div key={i} style={{ ...card, marginTop: 10 }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <select className="form-input" style={{ width: 110 }} value={r.match} onChange={e => setRow({ match: e.target.value, value: '' })} aria-label="Team or role">
+                    <option value="department">Team</option><option value="role">Role</option>
+                  </select>
+                  {r.match === 'role' ? (
+                    <select className="form-input" style={{ flex: '1 1 220px' }} value={r.value} onChange={e => setRow({ value: e.target.value })} aria-label="Which role">
+                      <option value="">- pick the role -</option>
+                      {(companyRoles || []).map(x => <option key={x.id} value={x.id}>{x.name}{x.department ? ` - ${x.department}` : ''}</option>)}
+                    </select>
+                  ) : (
+                    <input className="form-input" list="pk-departments" style={{ flex: '1 1 220px' }} value={r.value} placeholder="Team, e.g. Administration"
+                      onChange={e => setRow({ value: e.target.value })} aria-label="Which team" />
+                  )}
+                  <button type="button" className="secondary-btn" onClick={() => set('extraDocs', p.extraDocs.filter((_, j) => j !== i))} style={iconBtn} aria-label="Remove row"><Trash2 size={13} /></button>
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10, alignItems: 'center' }}>
+                  {r.templateIds.map(id => (
+                    <span key={id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12.5, border: '1px solid var(--line)', borderRadius: 999, padding: '4px 6px 4px 10px' }}>
+                      <FileText size={12} style={{ color: 'var(--pine)' }} /> {byId[id]?.name || 'A template that is no longer active'}
+                      <button type="button" onClick={() => setRow({ templateIds: r.templateIds.filter(x => x !== id) })} aria-label="Remove document"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}><X size={11} /></button>
+                    </span>
+                  ))}
+                  <select className="form-input" style={{ flex: '1 1 220px', maxWidth: 360 }} value="" aria-label="Add a document for this team or role"
+                    onChange={e => e.target.value && setRow({ templateIds: [...r.templateIds, e.target.value] })}>
+                    <option value="">{left.length ? 'Add a document...' : 'No more templates'}</option>
+                    {left.map(t => <option key={t.id} value={t.id}>{t.name}{t.publishedVersion ? '' : ' (Not Published)'}</option>)}
+                  </select>
                 </div>
               </div>
-              {!d.missing && d.publishedVersion > 0 && (
-                <button type="button" className="secondary-btn" onClick={() => setPreview(d)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Eye size={12} /> Preview</button>
+            );
+          })}
+          <button type="button" className="secondary-btn" onClick={() => set('extraDocs', [...p.extraDocs, { match: 'department', value: '', templateIds: [] }])}
+            style={{ ...smallBtn, marginTop: 10 }}><Plus size={12} /> Add For A Team Or Role</button>
+        </More>
+      )}
+
+      {event === 'hire' && (
+        <More title={`Ask the new hire for more on their form${p.detailsForm.length ? ` (${p.detailsForm.length})` : ''}`} open={p.detailsForm.length > 0 || wanted.length > 0}>
+          <div style={hint}>Name, phone, address and emergency contact are always asked, and so is anything the templates mark Ask The Person. Add fields here only for something else - each one is a variable the templates can print.</div>
+          {wanted.length > 0 && (
+            <div style={{ border: '1.5px dashed var(--line)', borderRadius: 12, padding: '10px 12px', marginTop: 10, fontSize: 13 }}>
+              Your documents print these, and nothing fills them yet:
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+                {wanted.map(v => (
+                  <button key={v.token} type="button" className="secondary-btn" onClick={() => addField({ key: v.token, label: v.label, type: ['date', 'email', 'number'].includes(v.type) ? v.type : 'text' })}
+                    style={{ fontSize: 12, padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Plus size={11} /> {v.label}</button>
+                ))}
+              </div>
+            </div>
+          )}
+          {p.detailsForm.map((f, i) => f.type === 'heading' ? (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
+              <Heading size={14} style={{ color: 'var(--muted)' }} />
+              <input className="form-input" style={{ flex: 1, fontWeight: 700 }} value={f.label} placeholder="Section heading, e.g. Bank Details" onChange={e => setField(i, { label: e.target.value })} />
+              <button type="button" className="secondary-btn" disabled={i === 0} onClick={() => set('detailsForm', move(p.detailsForm, i, -1))} style={iconBtn} aria-label="Move up"><ChevronUp size={13} /></button>
+              <button type="button" className="secondary-btn" disabled={i === p.detailsForm.length - 1} onClick={() => set('detailsForm', move(p.detailsForm, i, 1))} style={iconBtn} aria-label="Move down"><ChevronDown size={13} /></button>
+              <button type="button" className="secondary-btn" onClick={() => set('detailsForm', p.detailsForm.filter((_, j) => j !== i))} style={iconBtn} aria-label="Remove heading"><Trash2 size={13} /></button>
+            </div>
+          ) : (
+            <div key={i} style={{ ...card, marginTop: 10 }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                <input className="form-input" style={{ flex: '1 1 200px' }} value={f.label} placeholder="Label, e.g. PAN Number" onChange={e => setField(i, { label: e.target.value })} aria-label="Field label" />
+                <select className="form-input" style={{ width: 140 }} value={f.type} onChange={e => setField(i, { type: e.target.value, ...(e.target.value === 'text' || e.target.value === 'number' ? {} : { last4: false }) })} aria-label="Field type">
+                  {FIELD_TYPES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+                </select>
+                <code style={{ fontSize: 11.5, color: 'var(--muted)' }}>{`{{${f.key || formKey(f.label) || '...'}}}`}</code>
+                <button type="button" className="secondary-btn" disabled={i === 0} onClick={() => set('detailsForm', move(p.detailsForm, i, -1))} style={iconBtn} aria-label="Move up"><ChevronUp size={13} /></button>
+                <button type="button" className="secondary-btn" disabled={i === p.detailsForm.length - 1} onClick={() => set('detailsForm', move(p.detailsForm, i, 1))} style={iconBtn} aria-label="Move down"><ChevronDown size={13} /></button>
+                <button type="button" className="secondary-btn" onClick={() => set('detailsForm', p.detailsForm.filter((_, j) => j !== i))} style={iconBtn} aria-label="Remove field"><Trash2 size={13} /></button>
+              </div>
+              <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 10, fontSize: 12.5 }}>
+                {[['required', 'Required', 'They cannot send the form without it'],
+                  ['sensitive', 'Private', 'Bank details, ID numbers: only people with Pay & Benefits access see it'],
+                  ...(f.type === 'text' || f.type === 'number' ? [['last4', 'Keep Last 4 Only', 'Only the last 4 characters are kept and printed (XXXX 1234)']] : [])].map(([k, l, t]) => (
+                  <label key={k} title={t} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={!!f[k]} onChange={e => setField(i, { [k]: e.target.checked })} style={{ accentColor: 'var(--pine)' }} /> {l}
+                  </label>
+                ))}
+              </div>
+              {f.type === 'choice' && (
+                <input className="form-input" style={{ width: '100%', marginTop: 10 }} placeholder="Choices, separated by commas - e.g. Savings, Current"
+                  value={(f.options || []).join(', ')} onChange={e => setField(i, { options: e.target.value.split(',').map(x => x.trim()).filter(Boolean) })} aria-label="Choices" />
               )}
-              {!d.missing && (
-                <button type="button" className="secondary-btn" onClick={() => openTemplate(d.id)} title="Edit the wording in Documents" style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><ExternalLink size={12} /> Open In Documents</button>
-              )}
-              <button type="button" className="secondary-btn" disabled={i === 0} onClick={() => setDocs(move(p.docIds, i, -1))} style={iconBtn} aria-label="Move up"><ChevronUp size={13} /></button>
-              <button type="button" className="secondary-btn" disabled={i === docs.length - 1} onClick={() => setDocs(move(p.docIds, i, 1))} style={iconBtn} aria-label="Move down"><ChevronDown size={13} /></button>
-              <button type="button" className="secondary-btn" onClick={() => setDocs(p.docIds.filter(x => x !== d.id))} style={iconBtn} aria-label="Remove document"><Trash2 size={13} /></button>
             </div>
           ))}
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 4 }}>
-            <select className="form-input" style={{ flex: '1 1 260px', maxWidth: 420 }} value={adding} onChange={e => setAdding(e.target.value)}>
-              <option value="">{available.length ? 'Pick a template to add...' : 'Every active template is already in this packet'}</option>
-              {available.map(t => <option key={t.id} value={t.id}>{t.name}{t.publishedVersion ? '' : ' (Not Published)'}</option>)}
-            </select>
-            <button type="button" className="secondary-btn" disabled={!adding} onClick={() => { setDocs([...p.docIds, adding]); setAdding(''); }}
-              style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={12} /> Add Document</button>
+          <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+            <button type="button" className="secondary-btn" onClick={() => addField({})} style={smallBtn}><Plus size={12} /> Add Field</button>
+            <button type="button" className="secondary-btn" onClick={() => addField({ type: 'heading' })} style={smallBtn}><Heading size={12} /> Add Section Heading</button>
           </div>
-          <div style={hint}>{event === 'offer' ? 'An offer is one document, signed by both sides (Neil: "a single document called an offer letter") - usually one template here.'
-            : `The Job Description is picked per ${who} when the offer is made - it does not need to be here.`}</div>
-          {(asked.person.length > 0 || asked.hr.length > 0) && (
-            <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '10px 12px', marginTop: 8, fontSize: 12.5, background: 'var(--mist)' }}>
-              {asked.hr.length > 0 && <div><b>HR answers on Make An Offer:</b> {asked.hr.join(', ')}</div>}
-              {asked.person.length > 0 && <div style={{ marginTop: asked.hr.length ? 4 : 0 }}><b>Asked of the {who} on their form (no login):</b> {asked.person.join(', ')}</div>}
-              <div style={{ ...hint, marginTop: 4 }}>Set in each template (who fills each variable) - nothing to keep in sync here.</div>
+        </More>
+      )}
+    </>
+  );
+
+  const signsStep = (
+    <>
+      <h2 style={h2}>Who signs, and who checks?</h2>
+      <p style={lead}>Set by role, never by name - change who holds a role in People and every packet follows. {event !== 'promotion' && `The ${who} signs last.`}</p>
+      <div style={{ marginTop: 16 }}>
+        {p.flow.length === 0 && <div style={{ fontSize: 13, color: 'var(--muted)' }}>Add a document first - each signature spot in it becomes a step here.</div>}
+        {p.flow.map((s, i) => (
+          <div key={s.key} style={{ ...card, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span style={{ width: 24, height: 24, borderRadius: '50%', background: 'var(--mist)', fontSize: 11.5, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{i + 1}</span>
+            <div style={{ flex: '1 1 140px', minWidth: 0 }}>
+              <div style={{ fontSize: 13.5, fontWeight: 700 }} title={`Signature spots for "${s.key}"`}>{keyLabel(s.key)}</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)' }}>{today(s.role)}</div>
             </div>
-          )}
-
-          {['offer', 'hire'].includes(event) && (
-            <>
-              <label style={lbl}>Added For A Team Or Role</label>
-              <div style={hint}>The documents that change by team - like each team's own confidentiality agreement - go here, so one packet covers every role. Added only for people in that team or role.</div>
-              <datalist id="pk-departments">{departments.map(d => <option key={d} value={d} />)}</datalist>
-              {p.extraDocs.map((r, i) => {
-                const setRow = (patch) => set('extraDocs', p.extraDocs.map((x, j) => (j === i ? { ...x, ...patch } : x)));
-                const left = templates.filter(t => !r.templateIds.includes(t.id));
-                return (
-                  <div key={i} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '10px 12px', marginTop: 8 }}>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                      <select className="form-input" style={{ width: 120 }} value={r.match} onChange={e => setRow({ match: e.target.value, value: '' })} aria-label="Team or role">
-                        <option value="department">Team</option><option value="role">Role</option>
-                      </select>
-                      {r.match === 'role' ? (
-                        <select className="form-input" style={{ flex: '1 1 220px' }} value={r.value} onChange={e => setRow({ value: e.target.value })} aria-label="Which role">
-                          <option value="">- pick the role -</option>
-                          {(companyRoles || []).map(x => <option key={x.id} value={x.id}>{x.name}{x.department ? ` - ${x.department}` : ''}</option>)}
-                        </select>
-                      ) : (
-                        <input className="form-input" list="pk-departments" style={{ flex: '1 1 220px' }} value={r.value} placeholder="Team (department), e.g. Administration"
-                          onChange={e => setRow({ value: e.target.value })} aria-label="Which team" />
-                      )}
-                      <button type="button" className="secondary-btn" onClick={() => set('extraDocs', p.extraDocs.filter((_, j) => j !== i))} style={iconBtn} aria-label="Remove row"><Trash2 size={13} /></button>
-                    </div>
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8, alignItems: 'center' }}>
-                      {r.templateIds.map(id => (
-                        <span key={id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, border: '1px solid var(--line)', borderRadius: 999, padding: '3px 6px 3px 10px' }}>
-                          <FileText size={12} style={{ color: 'var(--pine)' }} /> {byId[id]?.name || 'A template that is no longer active'}
-                          <button type="button" onClick={() => setRow({ templateIds: r.templateIds.filter(x => x !== id) })} aria-label="Remove document"
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}><X size={11} /></button>
-                        </span>
-                      ))}
-                      <select className="form-input" style={{ flex: '1 1 220px', maxWidth: 360 }} value="" aria-label="Add a document for this team or role"
-                        onChange={e => e.target.value && setRow({ templateIds: [...r.templateIds, e.target.value] })}>
-                        <option value="">{left.length ? 'Add a document...' : 'No more templates'}</option>
-                        {left.map(t => <option key={t.id} value={t.id}>{t.name}{t.publishedVersion ? '' : ' (Not Published)'}</option>)}
-                      </select>
-                    </div>
-                  </div>
-                );
-              })}
-              <button type="button" className="secondary-btn" onClick={() => set('extraDocs', [...p.extraDocs, { match: 'department', value: '', templateIds: [] }])}
-                style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 8 }}><Plus size={12} /> Add For A Team Or Role</button>
-            </>
-          )}
-
-          <label style={lbl}>Signing Order (By Role)</label>
-          {p.flow.length === 0 && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Add a document - each signer its signature blocks name gets a step here.</div>}
-          {p.flow.map((s, i) => (
-            <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 7, flexWrap: 'wrap' }}>
-              <span style={{ width: 22, height: 22, borderRadius: '50%', background: 'var(--mist)', fontSize: 11, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{i + 1}</span>
-              <span style={{ fontSize: 12.5, fontWeight: 700, width: 110, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={`Signature blocks for "${s.key}"`}>{keyLabel(s.key)}</span>
-              <select className="form-input" style={{ width: 190 }} value={s.role} onChange={e => setStep(i, { role: e.target.value })} aria-label="Role">
-                {roleOpts.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
-              </select>
-              <select className="form-input" style={{ width: 140 }} value={s.action} onChange={e => setStep(i, { action: e.target.value })} aria-label="Action">
-                {actionOpts.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
-              </select>
-              {s.action === 'sign' && ONCE_ROLES(s.role) && (
-                <label title="The company signs this packet once - that signature then goes on every packet automatically"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                  <input type="checkbox" checked={!!s.once} onChange={e => setStep(i, { once: e.target.checked || undefined })} style={{ accentColor: 'var(--pine)' }} />
-                  Signs Once
-                </label>
-              )}
-              <span style={{ fontSize: 11.5, color: 'var(--muted)', flex: 1, minWidth: 120 }}>{today(s.role)}</span>
+            <select className="form-input" style={{ width: 180 }} value={s.role} onChange={e => setFlowStep(i, { role: e.target.value })} aria-label="Role">
+              {roleOpts.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+            </select>
+            <select className="form-input" style={{ width: 130 }} value={s.action} onChange={e => setFlowStep(i, { action: e.target.value })} aria-label="Action">
+              {actionOpts.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+            </select>
+            {s.action === 'sign' && ONCE_ROLES(s.role) && (
+              <label title="The company signs this packet once - that signature then goes on every packet by itself"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                <input type="checkbox" checked={!!s.once} onChange={e => setFlowStep(i, { once: e.target.checked || undefined })} style={{ accentColor: 'var(--pine)' }} />
+                Signs Once
+              </label>
+            )}
+            <span style={{ display: 'inline-flex', gap: 4 }}>
               <button type="button" className="secondary-btn" disabled={i === 0} onClick={() => set('flow', move(p.flow, i, -1))} style={iconBtn} aria-label="Move up"><ChevronUp size={13} /></button>
               <button type="button" className="secondary-btn" disabled={i === p.flow.length - 1} onClick={() => set('flow', move(p.flow, i, 1))} style={iconBtn} aria-label="Move down"><ChevronDown size={13} /></button>
               <button type="button" className="secondary-btn" onClick={() => set('flow', p.flow.filter((_, j) => j !== i))} style={iconBtn} aria-label="Remove step"><Trash2 size={13} /></button>
+            </span>
+          </div>
+        ))}
+        <button type="button" className="secondary-btn" onClick={addFlowStep} style={smallBtn}><Plus size={12} /> Add Someone Who Approves Or Gets A Copy</button>
+      </div>
+
+      {p.flow.some(s => s.once) && (
+        <div style={{ marginTop: 18 }}>
+          <label style={lbl}>Company Signature (Signs Once)</label>
+          {!p.id || !companyId ? (
+            <div style={hint}>{!p.id ? 'Save the packet, then the person who holds the role signs it once here.'
+              : 'This packet is for every company - each company\'s signer signs once, the first time it is sent for them.'}</div>
+          ) : onceStatus.map(s => (
+            <div key={s.key} style={{ ...card, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+              <PenTool size={15} style={{ color: s.signed ? 'hsl(var(--color-green))' : 'hsl(var(--color-orange))', flexShrink: 0 }} />
+              <div style={{ flex: '1 1 240px', fontSize: 13 }}>
+                <b>{s.roleLabel}</b> - {s.name || 'nobody holds this role yet'}
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                  {s.signed ? `Signed once on ${formatDate(s.adoptedAt)} - goes on every packet by itself.`
+                    : s.previous ? `${s.previous.name} signed before, but ${s.name || 'someone else'} holds ${s.roleLabel} now - they sign once before the next packet can go.`
+                      : 'Not signed yet - nothing can be sent until they sign once.'}
+                </div>
+              </div>
+              {s.signed ? <Chip tone="green">Signed</Chip> : s.isMe
+                ? <button type="button" className="primary-btn" onClick={() => setSigning(s)} style={smallBtn}><PenTool size={12} /> Sign Once</button>
+                : <Chip tone="orange">Waiting For {s.name || s.roleLabel}</Chip>}
             </div>
           ))}
-          <button type="button" className="secondary-btn" onClick={addStep} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={12} /> Add Step</button>
-          <div style={hint}>
-            Roles are the same ones People &gt; Checklists uses - change who holds HR, IT or Payroll there (or the company's HR contact and Authorized Signatory in People &gt; Companies) and every packet follows.
-            {event !== 'promotion' && ` The ${who} signs last.`}
-          </div>
-
-          {p.flow.some(s => s.once) && (
-            <>
-              <label style={lbl}>Company Signature (Signs Once)</label>
-              {!p.id || !companyId ? (
-                <div style={hint}>{!p.id ? 'Save the packet, then the person who holds the role signs it once here.'
-                  : 'This packet is for every company - each company\'s signer signs once, the first time it is sent for them (from the packet\'s review).'}</div>
-              ) : onceStatus.map(s => (
-                <div key={s.key} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', border: '1px solid var(--line)', borderRadius: 12, padding: '10px 12px', marginBottom: 8 }}>
-                  <PenTool size={15} style={{ color: s.signed ? 'hsl(var(--color-green))' : 'hsl(var(--color-orange))', flexShrink: 0 }} />
-                  <div style={{ flex: '1 1 240px', fontSize: 12.5 }}>
-                    <b>{s.roleLabel}</b> - {s.name || 'nobody holds this role yet'}
-                    <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>
-                      {s.signed ? `Signed once on ${formatDate(s.adoptedAt)} - applied to every packet automatically.`
-                        : s.previous ? `${s.previous.name} signed before, but ${s.name || 'someone else'} holds ${s.roleLabel} now - they sign once before the next packet can go.`
-                          : 'Not signed yet - nothing can be sent until they sign once.'}
-                    </div>
-                  </div>
-                  {s.signed ? <Chip tone="green">Signed</Chip> : s.isMe
-                    ? <button type="button" className="primary-btn" onClick={() => setSigning(s)} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><PenTool size={12} /> Sign Once</button>
-                    : <Chip tone="orange">Waiting For {s.name || s.roleLabel}</Chip>}
-                </div>
-              ))}
-            </>
-          )}
-
-          {event === 'hire' && (
-            <>
-              <label style={lbl}>Details Form</label>
-              <div style={hint}>
-                Name, phone, address and emergency contact are always asked. Add anything else this packet needs - an ID number, bank details, date of birth -
-                for any country. Each field is a variable the templates print, shown as <code>{'{{like_this}}'}</code>.
-              </div>
-              {wanted.length > 0 && (
-                <div style={{ border: '1px dashed var(--line)', borderRadius: 12, padding: '10px 12px', marginTop: 8, fontSize: 12.5 }}>
-                  Your documents also print these, and nothing fills them yet:
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
-                    {wanted.map(v => (
-                      <button key={v.token} type="button" className="secondary-btn" onClick={() => addField({ key: v.token, label: v.label, type: ['date', 'email', 'number'].includes(v.type) ? v.type : 'text' })}
-                        style={{ fontSize: 11.5, padding: '3px 10px', display: 'inline-flex', alignItems: 'center', gap: 4 }}><Plus size={11} /> {v.label}</button>
-                    ))}
-                  </div>
-                  <div style={{ ...hint, marginTop: 6 }}>Add each to the form, or give it a Default Value in the template if it is the same for everyone (a client name).</div>
-                </div>
-              )}
-              {p.detailsForm.map((f, i) => f.type === 'heading' ? (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
-                  <Heading size={14} style={{ color: 'var(--muted)' }} />
-                  <input className="form-input" style={{ flex: 1, fontWeight: 700 }} value={f.label} placeholder="Section heading, e.g. Bank Details" onChange={e => setField(i, { label: e.target.value })} />
-                  <button type="button" className="secondary-btn" disabled={i === 0} onClick={() => set('detailsForm', move(p.detailsForm, i, -1))} style={iconBtn} aria-label="Move up"><ChevronUp size={13} /></button>
-                  <button type="button" className="secondary-btn" disabled={i === p.detailsForm.length - 1} onClick={() => set('detailsForm', move(p.detailsForm, i, 1))} style={iconBtn} aria-label="Move down"><ChevronDown size={13} /></button>
-                  <button type="button" className="secondary-btn" onClick={() => set('detailsForm', p.detailsForm.filter((_, j) => j !== i))} style={iconBtn} aria-label="Remove heading"><Trash2 size={13} /></button>
-                </div>
-              ) : (
-                <div key={i} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '10px 12px', marginTop: 8 }}>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <input className="form-input" style={{ flex: '1 1 200px' }} value={f.label} placeholder="Label, e.g. PAN Number" onChange={e => setField(i, { label: e.target.value })} aria-label="Field label" />
-                    <select className="form-input" style={{ width: 150 }} value={f.type} onChange={e => setField(i, { type: e.target.value, ...(e.target.value === 'text' || e.target.value === 'number' ? {} : { last4: false }) })} aria-label="Field type">
-                      {FIELD_TYPES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-                    </select>
-                    <code style={{ fontSize: 11, color: 'var(--muted)' }}>{`{{${f.key || formKey(f.label) || '...'}}}`}</code>
-                    <button type="button" className="secondary-btn" disabled={i === 0} onClick={() => set('detailsForm', move(p.detailsForm, i, -1))} style={iconBtn} aria-label="Move up"><ChevronUp size={13} /></button>
-                    <button type="button" className="secondary-btn" disabled={i === p.detailsForm.length - 1} onClick={() => set('detailsForm', move(p.detailsForm, i, 1))} style={iconBtn} aria-label="Move down"><ChevronDown size={13} /></button>
-                    <button type="button" className="secondary-btn" onClick={() => set('detailsForm', p.detailsForm.filter((_, j) => j !== i))} style={iconBtn} aria-label="Remove field"><Trash2 size={13} /></button>
-                  </div>
-                  <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginTop: 8, fontSize: 12 }}>
-                    {[['required', 'Required', 'They cannot send the form without it'],
-                      ['sensitive', 'Sensitive', 'Bank details, ID numbers: only people with Pay & Benefits access see it or the documents that print it'],
-                      ...(f.type === 'text' || f.type === 'number' ? [['last4', 'Last 4 Only', 'Only the last 4 characters are kept - and printed (XXXX 1234). For national ID numbers']] : [])].map(([k, l, t]) => (
-                      <label key={k} title={t} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
-                        <input type="checkbox" checked={!!f[k]} onChange={e => setField(i, { [k]: e.target.checked })} style={{ accentColor: 'var(--pine)' }} /> {l}
-                      </label>
-                    ))}
-                  </div>
-                  {f.type === 'choice' && (
-                    <input className="form-input" style={{ width: '100%', marginTop: 8 }} placeholder="Choices, separated by commas - e.g. Savings, Current"
-                      value={(f.options || []).join(', ')} onChange={e => setField(i, { options: e.target.value.split(',').map(x => x.trim()).filter(Boolean) })} aria-label="Choices" />
-                  )}
-                </div>
-              ))}
-              <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-                <button type="button" className="secondary-btn" onClick={() => addField({})} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={12} /> Add Field</button>
-                <button type="button" className="secondary-btn" onClick={() => addField({ type: 'heading' })} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Heading size={12} /> Add Section Heading</button>
-              </div>
-            </>
-          )}
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '0 16px' }}>
-            <div>
-              <label style={lbl}>Verified By</label>
-              <select className="form-input" style={{ width: '100%' }} value={p.verifyRole} onChange={e => set('verifyRole', e.target.value)}>
-                {verifyOpts.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
-              </select>
-              <div style={hint}>Checks every filled-in document before anything is sent{verifyHolder?.email ? ` - today: ${verifyHolder.name}` : holders ? ' - nobody holds this role yet' : ''}. Only they can send it.</div>
-            </div>
-            <div>
-              <label style={lbl}>Letterhead</label>
-              <select className="form-input" style={{ width: '100%' }} value={p.letterheadId} onChange={e => set('letterheadId', e.target.value)}>
-                <option value="">Template's Own</option>
-                {letterheads.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-              </select>
-              <div style={hint}>Used by the templates that require a letterhead. Pick this company's own.</div>
-            </div>
-            <div>
-              <label style={lbl}>Pay</label>
-              <select className="form-input" style={{ width: '100%' }} value={p.payMode} onChange={e => set('payMode', e.target.value)}>
-                <option value="">{event === 'separation' ? 'By Event - Where A Document Prints Pay' : 'By Event - Every Document Shows Pay'}</option>
-                <option value="always">Treat Every Document As Showing Pay</option>
-                <option value="auto">Only Where A Document Prints Pay</option>
-              </select>
-              <div style={hint}>Who can open these documents. Changing it needs Pay &amp; Benefits access.</div>
-            </div>
-          </div>
-
-          <label style={lbl}>When Signed</label>
-          <div style={{ fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <ListChecks size={14} style={{ color: 'var(--muted)' }} />
-            {event === 'offer' ? 'They are hired - their People record and Onboarding Checklist start - and the hiring packet goes out to them by itself.'
-              : event === 'hire' ? 'Their onboarding paperwork is complete - it shows on their Checklist (People > Checklists).'
-              : event === 'promotion' ? 'The new role, title and pay apply from the effective date.'
-                : 'Their Offboarding Checklist starts with the offboarding (People > Checklists).'}
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '0 16px' }}>
-            <div>
-              <label style={lbl}>Welcome Note In The Email</label>
-              <textarea className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }}
-                placeholder="Welcome to the team! Please review and sign your documents."
-                value={p.emailMessage} onChange={e => set('emailMessage', e.target.value)} />
-            </div>
-            <div>
-              <label style={lbl}>Egnyte Subfolder</label>
-              <input className="form-input" style={{ width: '100%' }} value={p.egnyteSubfolder} onChange={e => set('egnyteSubfolder', e.target.value)} placeholder={defaultSubfolder || 'Hiring Documents'} />
-              <div style={hint}>Inside the {who}'s own folder. Blank uses "{defaultSubfolder || 'Hiring Documents'}".</div>
-            </div>
-          </div>
-
-          {problems.map(x => <Problem key={x}>{x}</Problem>)}
         </div>
-        <div style={{ padding: '12px 22px', borderTop: '1px solid var(--line)', display: 'flex', gap: 8, justifyContent: 'flex-end', flexShrink: 0 }}>
-          <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
-          <button type="button" className="primary-btn" onClick={save} disabled={busy || local.length > 0} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: local.length ? 0.6 : 1 }}>
-            {busy ? <Spinner size={13} /> : <CheckCircle size={13} />} Save Packet
-          </button>
+      )}
+
+      <label style={lbl} htmlFor="pk-verify">Checked By</label>
+      <select id="pk-verify" className="form-input" style={{ width: '100%', maxWidth: 360 }} value={p.verifyRole} onChange={e => set('verifyRole', e.target.value)}>
+        {verifyOpts.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
+      </select>
+      <div style={hint}>Reads every filled-in document before anything goes out, and is the only one who can send it{verifyHolder?.email ? ` - today: ${verifyHolder.name}` : holders ? ' - nobody holds this role yet' : ''}.</div>
+
+      <More title="More Options">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '0 18px' }}>
+          <div>
+            <label style={lbl} htmlFor="pk-lh">Letterhead</label>
+            <select id="pk-lh" className="form-input" style={{ width: '100%' }} value={p.letterheadId} onChange={e => set('letterheadId', e.target.value)}>
+              <option value="">Template's Own</option>
+              {letterheads.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+            </select>
+            <div style={hint}>For templates that need one.</div>
+          </div>
+          <div>
+            <label style={lbl} htmlFor="pk-pay">Who Can Open These Documents</label>
+            <select id="pk-pay" className="form-input" style={{ width: '100%' }} value={p.payMode} onChange={e => set('payMode', e.target.value)}>
+              <option value="">{event === 'separation' ? 'Everyone, unless a document prints pay' : 'Pay & Benefits only (they show pay)'}</option>
+              <option value="always">Pay &amp; Benefits only</option>
+              <option value="auto">Everyone, unless a document prints pay</option>
+            </select>
+            <div style={hint}>Changing this needs Pay &amp; Benefits access.</div>
+          </div>
+          <div>
+            <label style={lbl} htmlFor="pk-note">Note In The Email</label>
+            <textarea id="pk-note" className="form-input" rows={2} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }}
+              placeholder="Welcome to the team! Please review and sign your documents."
+              value={p.emailMessage} onChange={e => set('emailMessage', e.target.value)} />
+          </div>
+          <div>
+            <label style={lbl} htmlFor="pk-folder">Egnyte Folder</label>
+            <input id="pk-folder" className="form-input" style={{ width: '100%' }} value={p.egnyteSubfolder} onChange={e => set('egnyteSubfolder', e.target.value)} placeholder={defaultSubfolder || 'Hiring Documents'} />
+            <div style={hint}>Inside the {who}'s own folder.</div>
+          </div>
+        </div>
+      </More>
+    </>
+  );
+
+  const readyStep = (
+    <>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 22, flexWrap: 'wrap' }}>
+        <h2 style={{ ...h2, margin: 0 }}>Ready To Send?</h2>
+        {summary && <Chip tone={summary.tone}>{summary.label}</Chip>}
+      </div>
+      <p style={{ ...lead, marginTop: 4 }}>Everything a {who} needs before this can go out. Anything not done has its fix right here.</p>
+      <div style={{ marginTop: 14 }}>
+        {readiness.length === 0 ? <Spinner size={16} /> : (
+          <PacketReadiness checks={readiness} toastErr={toastErr}
+            meEmails={onceStatus.filter(s => s.isMe).map(s => s.email)}
+            onChanged={refreshReady}
+            onSignOnce={(step) => setSigning(onceStatus.find(s => s.key === step) || { key: step, roleLabel: 'HR', name: '' })}
+            onAddToForm={(vars) => { addVariables(vars); setStep('docs'); }} />
+        )}
+      </div>
+      {formNote && <div style={{ ...hint, color: 'hsl(var(--color-orange))' }}>{formNote}</div>}
+      <div style={{ ...card, marginTop: 18, background: 'var(--mist)', fontSize: 13, lineHeight: 1.6 }}>
+        <b>When it is signed:</b>{' '}
+        {event === 'offer' ? 'they are hired - their People record and onboarding checklist start - and their hiring packet goes out to them by itself.'
+          : event === 'hire' ? 'their onboarding paperwork is complete and shows on their checklist.'
+            : event === 'promotion' ? 'the new role, title and pay apply from the effective date.'
+              : 'their offboarding checklist starts.'}
+      </div>
+    </>
+  );
+
+  const body = { who: whoStep, docs: docsStep, signs: signsStep, ready: readyStep }[step];
+  const last = step === 'signs';
+
+  return (
+    <div onClick={e => e.target === e.currentTarget && onClose()}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div style={{ background: 'var(--card)', borderRadius: 18, width: '100%', maxWidth: 820, maxHeight: 'min(94dvh, 900px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
+        <div style={{ padding: '18px 28px 0', flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 800, fontSize: 17 }}>{p.id ? p.name || eventLabel : `New ${eventLabel}`}</div>
+              <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 2 }}>{companyName}</div>
+            </div>
+            <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+          </div>
+          {/* The step bar - every step is a button, so a saved packet can be changed from anywhere. */}
+          <div role="tablist" aria-label="Setup steps" style={{ display: 'flex', gap: 4, marginTop: 16, borderBottom: '1px solid var(--line)', overflowX: 'auto' }} className="scroll-tabs">
+            {STEPS.map(([k, label], i) => {
+              const on = k === step;
+              const done = p.id ? true : i < stepIndex;
+              const locked = k === 'ready' && !p.id;
+              return (
+                <button key={k} type="button" role="tab" aria-selected={on} disabled={locked} onClick={() => !locked && goTo(k)}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '8px 12px 10px', border: 'none', borderBottom: `2px solid ${on ? 'var(--pine)' : 'transparent'}`, background: 'none',
+                    cursor: locked ? 'default' : 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: on ? 800 : 600, color: on ? 'var(--ink)' : locked ? 'var(--line)' : 'var(--muted)', whiteSpace: 'nowrap' }}>
+                  <span style={{ width: 20, height: 20, borderRadius: 10, fontSize: 11, fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    background: on ? 'var(--pine)' : done ? 'hsla(var(--color-green),0.15)' : 'var(--mist)', color: on ? '#fff' : done ? 'hsl(var(--color-green))' : 'var(--muted)' }}>
+                    {done && !on ? <Check size={11} /> : i + 1}
+                  </span>
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div style={{ overflowY: 'auto', flex: 1, padding: '0 28px 24px' }}>
+          {body}
+          {shown.map(x => <Problem key={x}>{x}</Problem>)}
+        </div>
+
+        <div style={{ padding: '14px 28px', borderTop: '1px solid var(--line)', display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+          {stepIndex > 0 && step !== 'ready' && (
+            <button type="button" className="secondary-btn" onClick={() => goTo(STEPS[stepIndex - 1][0])} style={smallBtn}><ArrowLeft size={13} /> Back</button>
+          )}
+          <span style={{ flex: 1 }} />
+          <button type="button" className="secondary-btn" onClick={onClose}>{step === 'ready' ? 'Done' : 'Cancel'}</button>
+          {step === 'ready' ? (
+            <button type="button" className="secondary-btn" onClick={() => goTo('who')} style={smallBtn}>Change Setup</button>
+          ) : last || p.id ? (
+            <button type="button" className="primary-btn" onClick={save} disabled={busy} style={smallBtn}
+              title={allLocal.length ? allLocal[0] : ''}>
+              {busy ? <Spinner size={13} /> : <CheckCircle size={13} />} Save Packet
+            </button>
+          ) : (
+            <button type="button" className="primary-btn" onClick={next} style={smallBtn}>Continue <ArrowRight size={13} /></button>
+          )}
         </div>
       </div>
       {signing && (
