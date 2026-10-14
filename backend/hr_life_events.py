@@ -329,6 +329,12 @@ def setting_problems(db: Session, s: HrPacketSetting) -> list:
     return out
 
 
+def _tname(db: Session, tid: str) -> str:
+    from models import DocTemplate
+    t = db.query(DocTemplate).filter(DocTemplate.id == tid).first()
+    return t.name if t else "A template that no longer exists"
+
+
 def ser_setting(db: Session, s: HrPacketSetting) -> dict:
     from models import NexusGroup
     role_ids = [r for r in (s.role_ids or []) if r]
@@ -340,9 +346,12 @@ def ser_setting(db: Session, s: HrPacketSetting) -> dict:
         import hr_packet_docs as hpd
         docs = hpd.ser_documents(db, s)
         flow = hpd.ser_flow(db, s)
-        snaps = hpd.load_snaps(db, s.doc_template_ids or [])[0]
+        snaps = hpd.load_snaps(db, list(s.doc_template_ids or []) + [t for t in hpd.all_block_ids(s)
+                                                                       if t not in (s.doc_template_ids or [])])[0]
         return {"id": s.id, "engine": "documents", "entityId": s.entity_id or "", "event": s.event,
                 "workerType": s.worker_type, "country": s.country or "", "name": s.name or "", "templateId": "",
+                "extraDocs": [{**r, "templateNames": [_tname(db, t) for t in r.get("templateIds") or []]}
+                              for r in (s.extra_docs or []) if isinstance(r, dict)],
                 "templateName": s.name or "Unnamed packet",
                 "roleIds": role_ids, "roleNames": [names.get(r, "a role that no longer exists") for r in role_ids],
                 "docTemplateIds": list(s.doc_template_ids or []), "docTemplates": docs,
@@ -872,11 +881,12 @@ def _check_jd(db: Session, jd_id: str) -> None:
         raise PacketError("Pick a Job Description from Documents > Templates (category Job Description).")
 
 
-def clean_pay_values(db: Session, setting: HrPacketSetting, values: Optional[dict], jd_id: str = "") -> dict:
+def clean_pay_values(db: Session, setting: HrPacketSetting, values: Optional[dict], jd_id: str = "",
+                     inputs: Optional[dict] = None) -> dict:
     """Pay typed per pay variable of THIS packet - "$22.00 per hour plus
     commission". Only pay variables, at most 200 characters each."""
     import hr_packet_docs as hpd
-    ids = list(setting.doc_template_ids or []) + ([jd_id] if jd_id else [])
+    ids = hpd.template_ids_for(setting, {**(inputs or {}), "jd_template_id": jd_id}, "hire")
     snaps, _ = hpd.load_snaps(db, ids)
     allowed = hpd.pay_tokens(snaps) | {"salary"}
     out = {}
@@ -929,7 +939,7 @@ def start_hire(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[di
         # The packet's own Details Form, filled by HR. What is still empty
         # shows on the review and blocks sending if the form requires it.
         try:
-            answers = hpd.clean_answers(hpd.form_view(db, setting, [opts["jd_template_id"]]),
+            answers = hpd.clean_answers(hpd.form_view(db, setting, hpd.template_ids_for(setting, {**d, **opts}, "hire")),
                                         (details or {}).get("answers"))
         except hpd.PacketProblem as e:
             raise PacketError(str(e))
@@ -942,7 +952,7 @@ def start_hire(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[di
         d["role_id"] = role.id
     extra = d.pop("merge", {}) or {}
     stored = {**d, **opts, "extra": extra, "verifier_role": setting.verify_role or "hr", "engine": "documents"}
-    snaps, _ = hpd.load_snaps(db, list(setting.doc_template_ids or []) + ([opts["jd_template_id"]] if opts["jd_template_id"] else []))
+    snaps, _ = hpd.load_snaps(db, hpd.template_ids_for(setting, {**d, **opts}, "hire"))
     if any("employee_code" in s.tokens for s in snaps):
         stored["employee_code"] = (plan["former"].employee_code if plan.get("former") is not None
                                    else reserve_code(db)) or ""
@@ -952,7 +962,7 @@ def start_hire(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[di
                      entity_id=cand.company, candidate_id=cand.id, subject_name=name,
                      subject_email=cand.email.strip().lower(), setting_id=setting.id, template_id="",
                      inputs=stored, pay=plan["pay"],
-                     pay_values=clean_pay_values(db, setting, pay_values, opts["jd_template_id"]),
+                     pay_values=clean_pay_values(db, setting, pay_values, opts["jd_template_id"], d),
                      intake=person, effective_date=d["start_date"], documents=[],
                      created_by=user["email"].lower(), created_at=now, updated_at=now)
     db.add(ev)
@@ -1010,12 +1020,13 @@ def offer_details(db: Session, cand: HrCandidate, inputs: dict) -> dict:
     return d
 
 
-def _describe(db: Session, s: Optional[HrPacketSetting], extra_ids: Optional[list] = None) -> Optional[dict]:
-    """What a letter or packet needs from HR, for the offer form."""
+def _describe(db: Session, s: Optional[HrPacketSetting], department: str = "", role_id: str = "") -> Optional[dict]:
+    """What a letter or packet needs from HR, for the offer form - with the
+    documents it adds for this person's team and role."""
     if s is None:
         return None
     import hr_packet_docs as hpd
-    ids = list(s.doc_template_ids or []) + [t for t in (extra_ids or []) if t]
+    ids = hpd.template_ids_for(s, {"department": department, "role_id": role_id}, "offer")
     snaps, problems = hpd.load_snaps(db, ids)
     tokens = {t for snap in snaps for t in snap.tokens}
     return {"id": s.id, "name": s.name or "", "workerType": s.worker_type or "any", "country": s.country or "",
@@ -1046,8 +1057,11 @@ def offer_options(db: Session, cand: HrCandidate, worker_type: str, country: str
     letter = packet_choice(db, cand.company, "offer", chosen) if chosen else None
     letter = letter or resolve_setting(db, cand.company, "offer", wt, role_id, country)
     packet = resolve_setting(db, cand.company, "hire", wt, role_id, country)
-    out["offerLetter"] = _describe(db, letter)
-    out["hiringPacket"] = _describe(db, packet)
+    from models import NexusGroup
+    role = db.query(NexusGroup).filter(NexusGroup.id == role_id).first() if role_id else None
+    department = (role.department if role is not None else "") or cand.department or ""
+    out["offerLetter"] = _describe(db, letter, department, role_id)
+    out["hiringPacket"] = _describe(db, packet, department, role_id)
     if letter is None:
         out["missing"] = (f"No offer letter is set up for {kind_of_hire(wt, country)} at {company} yet - add one "
                           f"under People > Hiring > Packets > Offer Letter.")
@@ -1142,9 +1156,8 @@ def start_offer(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[d
     extra = d.pop("merge", {}) or {}
     stored = {**d, **opts, "extra": extra, "verifier_role": setting.verify_role or "hr", "engine": "documents",
               "hire_packet_id": packet.id if packet is not None else ""}
-    letter_snaps, _ = hpd.load_snaps(db, list(setting.doc_template_ids or []))
-    packet_ids = (list(packet.doc_template_ids or []) + ([opts["jd_template_id"]] if opts["jd_template_id"] else [])
-                  if packet is not None else [])
+    letter_snaps, _ = hpd.load_snaps(db, hpd.template_ids_for(setting, d, "offer"))
+    packet_ids = hpd.template_ids_for(packet, {**d, **opts}, "hire") if packet is not None else []
     packet_snaps = hpd.load_snaps(db, packet_ids)[0] if packet_ids else []
     if any("employee_code" in snap.tokens for snap in letter_snaps):
         stored["employee_code"] = (plan["former"].employee_code if plan.get("former") is not None
@@ -1210,8 +1223,7 @@ def start_packet_after_offer(db: Session, offer: HrLifeEvent, by: str) -> tuple:
     stored.update({"after_offer": True, "offer_event_id": offer.id, "packet_id": setting.id, "due_on": due,
                    "verifier_role": setting.verify_role or "hr", "engine": "documents",
                    "employee_code": (emp.employee_code if emp is not None else "") or d.get("employee_code", "")})
-    snaps, _ = hpd.load_snaps(db, list(setting.doc_template_ids or [])
-                              + ([d["jd_template_id"]] if d.get("jd_template_id") else []))
+    snaps, _ = hpd.load_snaps(db, hpd.template_ids_for(setting, d, "hire"))
     allowed = hpd.pay_tokens(snaps) | {"salary"}
     now = _now()
     ev = HrLifeEvent(id=str(uuid.uuid4()), kind="hire", status="intake", entity_id=offer.entity_id,
@@ -1451,7 +1463,7 @@ def patch_values(db: Session, ev: HrLifeEvent, user: dict, body: dict, *, can_se
         # The Details Form answers: someone without Pay & Benefits never saw
         # the Sensitive ones, so theirs are kept exactly as they were.
         old = hpd.event_answers(ev)
-        form = hpd.form_view(db, setting, [inputs.get("jd_template_id") or ""])
+        form = hpd.form_view(db, setting, hpd.template_ids_for(setting, inputs, ev.kind))
         try:
             answers = hpd.clean_answers(form, (body.get("details") or {}).get("answers"), old,
                                         keep=() if can_see_pay else tuple(hpd.sensitive_keys(form)))
@@ -1472,7 +1484,7 @@ def patch_values(db: Session, ev: HrLifeEvent, user: dict, body: dict, *, can_se
             except ValueError as e:
                 raise PacketError(str(e))
         if "pay_values" in body:
-            ev.pay_values = clean_pay_values(db, setting, body.get("pay_values"), inputs.get("jd_template_id", ""))
+            ev.pay_values = clean_pay_values(db, setting, body.get("pay_values"), inputs.get("jd_template_id", ""), inputs)
     ev.inputs = inputs
     ev.updated_at = _now()
     db.flush()

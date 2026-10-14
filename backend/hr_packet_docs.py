@@ -1266,15 +1266,78 @@ def form_view(db: Session, setting: Optional[HrPacketSetting], template_ids: Opt
     return FormView(setting, snaps)
 
 
-def event_template_ids(ev, setting: Optional[HrPacketSetting]) -> list:
-    """Every template an event's packet prints: the packet's own documents,
-    then the job description picked for this hire."""
+# ── building blocks (Oct 14) ────────────────────────────────────────────────
+# Neil: "there's a different confidentiality and non-disclosure agreement for
+# each team ... Pranshu can now connect it to a role." A packet is its common
+# documents plus the ones added for the person's team (department) or role -
+# one packet per kind of hire, never one per role.
+
+BLOCK_MATCHES = ("department", "role")
+
+
+def clean_blocks(rows) -> list:
+    """[{match, value, templateIds}] - known matches, a value, at least one
+    template; the same match + value only once."""
+    out, seen = [], set()
+    for r in rows or []:
+        if not isinstance(r, dict):
+            continue
+        match = str(r.get("match") or "").strip().lower()
+        value = re.sub(r"[\x00-\x1f\x7f]", "", str(r.get("value") or "")).strip()[:120]
+        ids = list(dict.fromkeys(str(t).strip() for t in (r.get("templateIds") or []) if str(t).strip()))[:10]
+        if match not in BLOCK_MATCHES:
+            raise PacketProblem("A team or role document needs Team or Role picked.")
+        if not value:
+            raise PacketProblem("Pick the team or role each added document is for.")
+        if not ids:
+            raise PacketProblem(f'Add at least one document for "{value}", or remove that row.')
+        key = (match, value.lower())
+        if key in seen:
+            raise PacketProblem(f'"{value}" is listed twice - put its documents in one row.')
+        seen.add(key)
+        out.append({"match": match, "value": value, "templateIds": ids})
+    return out
+
+
+def block_ids(setting: Optional[HrPacketSetting], department: str = "", role_id: str = "") -> list:
+    """The documents a packet adds for this person's team and role."""
+    dep = (department or "").strip().lower()
+    out = []
+    for r in (getattr(setting, "extra_docs", None) or []) if setting is not None else []:
+        if not isinstance(r, dict):
+            continue
+        hit = ((r.get("match") == "department" and dep and str(r.get("value") or "").strip().lower() == dep)
+               or (r.get("match") == "role" and role_id and r.get("value") == role_id))
+        if hit:
+            out += [t for t in (r.get("templateIds") or []) if t not in out]
+    return out
+
+
+def all_block_ids(setting: Optional[HrPacketSetting]) -> list:
+    out = []
+    for r in (getattr(setting, "extra_docs", None) or []) if setting is not None else []:
+        if isinstance(r, dict):
+            out += [t for t in (r.get("templateIds") or []) if t not in out]
+    return out
+
+
+def template_ids_for(setting: Optional[HrPacketSetting], inputs: dict, kind: str) -> list:
+    """Every template a packet prints for one person: its own documents, the
+    ones for their team and role, then (not on an offer) their job
+    description."""
+    d = inputs or {}
     ids = list((setting.doc_template_ids or []) if setting is not None else [])
-    # The job description goes with the hiring packet, never the offer letter.
-    jd = (ev.inputs or {}).get("jd_template_id") or "" if ev.kind != "offer" else ""
+    ids += [t for t in block_ids(setting, d.get("department", ""), d.get("role_id", "")) if t not in ids]
+    jd = d.get("jd_template_id") or "" if kind != "offer" else ""
     if jd and jd not in ids:
         ids.append(jd)
     return ids
+
+
+def event_template_ids(ev, setting: Optional[HrPacketSetting]) -> list:
+    """Every template an event's packet prints: the packet's own documents,
+    the team's and role's, then the job description picked for this hire."""
+    return template_ids_for(setting, ev.inputs or {}, ev.kind)
 
 
 def event_form(db: Session, ev, setting: Optional[HrPacketSetting]) -> FormView:
@@ -1526,8 +1589,9 @@ def unfilled_variables(setting: HrPacketSetting, snaps: list) -> list:
 def readiness(db: Session, setting: HrPacketSetting) -> list:
     """The packet's Ready To Send checklist: what is fine, what stops a hire
     from going out (block) and what would come out wrong (warn) - each with
-    the fix the screen offers."""
+    the fix the screen offers. A team's or role's documents are checked too."""
     ids = list(setting.doc_template_ids or [])
+    ids += [t for t in all_block_ids(setting) if t not in ids]
     snaps, snap_problems = load_snaps(db, ids)
     out = []
     # 1. The documents: there, active, published.

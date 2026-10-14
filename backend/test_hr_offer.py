@@ -218,5 +218,39 @@ class JourneyTests(OfferCase):
         self.assertEqual(self._ev(eid).status, "voided")
 
 
+class BuildingBlockTests(OfferCase):
+    """One packet per kind of hire; the team's own NDA is added for the person
+    (Neil: "there's a different confidentiality agreement for each team")."""
+
+    def _blocks(self, rows):
+        hire = next(s for s in self.client.get("/hr/packets").json()["settings"] if s["id"] == "s-hire")
+        return self.client.put("/hr/packets/documents", json={
+            "id": "s-hire", "entity_id": CO, "event": "hire", "name": hire["name"], "doc_template_ids": ["t-intake"],
+            "flow": hire["flow"], "verify_role": "hr", "extra_docs": rows})
+
+    def test_the_teams_document_joins_the_packet_for_that_team_only(self):
+        db = database.SessionLocal()
+        _tpl(db, "t-ca-acct", "Accounting CA", _doc(_p("CA for ", "{{full_name}}"), _sig("employee")), category="hr")
+        _tpl(db, "t-ca-it", "IT CA", _doc(_p("IT CA for ", "{{full_name}}"), _sig("employee")), category="hr")
+        db.commit()
+        db.close()
+        r = self._blocks([{"match": "department", "value": "Accounting", "templateIds": ["t-ca-acct"]},
+                          {"match": "department", "value": "IT", "templateIds": ["t-ca-it"]}])
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual([x["templateNames"] for x in r.json()["extraDocs"]], [["Accounting CA"], ["IT CA"]])
+        self.assertEqual(self._blocks([{"match": "department", "value": "IT", "templateIds": []}]).status_code, 400)
+
+        offer = self._offer().json()                         # an Analyst - in Accounting
+        self._send_and_sign(offer["id"])
+        packet = self.db.query(models.HrLifeEvent).filter_by(candidate_id="cand-1", kind="hire").one()
+        token = re.search(r"/intake/([A-Za-z0-9_\-]+)", self._wait_for_mail()[2]).group(1)
+        r = self.client.post(f"/hr/intake/public/{token}", json={"values": {
+            "first_name": "Jane", "last_name": "Doe", "phone": "555-0100", "address": "12 Pine St",
+            "answers": {"pan_number": "ABCDE1234F"}}})
+        self.assertEqual(r.status_code, 200, r.text)
+        titles = sorted(d.title for d in self.db.query(models.Document).filter_by(life_event_id=packet.id))
+        self.assertEqual(titles, ["Accounting CA - Jane Doe", "Onboarding Requirements - Jane Doe"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -9,7 +9,7 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 const save = vi.fn((d) => Promise.resolve({ id: 's1', ...d }));
 vi.mock('../api', () => ({
   api: {
-    hiringOptions: () => Promise.resolve({ roles: [] }),
+    hiringOptions: () => Promise.resolve({ roles: [], departments: ['Administration', 'IT'] }),
     packetRoleHolders: () => Promise.resolve({ hr: { email: 'charmi@x.com', name: 'Charmi Shah' } }),
     getDocLetterheads: () => Promise.resolve([]),
     saveDocumentsPacket: (...a) => save(...a),
@@ -23,7 +23,10 @@ const { DocumentsPacketEditor } = await import('./DocumentsPacketEditor');
 
 const catalog = {
   docTemplates: [{ id: 't1', name: 'Contractor Agreement', publishedVersion: 1, signs: ['company', 'employee'],
-                   variables: [{ token: 'pan_number', label: 'PAN Number', type: 'text' }] }],
+                   variables: [{ token: 'pan_number', label: 'PAN Number', type: 'text' }] },
+                 { id: 't-ca', name: 'Administration CA', publishedVersion: 1, signs: ['employee'], variables: [],
+                   personQuestions: ['Bank Name'], hrQuestions: [] }],
+  countries: ['US', 'IN'],
   flowRoles: [{ key: 'hr', label: 'HR' }, { key: 'employee', label: 'The Person' }],
   verifyRoles: [{ key: 'hr', label: 'HR' }],
   actions: [{ key: 'sign', label: 'Signs' }, { key: 'copy', label: 'Gets A Copy' }],
@@ -55,5 +58,22 @@ describe('DocumentsPacketEditor', () => {
     const body = save.mock.calls[0][0];
     expect(body.flow[0]).toEqual({ key: 'company', role: 'hr', action: 'sign', once: true });
     expect(body.details_form.map(f => [f.key, f.label])).toEqual([['pan_number', 'PAN Number'], ['', 'IFSC Code']]);
+  });
+
+  it('adds the team document, and picks the packet by employee or contractor and country', async () => {
+    save.mockClear();
+    render(<DocumentsPacketEditor packet={packet} event="hire" eventLabel="Hiring Packet" companyId="co" companyName="Greens India"
+      catalog={catalog} onClose={() => {}} onSaved={() => {}} toastErr={() => {}} />);
+    fireEvent.change(screen.getByLabelText('Hired As'), { target: { value: 'contractor' } });
+    fireEvent.change(screen.getByLabelText('Works In'), { target: { value: 'IN' } });
+    fireEvent.click(screen.getByText('Add For A Team Or Role'));
+    fireEvent.change(screen.getByLabelText('Which team'), { target: { value: 'Administration' } });
+    fireEvent.change(screen.getByLabelText('Add a document for this team or role'), { target: { value: 't-ca' } });
+    expect(screen.getAllByText('Administration CA').length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByText('Save Packet'));
+    await waitFor(() => expect(save).toHaveBeenCalled());
+    const body = save.mock.calls[0][0];
+    expect(body).toMatchObject({ worker_type: 'contractor', country: 'IN',
+      extra_docs: [{ match: 'department', value: 'Administration', templateIds: ['t-ca'] }] });
   });
 });

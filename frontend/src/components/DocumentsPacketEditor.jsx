@@ -91,6 +91,9 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
     workerType: packet?.workerType || 'any',
     country: packet?.country || '',
     docIds: packet?.docTemplateIds || [],
+    // Building blocks (Oct 14): documents added only for a team or a role -
+    // each team's own confidentiality agreement (Neil).
+    extraDocs: (packet?.extraDocs || []).map(({ match, value, templateIds }) => ({ match, value, templateIds: templateIds || [] })),
     flow: packet?.flow?.map(({ key, role, action, once }) => ({ key, role, action, ...(once ? { once: true } : {}) })) || [],
     detailsForm: (packet?.detailsForm || []).map(f => ({ ...f, options: f.options || [] })),
     verifyRole: packet?.verifyRole || 'hr',
@@ -100,6 +103,7 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
     egnyteSubfolder: packet?.egnyteSubfolder || '',
   }));
   const [companyRoles, setCompanyRoles] = useState(null);
+  const [departments, setDepartments] = useState([]);
   const [holders, setHolders] = useState(null);
   const [letterheads, setLetterheads] = useState([]);
   const [busy, setBusy] = useState(false);
@@ -123,7 +127,10 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
     api.signOnceStatus(p.id, companyId).then(setOnceStatus).catch(() => {});
   }, [p.id, companyId]);
 
-  useEffect(() => { api.hiringOptions(companyId || '').then(o => setCompanyRoles(o.roles || [])).catch(() => setCompanyRoles([])); }, [companyId]);
+  useEffect(() => {
+    api.hiringOptions(companyId || '').then(o => { setCompanyRoles(o.roles || []); setDepartments(o.departments || []); })
+      .catch(() => setCompanyRoles([]));
+  }, [companyId]);
   useEffect(() => { api.packetRoleHolders(companyId || '').then(setHolders).catch(() => setHolders({})); }, [companyId]);
   useEffect(() => { api.getDocLetterheads().then(setLetterheads).catch(() => setLetterheads([])); }, []);
 
@@ -182,6 +189,10 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
   docs.filter(d => !d.missing && !d.publishedVersion).forEach(d => local.push(`"${d.name}" has not been published yet - open it in Documents and click Publish.`));
   if (!p.flow.some(s => s.role === 'employee')) local.push('One step must be The Person (the one the packet is about).');
   p.detailsForm.forEach(f => { if (!String(f.label || '').trim()) local.push('Every field on the Details Form needs a label.'); });
+  p.extraDocs.forEach(r => {
+    if ((r.value || r.templateIds.length) && !r.value) local.push('Pick the team or role each added document is for.');
+    if (r.value && !r.templateIds.length) local.push(`Add a document for ${r.match === 'role' ? (companyRoles || []).find(x => x.id === r.value)?.name || 'the role' : r.value}, or remove that row.`);
+  });
   const problems = [...new Set([...local, ...serverProblems])];
 
   async function save() {
@@ -190,6 +201,7 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
       const saved = await api.saveDocumentsPacket({
         id: p.id, entity_id: companyId || '', event, name: p.name.trim(), role_ids: p.roleIds,
         worker_type: p.workerType, country: p.country,
+        extra_docs: p.extraDocs.filter(r => r.value || r.templateIds.length),
         doc_template_ids: p.docIds, flow: p.flow, verify_role: p.verifyRole, letterhead_id: p.letterheadId,
         pay_mode: p.payMode, email_message: p.emailMessage, egnyte_subfolder: p.egnyteSubfolder,
         details_form: event === 'hire' ? p.detailsForm.map(({ key, label, type, required, sensitive, last4, options, help }) => ({
@@ -340,6 +352,53 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
               {asked.person.length > 0 && <div style={{ marginTop: asked.hr.length ? 4 : 0 }}><b>Asked of the {who} on their form (no login):</b> {asked.person.join(', ')}</div>}
               <div style={{ ...hint, marginTop: 4 }}>Set in each template (who fills each variable) - nothing to keep in sync here.</div>
             </div>
+          )}
+
+          {['offer', 'hire'].includes(event) && (
+            <>
+              <label style={lbl}>Added For A Team Or Role</label>
+              <div style={hint}>The documents that change by team - like each team's own confidentiality agreement - go here, so one packet covers every role. Added only for people in that team or role.</div>
+              <datalist id="pk-departments">{departments.map(d => <option key={d} value={d} />)}</datalist>
+              {p.extraDocs.map((r, i) => {
+                const setRow = (patch) => set('extraDocs', p.extraDocs.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+                const left = templates.filter(t => !r.templateIds.includes(t.id));
+                return (
+                  <div key={i} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '10px 12px', marginTop: 8 }}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <select className="form-input" style={{ width: 120 }} value={r.match} onChange={e => setRow({ match: e.target.value, value: '' })} aria-label="Team or role">
+                        <option value="department">Team</option><option value="role">Role</option>
+                      </select>
+                      {r.match === 'role' ? (
+                        <select className="form-input" style={{ flex: '1 1 220px' }} value={r.value} onChange={e => setRow({ value: e.target.value })} aria-label="Which role">
+                          <option value="">- pick the role -</option>
+                          {(companyRoles || []).map(x => <option key={x.id} value={x.id}>{x.name}{x.department ? ` - ${x.department}` : ''}</option>)}
+                        </select>
+                      ) : (
+                        <input className="form-input" list="pk-departments" style={{ flex: '1 1 220px' }} value={r.value} placeholder="Team (department), e.g. Administration"
+                          onChange={e => setRow({ value: e.target.value })} aria-label="Which team" />
+                      )}
+                      <button type="button" className="secondary-btn" onClick={() => set('extraDocs', p.extraDocs.filter((_, j) => j !== i))} style={iconBtn} aria-label="Remove row"><Trash2 size={13} /></button>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8, alignItems: 'center' }}>
+                      {r.templateIds.map(id => (
+                        <span key={id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, border: '1px solid var(--line)', borderRadius: 999, padding: '3px 6px 3px 10px' }}>
+                          <FileText size={12} style={{ color: 'var(--pine)' }} /> {byId[id]?.name || 'A template that is no longer active'}
+                          <button type="button" onClick={() => setRow({ templateIds: r.templateIds.filter(x => x !== id) })} aria-label="Remove document"
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}><X size={11} /></button>
+                        </span>
+                      ))}
+                      <select className="form-input" style={{ flex: '1 1 220px', maxWidth: 360 }} value="" aria-label="Add a document for this team or role"
+                        onChange={e => e.target.value && setRow({ templateIds: [...r.templateIds, e.target.value] })}>
+                        <option value="">{left.length ? 'Add a document...' : 'No more templates'}</option>
+                        {left.map(t => <option key={t.id} value={t.id}>{t.name}{t.publishedVersion ? '' : ' (Not Published)'}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                );
+              })}
+              <button type="button" className="secondary-btn" onClick={() => set('extraDocs', [...p.extraDocs, { match: 'department', value: '', templateIds: [] }])}
+                style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 8 }}><Plus size={12} /> Add For A Team Or Role</button>
+            </>
           )}
 
           <label style={lbl}>Signing Order (By Role)</label>

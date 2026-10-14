@@ -307,6 +307,7 @@ class DocumentsPacketIn(BaseModel):
     egnyte_subfolder: Optional[str] = ""
     details_form:     Optional[list] = None        # the packet's own Details Form (hiring packets)
     country:          Optional[str] = ""           # where the person works: US, IN ... ('' = any)
+    extra_docs:       Optional[list] = None        # documents for a team or role: [{match, value, templateIds}]
 
 
 @router.put("/packets/documents")
@@ -359,6 +360,7 @@ def save_documents_packet(body: DocumentsPacketIn, user: dict = Depends(require_
     # already in People.
     try:
         row.details_form = hpd.clean_form(body.details_form) if body.event == "hire" else []
+        row.extra_docs = hpd.clean_blocks(body.extra_docs)
     except hpd.PacketProblem as e:
         db.rollback()
         raise HTTPException(400, str(e))
@@ -366,7 +368,11 @@ def save_documents_packet(body: DocumentsPacketIn, user: dict = Depends(require_
     if row.worker_type not in hle.WORKER_TYPES:
         db.rollback()
         raise HTTPException(400, "Unknown worker type")
-    problems = hpd.config_problems(db, row)
+    # Checked with the team's and role's documents too - each must have its
+    # signers in the signing order.
+    ids = list(row.doc_template_ids or []) + [t for t in hpd.all_block_ids(row) if t not in (row.doc_template_ids or [])]
+    snaps, snap_problems = hpd.load_snaps(db, ids)
+    problems = hpd.config_problems(db, row, snaps, snap_problems)
     if problems:
         db.rollback()
         raise HTTPException(400, problems[0])
