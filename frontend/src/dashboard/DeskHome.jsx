@@ -69,10 +69,11 @@ const ZoneClock = ({ clock, now }) => (
   <>{clock.label && <>{clock.label} </>}<b>{formatTimeIn(now, clock.tz)}{clock.abbr && ` ${clock.abbr}`}</b></>
 );
 
+// H:MM, no seconds (Neil, Oct 14 2026: the ticking seconds were distracting;
+// same format as the sidebar's time clock chip).
 const fmtElapsed = (secs) => {
-  const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60), s = secs % 60;
-  const p = (n) => String(n).padStart(2, '0');
-  return h > 0 ? `${h}:${p(m)}:${p(s)}` : `${m}:${p(s)}`;
+  const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60);
+  return `${h}:${String(m).padStart(2, '0')}`;
 };
 
 const timeAgo = (ts) => {

@@ -305,16 +305,16 @@ h1,h2,h3,h4,h5,h6,
 /* â”€â”€ Collapsed sidebar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .sidebar.collapsed { width: 60px; }
 
-.sidebar.collapsed .sidebar-header {
-  padding: 16px 0 14px;
+.sidebar.collapsed:not(.peek) .sidebar-header {
+  flex-direction: column;
+  padding: 16px 0 12px;
   justify-content: center;
-  gap: 0;
+  gap: 8px;
 }
-.sidebar.collapsed .sidebar-nav { padding: 4px 5px 8px; }
-.sidebar.collapsed .sidebar-user {
-  justify-content: center;
-  padding: 14px 0;
-}
+/* Hover to peek (Oct 14 2026): the rail opens over the page; the main
+   content keeps its 60px margin so nothing shifts. */
+.sidebar.collapsed.peek { width: 200px; box-shadow: 0 12px 32px rgba(17,24,39,.14); z-index: 120; }   /* above the sticky top header (110) */
+.sidebar.collapsed:not(.peek) .sidebar-nav { padding: 4px 5px 8px; }
 
 /* Icon-only nav item */
 .nav-item--icon {
@@ -322,36 +322,6 @@ h1,h2,h3,h4,h5,h6,
   padding: 9px 6px !important;
 }
 
-/* â”€â”€ Sidebar collapse toggle button â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
-.sidebar-collapse-btn {
-  position: fixed;
-  top: calc(50vh - 22px);
-  left: calc(var(--sw, 200px) - 9px);
-  width: 18px;
-  height: 44px;
-  border-radius: 9px;
-  background: var(--card);
-  border: 1px solid var(--line);
-  color: var(--muted);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 101;
-  box-shadow: var(--shadow-sm);
-  transition: left 0.26s cubic-bezier(.16,1,.3,1),
-              background var(--transition-fast),
-              color var(--transition-fast),
-              box-shadow var(--transition-fast);
-  padding: 0;
-}
-.sidebar-collapse-btn:hover {
-  background: var(--ink);
-  color: var(--card);
-  border-color: var(--ink);
-  box-shadow: var(--shadow-md);
-}
-.sidebar-collapse-btn svg { width: 11px; height: 11px; }
 .sidebar.collapsed { --sw: 60px; }
 .sidebar:not(.collapsed) { --sw: 200px; }
 
@@ -380,7 +350,92 @@ h1,h2,h3,h4,h5,h6,
 
 .company-info { display: flex; flex-direction: column; gap: 1px; }
 .company-name { font-family: var(--wk-font); font-weight: 700; font-size: 17px; letter-spacing: -.02em; line-height: 1; }
-.brand-sub { font-size: 11px; color: var(--muted); font-weight: 500; margin-top: 2px; }
+
+/* The mark + wordmark is the way Home; the green chevron folds the rail
+   (Oct 14 2026): 34px, radius 8 - the N's own geometry - in the brand
+   color so it is the obvious thing to hit. */
+.sidebar-header { padding: 16px 12px 12px; gap: 8px; border-bottom: none; }
+.sidebar-brand { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; text-decoration: none; color: inherit; border-radius: 10px; }
+.sidebar-brand:hover .dk-mark { filter: brightness(1.06); }
+.sidebar-brand:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: 2px; }
+.sidebar-fold {
+  width: 34px; height: 34px; border-radius: 8px; border: none; padding: 0; flex-shrink: 0; cursor: pointer;
+  background: var(--wk-brand); color: #fff; display: inline-flex; align-items: center; justify-content: center;
+  box-shadow: 0 1px 2px rgba(17,24,39,.12); transition: transform .12s ease, filter .12s ease;
+}
+.sidebar-fold:hover { filter: brightness(1.08); }
+.sidebar-fold:active { transform: scale(.94); }
+.sidebar-fold:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: 2px; }
+.sidebar-fold svg { width: 16px; height: 16px; }
+.sidebar-foot { padding: 0 10px 12px; }
+.sidebar.collapsed:not(.peek) .sidebar-foot { padding: 0 0 12px; display: flex; justify-content: center; }
+
+/* The time clock chip (components/ClockChip.jsx, Oct 14 2026): the live
+   shift at the foot of the sidebar - state and hours on one line, the two
+   punches on the next, the capture line only when the browser captures.
+   Brand-tinted while working, amber on a break, red-edged with a parked
+   punch. On the rail it is a clock tile with the live dot. */
+.sbclock {
+  border-radius: 14px; padding: 10px 10px 9px; display: flex; flex-direction: column; gap: 8px;
+  background: color-mix(in srgb, var(--wk-brand) 6%, var(--card)); border: 1px solid color-mix(in srgb, var(--wk-brand) 25%, transparent);
+}
+.sbclock--break { background: rgba(180,83,9,.06); border-color: rgba(180,83,9,.28); }
+.sbclock--lost { border-color: rgba(185,28,28,.35); }
+.sbclock-head { display: flex; align-items: center; gap: 8px; background: none; border: none; padding: 0; cursor: pointer; font-family: inherit; text-align: left; width: 100%; color: var(--ink); min-width: 0; }
+.sbclock-dot { width: 9px; height: 9px; border-radius: 50%; background: #b45309; flex-shrink: 0; }
+.sbclock--in .sbclock-dot, .sbclock-tile--in .sbclock-dot { background: var(--wk-brand); }
+.sbclock-dot--live { animation: sbPing 1.8s cubic-bezier(.22,1,.36,1) infinite; }
+@keyframes sbPing { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--wk-brand) 45%, transparent); } 70% { box-shadow: 0 0 0 7px rgba(0,0,0,0); } 100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); } }
+@media (prefers-reduced-motion: reduce) { .sbclock-dot--live { animation: none; } }
+.sbclock-text { display: flex; flex-direction: column; min-width: 0; flex: 1; line-height: 1.2; }
+.sbclock-state { font-size: 12.5px; font-weight: 700; white-space: nowrap; }
+.sbclock-sub { font-size: 10.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sbclock-sub--lost { color: #b91c1c; font-weight: 600; white-space: normal; display: flex; gap: 4px; align-items: flex-start; line-height: 1.3; }
+.sbclock-sub--lost svg { flex-shrink: 0; margin-top: 2px; }
+.sbclock-timer { font-size: 16px; font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; flex-shrink: 0; transition: color .12s ease; }
+.sbclock--break .sbclock-timer { color: #b45309; }
+.sbclock-head:hover .sbclock-timer { color: var(--wk-brand); }
+.sbclock-row { display: flex; gap: 6px; }
+.sbclock-btn {
+  flex: 1; min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 5px; font-family: inherit;
+  font-size: 11.5px; font-weight: 700; border: none; border-radius: 8px; padding: 7px 6px; cursor: pointer; white-space: nowrap;
+  transition: filter .12s ease, transform .1s ease;
+}
+.sbclock-btn:disabled { opacity: .6; cursor: default; }
+.sbclock-btn:not(:disabled):hover { filter: brightness(.96); }
+.sbclock-btn:not(:disabled):active { transform: scale(.97); }
+.sbclock-btn--break { background: rgba(180,83,9,.1); color: #b45309; }
+.sbclock-btn--resume { background: var(--wk-brand); color: #fff; }
+.sbclock-btn--out { background: var(--card); color: var(--ink); border: 1px solid var(--line); }
+.sbclock-cap { display: flex; align-items: center; gap: 5px; }
+.sbclock-cap-btn { flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 5px; font-family: inherit; font-size: 10.5px; font-weight: 600; color: var(--muted); background: none; border: none; padding: 0; cursor: pointer; white-space: nowrap; overflow: hidden; }
+.sbclock-cap-btn.is-on { color: #b91c1c; }
+.sbclock-cap-btn.is-paused { color: #b45309; }
+.sbclock-cap-btn:hover { text-decoration: underline; }
+.sbclock-cap-add { width: 20px; height: 20px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--muted); font-size: 12px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; padding: 0; font-family: inherit; flex-shrink: 0; line-height: 1; }
+.sbclock-cap-add:hover { color: var(--ink); }
+.sbclock-tile {
+  width: 36px; height: 36px; border-radius: 10px; cursor: pointer; position: relative; padding: 0; color: var(--ink);
+  border: 1px solid color-mix(in srgb, var(--wk-brand) 25%, transparent); background: color-mix(in srgb, var(--wk-brand) 6%, var(--card));
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.sbclock-tile svg { width: 18px; height: 18px; }
+.sbclock-tile--break { border-color: rgba(180,83,9,.28); background: rgba(180,83,9,.06); }
+.sbclock-tile .sbclock-dot { position: absolute; right: -3px; top: -3px; width: 10px; height: 10px; border: 2px solid var(--card); box-sizing: content-box; }
+.sbclock-tile-cap { position: absolute; right: -3px; bottom: -3px; width: 9px; height: 9px; border-radius: 3px; background: #b91c1c; border: 2px solid var(--card); }
+.sbclock-tile-cap.is-paused { background: #b45309; }
+[data-theme="dark"] .sbclock-btn--out { background: var(--card); border-color: var(--line); }
+
+/* The phone capsule (components/TimeclockWidget.jsx, below 900px where
+   there is no sidebar): a pill with the live dot and the hours; tapping it
+   opens the same chip above. */
+.tc-pill {
+  display: inline-flex; align-items: center; gap: 7px; background: var(--card); border: 1px solid var(--wk-line2); border-radius: 999px;
+  padding: 7px 11px 7px 13px; box-shadow: 0 6px 22px rgba(17,24,39,.16); cursor: pointer; font-family: var(--wk-font);
+}
+.tc-pill-time { font-size: 13.5px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ink); }
+.tc-sheet { width: 236px; background: var(--card); border: 1px solid var(--wk-line2); border-radius: 18px; padding: 8px; box-shadow: 0 24px 70px rgba(17,24,39,.30); }
+.tc-sheet .sbclock { border-radius: 12px; }
 
 /* Section kickers: quiet sentence-case labels (kit grammar - no uppercase tracking) */
 .nav-section-title {
@@ -480,31 +535,6 @@ h1,h2,h3,h4,h5,h6,
   letter-spacing: .04em;
   margin-left: 2px;
 }
-
-/* sidebar user footer */
-.sidebar-user {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 14px 18px;
-  border-top: 1px solid var(--line);
-}
-.sidebar-user .user-avatar {
-  width: 34px;
-  height: 34px;
-  border-radius: 9px;
-  background: var(--pine);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  font-size: 13px;
-  flex-shrink: 0;
-}
-.sidebar-user-info { flex: 1; min-width: 0; }
-.sidebar-user-name { font-weight: 700; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sidebar-user-role { font-size: 11px; color: var(--muted); }
 
 /* â”€â”€ Main content â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .main-content {
@@ -1857,8 +1887,6 @@ mark.search-hit {
 }
 
 @media (max-width: 900px) {
-  /* The desktop collapse chevron is meaningless when the sidebar is a drawer */
-  .sidebar-collapse-btn { display: none; }
   /* Module tab strips used to stick just under the (sticky) top header so
      navigation stayed in thumb reach while scrolling long lists - reverted
      (Pranshu, Sep 5). Two sticky elements sharing the same scroll container
@@ -3614,11 +3642,6 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
   font-family: var(--wk-font); font-weight: 800; font-size: 17px;
   letter-spacing: -.01em; color: var(--ink); line-height: 1;
 }
-.sidebar .brand-sub {
-  font-family: var(--wk-font); font-size: 10px; font-weight: 600;
-  letter-spacing: .05em; color: var(--wk-faint); margin-top: 3px;
-  text-transform: uppercase;
-}
 .sidebar .nav-item {
   border-radius: 6px;
   font-family: var(--wk-font);
@@ -3644,14 +3667,8 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
   list-style: none;
   user-select: none;
 }
-.sidebar.collapsed .nav-kicker { display: none; }
+.sidebar.collapsed:not(.peek) .nav-kicker { display: none; }
 .sidebar .nav-divider { margin: 6px 6px 0; }
-.sidebar .sidebar-user .user-avatar {
-  background: var(--wk-brand); color: #fff; border-radius: 50%;
-  font-family: var(--wk-font); font-weight: 700; font-size: 12px;
-}
-.sidebar .sidebar-user-name { font-family: var(--wk-font); }
-.sidebar .sidebar-user-role { font-family: var(--wk-font); }
 
 /* Dark theme still works on the shell (legacy tokens drive it) - but the
    brand accents above stay brand-colored in both. */

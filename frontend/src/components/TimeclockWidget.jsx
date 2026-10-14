@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Clock, LogOut, MonitorUp, MonitorX, MonitorPause, ChevronUp, Coffee, Play } from 'lucide-react';
+import { ChevronUp, MonitorUp, MonitorPause } from 'lucide-react';
 import { api } from '../api';
 import { editGuard } from '../asset/lib/editGuard.js';
 import BodModal from './BodModal';
@@ -8,9 +8,11 @@ import { useTimeStatus } from '../lib/useTimeStatus';
 import { punchDurable, replayPending, readPending } from '../lib/punchQueue';
 import { punchPosition, keepPositionWarm } from '../lib/geoPosition';
 import { replayPendingBods } from '../lib/bodQueue';
-import { Spinner } from './AsyncState';
 import { useRole } from '../contexts/RoleContext';
 import { rememberTimeExempt } from '../lib/timeTracking';
+import { publishTimeclock, useTimeclockClaimed, fmtHM } from '../lib/timeclockStore';
+import { deriveMyTime } from '../dashboard/essentials/usePunchClock.jsx';
+import ClockChip from './ClockChip';
 
 // Whether a desktop agent covers THIS machine is detected per-machine by asking
 // the local agent directly over localhost. The agent serves a no-side-effect
@@ -48,16 +50,14 @@ async function _localAgentPresent() {
 
 const SHOT_EVERY_MS = 5 * 60 * 1000;   // fallback until policy loads
 
-const fmtHMS = (sec) => {
-  const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
-  return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-};
-
 export default function TimeclockWidget() {
   // The shared read (lib/useTimeStatus): this widget, Workday and the dashboard
   // tiles are one request per poll. 25s so a punch/break on ANOTHER device
   // reflects in this widget's timer without a manual refresh.
   const { status, reload: reloadStatus } = useTimeStatus({ pollMs: 25000 });
+  // A page surface (the sidebar chip) is drawing the clock: this stays the
+  // engine and draws nothing itself but its modals (lib/timeclockStore.js).
+  const claimed = useTimeclockClaimed();
   // `|| {}`: null outside RoleProvider (render tests).
   const { myEmail = '' } = useRole() || {};
   // This widget is mounted app-wide and asks /time/status first, so it is the
@@ -395,6 +395,36 @@ export default function TimeclockWidget() {
     setBusy(false);
   }
 
+  // Capture chip state, shared by every surface. Break must read PAUSED, not
+  // REC, so it's obvious capture stopped for the break.
+  const paused = capturing > 0 && onBreak;
+  const capTint = paused ? '#b45309' : capturing ? '#b91c1c' : 'var(--muted)';
+  // The browser is the capturer only when policy enables screens AND no
+  // desktop agent covers this PC - otherwise there is no capture control.
+  const browserCaptures = canCapture && !agentActive && !localAgent;
+
+  // ── The view-model every surface draws (sidebar chip, phone capsule) ──
+  // Hours are the Punch tile's numbers (deriveMyTime): today's worked minutes
+  // while working, the break so far while on one - as H:MM, no seconds
+  // (Neil, Oct 14 2026). Actions are this engine's own.
+  const mine = deriveMyTime({ status, now: new Date() });
+  const live = !!status && !status.timeTrackingExempt && clockedIn;
+  const vm = !live ? { state: status?.timeTrackingExempt ? 'exempt' : status ? 'out' : 'unknown' } : {
+    state: onBreak ? 'break' : 'in',
+    timer: fmtHM(onBreak ? Math.floor(elapsedSec / 60) : mine.todayMin),
+    sinceLabel: mine.sinceLabel,
+    lost: lostOut, busy, breakBusy,
+    capture: browserCaptures ? { screens: capturing, paused, intervalMin, randomize: randomizeRef.current } : null,
+    actions: {
+      toggleBreak: () => quickBreak(onBreak ? 'break_end' : 'break_start'),
+      punchOut: quickPunchOut,
+      toggleCapture: capturing ? stopCapture : startCapture,
+      addScreen: startCapture,
+      openClock: () => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'timeclock' } })),
+    },
+  };
+  useEffect(() => { publishTimeclock(vm); });
+
   // Salaried/exempt people are never time-tracked - no floating timer for them
   // (Charmi, Aug 21).
   if (status?.timeTrackingExempt) return null;
@@ -403,12 +433,9 @@ export default function TimeclockWidget() {
     return eodOpen ? <BodModal mode="eod" onClose={() => setEodOpen(false)}
       toastOk={() => {}} toastErr={() => {}} /> : null;
   }
-
-  // Capture chip state, shared by the expanded panel and the collapsed capsule's
-  // mini indicator. Break must read PAUSED, not REC, so it's obvious capture
-  // stopped for the break.
-  const paused = capturing > 0 && onBreak;
-  const capTint = paused ? '#b45309' : capturing ? '#b91c1c' : 'var(--muted)';
+  // The sidebar chip is on screen: it draws the shift, this engine keeps
+  // running underneath (capture, replay, polling) with nothing to show.
+  if (claimed) return null;
 
   // Lift the capsule clear of any bottom save bar (asset detail edit) so the
   // Save/Discard buttons underneath are never covered. editGuard.dirty is the
@@ -421,89 +448,23 @@ export default function TimeclockWidget() {
   // that flag if the Assistant comes back.
   const right = 18;
 
+  // The phone capsule (no sidebar below 900px): a small pill with the live
+  // dot and the hours; tap it and the same chip the sidebar draws opens
+  // above it. Small on purpose so it never buries page-level bars (e.g. the
+  // asset "Save before you leave" bar).
   return (
     <div ref={wrapRef} className="tc-capsule" style={{ position: 'fixed', bottom, right, zIndex: 1190, display: 'flex',
       flexDirection: 'column', alignItems: 'flex-end', gap: 8, fontFamily: 'var(--wk-font)', transition: 'bottom .18s ease' }}>
       {expanded && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 11, minWidth: 232,
-          background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '14px 16px',
-          boxShadow: '0 24px 70px rgba(17,24,39,0.30)' }}>
-          {/* Timer row - click opens the Time Clock page (matches the hero's anatomy). */}
-          <button onClick={() => { window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'timeclock' } })); setExpanded(false); }}
-            title="Open Time Clock"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 9, background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: 'var(--wk-font)' }}>
-            <span style={{ width: 10, height: 10, borderRadius: '50%', flexShrink: 0,
-              background: onBreak ? '#b45309' : 'var(--wk-brand)',
-              animation: onBreak ? 'none' : 'pulse 2s ease-in-out infinite' }} />
-            <span style={{ fontSize: 18, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: onBreak ? '#b45309' : 'var(--wk-brand)', lineHeight: 1 }}>
-              {fmtHMS(elapsedSec)}
-            </span>
-            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>
-              {onBreak ? 'On Break' : 'Working'}
-            </span>
-          </button>
-          {/* Capture control appears only when the BROWSER is the capturer: policy
-              enables screens AND no desktop agent covers this PC. */}
-          {canCapture && !agentActive && !localAgent && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <button onClick={capturing ? stopCapture : startCapture}
-                title={paused ? 'Screen capture is paused for your break - no frames are saved until you end the break. Click to stop capture entirely.'
-                  : capturing ? `Screen capture is on (${capturing} screen${capturing === 1 ? '' : 's'}) - a frame of each is saved every ${intervalMin} minute${intervalMin === 1 ? '' : 's'}${randomizeRef.current ? ' (timing varies)' : ''}. Click to stop.`
-                  : 'Start work-session screen capture (you pick the screen; your browser shows a sharing indicator the whole time)'}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 11px', borderRadius: 999, cursor: 'pointer',
-                  border: `1px solid ${capturing ? 'transparent' : 'var(--wk-line2)'}`,
-                  background: paused ? 'rgba(180,83,9,0.1)' : capturing ? 'rgba(220,38,38,0.08)' : 'transparent',
-                  color: capTint, fontSize: 11.5, fontWeight: 700, fontFamily: 'var(--wk-font)' }}>
-                {paused ? <MonitorPause size={12} /> : capturing ? <MonitorUp size={12} /> : <MonitorX size={12} />}
-                {paused ? 'Paused for break' : capturing ? `Recording${capturing > 1 ? ` · ${capturing} screens` : ''}` : 'Capture off'}
-              </button>
-              {capturing > 0 && (
-                <button onClick={startCapture} title="Also capture another screen (pick your second monitor)"
-                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, borderRadius: '50%', cursor: 'pointer',
-                    border: '1px solid var(--wk-line2)', background: 'transparent', color: 'var(--muted)', fontSize: 14, fontWeight: 700, fontFamily: 'var(--wk-font)', padding: 0 }}>
-                  +
-                </button>
-              )}
-            </div>
-          )}
-          {lostOut && (
-            <div style={{ display: 'flex', gap: 7, padding: '8px 10px', borderRadius: 10, fontSize: 11.5, lineHeight: 1.5,
-              background: 'hsla(var(--color-red),0.09)', color: 'hsl(var(--color-red))', fontWeight: 600 }}>
-              A punch hasn&apos;t recorded - Nexus couldn&apos;t reach the server. It&apos;s saved on this
-              device and goes in at the time you pressed the button. Open Time Clock for details.
-            </div>
-          )}
-          <button onClick={() => quickBreak(onBreak ? 'break_end' : 'break_start')} disabled={busy || breakBusy}
-            title={onBreak ? 'End your break and get back on the clock' : 'Start a break - your working time pauses'}
-            style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '9px 12px', borderRadius: 10,
-              border: `1px solid ${onBreak ? 'rgba(180,83,9,0.35)' : 'var(--wk-line2)'}`, cursor: 'pointer',
-              background: onBreak ? 'rgba(180,83,9,0.1)' : 'var(--card)', color: onBreak ? '#b45309' : 'var(--ink)',
-              fontSize: 13, fontWeight: 700, fontFamily: 'var(--wk-font)' }}>
-            {breakBusy ? <Spinner size={13} /> : onBreak ? <Play size={13} /> : <Coffee size={13} />}
-            {onBreak ? 'End Break' : 'Start Break'}
-          </button>
-          <button onClick={quickPunchOut} disabled={busy} title="Punch out"
-            style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '9px 12px', borderRadius: 10,
-              border: 'none', cursor: 'pointer', background: '#b91c1c', color: '#fff', fontSize: 13, fontWeight: 700, fontFamily: 'var(--wk-font)' }}>
-            {busy ? <Spinner size={13} /> : <LogOut size={13} />}
-            {lostOut ? 'Retry Punch Out' : 'Punch Out'}
-          </button>
+        <div className="tc-sheet">
+          <ClockChip vm={vm} onAfterAction={() => setExpanded(false)} />
         </div>
       )}
-
-      {/* Collapsed capsule - small on purpose so it never buries page-level bars
-          (e.g. the asset "Save before you leave" bar). Click to expand upward. */}
-      <button onClick={() => setExpanded(v => !v)}
-        title={expanded ? 'Collapse' : 'Time clock - click for controls'}
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 7, background: 'var(--card)', border: '1px solid var(--wk-line2)',
-          borderRadius: 999, padding: '7px 11px 7px 13px', boxShadow: '0 6px 22px rgba(17,24,39,0.16)', cursor: 'pointer', fontFamily: 'var(--wk-font)' }}>
-        <span style={{ width: 9, height: 9, borderRadius: '50%', background: onBreak ? '#b45309' : 'var(--wk-brand)',
-          animation: onBreak ? 'none' : 'pulse 2s ease-in-out infinite' }} />
-        <span style={{ fontSize: 13.5, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: 'var(--ink)' }}>
-          {fmtHMS(elapsedSec)}
-        </span>
-        {/* Browser capture indicator (only when the browser is the capturer). */}
-        {canCapture && !agentActive && !localAgent && capturing > 0 && (paused ? <MonitorPause size={12} style={{ color: capTint }} /> : <MonitorUp size={12} style={{ color: capTint }} />)}
+      <button type="button" className="tc-pill" onClick={() => setExpanded(v => !v)} aria-expanded={expanded}
+        title={expanded ? 'Collapse' : 'Time clock - tap for controls'}>
+        <span className={`sbclock-dot${onBreak ? '' : ' sbclock-dot--live'}`} style={{ background: onBreak ? '#b45309' : 'var(--wk-brand)' }} aria-hidden="true" />
+        <span className="tc-pill-time">{vm.timer}</span>
+        {browserCaptures && capturing > 0 && (paused ? <MonitorPause size={12} style={{ color: capTint }} /> : <MonitorUp size={12} style={{ color: capTint }} />)}
         <ChevronUp size={13} style={{ color: 'var(--muted)', transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
       </button>
     </div>

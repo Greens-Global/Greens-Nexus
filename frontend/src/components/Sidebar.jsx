@@ -1,20 +1,22 @@
 import { forwardRef, useState, useEffect } from "react";
-import { useMsal } from "@azure/msal-react";
-import { useRole, ROLES, EXTERNAL_ROLE_META } from "../contexts/RoleContext";
+import { useRole } from "../contexts/RoleContext";
 import { api } from "../api";
+import { useIsMobile } from "../lib/useIsMobile";
+import { useTimeclock, claimTimeclockSurface } from "../lib/timeclockStore";
+import ClockChip from "./ClockChip";
 import {
   LayoutDashboard, ShoppingCart, CheckSquare, BookOpen,
   Monitor, Wifi, Home, LayoutGrid, FileText,
   ClipboardCheck, Calculator,
   FileSpreadsheet, Landmark, BarChart3,
   Users, LogIn, PenTool, Files, Megaphone, ExternalLink,
-  Settings, ChevronLeft, ChevronRight,
+  Settings, ChevronRight,
   HelpCircle, Store, Calendar, Package, Contact, HandCoins, Warehouse, ListChecks, Scale,
   FlaskConical,
   KeyRound,
   Briefcase, FileSignature, ArrowDownToLine, ArrowUpFromLine,
   HardDrive, FolderOpen, ClipboardList,
-  MonitorDot, Gauge, CalendarClock,
+  MonitorDot, Gauge, CalendarClock, ChevronsLeft, ChevronsRight,
 } from "lucide-react";
 import TicketToken from "./icons/TicketToken";
 
@@ -189,17 +191,26 @@ export const NAV = [
 ];
 
 const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate, isOpen, onClose, collapsed, onToggleCollapse }, ref) {
-  const { accounts } = useMsal();
-  const { myRole, can, myGrantedModules, isExternal } = useRole();
+  const { can, myGrantedModules, isExternal } = useRole();
   // Dev-only Testing module: ask the backend once whether it's enabled here.
   const [qaEnabled, setQaEnabled] = useState(false);
   useEffect(() => { api.qaEnabled().then(r => setQaEnabled(!!r?.enabled)).catch(() => {}); }, []);
-  const account     = accounts[0];
-  const displayName = account?.name ?? account?.username ?? "User";
-  const initials    = displayName.split(" ").map(p => p[0]).slice(0, 2).join("").toUpperCase();
-  const firstName   = displayName.split(" ")[0];
-  // External guests read "External", never a tier name (Visesh, Aug 18).
-  const roleLabel   = isExternal ? EXTERNAL_ROLE_META.label : (ROLES[myRole]?.label ?? 'Employee');
+  // Hover to peek (Neil, Oct 14 2026): a collapsed rail slides open over the
+  // page while the pointer is on it and folds back when it leaves - nothing
+  // shifts. The green chevron pins it open; that state is remembered per
+  // device (App.jsx). `railed` is what actually draws as the icon rail.
+  const [peek, setPeek] = useState(false);
+  useEffect(() => { if (!collapsed) setPeek(false); }, [collapsed]);
+  const railed = collapsed && !peek;
+  // The time clock chip (Oct 14 2026) replaces the user footer: the live
+  // shift from the engine (components/TimeclockWidget.jsx, which keeps
+  // running and stops drawing its capsule while this chip claims the
+  // surface). Only where the sidebar is a real sidebar - on a phone it is a
+  // drawer and the capsule stays. Nothing when clocked out or exempt.
+  const phone = useIsMobile('(max-width: 900px)');
+  const tc = useTimeclock();
+  const liveClock = !phone && !!tc && (tc.state === 'in' || tc.state === 'break');
+  useEffect(() => (liveClock ? claimTimeclockSurface() : undefined), [liveClock]);
 
   function renderIcon(item, size = 17) {
     return item.icon
@@ -209,7 +220,7 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
 
   function renderItem(item, i) {
     // ── Collapsed: icon-only rail ──
-    if (collapsed) {
+    if (railed) {
       return (
         <li
           key={item.view || i}
@@ -244,28 +255,24 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
 
   return (
     <>
-      <aside ref={ref} className={`sidebar${isOpen ? " open" : ""}${collapsed ? " collapsed" : ""}`}>
+      <aside ref={ref} className={`sidebar${isOpen ? " open" : ""}${collapsed ? " collapsed" : ""}${peek ? " peek" : ""}`}
+        onMouseEnter={() => { if (collapsed && !phone) setPeek(true); }}
+        onMouseLeave={() => setPeek(false)}>
 
-        {/* ── Collapse toggle ── */}
-        <button
-          className="sidebar-collapse-btn"
-          onClick={onToggleCollapse}
-          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-        >
-          {collapsed
-            ? <ChevronRight style={{ width: 13, height: 13 }} />
-            : <ChevronLeft  style={{ width: 13, height: 13 }} />
-          }
-        </button>
-
-        {/* ── Header - desk mark + wordmark ── */}
+        {/* ── Header: the mark is the way Home, the green chevron folds the
+            rail (Neil, Oct 14 2026 - the 18px edge tab was too easy to miss;
+            this is the N's size, in Nexus green, so it is the obvious thing
+            to hit). Collapsed, the chevron sits under the N. ── */}
         <div className="sidebar-header">
-          <div className="dk-mark" aria-hidden="true">N</div>
-          {!collapsed && (
-            <div className="company-info">
-              <span className="company-name">Nexus</span>
-            </div>
-          )}
+          <a href="#dashboard" className="sidebar-brand" title="Dashboard" aria-label="Nexus - go to Dashboard"
+            onClick={(e) => { e.preventDefault(); onNavigate('dashboard'); }}>
+            <span className="dk-mark" aria-hidden="true">N</span>
+            {!railed && <span className="company-name">Nexus</span>}
+          </a>
+          <button type="button" className="sidebar-fold" onClick={() => { setPeek(false); onToggleCollapse(); }}
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} title={collapsed ? "Expand sidebar" : "Collapse sidebar"}>
+            {collapsed ? <ChevronsRight /> : <ChevronsLeft />}
+          </button>
         </div>
 
         {/* ── Nav ── */}
@@ -289,14 +296,14 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
                 ? (!item.divider && granted(item))
                 : (!item.minRole || can('administrator') || granted(item))));
               const out = [];
-              if (!collapsed && visible.length && !visible[0].divider) {
+              if (!railed && visible.length && !visible[0].divider) {
                 out.push(<li key="k0" className="nav-kicker">{KICKERS[0]}</li>);
               }
               visible.forEach((item, i) => {
                 if (item.divider) {
                   group += 1;
                   out.push(<li key={`d${i}`} className="nav-divider" />);
-                  if (!collapsed && KICKERS[group]) out.push(<li key={`k${group}`} className="nav-kicker">{KICKERS[group]}</li>);
+                  if (!railed && KICKERS[group]) out.push(<li key={`k${group}`} className="nav-kicker">{KICKERS[group]}</li>);
                   return;
                 }
                 out.push(renderItem(item, i));
@@ -306,16 +313,14 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
           </ul>
         </nav>
 
-        {/* ── User footer ── */}
-        <div className="sidebar-user">
-          <div className="user-avatar">{initials}</div>
-          {!collapsed && (
-            <div className="sidebar-user-info">
-              <div className="sidebar-user-name">{firstName}</div>
-              <div className="sidebar-user-role">{roleLabel}</div>
-            </div>
-          )}
-        </div>
+        {/* ── The time clock, where the user footer was (that footer
+            repeated the top-right block; the role badge lives in the
+            profile menu). Silent when clocked out. ── */}
+        {liveClock && (
+          <div className="sidebar-foot">
+            <ClockChip vm={tc} variant={railed ? 'tile' : 'wide'} />
+          </div>
+        )}
       </aside>
       {isOpen && <div className="sidebar-overlay active" onClick={onClose} />}
     </>
