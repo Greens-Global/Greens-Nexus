@@ -58,7 +58,7 @@ export function LatestCommentPreview({ comment, nameOf, onOpen, compact = false,
           fontFamily: FONT, color: NX.ink, background: 'transparent',
         }}>
         <span style={{ position: 'relative', flexShrink: 0, marginTop: 1 }}>
-          <Avatar email={comment.authorId} name={who} size={24} />
+          <Avatar email={comment.authorId} name={who} size={24} card={false} />
           {comment.internal && (
             <Lock size={10} aria-label="Internal note" style={{ position: 'absolute', right: -4, bottom: -3, color: NX.amber, background: NX.surface, borderRadius: '50%', padding: 1 }} />
           )}
@@ -79,13 +79,17 @@ export function LatestCommentPreview({ comment, nameOf, onOpen, compact = false,
         margin: compact ? 0 : '0 -6px', border: 'none', borderRadius: 6, cursor: 'pointer', textAlign: 'left',
         fontFamily: FONT, color: NX.ink, background: compact ? NX.surface2 : 'transparent',
       }}>
-      {comment.internal
-        ? <Lock size={12} style={{ color: NX.amber, flexShrink: 0 }} aria-label="Internal note" />
-        : <MessageSquare size={12} style={{ color: NX.faint, flexShrink: 0 }} />}
-      <span style={{ minWidth: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12.5 }}>
-        <b style={{ fontWeight: 600 }}>{who}</b>
-        <span style={{ color: NX.dim }}>: {comment.preview}</span>
+      {/* The author's picture, not their name (Neil, Oct 14) - the name is
+          the tooltip and the aria label. An internal note wears a lock. */}
+      <span style={{ position: 'relative', flexShrink: 0, display: 'flex' }}>
+        {comment.authorId
+          ? <Avatar email={comment.authorId} name={who} size={compact ? 22 : 20} card={false} />   /* no hover card: the cell is the button */
+          : <MessageSquare size={12} style={{ color: NX.faint }} />}
+        {comment.internal && (
+          <Lock size={10} aria-label="Internal note" style={{ position: 'absolute', right: -4, bottom: -3, color: NX.amber, background: NX.surface, borderRadius: '50%', padding: 1 }} />
+        )}
       </span>
+      <span style={{ minWidth: 0, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12.5, color: NX.dim }}>{comment.preview}</span>
       {when && <span style={{ flexShrink: 0, fontSize: 11.5, color: NX.faint }}>{when}</span>}
     </button>
   );
