@@ -68,7 +68,9 @@ _ISO = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _MONTH = re.compile(r"^\d{4}-\d{2}$")
 STATUSES = ("active", "ended", "vacant")
 # Oct 7 (Charmi): MRI is one list of every recurring income source.
-INCOME_TYPES = ("lease", "interest", "loan_payment", "other")
+# Oct 14 (Priyanka): CAM (common area maintenance) is a type of its own -
+# a tenant, a space and lease dates, like a lease.
+INCOME_TYPES = ("lease", "interest", "loan_payment", "other", "cam")
 DEFAULT_INCOME_ACCOUNTS = ["41101"]
 _PAID_WITHIN = 0.5   # dollars: a payment this close to what was expected is paid in full
 
@@ -157,7 +159,7 @@ def _clean(body: LeaseBody) -> dict:
     status = body.status if body.status in STATUSES else "active"
     kind = body.incomeType if body.incomeType in INCOME_TYPES else "lease"
     if status != "vacant" and not (body.tenantName or "").strip():
-        raise HTTPException(status_code=400, detail="Name the tenant, or mark the space vacant." if kind == "lease" else "Name who pays it.")
+        raise HTTPException(status_code=400, detail="Name the tenant, or mark the space vacant." if kind in ("lease", "cam") else "Name who pays it.")
     due = int(body.dueDay or 1)
     if not 1 <= due <= 28:
         raise HTTPException(status_code=400, detail="The due day is between 1 and 28.")

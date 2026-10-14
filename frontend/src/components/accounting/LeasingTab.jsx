@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Check, ChevronDown, ChevronLeft, ChevronRight, Database, ExternalLink, FolderUp, Home, Landmark, Mail, Pencil, Plus, RefreshCw, Search, Tags, Trash2, UserPlus, Users, X } from 'lucide-react';
+import { AlertTriangle, Building2, Check, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, FolderUp, Home, Landmark, Mail, Pencil, Plus, RefreshCw, Search, Tags, Trash2, UserPlus, Users, X } from 'lucide-react';
 import { api } from '../../api';
 import Amount, { formatAmount } from './Amount';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
@@ -12,7 +12,6 @@ import { downloadBlob, iso } from './reportModel';
 import { useAccountingPrefs } from './prefs';
 import { linesFile } from './linesExport';
 import SendReportDialog from './SendReportDialog';
-import LeasingFromLedger from './LeasingFromLedger';
 import AddMenu from './AddMenu';
 import EntryDetail from './EntryDetail';
 
@@ -74,9 +73,27 @@ import EntryDetail from './EntryDetail';
 //     dragging a header edge, the entity on a lease is the module's entity
 //     picker (search by number), and the Total of a ledger income account
 //     opens its lines in Reports.
+//
+// Oct 14 (Charmi, Urmi, Neil, Priyanka - MRI feedback):
+//   - No "Posted Outside Lease" chip or "Outside the Lease" figure: money
+//     posted before a lease starts or after it ends shows in its month and
+//     counts toward Received (never toward Expected or the Balance).
+//   - + Add is New Lease, New CAM Charge (CAM is a type now) and New
+//     Interest or Loan Payment; Set Up From the Ledger left the menu (its
+//     endpoints and LeasingFromLedger stay).
+//   - The tenant on a lease is picked from the Intacct customers (a
+//     searchable dropdown), or typed when they are not in Intacct.
+//   - A month (or a lease) with unsaved changes asks Keep Editing / Discard
+//     Edits when clicked off or on Escape, instead of closing.
+//   - Only active leases show; Customize > Show Inactive Leases brings back
+//     the ended, expired and vacant ones and payers inactive in Intacct.
+//   - The Notes column also lists the notes written on single months.
+//   - A month the lease is not in force shows a dash, never 0.
+//   - Total and Balance open the lease's ledger lines in Reports.
+//   - Customer codes sit left of the name.
 
 const SECTIONS = [{ key: 'roll', label: 'Income Roll' }, { key: 'outstanding', label: 'Outstanding' }, { key: 'tenants', label: 'Payers' }];
-export const TYPES = [{ key: 'lease', label: 'Lease' }, { key: 'interest', label: 'Interest' }, { key: 'loan_payment', label: 'Loan Payment' }, { key: 'other', label: 'Other' }];
+export const TYPES = [{ key: 'lease', label: 'Lease' }, { key: 'cam', label: 'CAM' }, { key: 'interest', label: 'Interest' }, { key: 'loan_payment', label: 'Loan Payment' }, { key: 'other', label: 'Other' }];
 const TYPE_LABEL = Object.fromEntries(TYPES.map((t) => [t.key, t.label]));
 /** The income accounts read from the ledger as rows of their own: interest and loan income, never the lease rent. */
 export const isRecurringIncomeAccount = (r) => ['revenue', 'other_income'].includes(r.section) && /interest|loan|note receivable|mortgage income/i.test(r.title || '');
@@ -94,7 +111,8 @@ const STATUS = {
   upcoming: { label: 'Upcoming', fg: 'var(--text-muted)', bg: 'transparent' },
   unknown: { label: 'Not Read', fg: 'var(--text-muted)', bg: 'var(--bg-secondary)' },
   none: { label: 'Nothing Due', fg: 'var(--text-muted)', bg: 'transparent' },
-  outside: { label: 'Outside the Lease', fg: '#6d28d9', bg: 'rgba(109,40,217,0.10)' },
+  // Oct 14: posted while the lease is not in force - a plain received month, no separate concept.
+  outside: { label: 'Received', fg: 'var(--text-primary)', bg: 'transparent' },
   income: { label: 'Received', fg: 'var(--text-primary)', bg: 'transparent' },
 };
 const LEASE_STATUS = { active: 'Active', ended: 'Ended', vacant: 'Vacant' };
@@ -127,11 +145,21 @@ const monthName = (key) => `${MONTHS[Number(key.slice(5, 7)) - 1]} ${key.slice(0
 // with it - not today (a lease typed in on the 2nd expected 30/31 of a month
 // and nothing before it).
 const firstOfMonth = () => `${iso(new Date()).slice(0, 7)}-01`;
-const blank = (incomeType = 'lease') => ({ incomeType, propertyName: '', region: '', tenancy: 'external', landlord: '', entityCode: '', incomeAccounts: incomeType === 'lease' ? ['41101'] : [], customerId: '', tenantName: '', contactName: '', phone: '', email: '', mailingAddress: '', leaseStart: firstOfMonth(), leaseEnd: '', securityDeposit: 0, leaseTerms: '', lateFee: 0, dueDay: 1, graceDays: 5, status: 'active', notes: '', rates: [{ startDate: firstOfMonth(), rent: 0, cam: 0, other: 0, note: '' }] });
+const blank = (incomeType = 'lease') => ({ incomeType, propertyName: '', region: '', tenancy: 'external', landlord: '', entityCode: '', incomeAccounts: leaseLike(incomeType) ? ['41101'] : [], customerId: '', tenantName: '', contactName: '', phone: '', email: '', mailingAddress: '', leaseStart: firstOfMonth(), leaseEnd: '', securityDeposit: 0, leaseTerms: '', lateFee: 0, dueDay: 1, graceDays: 5, status: 'active', notes: '', rates: [{ startDate: firstOfMonth(), rent: 0, cam: 0, other: 0, note: '' }] });
 /** The name the tenant goes by: Intacct's when the customer record came with the row. */
 const tenantOf = (r) => (r.kind === 'account' ? 'From the ledger' : r.lease.status === 'vacant' ? 'Vacant' : r.customer?.name || r.lease.tenantName || r.lease.customerId || '-');
-/** A month that counts toward the balance: in force, past or present, read, and inside the lease. */
-const counts = (c) => c.inForce && c.status !== 'upcoming' && c.status !== 'unknown' && c.status !== 'outside';
+/** A month that counts: in force, past or present, and read. A month posted
+ *  outside the lease dates counts toward Received only (its expected and
+ *  balance are 0 from the server). */
+const counts = (c) => c.inForce && c.status !== 'upcoming' && c.status !== 'unknown';
+/** A month with nothing to show: not in force, or outside the lease dates with nothing posted (Urmi, 10/14: a dash, not 0). */
+const blankMonth = (c) => !c || !c.inForce || (c.status === 'outside' && Math.abs(c.received || 0) <= 0.005);
+/** Lease-like types: a tenant, a space and lease dates. */
+const leaseLike = (t) => (t || 'lease') === 'lease' || t === 'cam';
+/** Not an active lease (Urmi, 10/14): ended, vacant, past its end, or the payer is inactive in Intacct. */
+const inactiveRow = (r) => !!r.expired || r.customerActive === false || (r.lease?.status || 'active') !== 'active';
+/** The notes written on single months, as one line: "Mar: text; Jun: text". */
+const monthNotesText = (row) => (row.months || []).filter((c) => c.note).map((c) => `${MONTHS[Number(c.month.slice(5, 7)) - 1]}: ${c.note}`).join('; ');
 const rowKey = (r) => (r.kind === 'account' ? r.key : r.lease.id);
 const rowName = (r) => (r.kind === 'account' ? `${r.account.code} ${r.account.title}` : r.lease.propertyName);
 
@@ -172,11 +200,6 @@ function StandingChips({ row }) {
     <>
       {row.expired && <span style={chipStyle()} title="The lease has ended">Expired</span>}
       {row.customerActive === false && <span style={chipStyle('bad')} title="The customer is inactive in Intacct">Inactive</span>}
-      {row.outsideLease?.received > 0.005 && (
-        <span style={chipStyle('bad')} title={`${money(row.outsideLease.received)} posted in ${row.outsideLease.months.map(monthName).join(', ')}, when the lease is not in force - shown, not counted. Check the Lease Start and End.`}>
-          Posted Outside Lease
-        </span>
-      )}
     </>
   );
 }
@@ -203,15 +226,13 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
   const [custom, setCustom] = useState([0, 11]);
   const [editing, setEditing] = useState(null);       // { lease, replacing? }
   const [cell, setCell] = useState(null);             // { row, month }
-  const [fromLedger, setFromLedger] = useState(false); // Set Up From the Ledger (Oct 2)
   const [sending, setSending] = useState(null);       // email | egnyte
   const [sent, setSent] = useState(null);             // { text, url }
   const [exporting, setExporting] = useState('');
   const [syncing, setSyncing] = useState(false);
   const [synced, setSynced] = useState(null);
   const seq = useRef(0);
-  const showInactive = !!prefs.mriShowInactive;
-  const showExpired = !!prefs.mriShowExpired;
+  const showInactive = !!prefs.mriShowInactiveLeases;   // Oct 14: one switch, off by default
   const cz = useCustomizePrefs(['density', 'pageSize', 'historicalEntities']);
   const py = DENSITIES.find((d) => d.key === cz.density)?.py || '5px';
   const entityKey = entities.join(',');
@@ -244,39 +265,51 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
       const l = r.lease;
       if (kinds.size && !kinds.has(typeOf(r))) return false;
       if (picked.size && !picked.has(l.customerId)) return false;
-      // A text filter finds expired leases and inactive customers too (marked); otherwise Customize decides.
-      if (s) return [l.propertyName, l.tenantName, r.customer?.name, l.landlord, l.region, l.customerId, l.teamNote?.text, TYPE_LABEL[typeOf(r)]].some((v) => (v || '').toLowerCase().includes(s));
-      if (!showExpired && r.expired && !picked.has(l.customerId)) return false;
-      if (!showInactive && r.customerActive === false && !picked.has(l.customerId)) return false;
+      // A text filter finds inactive leases too (marked); otherwise Customize decides.
+      if (s) return [l.propertyName, l.tenantName, r.customer?.name, l.landlord, l.region, l.customerId, l.teamNote?.text, monthNotesText(r), TYPE_LABEL[typeOf(r)]].some((v) => (v || '').toLowerCase().includes(s));
+      if (!showInactive && inactiveRow(r) && !picked.has(l.customerId)) return false;
       return true;
     });
     // The ledger's income account rows have no payer: picking payers leaves them out.
     const ledgerRows = picked.size ? [] : accountRows.filter((r) => (!kinds.size || kinds.has(r.type))
       && (!s || [r.account.code, r.account.title, TYPE_LABEL[r.type]].some((v) => (v || '').toLowerCase().includes(s))));
     return [...kept, ...ledgerRows];
-  }, [roll, accountRows, q, tenants, types, showExpired, showInactive]);
+  }, [roll, accountRows, q, tenants, types, showInactive]);
   const sources = useMemo(() => rows.filter((r) => r.kind !== 'account'), [rows]);
   const figures = useMemo(() => rows.reduce((t, r) => {
     const f = rowFigures(r, span);
     return { expected: t.expected + f.expected, received: t.received + f.received, balance: t.balance + f.balance };
   }, { expected: 0, received: 0, balance: 0 }), [rows, span]);
-  const outsideTotal = sources.reduce((s, r) => s + (r.outsideLease?.received || 0), 0);
-  const hidden = (roll?.rows || []).filter((r) => (r.expired && !showExpired) || (r.customerActive === false && !showInactive)).length;
+  const hidden = showInactive ? 0 : (roll?.rows || []).filter(inactiveRow).length;
   const customers = useMemo(() => {
     const by = new Map();
-    (roll?.rows || []).forEach((r) => { if (r.lease.customerId && !by.has(r.lease.customerId)) by.set(r.lease.customerId, { code: r.lease.customerId, name: tenantOf(r), off: r.expired || r.customerActive === false }); });
+    (roll?.rows || []).forEach((r) => { if (r.lease.customerId && !by.has(r.lease.customerId)) by.set(r.lease.customerId, { code: r.lease.customerId, name: tenantOf(r), off: inactiveRow(r) }); });
     return [...by.values()].sort((a, b) => a.name.localeCompare(b.name, 'en-US'));
   }, [roll]);
   const sum = roll?.summary || {};
   const thisMonth = iso(new Date()).slice(0, 7);
   const behind = sources.filter((r) => r.monthsBehind);
   // Rows per Page: back to page 1 whenever the filters or the section change.
-  const pageKey = [section, year, entities, tenants, types, period, custom, cz.pageSize, q, showExpired, showInactive];
+  const pageKey = [section, year, entities, tenants, types, period, custom, cz.pageSize, q, showInactive];
   const pageSize = cz.pageSize;
   // A ledger income account's Total opens its lines in Reports for the months shown (item 33).
-  const drillAccount = (r) => {
+  const drillWindow = () => {
     const last = new Date(year, span[1] + 1, 0).getDate();
-    requestReportDrill({ account: r.account.code, accountName: r.account.title, from: `${year}-${String(span[0] + 1).padStart(2, '0')}-01`, to: `${year}-${String(span[1] + 1).padStart(2, '0')}-${String(last).padStart(2, '0')}`, entity: entities.length === 1 ? entities[0] : '' });
+    return { from: `${year}-${String(span[0] + 1).padStart(2, '0')}-01`, to: `${year}-${String(span[1] + 1).padStart(2, '0')}-${String(last).padStart(2, '0')}` };
+  };
+  const drillAccount = (r) => {
+    requestReportDrill({ account: r.account.code, accountName: r.account.title, ...drillWindow(), entity: entities.length === 1 ? entities[0] : '' });
+  };
+  // Oct 14 (Charmi: "we should be able to drill down"): a lease's Total and
+  // Balance open its ledger lines in Reports - the customer, over the months
+  // shown, on its income account when it has just one (several: every line
+  // of the customer, to narrow there).
+  const drillLease = (r) => {
+    const l = r.lease;
+    if (!l.customerId) return;
+    const accounts = l.incomeAccounts || [];
+    requestReportDrill({ ...(accounts.length === 1 ? { account: accounts[0], accountName: '' } : {}), ...drillWindow(),
+      party: { kind: 'customer', code: l.customerId, name: tenantOf(r) }, entity: l.entityCode || (entities.length === 1 ? entities[0] : '') });
   };
   const updateNote = (id, note) => setRoll((d) => d && { ...d, rows: d.rows.map((r) => (r.lease.id === id ? { ...r, lease: { ...r.lease, teamNote: note } } : r)) });
 
@@ -286,7 +319,8 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
   const buildTable = () => {
     const title = section === 'outstanding' ? 'Income Outstanding' : section === 'tenants' ? 'Payers' : 'Monthly Recurring Income';
     const subtitle = `${entityLabel} · ${periodLabel}${types.length ? ` · ${types.map((t) => TYPE_LABEL[t]).join(', ')}` : ''}${tenants.length ? ` · ${tenants.length} ${tenants.length === 1 ? 'payer' : 'payers'}` : ''}${q.trim() ? ` · "${q.trim()}"` : ''}`;
-    const standing = (r) => [r.expired ? 'Expired' : '', r.customerActive === false ? 'Inactive' : '', r.outsideLease?.received > 0.005 ? 'Posted Outside Lease' : ''].filter(Boolean).join(', ');
+    const standing = (r) => [r.expired ? 'Expired' : '', r.customerActive === false ? 'Inactive' : ''].filter(Boolean).join(', ');
+    const notesOf = (r) => [r.lease.teamNote?.text || '', monthNotesText(r)].filter(Boolean).join(' - ');
     if (section === 'outstanding') {
       const list = [...behind].sort((a, b) => b.owed - a.owed);
       return { title, subtitle, name: `${title} - ${year}`, columns: [{ label: 'Property or Source', width: 220 }, { label: 'Type', width: 90 }, { label: 'Payer', width: 200 }, { label: 'Months Behind', width: 160 }, { label: 'Balance Due', num: true, width: 100 }, { label: 'Late Fees', num: true, width: 90 }, { label: 'Contact', width: 200 }],
@@ -302,7 +336,7 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
     const monthTotals = shownMonths.map((_m, i) => rows.reduce((s, r) => { const c = r.months[span[0] + i]; return s + (c && counts(c) ? c.received : 0); }, 0));
     return { title, subtitle, name: `${title} - ${periodLabel}`,
       columns: [{ label: 'Property or Source', width: 200 }, { label: 'Type', width: 90 }, { label: 'Payer', width: 170 }, { label: 'Status', width: 80 }, ...shownMonths.map((m) => ({ label: m, num: true, width: 70 })), { label: 'Total', num: true, width: 85 }, { label: 'Balance', num: true, width: 85 }, { label: 'Notes', width: 180 }],
-      rows: rows.map((r) => { const f = rowFigures(r, span); return [rowName(r), TYPE_LABEL[typeOf(r)], tenantOf(r), r.kind === 'account' ? '' : standing(r), ...r.months.slice(span[0], span[1] + 1).map((c) => (counts(c) ? c.received : 0)), f.received, f.balance, r.kind === 'account' ? '' : r.lease.teamNote?.text || '']; }),
+      rows: rows.map((r) => { const f = rowFigures(r, span); return [rowName(r), TYPE_LABEL[typeOf(r)], tenantOf(r), r.kind === 'account' ? '' : standing(r), ...r.months.slice(span[0], span[1] + 1).map((c) => (blankMonth(c) ? '-' : counts(c) ? c.received : 0)), f.received, f.balance, r.kind === 'account' ? '' : notesOf(r)]; }),
       totals: ['Total Received', '', '', '', ...monthTotals, figures.received, figures.balance, ''] };
   };
   const exportAs = async (format) => {
@@ -365,8 +399,8 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
             <input type="text" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter by property, payer or account" aria-label="Filter by property, payer or account" style={{ ...control, width: '100%', paddingLeft: 28 }} />
           </div>
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <CustomizeButton {...cz} active={showInactive || showExpired}>
-              {[['mriShowInactive', showInactive, 'Show Inactive', 'Sources whose customer is inactive in Intacct.'], ['mriShowExpired', showExpired, 'Show Expired', 'Leases that have ended. The text filter finds both either way.']].map(([k, on, text, hint]) => (
+            <CustomizeButton {...cz} active={showInactive}>
+              {[['mriShowInactiveLeases', showInactive, 'Show Inactive Leases', 'Ended, expired and vacant leases, and payers inactive in Intacct. The text filter finds them either way.']].map(([k, on, text, hint]) => (
                 <label key={k} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: '0.8rem', cursor: 'pointer' }}>
                   <input type="checkbox" checked={on} onChange={(e) => setPrefs({ [k]: e.target.checked })} style={{ marginTop: 2 }} />
                   <span>{text}<span style={{ display: 'block', fontSize: '0.7rem', color: 'var(--text-muted)' }}>{hint}</span></span>
@@ -388,8 +422,8 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
             {canEdit && (
               <AddMenu ariaLabel="Add an income source" items={[
                 { key: 'lease', label: 'New Lease', hint: 'A tenant, the dates and the rent', Icon: Home, onPick: () => setEditing({ lease: blank('lease') }) },
+                { key: 'cam', label: 'New CAM Charge', hint: 'Common area maintenance billed to a tenant', Icon: Building2, onPick: () => setEditing({ lease: blank('cam') }) },
                 { key: 'interest', label: 'New Interest or Loan Payment', hint: 'Who pays, how much, from when', Icon: Landmark, onPick: () => setEditing({ lease: blank('interest') }) },
-                { key: 'ledger', label: 'Set Up From the Ledger', hint: 'A lease for every customer who posted rent in the last twelve months', Icon: Database, onPick: () => setFromLedger(true) },
               ]} />
             )}
           </div>
@@ -399,8 +433,7 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
           <span>Expected <strong><Amount value={figures.expected} /></strong></span>
           <span>Received <strong><Amount value={figures.received} /></strong></span>
           <span title="Expected less received. A credit (in parentheses) is a prepayment.">Balance <strong style={{ color: figures.balance > 0.005 ? 'var(--bad-fg, #dc2626)' : figures.balance < -0.005 ? 'var(--ok-fg, #15803d)' : undefined }}><Amount value={figures.balance} /></strong>{figures.balance < -0.005 ? <span style={{ color: 'var(--ok-fg, #15803d)' }}> Credit</span> : null}</span>
-          {outsideTotal > 0.005 && <span style={{ color: '#6d28d9' }} title="Posted in months a lease is not in force (before its start or after its end). Shown in the grid, not counted. Check the Lease Start.">Outside the Lease <strong><Amount value={outsideTotal} /></strong></span>}
-          <span style={{ color: 'var(--text-muted)' }}>{periodLabel} · {noun(rows.length)}{hidden && !q.trim() ? ` · ${hidden} expired or inactive hidden (Customize)` : ''}</span>
+          <span style={{ color: 'var(--text-muted)' }}>{periodLabel} · {noun(rows.length)}{hidden && !q.trim() ? ` · ${hidden} inactive ${hidden === 1 ? 'lease' : 'leases'} hidden (Customize)` : ''}</span>
         </div>
 
         {error && <div style={bad}>{error}</div>}
@@ -429,7 +462,7 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
         {loading ? <SkeletonBlocks count={4} /> : (
           <div>
             {section === 'roll' && <RentRoll rows={rows} span={span} figures={figures} year={year} thisMonth={thisMonth} py={py} onCell={(row, month) => setCell({ row, month })} onLease={(l) => setEditing({ lease: l })} any={(roll?.rows || []).length + accountRows.length > 0} canEdit={canEdit} onNote={updateNote}
-              pageSize={pageSize} pageKey={pageKey} onDrillAccount={drillAccount} />}
+              pageSize={pageSize} pageKey={pageKey} onDrillAccount={drillAccount} onDrillLease={drillLease} />}
             {section === 'outstanding' && <Outstanding rows={behind} year={year} py={py} pageSize={pageSize} pageKey={pageKey} />}
             {section === 'tenants' && <Tenants rows={sources} py={py} canEdit={canEdit} pageSize={pageSize} pageKey={pageKey} onEdit={(l) => setEditing({ lease: l })} onReplace={(l) => setEditing({ lease: { ...blank(l.incomeType || 'lease'), propertyName: l.propertyName, region: l.region, tenancy: l.tenancy, landlord: l.landlord, entityCode: l.entityCode, incomeAccounts: l.incomeAccounts, lateFee: l.lateFee, dueDay: l.dueDay, graceDays: l.graceDays }, replacing: l })} />}
           </div>
@@ -437,7 +470,6 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
       </div>
       {cell && <MonthDetail cell={cell} canEdit={canEdit} onClose={() => setCell(null)} onSaved={() => { setCell(null); reload(); }} />}
       {editing && <LeaseEditor lease={editing.lease} replacing={editing.replacing} canDelete={canDelete} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); reload(); }} />}
-      {fromLedger && <LeasingFromLedger onClose={() => setFromLedger(false)} onCreated={() => { setFromLedger(false); reload(); }} />}
       {sending && (() => {
         const t = buildTable();
         return (
@@ -483,8 +515,8 @@ function MultiPicker({ label: aria, allLabel, noun, Icon, options, value, onChan
             <button key={o.code} type="button" role="option" aria-selected={chosen.has(o.code)} onClick={() => toggle(o.code)}
               style={{ display: 'flex', alignItems: 'center', gap: 8, border: 'none', borderRadius: 6, background: chosen.has(o.code) ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', padding: '5px 8px', font: 'inherit', fontSize: '0.8rem', cursor: 'pointer', textAlign: 'left', color: o.off ? 'var(--text-muted)' : 'var(--text-primary)' }}>
               <span style={{ width: 14, display: 'inline-flex', color: 'var(--wk-brand, #2b45e1)' }}>{chosen.has(o.code) ? <Check size={14} /> : null}</span>
+              {showCodes && <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', flexShrink: 0 }}>{o.code}</span>}
               <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.name}</span>
-              {showCodes && <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{o.code}</span>}
             </button>
           ))}
           {!shown.length && <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', padding: 6 }}>{options.length ? 'No match.' : empty}</div>}
@@ -532,8 +564,8 @@ function TenantName({ row, style }) {
       <PopoverPanel anchor={ref} open={open} setOpen={setOpen} role="dialog" aria-label={`${name} details`} onMouseEnter={() => clearTimeout(timer.current)} onMouseLeave={hide}
         style={{ width: 340, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, boxShadow: 'var(--shadow-md, 0 8px 24px rgba(0,0,0,0.12))', padding: 12, display: 'grid', gap: 6 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <span className="acct-code" style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginRight: 0 }}>{code}</span>
           <strong style={{ fontSize: '0.9rem' }}>{c.name || name}</strong>
-          <span className="acct-code" style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{code}</span>
           {(info ? info.active === false : row.customerActive === false) && <span style={chipStyle('bad')}>Inactive</span>}
           {row.expired && <span style={chipStyle()}>Expired</span>}
         </div>
@@ -554,7 +586,8 @@ function TenantName({ row, style }) {
 
 // The team's note on a lease, written in the row (Charmi, 10/04): click,
 // type, Enter or leaving the box saves it; who wrote it and when shows on hover.
-function NoteCell({ lease, canEdit, onSaved }) {
+// Oct 14 (Urmi): the notes written on single months show under it too.
+function NoteCell({ lease, canEdit, onSaved, monthNotes = '' }) {
   const note = lease.teamNote || { text: '' };
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(note.text || '');
@@ -578,12 +611,16 @@ function NoteCell({ lease, canEdit, onSaved }) {
         style={{ ...control, height: 26, width: '100%', borderColor: error ? 'var(--bad-fg, #dc2626)' : undefined }} />
     );
   }
+  const months = monthNotes
+    ? <span data-testid="month-notes" style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>{monthNotes}</span>
+    : null;
   const body = note.text
-    ? <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{note.text}<span style={{ display: 'block', fontSize: '0.66rem', color: 'var(--text-muted)' }}>{who}</span></span>
-    : <span style={{ color: 'var(--text-muted)' }}>{canEdit ? 'Add a note' : '-'}</span>;
-  if (!canEdit) return <span title={note.text ? `${note.text} - ${who}` : undefined}>{body}</span>;
+    ? <span style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{note.text}<span style={{ display: 'block', fontSize: '0.66rem', color: 'var(--text-muted)' }}>{who}</span>{months}</span>
+    : months ? <span style={{ display: 'block', minWidth: 0 }}>{months}</span> : <span style={{ color: 'var(--text-muted)' }}>{canEdit ? 'Add a note' : '-'}</span>;
+  const tip = [note.text ? `${note.text} - ${who}` : '', monthNotes].filter(Boolean).join('\n');
+  if (!canEdit) return <span title={tip || undefined}>{body}</span>;
   return (
-    <button type="button" onClick={() => { setText(note.text || ''); setEditing(true); }} aria-label={note.text ? `Change the note on ${lease.propertyName}` : `Add a note on ${lease.propertyName}`} title={note.text ? `${note.text} - ${who}` : 'Add a note'}
+    <button type="button" onClick={() => { setText(note.text || ''); setEditing(true); }} aria-label={note.text ? `Change the note on ${lease.propertyName}` : `Add a note on ${lease.propertyName}`} title={tip ? `${tip}${note.text ? '' : '\nClick to add a note'}` : 'Add a note'}
       style={{ border: 'none', background: 'none', padding: 0, font: 'inherit', fontSize: '0.76rem', color: 'var(--text-primary)', cursor: 'text', textAlign: 'left', width: '100%', minWidth: 0 }}>
       {body}
     </button>
@@ -592,11 +629,11 @@ function NoteCell({ lease, canEdit, onSaved }) {
 
 // The Income Roll's resizable columns (Oct 7, item 32), saved per viewer:
 // property, type, amount, each month (m0..m11), total, balance, notes.
-function RentRoll({ rows, span, figures, year, thisMonth, py, onCell, onLease, any, canEdit, onNote, pageSize = 0, pageKey = '', onDrillAccount = null }) {
+function RentRoll({ rows, span, figures, year, thisMonth, py, onCell, onLease, any, canEdit, onNote, pageSize = 0, pageKey = '', onDrillAccount = null, onDrillLease = null }) {
   const cw = useColumnWidths('mriRoll');
   const paged = usePaged(rows, pageSize, pageKey);
   if (!rows.length) {
-    return <div style={{ ...card, padding: 18, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>{any ? 'Nothing matches these filters.' : `No leases yet.${canEdit ? ' + Add > Set Up From the Ledger proposes one for every customer who posted rent in the last twelve months, or + Add > New Lease: the tenant, the dates and the rent.' : ''}`}</div>;
+    return <div style={{ ...card, padding: 18, fontSize: '0.88rem', color: 'var(--text-secondary)' }}>{any ? 'Nothing matches these filters.' : `No leases yet.${canEdit ? ' + Add > New Lease: the tenant, the dates and the rent.' : ''}`}</div>;
   }
   const [from, to] = span;
   const idx = MONTHS.map((_m, i) => i).slice(from, to + 1);
@@ -667,22 +704,31 @@ function RentRoll({ rows, span, figures, year, thisMonth, py, onCell, onLease, a
                     const c = r.months[i];
                     if (!c || !c.inForce) return <td key={i} className="acct-num" style={{ color: 'var(--text-muted)' }}>-</td>;
                     const s = STATUS[c.status] || STATUS.none;
+                    const dash = blankMonth(c);
                     return (
                       <td key={c.month} className="acct-num" style={{ padding: 2 }}>
-                        <button type="button" onClick={() => onCell(r, c)} aria-label={`${l.propertyName}, ${monthName(c.month)}: ${s.label}, received ${money(c.received)} of ${money(c.expected)}`}
-                          title={`${s.label} - received ${money(c.received)} of ${money(c.expected)}${c.note ? ` - ${c.note}` : ''}`}
-                          style={{ width: '100%', border: 'none', borderRadius: 6, cursor: 'pointer', font: 'inherit', fontVariantNumeric: 'tabular-nums', padding: '3px 6px', textAlign: 'right', background: s.bg, color: s.fg, fontWeight: ['short', 'unpaid', 'late'].includes(c.status) ? 700 : 400 }}>
-                          {c.status === 'upcoming' || c.status === 'due' || c.status === 'unknown' ? whole(c.expected) : whole(c.received)}{c.note ? '*' : ''}
+                        <button type="button" onClick={() => onCell(r, c)} aria-label={`${l.propertyName}, ${monthName(c.month)}: ${dash ? 'Not in Force' : s.label}, received ${money(c.received)} of ${money(c.expected)}`}
+                          title={`${dash ? 'Not in force' : s.label} - received ${money(c.received)} of ${money(c.expected)}${c.note ? ` - ${c.note}` : ''}`}
+                          style={{ width: '100%', border: 'none', borderRadius: 6, cursor: 'pointer', font: 'inherit', fontVariantNumeric: 'tabular-nums', padding: '3px 6px', textAlign: 'right', background: dash ? 'transparent' : s.bg, color: dash ? 'var(--text-muted)' : s.fg, fontWeight: ['short', 'unpaid', 'late'].includes(c.status) ? 700 : 400 }}>
+                          {dash ? '-' : c.status === 'upcoming' || c.status === 'due' || c.status === 'unknown' ? whole(c.expected) : whole(c.received)}{c.note ? '*' : ''}
                         </button>
                       </td>
                     );
                   })}
-                  <td className="acct-num" style={{ fontWeight: 700 }}>{f.received ? <Amount value={f.received} /> : '-'}</td>
+                  <td className="acct-num" style={{ fontWeight: 700 }}>
+                    {f.received && onDrillLease && l.customerId
+                      ? <button type="button" className="acct-drill" onClick={() => onDrillLease(r)} aria-label={`Ledger lines behind the total of ${l.propertyName}`} title="Open the ledger lines in Reports"><Amount value={f.received} /></button>
+                      : f.received ? <Amount value={f.received} /> : '-'}
+                  </td>
                   <td className="acct-num" style={{ fontWeight: 700, color: f.balance > 0.005 ? 'var(--bad-fg, #dc2626)' : f.balance < -0.005 ? 'var(--ok-fg, #15803d)' : 'var(--text-muted)' }}
                     title={f.balance < -0.005 ? 'Credit - paid ahead' : undefined}>
-                    {Math.abs(f.balance) > 0.005 ? <Amount value={f.balance} /> : '-'}
+                    {Math.abs(f.balance) > 0.005
+                      ? (onDrillLease && l.customerId
+                        ? <button type="button" className="acct-drill" onClick={() => onDrillLease(r)} aria-label={`Ledger lines behind the balance of ${l.propertyName}`} title="Open the ledger lines in Reports" style={{ color: 'inherit' }}><Amount value={f.balance} /></button>
+                        : <Amount value={f.balance} />)
+                      : '-'}
                   </td>
-                  <td style={cw.width('notes') ? cellStyle(cw.width('notes'), { whiteSpace: 'normal' }) : { maxWidth: 260, minWidth: 180, whiteSpace: 'normal' }}><NoteCell lease={l} canEdit={canEdit} onSaved={onNote} /></td>
+                  <td style={cw.width('notes') ? cellStyle(cw.width('notes'), { whiteSpace: 'normal' }) : { maxWidth: 260, minWidth: 180, whiteSpace: 'normal' }}><NoteCell lease={l} canEdit={canEdit} onSaved={onNote} monthNotes={monthNotesText(r)} /></td>
                 </tr>
               );
             })}
@@ -698,12 +744,12 @@ function RentRoll({ rows, span, figures, year, thisMonth, py, onCell, onLease, a
       </div>
       <Pager {...paged} />
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 8, fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
-        {['paid', 'short', 'unpaid', 'due', 'upcoming', 'outside'].map((k) => (
+        {['paid', 'short', 'unpaid', 'due', 'upcoming'].map((k) => (
           <span key={k} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
             <span style={{ width: 12, height: 12, borderRadius: 3, background: STATUS[k].bg, border: `1px solid ${STATUS[k].fg}` }} />{k === 'unpaid' ? 'Unpaid or Late' : STATUS[k].label}
           </span>
         ))}
-        <span>A paid month shows what came in; a month not yet paid shows what is expected. * has a note. Click a month for the detail and its journal entries. Balance is expected less received; a credit (in parentheses) is a prepayment. Outside the Lease is money posted when the lease is not in force - shown, not counted.</span>
+        <span>A paid month shows what came in; a month not yet paid shows what is expected. * has a note. Click a month for the detail and its journal entries. A dash is a month the lease is not in force. Balance is expected less received; a credit (in parentheses) is a prepayment. Total and Balance open the ledger lines.</span>
       </div>
     </div>
   );
@@ -777,7 +823,7 @@ function Tenants({ rows, py, canEdit, onEdit, onReplace, pageSize = 0, pageKey =
                 <tr key={l.id}>
                   <td style={{ fontWeight: 600, whiteSpace: 'normal' }}>{l.propertyName}{l.region ? <div style={{ fontWeight: 400, fontSize: '0.74rem', color: 'var(--text-secondary)' }}>{l.region}</div> : null}</td>
                   <td><TypeChip type={typeOf(r)} /></td>
-                  <td style={{ whiteSpace: 'normal' }}><TenantName row={r} />{l.customerId ? <span className="acct-code" style={{ marginLeft: 8 }}>{l.customerId}</span> : null}</td>
+                  <td style={{ whiteSpace: 'normal' }}>{l.customerId ? <span className="acct-code">{l.customerId}</span> : null}<TenantName row={r} /></td>
                   <td style={{ whiteSpace: 'normal' }}>{l.landlord || '-'}</td>
                   <td>{l.leaseStart ? formatDate(l.leaseStart) : '-'} to {l.leaseEnd ? formatDate(l.leaseEnd) : 'Month to Month'}</td>
                   <td className="acct-num">{rate ? <Amount value={rate.rent} /> : '-'}</td>
@@ -875,15 +921,23 @@ function MonthDetail({ cell, canEdit, onClose, onSaved }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [entry, setEntry] = useState(null);           // { id, no } open in EntryDetail
-  const entryOpen = useRef(false);
-  useEffect(() => { entryOpen.current = !!entry; }, [entry]);
+  const s = STATUS[month.status] || STATUS.none;
+  const edits = canEdit && row.kind !== 'account';
+  const dirty = Number(adjustment || 0) !== Number(month.adjustment || 0) || note !== (month.note || '');
+  // Oct 14 (Neil): clicking off a month with unsaved changes (or Escape) asks
+  // Keep Editing / Discard Edits instead of closing.
+  const [leaving, setLeaving] = useState(false);
+  const live = useRef({ entry: false, unsaved: false, leaving: false });
+  useEffect(() => { live.current = { entry: !!entry, unsaved: edits && dirty, leaving }; }, [entry, edits, dirty, leaving]);
+  const tryClose = useCallback(() => { if (live.current.unsaved) setLeaving(true); else onClose(); }, [onClose]);
   useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape' && !entryOpen.current) onClose(); };
+    const onKey = (e) => {
+      if (e.key !== 'Escape' || live.current.entry) return;
+      if (live.current.leaving) setLeaving(false); else tryClose();
+    };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-  const s = STATUS[month.status] || STATUS.none;
-  const dirty = Number(adjustment || 0) !== Number(month.adjustment || 0) || note !== (month.note || '');
+  }, [tryClose]);
   const save = () => {
     setBusy(true);
     setError('');
@@ -891,16 +945,15 @@ function MonthDetail({ cell, canEdit, onClose, onSaved }) {
   };
   const fact = (k, v, strong) => (<div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: '0.86rem', padding: '3px 0' }}><span style={{ color: 'var(--text-secondary)' }}>{k}</span><span style={{ fontVariantNumeric: 'tabular-nums', fontWeight: strong ? 700 : 400 }}>{v}</span></div>);
   const title = ledgerRow ? `${row.account.code} ${row.account.title}` : row.lease.propertyName;
-  const edits = canEdit && !ledgerRow;
   return (
-    <div className="modal-overlay" onClick={onClose} role="presentation">
+    <div className="modal-overlay" onClick={tryClose} role="presentation">
       <div className="modal-content" role="dialog" aria-modal="true" aria-label={`${title}, ${monthName(month.month)}`} onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
         <div className="modal-header">
           <div style={{ minWidth: 0 }}>
             <h3 style={{ margin: 0 }}>{monthName(month.month)}</h3>
             <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 2 }}>{title} · {ledgerRow ? 'From the ledger' : row.lease.tenantName || 'Vacant'}</div>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+          <button type="button" onClick={tryClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
         <div style={{ padding: '14px 24px 6px', display: 'grid', gap: 10, maxHeight: '70vh', overflowY: 'auto' }}>
           {!ledgerRow && <span style={{ justifySelf: 'start', padding: '2px 10px', borderRadius: 999, fontSize: '0.76rem', fontWeight: 700, color: s.fg, background: s.bg, border: `1px solid ${s.fg}` }}>{s.label}</span>}
@@ -911,7 +964,7 @@ function MonthDetail({ cell, canEdit, onClose, onSaved }) {
             {!ledgerRow && fact('Balance', month.status === 'unknown' ? '-' : money(month.balance), true)}
             {month.lateFee ? fact('Late fee under the lease', money(month.lateFee)) : null}
           </div>
-          {month.status === 'outside' && <div style={{ fontSize: '0.78rem', color: '#6d28d9' }}>The lease is not in force this month, so this is shown and not counted. If the tenant was paying, change the Lease Start (or End).</div>}
+          {month.status === 'outside' && <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>Nothing is expected this month under the lease dates.</div>}
           <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
             {ledgerRow ? `Received is everything that posted to account ${row.account.code} this month, less what the sources in this list already count.` : `Received is what posted to account ${row.lease.incomeAccounts.join(', ')} for customer ${row.lease.customerId || '(none set)'} in this month.`}
           </div>
@@ -932,39 +985,63 @@ function MonthDetail({ cell, canEdit, onClose, onSaved }) {
           {!edits && month.note && <div style={{ fontSize: '0.84rem' }}>{month.note}</div>}
           {error && <div style={bad}>{error}</div>}
         </div>
-        <div className="modal-footer">
-          <button type="button" className="secondary-btn" onClick={onClose}>{edits ? 'Cancel' : 'Close'}</button>
-          {edits && <button type="button" className="primary-btn" onClick={save} disabled={!dirty || busy}>{busy ? 'Saving...' : 'Save'}</button>}
-        </div>
+        {leaving ? <LeaveConfirm onKeep={() => setLeaving(false)} onDiscard={onClose} /> : (
+          <div className="modal-footer">
+            <button type="button" className="secondary-btn" onClick={onClose}>{edits ? 'Cancel' : 'Close'}</button>
+            {edits && <button type="button" className="primary-btn" onClick={save} disabled={!dirty || busy}>{busy ? 'Saving...' : 'Save'}</button>}
+          </div>
+        )}
       </div>
       {entry && <div onClick={(e) => e.stopPropagation()} role="presentation"><EntryDetail entryId={entry.id} entryNo={entry.no} onClose={() => setEntry(null)} /></div>}
     </div>
   );
 }
 
+// The inline question a dialog with unsaved changes asks when it is clicked
+// off or Escaped (Neil, 10/14) - never window.confirm.
+function LeaveConfirm({ onKeep, onDiscard }) {
+  const keep = useRef(null);
+  useEffect(() => { keep.current?.focus(); }, []);
+  return (
+    <div className="modal-footer" role="alertdialog" aria-label="Unsaved changes" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+      <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', display: 'inline-flex', alignItems: 'center', gap: 6 }}><AlertTriangle size={14} style={{ color: '#b45309' }} />You have unsaved changes.</span>
+      <span style={{ display: 'inline-flex', gap: 8 }}>
+        <button type="button" className="secondary-btn" onClick={onDiscard} style={{ color: 'var(--bad-fg, #dc2626)' }}>Discard Edits</button>
+        <button type="button" ref={keep} className="primary-btn" onClick={onKeep}>Keep Editing</button>
+      </span>
+    </div>
+  );
+}
+
 function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved }) {
   const [l, setL] = useState(() => ({ incomeType: 'lease', ...lease, rates: (lease.rates || []).map((r) => ({ ...r })) }));
-  const isLease = (l.incomeType || 'lease') === 'lease';
+  const [initial] = useState(() => JSON.stringify(l));
+  const isLease = leaseLike(l.incomeType);
+  const isCam = l.incomeType === 'cam';
   const [movedOut, setMovedOut] = useState(() => { const d = new Date(`${lease.leaseStart || iso(new Date())}T00:00:00`); d.setDate(d.getDate() - 1); return iso(d); });
   const [customers, setCustomers] = useState(null);
   const [entities, setEntities] = useState([]);
-  const [find, setFind] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [confirm, setConfirm] = useState(false);
   const set = (p) => setL((x) => ({ ...x, ...p }));
+  // Oct 14 (Neil): unsaved changes ask Keep Editing / Discard Edits when the
+  // form is clicked off or Escaped.
+  const [initialMoved] = useState(movedOut);
+  const dirty = JSON.stringify(l) !== initial || (!!replacing && movedOut !== initialMoved);
+  const [leaving, setLeaving] = useState(false);
+  const live = useRef({ unsaved: false, leaving: false });
+  useEffect(() => { live.current = { unsaved: dirty, leaving }; }, [dirty, leaving]);
+  const tryClose = useCallback(() => { if (live.current.unsaved) setLeaving(true); else onClose(); }, [onClose]);
   useEffect(() => {
     api.getLeasingCustomers().then((d) => setCustomers(d?.customers || [])).catch(() => setCustomers([]));
     api.getAccountingLocations().then((d) => setEntities(d?.entities || [])).catch(() => setEntities([]));
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+  }, []);
+  useEffect(() => {
+    const onKey = (e) => { if (e.key !== 'Escape') return; if (live.current.leaving) setLeaving(false); else tryClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-  const matches = useMemo(() => {
-    const s = find.trim().toLowerCase();
-    if (!s) return [];
-    return (customers || []).filter((c) => c.code.toLowerCase().includes(s) || (c.name || '').toLowerCase().includes(s)).slice(0, 8);
-  }, [customers, find]);
+  }, [tryClose]);
   const vacant = l.status === 'vacant';
   // Oct 7: the first rent starts with the lease unless it was set apart -
   // a lease start moved to January takes its first rent along.
@@ -988,14 +1065,14 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved }) {
   );
   const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 };
   return (
-    <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div className="modal-content" role="dialog" aria-modal="true" aria-label={replacing ? 'New tenant in this space' : !isLease ? (l.id ? 'Change income source' : 'New interest or loan payment') : l.id ? 'Change lease' : 'New lease'} onClick={(e) => e.stopPropagation()} style={{ maxWidth: 860 }}>
+    <div className="modal-overlay" onClick={tryClose} role="presentation">
+      <div className="modal-content" role="dialog" aria-modal="true" aria-label={replacing ? 'New tenant in this space' : isCam ? (l.id ? 'Change CAM charge' : 'New CAM charge') : !isLease ? (l.id ? 'Change income source' : 'New interest or loan payment') : l.id ? 'Change lease' : 'New lease'} onClick={(e) => e.stopPropagation()} style={{ maxWidth: 860 }}>
         <div className="modal-header">
           <div>
-            <h3 style={{ margin: 0 }}>{replacing ? 'New Tenant in This Space' : !isLease ? (l.id ? 'Change Income Source' : 'New Interest or Loan Payment') : l.id ? 'Change Lease' : 'New Lease'}</h3>
+            <h3 style={{ margin: 0 }}>{replacing ? 'New Tenant in This Space' : isCam ? (l.id ? 'Change CAM Charge' : 'New CAM Charge') : !isLease ? (l.id ? 'Change Income Source' : 'New Interest or Loan Payment') : l.id ? 'Change Lease' : 'New Lease'}</h3>
             {replacing && <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: 2 }}>{replacing.tenantName}'s lease is ended and kept. This starts the next one.</div>}
           </div>
-          <button type="button" onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
+          <button type="button" onClick={tryClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
         <div style={{ padding: '14px 24px 6px', display: 'grid', gap: 14, maxHeight: '72vh', overflowY: 'auto' }}>
           {replacing && (
@@ -1030,22 +1107,9 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved }) {
 
           {!vacant && (
             <div style={{ display: 'grid', gap: 10 }}>
-              <div style={{ position: 'relative' }}>
-                <label style={label} htmlFor="lease-find">{isLease ? 'Tenant' : 'Payer'} - find the Intacct customer</label>
-                <input id="lease-find" type="text" value={find} onChange={(e) => setFind(e.target.value)} placeholder={customers ? 'Type a name or a customer code' : 'Loading customers...'} style={{ ...control, width: '100%' }} />
-                {matches.length > 0 && (
-                  <div role="listbox" aria-label="Customers" style={{ border: '1px solid var(--border-color)', borderRadius: 8, marginTop: 4, padding: 4, display: 'grid', gap: 1 }}>
-                    {matches.map((c) => (
-                      <button key={c.code} type="button" role="option" aria-selected={c.code === l.customerId} onClick={() => { set({ customerId: c.code, tenantName: c.name || l.tenantName }); setFind(''); }}
-                        style={{ display: 'flex', gap: 8, border: 'none', background: 'none', borderRadius: 6, padding: '4px 8px', font: 'inherit', fontSize: '0.8rem', cursor: 'pointer', textAlign: 'left', color: 'var(--text-primary)' }}>
-                        <span style={{ flex: 1 }}>{c.name || c.code}</span><span style={{ color: 'var(--text-muted)' }}>{c.code}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
               <div style={grid}>
-                {field('tenantName', isLease ? 'Tenant Name' : 'Payer Name', { maxLength: 200 })}
+                <CustomerCombo id="lease-tenantName" text={isLease ? 'Tenant Name' : 'Payer Name'} value={l.tenantName || ''} customers={customers} picked={l.customerId}
+                  onType={(v) => set({ tenantName: v })} onPick={(c) => set({ customerId: c.code, tenantName: c.name || c.code })} />
                 {field('customerId', 'Intacct Customer Code', { maxLength: 60 })}
                 {field('contactName', 'Primary Contact', { maxLength: 200 })}
                 {field('phone', 'Phone', { maxLength: 60 })}
@@ -1110,6 +1174,7 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved }) {
           {field('notes', 'Notes', { maxLength: 1000 })}
           {error && <div style={bad}>{error}</div>}
         </div>
+        {leaving ? <LeaveConfirm onKeep={() => setLeaving(false)} onDiscard={onClose} /> : (
         <div className="modal-footer" style={{ justifyContent: 'space-between' }}>
           <span>
             {canDelete && l.id && !replacing && (confirm ? (
@@ -1125,7 +1190,60 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved }) {
             <button type="button" className="primary-btn" onClick={save} disabled={!ready || busy}>{busy ? 'Saving...' : 'Save'}</button>
           </span>
         </div>
+        )}
       </div>
+    </div>
+  );
+}
+
+// The tenant (or payer) on a lease (Priyanka, 10/14: "give a dropdown for
+// lease tenant"): a searchable dropdown of the Intacct customers - code left
+// of the name - that still takes a typed name for someone not in Intacct.
+function CustomerCombo({ id, text, value, customers, picked, onType, onPick }) {
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const blur = useRef(null);
+  useEffect(() => () => clearTimeout(blur.current), []);
+  const options = useMemo(() => {
+    const s = value.trim().toLowerCase();
+    const list = customers || [];
+    const hit = s && !list.some((c) => c.code === picked && (c.name || '').toLowerCase() === s)
+      ? list.filter((c) => c.code.toLowerCase().includes(s) || (c.name || '').toLowerCase().includes(s))
+      : list;
+    return hit.slice(0, 50);
+  }, [customers, value, picked]);
+  const choose = (c) => { onPick(c); setOpen(false); };
+  const onKey = (e) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); setOpen(true); setActive((a) => Math.min(a + 1, options.length - 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActive((a) => Math.max(a - 1, 0)); }
+    else if (e.key === 'Enter' && open && options[active]) { e.preventDefault(); choose(options[active]); }
+    else if (e.key === 'Escape' && open) { e.stopPropagation(); e.nativeEvent?.stopImmediatePropagation?.(); setOpen(false); }
+  };
+  return (
+    <div style={{ position: 'relative' }}>
+      <label style={label} htmlFor={id}>{text}</label>
+      <div style={{ position: 'relative' }}>
+        <input id={id} type="text" role="combobox" aria-expanded={open} aria-controls={`${id}-list`} aria-autocomplete="list" autoComplete="off" maxLength={200} value={value}
+          placeholder={customers ? 'Pick an Intacct customer or type a name' : 'Loading customers...'}
+          onChange={(e) => { onType(e.target.value); setOpen(true); setActive(0); }} onFocus={() => setOpen(true)} onClick={() => setOpen(true)}
+          onBlur={() => { blur.current = setTimeout(() => setOpen(false), 150); }} onKeyDown={onKey}
+          style={{ ...control, width: '100%', paddingRight: 26 }} />
+        <ChevronDown size={14} aria-hidden="true" style={{ position: 'absolute', right: 8, top: 9, color: 'var(--text-muted)', pointerEvents: 'none' }} />
+      </div>
+      {open && customers && (
+        <div id={`${id}-list`} role="listbox" aria-label="Customers" onMouseDown={(e) => e.preventDefault()}
+          style={{ position: 'absolute', left: 0, right: 0, top: '100%', zIndex: 20, marginTop: 2, maxHeight: 240, overflowY: 'auto', background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 8, boxShadow: 'var(--shadow-md, 0 8px 24px rgba(0,0,0,0.12))', padding: 4, display: 'grid', gap: 1 }}>
+          {options.map((c, i) => (
+            <button key={c.code} type="button" role="option" aria-selected={c.code === picked} onClick={() => choose(c)} onMouseEnter={() => setActive(i)}
+              style={{ display: 'flex', gap: 8, border: 'none', background: i === active ? 'var(--wk-brand-tint, #e8ecfd)' : 'none', borderRadius: 6, padding: '4px 8px', font: 'inherit', fontSize: '0.8rem', cursor: 'pointer', textAlign: 'left', color: c.active === false ? 'var(--text-muted)' : 'var(--text-primary)' }}>
+              <span style={{ color: 'var(--text-muted)', flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>{c.code}</span>
+              <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name || c.code}</span>
+              {c.active === false && <span style={chipStyle('bad')}>Inactive</span>}
+            </button>
+          ))}
+          {!options.length && <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', padding: 6 }}>{customers.length ? 'No Intacct customer matches - the name typed is kept.' : 'No Intacct customers to pick from - type the name.'}</div>}
+        </div>
+      )}
     </div>
   );
 }

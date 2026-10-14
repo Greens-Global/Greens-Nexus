@@ -16,7 +16,7 @@ How it works
     to one code per 30 seconds and 10 an hour per person.
   - A correct code opens THAT file, for THAT browser session (the
     X-Pfs-Session header, a random id the tab keeps in sessionStorage), for
-    30 minutes. A code minted for one file never opens another, and a code
+    90 minutes. A code minted for one file never opens another, and a code
     used in one tab does not open the file in another person's tab.
   - The lock is enforced HERE, on the server, by `file_gate` - a dependency
     on the whole /pfs router (routers/pfs.py) and on the affiliated entities
@@ -64,7 +64,7 @@ CODE_TTL_SEC = 600            # 10 minutes to type the code in
 MAX_ATTEMPTS = 5              # wrong tries per code before it is burned
 RESEND_COOLDOWN_SEC = 30
 MAX_CODES_PER_HOUR = 10       # per person, every file together
-UNLOCK_TTL_SEC = 1800         # one code opens the file for 30 minutes
+UNLOCK_TTL_SEC = 5400         # one code opens the file for 90 minutes (Urmi, 10/14; was 30)
 VIEW_LOG_GAP_SEC = 600        # a file re-read every few seconds logs "viewed" once per 10 minutes
 
 # The switch the lock hangs on. On everywhere; the older PFS tests turn it off
@@ -300,7 +300,7 @@ def _code_email(code: str, file_name: str) -> str:
     return _shell("Personal Financial Statement - Access Code", f"""
       <p style="margin:0 0 14px">Use this code to open the personal financial statement of <strong>{escape(file_name)}</strong> in Nexus.</p>
       <div style="font-family:Consolas,Menlo,Courier New,monospace;font-size:30px;font-weight:800;letter-spacing:7px;color:#111827;background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:12px 18px;margin:0 0 14px">{escape(code)}</div>
-      <p style="margin:0;font-size:12.5px;color:#6b7280">The code expires in 10 minutes and opens this one file for 30 minutes. If you did not ask for it, tell your administrator - the borrower is told every time their file is opened.</p>""")
+      <p style="margin:0;font-size:12.5px;color:#6b7280">The code expires in 10 minutes and opens this one file for 90 minutes. If you did not ask for it, tell your administrator - the borrower is told every time their file is opened.</p>""")
 
 
 def _notice_email(viewer: str, when: str) -> str:
@@ -416,7 +416,7 @@ class VerifyBody(BaseModel):
 @router.post("/files/{file_id}/verify")
 def verify(file_id: str, body: VerifyBody, request: Request, background: BackgroundTasks,
            user: dict = Depends(_read), db: Session = Depends(get_db)):
-    """Check the code; a right one opens the file for 30 minutes in this
+    """Check the code; a right one opens the file for 90 minutes in this
     browser session and tells the borrowers."""
     check_file(db, user, file_id)
     _profile(db, file_id)
@@ -454,7 +454,7 @@ def verify(file_id: str, body: VerifyBody, request: Request, background: Backgro
 
 @router.post("/files/{file_id}/lock", status_code=204)
 def lock(file_id: str, request: Request, user: dict = Depends(_read), db: Session = Depends(get_db)):
-    """Close the file again in this browser session before the 30 minutes run out."""
+    """Close the file again in this browser session before the 90 minutes run out."""
     now = _iso(_now())
     n = (db.query(models.PfsAccessChallenge)
          .filter(models.PfsAccessChallenge.email == user["email"].lower(), models.PfsAccessChallenge.profile_id == file_id,

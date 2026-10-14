@@ -330,7 +330,7 @@ export function filterChips(config, entities = [], names = {}) {
   DIM_KINDS.forEach((k) => {
     (config.dims[k.key] || []).forEach((code) => {
       const name = names[k.kind]?.[code];
-      out.push({ key: `${k.key}:${code}`, label: `${k.one || k.label}: ${name ? `${name} (${code})` : code}`, patch: { dims: { ...config.dims, [k.key]: config.dims[k.key].filter((c) => c !== code) } } });
+      out.push({ key: `${k.key}:${code}`, label: `${k.one || k.label}: ${name ? (['vendor', 'customer'].includes(k.key) ? `${code} ${name}` : `${name} (${code})`) : code}`, patch: { dims: { ...config.dims, [k.key]: config.dims[k.key].filter((c) => c !== code) } } });
     });
   });
   (config.accounts || []).forEach((code) => {
@@ -405,13 +405,17 @@ function bucketLabel(mode, key, labels) {
   if (mode === 'month') return monthLabel(key);
   if (mode === 'quarter') { const d = parse(key); return `Q${Math.floor(d.getMonth() / 3) + 1} ${d.getFullYear()}`; }
   if (mode === 'year') return key.slice(0, 4);
+  // Oct 14 (Charmi): a vendor's or customer's number before the name, everywhere.
+  if (key && (mode === 'vendor' || mode === 'customer')) return labels?.[key] && labels[key] !== key ? `${key} ${labels[key]}` : key;
   return key ? labels?.[key] || key : NONE[mode];
 }
 // Period columns run latest-first, so this month is the first column (Urmi,
 // Sep 17); the rest read alphabetically with "No Vendor" last.
 function sortKeys(mode, keys, labels) {
   if (PERIOD_MODES.includes(mode)) return [...keys].sort().reverse();
-  return [...keys].sort((a, b) => (!a ? 1 : !b ? -1 : bucketLabel(mode, a, labels).localeCompare(bucketLabel(mode, b, labels), 'en-US', { numeric: true })));
+  // Vendors and customers still read alphabetically by name, their number first.
+  const sortText = (k) => (mode === 'vendor' || mode === 'customer' ? labels?.[k] || k : bucketLabel(mode, k, labels));
+  return [...keys].sort((a, b) => (!a ? 1 : !b ? -1 : sortText(a).localeCompare(sortText(b), 'en-US', { numeric: true })));
 }
 // The window an amount in one bucket column opens.
 function bucketDrill(mode, key, range, book, labels) {

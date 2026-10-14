@@ -198,6 +198,17 @@ describe('ReportsTab controls', () => {
     expect(screen.getByRole('heading', { name: 'Income Statement' })).toBeTruthy();
   });
 
+  it('opens the statement picked in the Reporting menu and tells the menu when another is picked here (Oct 14)', async () => {
+    const onReportChange = vi.fn();
+    const { rerender } = render(<ReportsTab report="balance-sheet" onReportChange={onReportChange} />);
+    expect(screen.getByLabelText('Report').value).toBe('balance-sheet');
+    rerender(<ReportsTab report="general-ledger" onReportChange={onReportChange} />);
+    await waitFor(() => expect(screen.getByLabelText('Report').value).toBe('general-ledger'));
+    expect(onReportChange).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText('Report'), { target: { value: 'trial-balance' } });
+    await waitFor(() => expect(onReportChange).toHaveBeenCalledWith('trial-balance'));
+  });
+
   it('reads the cash book, and both books side by side', async () => {
     render(<ReportsTab />);
     await screen.findByText('Rental Income');
@@ -370,7 +381,7 @@ describe('ReportsTab controls', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Accounts' }));
     // Every account of the statement, under its section.
-    expect(within(screen.getByRole('listbox', { name: 'Accounts' })).getAllByRole('option').map((o) => o.textContent)).toEqual(['Rental Income41000', 'Parking Income41100', 'Repairs61000']);
+    expect(within(screen.getByRole('listbox', { name: 'Accounts' })).getAllByRole('option').map((o) => o.textContent)).toEqual(['41000Rental Income', '41100Parking Income', '61000Repairs']);
     fireEvent.click(screen.getByRole('option', { name: /Repairs/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
     await waitFor(() => expect(screen.queryByText('Rental Income')).toBeNull());
@@ -494,13 +505,13 @@ describe('ReportsTab controls', () => {
     await screen.findByText('Old Income (H)');
     fireEvent.click(screen.getByRole('button', { name: 'Accounts' }));
     const names = () => within(screen.getByRole('listbox', { name: 'Accounts' })).getAllByRole('option').map((o) => o.textContent);
-    expect(names()).toEqual(['Rental Income41000', 'Parking Income41100', 'Repairs61000']);
+    expect(names()).toEqual(['41000Rental Income', '41100Parking Income', '61000Repairs']);
     expect(within(screen.getByRole('listbox', { name: 'Accounts' })).queryByText(/hidden/i)).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
     fireEvent.click(screen.getByRole('button', { name: /Customize/ }));
     fireEvent.click(screen.getByLabelText(/Show historical accounts/i));
     fireEvent.click(screen.getByRole('button', { name: 'Accounts' }));
-    expect(names()).toEqual(['Rental Income41000', 'Parking Income41100', 'Old Income (H)49000', 'Repairs61000']);
+    expect(names()).toEqual(['41000Rental Income', '41100Parking Income', '49000Old Income (H)', '61000Repairs']);
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
     // The Filters lists follow the same switch.
     fireEvent.click(screen.getByRole('button', { name: 'Filters' }));

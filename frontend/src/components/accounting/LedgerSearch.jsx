@@ -58,6 +58,10 @@ const signed = (n) => {
   return v < 0 ? `(${s})` : s;
 };
 const named = (name, id) => name || id || '';
+// Oct 14 (Charmi): a vendor's or customer's number before the
+// name - "V00412 Home Depot" - everywhere in the accounting module.
+const numbered = (name, id) => (id && name && name !== id ? `${id} ${name}` : name || id || '');
+const partyText = (p) => (p.kind === 'employee' ? named(p.name, p.code) : numbered(p.name, p.code));
 
 // Every column the grid can show. `filter`: the server can narrow by it.
 // `off`: hidden until the person turns it on.
@@ -70,8 +74,8 @@ export const LINE_COLUMNS = [
   { key: 'memo', label: 'Memo', width: 240, off: true, text: (r) => r.memo || '' },
   { key: 'entity', label: 'Entity', width: 190, filter: true, text: (r) => r.location_name || r.location || '' },
   { key: 'department', label: 'Department', width: 170, filter: true, off: true, text: (r) => named(r.department_name, r.department) },
-  { key: 'vendor', label: 'Vendor', width: 180, filter: true, text: (r) => named(r.vendor_name, r.vendor_id) },
-  { key: 'customer', label: 'Customer', width: 180, filter: true, text: (r) => named(r.customer_name, r.customer_id) },
+  { key: 'vendor', label: 'Vendor', width: 180, filter: true, text: (r) => numbered(r.vendor_name, r.vendor_id) },
+  { key: 'customer', label: 'Customer', width: 180, filter: true, text: (r) => numbered(r.customer_name, r.customer_id) },
   { key: 'employee', label: 'Employee', width: 170, filter: true, off: true, text: (r) => named(r.employee_name, r.employee_id) },
   { key: 'project', label: 'Project-Job', width: 180, off: true, text: (r) => named(r.project_name, r.project_id) },
   { key: 'item', label: 'Item', width: 160, off: true, text: (r) => named(r.item_name, r.item_id) },
@@ -100,7 +104,7 @@ function ActiveChip({ label, onClear }) {
 // card opens the journal entry. The desktop grid is untouched.
 function LineCard({ r, onOpen }) {
   const amount = Number(r.debit) > 0 ? money(r.debit) : Number(r.credit) > 0 ? `(${money(r.credit)})` : '0.00';
-  const party = named(r.vendor_name, r.vendor_id) || named(r.customer_name, r.customer_id) || named(r.employee_name, r.employee_id);
+  const party = numbered(r.vendor_name, r.vendor_id) || numbered(r.customer_name, r.customer_id) || named(r.employee_name, r.employee_id);
   const Tag = r.entry_id ? 'button' : 'div';
   return (
     <Tag type={r.entry_id ? 'button' : undefined} onClick={r.entry_id ? onOpen : undefined} className="acct-line-card"
@@ -131,7 +135,7 @@ function FacetSelect({ label, items, total, onPick, text }) {
       style={{ ...facetSelect }}>
       <option value="">{label} ({items.length})</option>
       {items.map((f) => {
-        const name = text ? text(f) : (f.name || f.code);
+        const name = text ? text(f) : numbered(f.name, f.code);
         return <option key={f.code} value={f.code}>{name} - {f.lines.toLocaleString('en-US')} lines, net {signed(f.net)}</option>;
       })}
     </select>
@@ -340,7 +344,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 10, boxShadow: 'var(--shadow-sm)' };
   const select = { height: 30, padding: '0 8px', borderRadius: 8, border: '1px solid var(--border-color)', fontSize: '0.78rem', fontFamily: 'inherit', background: 'var(--bg-card)', color: 'var(--text-primary)' };
 
-  const heading = [term ? `"${term}"` : null, party?.name, account ? `${account.code} ${account.name || ''}`.trim() : drill && !drill.account && drill.accountName ? `${drill.accountName} - every line` : null].filter(Boolean).join(' - ') || 'Ledger lines';
+  const heading = [term ? `"${term}"` : null, party ? partyText(party) : null, account ? `${account.code} ${account.name || ''}`.trim() : drill && !drill.account && drill.accountName ? `${drill.accountName} - every line` : null].filter(Boolean).join(' - ') || 'Ledger lines';
   const periodText = usePeriod ? `${drill.from ? formatDate(drill.from) : 'Start'} - ${formatDate(drill.to)}` : 'All dates';
   const labelSpan = columns.filter((c) => !c.num).length;
 
@@ -409,7 +413,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
             <ActiveChip key={d.key} label={dimChipText(d, dimNames)} onClear={() => setDropped((x) => [...x, d.key])} />
           ))}
           {party && !(applied.party && party.kind === applied.party.kind && party.code === applied.party.code) && (
-            <ActiveChip label={`${party.kind === 'vendor' ? 'Vendor' : party.kind === 'employee' ? 'Employee' : 'Customer'}: ${party.name}`} onClear={() => setParty(null)} />
+            <ActiveChip label={`${party.kind === 'vendor' ? 'Vendor' : party.kind === 'employee' ? 'Employee' : 'Customer'}: ${partyText(party)}`} onClear={() => setParty(null)} />
           )}
           {account && <ActiveChip label={`Account: ${account.code} ${account.name || ''}`.trim()} onClear={() => { setAccount(null); if (drill) onClearDrill(); }} />}
           {journal && <ActiveChip label={`Journal: ${journal}`} onClear={() => setJournal('')} />}

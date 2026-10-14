@@ -123,6 +123,11 @@ class Task(Base):
     # actual_hours is their rolled-up total (routers/tasks._recount_time) and
     # cannot be typed over; with none, actual_hours stays the old free number.
     time_entry_count  = Column(Integer, default=0)
+    # The ticket this task was created from, or linked to, on that ticket's
+    # Tasks list (Oct 14 2026) - the task's way back to it ("From Ticket").
+    # Kept in step with TaskTicket.task_ids by routers/tickets.py, server-side
+    # only; never taken from a task payload.
+    source_ticket_id  = Column(String, default="", index=True)
 
 
 class PurchaseRequest(Base):
@@ -3228,6 +3233,17 @@ class TaskTemplate(Base):
     # Soft delete -> Recycle Bin (Sept 2026). See the hook in database.py.
     deleted_at   = Column(String, default="", index=True)
     deleted_by   = Column(String, default="")
+    # Save as Template (Neil, Oct 14 2026: "convert to task template", like
+    # project templates). A template saved FROM a task keeps whole subtasks,
+    # not just titles: [{title, description, priority, assigneeIds,
+    # followerIds, customFieldValues, recurrence, dueOffsetDays, checklist}]
+    # - dueOffsetDays counted from the main task's due date. `checklist` is
+    # the main task's own [{title, assigneeId}]. Older templates have only
+    # subtask_titles; both are used (routers/task_config.use_template).
+    subtasks       = Column(JSON, default=list)
+    checklist      = Column(JSON, default=list)
+    source_task_id = Column(String, default="")
+    created_by     = Column(String, default="")
 
 
 class TaskIntakeForm(Base):
@@ -4894,6 +4910,9 @@ class PfsProfile(Base):
     created_at        = Column(String, default="")
     updated_by        = Column(String, default="")
     updated_at        = Column(String, default="")
+    # The place in the guarantor dropdown (Neil, 10/14: "move Guarantors up and
+    # down"); 0 = never placed, listed by name after the placed ones.
+    sort_order        = Column(Integer, default=0)
 
 
 class PfsLine(Base):
@@ -5257,6 +5276,13 @@ class RecurringExpense(Base):
     created_at       = Column(String, default="")
     updated_by       = Column(String, default="")
     updated_at       = Column(String, default="")
+    # Oct 14 (Charmi, Urmi, Neil): Custom frequency's period in months, the
+    # match tolerance (0-50 in steps of 5), and the vendor-side details.
+    frequency_months = Column(Integer, default=0)                # frequency == 'custom': every N months
+    variance_pct     = Column(Integer, default=0)                # paid within this % of expected counts as Paid
+    account_number   = Column(String, default="")                # the account number with the vendor (e.g. utility account)
+    account_details  = Column(String, default="")
+    contact_info     = Column(String, default="")                # name / phone / email
 
 
 class PfsAffiliate(Base):
@@ -5306,7 +5332,7 @@ class PfsAccessChallenge(Base):
     session (Charmi, 10/04: "it should ask for OTP to the file and not to the
     module"). The code is never stored: `code_hash` is sha256 over
     "id:code", salted with an id the caller never sees. A used code becomes
-    the grant: `granted_until` is when the file closes again (30 minutes).
+    the grant: `granted_until` is when the file closes again (90 minutes).
     `session_hash` is a hash of the tab's X-Pfs-Session id. Read only by
     routers/pfs_access.py. New table - RLS by the startup sweep and main.py."""
     __tablename__ = "pfs_access_challenges"

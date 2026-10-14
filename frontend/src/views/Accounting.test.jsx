@@ -50,7 +50,7 @@ describe('Accounting view', () => {
     render(<Accounting activeSub={undefined} onSubChange={onSubChange} />);
     expect(await screen.findByTestId('reports')).toBeTruthy();
     // No Dashboard group for an entity-limited reader: Reporting leads, on Reports.
-    expect(tabNames()[0]).toBe('ReportingReports');
+    expect(tabNames()[0]).toBe('ReportingAll Reports');
     expect(tabNames().some((t) => /^Dashboard/.test(t))).toBe(false);
     await waitFor(() => expect(onSubChange).toHaveBeenCalledWith('reports'));
     // Links made before the rename still land.

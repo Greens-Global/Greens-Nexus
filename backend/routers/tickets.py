@@ -704,7 +704,7 @@ def _deliver_teams_dm(row_id: str) -> None:
 
 
 def _queue_requester_teams_dm(db: Session, t: models.TaskTicket, actor_email: str, *,
-                              assigned: bool = False, closed: bool = False,
+                              closed: bool = False,
                               comment: str = "") -> "models.TicketTeamsMessage | None":
     """Queue a Teams DM to the ticket's requester - same guaranteed-delivery
     queue TimeBod posts use (teams_post.py), posted AS the agent who made the
@@ -712,7 +712,7 @@ def _queue_requester_teams_dm(db: Session, t: models.TaskTicket, actor_email: st
 
     Only three things are worth a Teams message (Neil, Oct 1 2026, after
     Ankush's requester got one every time he touched her ticket): the ticket
-    was ASSIGNED (`assigned` - names the assignee), a public REPLY from
+    was ASSIGNED (sent by the assignees - _queue_assignment_dms), a public REPLY from
     someone else (`comment` - the text itself, not "your ticket was
     updated"), or it was RESOLVED / CLOSED (`closed` - with the resolution
     note). Status moves, priority, field edits and opening the ticket send
@@ -735,8 +735,6 @@ def _queue_requester_teams_dm(db: Session, t: models.TaskTicket, actor_email: st
     html = tmpl.requester_teams_dm_html(
         code=t.code, subject=t.subject, link=tmpl._ticket_url(app_url(), t.id, for_requester=True),
         actor_name=_name_of(db, actor),
-        assigned_to=(_name_of(db, t.assignee_email)
-                     if assigned and t.assignee_email and t.assignee_email.lower() != requester else ""),
         closed_status=t.status if (closed and t.status in ("resolved", "closed")) else "",
         resolution_note=t.resolution_note or "", comment=comment or "")
     if not html:
@@ -745,6 +743,29 @@ def _queue_requester_teams_dm(db: Session, t: models.TaskTicket, actor_email: st
                                      requester_email=requester, html=html, created_at=now_iso())
     db.add(row)
     return row
+
+
+def _queue_assignment_dms(db: Session, t: models.TaskTicket, prev_assignee: str) -> list:
+    """Assignment DMs come from the assignees, never from whoever clicked
+    Assign (Neil, 10/14: "the administrator should not be involved in this
+    at all"). First assignment: the assignee tells the requester it is being
+    worked on. A -> B: A says it was reassigned to B, and B says it is theirs
+    now. Nobody messages themselves."""
+    requester = (t.requester_email or "").strip().lower()
+    new, old = (t.assignee_email or "").strip().lower(), (prev_assignee or "").strip().lower()
+    common = dict(code=t.code, subject=t.subject, link=tmpl._ticket_url(app_url(), t.id, for_requester=True))
+    sends = [(new, tmpl.assignment_teams_dm_html(**common, reassigned=bool(old)))]
+    if old and old != new:
+        sends.insert(0, (old, tmpl.assignment_teams_dm_html(**common, handed_to=_name_of(db, new))))
+    rows = []
+    for sender, html in sends:
+        if not requester or not sender or sender == requester:
+            continue
+        row = models.TicketTeamsMessage(id=gen_id(), ticket_id=t.id, agent_email=sender,
+                                         requester_email=requester, html=html, created_at=now_iso())
+        db.add(row)
+        rows.append(row)
+    return rows
 
 
 @router.get("/task-tickets")
@@ -839,10 +860,11 @@ def _with_creator(watchers: list | None, requester: str | None, creator: str) ->
     """The payload's watchers, plus whoever filed the ticket when it is for
     somebody else - so the person who raised it on a colleague's behalf can
     still open it, follow the thread and hear about it (a watcher is a
-    participant: _require_ticket_participant, list_tickets)."""
-    out = [w for w in (watchers or []) if w]
+    participant: _require_ticket_participant, list_tickets). One spelling per
+    person, so "is X on it" checks always match."""
+    out = list(dict.fromkeys(e for e in ((w or "").strip().lower() for w in (watchers or [])) if e))
     me = (creator or "").strip().lower()
-    if me and me != (requester or "").strip().lower() and me not in {(w or "").lower() for w in out}:
+    if me and me != (requester or "").strip().lower() and me not in out:
         out.append(me)
     return out
 
@@ -923,6 +945,13 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
                  detail=json.dumps(_ticket_snapshot(t)))
     if source is not None:
         _copy_task_files(db, source, t, user["email"])
+        # The converted task points back at its ticket - its drawer's "From
+        # Ticket" and the From Ticket filter - and both histories say so
+        # (Oct 14 2026). A task already tied to another ticket keeps that one.
+        if not source.source_ticket_id:
+            source.source_ticket_id = t.id
+        _log_task_link(db, t, source, user["email"].lower(), "task_converted",
+                       "converted from task", "converted this task into")
     tk_action = {"view": "tickets", "label": "View ticket"}
     if t.assignee_email and t.assignee_email != user["email"].lower():
         task_notify(db, kind="ticket_assigned", for_email=t.assignee_email,
@@ -940,6 +969,14 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
     if t.requester_email and t.requester_email != user["email"].lower():
         task_notify(db, kind="ticket_received", for_email=t.requester_email,
                     title="We received your ticket", body=f"{ticket_no(t.code)} · {t.subject}", ticket_id=t.id, nexus_action=tk_action)
+    # Collaborators picked on the form (Oct 14 2026) hear they were added -
+    # not the person filing it, nor the requester or assignee told above.
+    told = {user["email"].lower(), (t.requester_email or "").lower(), (t.assignee_email or "").lower()}
+    for who in (t.watcher_emails or []):
+        if who not in told:
+            task_notify(db, kind="ticket_collaborator", for_email=who,
+                        title="You were added to a ticket", body=f"{ticket_no(t.code)} · {t.subject}",
+                        ticket_id=t.id, nexus_action=tk_action)
     if prop is not None:
         _tell_asset_manager(db, t, prop_manager, user["email"])
     db.commit()
@@ -1027,13 +1064,19 @@ def _finish_source_task(db: Session, task, t: models.TaskTicket, user: dict, clo
 # it out, not to rewrite what it is or who it's for. Everyone else (the
 # requester, or a manager+) gets the full field set. Mirrors the drawer's field
 # gating in TicketsView.jsx - keep the two in step.
-_WORKING_FIELDS = {"type", "status", "priority", "assignee_email", "hr_department_id", "resolution"}
+_WORKING_FIELDS = {"type", "status", "priority", "assignee_email", "hr_department_id", "resolution",
+                   "watcher_emails"}
 # Every field an unrestricted caller may touch, minus reopen_reason (not a
 # column - see TicketUpdate).
 _ALL_TICKET_FIELDS = set(TicketUpdate.model_fields.keys()) - {"reopen_reason"}
 # What the requester may still send once their ticket has left Open: the
 # confirm / reopen move and the rating that goes with confirming.
-_REQUESTER_AFTER_OPEN_FIELDS = {"status", "csat_rating", "csat_comment"}
+_REQUESTER_AFTER_OPEN_FIELDS = {"status", "csat_rating", "csat_comment", "watcher_emails"}
+# Collaborators (watcher_emails, Oct 14 2026 - "a collaborator option on the
+# tickets as in the task module"): who else is on the ticket is not the
+# ticket's content, so anyone who may edit it at all may add or remove them -
+# including while it is locked to its assignee.
+_COLLABORATOR_FIELDS = {"watcher_emails"}
 # What a requester resolving their own ticket may send (Neil, Oct 1 2026: "a
 # colleague helped me" - they can mark it Resolved while it is still Open or
 # being worked). The status itself and the note; the optional "What fixed it?"
@@ -1087,6 +1130,89 @@ def _ticket_privileged(db: Session, t: models.TaskTicket, user: dict) -> bool:
     return user.get("level", 1) >= 3
 
 
+# ── Tasks from tickets (Oct 14 2026) ────────────────────────────────────────
+# A ticket's Tasks list is task_ids (plus the older single linked_task_id). A
+# task on it carries the ticket back as source_ticket_id - the task drawer's
+# "From Ticket" and the task lists' From Ticket filter - and every task made,
+# linked, unlinked or completed is in BOTH histories.
+def _ticket_task_ids(t: models.TaskTicket) -> list:
+    ids = [i for i in (t.task_ids or []) if i] if isinstance(t.task_ids, list) else []
+    if t.linked_task_id and t.linked_task_id not in ids:
+        ids.append(t.linked_task_id)
+    return ids
+
+
+def _log_task_link(db: Session, tk: models.TaskTicket, task: models.Task, actor: str, kind: str, ticket_says: str,
+                   task_says: str) -> None:
+    log_activity(db, type=kind, actor_email=actor, entity_kind="ticket", entity_id=tk.id,
+                 entity_code=tk.code, entity_title=tk.subject, detail=f"{ticket_says} {task.code} · {task.title}")
+    log_activity(db, type=kind, actor_email=actor, entity_id=task.id, entity_code=task.code,
+                 entity_title=task.title, detail=f"{task_says} {ticket_no(tk.code)} · {tk.subject}")
+
+
+def _sync_ticket_tasks(db: Session, tk: models.TaskTicket, before: list, actor: str) -> None:
+    after = _ticket_task_ids(tk)
+    added = [i for i in after if i not in before]
+    removed = [i for i in before if i not in after]
+    for tid in added:
+        task = db.query(models.Task).filter(models.Task.id == tid).first()
+        if task is None:
+            continue
+        if not task.source_ticket_id:
+            task.source_ticket_id = tk.id
+        _log_task_link(db, tk, task, actor, "task_linked", "linked task", "linked this task to")
+    for tid in removed:
+        task = db.query(models.Task).filter(models.Task.id == tid).first()
+        if task is None:
+            continue
+        if task.source_ticket_id == tk.id:
+            task.source_ticket_id = ""
+        _log_task_link(db, tk, task, actor, "task_unlinked", "unlinked task", "unlinked this task from")
+
+
+@router.post("/task-tickets/{ticket_id}/tasks", status_code=201)
+def create_task_from_ticket(ticket_id: str, background_tasks: BackgroundTasks,
+                            user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """"Create Task from Ticket", made here rather than as two saves from the
+    browser (a task, then a PATCH adding it to the ticket - a failed second
+    save left a task nobody could trace back). One transaction: the task, its
+    source_ticket_id, the ticket's task_ids, and a line in both histories.
+
+    The task takes the ticket's subject, description, assignee, priority and
+    SLA date, and its collaborators as the task's. Not the requester: a task
+    is the desk's own work, and they hear about the ticket, not the task."""
+    t = db.query(models.TaskTicket).filter(models.TaskTicket.id == ticket_id).first()
+    if not t:
+        raise HTTPException(404, "Ticket not found")
+    import auth
+    auth.assert_company(t.company_id or "", user, db)
+    if not _may_patch_ticket(db, t, user):
+        raise HTTPException(403, "You don't have access to this screen")
+    scope = _ticket_edit_scope(db, t, user)
+    if scope is not None and "task_ids" not in scope:
+        raise HTTPException(403, "Only whoever is working this ticket (or a manager) can add tasks to it right now.")
+    from routers import tasks as tasks_router
+    actor = user["email"].lower()
+    assignee = (t.assignee_email or "").lower()
+    body = tasks_router.TaskCreate(
+        title=t.subject or "Ticket task", description=t.description or "",
+        priority=t.priority if t.priority in ("low", "medium", "high", "urgent") else "medium",
+        assignee_emails=[assignee] if assignee else [],
+        follower_emails=[w for w in (t.watcher_emails or []) if w and w != assignee],
+        due_on=(t.sla_due_on or "")[:10],
+    )
+
+    def link(task: models.Task) -> None:
+        task.source_ticket_id = t.id
+        t.task_ids = [*(t.task_ids if isinstance(t.task_ids, list) else []), task.id]
+        t.modified_at = now_iso()
+        _log_task_link(db, t, task, actor, "task_created", "created task", "created this task from")
+
+    task = tasks_router._create_task(body, background_tasks, user, db, before_commit=link)
+    db.refresh(t)
+    return {"task": task, "ticket": ticket_to_dict(t)}
+
+
 def _ticket_edit_scope(db: Session, t: models.TaskTicket, user: dict) -> set | None:
     """None = unrestricted. A set = the only TicketUpdate keys this caller may
     send (empty set = no edits at all right now).
@@ -1106,7 +1232,7 @@ def _ticket_edit_scope(db: Session, t: models.TaskTicket, user: dict) -> set | N
     if _ticket_privileged(db, t, user):
         return None
     if t.status == "in_progress" and t.assignee_email:
-        return (_ALL_TICKET_FIELDS - {"company_id"}) if email == t.assignee_email.lower() else set()
+        return (_ALL_TICKET_FIELDS - {"company_id"}) if email == t.assignee_email.lower() else set(_COLLABORATOR_FIELDS)
     if (t.requester_email or "").lower() == email:                   # who raised it, pre-in_progress
         # Editable while it is still Open and nobody has picked it up (Neil,
         # Sep 30: "edit should only come up if it's still open"). After that
@@ -1149,7 +1275,7 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     if scope is not None:
         blocked = sorted(set(data.keys()) - scope)
         if blocked:
-            if not scope:
+            if not scope or scope == _COLLABORATOR_FIELDS:
                 raise HTTPException(403, f"This ticket is in progress and assigned to {t.assignee_email or 'someone else'} - only they (or a manager) can edit it right now.")
             if blocked == ["company_id"]:
                 raise HTTPException(403, "Only the requester (before the ticket is picked up) or a manager can change the company on a ticket.")
@@ -1273,6 +1399,8 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     prev_application, prev_service_area = t.application, t.service_area
     prev_resolution, prev_resolution_note = t.resolution, (t.resolution_note or "")
     prev_type_fields = dict(t.type_fields or {})
+    prev_watchers = [(e or "").lower() for e in (t.watcher_emails or []) if e]
+    prev_task_ids = _ticket_task_ids(t)
     # sla_due_on is never applied from the payload directly - it is derived
     # from priority a few lines down, same as create_ticket never trusting
     # body.sla_due_on. Still accepted on the model for backward-compat
@@ -1283,6 +1411,10 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
             # strip() too - a padded address never matches the same person again,
             # so the ticket is assigned to somebody who never sees it.
             v = (v or "").strip().lower()
+        if k == "watcher_emails":
+            # One spelling per person, in the order added, so "is X on it"
+            # checks (participants, mentions) always match.
+            v = list(dict.fromkeys(e for e in ((x or "").strip().lower() for x in (v or [])) if e))
         setattr(t, k, v)
     # Re-picking the application re-derives the service area, so the two can
     # never disagree - unless the caller set an area explicitly in the same
@@ -1381,6 +1513,21 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
         if t.assignee_email and t.assignee_email != user["email"].lower():
             task_notify(db, kind="ticket_assigned", for_email=t.assignee_email,
                         title="You were assigned a ticket", body=f"{ticket_no(t.code)} · {t.subject}", ticket_id=t.id, nexus_action=tk_action)
+    if "task_ids" in data or "linked_task_id" in data:
+        _sync_ticket_tasks(db, t, prev_task_ids, user["email"].lower())
+    if "watcher_emails" in data:
+        now_on = list(t.watcher_emails or [])
+        added = [e for e in now_on if e not in prev_watchers]
+        removed = [e for e in prev_watchers if e not in now_on]
+        if added:
+            _log("watcher_added", f"added {', '.join(added)} as collaborator{'s' if len(added) > 1 else ''}")
+        if removed:
+            _log("watcher_removed", f"removed {', '.join(removed)} as collaborator{'s' if len(removed) > 1 else ''}")
+        for who in added:
+            if who != user["email"].lower():
+                task_notify(db, kind="ticket_collaborator", for_email=who,
+                            title="You were added to a ticket", body=f"{ticket_no(t.code)} · {t.subject}",
+                            ticket_id=t.id, nexus_action=tk_action)
     if "priority" in data and t.priority != prev_priority:
         _log("priority_changed", f"set priority to {t.priority}")
     if t.subject != prev_subject:
@@ -1531,11 +1678,14 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
         background_tasks.add_task(notify_ticket_event, t.id, "updated", actor,
                                    update_kind="New comment added", latest_comment=public_comment)
 
-    # Teams DM - the same three events, in ONE message per save, never one per
-    # change (see _queue_requester_teams_dm).
-    if assigned_now or closing or public_comment:
-        dm_row = _queue_requester_teams_dm(db, t, actor, assigned=assigned_now, closed=closing,
-                                           comment=public_comment)
+    # Teams DM - the same three events. An assignment is told by the assignees
+    # (_queue_assignment_dms); a reply / close by the actor, in ONE message per
+    # save, never one per change (see _queue_requester_teams_dm).
+    dm_rows = _queue_assignment_dms(db, t, prev_assignee) if assigned_now else []
+    if closing or public_comment:
+        dm_rows.append(_queue_requester_teams_dm(db, t, actor, closed=closing, comment=public_comment))
+    dm_rows = [r for r in dm_rows if r is not None]
+    if dm_rows:
         db.commit()
         # One delivery attempt right away so the common case lands in Teams
         # without waiting for ticket_teams_post_loop's next sweep (up to ~5
@@ -1544,8 +1694,8 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
         # status change open until Teams answered (Neil, Sep 30: clicking
         # Resolved "is lagging a lot"). Anything that fails stays queued for
         # the sweep to retry.
-        if dm_row is not None:
-            background_tasks.add_task(_deliver_teams_dm, dm_row.id)
+        for r in dm_rows:
+            background_tasks.add_task(_deliver_teams_dm, r.id)
 
     # With its latest comment: this reply replaces the row in the list, and a
     # reply sent with the save is the newest comment now.
@@ -1667,6 +1817,17 @@ class TicketAttachmentBody(BaseModel):
     size: Optional[str] = ""
     kind: Optional[str] = "other"
     url: Optional[str] = ""
+
+
+@router.get("/task-tickets/{ticket_id}/summary")
+def ticket_summary(ticket_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Just enough to name a ticket - a task drawer's "From Ticket" (Oct 14
+    2026). Same reader rule as the conversation: a participant or the desk."""
+    t = _ticket_or_404(db, ticket_id)
+    import auth
+    auth.assert_company(t.company_id or "", user, db)
+    _require_ticket_participant(db, user, t)
+    return {"id": t.id, "code": t.code or "", "subject": t.subject or "", "status": t.status or ""}
 
 
 @router.get("/task-tickets/{ticket_id}/comments")

@@ -4,7 +4,7 @@
 The lock: every PFS file (a guarantor) answers 423 on every read, write and
 export until the person opening it types a six-digit code emailed to them; the
 code is hashed at rest, lives 10 minutes, takes 5 wrong tries, and opens that
-one file in that one browser session for 30 minutes. The borrowers are told,
+one file in that one browser session for 90 minutes. The borrowers are told,
 and every step is in the access log.
 
 Runs on its own temporary database:
@@ -213,10 +213,13 @@ class LockTests(unittest.TestCase):
             self.assertEqual(self.client.post(f"/pfs-access/files/{self.pid}/verify", headers=TAB_B, json={"code": first}).status_code, 400)
         self.assertEqual(self.client.post(f"/pfs-access/files/{self.pid}/verify", headers=TAB_B, json={"code": second}).status_code, 200)
 
-    def test_the_unlock_lasts_thirty_minutes(self):
+    def test_the_unlock_lasts_ninety_minutes(self):
         _as(VIEWER)
         code = self._code()
-        self.client.post(f"/pfs-access/files/{self.pid}/verify", headers=TAB_B, json={"code": code})
+        before = datetime.now(timezone.utc)
+        until = self.client.post(f"/pfs-access/files/{self.pid}/verify", headers=TAB_B, json={"code": code}).json()["unlockedUntil"]
+        # Urmi (10/14): the code opens the file for 90 minutes, not 30.
+        self.assertAlmostEqual((datetime.fromisoformat(until) - before).total_seconds(), 90 * 60, delta=10)
         self.assertEqual(self.client.get(f"/pfs/profiles/{self.pid}", headers=TAB_B).status_code, 200)
         self._age("granted_until", 1)
         self.assertEqual(self.client.get(f"/pfs/profiles/{self.pid}", headers=TAB_B).status_code, 423)
