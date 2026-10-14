@@ -10,7 +10,7 @@ import {
   ShieldAlert, Clock, UserMinus, Lock, Send,
 } from "lucide-react";
 import { api } from "../api";
-import { useDialogFocus } from "../lib/useDialogFocus";
+import { useDialogFocus, trapTab } from "../lib/useDialogFocus";
 import { formatDate, formatDateTime } from "../lib/datetime";
 import { TeamsIcon, agoLabel, actionStyle } from "./vaultShared";
 import { ACCESS_LABEL, ACCESS_TONE, healthFlags, rotationDaysLeft, rotationDueDate, timeLeft } from "./vaultModel";
@@ -221,7 +221,7 @@ export default function CredentialSheet(props) {
   return (
     <>
       <div className="cv-drawer-overlay" onMouseDown={onClose} />
-      <aside className="cv-drawer" role="dialog" aria-modal="true" aria-label={cred.name} ref={panelRef} tabIndex={-1}>
+      <aside className="cv-drawer" role="dialog" aria-modal="true" aria-label={cred.name} ref={panelRef} tabIndex={-1} onKeyDown={trapTab}>
         <CredentialDetail {...props} sheet />
       </aside>
     </>

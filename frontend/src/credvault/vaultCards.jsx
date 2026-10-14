@@ -2,8 +2,7 @@
 // grammar, Oct 14 2026): a solid brand KPI tile with white siblings, and two
 // bordered stat cards (department breakdown, what rotates next). Pure
 // presentation; the screen passes the numbers.
-import { ArrowUpRight, Building2, RefreshCw } from "lucide-react";
-import { formatDate } from "../lib/datetime";
+import { ArrowUpRight } from "lucide-react";
 import { rotationDaysLeft, rotationDueDate } from "./vaultModel";
 
 export function KpiTile({ label, value, sub, solid = false, tone, onGo, goTitle }) {
@@ -86,13 +85,3 @@ export function Monogram({ name, dept, depts, size = 36 }) {
     <span className="cv-mono-tile" style={{ width: size, height: size, background: `${color}1a`, color, fontSize: Math.round(size * 0.36) }} aria-hidden="true">{text}</span>
   );
 }
-
-export function nextRotationLabel(c) {
-  if (!c.rotatedAt) return "";
-  const left = rotationDaysLeft(c);
-  if (left < 0) return `overdue since ${rotationDueDate(c)}`;
-  return `due ${rotationDueDate(c)}`;
-}
-
-export const fmt = formatDate;
-export const Icons = { Building2, RefreshCw };

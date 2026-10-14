@@ -40,7 +40,7 @@ import "./credvault.css";
 const LOG_ACTIONS = ["All", "Revealed", "Copied", "Created", "Edited", "Shared", "Requested", "Denied", "Revoked", "Transferred", "Removed", "Recovered", "Imported", "Offboarded"];
 const TAB_KEYS = ["all", "mine", "shared", "favorites", "attention", "trash"];
 
-export default function CredentialVaultApp({ activeSub, onSubChange: _onSubChange }) {
+export default function CredentialVaultApp({ activeSub }) {
   const { myEmail, can, canAccessModule } = useRole();
   const isAdmin = can("administrator");
   const canWrite = canAccessModule("credvault", "administrator", "editor");
@@ -248,7 +248,7 @@ export default function CredentialVaultApp({ activeSub, onSubChange: _onSubChang
   const tabs = [
     { key: "vault", label: "Vault", Icon: KeyRound },
     { key: "personal", label: "Personal", Icon: Lock },
-    ...((isAdmin || requests.length || creds.some((c) => c.canEdit)) ? [{ key: "approvals", label: "Approvals", Icon: Inbox, badge: requests.length || null }] : []),
+    ...((isAdmin || requests.length || tab === "approvals" || creds.some((c) => c.canEdit)) ? [{ key: "approvals", label: "Approvals", Icon: Inbox, badge: requests.length || null }] : []),
     { key: "activity", label: "Activity", Icon: History },
   ];
   const editableInView = rows.filter((c) => c.canEdit && !c.deletedAt);
@@ -382,13 +382,13 @@ export default function CredentialVaultApp({ activeSub, onSubChange: _onSubChang
                 const tone = c.canReveal ? healthTone(c) : "muted";
                 const active = selectedId === c.id;
                 return (
-                  <div key={c.id} id={`cred-row-${c.id}`} className={`cv-prow${active ? " is-active" : ""}`} role="button" tabIndex={0}
-                    onClick={() => open(c.id)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(c.id); } }}>
+                  <div key={c.id} id={`cred-row-${c.id}`} className={`cv-prow${active ? " is-active" : ""}`}>
                     {c.canEdit && !c.deletedAt && !isMobile && (
-                      <span className="cv-prow-check" onClick={(e) => e.stopPropagation()}>
+                      <span className="cv-prow-check">
                         <input type="checkbox" className="cv-check" aria-label={`Select ${c.name}`} checked={checked.has(c.id)} onChange={() => toggleChecked(c.id)} />
                       </span>
                     )}
+                    <button type="button" className="cv-prow-btn" onClick={() => open(c.id)} aria-current={active ? "true" : undefined}>
                     <Monogram name={c.name} dept={c.dept} depts={deptsInUse} />
                     <div className="cv-prow-main">
                       <div className="cv-prow-name">
@@ -406,6 +406,7 @@ export default function CredentialVaultApp({ activeSub, onSubChange: _onSubChang
                     <span className={`cv-chip cv-chip-xs tone-${c.deletedAt ? "bad" : ACCESS_TONE[c.access] || "muted"} cv-prow-access`}>{c.deletedAt ? "In Trash" : ACCESS_LABEL[c.access]}</span>
                     <span className={`cv-dot tone-${tone}`} title={c.canReveal ? (flags.map((f) => f.label).join(", ") || "Healthy") : "Ask for access to see its health"} />
                     <ChevronRight size={14} className="cv-prow-chev" />
+                    </button>
                   </div>
                 );
               })}
@@ -428,7 +429,7 @@ export default function CredentialVaultApp({ activeSub, onSubChange: _onSubChang
       {/* Mounted once the tab is first opened and kept mounted after, hidden
           behind the other tabs: its unlock window must survive a trip to
           Vault and back (one unlock per window, Neil Oct 14 2026). */}
-      {personalSeen.current && <div hidden={tab !== "personal"}><PersonalVault myEmail={myEmail} flash={flash} /></div>}
+      {personalSeen.current && <div hidden={tab !== "personal"}><PersonalVault myEmail={myEmail} flash={flash} active={tab === "personal"} /></div>}
 
       {tab === "approvals" && (
         <div className="wkc">

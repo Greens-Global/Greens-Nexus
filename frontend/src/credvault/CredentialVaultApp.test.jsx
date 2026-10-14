@@ -51,7 +51,7 @@ describe('Credential Vault', () => {
     expect(screen.getByText('Pick a credential')).toBeTruthy();       // the empty pane, People-style
     expect(screen.getAllByText('Owner').length).toBeGreaterThan(0);
     expect(screen.getByText('Request Access')).toBeTruthy();          // Ben's Jira row
-    fireEvent.click(document.getElementById('cred-row-c1'));
+    fireEvent.click(document.getElementById('cred-row-c1').querySelector('button'));
     const dlg = await screen.findByRole('region', { name: 'Stripe' });
     expect(within(dlg).getByText('pay@x.com')).toBeTruthy();
     expect(within(dlg).getByText('Finance login')).toBeTruthy();
@@ -64,7 +64,7 @@ describe('Credential Vault', () => {
   it('a row you cannot open hides the username and asks instead of revealing', async () => {
     render(<CredentialVaultApp />);
     await waitFor(() => expect(document.getElementById('cred-row-c2')).toBeTruthy());
-    fireEvent.click(document.getElementById('cred-row-c2'));
+    fireEvent.click(document.getElementById('cred-row-c2').querySelector('button'));
     const dlg = await screen.findByRole('region', { name: 'Jira Admin' });
     expect(within(dlg).queryByRole('button', { name: 'Reveal Password' })).toBeNull();
     expect(within(dlg).queryByRole('button', { name: 'Edit' })).toBeNull();
@@ -95,5 +95,20 @@ describe('Credential Vault', () => {
     await waitFor(() => expect(document.getElementById('cred-row-c2')).toBeNull());
     expect(document.getElementById('cred-row-c1')).toBeTruthy();
     expect(screen.getByText('Needs Attention', { selector: '.cv-kpi-label' })).toBeTruthy();
+  });
+
+  it('on a phone the detail opens as a full-screen sheet', async () => {
+    const real = window.matchMedia;
+    window.matchMedia = (q) => ({ matches: /max-width: 900px/.test(q), media: q, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} });
+    try {
+      render(<CredentialVaultApp />);
+      await waitFor(() => expect(document.getElementById('cred-row-c1')).toBeTruthy());
+      expect(screen.queryByText('Pick a credential')).toBeNull();           // no inline pane on a phone
+      fireEvent.click(document.getElementById('cred-row-c1').querySelector('button'));
+      const dlg = await screen.findByRole('dialog', { name: 'Stripe' });
+      expect(within(dlg).getByText('pay@x.com')).toBeTruthy();
+      fireEvent.keyDown(window, { key: 'Escape' });
+      await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Stripe' })).toBeNull());
+    } finally { window.matchMedia = real; }
   });
 });

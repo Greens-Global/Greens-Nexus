@@ -39,7 +39,7 @@ function PersonalForm({ row, onClose, onSave }) {
   );
 }
 
-export default function PersonalVault({ myEmail, flash }) {
+export default function PersonalVault({ myEmail, flash, active = true }) {
   const [rows, setRows] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [unlockedUntil, setUnlockedUntil] = useState(0);       // ms; 0 = locked
@@ -53,9 +53,11 @@ export default function PersonalVault({ myEmail, flash }) {
   const load = useCallback(() => api.cvPersonal().then((r) => { setRows(r || []); setLoaded(true); }).catch(() => setLoaded(true)), []);
   useEffect(() => { load(); }, [load]);
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
+  // The tab stays mounted behind the others (one unlock per window), so the
+  // auto-lock only speaks up when this tab is the one on screen.
   useEffect(() => {
-    if (unlockedUntil && unlockedUntil <= now) { setOpen({}); setUnlockedUntil(0); flash("Personal Vault locked.", "info"); }
-  }, [now, unlockedUntil, flash]);
+    if (unlockedUntil && unlockedUntil <= now) { setOpen({}); setUnlockedUntil(0); if (active) flash("Personal Vault locked.", "info"); }
+  }, [now, unlockedUntil, flash, active]);
 
   function lock() { setOpen({}); setUnlockedUntil(0); flash("Personal Vault locked.", "info"); }
   function onUnlocked(res) {
