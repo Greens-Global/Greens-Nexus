@@ -718,7 +718,7 @@ h1,h2,h3,h4,h5,h6,
 }
 .breadcrumb-back:hover { color: var(--ink); opacity: 1; }
 
-.header-center { flex: 1; max-width: 260px; }
+.header-center { flex: 1; min-width: 0; }
 .search-bar {
   display: flex;
   align-items: center;
@@ -3973,28 +3973,43 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
   box-shadow: var(--wk-shadow-hov);
 }
 
-/* Header search on module screens (tabs occupy the center, so this lives in
-   header-right). Tasks gets an always-visible compact bar (.hdr-search-inline)
-   instead of an icon someone has to already know exists to click - that hid
-   task/people search well enough that it went unnoticed (Aug 2026). Every
-   other module keeps the plain icon + popover (.hdr-search-pop) it always
-   had - those modules have nothing of their own for this search to reach
-   into, so a permanent search box there would just be clutter. */
-.hdr-search-wrap { position: relative; }
-.hdr-search-inline { width: 220px; flex-shrink: 0; }
-.hdr-search-pop {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  width: 300px;
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  box-shadow: 0 8px 28px rgba(0,0,0,.15);
-  padding: 8px;
-  z-index: 500;
+/* Header search (Neil, Oct 14 2026): ONE bar, one size, one place - the
+   right cluster before Help - on every module, whether or not the module
+   publishes tabs into the center. It used to be a centered bar on some
+   screens, an icon-and-popover on others and a compact bar on Tasks; the
+   phone sheet (.gs-*) searched different things again. Now the bar and the
+   sheet share components/search/useNexusSearch. */
+.hdr-search { position: relative; width: 252px; flex-shrink: 0; }
+.hdr-search .search-bar { height: 38px; padding: 0 10px 0 12px; box-sizing: border-box; }
+.hdr-search-kbd {
+  font: 600 10.5px Inter, sans-serif; color: var(--muted);
+  border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px;
+  letter-spacing: .02em; white-space: nowrap; flex-shrink: 0; opacity: .85;
 }
-@media (max-width: 900px) { .hdr-search-wrap { display: none; } }
+.hdr-search .search-bar:focus-within .hdr-search-kbd { display: none; }
+.hdr-search-panel {
+  position: absolute; top: calc(100% + 8px); right: 0; width: 440px; max-width: calc(100vw - 32px);
+  max-height: 70vh; overflow-y: auto;
+  background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: 0 12px 36px rgba(0,0,0,.16); z-index: 500;
+  animation: fadeInUp .14s cubic-bezier(.16,1,.3,1) both;
+}
+.hdr-search-panel .gs-hint { padding: 14px 16px; }
+.gs-row-tag {
+  flex-shrink: 0; font-size: 10.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  padding: 1px 7px; border-radius: 999px; color: var(--muted); border: 1px solid var(--line);
+}
+.gs-more { padding: 6px 10px 10px; font-size: 11.5px; color: var(--muted); }
+button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blue)); }
+/* Narrow desktops: the bar gives up a little width and the module tabs drop
+   their icons, so a four-tab module and the bar still share the row. */
+@media (max-width: 1180px) {
+  .hdr-search { width: 176px; }
+  .hdr-search-kbd { display: none; }
+  .hdr-tab { padding: 9px 10px; }
+  .hdr-tab svg { display: none; }
+}
+@media (max-width: 900px) { .hdr-search { display: none; } }
 
 /* In-page fallback strip: phones only - the header center is hidden ≤900px,
    so <ModuleTabs> renders the classic swipeable strip in the page body. */

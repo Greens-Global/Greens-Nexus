@@ -121,7 +121,7 @@ export default function HelpMenu({ activeView, onWhatsNew }) {
 
   return (
     <div className="help-menu-wrap" ref={wrapRef}>
-      <button ref={btnRef} type="button" className="icon-btn help-menu-btn" aria-label="Help" title="Help"
+      <button ref={btnRef} type="button" className="icon-btn help-menu-btn" aria-label="Help" title="Help and Support (?)"
         aria-haspopup="dialog" aria-expanded={open} aria-keyshortcuts="?"
         onMouseEnter={loadWidget} onFocus={loadWidget}
         onClick={() => (open ? close() : show())}>
