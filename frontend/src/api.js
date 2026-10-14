@@ -2236,6 +2236,13 @@ export const api = {
   packetRoleHolders:   (entityId = '') => req(`/hr/packets/role-holders?entity_id=${encodeURIComponent(entityId)}`),
   // One template as the packet prints it, filled with a sample person -> {blob}.
   renderPacketPreview: (data) => reqBlob('/hr/packets/render-preview', { method: 'POST', body: JSON.stringify(data), headers: { 'Content-Type': 'application/json' } }),
+  // Start -> review -> Verify And Send. Only the verifier can send.
+  startHiringPacket:   (cid, data) => req(`/hr/candidates/${cid}/hiring-packet/start`, { method: 'POST', body: JSON.stringify(data) }),
+  getPacketReview:     (eid) => req(`/hr/life-events/${eid}/review`),
+  patchPacketValues:   (eid, data) => req(`/hr/life-events/${eid}/values`, { method: 'PATCH', body: JSON.stringify(data) }),
+  regeneratePacket:    (eid) => req(`/hr/life-events/${eid}/regenerate`, { method: 'POST' }),
+  packetDocumentPdf:   (eid, did) => reqBlob(`/hr/life-events/${eid}/documents/${did}/pdf`),
+  verifyAndSendPacket: (eid, data) => req(`/hr/life-events/${eid}/verify-and-send`, { method: 'POST', body: JSON.stringify(data) }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

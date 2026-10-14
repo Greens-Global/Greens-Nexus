@@ -50,7 +50,9 @@ _SYSTEM_FOLDERS = [
     ("Personal", "personal"), ("Archived", "archived"),
 ]
 
-_TEMPLATE_CATEGORIES = ("letterhead", "hr", "legal", "finance", "operations", "sales", "engineering", "general")
+_TEMPLATE_CATEGORIES = ("letterhead", "hr", "legal", "finance", "operations", "sales", "engineering", "general",
+                        # One per role, picked when an HR packet starts (Oct 14).
+                        "job_description")
 
 # Requirement 3. A template is DRAFT while it is being written, ACTIVE once it
 # is the company's approved language, ARCHIVED when it is retired. Only an
@@ -1551,7 +1553,8 @@ def search_documents(q: str = "", user: dict = Depends(get_current_user), db: Se
     # form (e.g. '["hr", "urgent"]') matches tag content without needing a
     # JSON-specific operator, and works identically on SQLite and Postgres.
     doc_query = db.query(Document).filter(
-        or_(Document.title.ilike(like), cast(Document.tags, SqlString).ilike(like)))
+        or_(Document.title.ilike(like), cast(Document.tags, SqlString).ilike(like)),
+        or_(Document.source.is_(None), Document.source != "hr-packet"))   # HR packet paperwork lives in People
     for d in _visible(doc_query, user).order_by(Document.updated_at.desc()).limit(20).all():
         results.append({"type": "document", "id": d.id, "title": d.title,
                         "subtitle": d.status, "updatedAt": d.updated_at})
@@ -1589,7 +1592,11 @@ def _get_readable(db: Session, did: str, user: dict) -> Document:
     private, and the ids travel (links, search results, an old bookmark).
     """
     row = db.query(Document).filter(Document.id == did).first()
-    if not row:
+    # An HR packet document (Oct 14) is a person's offer / promotion /
+    # separation paperwork, often with pay in it: it is read only through the
+    # HR packet screens (HR scope, Pay & Benefits), never through the generic
+    # owner/department/company rules here - administrators included.
+    if not row or (row.source or "") == "hr-packet":
         raise HTTPException(404, "Document not found")
     import auth
     auth.assert_company(auth.company_of(row.owner_email or "", db), user, db)

@@ -2091,6 +2091,10 @@ class Document(Base):
     updated_by       = Column(String, default="")
     updated_at       = Column(String, default="")
     archived_at      = Column(String, default="")
+    # An HR packet document (source "hr-packet", Oct 14): the life event it
+    # belongs to, and the candidate it is about (a hire has no employee yet).
+    life_event_id    = Column(String, default="", index=True)
+    candidate_id     = Column(String, default="")
 
 
 class DocumentVersion(Base):
@@ -5833,6 +5837,17 @@ class HrLifeEvent(Base):
     created_at      = Column(String, default="")
     updated_at      = Column(String, default="")
     completed_at    = Column(String, default="")
+    # Packets built from Documents (Oct 14). The generated Document rows
+    # ([{documentId, templateId, templateVersion, valuesHash, title}]); the
+    # pay HR typed per pay variable ("$22.00 per hour plus commission") -
+    # RESTRICTED like `pay`, never written onto a document; the person's
+    # details (legal name, address, phone, emergency contact) whoever typed
+    # them; and who verified the documents before they went out.
+    documents       = Column(JSON, default=list)
+    pay_values      = Column(JSON, default=dict)
+    intake          = Column(JSON, default=dict)
+    verified_by     = Column(String, default="")
+    verified_at     = Column(String, default="")
 
 
 class NexusWorkforceScorecardLog(Base):

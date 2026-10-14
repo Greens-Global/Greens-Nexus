@@ -1873,6 +1873,35 @@ def envelope_from_template(db: Session, user: dict, tpl: HrSignTemplate, *, part
                            sender_signs_first=sender_signs_first, prints_pay=prints_pay)
 
 
+def envelope_from_documents(db: Session, user: dict, *, documents: list, parties: List[PartyIn],
+                            title: str, employee_id: str = "", candidate_id: str = "",
+                            entity_id: str = "", message: str = "", expires_on: str = "",
+                            ip: str = "", user_agent: str = "", excluded_ack: bool = False,
+                            document_class: str = "employment", link_kind: str = "",
+                            link_id: str = "", sender_signs_first: bool = False,
+                            prints_pay: bool = False) -> dict:
+    """Server-rendered documents - HR packets built from the Documents module
+    (Oct 14). Each {name, path, fields} is a PDF already in _DOC_BUCKET with its
+    fields placed from the template's signature blocks. The first is the
+    envelope's source PDF, the rest ride as packet documents - the shape a PDF
+    send with attachments already has, so signing, sealing and the
+    certificate are untouched."""
+    if not documents:
+        raise HTTPException(400, "The packet has no documents")
+    docs = [{"name": d["name"], "path": d["path"], "fields": _clean_fields(list(d.get("fields") or []))}
+            for d in documents]
+    _validate_parties(parties, {f.get("role", "") for d in docs for f in d["fields"]} - {""})
+    first, rest = docs[0], docs[1:]
+    return _create_request(db, user, title=title, source="pdf", template_id="",
+                           employee_id=employee_id, candidate_id=candidate_id, entity_id=entity_id,
+                           body_snapshot=[], pdf_storage_path=first["path"], fields=first["fields"],
+                           message=message, expires_on=expires_on, parties=parties, ip=ip,
+                           user_agent=user_agent, documents=rest, routing="sequential",
+                           egnyte_folder="", excluded_ack=excluded_ack, document_class=document_class,
+                           link_kind=link_kind, link_id=link_id, sender_signs_first=sender_signs_first,
+                           prints_pay=prints_pay)
+
+
 @router.post("/requests")
 def send_request(body: SendIn, request: Request, user: dict = Depends(require_hr_write),
                  db: Session = Depends(get_db)):

@@ -2,6 +2,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react';
 import { QuestionnairesModal, InterviewPanel, LeaderboardModal, EmployeeInterviews } from '../components/Interviews';
 import { PacketsModal, SendHiringPacketModal, PacketSigner, PersonLifeEvents, usDay } from '../components/HiringPacket';
+import PacketReview from '../components/PacketReview';
 import { PromoteModal, OffboardModal, RoleChangeModal } from '../components/HrPersonActions';
 import { RoleChangeRequestCard, RoleChangeDecisionModal, RoleHistory } from '../components/RoleChangeRequests';
 import CandidateDetailModal, { STAGES, STAGE_META, candName } from '../components/HiringCandidateDetail';
@@ -2128,6 +2129,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
   const [packetsOpen, setPacketsOpen] = useState(false);   // Hiring > Packets (per-company setup)
   const [packetFor, setPacketFor] = useState(null);        // candidate the hiring packet is being sent to
   const [signParty, setSignParty] = useState(null);        // HR's own signature on a packet
+  const [reviewFor, setReviewFor] = useState(null);        // a packet built from Documents, being reviewed (Oct 14)
   const [packetRefresh, setPacketRefresh] = useState(0);
   const { canAccessModule } = useRole();
   const canSeePay = canAccessModule('hr_comp', 'owner', 'viewer');
@@ -2335,9 +2337,12 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
         onClose={() => setPacketFor(null)}
         onSent={ev => {
           setPacketFor(null); setPacketRefresh(n => n + 1);
-          if (ev.senderPartyId) setSignParty(ev.senderPartyId);
+          if (ev.openReview) setReviewFor(ev.id);
+          else if (ev.senderPartyId) setSignParty(ev.senderPartyId);
           else toastOk(`Hiring packet sent to ${ev.subjectEmail}.`);
         }} />}
+      {reviewFor && <PacketReview eventId={reviewFor} onClose={() => setReviewFor(null)}
+        onChanged={() => setPacketRefresh(n => n + 1)} onSignNow={setSignParty} toastOk={toastOk} toastErr={toastErr} />}
       <PacketSigner partyId={signParty} toastOk={toastOk} toastErr={toastErr}
         onClose={() => { setSignParty(null); setPacketRefresh(n => n + 1); }}
         onDone={() => {

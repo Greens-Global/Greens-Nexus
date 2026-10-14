@@ -798,8 +798,13 @@ def create_employee_from_candidate(db: Session, cand: HrCandidate, actor: str,
         emp.employment_type = d.get("employment_type") or emp.employment_type or "full_time"
         emp.status, emp.updated_at = "onboarding", now
     else:
+        # A hiring packet built from Documents may have printed a number
+        # already (Oct 14): use it while it is still free.
+        code = (d.get("employee_code") or "").strip()
+        if not code or db.query(NexusEmployee.id).filter(NexusEmployee.employee_code == code)                 .execution_options(include_deleted=True).first():
+            code = _next_code(db)
         emp = NexusEmployee(
-            id=str(uuid.uuid4()), employee_code=_next_code(db),
+            id=str(uuid.uuid4()), employee_code=code,
             first_name=cand.first_name, last_name=cand.last_name,
             personal_email=cand.email, phone=cand.phone,
             job_title=d.get("job_title") or cand.role_title,

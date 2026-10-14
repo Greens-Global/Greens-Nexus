@@ -501,6 +501,139 @@ def send_hiring_packet(cid: str, body: HirePacketIn, request: Request,
     return out
 
 
+# ── packets built from Documents: start, review, verify and send (Oct 14) ───
+
+class StartPacketIn(BaseModel):
+    inputs:     Optional[dict] = None   # the offer + the Four Options (timings, job description) + merge{}
+    pay:        Optional[dict] = None   # structured pay - Pay & Benefits only
+    pay_values: Optional[dict] = None   # typed pay per pay variable - Pay & Benefits only
+    details:    Optional[dict] = None   # the person's details (legal name, address, phone, emergency contact)
+
+
+def _pay_values_allowed(values: Optional[dict], user: dict, db: Session) -> Optional[dict]:
+    if values and any(str(v or "").strip() for v in values.values()):
+        if not _has_comp(user, db):
+            raise HTTPException(403, "Entering pay needs Pay & Benefits access.")
+        return values
+    return None
+
+
+@router.post("/candidates/{cid}/hiring-packet/start")
+def start_hiring_packet(cid: str, body: StartPacketIn, user: dict = Depends(require_hr_write),
+                        db: Session = Depends(get_db)):
+    """Start Hiring Packet: the Four Options and the details -> the documents
+    are generated at once -> the verifier checks them. Nothing is sent."""
+    pay = _pay_allowed(HirePacketIn(pay=body.pay), user, db)
+    try:
+        ev = hle.start_hire(db, user, cid, body.inputs or {}, pay, _pay_values_allowed(body.pay_values, user, db),
+                            body.details or {}, hr_scope(user, db))
+    except hle.PacketError as e:
+        db.rollback()
+        _raise(e)
+    return hle.ser_event(db, ev, show_pay=_has_comp(user, db))
+
+
+def _locked_event(db: Session, eid: str, user: dict) -> HrLifeEvent:
+    ev = db.query(HrLifeEvent).filter(HrLifeEvent.id == eid).with_for_update().first()
+    if not ev:
+        raise HTTPException(404, "Not found")
+    _event_in_scope(db, ev, hr_scope(user, db))
+    return ev
+
+
+@router.get("/life-events/{eid}/review")
+def review_packet(eid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    """The review screen - a pure read (api.js may retry it)."""
+    ev = db.query(HrLifeEvent).filter(HrLifeEvent.id == eid).first()
+    if not ev:
+        raise HTTPException(404, "Not found")
+    _event_in_scope(db, ev, hr_scope(user, db))
+    return hpd.review_out(db, ev, user, can_see_pay=_has_comp(user, db))
+
+
+@router.get("/life-events/{eid}/documents/{did}/pdf")
+def packet_document_pdf(eid: str, did: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    """One generated document as it will be signed. A document that shows pay
+    opens for Pay & Benefits holders only."""
+    from models import Document
+    ev = db.query(HrLifeEvent).filter(HrLifeEvent.id == eid).first()
+    if not ev:
+        raise HTTPException(404, "Not found")
+    _event_in_scope(db, ev, hr_scope(user, db))
+    row = db.query(Document).filter(Document.id == did, Document.life_event_id == ev.id).first()
+    if not row:
+        raise HTTPException(404, "Document not found")
+    setting = hpd.event_setting(db, ev)
+    comp = _has_comp(user, db)
+    prints = setting is None or hpd.doc_prints_pay(setting, hpd.row_snap(db, row))
+    if prints and not comp:
+        raise HTTPException(403, "This document shows pay - Pay & Benefits access is needed.")
+    pdf, _missing = hpd.render_row(db, row, hpd.pay_merge(ev.pay or {}, ev.pay_values) if comp else {})
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'inline; filename="{hle._safe_name(row.title)}.pdf"'})
+
+
+class PacketValuesIn(BaseModel):
+    inputs:     Optional[dict] = None
+    details:    Optional[dict] = None
+    extra:      Optional[dict] = None
+    pay:        Optional[dict] = None
+    pay_values: Optional[dict] = None
+
+
+@router.patch("/life-events/{eid}/values")
+def patch_packet_values(eid: str, body: PacketValuesIn, user: dict = Depends(require_hr_write),
+                        db: Session = Depends(get_db)):
+    ev = _locked_event(db, eid, user)
+    try:
+        hle.patch_values(db, ev, user, body.model_dump(exclude_unset=True), can_see_pay=_has_comp(user, db))
+    except hle.PacketError as e:
+        db.rollback()
+        _raise(e)
+    return hpd.review_out(db, ev, user, can_see_pay=_has_comp(user, db))
+
+
+@router.post("/life-events/{eid}/regenerate")
+def regenerate_packet(eid: str, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """Bring the documents up to date (a template was published, a value or a
+    signer changed). Idempotent: a second call changes nothing."""
+    ev = _locked_event(db, eid, user)
+    if ev.status != "review":
+        raise HTTPException(409, f"This packet is {ev.status.replace('_', ' ')}.")
+    setting = hpd.event_setting(db, ev)
+    if setting is None:
+        raise HTTPException(409, "This packet's settings were deleted - void it and start again.")
+    p = hpd.event_plan(db, ev, setting, sender=ev.created_by or user["email"], can_see_pay=True)
+    if hpd.sync_documents(db, ev, setting, p, user["email"].lower()):
+        ev.updated_at = _now()
+    db.commit()
+    return hpd.review_out(db, ev, user, can_see_pay=_has_comp(user, db))
+
+
+class VerifyIn(BaseModel):
+    excluded_ack: Optional[bool] = False
+    seen:         Optional[dict] = None    # {documentId: version} the reviewer saw
+
+
+@router.post("/life-events/{eid}/verify-and-send")
+def verify_and_send_packet(eid: str, body: VerifyIn, request: Request, user: dict = Depends(require_hr_write),
+                           db: Session = Depends(get_db)):
+    """Only the verifier sends - the person the packet's Verified By role
+    resolves to today (403 for anyone else)."""
+    ev = _locked_event(db, eid, user)
+    ip, ua = _client_meta(request)
+    try:
+        hpd.verify_and_send(db, ev, user, seen=body.seen or {}, excluded_ack=bool(body.excluded_ack),
+                            can_see_pay=_has_comp(user, db), ip=ip, user_agent=ua)
+    except hle.PacketError as e:
+        db.rollback()
+        _raise(e)
+    db.refresh(ev)
+    out = hle.ser_event(db, ev, show_pay=_has_comp(user, db))
+    out["senderPartyId"] = hle.sender_party_id(db, ev, user["email"])
+    return out
+
+
 # ── promotion / role change ──────────────────────────────────────────────────
 
 @router.post("/employees/{eid}/promotion/preview")
@@ -802,10 +935,17 @@ def retry_apply(eid: str, user: dict = Depends(require_hr_write), db: Session = 
 
 @router.post("/life-events/{eid}/void")
 def void_event(eid: str, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
-    ev = db.query(HrLifeEvent).filter(HrLifeEvent.id == eid).first()
+    ev = db.query(HrLifeEvent).filter(HrLifeEvent.id == eid).with_for_update().first()
     if not ev:
         raise HTTPException(404, "Not found")
     _event_in_scope(db, ev, hr_scope(user, db))
+    if ev.status in ("intake", "review"):
+        # Never sent (Oct 14): nothing in Nexus Sign to void.
+        try:
+            hle.void_open(db, ev, user["email"])
+        except hle.PacketError as e:
+            _raise(e)
+        return hle.ser_event(db, ev, show_pay=_has_comp(user, db))
     if ev.status not in hle.ACTIVE:
         raise HTTPException(409, f"This packet is already {ev.status}.")
     from routers.esign import void_request

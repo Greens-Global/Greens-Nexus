@@ -635,3 +635,358 @@ def plan(db: Session, setting: HrPacketSetting, *, ctx: dict, overrides: dict, p
                             "action": p["action"], "actionLabel": ACTION_LABELS.get(p["action"], p["action"]),
                             "name": p["name"], "email": p["email"], "isSubject": p["role"] == SUBJECT_ROLE}
                            for p in parties]}
+
+
+# ── an event: generate, review, verify, send ────────────────────────────────
+# The documents are generated the moment the details are in ("then it
+# generates that hiring paperwork instantly"), checked by the verifier, and
+# sent as ONE Nexus Sign envelope only by the verifier. Before send nothing
+# is frozen: a template published meanwhile regenerates the unsent documents.
+# From send on the PDFs in Nexus Sign are the record and never change.
+
+OPEN_STATUSES = ("intake", "review")
+PERSON_KEYS = ("first_name", "last_name", "preferred_name", "phone", "address", "permanent_address")
+
+
+def event_setting(db: Session, ev) -> Optional[HrPacketSetting]:
+    return db.query(HrPacketSetting).filter(HrPacketSetting.id == ev.setting_id).first() if ev.setting_id else None
+
+
+def person_values(ev) -> dict:
+    """The person's details as typed on the details form (HR) or the intake
+    (the candidate) - the legal name prints, whatever the card said."""
+    i = ev.intake or {}
+    out = {k: str(i[k]).strip() for k in PERSON_KEYS if str(i.get(k) or "").strip()}
+    if out.get("first_name") or out.get("last_name"):
+        out["full_name"] = f"{out.get('first_name', '')} {out.get('last_name', '')}".strip()
+    return out
+
+
+def event_ctx(db: Session, ev, setting: HrPacketSetting, sender: str) -> dict:
+    """Who each role is for THIS event, right now - read live, so a change of
+    HR contact or Checklist Owner moves an unsent packet with it."""
+    from models import HrCandidate
+    entity = db.query(HrEntity).filter(HrEntity.id == ev.entity_id).first() if ev.entity_id else None
+    d = ev.inputs or {}
+    if ev.kind == "hire":
+        import hr_life_events as hle
+        cand = db.query(HrCandidate).filter(HrCandidate.id == ev.candidate_id).first()
+        ctx = hle.hire_ctx(db, cand, d, entity, sender) if cand else {"entity": entity, "owners": {}}
+        full = person_values(ev).get("full_name")
+        if full:
+            ctx["subject_name"] = full
+    else:
+        emp = db.query(NexusEmployee).filter(NexusEmployee.id == ev.employee_id).first()
+        ctx = {"entity": entity, "owners": hc.role_owners(db, ev.entity_id or ""), "sender": (sender or "").lower(),
+               "subject_email": (ev.subject_email or "").lower(),
+               "subject_emails": [emp.work_email, emp.personal_email] if emp else [],
+               "subject_name": ev.subject_name,
+               "subject_kind": d.get("send_kind") or ("internal" if ev.kind == "promotion" else "external"),
+               "manager_email": ((emp.manager_email if emp else "") or "").lower()}
+    ctx["verifier_role"] = d.get("verifier_role") or ""
+    ctx["pay_values"] = dict(ev.pay_values or {})
+    return ctx
+
+
+def event_overrides(db: Session, ev) -> dict:
+    """The non-pay values a packet's documents print for this event."""
+    extra = {k: str(v) for k, v in ((ev.inputs or {}).get("extra") or {}).items() if str(v or "").strip()}
+    return {**event_values(db, ev.kind, ev.inputs or {}), **person_values(ev), **extra}
+
+
+def event_plan(db: Session, ev, setting: HrPacketSetting, *, sender: str, can_see_pay: bool) -> dict:
+    d = ev.inputs or {}
+    return plan(db, setting, ctx=event_ctx(db, ev, setting, sender), overrides=event_overrides(db, ev),
+                pay=ev.pay or {}, can_see_pay=can_see_pay, employee_id=ev.employee_id or "",
+                candidate_id=ev.candidate_id or "", entity_id=ev.entity_id or "",
+                extra_template_ids=[d["jd_template_id"]] if d.get("jd_template_id") else [])
+
+
+def _non_pay(values: dict, snaps: list) -> dict:
+    """Never store pay on a document row - drop anything any template treats
+    as pay, under whatever name."""
+    defs = {}
+    for s in snaps:
+        defs.update(s.defs)
+    return {k: v for k, v in (values or {}).items() if not is_pay_token(k, defs)}
+
+
+def outdated(db: Session, ev, p: dict) -> dict:
+    """{documentId: True} for each generated document that no longer matches
+    what the packet would generate now (a template PUBLISHED since, a changed
+    value, a changed signer). A pure read - nothing is written."""
+    want = {s.tpl.id: s for s in p["snaps"]}
+    h = values_hash(_non_pay(p["values"], p["snaps"]))
+    out = {}
+    for e in ev.documents or []:
+        snap = want.get(e.get("templateId"))
+        out[e["documentId"]] = (snap is None or e.get("templateVersion") != snap.version
+                                or e.get("valuesHash") != h)
+    if set(want) - {e.get("templateId") for e in ev.documents or []}:
+        out["__new__"] = True
+    return out
+
+
+def sync_documents(db: Session, ev, setting: HrPacketSetting, p: dict, by: str) -> bool:
+    """Create or regenerate the event's Document rows to match `p`, and archive
+    the ones whose template left the packet. Idempotent: run twice in a row,
+    the second run changes nothing. Returns whether anything changed. The
+    caller holds the event row lock and commits."""
+    import uuid
+    from datetime import datetime, timezone
+    from models import DocumentVersion
+    now = datetime.now(timezone.utc).isoformat()
+    values = _non_pay(p["values"], p["snaps"])
+    h = values_hash(values)
+    existing = {e.get("templateId"): e for e in ev.documents or []}
+    changed, out = False, []
+    for snap in p["snaps"]:
+        lh = document_letterhead(db, setting, snap)
+        e = existing.get(snap.tpl.id)
+        row = db.query(Document).filter(Document.id == e["documentId"]).first() if e else None
+        title = f"{snap.name} - {ev.subject_name}".strip(" -")
+        if row is None:
+            row = Document(id=str(uuid.uuid4()), title=title, folder_id="", template_id=snap.tpl.id,
+                           template_version=snap.version, content=snap.content, letterhead_id=lh,
+                           status="final", employee_id=ev.employee_id or "", candidate_id=ev.candidate_id or "",
+                           entity_id=ev.entity_id or "", merge_overrides=values, owner_email=(by or "").lower(),
+                           tags=[], current_version=1, source="hr-packet", life_event_id=ev.id,
+                           created_by=by, created_at=now, updated_by=by, updated_at=now)
+            db.add(row)
+            db.add(DocumentVersion(id=str(uuid.uuid4()), document_id=row.id, version_no=1, content=snap.content,
+                                   edited_by=by, edited_at=now, note=f"Generated (template v{snap.version})"))
+            changed = True
+        elif (row.template_version != snap.version or (e or {}).get("valuesHash") != h
+              or (row.letterhead_id or "") != lh or row.status == "archived"):
+            row.content, row.template_version, row.merge_overrides = snap.content, snap.version, values
+            row.letterhead_id, row.title, row.status = lh, title, "final"
+            row.current_version = (row.current_version or 1) + 1
+            row.updated_by, row.updated_at = by, now
+            db.add(DocumentVersion(id=str(uuid.uuid4()), document_id=row.id, version_no=row.current_version,
+                                   content=snap.content, edited_by=by, edited_at=now,
+                                   note=f"Regenerated (template v{snap.version})"))
+            changed = True
+        out.append({"documentId": row.id, "templateId": snap.tpl.id, "templateVersion": snap.version,
+                    "valuesHash": h, "title": title, "version": row.current_version or 1})
+    keep = {o["templateId"] for o in out}
+    for tid, e in existing.items():
+        if tid not in keep:
+            row = db.query(Document).filter(Document.id == e["documentId"]).first()
+            if row is not None and row.status != "archived":
+                row.status, row.archived_at = "archived", now
+                changed = True
+    if changed or [o["documentId"] for o in out] != [e.get("documentId") for e in ev.documents or []]:
+        ev.documents = out            # reassigned, never mutated in place (JSON column)
+        changed = True
+    return changed
+
+
+def row_snap(db: Session, row: Document) -> Snap:
+    """A generated document as a Snap: its own frozen content, with the field
+    definitions its template published (date formats, reserved placeholders)."""
+    tpl = db.query(DocTemplate).filter(DocTemplate.id == row.template_id).first()
+    meta = (tpl.published_meta or {}) if tpl is not None and tpl.published_version == row.template_version else {}
+    stub = tpl or DocTemplate(id=row.template_id, name=row.title, department="", version=row.template_version)
+    return Snap(stub, row.content or {}, meta, row.template_version or 0)
+
+
+def render_row(db: Session, row: Document, pay: dict, anchors: Optional[list] = None) -> tuple:
+    """(pdf, unresolved) for a generated document, pay merged in at render."""
+    from routers.documents import render_document
+    snap = row_snap(db, row)
+    merge = full_merge(db, snap, employee_id=row.employee_id or "", candidate_id=row.candidate_id or "",
+                       entity_id=row.entity_id or "", overrides=row.merge_overrides or {}, pay=pay)
+    return render_document(db, row, merge, anchors=anchors), unresolved(snap, merge)
+
+
+def status_at_send(parties: list, subject_email: str) -> str:
+    """awaiting_sender while anyone acts before the person; sent only when the
+    person is invited at once. Never derived from who clicked Send."""
+    want = (subject_email or "").strip().lower()
+    subj = next((p for p in parties if (p["email"] or "").lower() == want), None)
+    if subj is None:
+        return "awaiting_sender"       # fail safe - on_progress moves it on when the person's turn comes
+    ahead = [p for p in parties if p["ordinal"] < subj["ordinal"] and p["partyRole"] != "cc"]
+    return "awaiting_sender" if ahead else "sent"
+
+
+def review_out(db: Session, ev, user: dict, *, can_see_pay: bool) -> dict:
+    """The review screen: what was entered, every generated document (and
+    whether it is out of date), the signing order with names, who verifies,
+    and every problem. A pure read."""
+    import hr_life_events as hle
+    setting = event_setting(db, ev)
+    if setting is None:
+        return {"event": hle.ser_event(db, ev, show_pay=can_see_pay),
+                "problems": ["This packet's settings were deleted - void it and start again."],
+                "documents": [], "recipients": [], "canVerify": False, "verifier": {}}
+    p = event_plan(db, ev, setting, sender=ev.created_by or user["email"], can_see_pay=True)
+    stale = outdated(db, ev, p)
+    unresolved_by_tpl = {d["templateId"]: d["unresolved"] for d in p["documents"]}
+    prints_by_tpl = {d["templateId"]: d["printsPay"] for d in p["documents"]}
+    docs = []
+    for e in ev.documents or []:
+        tpl = db.query(DocTemplate).filter(DocTemplate.id == e.get("templateId")).first()
+        prints = prints_by_tpl.get(e.get("templateId"), True)
+        docs.append({"documentId": e["documentId"], "title": e.get("title", ""), "templateId": e.get("templateId"),
+                     "templateName": tpl.name if tpl else "", "templateVersion": e.get("templateVersion"),
+                     "version": e.get("version", 1), "publishedAt": (tpl.published_at if tpl else "") or "",
+                     "publishedBy": (tpl.published_by if tpl else "") or "",
+                     "outdated": bool(stale.get(e["documentId"])),
+                     "printsPay": prints, "canOpen": can_see_pay or not prints,
+                     "unresolved": unresolved_by_tpl.get(e.get("templateId"), [])})
+    problems = list(p["problems"])
+    if ev.kind == "hire":
+        problems += _hire_problems(db, ev)
+    if setting.verify_distinct and (user["email"] or "").lower() == (ev.created_by or "").lower():
+        problems.append("This packet must be verified by someone other than who started it.")
+    if not can_see_pay and p["printsPay"]:
+        problems.append("These documents show pay - only someone with Pay & Benefits access can verify and send them.")
+    for d in docs:
+        if d["unresolved"]:
+            problems.append(f'"{d["title"]}" still has unfilled details: '
+                            + ", ".join(t.replace("_", " ") for t in d["unresolved"]) + ".")
+    me = (user["email"] or "").lower()
+    can_verify = (ev.status == "review" and bool(p["verifier"]["email"]) and p["verifier"]["email"] == me
+                  and not problems and not any(stale.values()))
+    d = ev.inputs or {}
+    jd = db.query(DocTemplate).filter(DocTemplate.id == d.get("jd_template_id")).first() if d.get("jd_template_id") else None
+    offer = {"roleId": d.get("role_id", ""), "jobTitle": d.get("job_title", ""), "department": d.get("department", ""),
+             "startDate": d.get("start_date", ""), "offerExpires": d.get("offer_expires", ""),
+             "employmentType": d.get("employment_type", ""), "managerEmail": d.get("manager_email", ""),
+             "managerName": name_of(db, d["manager_email"]) if d.get("manager_email") else "",
+             "workStart": d.get("work_start", ""), "workEnd": d.get("work_end", ""),
+             "workDays": list(d.get("work_days") or []), "timingsText": d.get("timings_text", ""),
+             "schedule": timings(d).get("work_schedule", ""), "jdTemplateId": d.get("jd_template_id", ""),
+             "jdName": jd.name if jd else "", "effectiveDate": d.get("effective_date", ""),
+             "lastDay": d.get("last_day", ""), "employeeCode": d.get("employee_code", "")}
+    out = {"event": hle.ser_event(db, ev, show_pay=can_see_pay), "packetName": setting.name or "",
+           "offer": offer, "documents": docs, "recipients": p["recipients"], "verifier": p["verifier"],
+           "printsPay": p["printsPay"], "problems": list(dict.fromkeys(problems)),
+           "outdated": any(stale.values()), "canVerify": can_verify,
+           "isVerifier": p["verifier"]["email"] == me, "details": dict(ev.intake or {}),
+           "extra": dict((ev.inputs or {}).get("extra") or {}),
+           "seen": {e["documentId"]: e.get("version", 1) for e in ev.documents or []}}
+    if can_see_pay:
+        out["pay"] = ev.pay or {}
+        out["payValues"] = dict(ev.pay_values or {})
+        out["payText"] = pay_merge(ev.pay or {}, ev.pay_values).get("salary", "")
+    return out
+
+
+def _hire_problems(db: Session, ev) -> list:
+    """A hire's own checks at review and send: the candidate still at Offer,
+    the offer still open, and the packet still the one their role gets."""
+    import hr_life_events as hle
+    from models import HrCandidate
+    out = []
+    cand = db.query(HrCandidate).filter(HrCandidate.id == ev.candidate_id).first()
+    if cand is None:
+        return ["The candidate was deleted - void this packet."]
+    if cand.stage != "offer":
+        out.append(f"{ev.subject_name} is no longer at Offer - move them back to Offer or void this packet.")
+    exp = (ev.inputs or {}).get("offer_expires") or ""
+    if exp and exp < hle._today():
+        out.append("The offer expiry date has passed - change Offer Expires before sending.")
+    d = ev.inputs or {}
+    if not d.get("packet_id"):
+        want = hle.resolve_setting(db, ev.entity_id or "", "hire", hle.worker_type_of(d.get("employment_type", "")),
+                                   d.get("role_id", ""))
+        if want is not None and want.id != ev.setting_id:
+            out.append(f'This role now uses the "{want.name or "other"}" packet - void this one and start again.')
+    return out
+
+
+def verify_and_send(db: Session, ev, user: dict, *, seen: dict, excluded_ack: bool,
+                    can_see_pay: bool, ip: str = "", user_agent: str = "") -> None:
+    """Only the verifier - the person the packet's verify role resolves to
+    today - releases it, after checking every document. The caller holds the
+    event row lock; this commits (Nexus Sign commits the envelope)."""
+    import hr_life_events as hle
+    from datetime import datetime, timezone
+    if ev.status != "review":
+        raise hle.PacketError(f"This packet is {ev.status.replace('_', ' ')} - it cannot be sent now.", 409)
+    setting = event_setting(db, ev)
+    if setting is None:
+        raise hle.PacketError("This packet's settings were deleted - void it and start again.", 409)
+    me = (user["email"] or "").lower()
+    p = event_plan(db, ev, setting, sender=me, can_see_pay=True)
+    vemail = p["verifier"]["email"]
+    if not vemail:
+        raise hle.PacketError(f"Nobody holds {p['verifier']['roleLabel']} to verify this packet.", 409)
+    if me != vemail:
+        raise hle.PacketError(f"Only {p['verifier']['name']} ({p['verifier']['roleLabel']}) can verify and send "
+                              f"this packet.", 403)
+    if setting.verify_distinct and me == (ev.created_by or "").lower():
+        raise hle.PacketError("This packet must be verified by someone other than who started it.", 403)
+    if p["printsPay"] and not can_see_pay:
+        raise hle.PacketError("These documents show pay - verifying them needs Pay & Benefits access.", 403)
+    if sync_documents(db, ev, setting, p, me) or any(
+            str(seen.get(e["documentId"])) != str(e.get("version", 1)) for e in ev.documents or []):
+        db.commit()
+        raise hle.PacketError("The documents changed while you were reviewing - look again.", 409)
+    problems = list(p["problems"]) + (_hire_problems(db, ev) if ev.kind == "hire" else [])
+    if problems:
+        raise hle.PacketError(problems[0], 409)
+    if not excluded_ack:
+        raise hle.PacketError("Confirm the packet is not a record excluded from electronic signature.", 422)
+    parties = p["parties"]
+    status = status_at_send(parties, ev.subject_email)
+    out = build_envelope(db, ev, setting, user, p, excluded_ack=excluded_ack, ip=ip, user_agent=user_agent)
+    now = datetime.now(timezone.utc).isoformat()
+    ev.sign_request_id = out["id"]
+    ev.status = status
+    ev.verified_by, ev.verified_at, ev.updated_at = me, now, now
+    hle._stage_note(db, ev, f"Verified and sent by {name_of(db, me)}", by=me)
+    db.commit()
+
+
+def build_envelope(db: Session, ev, setting: HrPacketSetting, user: dict, p: dict, *,
+                   excluded_ack: bool, ip: str = "", user_agent: str = "") -> dict:
+    """Render every document with pay, refuse anything still showing a
+    {{variable}}, upload the PDFs, place every signer's fields on the lines
+    the templates drew, and hand Nexus Sign one envelope."""
+    import io
+    import uuid
+    import hr_life_events as hle
+    from fastapi import HTTPException
+    from pypdf import PdfReader
+    from routers import esign
+    from routers.documents import signing_fields
+    pay = pay_merge(ev.pay or {}, ev.pay_values)
+    remap = p["remap"]
+    docs = []
+    for i, e in enumerate(ev.documents or []):
+        row = db.query(Document).filter(Document.id == e["documentId"]).first()
+        anchors = []
+        pdf, missing = render_row(db, row, pay, anchors=anchors)
+        if missing:
+            raise hle.PacketError(f'"{row.title}" still has unfilled details: {", ".join(missing)}.', 409)
+        text = "".join(pg.extract_text() or "" for pg in PdfReader(io.BytesIO(pdf)).pages)
+        if "{{" in text:
+            raise hle.PacketError(f'"{row.title}" still shows an unfilled variable - fix the template or the values.', 409)
+        path = f"esign/{uuid.uuid4()}/{hle._safe_name(row.title, 90)}.pdf"
+        if not esign._storage_put(esign._DOC_BUCKET, path, pdf, "application/pdf").is_success:
+            raise hle.PacketError("Could not store the documents - try again in a minute.", 502)
+        fields = [{**f, "id": f"d{i + 1}-{f['id']}", "role": remap.get(f["role"], f["role"])}
+                  for f in signing_fields(anchors)]
+        docs.append({"name": f"{row.title}.pdf", "path": path, "fields": fields})
+    parties = [esign.PartyIn(role_key=x["key"], name=x["name"], email=x["email"], kind=x["kind"],
+                             ordinal=x["ordinal"], party_role=x["partyRole"], title=x.get("title", ""))
+               for x in p["parties"]]
+    me = (user["email"] or "").lower()
+    first = p["parties"][0] if p["parties"] else None
+    sender_first = bool(first and first["kind"] == "internal" and first["email"] == me
+                        and first["partyRole"] != "cc")
+    title = f"{hle.EVENT_TITLES.get(ev.kind, 'Packet')} - {ev.subject_name}"
+    try:
+        return esign.envelope_from_documents(
+            db, user, documents=docs, parties=parties, title=title, employee_id=ev.employee_id or "",
+            candidate_id=ev.candidate_id or "", entity_id=ev.entity_id or "",
+            message=setting.email_message or "",
+            expires_on=(ev.inputs or {}).get("offer_expires", "") if ev.kind == "hire" else "",
+            ip=ip, user_agent=user_agent, excluded_ack=excluded_ack, document_class="employment",
+            link_kind="life_event", link_id=ev.id, sender_signs_first=sender_first,
+            prints_pay=p["printsPay"])
+    except HTTPException as ex:
+        raise hle.PacketError(str(ex.detail), ex.status_code)

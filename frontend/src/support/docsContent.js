@@ -1140,9 +1140,30 @@ export const DOCS = [
           'In People > Hiring, click Packets. Pick the company, or leave All Companies to add one that every company shares. Under Hiring Packet click Add Packet.',
           'Name the packet and pick the job role it is for - IT gets one packet, Accounting another. A packet made for a role is always used for that role; "Every role" covers the roles that have no packet of their own. A role can be in one packet only.',
           'Add the documents from the template list, in order. Preview shows each one filled with a sample person; Open In Documents takes you to the wording. A template must be published to be used, and the packet always prints its published version - edit and Publish Changes in Documents, and every packet that has not been sent yet updates.',
-          'Check the Signing Order. Each signer the documents' signature blocks name gets a step, set by ROLE: HR, Manager, Authorized Signatory, IT, Payroll... - the same roles People > Checklists uses - with who holds it today shown beside it. The new hire signs last. A step can also Approve or just Get A Copy.',
+          'Check the Signing Order. Each signer named by the signature blocks in the documents gets a step, set by ROLE: HR, Manager, Authorized Signatory, IT, Payroll... - the same roles People > Checklists uses - with who holds it today shown beside it. The new hire signs last. A step can also Approve or just Get A Copy.',
           'Pick who verifies the packet (normally HR), the letterhead for templates that need one, write the welcome note and set the Egnyte subfolder (blank uses Hiring Documents). Click Save Packet - anything that would stop it from going out is listed for you to fix.',
           'A letter that prints {{signatory}} must be signed by the Authorized Signatory (set the person in People > Companies); a letter HR signs should print {{signer.company}} instead, which always names whoever actually signs.',
+        ],
+      },
+      {
+        title: 'Start a Hiring Packet',
+        steps: [
+          'Move the candidate to Offer and open them. When their company and role have a packet built from Documents, the button reads Start Hiring Packet.',
+          'Pick the four things that change per person: the Role (job title), the Pay (Pay & Benefits access needed - or write it out, e.g. "$22.00 per hour plus commission"), the Timings (start and end time and the work days, or a description), and the Job Description. Add the start date and the date the offer expires, and the supervisor.',
+          'Enter their details: legal first and last name, preferred name, phone, address and an emergency contact. These print in the documents and are saved on People when they sign.',
+          'Click Generate Documents. Every document of the packet is filled in at once, and whoever holds the Verified By role (normally HR) is asked to check them. Nothing goes to the candidate yet.',
+        ],
+      },
+      {
+        title: 'Review And Verify a Packet',
+        steps: [
+          'Open the packet from the candidate (Open Review) or from the bell. You see the offer, the details, every document, the signing order with real names, and anything that stops it from going out.',
+          'Preview each document - it is exactly what will be signed. A document that shows pay opens only for people with Pay & Benefits access.',
+          'Fix anything with Edit: the documents regenerate. The role cannot be changed here - it decides which packet goes; void the packet and start again for another role.',
+          'If a template is published in Documents while the packet waits, its documents update by themselves. Documents already sent never change.',
+          'Only the verifier sees Verify And Send - the person who holds the Verified By role today (change the company\'s HR contact or Checklist Owners and the verifier changes with it). Tick both confirmations and click Verify And Send.',
+          'If you sign first for the company, the signing screen opens straight away; the candidate is emailed the moment the company has signed, and signs last. When they sign they are hired: their details land on People, their pay is set from the start date, and their onboarding checklist starts.',
+          'Void Packet stops a packet before it is sent - nothing reaches the candidate.',
         ],
       },
       {

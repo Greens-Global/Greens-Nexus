@@ -30,7 +30,6 @@ import auth  # noqa: E402
 import cache  # noqa: E402
 import database  # noqa: E402
 import hr_checklists as hc  # noqa: E402
-import hr_life_events as hle  # noqa: E402
 import hr_packet_docs as hpd  # noqa: E402
 import main  # noqa: E402
 import models  # noqa: E402

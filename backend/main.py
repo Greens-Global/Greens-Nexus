@@ -1014,6 +1014,15 @@ def _run_migrations():
             "ALTER TABLE hr_packet_settings ADD COLUMN letterhead_id VARCHAR DEFAULT ''",
             "ALTER TABLE hr_packet_settings ADD COLUMN pay_mode VARCHAR DEFAULT ''",
             "ALTER TABLE hr_entities ADD COLUMN signatory_email VARCHAR DEFAULT ''",
+            # HR packets: review, verify, send (Oct 14). models.HrLifeEvent / Document.
+            "ALTER TABLE hr_life_events ADD COLUMN documents JSON DEFAULT '[]'",
+            "ALTER TABLE hr_life_events ADD COLUMN pay_values JSON DEFAULT '{}'",
+            "ALTER TABLE hr_life_events ADD COLUMN intake JSON DEFAULT '{}'",
+            "ALTER TABLE hr_life_events ADD COLUMN verified_by VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_life_events ADD COLUMN verified_at VARCHAR DEFAULT ''",
+            "ALTER TABLE documents ADD COLUMN life_event_id VARCHAR DEFAULT ''",
+            "ALTER TABLE documents ADD COLUMN candidate_id VARCHAR DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS ix_documents_life_event_id ON documents (life_event_id)",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2254,6 +2263,15 @@ def _run_migrations():
         "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS letterhead_id VARCHAR DEFAULT ''",
         "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS pay_mode VARCHAR DEFAULT ''",
         "ALTER TABLE hr_entities ADD COLUMN IF NOT EXISTS signatory_email VARCHAR DEFAULT ''",
+        # HR packets: review, verify, send (Oct 14). models.HrLifeEvent / Document.
+        "ALTER TABLE hr_life_events ADD COLUMN IF NOT EXISTS documents JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE hr_life_events ADD COLUMN IF NOT EXISTS pay_values JSONB DEFAULT '{}'::jsonb",
+        "ALTER TABLE hr_life_events ADD COLUMN IF NOT EXISTS intake JSONB DEFAULT '{}'::jsonb",
+        "ALTER TABLE hr_life_events ADD COLUMN IF NOT EXISTS verified_by VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_life_events ADD COLUMN IF NOT EXISTS verified_at VARCHAR DEFAULT ''",
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS life_event_id VARCHAR DEFAULT ''",
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS candidate_id VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_documents_life_event_id ON documents (life_event_id)",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
