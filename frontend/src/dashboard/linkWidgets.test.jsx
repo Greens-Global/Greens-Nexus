@@ -38,7 +38,7 @@ vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ myEmail: 'neil@gre
 vi.mock('@azure/msal-react', () => ({ useMsal: () => ({ accounts: [{ name: 'Neil Kadakia', username: 'neil@greensglobal.com' }] }) }));
 vi.mock('../contexts/NotificationContext.jsx', () => ({ useNotifications: () => ({ openPanel: vi.fn() }) }));
 
-import { WIDGETS, DEFAULT_QUICK_ACTIONS, QUICK_ACTIONS, resolveQuickActions } from './widgets.jsx';
+import { WIDGETS, DEFAULT_QUICK_ACTIONS, QUICK_ACTIONS, resolveQuickActions, clampToLimits } from './widgets.jsx';
 import { configValid } from './WidgetGallery.jsx';
 
 const mount = (type, config = {}) => {
@@ -140,8 +140,26 @@ describe('Quick Actions tile', () => {
     expect(screen.getByRole('button', { name: 'New Ticket' })).toBeTruthy();
   });
 
+  it('draws a quiet note, never a blank patch, when nothing applies to this person', () => {
+    const Comp = WIDGETS['quick-actions'].render;
+    // 'credvault' needs a grant the mocked role lacks.
+    render(<Comp config={{ style: 'icons', actions: ['credvault'] }} size={{ w: 2, h: 1 }} updateConfig={vi.fn()} kpis={{}} />);
+    expect(screen.getByText(/No quick actions apply to you/)).toBeTruthy();
+  });
+
+  it('on a phone the dock is one strip with every icon, told so by the grid', () => {
+    const Comp = WIDGETS['quick-actions'].render;
+    const { container } = render(<Comp config={{ style: 'icons', actions: ['task', 'event', 'email'] }} size={{ w: 2, h: 1 }} phone updateConfig={vi.fn()} kpis={{}} />);
+    expect(container.querySelector('.qa-dock--row')).toBeTruthy();
+    expect(screen.getAllByRole('button').length).toBe(3);
+    expect(screen.queryByRole('button', { name: /more quick actions/ })).toBeNull();
+  });
+
   it('size and limits follow the style, and a dock is one row on a phone', () => {
     const def = WIDGETS['quick-actions'];
+    // The load-time clamp honors the style's bounds: an 8x1 dock survives a reload.
+    expect(clampToLimits({ type: 'quick-actions', x: 0, y: 0, w: 8, h: 1, config: { style: 'icons' } })).toMatchObject({ w: 8, h: 1 });
+    expect(clampToLimits({ type: 'quick-actions', x: 0, y: 0, w: 8, h: 1, config: { style: 'tiles' } })).toMatchObject({ w: 8, h: 2 });
     expect(def.sizeWhen({ style: 'icons' })).toEqual({ w: 3, h: 2 });
     expect(def.limitsWhen({ style: 'icons' }).minH).toBe(1);
     expect(def.limitsWhen({ actions: ['task'] }).minH).toBe(2);              // a saved list tile keeps its bounds

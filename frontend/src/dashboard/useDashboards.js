@@ -234,7 +234,10 @@ export function useDashboards(widgetTier) {
   };
   const autoFit = () => setLayout(compactLayout(layoutRef.current));
   const moveWidget = (i, dir) => setLayout(moveInOrder(layoutRef.current, i, dir));
-  const updateWidgetConfig = (i, patch) => setLayout(layout.map(w => w.i === i ? { ...w, config: { ...(w.config || {}), ...patch } } : w));
+  // The merged config may change the tile's bounds (a Quick Actions style
+  // does), so the tile is clamped to them right away rather than on the
+  // next drag.
+  const updateWidgetConfig = (i, patch) => setLayout(layout.map(w => w.i === i ? clampToLimits({ ...w, config: { ...(w.config || {}), ...patch } }) : w));
 
   const switchView = (id) => {
     const v = views.find(x => x.id === id);

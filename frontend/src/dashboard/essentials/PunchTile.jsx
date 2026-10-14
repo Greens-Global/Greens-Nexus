@@ -5,7 +5,7 @@
 // the same durable punch as My Time and the Time Clock screen - so a tap here
 // IS a punch, never a hand-off. Loaded lazily from widgets.jsx so boards
 // without a punch tile never download the punch stack.
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Clock, LogOut, Coffee, Play } from 'lucide-react';
 import { ActionFace, navigate } from '../widgets.jsx';
 import { usePunchClock, nextPunch, fmtH } from './usePunchClock.jsx';
@@ -58,7 +58,10 @@ export default function PunchTile({ row }) {
 // status - never nothing.
 export function PunchIcon({ className = 'qa-icon', onNote }) {
   const { status, vm, busy, busyLabel, note, act, modals } = usePunchClock();
-  useEffect(() => { if (note?.text && onNote) onNote(note.text); }, [note, onNote]);
+  // Once per note, whatever the caller passes as onNote (an inline closure
+  // would otherwise re-push the same note on every parent render).
+  const onNoteRef = useRef(onNote); onNoteRef.current = onNote;
+  useEffect(() => { if (note?.text) onNoteRef.current?.(note.text); }, [note]);
   const go = () => navigate('timeclock', 'overview');
   const next = status && !vm.exempt && !status.error ? nextPunch(vm) : null;
   const Icon = next ? (ACTION_ICON[next.kind] || Clock) : Clock;

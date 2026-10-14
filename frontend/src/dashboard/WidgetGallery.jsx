@@ -129,9 +129,13 @@ function ActionFields({ config, onChange }) {
 function QuickActionsFields({ config, onChange }) {
   const role = useRole();
   const choices = ACTION_CHOICES.filter(a => actionAllowed(a, role));
-  const picked = (Array.isArray(config.actions) && config.actions.length ? config.actions : DEFAULT_QUICK_ACTIONS).filter(k => choices.some(a => a.key === k));
+  const saved = Array.isArray(config.actions) && config.actions.length ? config.actions : DEFAULT_QUICK_ACTIONS;
+  const picked = saved.filter(k => choices.some(a => a.key === k));
+  // Keys this editor cannot see (a grant they lack, the punch for an exempt
+  // person) stay in the saved list - a shared tile must not lose them.
+  const hidden = saved.filter(k => !choices.some(a => a.key === k) && actionChoice(k));
   const style = quickStyleOf(config);
-  const set = (next) => onChange({ actions: next });
+  const set = (next) => onChange({ actions: [...next, ...hidden] });
   const toggle = (key) => set(picked.includes(key) ? picked.filter(k => k !== key) : [...picked, key]);
   const move = (key, dir) => {
     const i = picked.indexOf(key), j = i + dir;
@@ -182,7 +186,7 @@ function QuickActionsFields({ config, onChange }) {
           );
         })}
       </div>
-      {picked.length === 0 && <p style={{ fontSize: 12, color: 'hsl(var(--color-red))', margin: '8px 0 0' }}>Pick at least one action.</p>}
+      {picked.length === 0 && hidden.length === 0 && <p style={{ fontSize: 12, color: 'hsl(var(--color-red))', margin: '8px 0 0' }}>Pick at least one action.</p>}
     </div>
   );
 }

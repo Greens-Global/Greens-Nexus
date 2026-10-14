@@ -43,6 +43,9 @@ export function stackRows(ordered, isCompact) {
 // `alwaysResizable` puts the SE resize handle on every card in VIEW mode too,
 // so a card's height/width can be dragged without first entering Customize
 // (moving and removing still need it). Off by default.
+// `renderWidget(it, { phone })` (Oct 13) tells the widget whether the board
+// is stacked right now - the grid's own decision, so a widget never has to
+// guess it from a media query of its own.
 // `rowsFor(it)` (Oct 13) lets a widget take a different height in the phone
 // stack than it has on the board - a bare icon dock is one row on a phone
 // whatever its board shape; undefined keeps the board height.
@@ -127,7 +130,7 @@ export default function DashboardGrid({ layout, editing, onLayoutChange, renderW
       // gets at least 150px so a list never collapses to a sliver.
       <div key={it.i} style={{ height: (rowsFor?.(it) || it.h) * ROW_H, minHeight: isCompact(it) || rowsFor?.(it) ? 0 : 150, marginTop: editing ? 16 : 0, minWidth: 0 }}>
         <Card it={it} editing={editing} onRemove={onRemove} onConfigure={onConfigure} onDuplicate={onDuplicate}
-          renderWidget={renderWidget} startDrag={() => {}} draggable={false} canConfigure={canConfigure}
+          renderWidget={renderWidget} startDrag={() => {}} draggable={false} canConfigure={canConfigure} stackedNow
           onMove={onMove} first={pos.get(it.i) === 0} last={pos.get(it.i) === ordered.length - 1} />
       </div>
     );
@@ -192,13 +195,13 @@ const touchBtn5 = { ...touchBtn, width: 32, height: 32 };
 // The cell is a transparent frame: the widget renders its OWN native card
 // (.kpi-card / .dash-card) so it looks identical to the rest of the app. In edit
 // mode we overlay a small control cluster + resize handle on top.
-function Card({ it, editing, onRemove, onConfigure, onDuplicate, renderWidget, startDrag, draggable, alwaysResizable, onMove, first, last, canConfigure }) {
+function Card({ it, editing, onRemove, onConfigure, onDuplicate, renderWidget, startDrag, draggable, alwaysResizable, onMove, first, last, canConfigure, stackedNow }) {
   // A widget with no options gets no gear - it used to show one that did nothing.
   const configurable = onConfigure && (!canConfigure || canConfigure(it));
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
       <div style={{ width: '100%', height: '100%', pointerEvents: editing ? 'none' : 'auto' }}>
-        {renderWidget(it)}
+        {renderWidget(it, { phone: !!stackedNow })}
       </div>
       {editing && (
         <div style={{ position: 'absolute', inset: 0, borderRadius: 'var(--wk-r)', pointerEvents: 'none',
