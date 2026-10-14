@@ -78,6 +78,7 @@ vi.mock('../../api', () => ({
     saveLoanStressEntity: vi.fn(async (code, body) => ({ entity: { entityCode: code, ...body } })),
     setLoanStressExcluded: vi.fn(async () => ({ ok: true })),
     getLoanEntityNoi: vi.fn(async () => ({ entities: { 15000: { noi: 200000, annualized: 266000 } } })),
+    getPlannedLoans: vi.fn(async () => ({ planned: [] })),
   },
 }));
 
@@ -435,6 +436,16 @@ describe('LoansTab', () => {
     expect(to).toBe(`${last.getFullYear()}-${String(last.getMonth() + 1).padStart(2, '0')}-${String(last.getDate()).padStart(2, '0')}`);
     expect(from).toBe(`${to.slice(0, 8)}01`);
     expect(screen.getByText(/No payments posted 10\/01\/2026 - 10\/06\/2026 on the loans shown/)).toBeTruthy();
+  });
+
+  it('Loan Planning is the third tab: the mortgage calculator and the planned loans (Charmi, item 25)', async () => {
+    render(<LoansTab canEdit />);
+    await rowOf('F&M Bank');
+    fireEvent.click(screen.getByRole('tab', { name: 'Loan Planning' }));
+    expect(await screen.findByText('Mortgage Calculator')).toBeTruthy();
+    await waitFor(() => expect(api.getPlannedLoans).toHaveBeenCalled());
+    expect(await screen.findByText(/No planned loans yet/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Save Planned Loan/ })).toBeTruthy();
   });
 
   it('Stress Test is its own tab: addback saved per entity, a loan left out and restored, pencil to Change Loan', async () => {

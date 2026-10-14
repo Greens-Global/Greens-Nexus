@@ -124,6 +124,7 @@ class RouteTests(unittest.TestCase):
             db.query(models.NexusGroup).filter(models.NexusGroup.id == GROUP).delete(synchronize_session=False)
             db.query(models.PayrollRate).filter(models.PayrollRate.employee_email.in_((PAT, SAL))).delete(synchronize_session=False)
             db.query(models.TimePunch).filter(models.TimePunch.employee_email == PAT).delete(synchronize_session=False)
+            db.query(models.TimeApproval).filter(models.TimeApproval.employee_email.in_((PAT, SAL))).delete(synchronize_session=False)
             db.query(models.HrWorkSite).filter(models.HrWorkSite.id == SITE).delete(synchronize_session=False)
             db.query(models.HrEntity).filter(models.HrEntity.id == "co-intacct").delete(synchronize_session=False)
             db.commit()
@@ -138,6 +139,45 @@ class RouteTests(unittest.TestCase):
         self.assertEqual(lines[0], "!TIMERHDR\tVER\tREL\tCOMPANYNAME\tIMPORTEDBEFORE\tFROMTIMER\tCOMPANYCREATETIME")
         self.assertEqual(lines[2], "!TIMEACT\tDATE\tJOB\tEMP\tITEM\tPITEM\tDURATION\tPROJ\tNOTE\tXFERTOPAYROLL\tBILLINGSTATUS")
         self.assertIn("TIMEACT\t9/16/2026\tRental A\tPat Test\t\tRegular Pay\t8.00\t\t\tY\t1", lines)
+
+    def test_iif_route_keeps_one_company_and_approved_sheets(self):
+        # Import Hub (Neil, 10/15): the company picker and "approved only".
+        r = self.client.get(f"/timeclock/export.iif?start={START}&end={END}&company=co-other")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertNotIn("Pat Test", r.text)
+        r = self.client.get(f"/timeclock/export.iif?start={START}&end={END}&company=co-intacct&approved_only=true")
+        self.assertNotIn("Pat Test", r.text)          # not approved yet
+        self._approve(PAT)
+        r = self.client.get(f"/timeclock/export.iif?start={START}&end={END}&company=co-intacct&approved_only=true")
+        self.assertIn("TIMEACT\t9/16/2026\tRental A\tPat Test\t\tRegular Pay\t8.00\t\t\tY\t1", r.text.split("\r\n"))
+
+    def test_hours_route_answers_hours_by_class_without_pay(self):
+        r = self.client.get(f"/timeclock/export-hours?start={START}&end={END}&company=co-intacct")
+        self.assertEqual(r.status_code, 200, r.text)
+        pat = [x for x in r.json()["rows"] if x["email"] == PAT]
+        self.assertEqual(len(pat), 1)
+        self.assertEqual(pat[0]["employeeCode"], "GG-001")
+        self.assertEqual(pat[0]["department"], "Maintenance")
+        self.assertEqual(pat[0]["hours"]["regular"], 8.0)
+        self.assertFalse(pat[0]["approved"])
+        self.assertNotIn("regPay", r.text)
+        # Salaried people are not on the hourly file.
+        self.assertFalse([x for x in r.json()["rows"] if x["email"] == SAL])
+        self.assertEqual(self.client.get(f"/timeclock/export-hours?start={START}&end={END}&approved_only=true").json()["rows"], [])
+        self._approve(PAT)
+        rows = self.client.get(f"/timeclock/export-hours?start={START}&end={END}&approved_only=true").json()["rows"]
+        self.assertEqual([x["email"] for x in rows], [PAT])
+        self.assertTrue(rows[0]["approved"])
+        self.assertEqual(self.client.get("/timeclock/export-hours").status_code, 400)
+
+    def _approve(self, email):
+        db = database.SessionLocal()
+        try:
+            db.add(models.TimeApproval(id=f"appr-{email}", employee_email=email, period_start=START, period_end=END,
+                                       approved_by=ADMIN, approved_at="2026-09-27T00:00:00", kind="manager"))
+            db.commit()
+        finally:
+            db.close()
 
     def test_intacct_export_writes_the_period_in_the_shared_layout(self):
         r = self.client.get(f"/timeclock/export-intacct.csv?start={START}&end={END}&journal=PYRJ&expense=60100&clearing=21500&location=12000")

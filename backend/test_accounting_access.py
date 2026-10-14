@@ -344,6 +344,35 @@ class AccountingAccessTests(unittest.TestCase):
         finally:
             db.close()
 
+    def test_administrators_and_owners_are_listed(self):
+        """Neil, 10/14: "we are missing a bunch of users ... because we are
+        'Administrators', but we should still show up" - listed as every
+        entity, and their limit cannot be set."""
+        admin, owner = "admin.acct.test@greensglobal.com", "owner.acct.test@greensglobal.com"
+        db = database.SessionLocal()
+        try:
+            db.add(models.NexusRole(email=admin, role="administrator"))
+            db.add(models.NexusRole(email=owner, role="owner"))
+            db.commit()
+        finally:
+            db.close()
+        getattr(auth, "_role_cache", {}).clear()
+        try:
+            _as(MANAGER)
+            people = {p["email"]: p for p in self.client.get("/accounting/access").json()["people"]}
+            self.assertEqual((people[admin]["level"], people[admin]["admin"], people[admin]["entities"], people[admin]["hasGrant"]), ("administrator", "administrator", [], True))
+            self.assertEqual((people[owner]["level"], people[owner]["admin"]), ("owner", "owner"))
+            self.assertEqual(people[OPEN]["admin"], "")
+            self.assertEqual(self.client.put(f"/accounting/access/{admin}", json={"entities": ["15000"]}).status_code, 400)
+        finally:
+            db = database.SessionLocal()
+            try:
+                db.query(models.NexusRole).filter(models.NexusRole.email.in_((admin, owner))).delete(synchronize_session=False)
+                db.commit()
+            finally:
+                db.close()
+            getattr(auth, "_role_cache", {}).clear()
+
     def test_last_opened_is_stamped_and_listed(self):
         """Opening Accounting stamps the caller's row; the Access tab lists it
         (Charmi, call of 09/29)."""

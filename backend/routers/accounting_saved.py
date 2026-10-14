@@ -435,9 +435,19 @@ def _holders(db: Session) -> dict[str, int]:
             mid, _, level = part.strip().partition(":")
             if mid == "accounting" and email:
                 out[email.lower()] = max(out.get(email.lower(), 0), _MODULE_LEVEL_RANK.get(level, 1))
-    admin_roles = [name for name, lvl in _LEVELS.items() if lvl >= _LEVELS["administrator"]]
-    admins = {e.lower() for (e,) in db.query(models.NexusRole.email).filter(models.NexusRole.role.in_(admin_roles)).all() if e}
+    admins = _admins(db)
     return {e: lvl for e, lvl in out.items() if e not in admins}
+
+
+def _admins(db: Session) -> dict[str, str]:
+    """{email: "administrator" | "owner"} - they open Accounting by role and
+    are never limited to entities (accounting.entity_scope)."""
+    admin_roles = [name for name, lvl in _LEVELS.items() if lvl >= _LEVELS["administrator"]]
+    out: dict[str, str] = {}
+    for e, role in db.query(models.NexusRole.email, models.NexusRole.role).filter(models.NexusRole.role.in_(admin_roles)).all():
+        if e and _LEVELS.get(role, 0) > _LEVELS.get(out.get(e.lower(), ""), 0):
+            out[e.lower()] = role
+    return out
 
 
 def _limits(db: Session, emails=None) -> dict[str, list[str]]:
@@ -457,12 +467,16 @@ def list_entity_access(user: dict = Depends(_manage_access), db: Session = Depen
     holders = _holders(db)
     limits = _limits(db)
     levels = {v: k for k, v in _MODULE_LEVEL_RANK.items()}
+    # Administrators and owners are listed too (Neil, 10/14: "we should still
+    # show up"), as every entity and not changeable - `admin` names the role.
+    admins = _admins(db)
     # A person who lost the grant but still has limit rows is listed too, so
     # the rows can be seen and cleared.
-    emails = sorted(set(holders) | set(limits))
+    emails = sorted(set(holders) | set(limits) | set(admins))
     opened = {r.email: r for r in db.query(models.AccountingUserPref).filter(models.AccountingUserPref.email.in_(emails)).all()} if emails else {}
     return {"people": [{
-        "email": e, "level": levels.get(holders.get(e, 0), ""), "hasGrant": e in holders, "entities": limits.get(e, []),
+        "email": e, "level": admins.get(e) or levels.get(holders.get(e, 0), ""), "hasGrant": e in holders or e in admins,
+        "admin": admins.get(e, ""), "entities": [] if e in admins else limits.get(e, []),
         "lastOpened": (opened[e].last_opened_at or "") if e in opened else "", "opens": (opened[e].opens or 0) if e in opened else 0,
     } for e in emails]}
 
@@ -567,6 +581,8 @@ def set_entity_access(email: str, body: EntityAccessBody, user: dict = Depends(_
         raise HTTPException(status_code=400, detail="Whose access?")
     if target == user["email"].lower() and user["level"] < _LEVELS["administrator"]:
         raise HTTPException(status_code=400, detail="Someone else has to change your own entity access.")
+    if target in _admins(db):
+        raise HTTPException(status_code=400, detail="An administrator always reads every entity.")
     codes = sorted({c.strip() for c in body.entities if c and c.strip()})[:400]
     before = _limits(db, [target]).get(target, [])
     (db.query(models.NexusAccessScope)

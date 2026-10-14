@@ -19,6 +19,7 @@ import { EditLoanDialog, ManualLoanDialog, folderName, loanTypeLabel } from './L
 import { POLL_MS } from './LedgerScan';
 import { LoanAmortizationDialog } from './LoanAmortization';
 import { LoanStressDialog, LoanStressPortfolio } from './LoanStress';
+import LoanPlanning from './LoanPlanning';
 
 // Accounting -> Loans & Financing (Neil and Charmi, 10/02: "Nothing has been
 // done on Loans & Financing for me to review"). The loans table was empty on
@@ -67,7 +68,10 @@ import { LoanStressDialog, LoanStressPortfolio } from './LoanStress';
 //   - Draws only for a Line of Credit (Loan Type under Change Loan, guessed
 //     from the GL title); the type shows beside the lender.
 //   - Loans | Stress Test: the portfolio stress test is its own full-width
-//     sub-tab (LoanStress.jsx) instead of a pop-up.
+//     sub-tab (LoanStress.jsx) instead of a pop-up. Loan Planning (Charmi,
+//     item 25, Oct 15) is the third: the mortgage calculator and the planned
+//     loans per entity (LoanPlanning.jsx). It works with no loans read at
+//     all - a calculator needs no ledger.
 //   - The module's shared controls (items 9, 21, 32, 33): the standard
 //     Customize (Row Density, Rows per Page, Show Historical Entities, plus
 //     Show Closed Loans), a Pager under the loans (totals and exports always
@@ -445,7 +449,7 @@ export default function LoansTab({ canEdit = false }) {
         .acct-loan-totals td { padding-top: 6px; padding-bottom: 6px; vertical-align: middle; }
       `}</style>
       <div className="scroll-tabs" role="tablist" aria-label="Loans & Financing" style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--border-color)' }}>
-        {[['loans', 'Loans'], ['stress', 'Stress Test']].map(([k, l]) => (
+        {[['loans', 'Loans'], ['stress', 'Stress Test'], ['planning', 'Loan Planning']].map(([k, l]) => (
           <button key={k} type="button" role="tab" aria-selected={view === k} onClick={() => setView(k)}
             style={{ border: 'none', background: 'none', cursor: 'pointer', padding: '6px 12px', fontSize: '0.82rem', fontWeight: view === k ? 700 : 500, whiteSpace: 'nowrap',
               color: view === k ? 'var(--wk-brand, #2b45e1)' : 'var(--text-secondary)', borderBottom: `2px solid ${view === k ? 'var(--wk-brand, #2b45e1)' : 'transparent'}`, marginBottom: -1 }}>{l}</button>
@@ -485,6 +489,7 @@ export default function LoansTab({ canEdit = false }) {
         </div>
         </>}
         {view === 'stress' && <span style={{ marginLeft: 'auto', fontSize: '0.76rem', color: 'var(--text-secondary)' }}>NOI (T12) and balances as of {formatDate(to)} - the period picks them</span>}
+        {view === 'planning' && <span style={{ marginLeft: 'auto', fontSize: '0.76rem', color: 'var(--text-secondary)' }}>Entities filter the planned loans; NOI and existing debt as of {formatDate(to)}</span>}
       </div>
 
       {sent && (
@@ -507,7 +512,7 @@ export default function LoansTab({ canEdit = false }) {
       ))}
 
       {/* A failed read is not "no loans" (Oct 6). */}
-      {!error && !loading && review && !all.length && (
+      {view !== 'planning' && !error && !loading && review && !all.length && (
         <div style={{ ...card, padding: 18, fontSize: '0.86rem', color: 'var(--text-secondary)', display: 'grid', gap: 6, maxWidth: 760 }}>
           <strong style={{ color: 'var(--text-primary)' }}>No loans set up for {picked.length ? 'the entities picked' : 'the entities you may read'}.</strong>
           <span>+ Add &gt; From the Ledger reads each active entity's balance sheet as of {formatDate(to)} and proposes a loan for every liability account whose title says {(review?.lookedFor || []).join(', ')}. Accounts payable, credit cards, payroll, accrued, deferred and deposit balances are left out unless the title says loan.</span>
@@ -517,6 +522,7 @@ export default function LoansTab({ canEdit = false }) {
       {view === 'stress' && !error && (loading && !review ? <div style={{ ...card, padding: 8 }}><table className="req-table"><tbody><SkeletonRows cols={8} /></tbody></table></div> : (
         <LoanStressPortfolio loans={openLoans} canEdit={canEdit} to={to} onEditLoan={canEdit ? (l) => setDialog({ edit: l }) : null} />
       ))}
+      {view === 'planning' && <LoanPlanning loans={openLoans} entities={entities} picked={picked} canEdit={canEdit} to={to} />}
 
       {view === 'loans' && !error && !loading && all.length > 0 && !rows.length && (
         <div style={{ ...card, padding: 14, fontSize: '0.84rem', color: 'var(--text-secondary)' }}>

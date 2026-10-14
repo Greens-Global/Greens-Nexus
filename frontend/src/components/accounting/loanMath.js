@@ -452,3 +452,203 @@ export function stressPortfolio(loans = [], { shockBps = 0, overrides = {}, enti
   totals.dscr = totals.debtService > 0 ? Math.round((totals.noi / totals.debtService) * 100) / 100 : null;
   return { entities, totals };
 }
+
+// ── Loan Planning (Charmi, item 25, Oct 15) ─────────────────────────────────
+// "New Loan Planning / Mortgage Calculator": a loan not taken yet - sized from
+// a loan amount or a purchase price and down payment, paid monthly (or
+// quarterly / semiannually / annually), with interest-only months first and a
+// balloon when the term ends before the amortization does. Interest is the
+// note rate over the payments per year on the balance (a full period each
+// time - the 30/360 figure a quote is made on). The rows have the shape the
+// Amortization screen uses, so one table and one export serve both.
+
+export const FREQUENCIES = [
+  { key: 'monthly', label: 'Monthly', perYear: 12, months: 1 },
+  { key: 'quarterly', label: 'Quarterly', perYear: 4, months: 3 },
+  { key: 'semiannual', label: 'Semiannual', perYear: 2, months: 6 },
+  { key: 'annual', label: 'Annual', perYear: 1, months: 12 },
+];
+export const frequencyOf = (key) => FREQUENCIES.find((f) => f.key === key) || FREQUENCIES[0];
+
+const num0 = (v) => (v === '' || v == null || Number.isNaN(Number(v)) ? 0 : Number(v));
+
+/** The amount borrowed: typed, or the purchase price less the down payment. */
+export function planLoanAmount({ usePurchase = false, loanAmount, purchasePrice, downPct } = {}) {
+  if (usePurchase) return round2(Math.max(0, num0(purchasePrice) * (1 - num0(downPct) / 100)));
+  return round2(Math.max(0, num0(loanAmount)));
+}
+
+/**
+ * A planned loan, worked out.
+ *   loanAmount | usePurchase + purchasePrice + downPct
+ *   ratePct        annual note rate, %
+ *   amortYears     years the payment is sized over
+ *   termYears      years to maturity (default the amortization); shorter
+ *                  leaves a balloon
+ *   ioMonths       interest-only months first (rounded up to whole payments);
+ *                  the amortizing payment is then sized over the full
+ *                  amortization from the end of them
+ *   frequency      monthly (default) | quarterly | semiannual | annual
+ *   startDate      YYYY-MM-DD funded; the first payment one period later
+ *   closingCosts   $; pointsPct  % of the loan amount
+ * Returns the schedule rows [{ n, date, payment, interest, principal,
+ * balloon, balance }] and the headline figures, or `errors`.
+ */
+export function mortgagePlan(params = {}) {
+  const f = frequencyOf(params.frequency);
+  const amount = planLoanAmount(params);
+  const ratePct = num0(params.ratePct);
+  const amortYears = num0(params.amortYears);
+  const termYears = num0(params.termYears) || amortYears;
+  const ioMonths = Math.max(0, Math.floor(num0(params.ioMonths)));
+  const nAmort = Math.round(amortYears * f.perYear);
+  const nTerm = Math.round(termYears * f.perYear);
+  const nIo = Math.ceil(ioMonths / f.months);
+  const start = parseIso(params.startDate) ? params.startDate : '';
+  const errors = [];
+  if (!(amount > 0)) errors.push(params.usePurchase ? 'Enter the purchase price (and a down payment under 100%).' : 'Enter the loan amount.');
+  if (ratePct < 0 || ratePct > 50) errors.push('The rate must be between 0% and 50%.');
+  if (!(nAmort >= 1) || amortYears > 100) errors.push('The amortization must be at least one payment and at most 100 years.');
+  if (!(nTerm >= 1) || termYears > 100) errors.push('The term must be at least one payment and at most 100 years.');
+  if (nIo > nTerm && nTerm >= 1) errors.push('Interest-only months cannot exceed the term.');
+  const points = round2(amount * num0(params.pointsPct) / 100);
+  const closingCosts = round2(num0(params.closingCosts));
+  const price = params.usePurchase ? round2(num0(params.purchasePrice)) : null;
+  const base = {
+    amount, frequency: f, rows: [], payment: 0, ioPayment: 0, monthlyPayment: 0, annualDebtService: 0, ioAnnualDebtService: 0,
+    firstYearDebtService: 0, totalInterest: 0, totalPaid: 0, balloon: 0, maturityDate: '', payments: 0, ioPayments: nIo,
+    points, closingCosts, upfrontCosts: round2(points + closingCosts), netProceeds: round2(amount - points - closingCosts),
+    purchasePrice: price, downPayment: price != null ? round2(price - amount) : null, ltvPct: price ? Math.round((amount / price) * 10000) / 100 : null,
+    cashToClose: price != null ? round2(price - amount + points + closingCosts) : null, errors,
+  };
+  if (errors.length) return base;
+
+  const r = ratePct / 100 / f.perYear;
+  const level = round2(pmt(amount, r, nAmort));
+  const fullyAmortizing = nIo + nAmort <= nTerm;
+  const rows = [];
+  let bal = amount;
+  let ioPayment = 0;
+  for (let k = 1; k <= nTerm && bal > 0.004; k += 1) {
+    const interest = round2(bal * r);
+    let principal; let payment;
+    if (k <= nIo) {
+      principal = 0;
+      payment = interest;
+      if (!ioPayment) ioPayment = interest;
+    } else {
+      payment = level;
+      principal = round2(payment - interest);
+      // The last amortizing payment (or one that overpays) clears what the
+      // cents left behind.
+      if (principal >= bal - 0.004 || (k === nIo + nAmort && fullyAmortizing)) {
+        principal = round2(bal);
+        payment = round2(interest + principal);
+      }
+    }
+    bal = round2(bal - principal);
+    let balloon = 0;
+    if (k === nTerm && bal > 0.004) { balloon = bal; bal = 0; }
+    rows.push({ n: k, date: start ? addMonths(start, k * f.months) : '', payment, interest, principal, balloon, balance: bal });
+  }
+  const sum = (list, key) => round2(list.reduce((s, x) => s + x[key], 0));
+  const amortizing = nIo >= nTerm ? ioPayment : level;
+  return {
+    ...base,
+    rows,
+    payments: rows.length,
+    payment: amortizing,
+    ioPayment,
+    monthlyPayment: round2((amortizing * f.perYear) / 12),
+    annualDebtService: round2(amortizing * f.perYear),
+    ioAnnualDebtService: round2(ioPayment * f.perYear),
+    firstYearDebtService: sum(rows.slice(0, f.perYear), 'payment'),
+    totalInterest: sum(rows, 'interest'),
+    totalPaid: round2(sum(rows, 'payment') + sum(rows, 'balloon')),
+    balloon: rows.length ? rows[rows.length - 1].balloon : 0,
+    maturityDate: rows.length ? rows[rows.length - 1].date : '',
+  };
+}
+
+/** The schedule rolled up by calendar year (by loan year when the rows have
+ *  no dates): payments, interest, principal, balloon and the year-end balance. */
+export function yearlySchedule(rows = [], perYear = 12) {
+  const by = new Map();
+  rows.forEach((r, i) => {
+    const year = r.date ? Number(String(r.date).slice(0, 4)) : Math.floor(i / perYear) + 1;
+    if (!by.has(year)) by.set(year, { year, payments: 0, payment: 0, interest: 0, principal: 0, balloon: 0, balance: 0 });
+    const y = by.get(year);
+    y.payments += 1;
+    for (const k of ['payment', 'interest', 'principal', 'balloon']) y[k] += Number(r[k]) || 0;
+    y.balance = r.balance;
+  });
+  return [...by.values()].map((y) => ({ ...y, payment: round2(y.payment), interest: round2(y.interest), principal: round2(y.principal), balloon: round2(y.balloon) }));
+}
+
+/** The largest loan the NOI supports at `dscr` (1.25 = NOI 25% over debt
+ *  service) after the debt service already carried: the payment it leaves
+ *  room for, as a loan at the rate over the amortization (or interest only).
+ *  0 when there is no room. */
+export function maxLoanForDscr({ noi, dscr = 1.25, ratePct, amortYears, frequency = 'monthly', existingDebtService = 0, interestOnly = false } = {}) {
+  const f = frequencyOf(frequency);
+  const target = num0(dscr) > 0 ? num0(dscr) : 1.25;
+  const room = num0(noi) / target - num0(existingDebtService);
+  if (!(room > 0)) return 0;
+  const r = num0(ratePct) / 100 / f.perYear;
+  const per = room / f.perYear;
+  if (interestOnly) return r > 0 ? round2(per / r) : 0;
+  const n = Math.round(num0(amortYears) * f.perYear);
+  if (!(n >= 1)) return 0;
+  return round2(r ? (per * (1 - (1 + r) ** -n)) / r : per * n);
+}
+
+/** The first day of the twelve months that end on `to` (the T12 window). */
+export function t12From(to) {
+  const back = addMonths(to, -12);
+  if (!back) return '';
+  const d = new Date(`${back}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/** An entity's open loans' annual debt service today, sized the way the
+ *  Stress Test sizes it (no shock); loans left out of the Stress Test stay
+ *  out here too. */
+export function existingDebt(loans = [], code = '', excluded = new Set()) {
+  if (!code) return { debtService: 0, loans: 0 };
+  const mine = loans.filter((r) => normalizeLoan(r).entityCode === code && r.isActive !== false && (Number(r.balance) || 0) > 0 && !excluded.has(String(r.id)));
+  if (!mine.length) return { debtService: 0, loans: 0 };
+  const e = stressPortfolio(mine, { shockBps: 0 }).entities[0];
+  return { debtService: e?.baseDebtService || 0, loans: mine.length };
+}
+
+/**
+ * What a planned loan does to its entity: the entity's debt service today
+ * (its open loans, as the Stress Test sizes them) plus the plan's amortizing
+ * debt service (and the interest-only one while that lasts) against the NOI,
+ * and the most that could be borrowed at the target DSCR.
+ */
+export function planImpact({ plan, noi, existingDebtService = 0, dscrTarget = 1.25, ratePct, amortYears, frequency } = {}) {
+  const income = noi == null || noi === '' || Number.isNaN(Number(noi)) ? null : Number(noi);
+  const target = num0(dscrTarget) > 0 ? num0(dscrTarget) : 1.25;
+  const existing = round2(num0(existingDebtService));
+  const planDS = plan?.annualDebtService || 0;
+  const total = round2(existing + planDS);
+  const ratio = (d) => (income != null && d > 0 ? Math.round((income / d) * 100) / 100 : null);
+  const ioTotal = plan?.ioPayments && plan?.ioAnnualDebtService ? round2(existing + plan.ioAnnualDebtService) : null;
+  return {
+    noi: income,
+    target,
+    existingDebtService: existing,
+    planDebtService: planDS,
+    totalDebtService: total,
+    dscrBefore: ratio(existing),
+    dscrLoanOnly: ratio(planDS),
+    dscrAfter: ratio(total),
+    dscrDuringIo: ioTotal != null ? ratio(ioTotal) : null,
+    pass: income == null ? null : total > 0 ? income / total >= target : true,
+    cushion: income == null ? null : round2(income - target * total),
+    maxLoan: income == null ? null : maxLoanForDscr({ noi: income, dscr: target, ratePct, amortYears, frequency, existingDebtService: existing }),
+    maxLoanStandalone: income == null ? null : maxLoanForDscr({ noi: income, dscr: target, ratePct, amortYears, frequency }),
+  };
+}
