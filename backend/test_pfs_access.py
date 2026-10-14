@@ -339,6 +339,68 @@ class LockTests(unittest.TestCase):
         self.assertEqual(self._rows(models.PfsProfileExtra, profile_id=self.pid), [])
         self.assertTrue(self._rows(models.PfsAccessLog, profile_id=self.pid))   # the log stays
 
+    # ── which files a person sees (Neil, 10/14) ─────────────────────────────
+    def test_an_owner_picks_which_files_a_person_sees(self):
+        """"WHICH PFS they can see, not all or none, and then viewer/editor":
+        a person limited to certain files gets only those - in the list, on
+        every route of a file (404, lock or no lock), and for a code. An
+        editor limited this way keeps a file they create. [] lifts it."""
+        try:
+            _as(OWNER)
+            r = self.client.get("/pfs-access/people")
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertTrue({self.pid, self.other} <= {f["id"] for f in r.json()["files"]})
+            self.assertEqual({p["email"]: p for p in r.json()["people"]}[VIEWER]["files"], [])
+            r = self.client.put(f"/pfs-access/people/{VIEWER}", json={"level": "viewer", "files": [self.pid]})
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertEqual((r.json()["level"], r.json()["files"]), ("viewer", [self.pid]))
+            self.assertEqual(self.client.put(f"/pfs-access/people/{VIEWER}", json={"level": "viewer", "files": ["no-such-file"]}).status_code, 400)
+
+            _as(VIEWER)
+            self.assertEqual([p["id"] for p in self.client.get("/pfs/profiles", headers=TAB_B).json()], [self.pid])
+            for path in (f"/pfs/profiles/{self.other}", f"/pfs/profiles/{self.other}/statements", f"/pfs/profiles/{self.other}/affiliates"):
+                self.assertEqual(self.client.get(path, headers=TAB_B).status_code, 404, path)
+            self.assertEqual(self.client.post(f"/pfs-access/files/{self.other}/code", headers=TAB_B).status_code, 404)
+            self.assertEqual(self.client.post(f"/pfs-access/files/{self.other}/verify", headers=TAB_B, json={"code": "123456"}).status_code, 404)
+            code = self._code()
+            self.assertEqual(self.client.post(f"/pfs-access/files/{self.pid}/verify", headers=TAB_B, json={"code": code}).status_code, 200)
+            self.assertEqual(self.client.get(f"/pfs/profiles/{self.pid}", headers=TAB_B).status_code, 200)
+            pfs_access.LOCK_ENABLED = False           # the limit does not hang on the lock
+            self.assertEqual(self.client.get(f"/pfs/profiles/{self.other}", headers=TAB_B).status_code, 404)
+            pfs_access.LOCK_ENABLED = True
+
+            # Editor level, limited to the second file: writes there, nowhere else; a new file stays theirs.
+            _as(OWNER)
+            self.assertEqual(self.client.put(f"/pfs-access/people/{EDITOR}", json={"level": "editor", "files": [self.other]}).status_code, 200)
+            _as(EDITOR)
+            self.assertEqual(self.client.put(f"/pfs/profiles/{self.pid}", headers=TAB_A, json={"name": "Renamed"}).status_code, 404)
+            r = self.client.post("/pfs/profiles", headers=TAB_A, json={"name": "Third File", "kind": "individual"})
+            self.assertEqual(r.status_code, 201, r.text)
+            third = r.json()["id"]
+            self.assertEqual({p["id"] for p in self.client.get("/pfs/profiles", headers=TAB_A).json()}, {self.other, third})
+            self.assertEqual(self.client.get(f"/pfs/profiles/{third}", headers=TAB_A).status_code, 200)
+            self.assertTrue({e["profileId"] for e in self.client.get("/pfs-access/log").json()} <= {self.other, third})
+
+            # A viewer limited to files still cannot write to them.
+            _as(VIEWER)
+            self.assertEqual(self.client.put(f"/pfs/profiles/{self.pid}", headers=TAB_B, json={"name": "Nope"}).status_code, 403)
+
+            # [] lifts the limit; the owner is never limited.
+            _as(OWNER)
+            self.assertEqual(self.client.put(f"/pfs-access/people/{VIEWER}", json={"level": "viewer", "files": []}).json()["files"], [])
+            self.assertEqual(self.client.put(f"/pfs-access/people/{OWNER}", json={"level": "viewer", "files": [self.pid]}).status_code, 400)
+            self.assertTrue({self.pid, self.other, third} <= {p["id"] for p in self.client.get("/pfs/profiles").json()})
+            _as(VIEWER)
+            self.assertTrue({self.pid, self.other, third} <= {p["id"] for p in self.client.get("/pfs/profiles", headers=TAB_B).json()})
+        finally:
+            pfs_access.LOCK_ENABLED = True
+            db = database.SessionLocal()
+            try:
+                db.query(models.NexusAccessScope).filter(models.NexusAccessScope.module_id == pfs_access.SCOPE_MODULE).delete(synchronize_session=False)
+                db.commit()
+            finally:
+                db.close()
+
 
 if __name__ == "__main__":
     unittest.main()

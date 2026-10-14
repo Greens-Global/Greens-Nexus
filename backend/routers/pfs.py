@@ -519,8 +519,11 @@ def meta():
 
 
 @router.get("/profiles")
-def list_profiles(db: Session = Depends(get_db)):
+def list_profiles(user: dict = Depends(_read), db: Session = Depends(get_db)):
     rows = db.query(models.PfsProfile).order_by(models.PfsProfile.archived, models.PfsProfile.name).all()
+    allowed = pfs_access.allowed_files(db, user)   # only the files the caller is given (Neil, 10/14)
+    if allowed is not None:
+        rows = [p for p in rows if p.id in allowed]
     return [_profile_out(p, full=False) for p in rows]
 
 
