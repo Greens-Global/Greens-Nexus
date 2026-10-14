@@ -87,8 +87,9 @@ const storable = (c) => ({
 });
 const sameView = (a, b) => JSON.stringify(storable(a)) === JSON.stringify(storable(b));
 
-export default function ReportsTab({ search = null, searchText: outerText = '', onSearchText = null, onWaiting = null }) {
-  const [config, setConfig] = useState(() => defaultConfig());
+export default function ReportsTab({ search = null, searchText: outerText = '', onSearchText = null, onWaiting = null, report = null, onReportChange = null }) {
+  // Oct 14 (Urmi): `report` opens a statement straight from the Reporting menu.
+  const [config, setConfig] = useState(() => (report ? resolveConfig({ ...defaultConfig(), report }) : defaultConfig()));
   const [entities, setEntities] = useState([]);
   const [limited, setLimited] = useState(false);
   const [result, setResult] = useState(null);
@@ -114,6 +115,18 @@ export default function ReportsTab({ search = null, searchText: outerText = '', 
   const custom = useCustomizePrefs(['pageSize', 'inactiveAccounts']);
   const widths = useColumnWidths(`report:${config.report}`, Number(prefs.accountWidth) ? { __label: Number(prefs.accountWidth) } : {}, { min: 60 });
   const patch = useCallback((p) => setConfig((c) => resolveConfig({ ...c, ...p })), []);
+  // The menu picked another statement: show it (a new pick, not an edit).
+  useEffect(() => {
+    if (report) setConfig((c) => (c.report === report ? c : resolveConfig({ ...c, report, accounts: [] })));
+  }, [report]);
+  // The report on screen changed here (the Report box, a memorized report):
+  // tell the bar so the menu lights the right item. Not on the first draw.
+  const shownReport = useRef(config.report);
+  useEffect(() => {
+    if (shownReport.current === config.report) return;
+    shownReport.current = config.report;
+    if (config.report !== report) onReportChange?.(config.report);
+  }, [config.report]); // eslint-disable-line react-hooks/exhaustive-deps
   const toggleSection = (key) => setCollapsed((c) => { const n = new Set(c); if (n.has(key)) n.delete(key); else n.add(key); return n; });
   // A journal entry opened from its number on a General Ledger line (item 33).
   const [entry, setEntry] = useState(null);   // { id, no }
