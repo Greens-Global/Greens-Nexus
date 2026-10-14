@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, within } from '@testing-library/react';
 import ClockChip from './ClockChip';
 
 // The time clock chip (Oct 14 2026): the sidebar's and the phone sheet's one
@@ -8,7 +8,7 @@ import ClockChip from './ClockChip';
 afterEach(cleanup);
 
 const actions = () => ({ toggleBreak: vi.fn(), punchOut: vi.fn(), startCapture: vi.fn(), stopCapture: vi.fn(), openClock: vi.fn() });
-const working = (extra = {}) => ({ state: 'in', timer: '2:10', sinceLabel: 'since 7:52 AM', lost: false, note: '', busy: false, breakBusy: false, capture: null, actions: actions(), ...extra });
+const working = (extra = {}) => ({ state: 'in', timer: '2:10', todayMin: 130, sinceLabel: 'since 7:52 AM', lost: false, note: '', busy: false, breakBusy: false, capture: null, actions: actions(), ...extra });
 
 describe('ClockChip', () => {
   it('draws nothing without a live shift', () => {
@@ -18,13 +18,14 @@ describe('ClockChip', () => {
     expect(r2.container.innerHTML).toBe('');
   });
 
-  it('working: state, hours without seconds, Break and Punch Out wired to the engine', () => {
+  it('clocked in: state, hours without seconds, the ring, Break and Punch Out wired to the engine', () => {
     const vm = working();
     const { container } = render(<ClockChip vm={vm} />);
-    expect(screen.getByText('Working')).toBeTruthy();
+    expect(screen.getByText('Clocked In')).toBeTruthy();
+    expect(container.querySelector('.sbring--in .sbring-arc')).toBeTruthy();
     expect(screen.getByText('2:10')).toBeTruthy();
     expect(screen.getByText('since 7:52 AM')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /Break/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^Break/ }));
     expect(vm.actions.toggleBreak).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole('button', { name: /Punch Out/ }));
     expect(vm.actions.punchOut).toHaveBeenCalledTimes(1);
@@ -32,11 +33,12 @@ describe('ClockChip', () => {
     expect(vm.actions.openClock).toHaveBeenCalledTimes(1);
   });
 
-  it('on break: amber state with End Break as the primary', () => {
+  it('on break: amber ring and Resume (Play) in place of Break (Pause)', () => {
     const vm = working({ state: 'break', timer: '0:14' });
     const { container } = render(<ClockChip vm={vm} />);
-    expect(container.querySelector('.sbclock--break')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /End Break/ }));
+    expect(container.querySelector('.sbclock--break .sbring--break')).toBeTruthy();
+    expect(screen.getByText('On Break')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Resume/ }));
     expect(vm.actions.toggleBreak).toHaveBeenCalledTimes(1);
   });
 
@@ -52,23 +54,38 @@ describe('ClockChip', () => {
     expect(screen.getByRole('button', { name: /Retry/ })).toBeTruthy();
     r.unmount();
     const { container } = render(<ClockChip vm={working({ lost: true })} variant="rail" />);
-    expect(container.querySelector('.sbclock-tile--lost')).toBeTruthy();
-    expect(screen.getByRole('button', { name: /a punch has not recorded/ })).toBeTruthy();
+    expect(container.querySelector('.sbring-alert')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /A punch has not recorded/ })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Retry Punch Out' })).toBeTruthy();
   });
 
-  it('folded rail: state tile opens the clock, Break and Punch Out work without expanding', () => {
+  it('folded rail: the ring opens the clock, Break and Punch Out work without expanding', () => {
     const vm = working();
     render(<ClockChip vm={vm} variant="rail" />);
-    fireEvent.click(screen.getByRole('button', { name: /Working · 2:10/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Clocked In · 2:10/ }));
     expect(vm.actions.openClock).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole('button', { name: 'Break' }));
     expect(vm.actions.toggleBreak).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole('button', { name: 'Punch Out' }));
     expect(vm.actions.punchOut).toHaveBeenCalledTimes(1);
     const r2 = render(<ClockChip vm={working({ state: 'break', timer: '0:14' })} variant="rail" />);
-    expect(screen.getByRole('button', { name: 'End Break' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Resume' })).toBeTruthy();
     r2.unmount();
+  });
+
+  it('a dropped share in the rail: the ring carries the alert and re-opens the picker', () => {
+    const vm = working({ capture: { screens: 0, paused: false, needed: true } });
+    render(<ClockChip vm={vm} variant="rail" />);
+    fireEvent.click(screen.getByRole('button', { name: /Screen sharing stopped/ }));
+    expect(vm.actions.startCapture).toHaveBeenCalledTimes(1);
+    expect(vm.actions.openClock).not.toHaveBeenCalled();
+  });
+
+  it('leaving: the arc drains to zero and the chip is inert', () => {
+    const { container } = render(<ClockChip vm={working()} leaving />);
+    expect(container.querySelector('.sbclock.is-leaving')).toBeTruthy();
+    const arc = container.querySelector('.sbring-arc');
+    expect(Number(arc.getAttribute('stroke-dashoffset'))).toBeCloseTo(Number(arc.getAttribute('stroke-dasharray')), 3);
   });
 
   it('onAfterAction fires once the punch resolved, and not when the engine blocked it', async () => {
@@ -91,8 +108,10 @@ describe('ClockChip', () => {
   it('monitoring icons: share / stop, another screen, paused; the rail tile carries a note', () => {
     const vm = working({ capture: { screens: 0, paused: false, needed: true } });
     const r = render(<ClockChip vm={vm} />);
-    fireEvent.click(screen.getByRole('button', { name: /Screen sharing stopped/ }));
+    const mon = screen.getByRole('group', { name: 'Screen capture' });
+    fireEvent.click(within(mon).getByRole('button', { name: /Screen sharing stopped/ }));
     expect(vm.actions.startCapture).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('status').textContent).toMatch(/Screen sharing stopped/);   // the head says why
     r.unmount();
     const vm1 = working({ capture: { screens: 2, paused: false, needed: false } });
     const r1 = render(<ClockChip vm={vm1} />);
@@ -109,7 +128,7 @@ describe('ClockChip', () => {
     expect(screen.queryByRole('group', { name: 'Screen capture' })).toBeNull();   // the browser is not the capturer
     const vm2 = working({ note: 'Share your screen to end your break - choose a screen when your browser asks, then tap again.' });
     const { container } = render(<ClockChip vm={vm2} variant="rail" />);
-    expect(container.querySelector('.sbclock-tile--lost')).toBeTruthy();
+    expect(container.querySelector('.sbring-alert')).toBeTruthy();
     expect(screen.getByRole('status').textContent).toMatch(/Share your screen/);
   });
 });

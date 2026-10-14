@@ -31,7 +31,7 @@ const mount = (props = {}) => {
   const r = render(<Sidebar activeView="dashboard" activeSub="" onNavigate={onNavigate} isOpen={false} onClose={() => {}} collapsed={false} onToggleCollapse={onToggleCollapse} {...props} />);
   return { ...r, onNavigate, onToggleCollapse };
 };
-const live = () => ({ state: 'in', timer: '2:10', sinceLabel: 'since 7:52 AM', lost: false, note: '', busy: false, breakBusy: false, capture: null,
+const live = () => ({ state: 'in', timer: '2:10', todayMin: 130, sinceLabel: 'since 7:52 AM', lost: false, note: '', busy: false, breakBusy: false, capture: null,
   actions: { toggleBreak: vi.fn(), punchOut: vi.fn(), startCapture: vi.fn(), stopCapture: vi.fn(), openClock: vi.fn() } });
 
 describe('Sidebar', () => {
@@ -62,7 +62,7 @@ describe('Sidebar', () => {
     expect(r.container.querySelector('.sbclock')).toBeNull();
     expect(timeclockSurfaceClaimed()).toBe(false);
     act(() => publishTimeclock(live()));
-    expect(screen.getByText('Working')).toBeTruthy();
+    expect(screen.getByText('Clocked In')).toBeTruthy();
     expect(screen.getByText('2:10')).toBeTruthy();
     expect(timeclockSurfaceClaimed()).toBe(true);                           // the capsule stands down
     r.unmount();
@@ -72,7 +72,7 @@ describe('Sidebar', () => {
   it('collapsed: the chip is a column of icons with Break and Punch Out', () => {
     act(() => publishTimeclock(live()));
     const { container } = mount({ collapsed: true });
-    expect(container.querySelector('.sbclock-rail')).toBeTruthy();
+    expect(container.querySelector('.sbclock-rail .sbring')).toBeTruthy();
     expect(container.querySelector('.sbclock')).toBeNull();
     expect(screen.getByRole('button', { name: 'Break' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Punch Out' })).toBeTruthy();

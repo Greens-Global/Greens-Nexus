@@ -1,4 +1,4 @@
-import { forwardRef, useState, useEffect } from "react";
+import { forwardRef, useState, useEffect, useRef } from "react";
 import { useRole } from "../contexts/RoleContext";
 import { api } from "../api";
 import { useIsMobile } from "../lib/useIsMobile";
@@ -204,6 +204,18 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
   const tc = useTimeclock();
   const liveClock = !phone && !!tc && (tc.state === 'in' || tc.state === 'break');
   useEffect(() => (liveClock ? claimTimeclockSurface() : undefined), [liveClock]);
+  // A punch-out drains the ring and fades the chip (400ms) before the slot
+  // empties: the last live view-model is held for that long.
+  const [held, setHeld] = useState(null);
+  useEffect(() => {
+    if (liveClock) { setHeld(null); return undefined; }
+    if (!held && tc && lastLive.current) { setHeld(lastLive.current); }
+    const t = setTimeout(() => setHeld(null), 420);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveClock]);
+  const lastLive = useRef(null);
+  useEffect(() => { if (liveClock) lastLive.current = tc; }, [liveClock, tc]);
 
   function renderIcon(item, size = 17) {
     return item.icon
@@ -317,9 +329,9 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
             profile menu). Silent when clocked out. Folded, it is a column
             of icons - state, Break, Punch Out - so nothing needs the
             sidebar open (Neil, Oct 14 2026). ── */}
-        {liveClock && (
+        {(liveClock || held) && (
           <div className="sidebar-foot">
-            <ClockChip vm={tc} variant={collapsed ? 'rail' : 'wide'} />
+            <ClockChip vm={liveClock ? tc : held} variant={collapsed ? 'rail' : 'wide'} leaving={!liveClock} />
           </div>
         )}
       </aside>

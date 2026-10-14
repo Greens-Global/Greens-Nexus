@@ -388,82 +388,99 @@ h1,h2,h3,h4,h5,h6,
 .sidebar-foot { padding: 0 10px 12px; }
 .sidebar.collapsed .sidebar-foot { padding: 0 0 12px; display: flex; justify-content: center; }
 
-/* The time clock chip (components/ClockChip.jsx, Oct 14 2026): the live
-   shift at the foot of the sidebar - state and hours on one line, the two
-   punches on the next; no monitoring controls (the share is required at
-   the punches instead). Brand-tinted while working, amber on a break,
-   red-edged with a parked punch. Folded, it is a column of icons. */
+/* The time clock (components/ClockChip.jsx, Oct 14 2026): one object, a
+   ring that fills with today's hours toward 8 and wears the color of where
+   you are - green clocked in, amber on a break - with the media triad under
+   it, each button wearing the color of where it takes you (Pause amber,
+   Play green, Stop red). Folded, it is a column of circles. Motion: the arc
+   sweeps in, the ring breathes while working and settles on a break, the
+   minute digits slide, and a punch-out drains the arc and fades the chip;
+   all off under reduced motion. */
 .sbclock {
-  border-radius: 14px; padding: 10px 10px 9px; display: flex; flex-direction: column; gap: 8px;
-  background: color-mix(in srgb, var(--wk-brand) 6%, var(--card)); border: 1px solid color-mix(in srgb, var(--wk-brand) 25%, transparent);
+  --sb-tone: var(--wk-brand); --sb-tint: color-mix(in srgb, var(--wk-brand) 7%, var(--card)); --sb-line: color-mix(in srgb, var(--wk-brand) 28%, transparent);
+  border-radius: 12px; padding: 10px 10px 9px; display: flex; flex-direction: column; gap: 9px; position: relative;
+  background: var(--sb-tint); border: 1px solid var(--sb-line);
+  transition: background .25s ease, border-color .25s ease, opacity .4s ease, transform .4s ease;
+  animation: sbIn .18s ease-out;
 }
-.sbclock--break { background: rgba(180,83,9,.06); border-color: rgba(180,83,9,.28); }
-.sbclock--lost { border-color: rgba(185,28,28,.35); }
-.sbclock-head { display: flex; align-items: center; gap: 8px; background: none; border: none; padding: 0; cursor: pointer; font-family: inherit; text-align: left; width: 100%; color: var(--ink); min-width: 0; }
-.sbclock-dot { width: 9px; height: 9px; border-radius: 50%; background: #b45309; flex-shrink: 0; }
-.sbclock--in .sbclock-dot, .sbclock-tile--in .sbclock-dot { background: var(--wk-brand); }
-.sbclock-dot--live { animation: sbPing 1.8s cubic-bezier(.22,1,.36,1) infinite; }
-@keyframes sbPing { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--wk-brand) 45%, transparent); } 70% { box-shadow: 0 0 0 7px rgba(0,0,0,0); } 100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); } }
-@media (prefers-reduced-motion: reduce) { .sbclock-dot--live { animation: none; } }
+.sbclock--break, .sbclock-rail--break { --sb-tone: #b45309; --sb-tint: rgba(180,83,9,.07); --sb-line: rgba(180,83,9,.3); }
+.sbclock.is-leaving, .sbclock-rail.is-leaving { opacity: 0; transform: translateY(6px); pointer-events: none; }
+@keyframes sbIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.sbclock-head { display: flex; align-items: center; gap: 10px; background: none; border: none; padding: 0; cursor: pointer; font-family: inherit; text-align: left; width: 100%; color: var(--ink); min-width: 0; border-radius: 10px; }
 .sbclock-text { display: flex; flex-direction: column; min-width: 0; flex: 1; line-height: 1.2; }
-.sbclock-state { font-size: 12.5px; font-weight: 700; white-space: nowrap; }
-.sbclock-sub { font-size: 10.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sbclock-sub--lost { color: #b91c1c; font-weight: 600; white-space: normal; display: flex; gap: 4px; align-items: flex-start; line-height: 1.3; }
-.sbclock-sub--lost svg { flex-shrink: 0; margin-top: 2px; }
-.sbclock-timer { font-size: 16px; font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; flex-shrink: 0; transition: color .12s ease; }
+.sbclock-state { font-size: 14px; font-weight: 700; white-space: nowrap; letter-spacing: -.01em; }
+.sbclock-sub { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+.sbclock-alert { display: block; width: 100%; box-sizing: border-box; text-align: left; font-family: inherit; font-size: 10.5px; font-weight: 600; line-height: 1.3; color: #b91c1c; background: rgba(185,28,28,.07); border: 1px solid rgba(185,28,28,.2); border-radius: 8px; padding: 5px 8px; }
+.sbclock-alert--btn { cursor: pointer; }
+.sbclock-alert--btn:hover { background: rgba(185,28,28,.11); }
+.sbclock-timer { font-size: 18px; font-weight: 800; letter-spacing: -.03em; font-variant-numeric: tabular-nums; flex-shrink: 0; color: var(--ink); animation: sbTick .22s ease-out; }
 .sbclock--break .sbclock-timer { color: #b45309; }
-.sbclock-head:hover .sbclock-timer { color: var(--wk-brand); }
+.sbclock-head:hover .sbclock-timer { color: var(--sb-tone); }
+@keyframes sbTick { from { transform: translateY(-35%); opacity: 0; } to { transform: none; opacity: 1; } }
+/* the ring */
+.sbring { position: relative; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; border-radius: 50%; }
+.sbring svg { display: block; }
+.sbring-track { stroke: var(--line); }
+.sbring-arc { stroke: var(--sb-tone, var(--wk-brand)); transition: stroke-dashoffset .8s cubic-bezier(.22,1,.36,1), stroke .25s ease; animation: sbSweep .8s cubic-bezier(.22,1,.36,1); }
+@keyframes sbSweep { from { stroke-dashoffset: var(--sb-c, 999); } }
+.sbring--in { --sb-tone: var(--wk-brand); animation: sbBreathe 3.2s ease-in-out infinite; }
+.sbring--break { --sb-tone: #b45309; animation: sbSettle 2.4s ease-in-out infinite; }
+@keyframes sbBreathe { 0%, 100% { filter: drop-shadow(0 0 0 rgba(0,0,0,0)); } 50% { filter: drop-shadow(0 0 5px color-mix(in srgb, var(--wk-brand) 55%, transparent)); } }
+@keyframes sbSettle { 0%, 100% { opacity: 1; } 50% { opacity: .62; } }
+.sbring-core { fill: var(--sb-tone, var(--wk-brand)); transition: fill .25s ease; }
+.sbring-alert { position: absolute; right: -2px; top: -2px; width: 10px; height: 10px; border-radius: 50%; background: #b91c1c; border: 2px solid var(--card); box-sizing: content-box; }
+/* the media triad */
 .sbclock-row { display: flex; gap: 6px; }
 .sbclock-btn {
-  flex: 1; min-width: 0; display: inline-flex; align-items: center; justify-content: center; gap: 5px; font-family: inherit;
-  font-size: 11.5px; font-weight: 700; border: none; border-radius: 8px; padding: 7px 6px; cursor: pointer; white-space: nowrap;
-  transition: filter .12s ease, transform .1s ease;
+  flex: 1; min-width: 0; height: 32px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-family: inherit;
+  font-size: 12px; font-weight: 700; border: none; border-radius: 10px; padding: 0 8px; cursor: pointer; white-space: nowrap;
+  transition: filter .12s ease, transform .1s ease, background .2s ease, color .2s ease;
 }
+.sbclock-btn svg { fill: currentColor; }
 .sbclock-btn:disabled { opacity: .6; cursor: default; }
-.sbclock-btn:not(:disabled):hover { filter: brightness(.96); }
+.sbclock-btn:not(:disabled):hover { filter: brightness(.95); }
 .sbclock-btn:not(:disabled):active { transform: scale(.97); }
-.sbclock-btn--break { background: rgba(180,83,9,.1); color: #b45309; }
-.sbclock-btn--resume { background: var(--wk-brand); color: #fff; }
-.sbclock-btn--out { background: rgba(185,28,28,.1); color: #b91c1c; }   /* red out (Neil, Oct 14): in is green, out is red */
-.sbclock-tile {
-  width: 36px; height: 36px; border-radius: 10px; cursor: pointer; position: relative; padding: 0; color: var(--ink);
-  border: 1px solid color-mix(in srgb, var(--wk-brand) 25%, transparent); background: color-mix(in srgb, var(--wk-brand) 6%, var(--card));
-  display: inline-flex; align-items: center; justify-content: center;
-}
-.sbclock-tile svg { width: 18px; height: 18px; }
-.sbclock-tile--break { border-color: rgba(180,83,9,.28); background: rgba(180,83,9,.06); }
-.sbclock-tile--lost { border-color: #b91c1c; background: rgba(185,28,28,.07); color: #b91c1c; }
-/* Folded: a column of icons - state, Break / End Break, Punch Out - so a
-   punch never needs the sidebar open (Neil, Oct 14 2026). */
-.sbclock-rail { display: flex; flex-direction: column; align-items: center; gap: 6px; }
-.sbclock-ico {
-  width: 36px; height: 36px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--ink);
-  display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; transition: filter .12s ease, transform .1s ease;
-}
-.sbclock-ico svg { width: 16px; height: 16px; }
-.sbclock-ico:disabled { opacity: .6; cursor: default; }
-.sbclock-ico:not(:disabled):hover { filter: brightness(.96); }
-.sbclock-ico:not(:disabled):active { transform: scale(.94); }
-.sbclock-ico--break { background: rgba(180,83,9,.1); border-color: rgba(180,83,9,.25); color: #b45309; }
-.sbclock-ico--resume { background: var(--wk-brand); border-color: var(--wk-brand); color: #fff; }
-.sbclock-ico--out { background: rgba(185,28,28,.1); border-color: rgba(185,28,28,.25); color: #b91c1c; }
-/* Monitoring, as three quiet icons under the punches (Neil, Oct 14: the
-   add-a-monitor and stop-capture controls "cannot be gone"): share / stop,
-   add another screen, and the recording state in the first icon's color.
-   Only when the browser is the capturer. */
-.sbclock-mon { display: flex; align-items: center; gap: 4px; }
+.sbclock-btn--break { background: rgba(180,83,9,.12); color: #b45309; }
+.sbclock-btn--resume { background: color-mix(in srgb, var(--wk-brand) 14%, transparent); color: var(--wk-brand); }
+.sbclock-btn--out { background: rgba(185,28,28,.1); color: #b91c1c; }
+/* monitoring: folded away until the pointer is on the chip (always open on
+   touch, and always when a required share has dropped) - the row grows in
+   over 180ms rather than sitting as a blank band */
+.sbclock-monwrap { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .18s ease, margin-top .18s ease; margin-top: -9px; }
+.sbclock:hover .sbclock-monwrap, .sbclock:focus-within .sbclock-monwrap, .sbclock-monwrap.is-needed { grid-template-rows: 1fr; margin-top: 0; }
+@media (hover: none) { .sbclock-monwrap { grid-template-rows: 1fr; margin-top: 0; } }
+.sbclock-mon { display: flex; align-items: center; justify-content: flex-end; gap: 3px; min-height: 0; overflow: hidden; }
 .sbclock-mon-ico {
-  width: 24px; height: 24px; border-radius: 7px; border: 1px solid transparent; background: none; color: var(--muted);
-  display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; font-family: inherit; font-size: 13px; font-weight: 700; line-height: 1;
+  width: 20px; height: 20px; border-radius: 6px; border: 1px solid transparent; background: none; color: var(--muted);
+  display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; font-family: inherit;
 }
-.sbclock-mon-ico svg { width: 13px; height: 13px; }
+.sbclock-mon-ico svg { width: 12px; height: 12px; }
 .sbclock-mon-ico:hover { background: var(--wk-hover, var(--mist)); color: var(--ink); }
 .sbclock-mon-ico.is-on { color: #b91c1c; }
 .sbclock-mon-ico.is-paused { color: #b45309; }
 .sbclock-mon-ico.is-needed { color: #b91c1c; background: rgba(185,28,28,.08); border-color: rgba(185,28,28,.25); }
 .sbclock-mon-n { font-size: 10px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
-.sbclock-sub--note { color: #b91c1c; font-weight: 600; white-space: normal; line-height: 1.3; }
-.sbclock-tile .sbclock-dot { position: absolute; right: -3px; top: -3px; width: 10px; height: 10px; border: 2px solid var(--card); box-sizing: content-box; }
+/* folded: a column of circles */
+.sbclock-rail { display: flex; flex-direction: column; align-items: center; gap: 8px; animation: sbIn .18s ease-out; transition: opacity .4s ease, transform .4s ease; }
+.sbclock-ringbtn { width: 40px; height: 40px; border-radius: 50%; border: none; background: none; padding: 0; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.sbclock-ringbtn:hover .sbring { transform: scale(1.06); }
+.sbring { transition: transform .15s ease; }
+.sbclock-circle {
+  width: 32px; height: 32px; border-radius: 50%; border: none; padding: 0; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+  transition: filter .12s ease, transform .1s ease, background .2s ease, color .2s ease;
+}
+.sbclock-circle svg { width: 13px; height: 13px; fill: currentColor; }
+.sbclock-circle:disabled { opacity: .6; cursor: default; }
+.sbclock-circle:not(:disabled):hover { filter: brightness(.95); transform: scale(1.06); }
+.sbclock-circle:not(:disabled):active { transform: scale(.94); }
+.sbclock-circle--break { background: rgba(180,83,9,.12); color: #b45309; }
+.sbclock-circle--resume { background: color-mix(in srgb, var(--wk-brand) 14%, transparent); color: var(--wk-brand); }
+.sbclock-circle--out { background: rgba(185,28,28,.1); color: #b91c1c; }
+.sbclock-ringbtn:focus-visible, .sbclock-circle:focus-visible, .sbclock-btn:focus-visible, .sbclock-head:focus-visible { outline: 2px solid var(--sb-tone, var(--wk-brand)); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  .sbclock, .sbclock-rail, .sbclock-timer, .sbring-arc, .sbring--in, .sbring--break { animation: none; }
+  .sbring-arc { transition: none; }
+}
 
 /* The phone capsule (components/TimeclockWidget.jsx, below 900px where
    there is no sidebar): a pill with the live dot and the hours; tapping it
@@ -473,6 +490,8 @@ h1,h2,h3,h4,h5,h6,
   padding: 7px 11px 7px 13px; box-shadow: 0 6px 22px rgba(17,24,39,.16); cursor: pointer; font-family: var(--wk-font);
 }
 .tc-pill-time { font-size: 13.5px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ink); }
+.tc-pill .sbring { --sb-tone: var(--wk-brand); }
+.tc-pill.is-break .sbring { --sb-tone: #b45309; }
 .tc-sheet { width: 236px; background: var(--card); border: 1px solid var(--wk-line2); border-radius: 18px; padding: 8px; box-shadow: 0 24px 70px rgba(17,24,39,.30); }
 .tc-sheet .sbclock { border-radius: 12px; }
 
@@ -4048,7 +4067,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 [data-theme="dark"] .dk-session-chip--on { color: #4ade80; }
 .dk-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .dk-dot--up { background: #00c875; }
-.dk-dot--off { background: var(--wk-faint); }
+.dk-dot--off { background: #b91c1c; opacity: .75; }   /* red = off the clock (Neil, Oct 14 2026: green working, amber break, red not) */
 
 /* stat cards */
 .dk-board { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }

@@ -12,7 +12,7 @@ import { useRole } from '../contexts/RoleContext';
 import { rememberTimeExempt } from '../lib/timeTracking';
 import { publishTimeclock, useTimeclockClaimed, fmtHM } from '../lib/timeclockStore';
 import { deriveMyTime } from '../dashboard/essentials/usePunchClock.jsx';
-import ClockChip from './ClockChip';
+import ClockChip, { ClockRing } from './ClockChip';
 
 // Whether a desktop agent covers THIS machine is detected per-machine by asking
 // the local agent directly over localhost. The agent serves a no-side-effect
@@ -436,6 +436,7 @@ export default function TimeclockWidget() {
   const vm = !live ? { state: mine.state } : {
     state: mine.state,
     timer: fmtHM(onBreak ? Math.floor(elapsedSec / 60) : mine.todayMin),
+    todayMin: mine.todayMin,
     sinceLabel: mine.sinceLabel,
     lost: lostOut, note, busy, breakBusy,
     capture: browserCaptures ? { screens: capturing, paused: capturing > 0 && onBreak, needed: capturing === 0 && !onBreak, intervalMin, randomize: randomizeRef.current } : null,
@@ -487,9 +488,9 @@ export default function TimeclockWidget() {
           <ClockChip vm={vm} onAfterAction={() => setExpanded(false)} />
         </div>
       )}
-      <button type="button" className="tc-pill" onClick={() => setExpanded(v => !v)} aria-expanded={expanded}
+      <button type="button" className={`tc-pill${onBreak ? ' is-break' : ''}`} onClick={() => setExpanded(v => !v)} aria-expanded={expanded}
         title={expanded ? 'Collapse' : 'Time clock - tap for controls'}>
-        <span className={`sbclock-dot${onBreak ? '' : ' sbclock-dot--live'}`} style={{ background: onBreak ? '#b45309' : 'var(--wk-brand)' }} aria-hidden="true" />
+        <ClockRing pct={(vm.todayMin || 0) / 480} tone={onBreak ? 'break' : 'in'} size={20} stroke={3} />
         <span className="tc-pill-time">{onBreak ? `On Break · ${vm.timer}` : vm.timer}</span>
         <ChevronUp size={13} style={{ color: 'var(--muted)', transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
       </button>
