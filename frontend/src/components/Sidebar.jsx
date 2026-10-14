@@ -15,7 +15,7 @@ import {
   KeyRound,
   Briefcase, FileSignature, ArrowDownToLine, ArrowUpFromLine,
   HardDrive, FolderOpen, ClipboardList,
-  MonitorDot, Gauge, CalendarClock, ChevronsLeft, ChevronsRight,
+  MonitorDot, Gauge, CalendarClock, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import TicketToken from "./icons/TicketToken";
 
@@ -194,22 +194,13 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
   // Dev-only Testing module: ask the backend once whether it's enabled here.
   const [qaEnabled, setQaEnabled] = useState(false);
   useEffect(() => { api.qaEnabled().then(r => setQaEnabled(!!r?.enabled)).catch(() => {}); }, []);
-  // Hover to peek (Neil, Oct 14 2026): a collapsed rail slides open over the
-  // page while the pointer is on it and folds back when it leaves - nothing
-  // shifts. The green chevron pins it open; that state is remembered per
-  // device (App.jsx). `railed` is what actually draws as the icon rail.
-  const [peek, setPeek] = useState(false);
-  useEffect(() => { if (!collapsed) setPeek(false); }, [collapsed]);
-  const railed = collapsed && !peek;
+  const railed = collapsed;
   // The time clock chip (Oct 14 2026) replaces the user footer: the live
   // shift from the engine (components/TimeclockWidget.jsx, which keeps
   // running and stops drawing its capsule while this chip claims the
   // surface). Only where the sidebar is a real sidebar - on a phone it is a
   // drawer and the capsule stays. Nothing when clocked out or exempt.
   const phone = useIsMobile('(max-width: 900px)');
-  // Touch browsers synthesize mouseenter on every tap, so a tablet's rail
-  // tap would also slide the peek open: peek only where hover is real.
-  const canHover = useIsMobile('(hover: hover)');
   const tc = useTimeclock();
   const liveClock = !phone && !!tc && (tc.state === 'in' || tc.state === 'break');
   useEffect(() => (liveClock ? claimTimeclockSurface() : undefined), [liveClock]);
@@ -257,24 +248,30 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
 
   return (
     <>
-      <aside ref={ref} className={`sidebar${isOpen ? " open" : ""}${collapsed ? " collapsed" : ""}${peek ? " peek" : ""}`}
-        onMouseEnter={() => { if (collapsed && !phone && canHover) setPeek(true); }}
-        onMouseLeave={() => setPeek(false)}>
+      <aside ref={ref} className={`sidebar${isOpen ? " open" : ""}${collapsed ? " collapsed" : ""}`}>
 
-        {/* ── Header: the mark is the way Home, the green chevron folds the
-            rail (Neil, Oct 14 2026 - the 18px edge tab was too easy to miss;
-            this is the N's size, in Nexus green, so it is the obvious thing
-            to hit). Collapsed, the chevron sits under the N. ── */}
+        {/* ── Collapse toggle: the edge tab, as it always was (Neil, Oct 14
+            2026: a header chevron was tried and sent back) - Nexus green on
+            hover. ── */}
+        <button
+          className="sidebar-collapse-btn"
+          onClick={onToggleCollapse}
+          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          {collapsed
+            ? <ChevronRight style={{ width: 13, height: 13 }} />
+            : <ChevronLeft  style={{ width: 13, height: 13 }} />
+          }
+        </button>
+
+        {/* ── Header: the mark and wordmark are the way Home (Oct 14 2026). ── */}
         <div className="sidebar-header">
           <a href="#dashboard" className="sidebar-brand" title="Dashboard" aria-label="Nexus - go to Dashboard"
             onClick={(e) => { e.preventDefault(); onNavigate('dashboard'); }}>
             <span className="dk-mark" aria-hidden="true">N</span>
             {!railed && <span className="company-name">Nexus</span>}
           </a>
-          <button type="button" className="sidebar-fold" onClick={() => { setPeek(false); onToggleCollapse(); }}
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} title={collapsed ? "Expand sidebar" : "Collapse sidebar"}>
-            {collapsed ? <ChevronsRight /> : <ChevronsLeft />}
-          </button>
         </div>
 
         {/* ── Nav ── */}
@@ -317,10 +314,12 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
 
         {/* ── The time clock, where the user footer was (that footer
             repeated the top-right block; the role badge lives in the
-            profile menu). Silent when clocked out. ── */}
+            profile menu). Silent when clocked out. Folded, it is a column
+            of icons - state, Break, Punch Out - so nothing needs the
+            sidebar open (Neil, Oct 14 2026). ── */}
         {liveClock && (
           <div className="sidebar-foot">
-            <ClockChip vm={tc} variant={railed ? 'tile' : 'wide'} />
+            <ClockChip vm={tc} variant={railed ? 'rail' : 'wide'} />
           </div>
         )}
       </aside>

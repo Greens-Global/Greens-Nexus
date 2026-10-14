@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { ChevronUp, MonitorUp, MonitorPause } from 'lucide-react';
+import { ChevronUp } from 'lucide-react';
 import { api } from '../api';
 import { editGuard } from '../asset/lib/editGuard.js';
 import BodModal from './BodModal';
@@ -345,9 +345,28 @@ export default function TimeclockWidget() {
   // the clock page makes, without a trip to it. The capture engine already
   // pauses frames while on break (see onBreakRef).
   const [breakBusy, setBreakBusy] = useState(false);
+  // A one-line note for the surfaces (why a tap did nothing), cleared after
+  // a moment; the timer is held in a ref so an unmount never sets state.
+  const [note, setNote] = useState('');
+  const noteTimer = useRef(null);
+  useEffect(() => () => clearTimeout(noteTimer.current), []);
+  const say = (text) => { setNote(text); clearTimeout(noteTimer.current); noteTimer.current = setTimeout(() => setNote(''), 6000); };
   async function quickBreak(kind) {
     if (busy || breakBusy) return;
     setBreakBusy(true);
+    // Coming back from a break needs the screen shared where the policy
+    // requires it (same rule as the Workday page and the Punch tile): the
+    // browser only grants a share on a user gesture, so it starts here,
+    // inside the tap, and a declined picker blocks the punch.
+    if (kind === 'break_end') {
+      let ok = true;
+      try { ok = await (window.__nexusCapture?.start?.() ?? Promise.resolve(true)); } catch { ok = false; }
+      if (!ok) {
+        say('Share your screen to end your break - choose a screen when your browser asks, then tap again.');
+        setBreakBusy(false);
+        return;
+      }
+    }
     // With a position, like the Time Clock page - without one every break
     // from here read "Location off" on the timecard (Charmi, Sep 29).
     const pos = await punchPosition(kind);
@@ -395,13 +414,9 @@ export default function TimeclockWidget() {
     setBusy(false);
   }
 
-  // Capture chip state, shared by every surface. Break must read PAUSED, not
-  // REC, so it's obvious capture stopped for the break.
-  const paused = capturing > 0 && onBreak;
-  const capTint = paused ? '#b45309' : capturing ? '#b91c1c' : 'var(--muted)';
-  // The browser is the capturer only when policy enables screens AND no
-  // desktop agent covers this PC - otherwise there is no capture control.
-  const browserCaptures = canCapture && !agentActive && !localAgent;
+  // No capture controls on any surface (Neil, Oct 14 2026): the share is
+  // required at clock-in and at the end of a break instead, and the engine
+  // keeps capturing underneath until the punch-out.
 
   // ── The view-model every surface draws (sidebar chip, phone capsule) ──
   // Hours are the Punch tile's numbers (deriveMyTime): today's worked minutes
@@ -413,13 +428,10 @@ export default function TimeclockWidget() {
     state: onBreak ? 'break' : 'in',
     timer: fmtHM(onBreak ? Math.floor(elapsedSec / 60) : mine.todayMin),
     sinceLabel: mine.sinceLabel,
-    lost: lostOut, busy, breakBusy,
-    capture: browserCaptures ? { screens: capturing, paused, intervalMin, randomize: randomizeRef.current } : null,
+    lost: lostOut, note, busy, breakBusy,
     actions: {
       toggleBreak: () => quickBreak(onBreak ? 'break_end' : 'break_start'),
       punchOut: quickPunchOut,
-      toggleCapture: capturing ? stopCapture : startCapture,
-      addScreen: startCapture,
       openClock: () => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'timeclock' } })),
     },
   };
@@ -467,7 +479,6 @@ export default function TimeclockWidget() {
         title={expanded ? 'Collapse' : 'Time clock - tap for controls'}>
         <span className={`sbclock-dot${onBreak ? '' : ' sbclock-dot--live'}`} style={{ background: onBreak ? '#b45309' : 'var(--wk-brand)' }} aria-hidden="true" />
         <span className="tc-pill-time">{vm.timer}</span>
-        {browserCaptures && capturing > 0 && (paused ? <MonitorPause size={12} style={{ color: capTint }} /> : <MonitorUp size={12} style={{ color: capTint }} />)}
         <ChevronUp size={13} style={{ color: 'var(--muted)', transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
       </button>
     </div>

@@ -7,8 +7,8 @@ import ClockChip from './ClockChip';
 
 afterEach(cleanup);
 
-const actions = () => ({ toggleBreak: vi.fn(), punchOut: vi.fn(), toggleCapture: vi.fn(), addScreen: vi.fn(), openClock: vi.fn() });
-const working = (extra = {}) => ({ state: 'in', timer: '2:10', sinceLabel: 'since 7:52 AM', lost: false, busy: false, breakBusy: false, capture: null, actions: actions(), ...extra });
+const actions = () => ({ toggleBreak: vi.fn(), punchOut: vi.fn(), openClock: vi.fn() });
+const working = (extra = {}) => ({ state: 'in', timer: '2:10', sinceLabel: 'since 7:52 AM', lost: false, note: '', busy: false, breakBusy: false, actions: actions(), ...extra });
 
 describe('ClockChip', () => {
   it('draws nothing without a live shift', () => {
@@ -30,7 +30,7 @@ describe('ClockChip', () => {
     expect(vm.actions.punchOut).toHaveBeenCalledTimes(1);
     fireEvent.click(container.querySelector('.sbclock-head'));                // the whole state row opens the Time Clock
     expect(vm.actions.openClock).toHaveBeenCalledTimes(1);
-    expect(screen.queryByText(/Capture/)).toBeNull();                      // the browser is not the capturer
+    expect(screen.queryByText(/Capture|Recording/)).toBeNull();            // no monitoring controls on the chip
   });
 
   it('on break: amber state with End Break as the primary', () => {
@@ -41,21 +41,10 @@ describe('ClockChip', () => {
     expect(vm.actions.toggleBreak).toHaveBeenCalledTimes(1);
   });
 
-  it('capture: off, recording with another-screen, paused for break', () => {
-    const vm = working({ capture: { screens: 0, paused: false, intervalMin: 5, randomize: false } });
-    const r = render(<ClockChip vm={vm} />);
-    fireEvent.click(screen.getByRole('button', { name: /Capture Off/ }));
-    expect(vm.actions.toggleCapture).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole('button', { name: 'Capture another screen' })).toBeNull();
-    r.unmount();
-    const vm2 = working({ capture: { screens: 2, paused: false, intervalMin: 5, randomize: true } });
-    const r2 = render(<ClockChip vm={vm2} />);
-    expect(screen.getByRole('button', { name: /Recording · 2 Screens/ })).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Capture another screen' }));
-    expect(vm2.actions.addScreen).toHaveBeenCalledTimes(1);
-    r2.unmount();
-    render(<ClockChip vm={working({ state: 'break', timer: '0:03', capture: { screens: 1, paused: true, intervalMin: 5, randomize: false } })} />);
-    expect(screen.getByRole('button', { name: /Paused for Break/ })).toBeTruthy();
+  it('shows the engine\'s note (a declined screen share) in place of the since line', () => {
+    render(<ClockChip vm={working({ note: 'Share your screen to end your break - choose a screen when your browser asks, then tap again.' })} />);
+    expect(screen.getByRole('status').textContent).toMatch(/Share your screen/);
+    expect(screen.queryByText('since 7:52 AM')).toBeNull();
   });
 
   it('a parked punch: the warning line and Retry, and the rail tile says so too', () => {
@@ -63,17 +52,24 @@ describe('ClockChip', () => {
     expect(screen.getByText(/A punch has not recorded/)).toBeTruthy();
     expect(screen.getByRole('button', { name: /Retry/ })).toBeTruthy();
     r.unmount();
-    const { container } = render(<ClockChip vm={working({ lost: true })} variant="tile" />);
+    const { container } = render(<ClockChip vm={working({ lost: true })} variant="rail" />);
     expect(container.querySelector('.sbclock-tile--lost')).toBeTruthy();
     expect(screen.getByRole('button', { name: /a punch has not recorded/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Retry Punch Out' })).toBeTruthy();
   });
 
-  it('the rail tile names the state in its label and opens the clock', () => {
-    const vm = working({ capture: { screens: 1, paused: false, intervalMin: 5, randomize: false } });
-    render(<ClockChip vm={vm} variant="tile" />);
-    const tile = screen.getByRole('button', { name: /Working · 2:10 · recording/ });
-    fireEvent.click(tile);
+  it('folded rail: state tile opens the clock, Break and Punch Out work without expanding', () => {
+    const vm = working();
+    render(<ClockChip vm={vm} variant="rail" />);
+    fireEvent.click(screen.getByRole('button', { name: /Working · 2:10/ }));
     expect(vm.actions.openClock).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Break' }));
+    expect(vm.actions.toggleBreak).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Punch Out' }));
+    expect(vm.actions.punchOut).toHaveBeenCalledTimes(1);
+    const r2 = render(<ClockChip vm={working({ state: 'break', timer: '0:14' })} variant="rail" />);
+    expect(screen.getByRole('button', { name: 'End Break' })).toBeTruthy();
+    r2.unmount();
   });
 
   it('onAfterAction fires after a punch (the phone sheet closes itself)', () => {

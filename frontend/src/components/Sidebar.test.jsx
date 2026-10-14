@@ -30,30 +30,29 @@ const mount = (props = {}) => {
   const r = render(<Sidebar activeView="dashboard" activeSub="" onNavigate={onNavigate} isOpen={false} onClose={() => {}} collapsed={false} onToggleCollapse={onToggleCollapse} {...props} />);
   return { ...r, onNavigate, onToggleCollapse };
 };
-const live = () => ({ state: 'in', timer: '2:10', sinceLabel: 'since 7:52 AM', lost: false, busy: false, breakBusy: false, capture: null,
-  actions: { toggleBreak: vi.fn(), punchOut: vi.fn(), toggleCapture: vi.fn(), addScreen: vi.fn(), openClock: vi.fn() } });
+const live = () => ({ state: 'in', timer: '2:10', sinceLabel: 'since 7:52 AM', lost: false, note: '', busy: false, breakBusy: false,
+  actions: { toggleBreak: vi.fn(), punchOut: vi.fn(), openClock: vi.fn() } });
 
 describe('Sidebar', () => {
-  it('the mark goes Home and the chevron folds the rail; no edge tab, no user footer', () => {
+  it('the mark goes Home, the edge tab folds the rail; no header chevron, no user footer', () => {
     const { onNavigate, onToggleCollapse, container } = mount();
     fireEvent.click(screen.getByRole('link', { name: 'Nexus - go to Dashboard' }));
     expect(onNavigate).toHaveBeenCalledWith('dashboard');
-    fireEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }));
+    const tab = screen.getByRole('button', { name: 'Collapse sidebar' });
+    expect(tab.className).toBe('sidebar-collapse-btn');
+    fireEvent.click(tab);
     expect(onToggleCollapse).toHaveBeenCalledTimes(1);
-    expect(container.querySelector('.sidebar-collapse-btn')).toBeNull();
+    expect(container.querySelector('.sidebar-fold')).toBeNull();
     expect(container.querySelector('.sidebar-user')).toBeNull();
     expect(screen.queryByText('Master portal')).toBeNull();
   });
 
-  it('collapsed: the chevron reads Expand and the rail peeks open on hover', () => {
+  it('collapsed: the edge tab reads Expand and the rail is icons only', () => {
     const { container } = mount({ collapsed: true });
     expect(screen.getByRole('button', { name: 'Expand sidebar' })).toBeTruthy();
-    expect(screen.queryByText('Nexus')).toBeNull();                       // rail: icons only
+    expect(screen.queryByText('Nexus')).toBeNull();
     fireEvent.mouseEnter(container.querySelector('.sidebar'));
-    expect(container.querySelector('.sidebar.peek')).toBeTruthy();
-    expect(screen.getByText('Nexus')).toBeTruthy();                         // labels while peeking
-    fireEvent.mouseLeave(container.querySelector('.sidebar'));
-    expect(container.querySelector('.sidebar.peek')).toBeNull();
+    expect(container.querySelector('.sidebar.peek')).toBeNull();          // no hover peek (sent back, Oct 14)
   });
 
   it('draws the time clock chip from the engine only while a shift is live, and claims the surface', () => {
@@ -69,11 +68,13 @@ describe('Sidebar', () => {
     expect(timeclockSurfaceClaimed()).toBe(false);
   });
 
-  it('collapsed: the chip is the rail tile', () => {
+  it('collapsed: the chip is a column of icons with Break and Punch Out', () => {
     act(() => publishTimeclock(live()));
     const { container } = mount({ collapsed: true });
-    expect(container.querySelector('.sbclock-tile')).toBeTruthy();
+    expect(container.querySelector('.sbclock-rail')).toBeTruthy();
     expect(container.querySelector('.sbclock')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Break' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Punch Out' })).toBeTruthy();
   });
 
   it('on a phone the drawer never draws the chip - the capsule keeps it', () => {
