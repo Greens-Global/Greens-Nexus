@@ -1150,8 +1150,9 @@ export const DOCS = [
         steps: [
           'Move the candidate to Offer and open them. When their company and role have a packet built from Documents, the button reads Start Hiring Packet.',
           'Pick the four things that change per person: the Role (job title), the Pay (Pay & Benefits access needed - or write it out, e.g. "$22.00 per hour plus commission"), the Timings (start and end time and the work days, or a description), and the Job Description. Add the start date and the date the offer expires, and the supervisor.',
-          'Enter their details: legal first and last name, preferred name, phone, address and an emergency contact. These print in the documents and are saved on People when they sign.',
-          'Click Generate Documents. Every document of the packet is filled in at once, and whoever holds the Verified By role (normally HR) is asked to check them. Nothing goes to the candidate yet.',
+          'Choose who fills in their details. "They Fill Them In" emails the candidate a link (no login needed) to enter their legal name, address, phone and an emergency contact; the documents are generated the moment they send it. "I Will" lets you type the details now.',
+          'Click Send Details Link or Generate Documents. Whoever holds the Verified By role (normally HR) is asked to check the documents once they exist. Nothing goes to the candidate to sign yet.',
+          'The details link works once and stops working after the offer expires. If they lost it or made a mistake, open the packet and click Send Link Again - the old link stops working.',
         ],
       },
       {

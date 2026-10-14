@@ -365,6 +365,7 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
   const [jds, setJds] = useState([]);
   const [jdId, setJdId] = useState('');
   const [payText, setPayText] = useState('');
+  const [fills, setFills] = useState('hr');           // who fills in the details: 'hr' now, or 'candidate' (a link)
   const [details, setDetails] = useState({ first_name: c.firstName || '', last_name: c.lastName || '', preferred_name: '', phone: c.phone || '',
     address: '', permanent_address: '', emergency_name: '', emergency_relationship: '', emergency_phone: '' });
   useEffect(() => {
@@ -410,12 +411,13 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
     try {
       const b = body();
       const ev = await api.startHiringPacket(c.id, {
+        intake: fills,
         inputs: { ...b.inputs, ...timing, jd_template_id: jdId },
         pay: b.pay,
         pay_values: canSeePay && payText.trim() ? { salary: payText.trim() } : null,
-        details,
+        details: fills === 'hr' ? details : {},
       });
-      onSent({ ...ev, openReview: true });
+      onSent(fills === 'hr' ? { ...ev, openReview: true } : ev);
     } catch (e) { toastErr(e?.message || 'Could not start the packet.'); setBusy(''); }
   }
   const DAYS = [['mon', 'Mon'], ['tue', 'Tue'], ['wed', 'Wed'], ['thu', 'Thu'], ['fri', 'Fri'], ['sat', 'Sat'], ['sun', 'Sun']];
@@ -565,8 +567,17 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
             </div>
             <div style={{ marginTop: 16, borderTop: '1px solid var(--line)', paddingTop: 4 }}>
               <div style={{ fontSize: 13, fontWeight: 800, marginTop: 10 }}>{c.firstName || 'Their'}'s Details</div>
-              <div style={hint}>Printed in the documents and saved on People when they sign. Use their legal name.</div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 14px' }}>
+              <div style={{ display: 'flex', gap: 4, background: 'var(--mist)', borderRadius: 10, padding: 3, width: 'fit-content', marginTop: 8 }}>
+                {[['candidate', `${c.firstName || 'They'} Fills Them In`], ['hr', 'I Will']].map(([k, l]) => (
+                  <button key={k} type="button" onClick={() => setFills(k)}
+                    style={{ border: 'none', borderRadius: 8, padding: '6px 14px', fontSize: 12.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'Inter,sans-serif',
+                      background: fills === k ? 'var(--card)' : 'transparent', color: 'var(--ink)', boxShadow: fills === k ? '0 1px 3px rgba(0,0,0,0.15)' : 'none' }}>{l}</button>
+                ))}
+              </div>
+              {fills === 'candidate' ? (
+                <div style={hint}>{c.firstName || 'They'} gets an email at {c.email || 'their personal email'} with a link to enter their legal name, address, phone and an emergency contact. The documents are generated the moment they send them, and HR is asked to verify.</div>
+              ) : <div style={hint}>Printed in the documents and saved on People when they sign. Use their legal name.</div>}
+              {fills === 'hr' && <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0 14px' }}>
                 {[['Legal First Name *', 'first_name'], ['Legal Last Name *', 'last_name'], ['Preferred Name', 'preferred_name'], ['Phone', 'phone']].map(([l, k]) => (
                   <div key={k}><label style={lbl}>{l}</label><input className="form-input" style={{ width: '100%' }} value={details[k]} onChange={e => setD(k, e.target.value)} /></div>
                 ))}
@@ -576,7 +587,7 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
                 {[['Emergency Contact', 'emergency_name'], ['Relationship', 'emergency_relationship'], ['Emergency Phone', 'emergency_phone']].map(([l, k]) => (
                   <div key={k}><label style={lbl}>{l}</label><input className="form-input" style={{ width: '100%' }} value={details[k]} onChange={e => setD(k, e.target.value)} /></div>
                 ))}
-              </div>
+              </div>}
             </div>
           </>
         )}
@@ -648,9 +659,11 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
         <button className="secondary-btn" onClick={onClose} disabled={!!busy}>Cancel</button>
         {docsMode ? (
           <button className="primary-btn" onClick={start}
-            disabled={!!busy || !f.role_id || (isOther && (!f.new_role_name.trim() || !f.department)) || !f.start_date || !f.offer_expires || !details.first_name.trim() || !details.last_name.trim()}
+            disabled={!!busy || !f.role_id || (isOther && (!f.new_role_name.trim() || !f.department)) || !f.start_date || !f.offer_expires
+              || (fills === 'hr' && (!details.first_name.trim() || !details.last_name.trim()))}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            {busy === 'start' ? <Spinner size={14} /> : <FileSignature size={14} />} Generate Documents
+            {busy === 'start' ? <Spinner size={14} /> : fills === 'hr' ? <FileSignature size={14} /> : <Send size={14} />}
+            {fills === 'hr' ? 'Generate Documents' : 'Send Details Link'}
           </button>
         ) : !preview ? (
           <button className="primary-btn" onClick={review} disabled={!!busy || !f.role_id || (isOther && (!f.new_role_name.trim() || !f.department)) || !f.start_date || !f.offer_expires}

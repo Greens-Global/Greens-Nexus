@@ -853,9 +853,11 @@ def reserve_code(db: Session) -> str:
 
 
 def start_hire(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[dict], pay_values: Optional[dict],
-               details: Optional[dict], scope) -> HrLifeEvent:
-    """Start Hiring Packet (HR fills the details): the documents are generated
-    at once and the verifier is asked to check them. Commits."""
+               details: Optional[dict], scope, intake_mode: str = "hr") -> tuple:
+    """Start Hiring Packet. HR fills the details: the documents are generated
+    at once and the verifier is asked to check them. The candidate fills them:
+    they get a link, and the documents are generated when they submit.
+    Returns (event, intake token or ''). Commits."""
     import hr_packet_docs as hpd
     plan = plan_hire(db, user, cid, inputs, pay, scope, lock=True)
     cand, setting, d = plan["candidate"], plan["setting"], plan["details"]
@@ -866,7 +868,8 @@ def start_hire(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[di
     opts = four_options(inputs or {})
     _check_jd(db, opts["jd_template_id"])
     person = clean_intake(details)
-    if not person.get("first_name") or not person.get("last_name"):
+    by_candidate = intake_mode == "candidate"
+    if not by_candidate and (not person.get("first_name") or not person.get("last_name")):
         raise PacketError("Enter their legal first and last name.")
     now = _now()
     if d["new_role_name"]:
@@ -879,14 +882,23 @@ def start_hire(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[di
     if any("employee_code" in s.tokens for s in snaps):
         stored["employee_code"] = (plan["former"].employee_code if plan.get("former") is not None
                                    else reserve_code(db)) or ""
-    ev = HrLifeEvent(id=str(uuid.uuid4()), kind="hire", status="review", entity_id=cand.company,
-                     candidate_id=cand.id, subject_name=f"{person['first_name']} {person['last_name']}".strip(),
+    name = (f"{person.get('first_name', '')} {person.get('last_name', '')}".strip()
+            or f"{cand.first_name} {cand.last_name}".strip())
+    ev = HrLifeEvent(id=str(uuid.uuid4()), kind="hire", status="intake" if by_candidate else "review",
+                     entity_id=cand.company, candidate_id=cand.id, subject_name=name,
                      subject_email=cand.email.strip().lower(), setting_id=setting.id, template_id="",
                      inputs=stored, pay=plan["pay"],
                      pay_values=clean_pay_values(db, setting, pay_values, opts["jd_template_id"]),
                      intake=person, effective_date=d["start_date"], documents=[],
                      created_by=user["email"].lower(), created_at=now, updated_at=now)
     db.add(ev)
+    if by_candidate:
+        token = new_intake_token(ev)
+        db.add(HrStageEvent(id=str(uuid.uuid4()), candidate_id=cand.id, from_stage=cand.stage, to_stage=cand.stage,
+                            by_email=user["email"], created_at=now,
+                            note=f"Hiring packet started - {cand.first_name} was asked for their details"))
+        db.commit()
+        return ev, token
     card_from_intake(db, ev)
     db.flush()
     p = hpd.event_plan(db, ev, setting, sender=user["email"], can_see_pay=True)
@@ -896,7 +908,96 @@ def start_hire(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[di
                         note=f"Hiring packet started - waiting for {p['verifier']['name'] or 'HR'} to verify"))
     _ask_verifier(db, ev, p)
     db.commit()
-    return ev
+    return ev, ""
+
+
+# ── the candidate's details link (Oct 14) ────────────────────────────────────
+# "Hey, tell me your name, your address, your blah, blah ... You fill it all
+# in. Then it generates that hiring paperwork instantly." The link is a
+# credential like a signing link: only its sha256 is stored, it dies after
+# the offer expires, it is used once, and wrong tokens are throttled per IP.
+
+def _token_hash(token: str) -> str:
+    import hashlib
+    return hashlib.sha256((token or "").encode()).hexdigest()
+
+
+def new_intake_token(ev: HrLifeEvent) -> str:
+    import secrets
+    token = secrets.token_urlsafe(32)
+    ev.intake_token_hash = _token_hash(token)
+    ev.intake_expires_on = (ev.inputs or {}).get("offer_expires", "") or ""
+    ev.intake_sent_at, ev.intake_submitted_at = _now(), ""
+    return token
+
+
+def intake_by_token(db: Session, token: str, lock: bool = False) -> Optional[HrLifeEvent]:
+    if not token or len(token) > 100:
+        return None
+    q = db.query(HrLifeEvent).filter(HrLifeEvent.intake_token_hash == _token_hash(token))
+    return q.with_for_update().first() if lock else q.first()
+
+
+def intake_public(db: Session, ev: HrLifeEvent) -> dict:
+    """What the candidate's page shows: no pay, nothing beyond the role."""
+    entity = db.query(HrEntity).filter(HrEntity.id == ev.entity_id).first() if ev.entity_id else None
+    cand = db.query(HrCandidate).filter(HrCandidate.id == ev.candidate_id).first() if ev.candidate_id else None
+    expired = bool(ev.intake_expires_on) and ev.intake_expires_on < _today()
+    state = ("submitted" if ev.intake_submitted_at else "closed" if ev.status != "intake"
+             else "expired" if expired else "open")
+    return {"state": state, "company": (entity.legal_name or entity.name) if entity else "",
+            "firstName": (cand.first_name if cand else "") or "", "lastName": (cand.last_name if cand else "") or "",
+            "phone": (cand.phone if cand else "") or "", "role": (ev.inputs or {}).get("job_title", ""),
+            "expiresOn": ev.intake_expires_on or "",
+            "fields": [{"key": k, "required": k in ("first_name", "last_name", "phone", "address")} for k in INTAKE_FIELDS]}
+
+
+def submit_intake(db: Session, ev: HrLifeEvent, values: dict) -> None:
+    """The candidate sends their details: saved, the documents generated, and
+    the verifier asked to check them. The caller holds the row lock; commits."""
+    import hr_packet_docs as hpd
+    info = intake_public(db, ev)
+    if info["state"] == "submitted":
+        raise PacketError("Your details were already sent to HR - thank you.", 409)
+    if info["state"] != "open":
+        raise PacketError("This link is no longer active - please contact HR.", 410)
+    person = clean_intake(values)
+    missing = [k.replace("_", " ") for k in ("first_name", "last_name", "phone", "address") if not person.get(k)]
+    if missing:
+        raise PacketError("Please fill in: " + ", ".join(missing) + ".")
+    ev.intake = person
+    ev.subject_name = f"{person['first_name']} {person['last_name']}".strip()
+    ev.intake_submitted_at = ev.updated_at = _now()
+    ev.status = "review"
+    card_from_intake(db, ev)
+    _stage_note(db, ev, f"{ev.subject_name} sent their details - documents generated", by="candidate")
+    setting = hpd.event_setting(db, ev)
+    db.flush()
+    if setting is not None:
+        try:
+            p = hpd.event_plan(db, ev, setting, sender=ev.created_by, can_see_pay=True)
+            hpd.sync_documents(db, ev, setting, p, ev.created_by)
+            _ask_verifier(db, ev, p)
+        except Exception as e:   # noqa: BLE001 - the details are kept; HR sees the problem on review
+            print(f"[life-events] intake {ev.id}: documents not generated: {type(e).__name__}: {e}")
+            _notify(db, ev.created_by, f"Details received - {ev.subject_name}",
+                    "Their details are saved, but the documents could not be generated - open the packet to see why.", ev, priority=1)
+    db.commit()
+
+
+def reopen_intake(db: Session, ev: HrLifeEvent, by: str) -> str:
+    """Ask the candidate again (a typo, an expired link): a fresh link, the
+    old one dead. The packet goes back to waiting on details. Commits."""
+    if ev.kind != "hire" or ev.status not in ("intake", "review"):
+        raise PacketError("Only a hiring packet that has not been sent can ask for details again.", 409)
+    exp = (ev.inputs or {}).get("offer_expires") or ""
+    if exp and exp < _today():
+        raise PacketError("The offer has expired - change Offer Expires first.", 409)
+    token = new_intake_token(ev)
+    ev.status, ev.updated_at = "intake", _now()
+    _stage_note(db, ev, f"Details link sent again to {ev.subject_email}", by=by)
+    db.commit()
+    return token
 
 
 def card_from_intake(db: Session, ev: HrLifeEvent) -> None:

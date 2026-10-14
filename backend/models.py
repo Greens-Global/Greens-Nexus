@@ -5848,6 +5848,12 @@ class HrLifeEvent(Base):
     intake          = Column(JSON, default=dict)
     verified_by     = Column(String, default="")
     verified_at     = Column(String, default="")
+    # The candidate fills in their own details through a link (Oct 14). Only
+    # the token's sha256 is stored; the link dies after the offer expires.
+    intake_token_hash   = Column(String, default="", index=True)
+    intake_expires_on   = Column(String, default="")
+    intake_sent_at      = Column(String, default="")
+    intake_submitted_at = Column(String, default="")
 
 
 class NexusWorkforceScorecardLog(Base):

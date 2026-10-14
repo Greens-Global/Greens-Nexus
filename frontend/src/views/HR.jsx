@@ -2338,6 +2338,7 @@ function HiringTab({ isMobile, toastOk, toastErr, onEmployeeCreated, onSendForSi
         onSent={ev => {
           setPacketFor(null); setPacketRefresh(n => n + 1);
           if (ev.openReview) setReviewFor(ev.id);
+          else if (ev.intakeUrl) toastOk(`Details link sent to ${ev.subjectEmail}. The documents are generated when they fill it in.`);
           else if (ev.senderPartyId) setSignParty(ev.senderPartyId);
           else toastOk(`Hiring packet sent to ${ev.subjectEmail}.`);
         }} />}

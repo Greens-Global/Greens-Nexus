@@ -2243,11 +2243,29 @@ export const api = {
   regeneratePacket:    (eid) => req(`/hr/life-events/${eid}/regenerate`, { method: 'POST' }),
   packetDocumentPdf:   (eid, did) => reqBlob(`/hr/life-events/${eid}/documents/${did}/pdf`),
   verifyAndSendPacket: (eid, data) => req(`/hr/life-events/${eid}/verify-and-send`, { method: 'POST', body: JSON.stringify(data) }),
+  // Ask the candidate for their details again - a fresh link, the old one dead.
+  reopenPacketIntake:  (eid) => req(`/hr/life-events/${eid}/reopen-intake`, { method: 'POST' }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
 // no MSAL involved, the token in the URL is the credential.
 export const API_BASE = BASE;
+
+// A candidate's details page (/intake/{token}, Oct 14) - no Nexus login; the
+// link's token is the credential, so these are plain fetches.
+async function _publicIntake(token, init) {
+  const res = await fetch(`${BASE}/hr/intake/public/${encodeURIComponent(token)}`, init);
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json())?.detail; } catch { /* not JSON */ }
+    throw new Error(typeof detail === 'string' && detail ? detail : `Could not load this page (${res.status})`);
+  }
+  return res.json();
+}
+export const fetchPublicIntake = (token) => _publicIntake(token);
+export const submitPublicIntake = (token, values) => _publicIntake(token, {
+  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ values }),
+});
 
 // Public unit finder (/map/{propertyId}) - a customer looking for their unit
 // has no Nexus login, so this is a plain fetch of the customer-safe model.

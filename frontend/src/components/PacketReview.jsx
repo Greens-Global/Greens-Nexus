@@ -9,7 +9,7 @@
 // template was published meanwhile) this screen asks for one regenerate and
 // reloads - it never treats the read as a writer.
 import { useEffect, useRef, useState } from 'react';
-import { X, FileText, Eye, Send, Ban, CheckCircle, AlertTriangle, Pencil, Lock, RefreshCw } from 'lucide-react';
+import { X, FileText, Eye, Send, Ban, CheckCircle, AlertTriangle, Pencil, Lock, RefreshCw, Copy, Mail } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, formatHHMM } from '../lib/datetime';
 import { Spinner } from './AsyncState';
@@ -128,6 +128,16 @@ export default function PacketReview({ eventId, onClose, onChanged, onSignNow, t
     }
     setBusy('');
   }
+  async function askAgain() {
+    setBusy('ask');
+    try {
+      const out = await api.reopenPacketIntake(eventId);
+      try { await navigator.clipboard.writeText(out.intakeUrl); } catch { /* clipboard is a convenience */ }
+      toastOk?.(`A fresh link was emailed to ${out.subjectEmail} (and copied) - the old one no longer works.`);
+      load();
+    } catch (e) { toastErr?.(e?.message || 'Could not send the link.'); }
+    setBusy('');
+  }
   async function voidIt() {
     setBusy('void');
     try { await api.voidLifeEvent(eventId); onChanged?.(); onClose(); toastOk?.('Packet voided - nothing was sent.'); }
@@ -145,6 +155,15 @@ export default function PacketReview({ eventId, onClose, onChanged, onSignNow, t
     <Shell onClose={onClose} title={`${ev.title || 'Packet'} - ${ev.subjectName || ''}`}
       sub={data.packetName ? `Packet: ${data.packetName}` : ''} status={STATUS_LABEL[ev.status] || ev.status}>
       <div style={{ overflowY: 'auto', flex: 1, padding: '4px 22px 18px' }}>
+        {ev.status === 'intake' && (
+          <div style={{ ...section, background: 'var(--mist)', fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <Mail size={14} style={{ color: 'var(--muted)' }} />
+            <span style={{ flex: 1, minWidth: 200 }}>Waiting for {ev.subjectName} to fill in their details at {ev.subjectEmail}. The documents are generated the moment they do.</span>
+            <button type="button" className="secondary-btn" onClick={askAgain} disabled={!!busy} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+              {busy === 'ask' ? <Spinner size={12} /> : <Copy size={12} />} Send Link Again
+            </button>
+          </div>
+        )}
         {!inReview && ev.status !== 'intake' && (
           <div style={{ ...section, background: 'var(--mist)', fontSize: 12.5 }}>This packet was sent{ev.verifiedBy ? ` after ${ev.verifiedBy} verified it` : ''}. What went out is in Nexus Sign; it is never edited.</div>
         )}

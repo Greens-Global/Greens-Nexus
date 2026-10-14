@@ -504,6 +504,7 @@ def send_hiring_packet(cid: str, body: HirePacketIn, request: Request,
 # ── packets built from Documents: start, review, verify and send (Oct 14) ───
 
 class StartPacketIn(BaseModel):
+    intake:     Optional[str] = "hr"    # who fills in the details: "hr" (now) or "candidate" (a link)
     inputs:     Optional[dict] = None   # the offer + the Four Options (timings, job description) + merge{}
     pay:        Optional[dict] = None   # structured pay - Pay & Benefits only
     pay_values: Optional[dict] = None   # typed pay per pay variable - Pay & Benefits only
@@ -518,19 +519,88 @@ def _pay_values_allowed(values: Optional[dict], user: dict, db: Session) -> Opti
     return None
 
 
+def _intake_link(token: str) -> str:
+    from app_url import app_url
+    return f"{app_url()}/intake/{token}"
+
+
+def _mail_intake(db: Session, ev: HrLifeEvent, token: str, background: BackgroundTasks) -> str:
+    """Email the candidate their details link (after the response, like the
+    role-change emails). Returns the link, for HR to copy."""
+    import hr_life_email
+    link = _intake_link(token)
+    subject, html = hr_life_email.intake_email(db, ev, link)
+    background.add_task(rc.send_emails, [(ev.subject_email, subject, html)])
+    return link
+
+
 @router.post("/candidates/{cid}/hiring-packet/start")
-def start_hiring_packet(cid: str, body: StartPacketIn, user: dict = Depends(require_hr_write),
-                        db: Session = Depends(get_db)):
+def start_hiring_packet(cid: str, body: StartPacketIn, background: BackgroundTasks,
+                        user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     """Start Hiring Packet: the Four Options and the details -> the documents
-    are generated at once -> the verifier checks them. Nothing is sent."""
+    are generated at once -> the verifier checks them. With intake
+    "candidate", the candidate gets a link for their details instead, and the
+    documents are generated when they send them. Nothing is sent to sign."""
+    if (body.intake or "hr") not in ("hr", "candidate"):
+        raise HTTPException(400, "Who fills in the details must be hr or candidate")
     pay = _pay_allowed(HirePacketIn(pay=body.pay), user, db)
     try:
-        ev = hle.start_hire(db, user, cid, body.inputs or {}, pay, _pay_values_allowed(body.pay_values, user, db),
-                            body.details or {}, hr_scope(user, db))
+        ev, token = hle.start_hire(db, user, cid, body.inputs or {}, pay,
+                                   _pay_values_allowed(body.pay_values, user, db),
+                                   body.details or {}, hr_scope(user, db), intake_mode=body.intake or "hr")
     except hle.PacketError as e:
         db.rollback()
         _raise(e)
-    return hle.ser_event(db, ev, show_pay=_has_comp(user, db))
+    out = hle.ser_event(db, ev, show_pay=_has_comp(user, db))
+    if token:
+        out["intakeUrl"] = _mail_intake(db, ev, token, background)
+    return out
+
+
+@router.post("/life-events/{eid}/reopen-intake")
+def reopen_packet_intake(eid: str, background: BackgroundTasks, user: dict = Depends(require_hr_write),
+                         db: Session = Depends(get_db)):
+    """Ask the candidate for their details again: a fresh link, the old one dead."""
+    ev = _locked_event(db, eid, user)
+    try:
+        token = hle.reopen_intake(db, ev, user["email"])
+    except hle.PacketError as e:
+        db.rollback()
+        _raise(e)
+    out = hle.ser_event(db, ev, show_pay=_has_comp(user, db))
+    out["intakeUrl"] = _mail_intake(db, ev, token, background)
+    return out
+
+
+# ── the candidate's details page (public: the link's token is the credential) ─
+
+class IntakeIn(BaseModel):
+    values: dict
+
+
+@router.get("/intake/public/{token}")
+def intake_page(token: str, request: Request, db: Session = Depends(get_db)):
+    from routers.esign import _note_token_miss
+    ev = hle.intake_by_token(db, token)
+    if ev is None:
+        _note_token_miss(request)
+        raise HTTPException(404, "This link is not valid - please contact HR.")
+    return hle.intake_public(db, ev)
+
+
+@router.post("/intake/public/{token}")
+def intake_submit(token: str, body: IntakeIn, request: Request, db: Session = Depends(get_db)):
+    from routers.esign import _note_token_miss
+    ev = hle.intake_by_token(db, token, lock=True)
+    if ev is None:
+        _note_token_miss(request)
+        raise HTTPException(404, "This link is not valid - please contact HR.")
+    try:
+        hle.submit_intake(db, ev, body.values or {})
+    except hle.PacketError as e:
+        db.rollback()
+        _raise(e)
+    return {"ok": True}
 
 
 def _locked_event(db: Session, eid: str, user: dict) -> HrLifeEvent:

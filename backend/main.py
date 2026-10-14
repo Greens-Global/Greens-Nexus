@@ -1023,6 +1023,12 @@ def _run_migrations():
             "ALTER TABLE documents ADD COLUMN life_event_id VARCHAR DEFAULT ''",
             "ALTER TABLE documents ADD COLUMN candidate_id VARCHAR DEFAULT ''",
             "CREATE INDEX IF NOT EXISTS ix_documents_life_event_id ON documents (life_event_id)",
+            # The candidate's details link (Oct 14). models.HrLifeEvent.intake_*.
+            "ALTER TABLE hr_life_events ADD COLUMN intake_token_hash VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_life_events ADD COLUMN intake_expires_on VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_life_events ADD COLUMN intake_sent_at VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_life_events ADD COLUMN intake_submitted_at VARCHAR DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS ix_hr_life_events_intake_token_hash ON hr_life_events (intake_token_hash)",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2272,6 +2278,12 @@ def _run_migrations():
         "ALTER TABLE documents ADD COLUMN IF NOT EXISTS life_event_id VARCHAR DEFAULT ''",
         "ALTER TABLE documents ADD COLUMN IF NOT EXISTS candidate_id VARCHAR DEFAULT ''",
         "CREATE INDEX IF NOT EXISTS ix_documents_life_event_id ON documents (life_event_id)",
+        # The candidate's details link (Oct 14). models.HrLifeEvent.intake_*.
+        "ALTER TABLE hr_life_events ADD COLUMN IF NOT EXISTS intake_token_hash VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_life_events ADD COLUMN IF NOT EXISTS intake_expires_on VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_life_events ADD COLUMN IF NOT EXISTS intake_sent_at VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_life_events ADD COLUMN IF NOT EXISTS intake_submitted_at VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_hr_life_events_intake_token_hash ON hr_life_events (intake_token_hash)",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
