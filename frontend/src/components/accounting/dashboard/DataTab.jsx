@@ -47,15 +47,21 @@ const GRIDS = [
     blank: () => ({ period: '', closed_day: 7 }) },
 ];
 
-export default function DataTab() {
+// Oct 14 (Charmi: "take them out under Tools and under Loan"): Tools > Data no
+// longer carries Loans (Loans & Financing is the loan screen), Intercompany or
+// Investments - those two open from the Loans & Financing menu, one grid each
+// (`only`). `exclude` drops grids from the full Data screen.
+export default function DataTab({ only = null, exclude = null }) {
   const { tables, tablesLoading, act, ix } = useDash();
-  const [tab, setTab] = useState(GRIDS[0].id);
-  const def = GRIDS.find((g) => g.id === tab);
+  const grids = GRIDS.filter((g) => (!only || only.includes(g.id)) && !(exclude || []).includes(g.id));
+  const [tab, setTab] = useState(grids[0]?.id);
+  const def = grids.find((g) => g.id === tab) || grids[0];
+  if (!def) return null;
   return (
     <div style={{ display: 'grid', gap: 14 }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
-        <SectionTabs tabs={GRIDS.map((g) => ({ id: g.id, label: g.title }))} value={tab} onChange={setTab} />
-        <button type="button" className="secondary-btn" style={{ marginLeft: 'auto', fontSize: '0.74rem', padding: '4px 10px' }} onClick={() => act('seed')}>Seed Defaults</button>
+        {grids.length > 1 && <SectionTabs tabs={grids.map((g) => ({ id: g.id, label: g.title }))} value={def.id} onChange={setTab} />}
+        {!only && <button type="button" className="secondary-btn" style={{ marginLeft: 'auto', fontSize: '0.74rem', padding: '4px 10px' }} onClick={() => act('seed')}>Seed Defaults</button>}
       </div>
       <p style={{ margin: 0, fontSize: '0.78rem', color: 'var(--text-muted)' }}>{def.desc} Edits save when you leave a field.</p>
       {tablesLoading ? <SkeletonBlocks count={1} height={200} /> : <Grid key={def.id} def={def} rows={tables?.[def.key] ?? []} act={act} ix={ix} />}

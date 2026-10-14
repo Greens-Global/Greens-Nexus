@@ -1,4 +1,4 @@
-﻿/* ==========================================================================
+/* ==========================================================================
    Greens Nexus â€” Design System v3 (neutral monochrome)
    ========================================================================== */
 
@@ -5912,6 +5912,9 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
   background: var(--bg-card); color: var(--text-secondary); flex: 0 0 auto; max-width: 64px;
 }
 .acct-report .acct-op-filter input { min-width: 56px; }
+/* Oct 14 (Vinod): an amount column's filter gives way when the column is dragged narrower. */
+.acct-report .acct-op-filter { min-width: 0; }
+.acct-report .acct-op-filter input { min-width: 44px; width: 0; flex: 1 1 auto; }
 .acct-lines .acct-op-filter { display: flex; gap: 3px; align-items: center; }
 .acct-lines .acct-op-filter select {
   height: 24px; padding: 0 2px; border: 1px solid var(--border-color); border-radius: 6px; font: inherit; font-size: 11px;

@@ -229,7 +229,7 @@ describe('columns', () => {
     expect(csv.find((x) => x[0] === 'Net Profit Margin %').slice(3)).toEqual([100, 85, 100, 91.2]);
   });
 
-  it('by vendor: names on the columns, the one without a vendor last, each drilling into its vendor', async () => {
+  it('by vendor: number and name on the columns (Charmi, 10/14), by name, the one without a vendor last, each drilling into its vendor', async () => {
     const api = fakeApi({
       buckets: () => ({
         labels: { V2: 'Amazon', V1: 'Zeta Plumbing' },
@@ -237,7 +237,7 @@ describe('columns', () => {
       }),
     });
     const r = await runReport(api, resolveConfig({ ...defaultConfig(NOW), cols: 'vendor' }, NOW));
-    expect(r.columns.map((c) => c.label)).toEqual(['Amazon', 'Zeta Plumbing', 'No Vendor', 'Total']);
+    expect(r.columns.map((c) => c.label)).toEqual(['V2 Amazon', 'V1 Zeta Plumbing', 'No Vendor', 'Total']);
     expect(r.columns[0].drill.party).toEqual({ kind: 'vendor', code: 'V2', name: 'Amazon' });
     // Lines without a vendor cannot be singled out by the line search.
     expect(r.columns[2].drill).toBeNull();
