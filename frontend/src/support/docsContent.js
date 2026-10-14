@@ -1140,6 +1140,7 @@ export const DOCS = [
         title: 'Interview a Candidate',
         steps: [
           'From Screening, click Schedule Interview: pick the date, time, who interviews, and the questionnaire (the role\'s own, or General). The candidate and the interviewers get a Teams invite.',
+          "Questionnaires (Settings > Hiring > Interview Questionnaires) are written under the three things an interview checks: Character, Competence and Availability. The Interview Room shows the questions grouped the same way, with everyone's notes so far at the top. The transcript and scoring tools stay folded under Transcript And Scoring until the interview is over.",
           'The Teams meeting is set to record and transcribe itself from the moment it starts - nobody needs to press Record. The round shows "Auto-recording on"; if Teams refused (a permission is missing), it says so and the interviewer records by hand.',
           'When they join, open the Interview Room: the questions are on screen, Start Interview marks it live, and you type what you want. End Interview hands the rest to Nexus.',
           'Nexus pulls the Teams transcript, fills the answers nobody typed, scores the round, and keeps pulling the recording until Teams publishes it (up to a few hours). Play Recording and Transcript appear on the round, on the candidate, and in the room. Pull Recording retries by hand.',
