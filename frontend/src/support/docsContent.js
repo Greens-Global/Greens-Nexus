@@ -567,7 +567,7 @@ export const DOCS = [
         steps: [
           'Reply in the thread. Use an Internal Note for anything the requester should not see.',
           'Click Mark Resolved and write what was done. A resolution is required to resolve or close a ticket.',
-          'Click Done. Your reply, the new status and any other changes are saved together, and the requester gets one email and one Teams message about all of it. The requester is only messaged when their ticket is assigned, gets a reply (the message includes it), or is resolved or closed - other edits show in their bell only.',
+          'Click Done. Your reply, the new status and any other changes are saved together, and the requester gets one email and one Teams message about all of it. The requester is only messaged when their ticket is assigned, gets a reply (the message includes it), or is resolved or closed - other edits show in their bell only. An assignment is told by the assignees, never by whoever clicked Assign: the new assignee messages the requester that they have it, and on a reassignment the previous assignee also says who has it now.',
           'The requester confirms it (Confirm Resolution, then Done) and answers a 1 to 5 star satisfaction survey, or, while it is still Resolved, reopens it with a reason - once it is Closed it stays closed, and a problem that comes back is a new ticket. The survey result shows at the top of the Overview tab of the ticket.',
         ],
       },
