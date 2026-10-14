@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useIsMobile } from '../lib/useIsMobile';
 import {
   Clock, LogIn, LogOut, Coffee, Play, MapPin, MapPinOff, AlertTriangle,
   CheckCircle, Plus, X, CalendarDays, Monitor, Lock,
@@ -87,8 +88,10 @@ if (typeof document !== 'undefined' && !document.getElementById('ts-anim')) {
     .wd-intro { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin: 2px 0 14px; }
     .wd-intro-greet { margin: 0; font-size: 21px; font-weight: 700; color: var(--ink); letter-spacing: -.015em; }
     .wd-clock-body { display: grid; grid-template-columns: auto minmax(0, 1fr); }
-    .wd-clock-main { padding: 18px 26px; display: flex; align-items: center; gap: 22px; min-width: 0; }
-    .wd-clock-info { width: 250px; display: flex; flex-direction: column; gap: 10px; }
+    .wd-clock-main { padding: 18px 26px; display: grid; grid-template-columns: auto 250px; grid-template-rows: auto auto; align-items: center; column-gap: 22px; row-gap: 12px; min-width: 0; }
+    .wd-clock-main > :first-child { grid-row: 1 / span 2; }
+    .wd-clock-info { min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+    .wd-punch-row { display: flex; gap: 10px; flex-wrap: wrap; min-width: 0; }
     .wd-clock--in .wd-clock-main { background: radial-gradient(circle at 16% 50%, color-mix(in srgb, var(--wk-brand) 8%, transparent) 0, transparent 60%); }
     .wd-clock--break .wd-clock-main { background: radial-gradient(circle at 16% 50%, rgba(180,83,9,.08) 0, transparent 60%); }
     .wd-state { display: inline-flex; align-items: center; gap: 8px; padding: 5px 12px 5px 10px; border-radius: 999px; font-size: 13px; font-weight: 700; }
@@ -174,8 +177,32 @@ if (typeof document !== 'undefined' && !document.getElementById('ts-anim')) {
     .wd-stat .dk-stat-label { margin-top: 1px; font-size: 12.5px; }
     .wd-stat .dk-stat-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11.5px; }
     .wd-stat .dk-stat-arrow { flex-shrink: 0; }
-    @media (max-width: 900px) { .wd-clock-body { grid-template-columns: 1fr; } .wd-clock-main { justify-content: center; flex-wrap: wrap; } .wd-clock-side { border-left: none; border-top: 1px solid var(--line); } }
-    @media (max-width: 560px) { .wd-clock-head { padding: 12px 16px; } .wd-clock-main { padding: 16px; gap: 16px; } .wd-clock-info { width: 100%; } .wd-clock-side { padding: 14px 16px; } .wd-punch { flex: 1; justify-content: center; } }
+    @media (max-width: 900px) { .wd-clock-body { grid-template-columns: 1fr; } .wd-clock-main { justify-content: center; } .wd-clock-side { border-left: none; border-top: 1px solid var(--line); } }
+    /* Phone (Oct 13): the dial beside the status, the punch button the full
+       width under both; no greeting line (the module header already says
+       Workday and the Dashboard greeted them); the clock card leads the page
+       - the punch is what a phone opens Workday for - with the summary
+       tiles under it; cards and gaps tighten so the page is one column of
+       even rhythm, not a column of white space. */
+    @media (max-width: 640px) {
+      .wd-clock-main { padding: 14px 16px 16px; grid-template-columns: auto minmax(0, 1fr); column-gap: 14px; row-gap: 12px; justify-content: stretch; }
+      .wd-punch-row { grid-column: 1 / -1; }
+      .wd-punch { flex: 1; justify-content: center; padding: 12px 16px; }
+      .wd-state { font-size: 12.5px; }
+      .wd-since { font-size: 12.5px; margin-top: 5px; }
+      .wd-clock-side { padding: 12px 14px 14px; }
+      .wd-hp-head { margin: 12px 0 10px; gap: 10px 16px; }
+      .wd-hp-total { font-size: 26px; }
+      .wd-hp-facts { gap: 16px; }
+      .wd-bars-plot { height: 76px; }
+      .wd-intro { display: none; }
+      .wd-overview { display: flex; flex-direction: column; }
+      .wd-overview > .wd-clock-wrap { order: -1; margin-bottom: 12px; }
+      .wd-overview > .wd-statgrid { margin-bottom: 12px; }
+      .wd-overview .myhr-grid, .wd-overview .myhr-grid > div, .wd-overview .myhr-main { gap: 12px; }
+      .wd-overview .dash-card { padding: 16px; }
+      .wd-overview .dash-card-head { margin-bottom: 10px; }
+    }
     /* Clocked-in hero: pinging live dot, per-second digit tick, smooth ring sweep. */
     @keyframes tcPing { 0% { box-shadow: 0 0 0 0 var(--ping, rgba(34,150,83,.4)); } 70% { box-shadow: 0 0 0 10px rgba(0,0,0,0); } 100% { box-shadow: 0 0 0 0 rgba(0,0,0,0); } }
     @keyframes tcTick { from { transform: translateY(-40%); opacity: 0; } to { transform: none; opacity: 1; } }
@@ -203,8 +230,8 @@ function TimerDigits({ seconds, color, size = 24 }) {
 // 8h day - India runs 9h - so the workday denominator is gone entirely).
 // Digits inside are the CURRENT session's stopwatch. On break the arc becomes
 // the 60m allowance draining (that one is real policy, not an assumption).
-function SessionRing({ seconds, pct, color, label, sub }) {
-  const size = 128, stroke = 8;
+function SessionRing({ seconds, pct, color, label, sub, size = 128 }) {
+  const stroke = 8;
   const r = (size - stroke) / 2, c = 2 * Math.PI * r;
   const off = c * (1 - Math.min(1, Math.max(0, pct)));
   return (
@@ -226,8 +253,8 @@ function SessionRing({ seconds, pct, color, label, sub }) {
 
 // Clocked-out dial - the same footprint as SessionRing so the widget never
 // jumps when you punch: an empty track around the wall-clock time.
-function IdleDial({ now }) {
-  const size = 128, stroke = 8;
+function IdleDial({ now, size = 128 }) {
+  const stroke = 8;
   const r = (size - stroke) / 2;
   const [hm, ap] = formatTime(now).split(' ');
   return (
@@ -409,6 +436,9 @@ function GeoChip({ p }) {
 }
 
 export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange } = {}) {
+  // Phone layout (Oct 13): the clock card leads, the dial sits beside the
+  // status and the punch button runs the full width - see the wd-* rules.
+  const phone = useIsMobile('(max-width: 640px)');
   // The URL's sub segment is the source of truth once it names a real tab
   // (deep link, browser back/forward, or a bare /myhr landing on its default);
   // initialTab only seeds the very first render before that's known. Every
@@ -1013,7 +1043,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   // even its loading skeleton (10/08): the remembered answer decides before
   // the status comes back.
   const clockCard = () => exemptKnown ? null : (
-    <div style={{ marginBottom: 18 }}>
+    <div className="wd-clock-wrap" style={{ marginBottom: 18 }}>
       {showLongBanner && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 12, padding: '12px 16px', borderRadius: 12, background: 'rgba(180,83,9,0.09)', border: '1.5px solid rgba(180,83,9,0.4)' }}>
           <AlertTriangle size={17} style={{ color: '#b45309', flexShrink: 0 }} />
@@ -1044,12 +1074,12 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
               {clockedIn ? (
                 /* Working: stopwatch dial, one sweep per hour of this session.
                    On break: arc = the 60m allowance draining (red once over). */
-                <SessionRing seconds={sinceSec}
+                <SessionRing seconds={sinceSec} size={phone ? 104 : 128}
                   pct={onBreak && showAllowance ? breakUsedMin / BREAK_ALLOWANCE_MIN : (sinceSec % 3600) / 3600}
                   color={onBreak ? (showAllowance && breakLeftMin < 0 ? '#b91c1c' : '#b45309') : 'var(--wk-brand)'}
                   label={onBreak ? 'On Break' : 'This Session'}
                   sub={onBreak && showAllowance ? (breakLeftMin >= 0 ? `${breakLeftMin}m of 60m left` : `${-breakLeftMin}m over 60m`) : undefined} />
-              ) : <IdleDial now={now} />}
+              ) : <IdleDial now={now} size={phone ? 104 : 128} />}
               <div className="wd-clock-info">
                 <div>
                   <span className={`wd-state wd-state--${tone}`}>
@@ -1106,7 +1136,10 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
                     </button>
                   </div>
                 )}
-                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              </div>
+              {/* The punch row is its own grid cell: under the status on a
+                  desktop, the full width of the card on a phone. */}
+              <div className="wd-punch-row">
                   {(status.allowed || []).map(kind => {
                     const M = KIND_META[kind];
                     return (
@@ -1134,7 +1167,6 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
                       </button>
                     );
                   })}
-                </div>
               </div>
             </div>
 
@@ -1417,8 +1449,8 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
           Oct 1: "old and useless") - the year's approved total is a tile on
           Overview. */}
       <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, overflow: 'hidden', marginBottom: 24, boxShadow: 'var(--wk-shadow)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '13px 16px', borderBottom: '1px solid var(--line)' }}>
-          <span style={HD}>My Requests</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px 9px', padding: '13px 16px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
+          <span style={{ ...HD, whiteSpace: 'nowrap' }}>My Requests</span>
           {(timeoff || []).some(r => r.status === 'pending') && (
             <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 10px', borderRadius: 999, background: TO_TINT.pending, color: TO_STATUS.pending }}>
               {(timeoff || []).filter(r => r.status === 'pending').length} Pending

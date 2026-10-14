@@ -384,7 +384,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, clock = null }) {
   const hoursExempt = clockParts?.exempt ?? !!sheet?.timeTrackingExempt;
 
   return (
-    <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out', fontFamily: 'var(--wk-font)' }}>
+    <div className="wd-overview" style={{ animation: 'fadeIn var(--transition-normal) ease-in-out', fontFamily: 'var(--wk-font)' }}>
       {toast && (
         <div style={{ padding: '9px 14px', borderRadius: 10, marginBottom: 14, fontSize: 12.5, fontWeight: 600,
           background: toast.ok ? 'hsla(var(--color-green),0.1)' : 'rgba(220,38,38,0.08)',
