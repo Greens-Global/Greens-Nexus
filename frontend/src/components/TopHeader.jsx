@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo } from "react";
-import { Menu, Search, LogOut, Settings, User, ArrowLeft, Shield, Check, ChevronDown, LayoutDashboard, Camera, Clock, Sparkles, X, UserCog, Archive, PlayCircle, Eye, Mail, Scale, Rocket } from "lucide-react";
+import { Menu, Search, LogOut, Settings, User, ArrowLeft, Shield, Check, ChevronDown, LayoutDashboard, Camera, Clock, Sparkles, X, UserCog, Archive, Eye, Mail, Scale, Rocket } from "lucide-react";
 import NotificationBell from "./NotificationBell";
 import HelpMenu from "../support/HelpMenu";
 import { TabGroupButton, useHeaderTabs } from "./ModuleTabs";
@@ -507,7 +507,7 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
             )}
           </div>
         )}
-        {/* "?" Help menu: search the guide, help for this page, then Contact
+        {/* "?" Help menu: search the guide, help with this page, then Contact
             Support - self-service first (Neil, Sep 26). support/HelpMenu.jsx. */}
         <HelpMenu activeView={activeView} onWhatsNew={openChangelog} />
         <NotificationBell onNavigate={onNavigate} />
@@ -593,45 +593,10 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
               </button>
               {/* Dark Mode + Theme moved into My Profile (Neil: group appearance
                   settings with the rest of "your" settings instead of loose in
-                  the top-level menu). Page help is the header's Help panel
-                  ("Help for This Page"); the row that was here went Oct 12. */}
-              {/* Task module's guided walkthrough. Moved out of the module's own
-                  header (was cluttering the primary bar next to Manage) into
-                  here - only meaningful while the Task
-                  module is the active view, so it's gated on activeView rather
-                  than shown everywhere. Tasks.jsx owns the tour state; this just
-                  asks it to open via the same nexus:tasks-* event pattern the
-                  module already uses for header search. */}
-              {activeView === 'tasks' && (
-                <button className="hud-item" onClick={() => { setOpen(false); window.dispatchEvent(new CustomEvent('nexus:tasks-tour')); }}>
-                  <PlayCircle size={14} /> Tour
-                </button>
-              )}
-              {/* Ticket module's own guided walkthrough - same pattern as the Task
-                  module's above, but gated on activeView === 'tickets' and firing
-                  TicketsView's nexus:tickets-tour instead (tickets/TicketsView.jsx
-                  owns that tour's state). */}
-              {activeView === 'tickets' && (
-                <button className="hud-item" onClick={() => { setOpen(false); window.dispatchEvent(new CustomEvent('nexus:tickets-tour')); }}>
-                  <PlayCircle size={14} /> Tour
-                </button>
-              )}
-              {/* Support page's own guided walkthrough - same pattern as the
-                  Task/Ticket rows above, gated on activeView === 'support' and
-                  firing Support.jsx's own nexus:support-tour. */}
-              {activeView === 'support' && (
-                <button className="hud-item" onClick={() => { setOpen(false); window.dispatchEvent(new CustomEvent('nexus:support-tour')); }}>
-                  <PlayCircle size={14} /> Tour
-                </button>
-              )}
-              {/* Documents module's guided walkthrough (Oct 1) - same pattern,
-                  gated on activeView === 'documents' and firing Documents.jsx's
-                  own nexus:documents-tour. */}
-              {activeView === 'documents' && (
-                <button className="hud-item" onClick={() => { setOpen(false); window.dispatchEvent(new CustomEvent('nexus:documents-tour')); }}>
-                  <PlayCircle size={14} /> Tour
-                </button>
-              )}
+                  the top-level menu). Page help and the guided Tour are the
+                  header's Help panel ("Help with This Page" / "Take the Tour",
+                  support/HelpWidget.jsx) - the rows that were here went Oct 12
+                  and Oct 13 (Neil: the Tour was buried under the user's name). */}
 
               {/* Legal (Neil, 10/06): the Privacy Policy and Terms & Conditions,
                   one page with a tab each - "nothing to do with Support". The
