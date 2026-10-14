@@ -1042,6 +1042,12 @@ def _run_migrations():
             "ALTER TABLE task_templates ADD COLUMN created_by VARCHAR DEFAULT ''",
             # PFS guarantor dropdown order (Neil, Oct 14). models.PfsProfile.sort_order.
             "ALTER TABLE pfs_profiles ADD COLUMN sort_order INTEGER DEFAULT 0",
+            # MRE frequency period, variance and vendor details (Oct 14). models.RecurringExpense.
+            "ALTER TABLE recurring_expenses ADD COLUMN frequency_months INTEGER DEFAULT 0",
+            "ALTER TABLE recurring_expenses ADD COLUMN variance_pct INTEGER DEFAULT 0",
+            "ALTER TABLE recurring_expenses ADD COLUMN account_number VARCHAR DEFAULT ''",
+            "ALTER TABLE recurring_expenses ADD COLUMN account_details VARCHAR DEFAULT ''",
+            "ALTER TABLE recurring_expenses ADD COLUMN contact_info VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2310,6 +2316,12 @@ def _run_migrations():
         "ALTER TABLE task_templates ADD COLUMN IF NOT EXISTS created_by VARCHAR DEFAULT ''",
         # PFS guarantor dropdown order (Neil, Oct 14). models.PfsProfile.sort_order.
         "ALTER TABLE pfs_profiles ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0",
+        # MRE frequency period, variance and vendor details (Oct 14). models.RecurringExpense.
+        "ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS frequency_months INTEGER DEFAULT 0",
+        "ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS variance_pct INTEGER DEFAULT 0",
+        "ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS account_number VARCHAR DEFAULT ''",
+        "ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS account_details VARCHAR DEFAULT ''",
+        "ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS contact_info VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
