@@ -1132,6 +1132,7 @@ export const DOCS = [
           "Hired and Rejected always show on the board. Open a rejected candidate and click Remove From Board to take them off it - anyone rejected more than 90 days ago leaves it by itself. Show Inactive lists them; Reopen brings one back.",
           'At Offer, click Send Hiring Packet (see Send a Hiring Packet below). When they sign it they are hired automatically.',
           'Only for an offer signed on paper: Mark Hired By Hand, which asks why. Nothing is sent or filed that way.',
+          "Notes And History on the candidate is one list, newest first: every note, every move with its note, and every interview that finished with its score - each with who and when. Anyone who can see the candidate can add a note; a note still in the box goes along with the next move you make from the card. The Interview Room shows the same notes at the top, so the interviewer reads everyone's screening notes first.",
         ],
       },
       {

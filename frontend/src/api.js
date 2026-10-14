@@ -1278,6 +1278,8 @@ export const api = {
   // HR - hiring pipeline
   getCandidates:       ()         => req('/hr/candidates'),
   getCandidateHistory: (id)       => req(`/hr/candidates/${id}/history`),
+  // One notes timeline (Oct 14): add a note - who and when are recorded.
+  addCandidateNote:    (id, note) => req(`/hr/candidates/${id}/notes`, { method: 'POST', body: JSON.stringify({ note }) }),
   createCandidate:     (data)     => req('/hr/candidates', { method: 'POST', body: JSON.stringify(data) }),
   updateCandidate:     (id, data) => req(`/hr/candidates/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   candidateResumeUpload: (id, form) => req(`/hr/candidates/${id}/resume`, { method: 'POST', body: form }),

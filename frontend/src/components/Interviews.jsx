@@ -4,6 +4,7 @@ import {
   CheckCircle, Play, ClipboardList, RefreshCw, Save, ChevronRight, XCircle, CalendarDays, Clock, AlertTriangle,
 } from 'lucide-react';
 import { api } from '../api';
+import CandidateNotes from './CandidateNotes';
 import { dialog } from '../ui/dialog';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
@@ -297,6 +298,12 @@ export function InterviewPanel({ candidate: c, onClose, onDecision, toastOk, toa
     <Overlay onClose={guard.requestClose} wide>
       <Head title={`Interviews - ${c.firstName} ${c.lastName || ''}`} sub={c.roleTitle || c.department || ''} onClose={guard.requestClose} />
       <div style={{ overflowY: 'auto', padding: '14px 22px', flex: 1 }}>
+
+        {/* Everyone's notes so far - in front of the interviewer before it starts (Neil, Oct 14). */}
+        <details open={!sel || sel.status === 'scheduled'} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '8px 12px', marginBottom: 12 }}>
+          <summary style={{ cursor: 'pointer', fontSize: 12.5, fontWeight: 800 }}>Notes So Far</summary>
+          <div style={{ marginTop: 8 }}><CandidateNotes candidateId={c.id} compact toastErr={toastErr} /></div>
+        </details>
 
         {/* Rounds */}
         {list === null ? <Spinner size={16} /> : list.length === 0 ? (

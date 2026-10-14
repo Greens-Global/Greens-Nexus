@@ -736,11 +736,64 @@ def list_candidates(user: dict = Depends(require_hr_read), db: Session = Depends
 
 @router.get("/candidates/{cid}/history")
 def candidate_history(cid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
-    _cand_in_scope(db.query(HrCandidate).filter(HrCandidate.id == cid).first(), hr_scope(user, db))
+    """The candidate's ONE timeline (Neil, Oct 14: "consolidate all of that and
+    just make it a notes section ... with time and date and person who put it
+    in"): every note, every stage move with its note, and every interview
+    that finished with its verdict - oldest first, each with who and when."""
+    cand = _cand_in_scope(db.query(HrCandidate).filter(HrCandidate.id == cid).first(), hr_scope(user, db))
+    if cand is None:
+        raise HTTPException(404, "Candidate not found")
     rows = (db.query(HrStageEvent).filter(HrStageEvent.candidate_id == cid)
             .order_by(HrStageEvent.created_at).all())
-    return [{"fromStage": e.from_stage, "toStage": e.to_stage, "note": e.note,
-             "byEmail": e.by_email, "createdAt": e.created_at} for e in rows]
+    out = [{"kind": e.kind or "move", "fromStage": e.from_stage, "toStage": e.to_stage, "note": e.note,
+            "byEmail": e.by_email, "createdAt": e.created_at} for e in rows]
+    # The single notes box from before the timeline - kept, shown as a note.
+    if (cand.notes or "").strip():
+        out.append({"kind": "note", "fromStage": "", "toStage": "", "note": cand.notes.strip(),
+                    "byEmail": cand.created_by or "", "createdAt": cand.created_at or "", "legacy": True})
+    from models import HrInterview
+    for iv in (db.query(HrInterview).filter(HrInterview.candidate_id == cid,
+                                            HrInterview.status.in_(("completed", "scored"))).all()):
+        score = f"Scored {round(iv.total_score)}/100. " if iv.status == "scored" and iv.total_score is not None else ""
+        out.append({"kind": "interview", "fromStage": "", "toStage": "interview",
+                    "note": (score + (iv.summary or "")).strip() or "Interview finished.",
+                    "byEmail": (iv.interviewer_emails or [iv.organizer_email or ""])[0] if (iv.interviewer_emails or iv.organizer_email) else "",
+                    "createdAt": iv.completed_at or iv.at or ""})
+    names = {}
+    emails = {x["byEmail"].lower() for x in out if x["byEmail"]}
+    if emails:
+        names = {r.work_email: (r.display_name or f"{r.first_name} {r.last_name}").strip()
+                 for r in db.query(NexusEmployee).filter(NexusEmployee.work_email.in_(emails)).all()}
+    for x in out:
+        x["byName"] = names.get((x["byEmail"] or "").lower(), "") or (
+            "The candidate" if x["byEmail"] == "candidate" else (x["byEmail"] or "").split("@")[0].replace(".", " ").title())
+    out.sort(key=lambda x: x["createdAt"] or "")
+    return out
+
+
+class CandidateNoteIn(BaseModel):
+    note: str
+
+
+@router.post("/candidates/{cid}/notes")
+def add_candidate_note(cid: str, body: CandidateNoteIn, user: dict = Depends(require_hr_read),
+                       db: Session = Depends(get_db)):
+    """A note on the candidate's timeline - anyone who can see the candidate
+    can add one (Neil: "whoever is looking at the candidate should be able to
+    put their notes in"). Notes are never edited or deleted - the timeline is
+    the record."""
+    cand = _cand_in_scope(db.query(HrCandidate).filter(HrCandidate.id == cid).first(), hr_scope(user, db))
+    if cand is None:
+        raise HTTPException(404, "Candidate not found")
+    text = re.sub(r"[\x00-\x08\x0b-\x1f\x7f]", "", body.note or "").strip()[:4000]
+    if not text:
+        raise HTTPException(400, "Write the note first.")
+    now = datetime.now(timezone.utc).isoformat()
+    db.add(HrStageEvent(id=str(uuid.uuid4()), candidate_id=cand.id, from_stage=cand.stage, to_stage=cand.stage,
+                        note=text, by_email=user["email"], created_at=now, kind="note"))
+    cand.updated_at = now
+    db.commit()
+    return {"ok": True}
 
 
 def _check_date(value: str, label: str) -> str:
@@ -793,11 +846,15 @@ def create_candidate(body: CandidateIn, user: dict = Depends(require_hr_write), 
         expected_start=(body.expected_start or "").strip(), source=(body.source or "").strip(),
         expected_interview_on=_check_date(body.expected_interview_on, "Expected interview date"),
         company=(body.company or "").strip(),
-        notes=body.notes or "", created_by=user["email"], created_at=now, updated_at=now,
+        notes="", created_by=user["email"], created_at=now, updated_at=now,
     )
     db.add(row)
     db.add(HrStageEvent(id=str(uuid.uuid4()), candidate_id=row.id, from_stage="",
                         to_stage="applied", note="Candidate added", by_email=user["email"], created_at=now))
+    if (body.notes or "").strip():
+        # What HR wrote on Add Candidate is the timeline's first note (Oct 14).
+        db.add(HrStageEvent(id=str(uuid.uuid4()), candidate_id=row.id, from_stage="applied", to_stage="applied",
+                            note=body.notes.strip()[:4000], by_email=user["email"], created_at=now, kind="note"))
     db.commit()
     db.refresh(row)
     out = _ser_candidate(row)

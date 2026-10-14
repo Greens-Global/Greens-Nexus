@@ -999,6 +999,9 @@ class HrStageEvent(Base):
     note         = Column(String, default="")
     by_email     = Column(String, default="")
     created_at   = Column(String, default="")
+    # Neil, Oct 14: one Notes section, "consolidated with time and date and
+    # person who put it in" - a plain note is a row here too ('' = a stage move).
+    kind         = Column(String, default="")               # '' (move) | note
 
 
 class HrLeaveRequest(Base):

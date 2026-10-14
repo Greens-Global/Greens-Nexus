@@ -333,6 +333,30 @@ class BoardTests(PipelineCase):
             hr.update_candidate(self._cand("applied"), hr.CandidateUpdate(inactive=True), user=HR_USER, db=self.db)
 
 
+class NotesTimelineTests(PipelineCase):
+    """One notes section (Neil, Oct 14): every note, move and finished
+    interview, each with who and when."""
+
+    def test_notes_moves_and_the_add_form_note_are_one_timeline(self):
+        c = self._add(notes="Strong resume")
+        hr.add_candidate_note(c["id"], hr.CandidateNoteIn(note="Great on the phone screen"), user=HR_USER, db=self.db)
+        hr.update_candidate(c["id"], hr.CandidateUpdate(stage="screening", stage_note="Looks good"), user=HR_USER, db=self.db)
+        rows = hr.candidate_history(c["id"], user=HR_USER, db=self.db)
+        self.assertEqual([r["kind"] for r in rows], ["move", "note", "note", "move"])
+        self.assertEqual([r["note"] for r in rows[1:]], ["Strong resume", "Great on the phone screen", "Looks good"])
+        self.assertTrue(all(r["byEmail"] == HR_USER["email"] and r["createdAt"] and r["byName"] for r in rows))
+        with self.assertRaises(HTTPException):
+            hr.add_candidate_note(c["id"], hr.CandidateNoteIn(note="   "), user=HR_USER, db=self.db)
+
+    def test_the_old_notes_box_still_shows(self):
+        cid = self._cand("screening")
+        self.db.query(models.HrCandidate).filter_by(id=cid).update({"notes": "Written before the timeline"})
+        self.db.commit()
+        rows = hr.candidate_history(cid, user=HR_USER, db=self.db)
+        legacy = [r for r in rows if r.get("legacy")]
+        self.assertEqual(legacy[0]["note"], "Written before the timeline")
+
+
 class FollowupTests(PipelineCase):
     """End Interview merges everything (Neil: "when we clicked end, it should
     just take all of this stuff in and merge it all"); the transcript can be

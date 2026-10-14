@@ -18,11 +18,12 @@ import { X, Mail, Phone, CalendarDays, FileText, FileSignature, History, XCircle
          RotateCcw, Trophy, Undo2 } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
-import { formatDate, formatDateTime } from '../lib/datetime';
+import { formatDateTime } from '../lib/datetime';
 import { Spinner } from './AsyncState';
 import { HiringPacketStatus, packetIsActive, usDay } from './HiringPacket';
 import { useEntities } from '../lib/queries';
 import { RecordingLine } from './Interviews';
+import CandidateNotes from './CandidateNotes';
 
 export const STAGES = ['applied', 'screening', 'interview', 'offer', 'hired'];
 export const STAGE_META = {
@@ -47,7 +48,6 @@ const ROUND_STATUS = {
   scheduled: ['Scheduled', 'blue'], live: ['In Progress', 'orange'], completed: ['Completed', 'gray'],
   scored: ['Scored', 'green'], canceled: ['Canceled', 'gray'],
 };
-const FL = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 5, letterSpacing: '.04em', textTransform: 'uppercase' };
 const section = { marginTop: 16 };
 const sectionHead = { fontSize: 11, fontWeight: 700, letterSpacing: '.07em', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 };
 const chip = (tone) => ({ padding: '2px 9px', borderRadius: 12, fontSize: 11, fontWeight: 700,
@@ -58,7 +58,6 @@ export default function CandidateDetailModal({
   candidate: c, onClose, onStage, onUpdated, busy, refreshKey,
   onEdit, onSchedule, onOpenRoom, onSendPacket, onSignPacket, onSendForSignature, onOpenPerson, onMarkHired, toastOk, toastErr,
 }) {
-  const [history, setHistory] = useState(null);
   const [rounds, setRounds] = useState(null);
   const [packetEvents, setPacketEvents] = useState(null);
   const [packetPick, setPacketPick] = useState(null);   // which packet Send will use (Offer stage)
@@ -66,13 +65,12 @@ export default function CandidateDetailModal({
     if (c.stage !== 'offer') { setPacketPick(null); return; }
     api.hiringPacketOptions(c.id).then(setPacketPick).catch(() => setPacketPick({ picked: null, options: [] }));
   }, [c.id, c.stage, c.roleId, refreshKey]);
+  // The draft in the Notes box goes along with a move made from this card.
   const [note, setNote] = useState('');
-  const [notes, setNotes] = useState(c.notes || '');
-  const [notesBusy, setNotesBusy] = useState(false);
+  const [notesKey, setNotesKey] = useState(0);
   const [resumeBusy, setResumeBusy] = useState(false);
   const resumeRef = useRef(null);
 
-  useEffect(() => { api.getCandidateHistory(c.id).then(setHistory).catch(() => setHistory([])); }, [c.id, c.stage, refreshKey]);
   useEffect(() => { api.ivList(c.id).then(setRounds).catch(() => setRounds([])); }, [c.id, c.stage, refreshKey]);
 
   const sm = STAGE_META[c.stage] || STAGE_META.applied;
@@ -89,14 +87,8 @@ export default function CandidateDetailModal({
   const canEdit = ['applied', 'screening'].includes(c.stage);
   const { data: entities } = useEntities();
   const companyName = (entities || []).find(e => e.id === c.company)?.name || '';
-  const notesDirty = (notes || '') !== (c.notes || '');
-
-  async function saveNotes() {
-    setNotesBusy(true);
-    try { onUpdated?.(await api.updateCandidate(c.id, { notes })); toastOk?.('Notes saved.'); }
-    catch (e) { toastErr?.(e?.message || 'Could not save the notes.'); }
-    setNotesBusy(false);
-  }
+  // A move takes the note being written with it, then the box is clear.
+  const move = (stage, fallback = '') => { onStage(c, stage, note.trim() || fallback); setNote(''); setNotesKey(k => k + 1); };
   async function uploadResume(file) {
     if (!file) return;
     setResumeBusy(true);
@@ -116,7 +108,7 @@ export default function CandidateDetailModal({
   }
   async function toOffer() {
     if (!hadInterview && !await dialog.confirm('No interview has been completed yet. Move them to Offer anyway?', { title: 'Move To Offer', confirmText: 'Move To Offer' })) return;
-    onStage(c, 'offer', note);
+    move('offer');
   }
   async function markHiredByHand() {
     // Neil, Oct 14: hiring "backwards" outside Nexus is what we are getting
@@ -141,10 +133,10 @@ export default function CandidateDetailModal({
       {icon} {label}
     </button>
   );
-  const reject = <button onClick={() => onStage(c, 'rejected', note)} disabled={busy} style={rejectBtn}><XCircle size={13} /> Reject</button>;
+  const reject = <button onClick={() => move('rejected')} disabled={busy} style={rejectBtn}><XCircle size={13} /> Reject</button>;
 
   const footer = {
-    applied: [reject, primary('Move To Screening', () => onStage(c, 'screening', note), <ChevronRight size={14} />)],
+    applied: [reject, primary('Move To Screening', () => move('screening'), <ChevronRight size={14} />)],
     screening: [reject, primary('Schedule Interview', () => c.email ? onSchedule(c)
       : toastErr?.('Add the candidate\'s email first (Edit, top right) - the Teams invite goes there.'), <Video size={14} />)],
     interview: [reject,
@@ -158,7 +150,7 @@ export default function CandidateDetailModal({
       !packetOut && primary(packetPick?.picked?.engine === 'documents' ? 'Start Hiring Packet' : 'Send Hiring Packet',
         () => onSendPacket(c), <FileText size={14} />, packetEvents === null)],
     rejected: [!c.inactive && secondary('Remove From Board', () => removeFromBoard(true), <XCircle size={13} />),
-      primary('Reopen', () => onStage(c, 'applied', note || 'Reopened'), <RotateCcw size={14} />)],
+      primary('Reopen', () => move('applied', 'Reopened'), <RotateCcw size={14} />)],
     hired: [c.employeeId && onOpenPerson && primary('Open In People', () => onOpenPerson(c), <ChevronRight size={14} />)],
   }[c.stage] || [];
 
@@ -203,16 +195,6 @@ export default function CandidateDetailModal({
             </span>
           </div>
 
-          <div style={section}>
-            <label style={FL}>{['applied', 'screening'].includes(c.stage) ? 'Screening Notes' : 'Notes'}</label>
-            <textarea className="form-input" rows={3} value={notes} onChange={e => setNotes(e.target.value)} disabled={c.stage === 'hired'}
-              placeholder="What stood out in the resume or the screening call"
-              style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }} />
-            {notesDirty && <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 6 }}>
-              <button className="secondary-btn" style={{ fontSize: 12 }} onClick={() => setNotes(c.notes || '')}>Discard</button>
-              <button className="primary-btn" style={{ fontSize: 12 }} onClick={saveNotes} disabled={notesBusy}>{notesBusy ? 'Saving...' : 'Save Notes'}</button>
-            </div>}
-          </div>
 
           {(live.length > 0 || ['interview', 'offer'].includes(c.stage)) && (
             <div style={section}>
@@ -267,23 +249,11 @@ export default function CandidateDetailModal({
           )}
 
           <div style={section}>
-            <div style={sectionHead}><History size={11} /> Stage History</div>
-            {history === null ? <Spinner size={16} /> : history.map((h, i) => (
-              <div key={i} style={{ display: 'flex', gap: 10, padding: '6px 0', fontSize: 12.5, borderBottom: '1px solid var(--line)' }}>
-                <span style={{ fontWeight: 700, color: `hsl(${(STAGE_META[h.toStage] || STAGE_META.applied).hue})`, flexShrink: 0 }}>
-                  {(STAGE_META[h.toStage] || { label: h.toStage }).label}
-                </span>
-                <span style={{ color: 'var(--muted)', flex: 1 }}>{h.note}</span>
-                <span style={{ color: 'var(--muted)', flexShrink: 0 }}>{formatDate(h.createdAt)}</span>
-              </div>
-            ))}
+            <div style={sectionHead}><History size={11} /> Notes And History</div>
+            <CandidateNotes candidateId={c.id} refreshKey={`${refreshKey}-${c.stage}-${notesKey}`} draft={note} onDraft={setNote}
+              canAdd={c.stage !== 'hired'} toastErr={toastErr} />
+            {!closed && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>A note still in the box goes with the next move you make here.</div>}
           </div>
-          {!closed && (
-            <div style={section}>
-              <label style={FL}>Note For This Move (optional)</label>
-              <input className="form-input" style={{ width: '100%' }} value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. Strong resume, references checked" />
-            </div>
-          )}
         </div>
         {footer.filter(Boolean).length > 0 && (
           <div style={{ padding: '14px 24px', borderTop: '1px solid var(--line)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap', flexShrink: 0 }}>
