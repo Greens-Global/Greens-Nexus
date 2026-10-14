@@ -13,6 +13,8 @@ vi.mock('../api', () => ({
     packetRoleHolders: () => Promise.resolve({ hr: { email: 'charmi@x.com', name: 'Charmi Shah' } }),
     getDocLetterheads: () => Promise.resolve([]),
     saveDocumentsPacket: (...a) => save(...a),
+    packetReadiness: () => Promise.resolve({ readiness: [] }),
+    getPeopleDirectory: () => Promise.resolve([]),
     signOnceStatus: () => Promise.resolve([{ key: 'company', roleLabel: 'HR', name: 'Charmi Shah', email: 'charmi@x.com', signed: false, isMe: true }]),
   },
 }));
@@ -28,13 +30,18 @@ const catalog = {
 };
 const packet = { id: 's1', engine: 'documents', name: 'Admin Associate - India', docTemplateIds: ['t1'],
   flow: [{ key: 'company', role: 'hr', action: 'sign', once: true }, { key: 'employee', role: 'employee', action: 'sign' }],
-  verifyRole: 'hr', detailsForm: [] };
+  verifyRole: 'hr', detailsForm: [],
+  readiness: [{ key: 'payPrints', ok: false, severity: 'warn', label: 'Pay Shows In A Document', detail: 'Not printed anywhere.',
+                fix: { kind: 'template', templateId: 't1' } }] };
 
 describe('DocumentsPacketEditor', () => {
   it('builds the Details Form from what the documents need, and keeps Signs Once', async () => {
     render(<DocumentsPacketEditor packet={packet} event="hire" eventLabel="Hiring Packet" companyId="co" companyName="Greens India"
       catalog={catalog} onClose={() => {}} onSaved={() => {}} toastErr={() => {}} />);
     await waitFor(() => expect(screen.getByText(/nothing fills them yet/)).toBeTruthy());
+    expect(screen.getByText('Ready To Send')).toBeTruthy();                        // the checklist, first thing
+    expect(screen.getByText('1 Warning')).toBeTruthy();
+    expect(screen.getByText('Pay Shows In A Document')).toBeTruthy();
     expect(screen.getAllByRole('checkbox').some(c => c.checked)).toBe(true);           // Signs Once ticked
     await waitFor(() => expect(screen.getByText('Sign Once', { selector: 'button' })).toBeTruthy());
     fireEvent.click(screen.getByText('PAN Number', { selector: 'button' }));

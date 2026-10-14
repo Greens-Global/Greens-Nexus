@@ -26,6 +26,7 @@ import { SignModal } from './ESign';
 import DetailsFormFields from './DetailsFormFields';
 import { PacketEditor, describeRoles } from './PacketTemplates';
 import { DocumentsPacketEditor } from './DocumentsPacketEditor';
+import { readinessSummary } from '../lib/packetFlow';
 import PacketReview from './PacketReview';
 
 const ENABLED_EVENTS = ['hire', 'promotion', 'separation'];
@@ -163,6 +164,16 @@ function PacketRow({ row, onEdit, onRemoved, toastErr, companyName }) {
         {companyName !== undefined && <td style={{ ...TD, whiteSpace: 'nowrap' }}>{companyName || <span style={{ color: 'var(--muted)' }}>Every company</span>}</td>}
         <td style={TD}>
           <div style={{ fontWeight: 700 }}>{row.templateName || 'Unnamed packet'}</div>
+          {row.engine === 'documents' && readinessSummary(row.readiness) && (() => {
+            const s = readinessSummary(row.readiness);
+            const open = (row.readiness || []).filter(c => !c.ok).map(c => c.label).join(', ');
+            return (
+              <button type="button" onClick={onEdit} title={open || 'Everything a hire needs is in place'}
+                style={{ marginTop: 5, border: 'none', cursor: 'pointer', padding: 0, background: 'none' }}>
+                <StatusChip label={s.label} tone={s.tone} />
+              </button>
+            );
+          })()}
           {row.engine === 'pdf' && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>Uploaded PDFs - rebuild it from Documents</div>}
           {(row.problems || []).map(p => <div key={p} style={{ color: 'hsl(var(--color-orange))', fontSize: 11.5, marginTop: 3 }}>{p}</div>)}
         </td>
@@ -319,7 +330,7 @@ export function PacketsModal({ onClose, toastOk, toastErr }) {
           companyName={editing.row ? (entityName(editing.row.entityId) || 'Every company') : (editing.companyId ? (entityName(editing.companyId) || 'This company') : company)}
           defaultSubfolder={editing.event.defaultSubfolder} toastErr={toastErr}
           onClose={() => setEditing(null)}
-          onSaved={() => { setEditing(null); load(); toastOk('Packet saved.'); }} />
+          onSaved={(saved) => { setEditing(e => (e ? { ...e, row: saved } : e)); load(); toastOk('Packet saved - Ready To Send at the top shows anything still missing.'); }} />
       )}
       {editing && editing.row && editing.row.engine !== 'documents' && (
         <PacketEditor packet={editing.row || editing.seed || null} event={editing.event.key} eventLabel={editing.event.label}
@@ -492,6 +503,11 @@ export function SendHiringPacketModal({ candidate: c, canSeePay, onClose, onSent
             <div style={hint}>{packets?.picked
               ? <>Nexus matched <b>{packets.picked.templateName}</b> {packets.picked.why} - change it here if this hire needs a different one.</>
               : packets ? 'No packet matches this company and role yet.' : ''}</div>
+            {/* Ready To Send (Oct 14): say now what would stop this hire later.
+                Signing once is offered on the review, so it is not listed. */}
+            {(chosen?.readiness || []).filter(c => !c.ok && !c.key.startsWith('once:')).map(c => (
+              <Problem key={c.key}>{c.label}: {c.detail} Fix it in Packets.</Problem>
+            ))}
           </div>
           {isOther && (
             <div style={{ gridColumn: '1 / -1' }}>

@@ -328,6 +328,8 @@ def ser_setting(db: Session, s: HrPacketSetting) -> dict:
                 "detailsForm": list(s.details_form or []),
                 "signOnce": hpd.company_once_status(db, s, db.query(HrEntity).filter(HrEntity.id == s.entity_id).first())
                 if s.entity_id else [],
+                # Ready To Send (Oct 14): every check a hire needs, with its fix.
+                "readiness": hpd.readiness(db, s),
                 "problems": setting_problems(db, s), "updatedBy": s.updated_by or "", "updatedAt": s.updated_at or ""}
     tpl = db.query(HrSignTemplate).filter(HrSignTemplate.id == s.template_id).first() if s.template_id else None
     return {"id": s.id, "engine": "pdf", "entityId": s.entity_id or "", "event": s.event, "workerType": s.worker_type,
