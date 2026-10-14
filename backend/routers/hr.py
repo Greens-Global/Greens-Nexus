@@ -349,9 +349,12 @@ def update_employee(eid: str, body: EmployeeUpdate, user: dict = Depends(require
         raise HTTPException(400, "first_name cannot be empty")
     fields = body.model_dump(exclude_unset=True)
     changes: dict = {}
+    is_external = (row.identity_type or "internal") in ("guest", "external")
     for key, value in fields.items():
         if value is None:
             continue
+        if key == "external_company" and not is_external:
+            continue   # an outside company only means something on a guest / external row
         if key in ("work_email", "personal_email", "manager_email", "backup_manager_email"):
             value = value.strip().lower()
         elif isinstance(value, str) and key != "notes":

@@ -615,9 +615,6 @@ class TestInviteFlow(_ExternalBase):
         self.assertEqual(self.client.post("/external-users/nobody@nowhere.com/invite").status_code, 404)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class TestOrgChartExternals(_ExternalBase):
     """The org chart can show external users (Neil, Oct 14 2026): the People
@@ -641,3 +638,29 @@ class TestOrgChartExternals(_ExternalBase):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(r.json()["managerEmail"], ADMIN)
         self.assertEqual(r.json()["externalCompany"], "Acme Builders")
+
+    def test_internal_rows_never_take_an_external_company(self):
+        self._as_admin()
+        db = database.SessionLocal()
+        try:
+            db.add(models.NexusEmployee(
+                id="ext-test-internal", first_name="Ira", last_name="In",
+                work_email="authprobe.ira@greensglobal.com", identity_type="internal",
+                status="active", created_at="2026-10-14T00:00:00Z"))
+            db.commit()
+        finally:
+            db.close()
+        try:
+            r = self.client.patch("/hr/employees/ext-test-internal",
+                                  json={"job_title": "Analyst", "external_company": "Acme"})
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertEqual(r.json()["jobTitle"], "Analyst")
+            self.assertEqual(r.json()["externalCompany"], "")
+        finally:
+            db = database.SessionLocal()
+            db.query(models.NexusEmployee).filter(models.NexusEmployee.id == "ext-test-internal").delete()
+            db.commit(); db.close()
+
+
+if __name__ == "__main__":
+    unittest.main()

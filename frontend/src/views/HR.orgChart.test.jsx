@@ -14,7 +14,7 @@ const PEOPLE = [
     jobTitle: 'Lead', department: 'Maintenance', company: 'co1', identityType: 'internal', employmentType: 'full_time', compliance: {}, contractor: {}, personal: {} },
   { id: 'x1', firstName: 'Jane', lastName: 'Doe', workEmail: 'jane@acme.com', managerEmail: 'mia@x.com', status: 'active',
     jobTitle: 'Site Foreman', department: 'Field', company: '', externalCompany: 'Acme Construction', identityType: 'guest', employmentType: 'full_time', compliance: {}, contractor: {}, personal: {} },
-  { id: 'x2', firstName: 'Gone', lastName: 'Guest', workEmail: 'gone@acme.com', managerEmail: '', status: 'offboarded',
+  { id: 'x2', firstName: 'Gone', lastName: 'Guest', workEmail: 'gone@acme.com', managerEmail: '', status: 'inactive',
     jobTitle: '', department: '', company: '', externalCompany: 'Acme Construction', identityType: 'external', employmentType: 'full_time', compliance: {}, contractor: {}, personal: {} },
 ];
 
@@ -58,7 +58,7 @@ describe('Org chart externals and four-line cards', () => {
     expect(screen.queryByText('Jane Doe')).toBeNull();
     const toggle = screen.getByRole('checkbox', { name: /External Users/ });
     expect(toggle.checked).toBe(false);
-    expect(screen.getByText('1', { selector: 'label span' })).toBeTruthy();   // one live external; the offboarded one is not counted
+    expect(screen.getByText('1', { selector: 'label span' })).toBeTruthy();   // one active external; the deactivated one is not counted
     fireEvent.click(toggle);
     const card = cardOf('Jane Doe');
     expect(within(card).getByText('External')).toBeTruthy();
@@ -84,5 +84,35 @@ describe('Org chart externals and four-line cards', () => {
     const saved = calls.find(([k]) => k === 'updateEmployee');
     expect(saved[1][0]).toBe('x1');
     expect(saved[1][1].external_company).toBe('Acme Builders');
+  }, 20000);
+
+  it('the company filter keeps an external with the company they report into; an internal save carries no outside company', async () => {
+    localStorage.setItem('nx-orgchart-externals', 'true');
+    await renderChart();
+    fireEvent.change(screen.getByDisplayValue('All companies'), { target: { value: 'co1' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Expand all' }));
+    expect(screen.getByText('Jane Doe')).toBeTruthy();                       // reports into Greens Co
+    fireEvent.pointerDown(cardOf('Mia Mid'), { clientX: 10, clientY: 10, button: 0 });
+    fireEvent.pointerUp(window, { clientX: 10, clientY: 10 });
+    const panel = screen.getByText('Reports to').closest('div');
+    expect(within(panel).queryByDisplayValue('Acme Construction')).toBeNull();   // entity picker, not free text
+    fireEvent.change(within(panel).getByDisplayValue('Lead'), { target: { value: 'Senior Lead' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save changes/ }));
+    const saved = calls.find(([k]) => k === 'updateEmployee');
+    expect(saved[1][1].job_title).toBe('Senior Lead');
+    expect('external_company' in saved[1][1]).toBe(false);
+  }, 20000);
+
+  it('with the option off, an internal who reports to an external keeps that manager selectable', async () => {
+    PEOPLE[1].managerEmail = 'jane@acme.com';   // Mia reports to Jane
+    try {
+      await renderChart();
+      fireEvent.pointerDown(cardOf('Mia Mid'), { clientX: 10, clientY: 10, button: 0 });
+      fireEvent.pointerUp(window, { clientX: 10, clientY: 10 });
+      const panel = screen.getByText('Reports to').closest('div');
+      const sel = within(panel).getAllByRole('combobox')[0];
+      expect(sel.value).toBe('jane@acme.com');
+      expect(within(sel).getByText(/Jane Doe.*External, not shown on the chart/)).toBeTruthy();
+    } finally { PEOPLE[1].managerEmail = 'val@x.com'; }
   }, 20000);
 });
