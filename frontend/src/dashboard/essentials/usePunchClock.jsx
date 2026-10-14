@@ -219,10 +219,14 @@ export function usePunchClock() {
       }
       const posP = posRef.current || punchPosition(kind);
       posRef.current = null;
-      const [pos, pairNonce] = await Promise.all([
+      const [early, pairNonce] = await Promise.all([
         posP,
         kind === 'in' ? pairLocalAgent() : Promise.resolve(''),
       ]);
+      // No fix from the early start (its permission bubble can sit behind the
+      // share picker on a first use): ask once more now, as before - a denied
+      // or unsupported device answers instantly, so this never waits twice.
+      const pos = early ?? await punchPosition(kind);
       const res = await punchDurable({
         kind, tzOffsetMin: new Date().getTimezoneOffset(), pos,
         // The moment the button was pressed, when a prompt stood between it

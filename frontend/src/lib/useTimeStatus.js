@@ -55,7 +55,9 @@ export function withPunch(status, punch) {
   if (!status || !punch?.kind || !punch.at) return status;
   const key = punch.localDate || '';
   const day = status.days?.[key] || { workedMin: 0, flags: [], punches: [] };
-  const days = key ? { ...(status.days || {}), [key]: { ...day, punches: [...(day.punches || []), punch] } } : status.days;
+  // Already there when a poll landed between the POST and this fold.
+  const had = (day.punches || []).some((p) => p.id && p.id === punch.id);
+  const days = key ? { ...(status.days || {}), [key]: { ...day, punches: had ? day.punches : [...(day.punches || []), punch] } } : status.days;
   return {
     ...status, lastPunch: punch, allowed: NEXT_ALLOWED[punch.kind] || status.allowed, staleOpenShift: false, days,
     bodRequired: punch.kind === 'in' ? false : status.bodRequired,

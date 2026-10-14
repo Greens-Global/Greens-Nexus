@@ -11,7 +11,8 @@ const punchMock = vi.hoisted(() => ({ punchDurable: vi.fn(), replayPending: vi.f
 const pairMock = vi.hoisted(() => ({ pairLocalAgent: vi.fn(async () => '') }));
 vi.mock('../../api', () => ({ api: apiMock }));
 vi.mock('../../lib/punchQueue', () => punchMock);
-vi.mock('../../lib/geoPosition', () => ({ punchPosition: vi.fn(async () => ({ lat: 1, lng: 2, accuracy_m: 5 })) }));
+const geoMock = vi.hoisted(() => ({ punchPosition: vi.fn(async () => ({ lat: 1, lng: 2, accuracy_m: 5 })) }));
+vi.mock('../../lib/geoPosition', () => geoMock);
 vi.mock('../../lib/agentPair', () => pairMock);
 vi.mock('../../components/BodModal', () => ({
   default: ({ mode, onSent, onSkip, onClose }) => (
@@ -135,12 +136,15 @@ describe('<MyTime /> render', () => {
     render(<MyTime />);
     const changed = vi.fn();
     window.addEventListener('nexus:timeclock-changed', changed);
+    geoMock.punchPosition.mockClear();
     fireEvent.click(await screen.findByRole('button', { name: /Start Break/ }));
     expect(await screen.findByTestId('bod-modal')).toHaveTextContent('break');
     expect(punchMock.punchDurable).not.toHaveBeenCalled();
+    expect(geoMock.punchPosition).toHaveBeenCalledWith('break_start');   // the fix runs under the prompt, not after it
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     await waitFor(() => expect(punchMock.punchDurable).toHaveBeenCalledTimes(1));
     expect(punchMock.punchDurable.mock.calls[0][0]).toMatchObject({ kind: 'break_start', pos: { lat: 1, lng: 2 } });
+    expect(geoMock.punchPosition).toHaveBeenCalledTimes(1);               // a fix in hand is not asked for twice
     expect(punchMock.punchDurable.mock.calls[0][0].clickedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);   // the moment the button was pressed
     expect(screen.queryByTestId('bod-modal')).toBeNull();
     expect(await screen.findByRole('status')).toHaveTextContent('Break started at 10:30 AM at Escondido North.');

@@ -448,10 +448,10 @@ h1,h2,h3,h4,h5,h6,
   border: 2px solid var(--sb-tone, var(--wk-brand)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--sb-tone, var(--wk-brand)) 18%, transparent);
   transition: transform .24s cubic-bezier(.22,1,.36,1), border-color .25s ease, box-shadow .25s ease; pointer-events: none; }
 .sbtr--break .sbtr-lit { --sb-tone: #b45309; }
-/* a state change: the outline is re-keyed, slides from where it was and
-   lands with a small pop (the slide is the transform transition above) */
-.sbtr-lit { animation: sbLand .36s cubic-bezier(.22,1,.36,1); }
-@keyframes sbLand { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--sb-tone, var(--wk-brand)) 30%, transparent); } 55% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--sb-tone, var(--wk-brand)) 14%, transparent); } 100% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--sb-tone, var(--wk-brand)) 18%, transparent); } }
+/* a state change: the outline slides to its new slot (the transform
+   transition above) and the pop inside it, re-keyed, lands there */
+.sbtr-land { position: absolute; inset: -2px; border-radius: inherit; pointer-events: none; animation: sbLand .36s cubic-bezier(.22,1,.36,1); }
+@keyframes sbLand { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--sb-tone, var(--wk-brand)) 30%, transparent); } 55% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--sb-tone, var(--wk-brand)) 14%, transparent); } 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--sb-tone, var(--wk-brand)) 0%, transparent); } }
 /* a punch-out: the dial drains and turns red in place (stroke-dashoffset
    and stroke transition on .sbring-arc), the card loses its tint */
 .sbclock--out .sbring-arc { transition: stroke-dashoffset .8s cubic-bezier(.22,1,.36,1), stroke .4s ease; }
@@ -541,7 +541,7 @@ h1,h2,h3,h4,h5,h6,
 .sbclock-rail .sbtr-btn--share svg { fill: none; }
 .sbclock-ringbtn:focus-visible, .sbclock-head:focus-visible { outline: 2px solid var(--sb-tone, var(--wk-brand)); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) {
-  .sbclock, .sbclock-rail, .sbclock-timer, .sbring-arc, .sbring--in, .sbring--break, .sbtr-btn--play.is-next, .sbtr-coffee, .sbtr-coffee i, .sbring-sweep, .sbtr-lit { animation: none; }
+  .sbclock, .sbclock-rail, .sbclock-timer, .sbring-arc, .sbring--in, .sbring--break, .sbtr-btn--play.is-next, .sbtr-coffee, .sbtr-coffee i, .sbring-sweep, .sbtr-land { animation: none; }
   .sbring-arc, .sbtr-lit { transition: none; }
   .sbtr-coffee { display: none; }
 }

@@ -399,7 +399,7 @@ export default function TimeclockWidget() {
   async function finishBreak(kind) {
     // With a position, like the Time Clock page - without one every break
     // from here read "Location off" on the timecard (Charmi, Sep 29).
-    const pos = await (breakPosRef.current || punchPosition(kind));
+    const pos = (await (breakPosRef.current || punchPosition(kind))) ?? await punchPosition(kind);   // a miss asks once more, as before
     breakPosRef.current = null;
     const res = await punchDurable({ kind, tzOffsetMin: new Date().getTimezoneOffset(), pos, clickedAt: breakClickRef.current || undefined });
     if (res.ok) {
