@@ -248,6 +248,10 @@ class StageTests(PipelineCase):
         self.assertEqual(none["answers"], [])
 
     def test_linking_a_role_moves_it_off_the_old_questionnaire_and_one_general(self):
+        # Questions carry what they check (Oct 14): a plain string is competence.
+        grouped = hi.create_template(hi.TemplateIn(name="G", questions=[{"q": "Start when?", "group": "availability"}, "Last role?",
+                                                                        {"q": "x", "group": "bogus"}]), user=HR_USER, db=self.db)
+        self.assertEqual([q["group"] for q in grouped["questions"]], ["availability", "competence", "competence"])
         q1 = hi.create_template(hi.TemplateIn(name="A", questions=["q"], role_ids=["role-analyst"], is_general=True),
                                 user=HR_USER, db=self.db)
         q2 = hi.create_template(hi.TemplateIn(name="B", questions=["q"], role_ids=["role-analyst"], is_general=True),

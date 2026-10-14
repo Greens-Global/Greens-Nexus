@@ -31,7 +31,7 @@ import os
 import re
 import uuid
 from datetime import datetime, timezone, timedelta
-from typing import List, Optional
+from typing import Union, List, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -169,9 +169,28 @@ def _ser_iv(i: HrInterview, cand: HrCandidate = None) -> dict:
 
 # ── Questionnaire templates ───────────────────────────────────────────────────
 
+# What an interview checks (Neil, Oct 14): "we're checking person's character,
+# we're checking their competence ... and availability. Everything else is
+# later." Every question belongs to one of the three.
+GROUPS = ("character", "competence", "availability")
+
+
+def _questions(items) -> list:
+    """Questions as stored - [{id, q, group}] - from strings (older callers)
+    or {q, group} objects."""
+    out = []
+    for it in items or []:
+        q = (it.get("q") if isinstance(it, dict) else str(it or "")).strip()[:500]
+        if not q:
+            continue
+        group = (it.get("group") if isinstance(it, dict) else "") or "competence"
+        out.append({"id": str(uuid.uuid4())[:8], "q": q, "group": group if group in GROUPS else "competence"})
+    return out
+
+
 class TemplateIn(BaseModel):
     name: str
-    questions: List[str] = []
+    questions: List[Union[str, dict]] = []
     role_ids: Optional[List[str]] = None     # job roles this questionnaire is for
     is_general: Optional[bool] = None        # the fallback for roles without their own
 
@@ -201,8 +220,7 @@ def create_template(body: TemplateIn, user: dict = Depends(require_hr_write), db
     if not body.name.strip():
         raise HTTPException(400, "Give the questionnaire a role name")
     t = HrInterviewTemplate(id=str(uuid.uuid4()), name=body.name.strip()[:120],
-                            questions=[{"id": str(uuid.uuid4())[:8], "q": q.strip()[:500]}
-                                       for q in body.questions if q.strip()],
+                            questions=_questions(body.questions),
                             created_by=user["email"], created_at=_now(), updated_at=_now())
     db.add(t)
     _apply_template_links(db, t, body)
@@ -216,7 +234,7 @@ def update_template(tid: str, body: TemplateIn, user: dict = Depends(require_hr_
     if not t:
         raise HTTPException(404, "Template not found")
     t.name = body.name.strip()[:120] or t.name
-    t.questions = [{"id": str(uuid.uuid4())[:8], "q": q.strip()[:500]} for q in body.questions if q.strip()]
+    t.questions = _questions(body.questions)
     _apply_template_links(db, t, body)
     t.updated_at = _now()
     db.commit()
@@ -438,8 +456,8 @@ def schedule_interview(cid: str, body: ScheduleIn, user: dict = Depends(require_
                      template_id=tpl.id if tpl else "", template_name=tpl.name if tpl else "",
                      status="scheduled", at=at_iso, duration_min=max(15, min(240, body.duration_min)),
                      organizer_email=user["email"], interviewer_emails=who,
-                     answers=[{"qid": q["id"], "q": q["q"], "answer": "", "score": None, "rationale": ""}
-                              for q in (tpl.questions if tpl else [])],
+                     answers=[{"qid": q["id"], "q": q["q"], "group": q.get("group") or "competence", "answer": "",
+                               "score": None, "rationale": ""} for q in (tpl.questions if tpl else [])],
                      created_by=user["email"], created_at=_now(), updated_at=_now())
 
     graph_error = ""
