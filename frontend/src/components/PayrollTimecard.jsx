@@ -9,6 +9,8 @@ import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
 import { useRole } from '../contexts/RoleContext';
 import GuidedTour from './GuidedTour';
 import WorkLogDrawer, { WorkLogButton } from './WorkLogDrawer';
+import { useIsMobile } from '../lib/useIsMobile';
+import { PHONE_QUERY } from '../lib/keys';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import TimesheetReviewPanel from './TimesheetReviewPanel';
@@ -353,6 +355,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // Your own timesheet reads in your own zone, so a time you type is the time
   // you mean (Oct 13). After useDisplayTz, so its listener hears the switch.
   useOwnZone(self);
+  // A phone gets the day cards instead of the 12-column table (Oct 14) - the
+  // table scrolled sideways and hid Hours, OT, Notes and the Work Log.
+  const phone = useIsMobile(PHONE_QUERY);
   const [tour, setTour] = useState(false);               // Simulate walkthrough
   const { can, myEmail } = useRole();
   const isAdmin = can('administrator');
@@ -688,12 +693,294 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
 
   const dow = (ds) => new Date(ds + 'T00:00').toLocaleDateString([], { weekday: 'short', month: 'numeric', day: 'numeric' });
 
+  // ── A day's pieces, drawn by BOTH the desktop table and the phone day cards
+  //    (Oct 14) - one copy of each, so the two can never disagree about what a
+  //    cell says or offers. ──
+  const hIn = (r) => (
+    <>
+                    {r.seg && !r.seg.in
+                    // A clock-out with no clock-in (Oct 1) - see the fixed-salary inCell.
+                    ? ((self && fin) ? <span title="Period finalized - locked" style={{ color: '#b91c1c', fontWeight: 700 }}>Missing</span>
+                        : <button onClick={() => !fin && setEditDay({ date: r.ds, seg: r.seg })} title={fin ? 'Period finalized - locked' : self ? 'Add the missing clock-in - goes to your approver' : 'Add the missing clock-in, or delete the clock-out'}
+                            style={{ background: 'none', border: 'none', padding: 0, cursor: fin ? 'default' : 'pointer', color: '#b91c1c', fontWeight: 700, font: 'inherit' }}>Missing</button>)
+                    : r.seg
+                    ? <InlineTime seg={r.seg} k="in" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={hourlyLocate} onLocate={() => setGeoMap(hourlyLocate)} />
+                    : self && !fin
+                      ? <button onClick={() => setEditDay({ date: r.ds, seg: null })} title="Add a punch for this day - goes to your approver"
+                          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--wk-brand)', fontWeight: 600, font: 'inherit', opacity: 0.75 }}>+ add</button>
+                      : '-'}
+    </>
+  );
+  const hOut = (r) => (
+    <>
+                    {r.seg ? (r.seg.out
+                      ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          <InlineTime seg={r.seg} k="out" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={hourlyLocate} onLocate={() => setGeoMap(hourlyLocate)} />
+                          {(r.seg.flags || []).includes('auto_clock_out') && (
+                            <span title="Nexus closed this shift automatically - no clock-out was recorded. 0 paid hours until the real end time is set."
+                              style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', color: '#b91c1c', background: 'rgba(185,28,28,0.1)', padding: '2px 7px', borderRadius: 6 }}>
+                              auto
+                            </span>
+                          )}
+                        </span>
+                      : (self && fin)
+                        ? <span title="Period finalized - locked" style={{ color: '#b91c1c', fontWeight: 700 }}>Missing</span>
+                        : <button onClick={() => !fin && setEditDay({ date: r.ds, seg: r.seg })} title={fin ? 'Period finalized - locked' : self ? 'Add the missing clock-out - goes to your approver' : 'Add the missing clock-out'}
+                            style={{ background: 'none', border: 'none', padding: 0, cursor: fin ? 'default' : 'pointer', color: '#b91c1c', fontWeight: 700, font: 'inherit' }}>Missing</button>) : '-'}
+    </>
+  );
+  const hCategory = (r) => (
+    <>
+                    {r.seg?.category || '-'}
+                    {r.seg?.payClass && (
+                      <span title={`${{ sick: 'Sick', vacation: 'Vacation', personal: 'Personal' }[r.seg.payClass] || 'Leave'} hours - paid at the base rate, not counted toward overtime`}
+                        style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', color: 'var(--wk-brand)', background: 'var(--wk-brand-tint)', padding: '2px 7px', borderRadius: 6 }}>
+                        {r.seg.payClass}
+                      </span>
+                    )}
+    </>
+  );
+  const hBreaks = (r) => (
+    <>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--muted)', fontWeight: 700, marginRight: 8 }}>
+                      <Coffee size={11} /> Breaks
+                      {!r.breaks.length && <span style={{ fontWeight: 500 }}>- none recorded</span>}
+                    </span>
+                    {r.breaks.map((b, bi) => {
+                      const unended = b.implicit && b.min > (data?.breakPolicy?.longBreakMin || 75);
+                      return (
+                        <span key={bi} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: unended ? 'rgba(185,28,28,0.07)' : 'var(--wk-hover)', border: `1px solid ${unended ? 'rgba(185,28,28,0.4)' : 'var(--line)'}`, borderRadius: 999, padding: '2px 9px', margin: '2px 6px 2px 0', fontSize: 11.5 }}>
+                          {t12(b.start)} <ArrowRight size={10} style={{ opacity: 0.6 }} /> {t12(b.end)}
+                          <span style={{ fontWeight: 700, marginLeft: 2 }}>({hhmm(b.min)})</span>
+                          {b.paidMin > 0 && <span style={{ color: 'hsl(var(--color-green))', fontWeight: 700 }}>{b.paidMin}m paid</span>}
+                          {unended && (
+                            <span title="This break was never ended - the day's clock-out closed it, so all of this time counts as unpaid break. Fix the real break end via an edit." style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: '#b91c1c', fontWeight: 700 }}>
+                              <AlertTriangle size={10} /> never ended
+                            </span>
+                          )}
+                        </span>
+                      );
+                    })}
+                    {/* One way to ADD a break (Neil, Oct 13): the Add punch form with
+                        Type = Break. "Fix a Break Punch" only mends a break whose start
+                        or end never recorded. */}
+                    {!fin && !self && (
+                      <button onClick={() => setEditDay({ date: r.ds, seg: null, type: 'Break' })}
+                        title="Add a break to this day - its start and end"
+                        style={{ background: 'none', border: 'none', padding: 0, marginLeft: 2, marginRight: 10, cursor: 'pointer', font: 'inherit', fontSize: 11.5, fontWeight: 700, color: 'var(--wk-brand)' }}>
+                        Add a Break
+                      </button>
+                    )}
+                    {!fin && (self || r.breaks.length > 0) && (
+                      <button onClick={() => setBreakFix({ date: r.ds, breaks: r.breaks })}
+                        title={self ? "Ask your approver to add a break punch that didn't record" : 'Add the missing start or end of a break'}
+                        style={{ background: 'none', border: 'none', padding: 0, marginLeft: 2, cursor: 'pointer', font: 'inherit', fontSize: 11.5, fontWeight: 700, color: 'var(--wk-brand)' }}>
+                        Fix a Break Punch
+                      </button>
+                    )}
+    </>
+  );
+  const hAuto = () => (
+    <>
+                    <AlertTriangle size={11} style={{ marginRight: 5, verticalAlign: 'middle' }} />
+                    Auto-closed at end of day - no clock-out was recorded. The day is held at 0 hours and blocks sign-off; {self ? 'tap the Out time to propose the real end of your shift.' : 'set the real Out time to release it for pay.'}
+    </>
+  );
+  const hHoliday = (r) => (
+    <>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                      <span>
+                        <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 999, background: 'rgba(37,99,235,0.12)', color: '#2563eb', marginRight: 6 }}>{r.holidayType === 'half_day' ? 'Half-day holiday' : 'Holiday'}</span>
+                        {r.name || 'Company holiday'}{r.worked
+                          ? <> - worked the half day, plus {showPay ? fmtM(r.pay) : 'the other half'} credited{showPay ? ' for the other half' : ''}.</>
+                          : <> - not worked, {showPay ? <>paid {fmtM(r.pay)}</> : 'paid holiday'}{r.holidayType === 'half_day' ? ' (half day)' : ''}.</>}
+                      </span>
+                      {/* The pay figure under its own text was easy to miss (Pranshu,
+                          Sep 22) - repeat it where the Wage column reads for every
+                          other row, so it scans the same way. */}
+                      <span style={{ fontWeight: 800, whiteSpace: 'nowrap' }}>{fmtM(r.pay)}</span>
+                    </div>
+    </>
+  );
+  const hReq = (r) => (
+    <>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                      <span style={{ fontWeight: 600, color: 'var(--ink)', minWidth: 70 }}>{dow(r.ds)}</span>
+                      <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', padding: '2px 8px', borderRadius: 999, background: 'rgba(180,83,9,0.16)', color: '#b45309', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        <AlertTriangle size={10} /> Not Yet Approved
+                      </span>
+                      <span style={{ color: '#b45309', fontWeight: 700 }}>
+                        {r.req.action === 'remove' ? 'Remove a punch' : `Add ${PR_KIND_LABEL[r.req.punchKind] || r.req.punchKind}`}{r.req.action === 'add' && r.req.at ? ` at ${t12(r.req.at)}` : ''}{r.req.category ? ` as ${r.req.category}` : ''}
+                      </span>
+                      {r.req.reason && <span style={{ color: '#b45309', fontStyle: 'italic' }}>{self ? 'Your reason' : (r.req.employeeName || 'Employee')}: “{r.req.reason}”</span>}
+                      {r.req.createdAt && <span style={{ color: 'var(--muted)', fontSize: 11 }}>asked {formatDateTime(r.req.createdAt + (r.req.createdAt.endsWith('Z') ? '' : 'Z'))}</span>}
+                      <span style={{ flex: 1 }} />
+                      {self
+                        ? <span style={{ fontSize: 11, color: 'var(--muted)' }}>with your approver - not in your hours yet</span>
+                        : !fin && (
+                          <span style={{ display: 'inline-flex', gap: 6 }}>
+                            <button onClick={() => decideReq(r.req.id, 'approved')} title="Approve - adds this punch to the timecard"
+                              style={{ borderRadius: 999, padding: '3px 12px', cursor: 'pointer', font: 'inherit', fontSize: 11.5, fontWeight: 700, border: 'none', background: 'hsl(var(--color-green))', color: '#fff' }}>Approve</button>
+                            <button onClick={() => decideReq(r.req.id, 'rejected')} title="Reject - the employee is notified"
+                              style={{ borderRadius: 999, padding: '3px 12px', cursor: 'pointer', font: 'inherit', fontSize: 11.5, fontWeight: 700, border: '1px solid var(--wk-line2)', background: 'var(--card)', color: 'var(--ink)' }}>Reject</button>
+                          </span>
+                        )}
+                    </div>
+    </>
+  );
+  const hEdit = (r) => (
+    <>
+                    {!self && !fin && (
+                      <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', justifyContent: 'center' }}>
+                        <button onClick={() => setEditDay({ date: r.ds, seg: r.seg })}
+                          title={r.seg ? 'Edit punch' : 'Add punch'}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'inline-flex' }}>
+                          {r.seg ? <Pencil size={13} /> : <Plus size={14} />}
+                        </button>
+                        {/* A day that already has punches still needs a way to add ANOTHER
+                            session - the edit pencil only edits the existing pair. Show a
+                            second "+" on the day's last row (Neil, Aug 3: "no option to just
+                            add a punch, only edit a punch"). */}
+                        {r.seg && r.last && (
+                          <button onClick={() => setEditDay({ date: r.ds, seg: null })}
+                            title="Add another punch for this day"
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--wk-brand)', display: 'inline-flex' }}>
+                            <Plus size={14} />
+                          </button>
+                        )}
+                      </span>
+                    )}
+    </>
+  );
+
+  // ── Phone: one card per day (Oct 14). The same rows the table draws, grouped
+  //    by date: the date, the day's hours (and OT and wage), each session as
+  //    In -> Out with its category and location, then the day's breaks,
+  //    holiday, auto-close and pending requests, then the note and Work Log.
+  //    The weekly total is a band between the weeks, as on the table. ──
+  const hourlyPhoneDays = () => {
+    const items = [];
+    let cur = null;
+    rows.forEach(r => {
+      if (r.type === 'wk') { cur = null; items.push(r); return; }
+      // Punch reasons carry no date of their own; they follow their day.
+      if (r.type === 'note') { cur?.extra.push(r); return; }
+      if (!cur || cur.ds !== r.ds) { cur = { type: 'card', ds: r.ds, segs: [], extra: [] }; items.push(cur); }
+      if (r.type === 'day') cur.segs.push(r); else cur.extra.push(r);
+    });
+    const small = { fontSize: 12, color: 'var(--muted)' };
+    return (
+      <div data-tour="pr-table" className="pr-days">
+        {items.map((it, i) => {
+          if (it.type === 'wk') {
+            const wkEnd = new Date(new Date(it.week + 'T00:00').getTime() + 6 * DAY);
+            return (
+              <div key={'wk' + i} className="pr-days-week">
+                <span>Week of {new Date(it.week + 'T00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })} to {wkEnd.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })}</span>
+                <span>{hhmm(weekTotals[it.week]?.min || 0)}</span>
+              </div>
+            );
+          }
+          const ds = it.ds;
+          const worked = it.segs.filter(r => r.seg);
+          const day = byDate[ds];
+          const leave = worked.some(r => r.seg.payClass);
+          const otMin = worked.reduce((a, r) => a + (r.seg.otMin || 0), 0);
+          const dtMin = worked.reduce((a, r) => a + (r.seg.dtMin || 0), 0);
+          const pay = worked.reduce((a, r) => a + (r.seg.amount || 0), 0);
+          // A day with no punches is one line: its date, Add Note, the Work Log
+          // and Add Punch, as the table row offers them. A worked day, or one
+          // with a note, carries the note and Work Log in its own footer.
+          const foot = worked.length > 0 || !!(self ? myNote(ds) : (notes[ds]?.note || notes[ds]?.employeeNote));
+          const inline = !foot;
+          const canAdd = !fin;
+          const noteCell = self
+            ? <NoteCell date={ds} note={myNote(ds)} onSave={saveMyNote} placeholder="Add a note for your manager" />
+            : <><NoteCell date={ds} note={notes[ds]} onSave={saveNote} /><EmployeeNoteLine note={notes[ds]} /></>;
+          return (
+            <section key={ds} className={`pr-dcard${leave ? ' pr-dcard-leave' : ''}${worked.length ? '' : ' pr-dcard-empty'}`} aria-label={dow(ds)}>
+              <div className="pr-dcard-head">
+                <span className="pr-dcard-date" style={{ color: leave ? '#b91c1c' : worked.length ? 'var(--ink)' : 'var(--muted)' }}>{dow(ds)}</span>
+                {inline && <span className="pr-dcard-inline-note">{noteCell}</span>}
+                <span style={{ flex: 1 }} />
+                {inline && <WorkLogButton onClick={() => setWorkLogDay(ds)} title={`View the Work Log for ${dow(ds)}`} />}
+                {worked.length > 0 ? (
+                  <span className="pr-dcard-total">
+                    {(otMin > 0 || dtMin > 0) && (
+                      <span style={{ color: dtMin ? '#b91c1c' : '#b45309', fontWeight: 700, fontSize: 11.5 }}>
+                        OT {[otMin ? hhmm(otMin) : '', dtMin ? `${hhmm(dtMin)} 2×` : ''].filter(Boolean).join(' · ')}
+                      </span>
+                    )}
+                    <span>{hhmm(day?.workedMin ?? worked.reduce((a, r) => a + (r.seg.workedMin || 0), 0))}</span>
+                    {showPay && <span style={{ fontWeight: 600, color: 'var(--muted)' }}>{fmtM(pay)}</span>}
+                  </span>
+                ) : canAdd ? (
+                  <button type="button" className="pr-dcard-add" onClick={() => setEditDay({ date: ds, seg: null })}
+                    title={self ? 'Add a punch for this day - goes to your approver' : 'Add a punch for this day'}>
+                    <Plus size={13} /> Add Punch
+                  </button>
+                ) : <span style={small}>No Punches</span>}
+              </div>
+              {worked.map((r, si) => (
+                <div key={si} className="pr-dcard-seg">
+                  <div className="pr-dcard-times">
+                    <span>{hIn(r)}</span>
+                    <ArrowRight size={12} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+                    <span>{hOut(r)}</span>
+                    <span style={{ flex: 1 }} />
+                    {worked.length > 1 && <span style={{ ...small, fontVariantNumeric: 'tabular-nums' }}>{hhmm(r.seg.workedMin)}</span>}
+                    {!self && !fin && (
+                      <button type="button" className="pr-dcard-icon" onClick={() => setEditDay({ date: ds, seg: r.seg })}
+                        title="Edit punch" aria-label={`Edit the punch on ${dow(ds)}`}>
+                        <Pencil size={14} />
+                      </button>
+                    )}
+                  </div>
+                  {(r.seg.category || r.seg.payClass || r.seg.deductedMin > 0 || r.seg.workSite || r.seg.geo || r.seg.geoOut) && (
+                    <div className="pr-dcard-meta">
+                      {(r.seg.category || r.seg.payClass) && <span>{hCategory(r)}</span>}
+                      {r.seg.deductedMin > 0 && <span style={{ color: '#b45309' }}>−{r.seg.deductedMin}m deducted</span>}
+                      <LocCell seg={r.seg} onOpen={(seg) => { setGeoFocus({ seg, date: ds }); setGeoMap(data?.email || email || myEmail || ''); }} />
+                    </div>
+                  )}
+                </div>
+              ))}
+              {worked.length > 0 && !self && !fin && (
+                <button type="button" className="pr-dcard-add pr-dcard-add-more" onClick={() => setEditDay({ date: ds, seg: null })}
+                  title="Add another punch for this day">
+                  <Plus size={13} /> Add Another Punch
+                </button>
+              )}
+              {it.extra.map((r, xi) => (
+                <div key={xi} className={`pr-dcard-extra pr-dcard-${r.type}`}>
+                  {r.type === 'brk' ? hBreaks(r)
+                    : r.type === 'auto' ? hAuto()
+                    : r.type === 'holiday' ? hHoliday(r)
+                    : r.type === 'req' ? hReq(r)
+                    : <><Pencil size={10} style={{ marginRight: 5, verticalAlign: 'middle' }} />{r.text}</>}
+                </div>
+              ))}
+              {foot && (
+                <div className="pr-dcard-foot">
+                  <div style={{ flex: 1, minWidth: 0 }}>{noteCell}</div>
+                  <WorkLogButton onClick={() => setWorkLogDay(ds)} title={`View the Work Log for ${dow(ds)}`} />
+                </div>
+              )}
+            </section>
+          );
+        })}
+      </div>
+    );
+  };
+
   const exByEmail = Object.fromEntries(exceptions.map(e => [e.email, e]));
   const sidebar = (exceptions.length ? exceptions : people.map(p => ({ ...p, missing: 0, exceptions: 0 })));
 
   // The employee master-detail list - shared by the hourly and fixed-salary views
   // so switching between them never rearranges the screen (hidden in self mode).
-  const employeeSidebar = !self ? (
+  // On a phone the list gives way to the card; the employee picker above the
+  // card still switches people.
+  const employeeSidebar = (!self && !phone) ? (
     <div data-tour="pr-sidebar" style={{ width: 210, flexShrink: 0, border: '1px solid var(--wk-line2)', borderRadius: 14, overflow: 'hidden', maxHeight: 620, overflowY: 'auto', background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }} className="pr-sidebar">
       <div style={{ padding: '9px 12px', background: 'var(--wk-hover)', fontSize: 12, fontWeight: 500, color: 'var(--wk-dim)', display: 'flex' }}>
         <span style={{ flex: 1 }}>Employee</span><span title="Missing punches">M</span><span style={{ width: 22, textAlign: 'right' }} title="Exceptions">E</span>
@@ -824,6 +1111,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         <StepUpNeeded label="Payroll shows employees’ pay figures." onVerified={load} />
       ) : data === null ? (
         <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="inline" /></div>
+      ) : phone ? (
+        hourlyPhoneDays()
       ) : (
         <div data-tour="pr-table" style={{ overflowX: 'auto', border: '1px solid var(--wk-line2)', borderRadius: 14, background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }}>
           {/* SwipeClock column order - Date, In, Out, Deducted, Category, Hours,
@@ -861,93 +1150,25 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
               ) : r.type === 'brk' ? (
                 <tr key={i}>
                   <td colSpan={span} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, fontSize: 11.5, whiteSpace: 'normal' }}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--muted)', fontWeight: 700, marginRight: 8 }}>
-                      <Coffee size={11} /> Breaks
-                      {!r.breaks.length && <span style={{ fontWeight: 500 }}>- none recorded</span>}
-                    </span>
-                    {r.breaks.map((b, bi) => {
-                      const unended = b.implicit && b.min > (data?.breakPolicy?.longBreakMin || 75);
-                      return (
-                        <span key={bi} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: unended ? 'rgba(185,28,28,0.07)' : 'var(--wk-hover)', border: `1px solid ${unended ? 'rgba(185,28,28,0.4)' : 'var(--line)'}`, borderRadius: 999, padding: '2px 9px', margin: '2px 6px 2px 0', fontSize: 11.5 }}>
-                          {t12(b.start)} <ArrowRight size={10} style={{ opacity: 0.6 }} /> {t12(b.end)}
-                          <span style={{ fontWeight: 700, marginLeft: 2 }}>({hhmm(b.min)})</span>
-                          {b.paidMin > 0 && <span style={{ color: 'hsl(var(--color-green))', fontWeight: 700 }}>{b.paidMin}m paid</span>}
-                          {unended && (
-                            <span title="This break was never ended - the day's clock-out closed it, so all of this time counts as unpaid break. Fix the real break end via an edit." style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: '#b91c1c', fontWeight: 700 }}>
-                              <AlertTriangle size={10} /> never ended
-                            </span>
-                          )}
-                        </span>
-                      );
-                    })}
-                    {/* One way to ADD a break (Neil, Oct 13): the Add punch form with
-                        Type = Break. "Fix a Break Punch" only mends a break whose start
-                        or end never recorded. */}
-                    {!fin && !self && (
-                      <button onClick={() => setEditDay({ date: r.ds, seg: null, type: 'Break' })}
-                        title="Add a break to this day - its start and end"
-                        style={{ background: 'none', border: 'none', padding: 0, marginLeft: 2, marginRight: 10, cursor: 'pointer', font: 'inherit', fontSize: 11.5, fontWeight: 700, color: 'var(--wk-brand)' }}>
-                        Add a Break
-                      </button>
-                    )}
-                    {!fin && (self || r.breaks.length > 0) && (
-                      <button onClick={() => setBreakFix({ date: r.ds, breaks: r.breaks })}
-                        title={self ? "Ask your approver to add a break punch that didn't record" : 'Add the missing start or end of a break'}
-                        style={{ background: 'none', border: 'none', padding: 0, marginLeft: 2, cursor: 'pointer', font: 'inherit', fontSize: 11.5, fontWeight: 700, color: 'var(--wk-brand)' }}>
-                        Fix a Break Punch
-                      </button>
-                    )}
+                    {hBreaks(r)}
                   </td>
                 </tr>
               ) : r.type === 'auto' ? (
                 <tr key={i}>
                   <td colSpan={span} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, color: '#b91c1c', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
-                    <AlertTriangle size={11} style={{ marginRight: 5, verticalAlign: 'middle' }} />
-                    Auto-closed at end of day - no clock-out was recorded. The day is held at 0 hours and blocks sign-off; {self ? 'tap the Out time to propose the real end of your shift.' : 'set the real Out time to release it for pay.'}
+                    {hAuto()}
                   </td>
                 </tr>
               ) : r.type === 'holiday' ? (
                 <tr key={i} style={{ background: 'rgba(37,99,235,0.06)' }}>
                   <td colSpan={span} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, color: '#2563eb', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
-                      <span>
-                        <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 999, background: 'rgba(37,99,235,0.12)', color: '#2563eb', marginRight: 6 }}>{r.holidayType === 'half_day' ? 'Half-day holiday' : 'Holiday'}</span>
-                        {r.name || 'Company holiday'}{r.worked
-                          ? <> - worked the half day, plus {showPay ? fmtM(r.pay) : 'the other half'} credited{showPay ? ' for the other half' : ''}.</>
-                          : <> - not worked, {showPay ? <>paid {fmtM(r.pay)}</> : 'paid holiday'}{r.holidayType === 'half_day' ? ' (half day)' : ''}.</>}
-                      </span>
-                      {/* The pay figure under its own text was easy to miss (Pranshu,
-                          Sep 22) - repeat it where the Wage column reads for every
-                          other row, so it scans the same way. */}
-                      <span style={{ fontWeight: 800, whiteSpace: 'nowrap' }}>{fmtM(r.pay)}</span>
-                    </div>
+                    {hHoliday(r)}
                   </td>
                 </tr>
               ) : r.type === 'req' ? (
                 <tr key={i} style={{ background: 'rgba(180,83,9,0.07)' }}>
                   <td colSpan={span} style={{ ...td, textAlign: 'left', whiteSpace: 'normal', fontSize: 12 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                      <span style={{ fontWeight: 600, color: 'var(--ink)', minWidth: 70 }}>{dow(r.ds)}</span>
-                      <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', padding: '2px 8px', borderRadius: 999, background: 'rgba(180,83,9,0.16)', color: '#b45309', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                        <AlertTriangle size={10} /> Not Yet Approved
-                      </span>
-                      <span style={{ color: '#b45309', fontWeight: 700 }}>
-                        {r.req.action === 'remove' ? 'Remove a punch' : `Add ${PR_KIND_LABEL[r.req.punchKind] || r.req.punchKind}`}{r.req.action === 'add' && r.req.at ? ` at ${t12(r.req.at)}` : ''}{r.req.category ? ` as ${r.req.category}` : ''}
-                      </span>
-                      {r.req.reason && <span style={{ color: '#b45309', fontStyle: 'italic' }}>{self ? 'Your reason' : (r.req.employeeName || 'Employee')}: “{r.req.reason}”</span>}
-                      {r.req.createdAt && <span style={{ color: 'var(--muted)', fontSize: 11 }}>asked {formatDateTime(r.req.createdAt + (r.req.createdAt.endsWith('Z') ? '' : 'Z'))}</span>}
-                      <span style={{ flex: 1 }} />
-                      {self
-                        ? <span style={{ fontSize: 11, color: 'var(--muted)' }}>with your approver - not in your hours yet</span>
-                        : !fin && (
-                          <span style={{ display: 'inline-flex', gap: 6 }}>
-                            <button onClick={() => decideReq(r.req.id, 'approved')} title="Approve - adds this punch to the timecard"
-                              style={{ borderRadius: 999, padding: '3px 12px', cursor: 'pointer', font: 'inherit', fontSize: 11.5, fontWeight: 700, border: 'none', background: 'hsl(var(--color-green))', color: '#fff' }}>Approve</button>
-                            <button onClick={() => decideReq(r.req.id, 'rejected')} title="Reject - the employee is notified"
-                              style={{ borderRadius: 999, padding: '3px 12px', cursor: 'pointer', font: 'inherit', fontSize: 11.5, fontWeight: 700, border: '1px solid var(--wk-line2)', background: 'var(--card)', color: 'var(--ink)' }}>Reject</button>
-                          </span>
-                        )}
-                    </div>
+                    {hReq(r)}
                   </td>
                 </tr>
               ) : r.type === 'note' ? (
@@ -962,42 +1183,13 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   <td style={{ ...td, textAlign: 'left', fontWeight: r.first === undefined ? 400 : 700, color: r.seg?.payClass ? '#b91c1c' : r.seg ? 'var(--ink)' : 'var(--muted)' }}>
                     {r.first === false ? '' : dow(r.ds)}
                   </td>
-                  <td style={{ ...td, textAlign: 'left' }}>{r.seg && !r.seg.in
-                    // A clock-out with no clock-in (Oct 1) - see the fixed-salary inCell.
-                    ? ((self && fin) ? <span title="Period finalized - locked" style={{ color: '#b91c1c', fontWeight: 700 }}>Missing</span>
-                        : <button onClick={() => !fin && setEditDay({ date: r.ds, seg: r.seg })} title={fin ? 'Period finalized - locked' : self ? 'Add the missing clock-in - goes to your approver' : 'Add the missing clock-in, or delete the clock-out'}
-                            style={{ background: 'none', border: 'none', padding: 0, cursor: fin ? 'default' : 'pointer', color: '#b91c1c', fontWeight: 700, font: 'inherit' }}>Missing</button>)
-                    : r.seg
-                    ? <InlineTime seg={r.seg} k="in" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={hourlyLocate} onLocate={() => setGeoMap(hourlyLocate)} />
-                    : self && !fin
-                      ? <button onClick={() => setEditDay({ date: r.ds, seg: null })} title="Add a punch for this day - goes to your approver"
-                          style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--wk-brand)', fontWeight: 600, font: 'inherit', opacity: 0.75 }}>+ add</button>
-                      : '-'}</td>
+                  <td style={{ ...td, textAlign: 'left' }}>{hIn(r)}</td>
                   <td style={{ ...td, textAlign: 'left' }}>
-                    {r.seg ? (r.seg.out
-                      ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                          <InlineTime seg={r.seg} k="out" showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={hourlyLocate} onLocate={() => setGeoMap(hourlyLocate)} />
-                          {(r.seg.flags || []).includes('auto_clock_out') && (
-                            <span title="Nexus closed this shift automatically - no clock-out was recorded. 0 paid hours until the real end time is set."
-                              style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', color: '#b91c1c', background: 'rgba(185,28,28,0.1)', padding: '2px 7px', borderRadius: 6 }}>
-                              auto
-                            </span>
-                          )}
-                        </span>
-                      : (self && fin)
-                        ? <span title="Period finalized - locked" style={{ color: '#b91c1c', fontWeight: 700 }}>Missing</span>
-                        : <button onClick={() => !fin && setEditDay({ date: r.ds, seg: r.seg })} title={fin ? 'Period finalized - locked' : self ? 'Add the missing clock-out - goes to your approver' : 'Add the missing clock-out'}
-                            style={{ background: 'none', border: 'none', padding: 0, cursor: fin ? 'default' : 'pointer', color: '#b91c1c', fontWeight: 700, font: 'inherit' }}>Missing</button>) : '-'}
+                    {hOut(r)}
                   </td>
                   <td style={{ ...td, color: r.seg?.deductedMin ? '#b45309' : 'var(--muted)' }}>{r.seg?.deductedMin ? `−${r.seg.deductedMin}m` : '-'}</td>
                   <td style={{ ...td, textAlign: 'left', color: r.seg?.category ? 'var(--ink)' : 'var(--muted)' }}>
-                    {r.seg?.category || '-'}
-                    {r.seg?.payClass && (
-                      <span title={`${{ sick: 'Sick', vacation: 'Vacation', personal: 'Personal' }[r.seg.payClass] || 'Leave'} hours - paid at the base rate, not counted toward overtime`}
-                        style={{ marginLeft: 6, fontSize: 9.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', color: 'var(--wk-brand)', background: 'var(--wk-brand-tint)', padding: '2px 7px', borderRadius: 6 }}>
-                        {r.seg.payClass}
-                      </span>
-                    )}
+                    {hCategory(r)}
                   </td>
                   <td style={td}>
                     {r.seg ? hhmm(r.seg.workedMin) : '-'}
@@ -1025,26 +1217,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                     )}
                   </td>
                   <td style={{ ...td, textAlign: 'center' }}>
-                    {!self && !fin && (
-                      <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center', justifyContent: 'center' }}>
-                        <button onClick={() => setEditDay({ date: r.ds, seg: r.seg })}
-                          title={r.seg ? 'Edit punch' : 'Add punch'}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'inline-flex' }}>
-                          {r.seg ? <Pencil size={13} /> : <Plus size={14} />}
-                        </button>
-                        {/* A day that already has punches still needs a way to add ANOTHER
-                            session - the edit pencil only edits the existing pair. Show a
-                            second "+" on the day's last row (Neil, Aug 3: "no option to just
-                            add a punch, only edit a punch"). */}
-                        {r.seg && r.last && (
-                          <button onClick={() => setEditDay({ date: r.ds, seg: null })}
-                            title="Add another punch for this day"
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--wk-brand)', display: 'inline-flex' }}>
-                            <Plus size={14} />
-                          </button>
-                        )}
-                      </span>
-                    )}
+                    {hEdit(r)}
                   </td>
                 </tr>
               ))}
@@ -1230,7 +1403,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           body: 'Regular, overtime (1.5×), and double-time (2×) hours with wages - shown as clock time AND decimal ("58:30 (58.50)"), matching SwipeClock\'s summary, so payroll can key either format.' },
         { target: 'pr-approve', title: 'Two-step sign-off',
           body: 'Step 1 - the manager presses Approve when their person\'s card is right. Step 2 - HR presses Finalize: the period locks (no more edits, like SwipeClock\'s "finalized" periods) and payroll runs from it. Unlock reopens it if a correction is truly needed. CSV exports the punches for records.' },
-      ]} />}
+      // On a phone there is no employee list and no edit column (the day
+      // cards replace the table), so those two steps would point at nothing.
+      ].filter(st => !phone || (st.target !== 'pr-sidebar' && st.target !== 'pr-edit'))} />}
       <style>{`.pr-row:hover { background: var(--bg); } .pr-sidebar button:hover { background: var(--bg); } .loc-chip .loc-chip-text { border-bottom: 1px dashed currentColor; } .loc-chip:hover .loc-chip-text { border-bottom-style: solid; } .loc-chip:hover { opacity: 0.85; } .loc-chip:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: 2px; border-radius: 4px; }`}</style>
       </div>
       {workLogDay && (
@@ -1374,7 +1549,10 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
 
       {/* Day grid */}
       <div style={{ overflowX: 'auto', border: '1px solid var(--wk-line2)', borderRadius: 14, background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }}>
-        <table style={{ width: '100%', minWidth: 640, borderCollapse: 'collapse' }}>
+        {/* On a phone (style.css .pr-fixed-table) each day row stacks into a
+            card: date, status and hours; In and Out, break and effect on pay;
+            then the note and Work Log (Oct 14). */}
+        <table className="pr-fixed-table" style={{ width: '100%', minWidth: 640, borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: 'var(--wk-hover)' }}>
               <th style={th}>Date</th><th style={th}>Day</th><th style={th}>In</th><th style={th}>Out</th>
@@ -1460,7 +1638,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               const onLeave = !!fd.leaveClass;
               const statusPill = <span title={onLeave ? 'Leave - the day is deducted unless hours were also worked' : (fd.holidayName || undefined)} style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 999, background: st.bg, color: st.fg }}>{st.label}</span>;
               const breakCell = (
-                <td style={{ ...td, textAlign: 'right' }}>
+                <td className="fx-break" style={{ ...td, textAlign: 'right' }}>
                   {dayBreak > 0
                     ? <button onClick={() => setOpenBreaks(o => ({ ...o, [fd.date]: !o[fd.date] }))} aria-expanded={breaksOpen}
                         title="Daily break allowance is 60 min. Click to see each break in/out."
@@ -1484,9 +1662,9 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               //    (zebra + hover come from .pr-day-row in style.css; weekends keep their mist)
               rows.push(
                 <tr key={fd.date} className={`pr-day-row${fd.isWeekend ? ' pr-weekend' : fi % 2 ? ' pr-band' : ''}${onLeave ? ' pr-leave' : ''}`}>
-                  <td style={{ ...td, fontWeight: 700 }}>{dow(fd.date)}</td>
-                  <td style={td}>{statusPill}</td>
-                  <td style={td}>
+                  <td className="fx-date" style={{ ...td, fontWeight: 700 }}>{dow(fd.date)}</td>
+                  <td className="fx-status" style={td}>{statusPill}</td>
+                  <td className="fx-in" style={td}>
                     {!segs.length
                       ? ((!fin && !fd.future) ? addBtn : <span style={{ color: 'var(--muted)' }}>-</span>)
                       : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
@@ -1504,22 +1682,22 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                           {!self && !fin && !fd.future && addBtn}
                         </span>}
                   </td>
-                  <td style={td}>
+                  <td className="fx-out" style={td}>
                     {!segs.length
                       ? <span style={{ color: 'var(--muted)' }}>-</span>
                       : multi
                         ? outCell(lastSeg)
                         : outCell(firstSeg)}
                   </td>
-                  <td style={{ ...td, textAlign: 'right' }}>{segs.length ? hhmm(d.workedMin) : <span style={{ color: 'var(--muted)' }}>-</span>}</td>
+                  <td className="fx-hours" style={{ ...td, textAlign: 'right' }}>{segs.length ? hhmm(d.workedMin) : <span style={{ color: 'var(--muted)' }}>-</span>}</td>
                   {breakCell}
-                  <td style={{ ...td, textAlign: 'right' }}>{showPay ? effect(fd) : ''}</td>
-                  <td style={td}>
+                  <td className="fx-effect" style={{ ...td, textAlign: 'right' }}>{showPay ? effect(fd) : ''}</td>
+                  <td className="fx-notes" style={td}>
                     {self
                       ? <NoteCell date={fd.date} note={myNote(fd.date)} onSave={saveMyNote} placeholder="Add a note for your manager" />
                       : <><NoteCell date={fd.date} note={dayNotes[fd.date]} onSave={saveNote} /><EmployeeNoteLine note={dayNotes[fd.date]} /></>}
                   </td>
-                  <td style={{ ...td, textAlign: 'center' }}>
+                  <td className="fx-log" style={{ ...td, textAlign: 'center' }}>
                     <WorkLogButton onClick={() => setWorkLogDay(fd.date)} title={`View the Work Log for ${dow(fd.date)}`} />
                   </td>
                 </tr>
