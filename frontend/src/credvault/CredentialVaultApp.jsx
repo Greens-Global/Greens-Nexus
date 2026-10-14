@@ -1,19 +1,21 @@
-/* Credential Vault - the module screen (Oct 14 2026 rebuild).
+/* Credential Vault - the module screen (Oct 14 2026 rebuild, People-screen
+   grammar). Page header with the module chip and one green primary action;
+   a stat strip (KPI tiles, departments, what rotates next); then the
+   directory card: search and filters in its head, collection tabs, and a
+   master-detail body - credentials on the left, the selected one open in
+   place on the right. Phones get the list and a full-screen sheet.
 
-   One list with a left rail of collections (All, Owned by Me, Shared With Me,
-   Favorites, Needs Attention, each department, Trash) and a right-side drawer
-   for the selected credential. The API says per row what the caller may do
-   (access / canReveal / canEdit - department scope, Neil Oct 14 2026); this
-   screen only renders that. Company secrets arrive through explicit reveal
-   calls behind the SMS/Email code gate (VaultOtpModal), one code per window
-   ("Verified until <time>" in the header), and are held in memory for the
-   open drawer only. Tabs: Vault, Personal, Approvals, Activity. Deep links
-   arrive as `activeSub` (vaultModel.parseSub) from the bell and the header
-   search. */
+   The API says per row what the caller may do (access / canReveal /
+   canEdit - department scope, Neil Oct 14 2026); this screen only renders
+   that. Company secrets arrive through explicit reveal calls behind the
+   SMS/Email code gate (VaultOtpModal), one code per window ("Verified until
+   <time>" in the header), and are held in memory for the open detail only.
+   Tabs: Vault, Personal, Approvals, Activity. Deep links arrive as
+   `activeSub` (vaultModel.parseSub) from the bell and the header search. */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Shield, ShieldCheck, Search, Plus, Upload, Star, Trash2, Users, Share2, Heart, Building2, Layers, KeyRound,
-  CheckCircle2, XCircle, ArrowUpDown, History,
+  KeyRound, ShieldCheck, Shield, Search, Plus, Upload, Star, Trash2, Users, ChevronRight, ChevronDown, X,
+  CheckCircle2, XCircle, History, Lock, Building2, RefreshCw, Inbox, LayoutList,
 } from "lucide-react";
 import { api } from "../api";
 import { dialog } from "../ui/dialog";
@@ -21,20 +23,22 @@ import { SkeletonBlocks } from "../components/AsyncState";
 import ModuleTabs from "../components/ModuleTabs";
 import { useRole } from "../contexts/RoleContext";
 import { useNameResolver } from "../lib/useNameResolver";
+import { useIsMobile } from "../lib/useIsMobile";
 import { formatDateTime } from "../lib/datetime";
-import { usePeople } from "../tasks/components";
-import { VaultOtpModal, DEFAULT_DEPTS, TYPES, TIERS, iconFor, agoLabel, actionStyle } from "./vaultShared";
+import { usePeople, useClickOutside } from "../tasks/components";
+import { VaultOtpModal, DEFAULT_DEPTS, TYPES, TIERS, agoLabel, actionStyle } from "./vaultShared";
 import {
   ACCESS_LABEL, ACCESS_TONE, collectionsFor, filterCredentials, sortCredentials, healthFlags, healthTone,
   parseSub, verifiedLabel, readFavorites, writeFavorites, logMatches, live,
 } from "./vaultModel";
-import CredentialDrawer from "./CredentialDrawer";
+import { KpiTile, StatCard, DeptBars, RotationList, Monogram } from "./vaultCards";
+import CredentialSheet, { CredentialDetail } from "./CredentialDrawer";
 import { CredentialForm, ImportModal, ShareModal, RequestModal } from "./CredentialForm";
 import PersonalVault from "./PersonalVault";
 import "./credvault.css";
 
-const RAIL_ICON = { all: Layers, mine: KeyRound, shared: Share2, favorites: Heart, attention: ShieldCheck, trash: Trash2 };
 const LOG_ACTIONS = ["All", "Revealed", "Copied", "Created", "Edited", "Shared", "Requested", "Denied", "Revoked", "Transferred", "Removed", "Recovered", "Imported", "Offboarded"];
+const TAB_KEYS = ["all", "mine", "shared", "favorites", "attention", "trash"];
 
 export default function CredentialVaultApp({ activeSub, onSubChange: _onSubChange }) {
   const { myEmail, can, canAccessModule } = useRole();
@@ -42,6 +46,7 @@ export default function CredentialVaultApp({ activeSub, onSubChange: _onSubChang
   const canWrite = canAccessModule("credvault", "administrator", "editor");
   const nameOf = useNameResolver();
   const people = usePeople();
+  const isMobile = useIsMobile("(max-width: 900px)");
 
   // ── data ────────────────────────────────────────────────────────────────
   const [creds, setCreds] = useState([]);
@@ -68,6 +73,7 @@ export default function CredentialVaultApp({ activeSub, onSubChange: _onSubChang
   if (tab === "personal") personalSeen.current = true;
   const [collection, setCollection] = useState("all");
   const [query, setQuery] = useState("");
+  const [fDept, setFDept] = useState("");
   const [fType, setFType] = useState("All");
   const [fTier, setFTier] = useState("All");
   const [sort, setSort] = useState({ col: "name", dir: "asc" });
@@ -77,6 +83,9 @@ export default function CredentialVaultApp({ activeSub, onSubChange: _onSubChang
   const [revealed, setRevealed] = useState(null);          // { id, secret, previousSecret?, prevRotatedAt? }
   const [form, setForm] = useState(null);                  // { cred | null }
   const [importOpen, setImportOpen] = useState(false);
+  const [addMenu, setAddMenu] = useState(false);
+  const addRef = useRef(null);
+  useClickOutside([addRef], () => setAddMenu(false), addMenu);
   const [shareFor, setShareFor] = useState(null);
   const [requestFor, setRequestFor] = useState(null);
   const [otpGate, setOtpGate] = useState(null);            // { run }
@@ -84,6 +93,7 @@ export default function CredentialVaultApp({ activeSub, onSubChange: _onSubChang
   const [logFilter, setLogFilter] = useState({ query: "", action: "All", from: "", to: "" });
   const [now, setNow] = useState(() => Date.now());
   const toastTimer = useRef(null);
+  const listRef = useRef(null);
 
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 30000); return () => clearInterval(t); }, []);
   useEffect(() => { writeFavorites(favorites); }, [favorites]);
@@ -102,7 +112,7 @@ export default function CredentialVaultApp({ activeSub, onSubChange: _onSubChang
     if (!t) return;
     setTab(t);
     if (col) setCollection(col);
-    if (credId) { setCollection("all"); setSelectedId(credId); }
+    if (credId) { setCollection("all"); setFDept(""); setSelectedId(credId); }
   }, []);
   useEffect(() => { applySub(activeSub); }, [activeSub, applySub]);
   useEffect(() => {
@@ -110,36 +120,38 @@ export default function CredentialVaultApp({ activeSub, onSubChange: _onSubChang
     window.addEventListener("nexus:navigate", h);
     return () => window.removeEventListener("nexus:navigate", h);
   }, [applySub]);
-  // Tabs are local: pushing them through onSubChange made every switch a
-  // history entry whose breadcrumb read "Credential Vault / Credential Vault".
-  // Deep links still arrive through activeSub; onSubChange stays accepted for
-  // App's sake and is left alone.
-  function changeTab(key) { setTab(key); }
 
   // ── derived ─────────────────────────────────────────────────────────────
   const ctx = useMemo(() => ({ favorites, myEmail }), [favorites, myEmail]);
   const collections = useMemo(() => collectionsFor(creds, ctx), [creds, ctx]);
-  const rows = useMemo(() => sortCredentials(filterCredentials(creds, { collection, query, type: fType, tier: fTier, ...ctx }), sort), [creds, collection, query, fType, fTier, ctx, sort]);
-  const selected = useMemo(() => creds.find((c) => c.id === selectedId) || null, [creds, selectedId]);
+  const countOf = (key) => collections.find((c) => c.key === key)?.count || 0;
+  const liveRows = useMemo(() => live(creds), [creds]);
   const depts = useMemo(() => {
     const set = new Set(hrDepts.length ? hrDepts : DEFAULT_DEPTS);
-    live(creds).forEach((c) => c.dept && set.add(c.dept));
+    liveRows.forEach((c) => c.dept && set.add(c.dept));
     return [...set];
-  }, [creds, hrDepts]);
+  }, [liveRows, hrDepts]);
+  const deptsInUse = useMemo(() => [...new Set(liveRows.map((c) => c.dept).filter(Boolean))].sort(), [liveRows]);
+  const rows = useMemo(() => {
+    const base = filterCredentials(creds, { collection, query, type: fType, tier: fTier, ...ctx });
+    return sortCredentials(fDept ? base.filter((c) => c.dept === fDept) : base, sort);
+  }, [creds, collection, query, fType, fTier, fDept, ctx, sort]);
+  const selected = useMemo(() => creds.find((c) => c.id === selectedId) || null, [creds, selectedId]);
   const verified = otp.verified && otp.until > now;
-  const attention = collections.find((c) => c.key === "attention")?.count || 0;
+  const attention = countOf("attention");
   const checkedEditable = rows.filter((c) => checked.has(c.id) && c.canEdit && !c.deletedAt);
   const visibleLog = useMemo(() => logs.filter((e) => logMatches(e, logFilter)), [logs, logFilter]);
+  const sharedWithMe = countOf("shared");
 
-  // Closing the drawer drops the revealed secret with it.
-  function closeDrawer() { setSelectedId(null); setRevealed(null); }
+  // Closing the detail drops the revealed secret with it.
+  function closeDetail() { setSelectedId(null); setRevealed(null); }
+  function open(id) { setSelectedId(id); setTab("vault"); }
 
   // ── the code gate ───────────────────────────────────────────────────────
   // One verified code opens a window (Settings > Security); inside it every
   // reveal / share / approve runs straight away. The window is checked at
-  // click time (not against the 30 s clock), and an action the API still
-  // refuses with vault_otp_required - the window lapsed between the chip and
-  // the click - re-opens the gate with the same action instead of a toast.
+  // click time, and an action the API still refuses with vault_otp_required
+  // re-opens the gate with the same action instead of a toast.
   function gated(run) {
     const wrapped = () => run().catch((e) => {
       if (e?.detail?.code === "vault_otp_required") { setOtp({ verified: false, until: null }); setOtpGate({ run: wrapped }); return; }
@@ -187,7 +199,7 @@ export default function CredentialVaultApp({ activeSub, onSubChange: _onSubChang
   async function trash(c) {
     const ok = await dialog.confirm(`Move ${c.name} to the trash? It can be recovered from there.`, { title: "Move to Trash", confirmText: "Move to Trash", danger: true });
     if (!ok) return;
-    try { await api.cvDelete(c.id); closeDrawer(); await refresh(); flash(`${c.name} moved to the trash.`); } catch (e) { flash(e?.message || "Could not remove.", "info"); }
+    try { await api.cvDelete(c.id); closeDetail(); await refresh(); flash(`${c.name} moved to the trash.`); } catch (e) { flash(e?.message || "Could not remove.", "info"); }
   }
   async function trashChecked() {
     const n = checkedEditable.length;
@@ -201,7 +213,7 @@ export default function CredentialVaultApp({ activeSub, onSubChange: _onSubChang
   async function purge(c) {
     const ok = await dialog.confirm(`Delete ${c.name} permanently? This cannot be undone.`, { title: "Delete Permanently", confirmText: "Delete Permanently", danger: true });
     if (!ok) return;
-    try { await api.cvPurge(c.id); closeDrawer(); await refresh(); flash(`${c.name} deleted permanently.`, "info"); } catch (e) { flash(e?.message || "Could not delete.", "info"); }
+    try { await api.cvPurge(c.id); closeDetail(); await refresh(); flash(`${c.name} deleted permanently.`, "info"); } catch (e) { flash(e?.message || "Could not delete.", "info"); }
   }
   async function share(c, email, ms, label) {
     setShareFor(null);
@@ -229,134 +241,189 @@ export default function CredentialVaultApp({ activeSub, onSubChange: _onSubChang
   }
   function toggleFavorite(id) { setFavorites((f) => { const n = new Set(f); if (n.has(id)) n.delete(id); else n.add(id); return n; }); }
   function toggleChecked(id) { setChecked((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; }); }
-  function sortBy(col) { setSort((s) => (s.col === col ? { col, dir: s.dir === "asc" ? "desc" : "asc" } : { col, dir: "asc" })); }
+  function pickCollection(key) { setCollection(key); setFDept(""); }
 
   if (loading) return <div style={{ padding: "16px 0" }}><SkeletonBlocks count={6} height={52} /></div>;
 
   const tabs = [
-    { key: "vault", label: "Vault" },
-    { key: "personal", label: "Personal" },
-    ...((isAdmin || requests.length || creds.some((c) => c.canEdit)) ? [{ key: "approvals", label: "Approvals", badge: requests.length || null }] : []),
-    { key: "activity", label: "Activity" },
+    { key: "vault", label: "Vault", Icon: KeyRound },
+    { key: "personal", label: "Personal", Icon: Lock },
+    ...((isAdmin || requests.length || creds.some((c) => c.canEdit)) ? [{ key: "approvals", label: "Approvals", Icon: Inbox, badge: requests.length || null }] : []),
+    { key: "activity", label: "Activity", Icon: History },
   ];
   const editableInView = rows.filter((c) => c.canEdit && !c.deletedAt);
   const allChecked = editableInView.length > 0 && editableInView.every((c) => checked.has(c.id));
+  const detailProps = selected && {
+    cred: selected, logs, myEmail, nameOf, depts: deptsInUse,
+    favorite: favorites.has(selected.id), onToggleFavorite: () => toggleFavorite(selected.id),
+    revealed: revealed?.id === selected.id ? revealed : null,
+    onReveal: () => gated(() => reveal(selected)), onHide: () => setRevealed(null), onCopiedSecret: () => copiedSecret(selected),
+    onEdit: () => setForm({ cred: selected }), onTrash: () => trash(selected), onRestore: () => restore(selected), onPurge: () => purge(selected),
+    onShare: () => setShareFor(selected), onRequest: () => setRequestFor(selected), onChanged: () => refresh().catch(() => {}),
+    onClose: closeDetail,
+  };
 
   return (
     <div className="cv-root">
-      <header className="cv-head">
-        <div className="cv-head-title">
-          <div className="dk-chip" style={{ width: 34, height: 34, borderRadius: 10, background: "var(--text-primary)", color: "var(--bg-card)", display: "flex", alignItems: "center", justifyContent: "center" }}><Shield size={16} /></div>
-          <div>
+      {/* ── page header (People grammar: module chip, title, one primary action) ── */}
+      <div className="view-header cv-view-header">
+        <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+          <span className="cv-module-chip"><KeyRound size={19} /></span>
+          <div className="view-title-group">
             <h2>Credential Vault</h2>
-            <p>{live(creds).length} shared credential{live(creds).length === 1 ? "" : "s"}{attention ? ` · ${attention} need${attention === 1 ? "s" : ""} attention` : ""}</p>
+            <p>Company logins, kept by their owners and opened by the people who need them</p>
           </div>
         </div>
-        <div className="cv-head-actions">
+        <div className="cv-header-actions">
           {verified
-            ? <span className="cv-chip tone-ok" title="Reveals and approvals inside this window do not ask for another code"><ShieldCheck size={12} /> {verifiedLabel(otp.until, now)}</span>
-            : <span className="cv-chip tone-muted" title="The first reveal asks for a code by text or email"><Shield size={12} /> Code on First Reveal</span>}
-          <label className="cv-search">
-            <Search size={14} />
-            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search credentials…" aria-label="Search credentials" />
-          </label>
-          {canWrite && <button type="button" className="cv-btn" onClick={() => setImportOpen(true)}><Upload size={14} /> Import</button>}
-          {canWrite && <button type="button" className="cv-btn-dark" onClick={() => setForm({ cred: null })}><Plus size={14} /> Add</button>}
+            ? <span className="cv-chip tone-ok cv-chip-lg" title="Reveals and approvals inside this window do not ask for another code"><ShieldCheck size={13} /> {verifiedLabel(otp.until, now)}</span>
+            : <span className="cv-chip cv-chip-lg" title="The first reveal asks for a code by text or email"><Shield size={13} /> Code on First Reveal</span>}
+          {canWrite && (
+            <div ref={addRef} style={{ position: "relative" }}>
+              <button type="button" className="primary-btn" onClick={() => setAddMenu((v) => !v)} aria-haspopup="menu" aria-expanded={addMenu}>
+                <Plus size={15} /> Add Credential <ChevronDown size={14} />
+              </button>
+              {addMenu && (
+                <div className="cv-menu" role="menu">
+                  <button type="button" role="menuitem" className="cv-menu-item" onClick={() => { setAddMenu(false); setForm({ cred: null }); }}><Plus size={14} /> New Credential</button>
+                  <button type="button" role="menuitem" className="cv-menu-item" onClick={() => { setAddMenu(false); setImportOpen(true); }}><Upload size={14} /> Import From CSV</button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
-      </header>
+      </div>
+
+      <ModuleTabs tabs={tabs} active={tab} onChange={setTab} />
 
       {loadError && (
-        <div className="cv-callout tone-warn"><span>Could not load the vault.</span><button type="button" className="cv-btn" style={{ marginLeft: "auto", padding: "3px 10px" }} onClick={() => refresh().catch(() => setLoadError(true))}>Retry</button></div>
+        <div className="cv-callout tone-warn"><span>Could not load the vault.</span><button type="button" className="secondary-btn" style={{ marginLeft: "auto" }} onClick={() => refresh().catch(() => setLoadError(true))}>Retry</button></div>
       )}
 
-      <ModuleTabs tabs={tabs} active={tab} onChange={changeTab} />
+      {tab === "vault" && (<>
+        {/* ── stat strip ── */}
+        <div className="cv-stats">
+          <div className="cv-kpis">
+            <KpiTile solid label="Credentials" value={liveRows.length} sub={`${deptsInUse.length} department${deptsInUse.length === 1 ? "" : "s"}`} onGo={() => { pickCollection("all"); listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }} goTitle="See every credential" />
+            <KpiTile label="Needs Attention" value={attention} tone={attention ? "warn" : undefined} sub={attention ? "weak, reused, overdue or expiring" : "nothing to fix"} onGo={() => pickCollection("attention")} goTitle="Show what needs attention" />
+            <KpiTile label="Shared With Me" value={sharedWithMe} sub={sharedWithMe ? "timed access, ends by itself" : "no shared access right now"} onGo={() => pickCollection("shared")} goTitle="Show what was shared with me" />
+            <KpiTile label="Awaiting Approval" value={requests.length} tone={requests.length ? "warn" : undefined} sub={requests.length ? "requests for you to decide" : "no requests waiting"} onGo={tabs.some((t) => t.key === "approvals") ? () => setTab("approvals") : undefined} goTitle="Open Approvals" />
+          </div>
+          <StatCard Icon={Building2} title="By Department" meta={`${deptsInUse.length} total`}>
+            <DeptBars rows={liveRows} depts={deptsInUse} active={fDept} onPick={(d) => { setCollection("all"); setFDept((cur) => (cur === d ? "" : d)); }} />
+          </StatCard>
+          <StatCard Icon={RefreshCw} title="Rotates Next" meta="soonest first">
+            <RotationList rows={liveRows} onPick={open} />
+          </StatCard>
+        </div>
 
-      {tab === "vault" && (
-        <div className="cv-layout">
-          <nav className="cv-rail" aria-label="Collections">
-            {collections.filter((c) => !c.dept).map((c) => c.key === "trash" ? null : <RailItem key={c.key} c={c} active={collection === c.key} onClick={() => setCollection(c.key)} />)}
-            {collections.some((c) => c.dept) && <div className="cv-rail-caption">Departments</div>}
-            {collections.filter((c) => c.dept).map((c) => <RailItem key={c.key} c={c} active={collection === c.key} onClick={() => setCollection(c.key)} />)}
-            <div className="cv-rail-caption" />
-            {collections.filter((c) => c.key === "trash").map((c) => <RailItem key={c.key} c={c} active={collection === c.key} onClick={() => setCollection(c.key)} />)}
-          </nav>
-          <div className="cv-rail-phone scroll-tabs" role="tablist" aria-label="Collections">
-            {collections.map((c) => (
-              <button key={c.key} type="button" role="tab" aria-selected={collection === c.key} className={`cv-chip is-button${collection === c.key ? " is-active" : ""}`} onClick={() => setCollection(c.key)}>{c.label} {c.count ? <span className="cv-rail-count">{c.count}</span> : null}</button>
-            ))}
+        {/* ── directory card ── */}
+        <div className="wkc cv-directory" ref={listRef}>
+          <div className="cv-dir-head">
+            <span className="wkc-chip"><LayoutList size={14} /></span>
+            <span className="wkc-title">Credentials</span>
+            <span className="cv-count-pill">{rows.length}</span>
+            <label className="search-bar cv-dir-search">
+              <Search size={13} style={{ flexShrink: 0 }} />
+              <input placeholder="Search credentials…" aria-label="Search credentials" value={query} onChange={(e) => setQuery(e.target.value)} />
+              {query && <button type="button" className="search-clear" aria-label="Clear search" onClick={() => setQuery("")}><X size={13} /></button>}
+            </label>
+            <select className="form-input cv-dir-select" value={fDept} onChange={(e) => setFDept(e.target.value)} aria-label="Department">
+              <option value="">All departments</option>{deptsInUse.map((d) => <option key={d} value={d}>{d}</option>)}
+            </select>
+            <select className="form-input cv-dir-select" value={fType} onChange={(e) => setFType(e.target.value)} aria-label="Type">
+              <option value="All">All types</option>{TYPES.map((t) => <option key={t}>{t}</option>)}
+            </select>
+            <select className="form-input cv-dir-select" value={fTier} onChange={(e) => setFTier(e.target.value)} aria-label="Tier">
+              <option value="All">All tiers</option>{TIERS.map((t) => <option key={t}>{t}</option>)}
+            </select>
+            <select className="form-input cv-dir-select" value={sort.col} onChange={(e) => setSort({ col: e.target.value, dir: "asc" })} aria-label="Sort by">
+              <option value="name">Name A-Z</option><option value="dept">Department</option><option value="owner">Owner</option><option value="rotated">Oldest rotation</option><option value="health">Needs attention first</option>
+            </select>
+          </div>
+          <div className="cv-dir-tabs scroll-tabs" role="tablist" aria-label="Collections">
+            {TAB_KEYS.map((key) => {
+              const c = collections.find((x) => x.key === key); if (!c) return null;
+              const Icon = { all: LayoutList, mine: KeyRound, shared: Users, favorites: Star, attention: ShieldCheck, trash: Trash2 }[key];
+              return (
+                <button key={key} type="button" role="tab" aria-selected={collection === key} className={`cv-dir-tab${collection === key ? " is-active" : ""}`} onClick={() => pickCollection(key)}>
+                  <Icon size={13} /> {c.label} <span className="cv-dir-tab-n">{c.count}</span>
+                </button>
+              );
+            })}
+            {checkedEditable.length > 0 && (
+              <span className="cv-bulk-inline">
+                {checkedEditable.length} selected
+                <button type="button" className="secondary-btn cv-danger-text" onClick={trashChecked}><Trash2 size={13} /> Move to Trash</button>
+                <button type="button" className="secondary-btn" onClick={() => setChecked(new Set())}>Clear</button>
+              </span>
+            )}
           </div>
 
-          <section className="cv-main">
-            <div className="cv-toolbar">
-              <select className="cv-select" value={fType} onChange={(e) => setFType(e.target.value)} aria-label="Type"><option value="All">All Types</option>{TYPES.map((t) => <option key={t}>{t}</option>)}</select>
-              <select className="cv-select" value={fTier} onChange={(e) => setFTier(e.target.value)} aria-label="Tier"><option value="All">All Tiers</option>{TIERS.map((t) => <option key={t}>{t}</option>)}</select>
-              <select className="cv-select" value={sort.col} onChange={(e) => setSort({ col: e.target.value, dir: "asc" })} aria-label="Sort by">
-                <option value="name">Sort: Name</option><option value="dept">Sort: Department</option><option value="owner">Sort: Owner</option><option value="rotated">Sort: Oldest Rotation</option><option value="health">Sort: Needs Attention</option>
-              </select>
-              <span className="cv-count">{rows.length} shown</span>
-            </div>
-            {checkedEditable.length > 0 && (
-              <div className="cv-bulk">
-                <span>{checkedEditable.length} selected</span>
-                <button type="button" className="cv-btn cv-btn-danger" onClick={trashChecked}><Trash2 size={13} /> Move to Trash</button>
-                <button type="button" className="cv-btn" onClick={() => setChecked(new Set())}>Clear</button>
-              </div>
-            )}
-
-            <div className="cv-list">
-              {rows.length > 0 && (
-                <div className="cv-list-head">
-                  <div className="cv-check-slot">{editableInView.length > 0 && collection !== "trash" && (
-                    <input type="checkbox" className="cv-check" aria-label="Select all you can edit" checked={allChecked}
-                      ref={(el) => { if (el) el.indeterminate = !allChecked && editableInView.some((c) => checked.has(c.id)); }}
-                      onChange={() => setChecked(allChecked ? new Set() : new Set(editableInView.map((c) => c.id)))} />)}
-                  </div>
-                  <div />
-                  <button type="button" onClick={() => sortBy("name")}>Credential <ArrowUpDown size={11} /></button>
-                  <button type="button" onClick={() => sortBy("owner")}>Owner <ArrowUpDown size={11} /></button>
-                  <span>Access</span>
-                  <span />
-                </div>
+          <div className={`cv-master${isMobile ? " is-mobile" : ""}`}>
+            <div className="cv-rows">
+              {rows.length > 0 && !isMobile && editableInView.length > 0 && collection !== "trash" && (
+                <label className="cv-rows-selectall">
+                  <input type="checkbox" className="cv-check" aria-label="Select all you can edit" checked={allChecked}
+                    ref={(el) => { if (el) el.indeterminate = !allChecked && editableInView.some((c) => checked.has(c.id)); }}
+                    onChange={() => setChecked(allChecked ? new Set() : new Set(editableInView.map((c) => c.id)))} />
+                  <span>Select all you can edit</span>
+                </label>
               )}
               {rows.length === 0 && (
                 <div className="cv-empty">
-                  <strong>{collection === "trash" ? "The trash is empty" : query ? "No credentials match" : collection === "shared" ? "Nothing shared with you right now" : collection === "favorites" ? "No favorites yet" : collection === "attention" ? "All clear" : "No credentials here yet"}</strong>
-                  {collection === "favorites" ? "Star a credential to keep it at hand." : collection === "attention" ? "Nothing you can open is weak, reused, overdue or expiring." : query ? "Try another name, username, link or owner." : canWrite && collection !== "trash" ? "Add one, or import a CSV." : ""}
+                  <KeyRound size={28} style={{ opacity: .25, display: "block", margin: "0 auto 10px" }} />
+                  <strong>{collection === "trash" ? "The trash is empty" : query || fDept ? "No credentials match" : collection === "shared" ? "Nothing shared with you right now" : collection === "favorites" ? "No favorites yet" : collection === "attention" ? "All clear" : "No credentials here yet"}</strong>
+                  {collection === "favorites" ? "Star a credential to keep it at hand." : collection === "attention" ? "Nothing you can open is weak, reused, overdue or expiring." : query || fDept ? "Try another name, username, link, owner or department." : canWrite && collection !== "trash" ? "Add one, or import a CSV." : ""}
                 </div>
               )}
               {rows.map((c) => {
+                const flags = c.canReveal ? healthFlags(c) : [];
                 const tone = c.canReveal ? healthTone(c) : "muted";
-                const flag = c.canReveal ? healthFlags(c)[0] : null;
-                const Icon = iconFor(c.dept);
+                const active = selectedId === c.id;
                 return (
-                  <div key={c.id} id={`cred-row-${c.id}`} className={`cv-row${selectedId === c.id ? " is-selected" : ""}`} role="button" tabIndex={0}
-                    onClick={() => setSelectedId(c.id)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setSelectedId(c.id); } }}>
-                    <div className="cv-check-slot" onClick={(e) => e.stopPropagation()}>
-                      {c.canEdit && !c.deletedAt && <input type="checkbox" className="cv-check" aria-label={`Select ${c.name}`} checked={checked.has(c.id)} onChange={() => toggleChecked(c.id)} />}
-                    </div>
-                    <span className={`cv-dot tone-${tone}`} title={c.canReveal ? (healthFlags(c).map((f) => f.label).join(", ") || "Healthy") : "Request access to see its health"} />
-                    <div className="cv-row-main">
-                      <div className="cv-name">
-                        <span>{c.name}</span>
-                        {c.tier !== "Standard" && <span className={`cv-chip ${c.tier === "Critical" ? "tone-bad" : "tone-warn"}`}>{c.tier}</span>}
+                  <div key={c.id} id={`cred-row-${c.id}`} className={`cv-prow${active ? " is-active" : ""}`} role="button" tabIndex={0}
+                    onClick={() => open(c.id)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(c.id); } }}>
+                    {c.canEdit && !c.deletedAt && !isMobile && (
+                      <span className="cv-prow-check" onClick={(e) => e.stopPropagation()}>
+                        <input type="checkbox" className="cv-check" aria-label={`Select ${c.name}`} checked={checked.has(c.id)} onChange={() => toggleChecked(c.id)} />
+                      </span>
+                    )}
+                    <Monogram name={c.name} dept={c.dept} depts={deptsInUse} />
+                    <div className="cv-prow-main">
+                      <div className="cv-prow-name">
+                        <span className="cv-truncate">{c.name}</span>
+                        {c.tier !== "Standard" && <span className={`cv-chip cv-chip-xs ${c.tier === "Critical" ? "tone-bad" : "tone-warn"}`}>{c.tier}</span>}
+                        {favorites.has(c.id) && <Star size={12} className="cv-prow-star" fill="currentColor" />}
                       </div>
-                      <div className="cv-sub">
-                        <Icon size={11} style={{ verticalAlign: -1, marginRight: 4, opacity: .7 }} />{c.dept || "No department"}
-                        {c.canReveal && c.username && c.username !== "-" ? ` · ${c.username}` : ""}
-                        {flag ? <> · <span className={`tone-${flag.tone}`}>{flag.label}</span></> : null}
+                      <div className="cv-prow-sub">
+                        {c.dept || "No department"}
+                        {c.canReveal && c.username && c.username !== "-" ? <> · <span className="cv-truncate-inline">{c.username}</span></> : null}
+                        {!c.canReveal && !c.deletedAt ? <> · <span className="cv-muted">owned by {nameOf(c.owner)}</span></> : null}
                       </div>
+                      {flags.length > 0 && <div className="cv-prow-flags">{flags.slice(0, 2).map((f) => <span key={f.key} className={`cv-chip cv-chip-xs tone-${f.tone}`}>{f.label}</span>)}</div>}
                     </div>
-                    <div className="cv-row-owner" title={c.owner}>{c.owner ? nameOf(c.owner) : "-"}</div>
-                    <span className={`cv-chip tone-${ACCESS_TONE[c.access] || "muted"}`}>{c.deletedAt ? "In Trash" : ACCESS_LABEL[c.access]}</span>
-                    <button type="button" className={`cv-star${favorites.has(c.id) ? " is-on" : ""}`} aria-label={favorites.has(c.id) ? `Remove ${c.name} from Favorites` : `Add ${c.name} to Favorites`} aria-pressed={favorites.has(c.id)}
-                      onClick={(e) => { e.stopPropagation(); toggleFavorite(c.id); }}><Star size={15} fill={favorites.has(c.id) ? "currentColor" : "none"} /></button>
+                    <span className={`cv-chip cv-chip-xs tone-${c.deletedAt ? "bad" : ACCESS_TONE[c.access] || "muted"} cv-prow-access`}>{c.deletedAt ? "In Trash" : ACCESS_LABEL[c.access]}</span>
+                    <span className={`cv-dot tone-${tone}`} title={c.canReveal ? (flags.map((f) => f.label).join(", ") || "Healthy") : "Ask for access to see its health"} />
+                    <ChevronRight size={14} className="cv-prow-chev" />
                   </div>
                 );
               })}
             </div>
-          </section>
+            {!isMobile && (
+              <div className="cv-pane">
+                {selected ? <CredentialDetail key={selected.id} {...detailProps} /> : (
+                  <div className="cv-pane-empty">
+                    <KeyRound size={30} style={{ opacity: .25, display: "block", margin: "0 auto 10px" }} />
+                    <div className="cv-pane-empty-title">Pick a credential</div>
+                    <div>Its sign-in, access and history open right here - no page hopping.</div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
-      )}
+      </>)}
 
       {/* Mounted once the tab is first opened and kept mounted after, hidden
           behind the other tabs: its unlock window must survive a trip to
@@ -364,18 +431,19 @@ export default function CredentialVaultApp({ activeSub, onSubChange: _onSubChang
       {personalSeen.current && <div hidden={tab !== "personal"}><PersonalVault myEmail={myEmail} flash={flash} /></div>}
 
       {tab === "approvals" && (
-        <div className="cv-cards">
-          {requests.length === 0 && <div className="cv-list cv-empty"><strong>No requests waiting</strong>When someone asks for a credential you own, it shows up here.</div>}
+        <div className="wkc">
+          <div className="wkc-head"><span className="wkc-chip"><Inbox size={14} /></span><span className="wkc-title">Approvals</span><span className="wkc-meta">{requests.length} waiting</span></div>
+          {requests.length === 0 && <div className="cv-empty"><CheckCircle2 size={28} style={{ opacity: .25, display: "block", margin: "0 auto 10px" }} /><strong>No requests waiting</strong>When someone asks for a credential you own, it shows up here.</div>}
           {requests.map((r) => (
-            <div key={r.id} className="cv-card">
-              <div style={{ width: 40, height: 40, borderRadius: 12, background: "var(--cv-info-bg)", color: "var(--cv-info)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Users size={18} /></div>
-              <div className="cv-card-main">
+            <div key={r.id} className="cv-req">
+              <Monogram name={r.cred} dept={r.dept} depts={deptsInUse} size={40} />
+              <div className="cv-req-main">
                 <b>{r.cred}</b>
-                <p>{r.requestedBy} asks for {r.duration.toLowerCase()} of access · {r.dept} · {agoLabel(r.ts)}{r.sharedToEmail && r.sharedToEmail !== r.requestedByEmail ? ` · for ${nameOf(r.sharedToEmail)}` : ""}</p>
+                <p><strong>{r.requestedBy}</strong> asks for {r.duration.toLowerCase()} of access · {r.dept} · {agoLabel(r.ts)}{r.sharedToEmail && r.sharedToEmail !== r.requestedByEmail ? ` · for ${nameOf(r.sharedToEmail)}` : ""}</p>
               </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button type="button" className="cv-btn cv-btn-danger" onClick={() => deny(r)}><XCircle size={14} /> Decline</button>
-                <button type="button" className="cv-btn-dark" onClick={() => approve(r)}><CheckCircle2 size={14} /> Approve</button>
+              <div className="cv-req-actions">
+                <button type="button" className="secondary-btn cv-danger-text" onClick={() => deny(r)}><XCircle size={14} /> Decline</button>
+                <button type="button" className="primary-btn" onClick={() => approve(r)}><CheckCircle2 size={14} /> Approve</button>
               </div>
             </div>
           ))}
@@ -383,31 +451,36 @@ export default function CredentialVaultApp({ activeSub, onSubChange: _onSubChang
       )}
 
       {tab === "activity" && (
-        <div className="cv-list">
-          <div className="cv-toolbar" style={{ padding: "12px 16px", borderBottom: "1px solid var(--border-color)" }}>
-            <History size={15} style={{ color: "var(--text-secondary)" }} />
-            <input className="cv-ipt" style={{ width: 200, padding: "6px 10px", fontSize: 12.5 }} placeholder="Search activity…" aria-label="Search activity" value={logFilter.query} onChange={(e) => setLogFilter((f) => ({ ...f, query: e.target.value }))} />
-            <select className="cv-select" value={logFilter.action} onChange={(e) => setLogFilter((f) => ({ ...f, action: e.target.value }))} aria-label="Action">{LOG_ACTIONS.map((a) => <option key={a} value={a}>{a === "All" ? "All Actions" : a}</option>)}</select>
-            <input type="date" className="cv-select" aria-label="From" value={logFilter.from} onChange={(e) => setLogFilter((f) => ({ ...f, from: e.target.value }))} />
-            <input type="date" className="cv-select" aria-label="To" value={logFilter.to} onChange={(e) => setLogFilter((f) => ({ ...f, to: e.target.value }))} />
-            <span className="cv-count">{visibleLog.length} event{visibleLog.length === 1 ? "" : "s"}</span>
+        <div className="wkc">
+          <div className="cv-dir-head">
+            <span className="wkc-chip"><History size={14} /></span>
+            <span className="wkc-title">Activity</span>
+            <span className="cv-count-pill">{visibleLog.length}</span>
+            <label className="search-bar cv-dir-search">
+              <Search size={13} style={{ flexShrink: 0 }} />
+              <input placeholder="Search activity…" aria-label="Search activity" value={logFilter.query} onChange={(e) => setLogFilter((f) => ({ ...f, query: e.target.value }))} />
+            </label>
+            <select className="form-input cv-dir-select" value={logFilter.action} onChange={(e) => setLogFilter((f) => ({ ...f, action: e.target.value }))} aria-label="Action">{LOG_ACTIONS.map((a) => <option key={a} value={a}>{a === "All" ? "All actions" : a}</option>)}</select>
+            <input type="date" className="form-input cv-dir-select" aria-label="From" value={logFilter.from} onChange={(e) => setLogFilter((f) => ({ ...f, from: e.target.value }))} />
+            <input type="date" className="form-input cv-dir-select" aria-label="To" value={logFilter.to} onChange={(e) => setLogFilter((f) => ({ ...f, to: e.target.value }))} />
           </div>
-          {visibleLog.length === 0 && <div className="cv-empty">No activity matches.</div>}
+          {visibleLog.length === 0 && <div className="cv-empty"><strong>No activity matches</strong>Try another person, credential, action or date range.</div>}
           <div className="cv-divide">
             {visibleLog.map((e) => {
               const linked = e.credId && creds.some((c) => c.id === e.credId);
               return (
-                <div key={e.id} className={`cv-log-row cv-row-hover${linked ? " is-link" : ""}`} onClick={() => linked && setSelectedId(e.credId)}
-                  role={linked ? "button" : undefined} tabIndex={linked ? 0 : undefined} onKeyDown={(e2) => { if (linked && (e2.key === "Enter" || e2.key === " ")) { e2.preventDefault(); setSelectedId(e.credId); } }}>
+                <div key={e.id} className={`cv-log-row${linked ? " is-link" : ""}`} onClick={() => linked && open(e.credId)}
+                  role={linked ? "button" : undefined} tabIndex={linked ? 0 : undefined} onKeyDown={(e2) => { if (linked && (e2.key === "Enter" || e2.key === " ")) { e2.preventDefault(); open(e.credId); } }}>
                   <span className="cv-avatar">{(e.actor || "?").split(" ").map((p) => p[0]).join("").slice(0, 2).toUpperCase()}</span>
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <div><b style={{ fontWeight: 500 }}>{e.actor}</b> <span style={{ ...actionStyle(e.action), borderRadius: 6, padding: "1px 6px", fontSize: 11.5, fontWeight: 500 }}>{e.action}</span> <span style={{ color: "var(--text-secondary)" }}>{e.cred}</span></div>
+                    <div><b style={{ fontWeight: 600 }}>{e.actor}</b> <span style={{ ...actionStyle(e.action), borderRadius: 6, padding: "1px 7px", fontSize: 11.5, fontWeight: 600 }}>{e.action}</span> <span style={{ color: "var(--text-secondary)" }}>{e.cred}</span></div>
                     <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 2 }}>
                       {e.dept !== "-" ? e.dept : ""}
                       {Array.isArray(e.detail) && e.detail.length > 0 && <span className="cv-diff" style={{ paddingLeft: e.dept !== "-" ? 8 : 0 }}>{e.detail.map((d, i) => <span key={i} style={{ marginRight: 10 }}>{d.field}: {d.from ? <><s>{d.from}</s> → </> : null}{d.to}</span>)}</span>}
                     </div>
                   </div>
                   <time title={formatDateTime(e.ts)}>{agoLabel(e.ts)}</time>
+                  {linked && <ChevronRight size={14} className="cv-prow-chev" />}
                 </div>
               );
             })}
@@ -415,16 +488,7 @@ export default function CredentialVaultApp({ activeSub, onSubChange: _onSubChang
         </div>
       )}
 
-      {selected && (
-        <CredentialDrawer key={selected.id} cred={selected} logs={logs} myEmail={myEmail} nameOf={nameOf}
-          favorite={favorites.has(selected.id)} onToggleFavorite={() => toggleFavorite(selected.id)}
-          revealed={revealed?.id === selected.id ? revealed : null}
-          onReveal={() => gated(() => reveal(selected))} onHide={() => setRevealed(null)} onCopiedSecret={() => copiedSecret(selected)}
-          onEdit={() => setForm({ cred: selected })} onTrash={() => trash(selected)} onRestore={() => restore(selected)} onPurge={() => purge(selected)}
-          onShare={() => setShareFor(selected)} onRequest={() => setRequestFor(selected)} onChanged={() => refresh().catch(() => {})}
-          onClose={closeDrawer} />
-      )}
-
+      {selected && isMobile && <CredentialSheet key={selected.id} {...detailProps} />}
       {form && <CredentialForm cred={form.cred} depts={depts} people={people} myEmail={myEmail} onClose={() => setForm(null)} onSave={saveCredential} />}
       {importOpen && <ImportModal depts={depts} onClose={() => setImportOpen(false)} onImport={importRows} />}
       {shareFor && <ShareModal cred={shareFor} people={people.filter((p) => p.email !== myEmail)} nameOf={nameOf} onClose={() => setShareFor(null)} onSubmit={(email, ms, label) => share(shareFor, email, ms, label)} />}
@@ -433,16 +497,5 @@ export default function CredentialVaultApp({ activeSub, onSubChange: _onSubChang
 
       {toast && <div className={`cv-toast${toast.kind === "info" ? " cv-toast-info" : ""}`} role="status"><ShieldCheck size={15} /> {toast.msg}</div>}
     </div>
-  );
-}
-
-function RailItem({ c, active, onClick }) {
-  const Icon = c.dept ? Building2 : (RAIL_ICON[c.key] || Layers);
-  return (
-    <button type="button" className={`cv-rail-item${active ? " is-active" : ""}`} onClick={onClick} aria-current={active ? "true" : undefined}>
-      <Icon size={14} />
-      <span className="cv-rail-label">{c.label}</span>
-      {c.count ? <span className="cv-rail-count">{c.count}</span> : null}
-    </button>
   );
 }

@@ -46,12 +46,13 @@ beforeEach(() => {
 describe('Credential Vault', () => {
   it('lists what the API allows and opens the drawer with the verified window shown', async () => {
     render(<CredentialVaultApp />);
-    await screen.findByText('Stripe');
+    await waitFor(() => expect(document.getElementById('cred-row-c1')).toBeTruthy());
     expect(screen.getByText(/Verified until/)).toBeTruthy();
+    expect(screen.getByText('Pick a credential')).toBeTruthy();       // the empty pane, People-style
     expect(screen.getAllByText('Owner').length).toBeGreaterThan(0);
     expect(screen.getByText('Request Access')).toBeTruthy();          // Ben's Jira row
-    fireEvent.click(screen.getByText('Stripe'));
-    const dlg = await screen.findByRole('dialog', { name: 'Stripe' });
+    fireEvent.click(document.getElementById('cred-row-c1'));
+    const dlg = await screen.findByRole('region', { name: 'Stripe' });
     expect(within(dlg).getByText('pay@x.com')).toBeTruthy();
     expect(within(dlg).getByText('Finance login')).toBeTruthy();
     fireEvent.click(within(dlg).getByRole('button', { name: 'Reveal Password' }));
@@ -62,8 +63,9 @@ describe('Credential Vault', () => {
 
   it('a row you cannot open hides the username and asks instead of revealing', async () => {
     render(<CredentialVaultApp />);
-    fireEvent.click(await screen.findByText('Jira Admin'));
-    const dlg = await screen.findByRole('dialog', { name: 'Jira Admin' });
+    await waitFor(() => expect(document.getElementById('cred-row-c2')).toBeTruthy());
+    fireEvent.click(document.getElementById('cred-row-c2'));
+    const dlg = await screen.findByRole('region', { name: 'Jira Admin' });
     expect(within(dlg).queryByRole('button', { name: 'Reveal Password' })).toBeNull();
     expect(within(dlg).queryByRole('button', { name: 'Edit' })).toBeNull();
     fireEvent.click(within(dlg).getByRole('button', { name: /Request Access/ }));
@@ -75,9 +77,10 @@ describe('Credential Vault', () => {
 
   it('shows waiting requests on Approvals and approves inside the verified window', async () => {
     render(<CredentialVaultApp />);
-    await screen.findByText('Stripe');
-    fireEvent.click(screen.getByRole('tab', { name: /Approvals/ }));
-    expect(await screen.findByText(/Ben Builder asks for 4 hours of access/)).toBeTruthy();
+    await waitFor(() => expect(document.getElementById('cred-row-c1')).toBeTruthy());
+    fireEvent.click(screen.getByRole('tab', { name: /^Approvals/ }));
+    const who = await screen.findByText('Ben Builder', { selector: 'strong' });
+    expect(who.closest('p').textContent).toMatch(/asks for 4 hours of access/);
     calls.cvApproveRequest.mockResolvedValue({ ok: true });
     fireEvent.click(screen.getByRole('button', { name: /Approve/ }));
     await waitFor(() => expect(calls.cvApproveRequest).toHaveBeenCalledWith('r1'));
@@ -85,10 +88,12 @@ describe('Credential Vault', () => {
 
   it('opens the drawer from a deep link and filters by collection', async () => {
     render(<CredentialVaultApp activeSub="cred-c2" />);
-    expect(await screen.findByRole('dialog', { name: 'Jira Admin' })).toBeTruthy();
+    expect(await screen.findByRole('region', { name: 'Jira Admin' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
-    fireEvent.click(screen.getByRole('button', { name: /Owned by Me/ }));
-    await waitFor(() => expect(screen.queryByText('Jira Admin')).toBeNull());
-    expect(screen.getByText('Stripe')).toBeTruthy();
+    expect(screen.getByText('Pick a credential')).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: /Owned by Me/ }));
+    await waitFor(() => expect(document.getElementById('cred-row-c2')).toBeNull());
+    expect(document.getElementById('cred-row-c1')).toBeTruthy();
+    expect(screen.getByText('Needs Attention', { selector: '.cv-kpi-label' })).toBeTruthy();
   });
 });

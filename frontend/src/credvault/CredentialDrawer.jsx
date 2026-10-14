@@ -1,7 +1,9 @@
-// Credential Vault - the detail drawer (Oct 14 2026 rebuild). One credential:
-// sign-in (username, password behind the identity check, previous password for
-// owners), details, who has access, its history, and the owner's actions. The
-// screen owns the data and the gated calls; this file only lays them out.
+// Credential Vault - one credential in full (Oct 14 2026 rebuild): sign-in
+// (username, password behind the identity check, previous password for
+// owners), details, who has access, its history, and the owner's actions.
+// On a desktop it renders in place beside the list (CredentialDetail); on a
+// phone the same content slides in as a full-screen sheet (CredentialSheet).
+// The screen owns the data and the gated calls; this file only lays them out.
 import { useEffect, useRef, useState } from "react";
 import {
   X, Copy, Check, Eye, EyeOff, ExternalLink, Pencil, Trash2, RefreshCw, Share2, KeyRound, Star,
@@ -12,6 +14,7 @@ import { useDialogFocus } from "../lib/useDialogFocus";
 import { formatDate, formatDateTime } from "../lib/datetime";
 import { TeamsIcon, agoLabel, actionStyle } from "./vaultShared";
 import { ACCESS_LABEL, ACCESS_TONE, healthFlags, rotationDaysLeft, rotationDueDate, timeLeft } from "./vaultModel";
+import { Monogram } from "./vaultCards";
 
 function CopyButton({ text, onCopied, title = "Copy", disabled = false }) {
   const [done, setDone] = useState(false);
@@ -23,10 +26,10 @@ function CopyButton({ text, onCopied, title = "Copy", disabled = false }) {
   );
 }
 
-export default function CredentialDrawer({
-  cred, logs, myEmail, nameOf, favorite, onToggleFavorite,
+export function CredentialDetail({
+  cred, logs, myEmail, nameOf, depts = [], favorite, onToggleFavorite,
   revealed, onReveal, onHide, onCopiedSecret,
-  onEdit, onTrash, onRestore, onPurge, onShare, onRequest, onClose, onChanged,
+  onEdit, onTrash, onRestore, onPurge, onShare, onRequest, onClose, onChanged, sheet = false,
 }) {
   const [access, setAccess] = useState(null);
   const [showPrev, setShowPrev] = useState(false);
@@ -34,8 +37,6 @@ export default function CredentialDrawer({
   // list behind it is not re-rendered every second.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
-  const panelRef = useRef(null);
-  useDialogFocus(panelRef);
   const inTrash = !!cred.deletedAt;
   const flags = healthFlags(cred);
 
@@ -48,11 +49,6 @@ export default function CredentialDrawer({
     return () => { alive = false; };
   }, [cred.id, cred.canEdit, cred.sharedWith]);
 
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
 
   async function revoke(g) {
     try { await api.cvRevokeGrant(g.id); setAccess((a) => a && { ...a, grants: a.grants.filter((x) => x.id !== g.id) }); onChanged?.(); }
@@ -63,12 +59,12 @@ export default function CredentialDrawer({
   const history = logs.filter((e) => e.credId === cred.id).slice(0, 25);
 
   return (
-    <>
-      <div className="cv-drawer-overlay" onMouseDown={onClose} />
-      <aside className="cv-drawer" role="dialog" aria-modal="true" aria-label={cred.name} ref={panelRef} tabIndex={-1}>
+    <div className={`cv-detail${sheet ? " is-sheet" : ""}`} role={sheet ? undefined : "region"} aria-label={sheet ? undefined : cred.name}>
         <div className="cv-drawer-head">
+          <Monogram name={cred.name} dept={cred.dept} depts={depts} size={44} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <h3>{cred.name}</h3>
+            {cred.url && /^https?:\/\//i.test(cred.url) && <a className="cv-link cv-detail-domain" href={cred.url} target="_blank" rel="noopener noreferrer">{cred.url.replace(/^https?:\/\//, "").replace(/\/.*$/, "")}<ExternalLink size={11} /></a>}
             <div className="cv-drawer-chips">
               <span className={`cv-chip tone-${ACCESS_TONE[cred.access] || "muted"}`}>{ACCESS_LABEL[cred.access] || cred.access}</span>
               {cred.tier !== "Standard" && <span className={`cv-chip ${cred.tier === "Critical" ? "tone-bad" : "tone-warn"}`}><ShieldAlert size={12} /> {cred.tier}</span>}
@@ -133,7 +129,6 @@ export default function CredentialDrawer({
           <section className="cv-section">
             <div className="cv-section-title">Details</div>
             <dl className="cv-kv">
-              {/^https?:\/\//i.test(cred.url || "") && <><dt>Link</dt><dd><a className="cv-link" href={cred.url} target="_blank" rel="noopener noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 4, maxWidth: "100%" }}><span className="cv-truncate" style={{ maxWidth: 300 }}>{cred.url.replace(/^https?:\/\//, "")}</span><ExternalLink size={12} /></a></dd></>}
               <dt>Last Rotated</dt>
               <dd>{cred.rotatedAt ? formatDate(cred.rotatedAt) : "-"} {cred.rotatedDays === 0 ? "(today)" : cred.rotatedAt ? `(${cred.rotatedDays}d ago)` : ""}</dd>
               <dt>Rotate Every</dt>
@@ -209,6 +204,25 @@ export default function CredentialDrawer({
             </>)}
           </div>
         )}
+    </div>
+  );
+}
+
+/** Phone: the same detail as a full-screen sheet with its own focus and Escape. */
+export default function CredentialSheet(props) {
+  const panelRef = useRef(null);
+  useDialogFocus(panelRef);
+  const { onClose, cred } = props;
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <>
+      <div className="cv-drawer-overlay" onMouseDown={onClose} />
+      <aside className="cv-drawer" role="dialog" aria-modal="true" aria-label={cred.name} ref={panelRef} tabIndex={-1}>
+        <CredentialDetail {...props} sheet />
       </aside>
     </>
   );
