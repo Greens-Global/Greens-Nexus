@@ -359,12 +359,12 @@ export default function TimeclockWidget() {
     // browser only grants a share on a user gesture, so it starts here,
     // inside the tap, and a declined picker blocks the punch.
     if (kind === 'break_end') {
-      let ok = true;
+      let ok;
       try { ok = await (window.__nexusCapture?.start?.() ?? Promise.resolve(true)); } catch { ok = false; }
       if (!ok) {
         say('Share your screen to end your break - choose a screen when your browser asks, then tap again.');
         setBreakBusy(false);
-        return;
+        return false;
       }
     }
     // With a position, like the Time Clock page - without one every break
@@ -379,6 +379,7 @@ export default function TimeclockWidget() {
       setExpanded(true);
     }
     setBreakBusy(false);
+    return !!res.ok;
   }
 
   async function quickPunchOut() {
@@ -393,7 +394,7 @@ export default function TimeclockWidget() {
       const r = await replayPending();
       if (!r?.restored && !r?.dropped) {
         setLostOut(true); setExpanded(true); setBusy(false);
-        return;
+        return false;
       }
       load();
     }
@@ -412,26 +413,34 @@ export default function TimeclockWidget() {
       setExpanded(true);   // never leave this hiding inside a collapsed capsule
     }
     setBusy(false);
+    return !!res.ok;
   }
-
-  // No capture controls on any surface (Neil, Oct 14 2026): the share is
-  // required at clock-in and at the end of a break instead, and the engine
-  // keeps capturing underneath until the punch-out.
 
   // ── The view-model every surface draws (sidebar chip, phone capsule) ──
   // Hours are the Punch tile's numbers (deriveMyTime): today's worked minutes
   // while working, the break so far while on one - as H:MM, no seconds
   // (Neil, Oct 14 2026). Actions are this engine's own.
+  // One derivation of the shift (deriveMyTime - the Punch tile's): its
+  // state is the chip's state; this widget's own elapsedSec is only the
+  // break timer.
   const mine = deriveMyTime({ status, now: new Date() });
-  const live = !!status && !status.timeTrackingExempt && clockedIn;
-  const vm = !live ? { state: status?.timeTrackingExempt ? 'exempt' : status ? 'out' : 'unknown' } : {
-    state: onBreak ? 'break' : 'in',
+  const live = mine.state === 'in' || mine.state === 'break';
+  // Monitoring on the chip only when the browser is the capturer (policy
+  // on, no desktop agent): the screens being captured, paused on a break,
+  // and `needed` when the share the policy requires has dropped mid-shift
+  // (the browser's own Stop sharing, a page reload).
+  const browserCaptures = canCapture && !agentActive && !localAgent && !!navigator.mediaDevices?.getDisplayMedia;
+  const vm = !live ? { state: mine.state } : {
+    state: mine.state,
     timer: fmtHM(onBreak ? Math.floor(elapsedSec / 60) : mine.todayMin),
     sinceLabel: mine.sinceLabel,
     lost: lostOut, note, busy, breakBusy,
+    capture: browserCaptures ? { screens: capturing, paused: capturing > 0 && onBreak, needed: capturing === 0 && !onBreak } : null,
     actions: {
       toggleBreak: () => quickBreak(onBreak ? 'break_end' : 'break_start'),
       punchOut: quickPunchOut,
+      startCapture: () => startCapture(),
+      stopCapture,
       openClock: () => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'timeclock' } })),
     },
   };
@@ -478,7 +487,7 @@ export default function TimeclockWidget() {
       <button type="button" className="tc-pill" onClick={() => setExpanded(v => !v)} aria-expanded={expanded}
         title={expanded ? 'Collapse' : 'Time clock - tap for controls'}>
         <span className={`sbclock-dot${onBreak ? '' : ' sbclock-dot--live'}`} style={{ background: onBreak ? '#b45309' : 'var(--wk-brand)' }} aria-hidden="true" />
-        <span className="tc-pill-time">{vm.timer}</span>
+        <span className="tc-pill-time">{onBreak ? `On Break · ${vm.timer}` : vm.timer}</span>
         <ChevronUp size={13} style={{ color: 'var(--muted)', transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
       </button>
     </div>

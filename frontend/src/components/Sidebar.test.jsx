@@ -30,8 +30,8 @@ const mount = (props = {}) => {
   const r = render(<Sidebar activeView="dashboard" activeSub="" onNavigate={onNavigate} isOpen={false} onClose={() => {}} collapsed={false} onToggleCollapse={onToggleCollapse} {...props} />);
   return { ...r, onNavigate, onToggleCollapse };
 };
-const live = () => ({ state: 'in', timer: '2:10', sinceLabel: 'since 7:52 AM', lost: false, note: '', busy: false, breakBusy: false,
-  actions: { toggleBreak: vi.fn(), punchOut: vi.fn(), openClock: vi.fn() } });
+const live = () => ({ state: 'in', timer: '2:10', sinceLabel: 'since 7:52 AM', lost: false, note: '', busy: false, breakBusy: false, capture: null,
+  actions: { toggleBreak: vi.fn(), punchOut: vi.fn(), startCapture: vi.fn(), stopCapture: vi.fn(), openClock: vi.fn() } });
 
 describe('Sidebar', () => {
   it('the mark goes Home, the edge tab folds the rail; no header chevron, no user footer', () => {

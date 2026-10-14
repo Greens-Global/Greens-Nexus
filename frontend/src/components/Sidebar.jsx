@@ -10,12 +10,13 @@ import {
   ClipboardCheck, Calculator,
   FileSpreadsheet, Landmark, BarChart3,
   Users, LogIn, PenTool, Files, Megaphone, ExternalLink,
-  Settings, HelpCircle, Store, Calendar, Package, Contact, HandCoins, Warehouse, ListChecks, Scale,
+  Settings, ChevronLeft, ChevronRight,
+  HelpCircle, Store, Calendar, Package, Contact, HandCoins, Warehouse, ListChecks, Scale,
   FlaskConical,
   KeyRound,
   Briefcase, FileSignature, ArrowDownToLine, ArrowUpFromLine,
   HardDrive, FolderOpen, ClipboardList,
-  MonitorDot, Gauge, CalendarClock, ChevronLeft, ChevronRight,
+  MonitorDot, Gauge, CalendarClock,
 } from "lucide-react";
 import TicketToken from "./icons/TicketToken";
 
@@ -194,13 +195,12 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
   // Dev-only Testing module: ask the backend once whether it's enabled here.
   const [qaEnabled, setQaEnabled] = useState(false);
   useEffect(() => { api.qaEnabled().then(r => setQaEnabled(!!r?.enabled)).catch(() => {}); }, []);
-  const railed = collapsed;
   // The time clock chip (Oct 14 2026) replaces the user footer: the live
   // shift from the engine (components/TimeclockWidget.jsx, which keeps
   // running and stops drawing its capsule while this chip claims the
   // surface). Only where the sidebar is a real sidebar - on a phone it is a
   // drawer and the capsule stays. Nothing when clocked out or exempt.
-  const phone = useIsMobile('(max-width: 900px)');
+  const phone = useIsMobile('(max-width: 900px)');   // the drawer breakpoint - style.css's `@media (max-width: 900px) { .sidebar {...} }`
   const tc = useTimeclock();
   const liveClock = !phone && !!tc && (tc.state === 'in' || tc.state === 'break');
   useEffect(() => (liveClock ? claimTimeclockSurface() : undefined), [liveClock]);
@@ -213,7 +213,7 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
 
   function renderItem(item, i) {
     // ── Collapsed: icon-only rail ──
-    if (railed) {
+    if (collapsed) {
       return (
         <li
           key={item.view || i}
@@ -270,7 +270,7 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
           <a href="#dashboard" className="sidebar-brand" title="Dashboard" aria-label="Nexus - go to Dashboard"
             onClick={(e) => { e.preventDefault(); onNavigate('dashboard'); }}>
             <span className="dk-mark" aria-hidden="true">N</span>
-            {!railed && <span className="company-name">Nexus</span>}
+            {!collapsed && <span className="company-name">Nexus</span>}
           </a>
         </div>
 
@@ -295,14 +295,14 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
                 ? (!item.divider && granted(item))
                 : (!item.minRole || can('administrator') || granted(item))));
               const out = [];
-              if (!railed && visible.length && !visible[0].divider) {
+              if (!collapsed && visible.length && !visible[0].divider) {
                 out.push(<li key="k0" className="nav-kicker">{KICKERS[0]}</li>);
               }
               visible.forEach((item, i) => {
                 if (item.divider) {
                   group += 1;
                   out.push(<li key={`d${i}`} className="nav-divider" />);
-                  if (!railed && KICKERS[group]) out.push(<li key={`k${group}`} className="nav-kicker">{KICKERS[group]}</li>);
+                  if (!collapsed && KICKERS[group]) out.push(<li key={`k${group}`} className="nav-kicker">{KICKERS[group]}</li>);
                   return;
                 }
                 out.push(renderItem(item, i));
@@ -319,7 +319,7 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
             sidebar open (Neil, Oct 14 2026). ── */}
         {liveClock && (
           <div className="sidebar-foot">
-            <ClockChip vm={tc} variant={railed ? 'rail' : 'wide'} />
+            <ClockChip vm={tc} variant={collapsed ? 'rail' : 'wide'} />
           </div>
         )}
       </aside>

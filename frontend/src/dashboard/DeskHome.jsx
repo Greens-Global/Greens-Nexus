@@ -124,9 +124,6 @@ export function DeskGreeting({ summary = null, right = null, menu = null }) {
   const last = status?.lastPunch;
   // Stale open shift (clock-in >16h, server treats it as closed) reads as clocked out here too.
   const clockedIn = !!(last && last.kind !== 'out') && !status?.staleOpenShift;
-  const elapsed = clockedIn && last?.at
-    ? Math.max(0, Math.floor((now.getTime() - new Date(last.at + 'Z').getTime()) / 1000))
-    : 0;
 
   const greeting = greetingFor(now);
   const dateLine = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric' }).format(now);

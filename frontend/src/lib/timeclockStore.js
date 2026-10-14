@@ -22,9 +22,13 @@ const claimSubs = new Set();
 // Publishes only when something a surface draws has changed - the engine
 // renders every second for its own timer, and its action closures are new
 // objects each time; neither is a reason to redraw every surface.
+// An unchanged picture keeps the object already handed out (a swapped
+// snapshot without a notify makes useSyncExternalStore re-render every
+// subscriber on its next render for nothing); the action closures only
+// read state that is part of the key, so the old ones stay correct.
 export function publishTimeclock(next) {
   const key = JSON.stringify(next, (k, v) => (typeof v === 'function' ? undefined : v));
-  if (key === vmKey) { vm = next; return; }
+  if (key === vmKey) return;
   vm = next; vmKey = key;
   vmSubs.forEach((f) => f(next));
 }

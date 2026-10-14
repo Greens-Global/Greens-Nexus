@@ -310,6 +310,7 @@ h1,h2,h3,h4,h5,h6,
   justify-content: center;
   gap: 0;
 }
+.sidebar.collapsed .sidebar-brand { flex: 0 0 auto; justify-content: center; }   /* the N sits centered, not at the left of a stretched link */
 .sidebar.collapsed .sidebar-nav { padding: 4px 5px 8px; }
 
 /* Sidebar collapse toggle: the edge tab (Nexus green on hover - Neil,
@@ -390,9 +391,9 @@ h1,h2,h3,h4,h5,h6,
 
 /* The time clock chip (components/ClockChip.jsx, Oct 14 2026): the live
    shift at the foot of the sidebar - state and hours on one line, the two
-   punches on the next, the capture line only when the browser captures.
-   Brand-tinted while working, amber on a break, red-edged with a parked
-   punch. On the rail it is a clock tile with the live dot. */
+   punches on the next; no monitoring controls (the share is required at
+   the punches instead). Brand-tinted while working, amber on a break,
+   red-edged with a parked punch. Folded, it is a column of icons. */
 .sbclock {
   border-radius: 14px; padding: 10px 10px 9px; display: flex; flex-direction: column; gap: 8px;
   background: color-mix(in srgb, var(--wk-brand) 6%, var(--card)); border: 1px solid color-mix(in srgb, var(--wk-brand) 25%, transparent);
@@ -424,7 +425,7 @@ h1,h2,h3,h4,h5,h6,
 .sbclock-btn:not(:disabled):active { transform: scale(.97); }
 .sbclock-btn--break { background: rgba(180,83,9,.1); color: #b45309; }
 .sbclock-btn--resume { background: var(--wk-brand); color: #fff; }
-.sbclock-btn--out { background: var(--card); color: var(--ink); border: 1px solid var(--line); }
+.sbclock-btn--out { background: rgba(185,28,28,.1); color: #b91c1c; }   /* red out (Neil, Oct 14): in is green, out is red */
 .sbclock-tile {
   width: 36px; height: 36px; border-radius: 10px; cursor: pointer; position: relative; padding: 0; color: var(--ink);
   border: 1px solid color-mix(in srgb, var(--wk-brand) 25%, transparent); background: color-mix(in srgb, var(--wk-brand) 6%, var(--card));
@@ -446,9 +447,24 @@ h1,h2,h3,h4,h5,h6,
 .sbclock-ico:not(:disabled):active { transform: scale(.94); }
 .sbclock-ico--break { background: rgba(180,83,9,.1); border-color: rgba(180,83,9,.25); color: #b45309; }
 .sbclock-ico--resume { background: var(--wk-brand); border-color: var(--wk-brand); color: #fff; }
+.sbclock-ico--out { background: rgba(185,28,28,.1); border-color: rgba(185,28,28,.25); color: #b91c1c; }
+/* Monitoring, as three quiet icons under the punches (Neil, Oct 14: the
+   add-a-monitor and stop-capture controls "cannot be gone"): share / stop,
+   add another screen, and the recording state in the first icon's color.
+   Only when the browser is the capturer. */
+.sbclock-mon { display: flex; align-items: center; gap: 4px; }
+.sbclock-mon-ico {
+  width: 24px; height: 24px; border-radius: 7px; border: 1px solid transparent; background: none; color: var(--muted);
+  display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; font-family: inherit; font-size: 13px; font-weight: 700; line-height: 1;
+}
+.sbclock-mon-ico svg { width: 13px; height: 13px; }
+.sbclock-mon-ico:hover { background: var(--wk-hover, var(--mist)); color: var(--ink); }
+.sbclock-mon-ico.is-on { color: #b91c1c; }
+.sbclock-mon-ico.is-paused { color: #b45309; }
+.sbclock-mon-ico.is-needed { color: #b91c1c; background: rgba(185,28,28,.08); border-color: rgba(185,28,28,.25); }
+.sbclock-mon-n { font-size: 10px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
 .sbclock-sub--note { color: #b91c1c; font-weight: 600; white-space: normal; line-height: 1.3; }
 .sbclock-tile .sbclock-dot { position: absolute; right: -3px; top: -3px; width: 10px; height: 10px; border: 2px solid var(--card); box-sizing: content-box; }
-[data-theme="dark"] .sbclock-btn--out { background: var(--card); border-color: var(--line); }
 
 /* The phone capsule (components/TimeclockWidget.jsx, below 900px where
    there is no sidebar): a pill with the live dot and the hours; tapping it

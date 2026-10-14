@@ -411,8 +411,11 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
 // UI (Sidebar, MODULES) but the internal view id stayed 'ops' from before the
 // rename, so the address bar read /ops instead of /construction. Old /ops
 // links still resolve to the same view so nothing breaks.
-const PATH_TO_VIEW = { itemmanagement: 'inventory', inventory: 'inventory', construction: 'ops', ops: 'ops' };
-const VIEW_TO_PATH = { inventory: 'itemmanagement', ops: 'construction' };
+// And 'myhr' (Oct 14 2026, Neil): the module has been Workday since Sep 3
+// but the address still read /myhr - it now reads /workday; old /myhr links
+// (bells, emails, bookmarks) still land on the same view.
+const PATH_TO_VIEW = { itemmanagement: 'inventory', inventory: 'inventory', construction: 'ops', ops: 'ops', workday: 'myhr', myhr: 'myhr' };
+const VIEW_TO_PATH = { inventory: 'itemmanagement', ops: 'construction', myhr: 'workday' };
 
 function parsePath() {
   const segs = window.location.pathname.split('/').filter(Boolean);

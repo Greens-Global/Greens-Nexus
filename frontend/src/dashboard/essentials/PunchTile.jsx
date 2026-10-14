@@ -12,7 +12,8 @@ import { usePunchClock, nextPunch, fmtH } from './usePunchClock.jsx';
 
 const ACTION_ICON = { in: Play, out: LogOut, break_start: Coffee, break_end: Play };
 // One color per punch, so a glance says which way the clock will go.
-const ACTION_COLOR = { in: 'green', out: 'orange', break_start: 'purple', break_end: 'blue' };
+// In is green, out is red (Neil, Oct 14 2026); a break is amber, back from one is green.
+const ACTION_COLOR = { in: 'green', out: 'red', break_start: 'orange', break_end: 'green' };
 
 export default function PunchTile({ row }) {
   const { status, vm, busy, busyLabel, note, act, modals } = usePunchClock();
