@@ -2287,6 +2287,9 @@ export const api = {
   // Flux Analysis review (Charmi, Oct 15): close (sign off) or reopen one
   // account's review - { entity, period, accountNo, closed }.
   saveAccountingFluxReview: (body) => req('/accounting/flux-notes/review', { method: 'PUT', body: JSON.stringify(body) }),
+  // Tasks Home > Updates (Oct 14): what other people did lately on the tasks
+  // I am assigned to or follow.
+  getMyTaskActivity:   ({ limit = 30, days = 14 } = {}) => req(`/tasks/activity/mine?limit=${limit}&days=${days}`),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

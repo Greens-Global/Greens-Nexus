@@ -3349,6 +3349,51 @@ def task_activity(task_id: str, user: dict = Depends(get_current_user), db: Sess
     return [activity_to_dict(a) for a in rows]
 
 
+@router.get("/activity/mine")
+def my_task_activity(limit: int = 30, days: int = 14, user: dict = Depends(get_current_user),
+                     db: Session = Depends(get_db)):
+    """What OTHER people did lately on the tasks I am on - assigned to me or
+    following as a collaborator - newest first. The Updates card on the Tasks
+    Home (Neil, Oct 14 2026). My own actions stay out (I know what I did), so
+    do the Asana sync markers; a task in the Trash drops out with the default
+    soft-delete filter. The window is capped so the scan stays a bounded
+    slice of the activity table rather than a walk over all of it.
+
+    Declared as /activity/mine, which the /{task_id}/activity route cannot
+    capture (its second segment is the literal "activity")."""
+    me = (user.get("email") or "").lower()
+    if not me:
+        return []
+    limit = max(1, min(int(limit or 30), 100))
+    days = max(1, min(int(days or 14), 90))
+    from datetime import timezone as _tz
+    since = (datetime.now(_tz.utc) - timedelta(days=days)).isoformat()
+    mine = {}
+    for t in db.query(models.Task.id, models.Task.assignee_email, models.Task.assignee_emails,
+                      models.Task.follower_emails).all():
+        if me in task_assignees(t):
+            mine[t.id] = "assignee"
+        elif me in email_list(t.follower_emails):
+            mine[t.id] = "collaborator"
+    if not mine:
+        return []
+    rows = (db.query(models.TaskActivity)
+            .filter(models.TaskActivity.entity_kind == "task",
+                    models.TaskActivity.at >= since,
+                    models.TaskActivity.type != "synced_from_asana",
+                    func.lower(models.TaskActivity.actor_email) != me)
+            .order_by(models.TaskActivity.at.desc()).limit(2000).all())
+    out = []
+    for a in rows:
+        rel = mine.get(a.entity_id or "")
+        if not rel:
+            continue
+        out.append({**activity_to_dict(a), "taskId": a.entity_id, "relation": rel})
+        if len(out) >= limit:
+            break
+    return out
+
+
 # ── Sections & custom statuses (board columns) ───────────────────────────────
 class SectionBody(BaseModel):
     id: Optional[str] = None
