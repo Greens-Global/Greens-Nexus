@@ -73,6 +73,10 @@ export default function TimeclockWidget() {
   const [expanded, setExpanded] = useState(false); // capsule collapsed by default; expands upward
   const [localAgent, setLocalAgent] = useState(false); // /nexus/ping answered on THIS machine
   const [agentProbed, setAgentProbed] = useState(false); // ...and the first probe has answered at all
+  // Today's scheduled minutes from Shifts, for the dial's target (Neil, Oct
+  // 14 2026: a 4-hour shift fills the ring at 4 hours; no shift = 8h).
+  // Read once per local day while clocked in.
+  const [shiftMin, setShiftMin] = useState(null);
   const wrapRef = useRef(null);
   const [, setTick] = useState(0);
   const streamsRef = useRef([]);                   // one MediaStream per shared screen
@@ -433,13 +437,23 @@ export default function TimeclockWidget() {
   // Not before the local-agent probe has answered: until then an agent PC
   // would show a dropped-share alert for a share it never needed.
   const browserCaptures = canCapture && !agentActive && !localAgent && agentProbed && !!navigator.mediaDevices?.getDisplayMedia;
+  // A second monitor the browser can see but is not sharing: `screen.isExtended`
+  // says the display is extended (no permission needed), so one shared stream
+  // on an extended display means a screen is going uncaptured.
+  const expectedScreens = (typeof window !== 'undefined' && window.screen?.isExtended === true) ? 2 : 1;
   const vm = !live ? { state: mine.state, sinceLabel: mine.lastOutLabel } : {
     state: mine.state,
     timer: fmtHM(onBreak ? Math.floor(elapsedSec / 60) : mine.todayMin),
     todayMin: mine.todayMin,
+    targetMin: shiftMin || 480,
     sinceLabel: mine.sinceLabel,
     lost: lostOut, note, busy, breakBusy,
-    capture: browserCaptures ? { screens: capturing, paused: capturing > 0 && onBreak, needed: capturing === 0 && !onBreak, intervalMin, randomize: randomizeRef.current } : null,
+    capture: browserCaptures ? {
+      screens: capturing, expected: Math.max(expectedScreens, capturing),
+      paused: capturing > 0 && onBreak, needed: capturing === 0 && !onBreak,
+      missing: capturing > 0 && capturing < expectedScreens && !onBreak,
+      intervalMin, randomize: randomizeRef.current,
+    } : null,
     actions: {
       toggleBreak: () => quickBreak(onBreak ? 'break_end' : 'break_start'),
       punchOut: quickPunchOut,
@@ -452,6 +466,23 @@ export default function TimeclockWidget() {
   // Unmounted (a boundary reset, sign-out): the surfaces must not keep
   // drawing a shift whose actions belong to a dead instance.
   useEffect(() => () => publishTimeclock({ state: 'unknown' }), []);
+  const todayLocal = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  useEffect(() => {
+    if (!live) return undefined;
+    let alive = true;
+    api.timeMySchedule(todayLocal, todayLocal)
+      .then((r) => {
+        if (!alive) return;
+        const toMin = (t) => { const [h, m] = String(t || '').split(':').map(Number); return Number.isFinite(h) ? h * 60 + (m || 0) : null; };
+        const total = (r?.scheduled || []).filter((x) => x.date === todayLocal).reduce((sum, x) => {
+          const a = toMin(x.start), b = toMin(x.end);
+          return a != null && b != null && b > a ? sum + (b - a) : sum;
+        }, 0);
+        setShiftMin(total > 0 ? total : null);
+      })
+      .catch(() => { if (alive) setShiftMin(null); });
+    return () => { alive = false; };
+  }, [live, todayLocal]);
 
   // Salaried/exempt people are never time-tracked - no floating timer for them
   // (Charmi, Aug 21).

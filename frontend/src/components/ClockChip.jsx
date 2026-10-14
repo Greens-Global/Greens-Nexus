@@ -20,13 +20,14 @@ import { Spinner } from './AsyncState';
 //       actions: { punchIn?, toggleBreak?, punchOut?, openClock, startCapture?, stopCapture? } }
 
 const DAY_MIN = 8 * 60;
-const TICKS = 8;
 
 // The dial: a track with an hour tick at each eighth, an arc `pct` of the
 // way round, and the light in the middle - all in the state's color.
-export function ClockRing({ pct, tone, size = 40, stroke = 3.5, alert = false, sweep = false }) {
+// `ticks` = one per hour of the target, so a 4-hour shift reads as four.
+export function ClockRing({ pct, tone, size = 40, stroke = 3.5, alert = false, sweep = false, ticks: tickCount = 8 }) {
   const r = (size - stroke) / 2, c = 2 * Math.PI * r, cx = size / 2;
   const off = c * (1 - Math.min(1, Math.max(0, pct)));
+  const TICKS = Math.max(2, Math.min(12, Math.round(tickCount)));
   const ticks = Array.from({ length: TICKS }, (_, i) => {
     const a = (i / TICKS) * 2 * Math.PI - Math.PI / 2;
     const r1 = r - stroke * 0.95, r2 = r + stroke * 0.95;
@@ -89,12 +90,17 @@ export default function ClockChip({ vm, variant = 'wide', onAfterAction, leaving
   const { actions: a, capture } = vm;
   const onBreak = state === 'break', off = state === 'out';
   const tone = off ? 'out' : onBreak ? 'break' : 'in';
-  const pct = leaving || off ? 0 : (vm.todayMin || 0) / DAY_MIN;
+  const targetMin = vm.targetMin || DAY_MIN;
+  const pct = leaving || off ? 0 : (vm.todayMin || 0) / targetMin;
+  const tickCount = Math.round(targetMin / 60);
   // A sheet (the phone capsule) closes only once the action has resolved and
   // was not blocked - a declined screen share leaves the sheet open with the
   // engine's note in it.
   const after = (fn) => async () => { const ok = await fn(); if (ok !== false) onAfterAction?.(); };
-  const alert = vm.note || (vm.lost ? 'A punch has not recorded - saved on this device, retry below' : capture?.needed ? 'Screen sharing stopped - share your screen again' : '');
+  const alert = vm.note || (vm.lost ? 'A punch has not recorded - saved on this device, retry below'
+    : capture?.needed ? 'Screen sharing stopped - share your screen again'
+    : capture?.missing ? 'Second screen not shared - share it too' : '');
+  const shareAlert = !!capture && (capture.needed || capture.missing) && !vm.note && !vm.lost;
   const stateLabel = off ? 'Clocked Out' : onBreak ? 'On Break' : 'Clocked In';
   const lit = off ? 0 : onBreak ? 1 : 0;   // which of Play / Pause / Stop is where you are
   const busyAny = !!(vm.busy || vm.breakBusy);
@@ -145,13 +151,13 @@ export default function ClockChip({ vm, variant = 'wide', onAfterAction, leaving
   );
 
   if (variant === 'rail') {
-    const ringLabel = `${stateLabel}${live ? ` · ${vm.timer}` : ''}${alert ? ` · ${alert}` : ''} - ${capture?.needed ? 'share your screen again' : 'open the time clock'}`;
+    const ringLabel = `${stateLabel}${live ? ` · ${vm.timer}` : ''}${alert ? ` · ${alert}` : ''} - ${shareAlert ? 'share your screen' : 'open the time clock'}`;
     return (
       <div className={`sbclock-rail sbclock-rail--${tone}${leaving ? ' is-leaving' : ''}`} role="group" aria-label="Time clock">
         {alert && <span role="status" className="dk-sr-only">{alert}</span>}
         <Tip title={stateLabel} sub={live ? `${vm.timer} today · ${vm.sinceLabel}` : vm.sinceLabel}>
-          <button type="button" className="sbclock-ringbtn" onClick={capture?.needed ? a.startCapture : a.openClock} aria-label={ringLabel}>
-            <ClockRing pct={pct} tone={tone} alert={!!alert} sweep={flourish === 'sweep'} />
+          <button type="button" className="sbclock-ringbtn" onClick={shareAlert ? a.startCapture : a.openClock} aria-label={ringLabel}>
+            <ClockRing pct={pct} tone={tone} alert={!!alert} sweep={flourish === 'sweep'} size={36} stroke={3} ticks={tickCount} />
           </button>
         </Tip>
         {transport}
@@ -161,8 +167,8 @@ export default function ClockChip({ vm, variant = 'wide', onAfterAction, leaving
 
   return (
     <section className={`sbclock sbclock--${tone}${leaving ? ' is-leaving' : ''}`} aria-label="Time clock">
-      <button type="button" className="sbclock-head" onClick={capture?.needed ? a.startCapture : a.openClock} title={capture?.needed ? 'Share your screen again' : 'Open Time Clock'}>
-        <ClockRing pct={pct} tone={tone} alert={!!alert} sweep={flourish === 'sweep'} size={38} />
+      <button type="button" className="sbclock-head" onClick={shareAlert ? a.startCapture : a.openClock} title={shareAlert ? 'Share your screen' : 'Open Time Clock'}>
+        <ClockRing pct={pct} tone={tone} alert={!!alert} sweep={flourish === 'sweep'} size={38} ticks={tickCount} />
         <span className="sbclock-text">
           <span className="sbclock-line">
             <span className="sbclock-state">{stateLabel}</span>
@@ -172,22 +178,25 @@ export default function ClockChip({ vm, variant = 'wide', onAfterAction, leaving
         </span>
       </button>
       {alert && (
-        capture?.needed && !vm.note && !vm.lost
-          ? <button type="button" className="sbclock-alert sbclock-alert--btn" role="status" onClick={a.startCapture} title="Share your screen again to keep capturing">{alert}</button>
+        shareAlert
+          ? <button type="button" className="sbclock-alert sbclock-alert--btn" role="status" onClick={a.startCapture} title={capture.missing ? 'Share your second screen - pick it when your browser asks' : 'Share your screen again to keep capturing'}>{alert}</button>
           : <span className="sbclock-alert" role="status">{alert}</span>
       )}
       {transport}
       {capture && live && (
-        <div className={`sbclock-monwrap${capture.needed ? ' is-needed' : ''}`}>
+        <div className={`sbclock-monwrap${capture.needed || capture.missing ? ' is-needed' : ''}`}>
         <div className="sbclock-mon" role="group" aria-label="Screen capture">
+          <span className={`sbclock-mon-label${capture.paused ? ' is-paused' : capture.screens ? ' is-on' : ''}`}>
+            {capture.paused ? 'Paused for Break' : capture.screens ? 'Recording' : 'Not Recording'}
+            {capture.screens > 0 && <em>{capture.expected > capture.screens ? `${capture.screens} of ${capture.expected}` : `${capture.screens} screen${capture.screens === 1 ? '' : 's'}`}</em>}
+          </span>
           <button type="button" className={`sbclock-mon-ico${capture.paused ? ' is-paused' : capture.screens ? ' is-on' : capture.needed ? ' is-needed' : ''}`}
             onClick={capture.screens ? a.stopCapture : a.startCapture} title={captureTitle(capture)}
             aria-label={capture.paused ? 'Capture paused for your break - stop capture' : capture.screens ? 'Recording - stop capture' : capture.needed ? 'Screen sharing stopped - share your screen again' : 'Share your screen'}>
             {capture.paused ? <MonitorPause /> : capture.screens ? <MonitorUp /> : <MonitorX />}
           </button>
-          {capture.screens > 0 && <span className="sbclock-mon-n" aria-hidden="true">{capture.screens}</span>}
           {capture.screens > 0 && (
-            <button type="button" className="sbclock-mon-ico" onClick={a.startCapture} aria-label="Capture another screen" title="Also capture another screen - pick your second monitor"><Plus /></button>
+            <button type="button" className={`sbclock-mon-ico sbclock-mon-add${capture.missing ? ' is-needed' : ''}`} onClick={a.startCapture} aria-label="Capture another screen" title="Also capture another screen - pick your second monitor"><Plus /></button>
           )}
         </div>
         </div>

@@ -145,6 +145,32 @@ describe('ClockChip', () => {
     expect(screen.getByRole('button', { name: /Capture paused/ })).toBeTruthy();
   });
 
+  it('the dial fills toward today\'s shift, with a tick per hour of it; 8h without a shift', () => {
+    const { container, rerender } = render(<ClockChip vm={working({ todayMin: 120, targetMin: 240 })} />);
+    expect(container.querySelectorAll('.sbring-ticks line').length).toBe(4);
+    const arc = container.querySelector('.sbring-arc');
+    const c = Number(arc.getAttribute('stroke-dasharray'));
+    expect(Number(arc.getAttribute('stroke-dashoffset'))).toBeCloseTo(c / 2, 2);          // half of a 4h shift
+    rerender(<ClockChip vm={working({ todayMin: 120 })} />);
+    expect(container.querySelectorAll('.sbring-ticks line').length).toBe(8);
+    expect(Number(container.querySelector('.sbring-arc').getAttribute('stroke-dashoffset'))).toBeCloseTo(c * 0.75, 2);   // a quarter of 8h
+  });
+
+  it('a second, unshared screen is flagged like a dropped share, and the row reads Recording', () => {
+    const vm = working({ capture: { screens: 1, expected: 2, paused: false, needed: false, missing: true } });
+    const { container } = render(<ClockChip vm={vm} />);
+    const line = screen.getByRole('status');
+    expect(line.textContent).toMatch(/Second screen not shared/);
+    fireEvent.click(line);                                                    // the line itself opens the picker
+    expect(vm.actions.startCapture).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('.sbclock-mon-label').textContent).toBe('Recording1 of 2');
+    expect(container.querySelector('.sbclock-mon-add.is-needed')).toBeTruthy();
+    cleanup();
+    render(<ClockChip vm={working({ capture: { screens: 1, expected: 1, paused: false, needed: false, missing: false } })} />);
+    expect(screen.queryByRole('status')).toBeNull();
+    expect(document.querySelector('.sbclock-mon-label').textContent).toBe('Recording1 screen');
+  });
+
   it('leaving: the arc drains to zero and the chip is inert', () => {
     const { container } = render(<ClockChip vm={working()} leaving />);
     expect(container.querySelector('.sbclock.is-leaving')).toBeTruthy();
