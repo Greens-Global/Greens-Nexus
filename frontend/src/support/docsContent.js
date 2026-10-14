@@ -1159,15 +1159,14 @@ export const DOCS = [
         ],
       },
       {
-        title: 'Turn a Word File Into Packet Templates',
+        title: 'Turn a Word File Into a Template',
         steps: [
-          'Split the Word file by what changes. Wording that is the same for every hire of a kind (an agreement, an NDA, policies) is one template each; the part that is different per role (a scope of work, a job description) is its own template, so one role\'s packet can swap it. Keep each template one document - the packet puts them together in order.',
-          'Before importing, type the variables straight into the Word file where the blanks are: {{full_name}}, {{company_legal}}, {{start_date}}, {{salary}}, {{department}}, {{address}}... and your own for anything else, like {{pan_number}} or {{bank_name}}. Import Word turns every {{name}} into a real variable.',
-          'In Documents > Templates click New Template, then Import Word and pick the file. The page size, margins, tables and fonts come across; Word page breaks become pages.',
-          'Where someone signs, delete the old "Signature: ____ Date: ____" lines and insert a Signature Block (Company or Employee). It draws the signature, name and date lines and Nexus Sign places the fields on them by itself.',
-          'Open the variable list. Anything the same for every hire (a client\'s name and address) gets a Default Value here - set once, never typed again. Pay goes in {{salary}}: it prints from the pay entered when the packet starts (rupees print as Rs.).',
-          'Click Publish. Packets only ever use the published version; later edits reach packets that are not sent yet when you Publish Changes.',
-          'In People > Hiring > Packets, add the templates to the role\'s packet in order, tick Signs Once on the company step if HR should sign only once, and add the person\'s own details (ID numbers, bank details...) to its Details Form - the editor lists every variable your templates print that nothing fills yet, with a button to add it. Preview each document with a sample person, then Save Packet.',
+          'In Documents > Templates click From Word File and drop in the .docx. Give it a name and a category (HR, or Job Description for a role) and click Read The File. Page size, tables and fonts come across as they are.',
+          'Nexus lists every blank it found - empty boxes beside a label in a table, "Label:" lines, [      ] brackets, "Rs.      per month" gaps - with what it thinks fills each one: Nexus Fills It (the person\'s name, the company, the start date, the pay...), Ask The Person (their own details: ID numbers, bank details), Same For Everyone (type it once - a client\'s name) or Leave Blank (filled by hand, like a notary page). Most are right already - change only the ones that are wrong. The Variable column shows the {{name}} each blank becomes.',
+          'It also lists every signature line with who signs it - The Person or The Company. The Date and Name lines under a signature are drawn by the signature spot itself, so they go.',
+          'Click Create And Publish. The template is published (v1) with every variable and signature spot in place. Preview With Sample Person shows it filled in; Open In Editor if you want to change any wording.',
+          'Add it to a packet in People > Hiring > Packets. The packet\'s Ready To Send checklist offers to put every Ask The Person field on its Details Form in one click, and warns if anything is still missing.',
+          'Splitting a big Word file: if parts of it are shared by many roles (an agreement, an NDA) and one part is per role (a scope of work), save them as separate Word files first and make a template from each - each role\'s packet then reuses the shared ones.',
         ],
       },
       {
