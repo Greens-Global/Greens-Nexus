@@ -742,7 +742,7 @@ function MainApp() {
         <WidgetBoundary name="toasts" resetKey={widgetKey}><NotificationToasts onNavigate={navigate} /></WidgetBoundary>
         <WidgetBoundary name="step-up" resetKey={widgetKey}><StepUpOverlay /></WidgetBoundary>
         <WidgetBoundary name="timeclock-widget" resetKey={widgetKey}><TimeclockWidget /></WidgetBoundary>
-        <WidgetBoundary name="global-search" resetKey={widgetKey}><GlobalSearch onNavigate={navigate} /></WidgetBoundary>
+        <WidgetBoundary name="global-search" resetKey={widgetKey}><GlobalSearch /></WidgetBoundary>
         <AssistantWidget />
         <WidgetBoundary name="pull-to-refresh" resetKey={widgetKey}><PullToRefresh /></WidgetBoundary>
         <WidgetBoundary name="task-prefetch" resetKey={widgetKey}><TaskPrefetch /></WidgetBoundary>
