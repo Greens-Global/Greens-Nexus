@@ -12,7 +12,8 @@ import { usePunchClock, nextPunch, fmtH } from './usePunchClock.jsx';
 
 const ACTION_ICON = { in: Play, out: LogOut, break_start: Coffee, break_end: Play };
 // One color per punch, so a glance says which way the clock will go.
-const ACTION_COLOR = { in: 'green', out: 'orange', break_start: 'purple', break_end: 'blue' };
+// In is green, out is red (Neil, Oct 14 2026); a break is amber, back from one is green.
+const ACTION_COLOR = { in: 'green', out: 'red', break_start: 'orange', break_end: 'green' };
 
 export default function PunchTile({ row }) {
   const { status, vm, busy, busyLabel, note, act, modals } = usePunchClock();
@@ -50,8 +51,8 @@ export default function PunchTile({ row }) {
 
 // The punch as one bare icon (Quick Actions, Icons Only - Oct 13): the same
 // hook and flow as the tile, with the next punch as the icon and the state as
-// the color (green to punch in, orange to punch out, purple for a break,
-// blue to end one). There is no caption, so the plain-English note about
+// the color (green to punch in, red to punch out, amber for a break, green
+// to end one). There is no caption, so the plain-English note about
 // what the tap did goes to the caller (`onNote`) to show where it can, and
 // to a live region here so it is read out either way. A disabled icon while
 // the status loads, the Time Clock itself for an exempt person or a failed

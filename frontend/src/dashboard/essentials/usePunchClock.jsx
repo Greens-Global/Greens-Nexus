@@ -26,7 +26,7 @@ const STATUS_POLL_MS = 60000;
 
 export const fmtH = (m) => `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
 // Local calendar date as YYYY-MM-DD - the key the time clock's `days` map uses.
-const localKey = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+export const localKey = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 // Server timestamps in the time clock are UTC without a zone marker.
 const utc = (s) => new Date(/Z|[+-]\d\d:\d\d$/.test(s) ? s : s + 'Z');
 export const PUNCH_LABEL = { in: 'Punch In', out: 'Punch Out', break_start: 'Start Break', break_end: 'End Break' };
