@@ -5,6 +5,7 @@
 // the same durable punch as My Time and the Time Clock screen - so a tap here
 // IS a punch, never a hand-off. Loaded lazily from widgets.jsx so boards
 // without a punch tile never download the punch stack.
+import { useEffect } from 'react';
 import { Clock, LogOut, Coffee, Play } from 'lucide-react';
 import { ActionFace, navigate } from '../widgets.jsx';
 import { usePunchClock, nextPunch, fmtH } from './usePunchClock.jsx';
@@ -42,6 +43,38 @@ export default function PunchTile({ row }) {
         label={busyLabel(next.kind) || next.label} sub={sub} tone={tone}
         subRole={note ? (note.ok ? 'status' : 'alert') : undefined}
         busy={!!busy} onClick={() => act(next.kind)} />
+      {modals}
+    </>
+  );
+}
+
+// The punch as one bare icon (Quick Actions, Icons Only - Oct 13): the same
+// hook and flow as the tile, with the next punch as the icon and the state as
+// the color (green to punch in, orange to punch out, purple for a break,
+// blue to end one). There is no caption, so the plain-English note about
+// what the tap did goes to the caller (`onNote`) to show where it can, and
+// to a live region here so it is read out either way. A disabled icon while
+// the status loads, the Time Clock itself for an exempt person or a failed
+// status - never nothing.
+export function PunchIcon({ className = 'qa-icon', onNote }) {
+  const { status, vm, busy, busyLabel, note, act, modals } = usePunchClock();
+  useEffect(() => { if (note?.text && onNote) onNote(note.text); }, [note, onNote]);
+  const go = () => navigate('timeclock', 'overview');
+  const next = status && !vm.exempt && !status.error ? nextPunch(vm) : null;
+  const Icon = next ? (ACTION_ICON[next.kind] || Clock) : Clock;
+  const color = next ? (ACTION_COLOR[next.kind] || 'green') : 'green';
+  const label = !status ? 'Punch Clock' : vm.exempt ? 'Time Clock' : !next ? 'Open Time Clock'
+    : (busyLabel(next.kind) || next.label);
+  const detail = !status ? 'Loading…' : vm.state === 'in' ? `Clocked in ${vm.sinceLabel} · ${fmtH(vm.todayMin)} today`
+    : vm.state === 'break' ? `On break ${vm.sinceLabel}` : vm.lastOutLabel;
+  return (
+    <>
+      <button type="button" className={`${className} dk-chip--${color}${vm.state === 'in' ? ' qa-icon--live' : ''}`}
+        title={detail ? `${label} - ${detail}` : label} aria-label={label} aria-busy={busy || undefined}
+        disabled={!status} onClick={() => (busy ? undefined : next ? act(next.kind) : go())}>
+        <Icon />
+      </button>
+      <span role="status" className="dk-sr-only">{note?.text || ''}</span>
       {modals}
     </>
   );

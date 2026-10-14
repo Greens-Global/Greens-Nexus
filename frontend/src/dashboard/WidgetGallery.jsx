@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { LoadingState } from '../components/AsyncState';
-import { X, Plus, Check, Search } from 'lucide-react';
-import { WIDGETS, KPI_CATALOG, SHORTCUT_TARGETS, QUICK_ACTIONS, DEFAULT_QUICK_ACTIONS, ACTION_CHOICES, DEFAULT_ACTION, sizeLabel } from './widgets.jsx';
+import { X, Plus, Check, Search, ArrowUp, ArrowDown } from 'lucide-react';
+import { WIDGETS, KPI_CATALOG, SHORTCUT_TARGETS, DEFAULT_QUICK_ACTIONS, ACTION_CHOICES, DEFAULT_ACTION, sizeLabel, QUICK_STYLES, DEFAULT_QUICK_STYLE, quickStyleOf, actionAllowed, actionChoice } from './widgets.jsx';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
@@ -120,32 +120,90 @@ function ActionFields({ config, onChange }) {
   );
 }
 
+// Quick Actions picker (Oct 13): the style first (bare icons, named tiles or
+// the list), then the actions as ONE ordered list - the ones on the tile at
+// the top in the order they draw, with up/down to reorder (a dock reads left
+// to right, so order is the layout), then the rest of the catalog to tick
+// on. The punch and module-gated actions are left out for people they do not
+// apply to, the same rule the tile applies when it draws.
+function QuickActionsFields({ config, onChange }) {
+  const role = useRole();
+  const choices = ACTION_CHOICES.filter(a => actionAllowed(a, role));
+  const picked = (Array.isArray(config.actions) && config.actions.length ? config.actions : DEFAULT_QUICK_ACTIONS).filter(k => choices.some(a => a.key === k));
+  const style = quickStyleOf(config);
+  const set = (next) => onChange({ actions: next });
+  const toggle = (key) => set(picked.includes(key) ? picked.filter(k => k !== key) : [...picked, key]);
+  const move = (key, dir) => {
+    const i = picked.indexOf(key), j = i + dir;
+    if (i < 0 || j < 0 || j >= picked.length) return;
+    const next = [...picked]; [next[i], next[j]] = [next[j], next[i]];
+    set(next);
+  };
+  const rows = [...picked.map(actionChoice).filter(Boolean), ...choices.filter(a => !picked.includes(a.key))];
+  const arrowBtn = { border: 'none', background: 'none', padding: 2, cursor: 'pointer', color: 'var(--muted)', display: 'inline-flex', borderRadius: 6 };
+  return (
+    <div>
+      <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 8 }}>Style</label>
+      <div role="radiogroup" aria-label="Style" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 8, marginBottom: 16 }}>
+        {QUICK_STYLES.map(st => {
+          const on = st.key === style;
+          return (
+            <button key={st.key} type="button" role="radio" aria-checked={on} onClick={() => onChange({ style: st.key })}
+              style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 6, padding: '10px 12px', borderRadius: 10, cursor: 'pointer', textAlign: 'left', fontFamily: 'var(--wk-font)',
+                background: on ? 'var(--wk-brand-tint, hsla(var(--color-blue),0.08))' : 'var(--card)',
+                border: `1.5px solid ${on ? 'var(--wk-brand, hsl(var(--color-blue)))' : 'var(--line)'}` }}>
+              <QuickStylePreview style={st.key} />
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%' }}>
+                <span style={{ flex: 1, fontSize: 12.5, fontWeight: 600, color: 'var(--ink)' }}>{st.label}</span>
+                {on && <Check size={14} style={{ color: 'var(--wk-brand, hsl(var(--color-blue)))', flexShrink: 0 }} />}
+              </span>
+              <span style={{ fontSize: 11, color: 'var(--muted)', lineHeight: 1.35 }}>{st.hint}</span>
+            </button>
+          );
+        })}
+      </div>
+      <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>Actions on this tile, in order</label>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+        {rows.map(a => {
+          const on = picked.includes(a.key);
+          const i = picked.indexOf(a.key);
+          return (
+            <div key={a.key} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: 'var(--ink)', padding: '4px 2px', borderRadius: 8, background: on ? 'var(--wk-hover, var(--mist))' : 'transparent' }}>
+              <input type="checkbox" id={`qa-pick-${a.key}`} checked={on} onChange={() => toggle(a.key)} aria-label={a.label} />
+              <span className={`dk-chip dk-chip--${a.color}`} style={{ width: 26, height: 26, borderRadius: 7 }}><a.Icon size={14} /></span>
+              <label htmlFor={`qa-pick-${a.key}`} style={{ flex: 1, minWidth: 0, cursor: 'pointer' }}>{a.label}</label>
+              {on && (
+                <span style={{ display: 'inline-flex', gap: 2, flexShrink: 0 }}>
+                  <button type="button" style={{ ...arrowBtn, opacity: i === 0 ? 0.3 : 1 }} disabled={i === 0} onClick={() => move(a.key, -1)} aria-label={`Move ${a.label} up`}><ArrowUp size={14} /></button>
+                  <button type="button" style={{ ...arrowBtn, opacity: i === picked.length - 1 ? 0.3 : 1 }} disabled={i === picked.length - 1} onClick={() => move(a.key, 1)} aria-label={`Move ${a.label} down`}><ArrowDown size={14} /></button>
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {picked.length === 0 && <p style={{ fontSize: 12, color: 'hsl(var(--color-red))', margin: '8px 0 0' }}>Pick at least one action.</p>}
+    </div>
+  );
+}
+
+// A thumbnail of each style: three dots for the dock, dot-over-line tiles,
+// or icon-and-line rows - so the choice is visible before it is made.
+function QuickStylePreview({ style }) {
+  const dot = (k) => <span key={k} style={{ width: 12, height: 12, borderRadius: 4, background: 'var(--wk-brand, hsl(var(--color-blue)))', opacity: .75 }} />;
+  const line = (k, w) => <span key={k} style={{ width: w, height: 3, borderRadius: 2, background: 'var(--line)' }} />;
+  if (style === 'icons') return <span style={{ display: 'flex', gap: 6 }}>{[0, 1, 2, 3].map(dot)}</span>;
+  if (style === 'tiles') return <span style={{ display: 'flex', gap: 8 }}>{[0, 1, 2].map(k => <span key={k} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>{dot(k)}{line(k, 14)}</span>)}</span>;
+  return <span style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>{[0, 1, 2].map(k => <span key={k} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>{dot(k)}{line(k, 34)}</span>)}</span>;
+}
+
 // Config picker used both when adding a configurable widget and when editing one.
 function ConfigFields({ type, config, onChange }) {
   if (type === 'action') {
     return <ActionFields config={config} onChange={onChange} />;
   }
   if (type === 'quick-actions') {
-    const picked = new Set(Array.isArray(config.actions) && config.actions.length ? config.actions : DEFAULT_QUICK_ACTIONS);
-    const toggle = (key) => {
-      const next = QUICK_ACTIONS.map(a => a.key).filter(k => k === key ? !picked.has(k) : picked.has(k));
-      onChange({ actions: next });
-    };
-    return (
-      <div>
-        <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>Actions on this tile</label>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {QUICK_ACTIONS.map(a => (
-            <label key={a.key} style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: 'var(--ink)', cursor: 'pointer', padding: '4px 2px' }}>
-              <input type="checkbox" checked={picked.has(a.key)} onChange={() => toggle(a.key)} />
-              <span className={`dk-chip dk-chip--${a.color}`} style={{ width: 26, height: 26, borderRadius: 7 }}><a.Icon size={14} /></span>
-              {a.label}
-            </label>
-          ))}
-        </div>
-        {picked.size === 0 && <p style={{ fontSize: 12, color: 'hsl(var(--color-red))', margin: '8px 0 0' }}>Pick at least one action.</p>}
-      </div>
-    );
+    return <QuickActionsFields config={config} onChange={onChange} />;
   }
   if (type === 'links-folder') {
     return <LinksFolderFields config={config} onChange={onChange} />;
@@ -265,7 +323,7 @@ export function WidgetGallery({ canSee, onAdd, onClose, layout = [] }) {
                       if (def.configurable) {
                         const initial = def.configurable === 'kpi' ? { metric: 'open_tasks' }
                           : def.configurable === 'links-folder' ? {}
-                          : def.configurable === 'quick-actions' ? { actions: [...DEFAULT_QUICK_ACTIONS] }
+                          : def.configurable === 'quick-actions' ? { style: DEFAULT_QUICK_STYLE, actions: [...DEFAULT_QUICK_ACTIONS] }
                           : def.configurable === 'weather' ? { ...WEATHER_DEFAULT }
                           : def.configurable === 'action' ? { action: DEFAULT_ACTION }
                           // Only what the select's onChange saves - the catalog

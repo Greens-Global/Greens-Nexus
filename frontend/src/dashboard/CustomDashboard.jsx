@@ -354,8 +354,9 @@ export default function CustomDashboard() {
               onDuplicate={d.duplicateWidget}
               onConfigure={(it) => WIDGETS[it.type]?.configurable ? setConfigItem(it) : null}
               canConfigure={(it) => !!WIDGETS[it.type]?.configurable}
-              limitsFor={(it) => WIDGETS[it.type]?.limits}
+              limitsFor={(it) => WIDGETS[it.type]?.limitsWhen?.(it.config) || WIDGETS[it.type]?.limits}
               compactFor={(it) => !!WIDGETS[it.type]?.compact}
+              rowsFor={(it) => WIDGETS[it.type]?.phoneRowsWhen?.(it.config)}
               stacked={isPhone}
               onMove={d.moveWidget}
               emptyState={(

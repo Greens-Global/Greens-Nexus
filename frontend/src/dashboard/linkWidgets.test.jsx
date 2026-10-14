@@ -106,10 +106,47 @@ describe('Quick Actions tile', () => {
     expect(screen.queryByText('Add Personal Link')).toBeNull();
   });
 
-  it('shows only the picked actions, in catalog order', () => {
+  it('shows only the picked actions, in the order they were picked', () => {
+    // The picker reorders (Oct 13): the config order is the display order.
     mount('quick-actions', { actions: ['kb', 'personal-link'] });
     const rows = screen.getAllByRole('button').map(b => b.textContent.trim());
-    expect(rows).toEqual(['Add Personal Link', 'Knowledge Base']);
+    expect(rows).toEqual(['Knowledge Base', 'Add Personal Link']);
+  });
+
+  it('Icons Only draws bare icons, one per cell, and folds the overflow into +N', () => {
+    // 2x1 = two cells for three actions: the first icon, then "+2" for the rest.
+    const Comp = WIDGETS['quick-actions'].render;
+    const { container, unmount } = render(<Comp config={{ style: 'icons', actions: ['task', 'event', 'email'] }} size={{ w: 2, h: 1 }} updateConfig={vi.fn()} kpis={{}} />);
+    expect(container.querySelector('.dash-card')).toBeNull();               // no card chrome
+    expect(container.querySelector('.qa-dock').style.gridTemplateColumns).toContain('repeat(2');
+    expect(screen.getByRole('button', { name: 'New Task' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'New Event' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '2 more quick actions' }));
+    expect(screen.getByText('New Event')).toBeTruthy();                      // the sheet lists the rest
+    expect(screen.getByText('New Email')).toBeTruthy();
+    // Six cells for five actions: every icon on the board, no +N.
+    unmount();
+    render(<Comp config={{ style: 'icons', actions: DEFAULT_QUICK_ACTIONS }} size={{ w: 3, h: 2 }} updateConfig={vi.fn()} kpis={{}} />);
+    expect(screen.queryByRole('button', { name: /more quick actions/ })).toBeNull();
+    expect(screen.getAllByRole('button', { name: 'Request an Item' }).length).toBeGreaterThan(0);
+  });
+
+  it('Icons + Names draws a named tile per action inside a headerless card', () => {
+    const Comp = WIDGETS['quick-actions'].render;
+    const { container } = render(<Comp config={{ style: 'tiles', actions: ['task', 'ticket'] }} size={{ w: 4, h: 2 }} updateConfig={vi.fn()} kpis={{}} />);
+    expect(container.querySelector('.dash-card.qa-tiles-card')).toBeTruthy();
+    expect(screen.queryByText('Quick Actions')).toBeNull();
+    expect(screen.getByRole('button', { name: 'New Task' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'New Ticket' })).toBeTruthy();
+  });
+
+  it('size and limits follow the style, and a dock is one row on a phone', () => {
+    const def = WIDGETS['quick-actions'];
+    expect(def.sizeWhen({ style: 'icons' })).toEqual({ w: 3, h: 2 });
+    expect(def.limitsWhen({ style: 'icons' }).minH).toBe(1);
+    expect(def.limitsWhen({ actions: ['task'] }).minH).toBe(2);              // a saved list tile keeps its bounds
+    expect(def.phoneRowsWhen({ style: 'icons' })).toBe(1);
+    expect(def.phoneRowsWhen({ style: 'list' })).toBeUndefined();
   });
 
   it('config helpers: unknown keys are dropped and an empty pick is invalid', () => {
