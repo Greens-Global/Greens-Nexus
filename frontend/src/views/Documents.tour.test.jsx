@@ -19,6 +19,7 @@ vi.mock('../api', () => ({
     getDocTemplates: () => Promise.resolve([]),
     getDocLetterheads: () => Promise.resolve([]),
     getEmployees: () => Promise.resolve([]),
+    listPacketDocuments: () => Promise.reject(new Error('403')),
     searchDocuments: () => Promise.resolve([]),
     updateDocument: () => Promise.resolve({}),
     getToursSeen: (...a) => getToursSeen(...a),

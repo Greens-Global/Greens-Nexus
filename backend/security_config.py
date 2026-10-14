@@ -55,7 +55,9 @@ SETTINGS: dict[str, dict] = {
     # Sessions
     "webSessionIdleDays": {"type": "int", "default": 30, "min": 1, "max": 30, "unit": "days", "env": None},
     "actAsMinutes":       {"type": "int", "default": 240, "min": 15, "max": 480, "unit": "minutes", "env": None},
-    "vaultOtpUnlockSec":  {"type": "int", "default": 300, "min": 60, "max": 1800, "unit": "seconds",
+    # 15 min (Neil, Oct 14 2026: was 5 - people were re-asked for a code on
+    # almost every reveal). The screen shows "Verified until <time>".
+    "vaultOtpUnlockSec":  {"type": "int", "default": 900, "min": 60, "max": 1800, "unit": "seconds",
                            "env": "NEXUS_VAULT_OTP_TTL_SEC"},
     "vaultPersonalUnlockSec": {"type": "int", "default": 600, "min": 60, "max": 1800, "unit": "seconds",
                                "env": "NEXUS_VAULT_PERSONAL_TTL_SEC"},

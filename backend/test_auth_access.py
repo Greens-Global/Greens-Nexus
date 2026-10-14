@@ -60,6 +60,8 @@ KNOWN_PUBLIC = {
     "/esign/public/copy-code",             # static page; the code is in the URL fragment,
                                            # which the browser never sends to us
     "/esign/public/{token}",               # 43-char token is the credential
+    "/hr/intake/public/{token}",           # a candidate's details link (Oct 14): 43-char token, sha256 at rest,
+                                           # one submit, dies with the offer, same per-IP guessing throttle
     "/esign/public/{token}/sign",          # + access-code lockout
     "/esign/public/{token}/decline",       # + per-IP guessing throttle
     "/esign/public/{token}/download",

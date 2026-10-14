@@ -370,6 +370,10 @@ _AUTH_LABELS = {
     # states the channel it went to and the moment it was verified, and saying
     # it twice costs a wrapped line per signer on a sheet that has to fit four
     # of them (criterion 6).
+    # Signs Once (HR packets, Oct 14): adopted once in a signed-in session
+    # with a one-time code, then applied to this envelope automatically.
+    "saved_signature": ("Signature adopted once for this packet in an authenticated Nexus session "
+                        "(Microsoft Entra ID single sign-on + one-time code), applied automatically at send"),
     "entra_sso+otp": ("Microsoft Entra ID single sign-on, authenticated Nexus "
                       "session + one-time code"),
     "emailed_token+otp": ("Single-use emailed link, 43-character random token "

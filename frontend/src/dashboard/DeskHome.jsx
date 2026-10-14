@@ -20,6 +20,12 @@ import {
 } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
+import { useTimeStatus } from '../lib/useTimeStatus';
+// The header chip shows today's worked hours as H:MM - the same number and
+// format as the sidebar's time clock chip (Neil, Oct 14 2026), not seconds
+// since the last punch.
+import { fmtHM } from '../lib/timeclockStore';
+import { deriveMyTime } from './essentials/usePunchClock.jsx';
 import { useWorldClockPicks, headerClocks } from '../lib/worldClockZones';
 import { formatTimeIn, greetingFor } from '../lib/datetime';
 import { ModalLoading } from '../components/AsyncState';
@@ -68,11 +74,6 @@ const ZoneClock = ({ clock, now }) => (
   <>{clock.label && <>{clock.label} </>}<b>{formatTimeIn(now, clock.tz)}{clock.abbr && ` ${clock.abbr}`}</b></>
 );
 
-const fmtElapsed = (secs) => {
-  const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60), s = secs % 60;
-  const p = (n) => String(n).padStart(2, '0');
-  return h > 0 ? `${h}:${p(m)}:${p(s)}` : `${m}:${p(s)}`;
-};
 
 const timeAgo = (ts) => {
   if (!ts) return '';
@@ -118,15 +119,12 @@ export function DeskGreeting({ summary = null, right = null, menu = null }) {
   // While acting as someone, the greeting greets THEM - this whole screen is
   // their day, and "Good Evening, Visesh" on Pranshu's dashboard read wrong.
   const firstName = ((actingAs?.targetName || accounts[0]?.name) ?? 'there').split(' ')[0];
-  const [status, setStatus] = useState(null);
-  useEffect(() => { api.timeStatus().then(setStatus).catch(() => {}); }, []);
+  const { status } = useTimeStatus();   // the shared read (lib/useTimeStatus)
 
-  const last = status?.lastPunch;
-  // Stale open shift (clock-in >16h, server treats it as closed) reads as clocked out here too.
-  const clockedIn = !!(last && last.kind !== 'out') && !status?.staleOpenShift;
-  const elapsed = clockedIn && last?.at
-    ? Math.max(0, Math.floor((now.getTime() - new Date(last.at + 'Z').getTime()) / 1000))
-    : 0;
+  // The same derivation as the sidebar chip (stale shifts and exempt people
+  // read as clocked out), so the two never disagree on whether a shift is live.
+  const mine = deriveMyTime({ status, now });
+  const clockedIn = mine.state === 'in' || mine.state === 'break';
 
   const greeting = greetingFor(now);
   const dateLine = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric' }).format(now);
@@ -181,8 +179,8 @@ export function DeskGreeting({ summary = null, right = null, menu = null }) {
             title="Open time clock"
             style={{ flexShrink: 0, whiteSpace: 'nowrap' }}
           >
-            <span className={`dk-dot ${clockedIn ? 'dk-dot--up' : 'dk-dot--off'}`} />
-            {clockedIn ? <>Clocked in · <b>{fmtElapsed(elapsed)}</b></> : <>Clocked out<span className="dk-session-long"> · Open time clock</span></>}
+            <span className={`dk-dot ${clockedIn ? 'dk-dot--up' : mine.exempt ? 'dk-dot--na' : 'dk-dot--off'}`} />
+            {clockedIn ? <>Clocked In · <b>{fmtHM(mine.todayMin)}</b></> : <>Clocked Out<span className="dk-session-long"> · Open time clock</span></>}
           </button>
           {/* "…" view menu: its own distinct button, at the far right corner
               after the session chip - not merged with it (Pranshu, Sep 15
@@ -202,16 +200,15 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
 
   // Live extras: session state (the My-hours strip), pending signatures, team
   // KPIs (managers). All read-only, all existing endpoints, all safe to fail
-  // quietly. DeskGreeting fetches timeStatus for its own chip - the endpoint is
-  // a cheap single-row read, so the duplicate call beats threading state through.
-  const [status, setStatus] = useState(null);
+  // quietly. DeskGreeting reads the same shared time status for its own chip
+  // (lib/useTimeStatus - one request for both, and for the floating timer).
+  const { status } = useTimeStatus();
   const [sigs, setSigs] = useState([]);
   const [teamKpis, setTeamKpis] = useState(null);
   // Which quick-action composer is open, if any. Null renders nothing and the
   // chunk is never fetched.
   const [composing, setComposing] = useState(null);
   useEffect(() => {
-    api.timeStatus().then(setStatus).catch(() => {});
     api.mySignatures().then(r => setSigs(Array.isArray(r) ? r : (r?.requests || r?.items || []))).catch(() => {});
     if (can('supervisor')) api.dashKpis('team').then(r => setTeamKpis(r?.kpis || null)).catch(() => {});
   }, [can]);

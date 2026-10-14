@@ -36,6 +36,7 @@ import { Spinner, LoadingState } from '../components/AsyncState';
 import { DAYS, DAY_ABBR, recurrenceLabel, monthRuleOf, yearRuleOf, PERIODIC_PRESETS, clampDays, MAX_PERIODIC_DAYS, ruleFromDate } from './recurrence';
 import { MonthDayControls, YearDayControls } from './RecurrenceParts';
 import { useCustomSections } from './customSections';
+import { StatusLabel, PrioritySignal } from '../components/StatusLabel';
 
 const DEP_TYPES = { FS: 'Finish → Start', SS: 'Start → Start', FF: 'Finish → Finish', SF: 'Start → Finish' };
 /** A whole-number box for the Recurrence menu (Oct 13 2026). It used to save
@@ -824,13 +825,13 @@ function OverviewTab({ task, patch, people, projectName, teamName, teams, projec
       </Row>
 
       <Row label="Status">
-        <Pop width={176} trigger={(t) => <button onClick={t} style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0 }}><Chip color={sm.color} tint={sm.tint}>{sm.label}</Chip></button>}>
+        <Pop width={176} trigger={(t) => <button onClick={t} style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0 }}><StatusLabel label={sm.label} color={sm.color} /></button>}>
           {(close) => taskStatusOrder.map((s) => <MenuItem key={s} onClick={() => { patch({ status: s }); close(); }}>{statusMeta[s]?.label || s}</MenuItem>)}
         </Pop>
       </Row>
 
       <Row label="Priority">
-        <Pop width={160} trigger={(t) => <button onClick={t} style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0 }}><Chip color={pm.color} tint={pm.tint}>{pm.label}</Chip></button>}>
+        <Pop width={160} trigger={(t) => <button onClick={t} style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0 }}><PrioritySignal priority={task.priority} /></button>}>
           {(close) => PRIORITY_ORDER.map((p) => <MenuItem key={p} onClick={() => { patch({ priority: p }); close(); }}>{PRIORITY_META[p].label}</MenuItem>)}
         </Pop>
       </Row>
@@ -1841,8 +1842,8 @@ function PropertiesTab({ task, nameOf, projectName, teamName, customFields, patc
   const sm = statusMeta[task.status] || {};
   const pm = PRIORITY_META[task.priority] || {};
   const rows = [
-    ['Status', <Chip color={sm.color} tint={sm.tint}>{sm.label}</Chip>],
-    ['Priority', <Chip color={pm.color} tint={pm.tint}>{pm.label}</Chip>],
+    ['Status', <StatusLabel label={sm.label} color={sm.color} />],
+    ['Priority', <PrioritySignal priority={task.priority} />],
     ['Assignee', taskAssignees(task).length
       ? <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           {taskAssignees(task).map((e) => (

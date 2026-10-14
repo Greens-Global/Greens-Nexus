@@ -14,7 +14,7 @@ import {
   Paintbrush, Search, Smile, Bookmark,
   Scissors, ClipboardCopy, ClipboardPaste, Strikethrough, Subscript as SubscriptIcon, Superscript as SuperscriptIcon,
   Highlighter, ArrowDownAZ, ArrowUpZA, RectangleHorizontal, MousePointerSquareDashed, ListTree,
-  Variable, Lock, LockOpen, Wand2, ListChecks,
+  Variable, Lock, LockOpen, Wand2, ListChecks, PenLine, BadgeCheck,
 } from 'lucide-react';
 import { api } from '../api';
 import { MERGE_TOKENS, FRIENDLY_MERGE, SHAPE_DEFAULTS, WRAP_MODES } from '../lib/docBuilderExtensions';
@@ -44,7 +44,16 @@ const FONT_GROUPS = {
 // Does this content say anything at all? Text, a picture, a variable chip, a
 // shape or a table all count; a lone empty paragraph does not. Used to refuse
 // a save that would blank a document that had content a moment ago.
-const SUBSTANTIVE = new Set(['image', 'mergeField', 'docShape', 'docTextbox', 'table', 'pageBreak', 'bookmark']);
+const SUBSTANTIVE = new Set(['image', 'mergeField', 'docShape', 'docTextbox', 'table', 'pageBreak', 'bookmark', 'signatureBlock']);
+
+// Who signs, when a template has no Signers list yet (Oct 14).
+const DEFAULT_SIGNERS = [{ key: 'employee', label: 'Employee', order: 1 }, { key: 'company', label: 'Company', order: 2 }];
+const signerKeyOf = (label) => String(label || '').trim().toLowerCase()
+  .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40);
+const chipTone = (tone) => ({
+  fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999, whiteSpace: 'nowrap',
+  color: `hsl(var(--color-${tone}))`, background: `hsla(var(--color-${tone}), 0.12)`,
+});
 
 export function isEmptyContent(content) {
   let found = false;
@@ -387,6 +396,13 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
   // kind==='template' (Documents generated from one just carry resolved
   // values, not the field metadata itself).
   const [fieldDefs, setFieldDefs] = useState([]);
+  // Signature blocks + Publish (Oct 14). signerRoles is the template's Signers
+  // list - who signs a document made from it, in order; a signature block
+  // names one of them. Publishing releases the wording to the HR packets.
+  const [signerRoles, setSignerRoles] = useState([]);
+  const [sigPopoverOpen, setSigPopoverOpen] = useState(false);
+  const [sigDraft, setSigDraft] = useState({ role: '', label: '', withName: true, withDate: true, newSigner: '' });
+  const [publishing, setPublishing] = useState(false);
   // Template Fields panel: every variable and the type of answer it takes.
   // `newTokens` are the ones an import/paste just added, marked NEW in the list.
   const [fieldsPanel, setFieldsPanel] = useState(null);   // null | { newTokens: [] }
@@ -668,6 +684,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       setEntityId(d.entityId || '');
       setMergeOverrides(d.mergeOverrides || {});
       setFieldDefs(d.fieldDefs || []);
+      setSignerRoles(d.signerRoles || []);
       setPageSetup({ ...DEFAULT_PAGE_SETUP, ...(d.content?.pageSetup || {}) });
       applyContent(d.content);
       hydratedRef.current = true;
@@ -756,7 +773,15 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     setSaveStatus('saving');
     const payload = kind === 'document' ? { content, note: 'Autosave' } : { content };
     return apiUpdate(docId, payload)
-      .then(() => { setSaveStatus('saved'); onContentSaved?.(payload.content); })
+      .then((res) => {
+        setSaveStatus('saved'); onContentSaved?.(payload.content);
+        // A template's chip (Published / Unpublished Changes) follows each save.
+        if (kind === 'template' && res) {
+          setDoc(d => (d ? { ...d, version: res.version, publishedVersion: res.publishedVersion,
+                             hasUnpublishedChanges: res.hasUnpublishedChanges,
+                             signatureRoles: res.signatureRoles } : d));
+        }
+      })
       .catch(() => setSaveStatus('error'));
   }, [docId, kind, apiUpdate, onContentSaved]);
 
@@ -1300,15 +1325,85 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
     setTextboxPopoverOpen(false);
   };
 
-  // Phase 5 bridge: export to PDF, hand it to E-Sign's existing SendWizard via
-  // the same window.__esignPrefill + nexus:navigate handoff HR->Hiring already
+  // ── Signature blocks (Oct 14) ─────────────────────────────────────────────
+  // Where each signer signs is part of the template, so a packet built from it
+  // goes to Nexus Sign with every box already on its line.
+  const signerOptions = signerRoles.length ? signerRoles : DEFAULT_SIGNERS;
+  const saveSignerRoles = (next) => {
+    const ordered = next.map((r, i) => ({ ...r, order: i + 1 }));
+    setSignerRoles(ordered);
+    if (kind !== 'template') return;
+    apiUpdate(docId, { signerRoles: ordered })
+      .then(res => res && setDoc(d => (d ? { ...d, hasUnpublishedChanges: res.hasUnpublishedChanges, signerRoles: res.signerRoles } : d)))
+      .catch(e => toastErr?.(e.message || 'Failed to save the signers'));
+  };
+  const addSigner = () => {
+    const label = sigDraft.newSigner.trim();
+    const key = signerKeyOf(label);
+    if (!key) return;
+    if (!signerOptions.some(r => r.key === key)) saveSignerRoles([...signerOptions, { key, label }]);
+    setSigDraft(d => ({ ...d, role: key, newSigner: '' }));
+  };
+  const usedSignerKeys = () => {
+    const used = new Set();
+    const walk = (n) => {
+      if (!n || typeof n !== 'object') return;
+      if (n.type === 'signatureBlock' && n.attrs?.role) used.add(n.attrs.role);
+      (n.content || []).forEach(walk);
+    };
+    for (const p of pages) walk(editorsRef.current.get(p.id)?.getJSON() || p.json);
+    return used;
+  };
+  const removeSigner = (key) => {
+    if (usedSignerKeys().has(key)) {
+      toastErr?.('A signature block on the page uses this signer - delete the block first.');
+      return;
+    }
+    saveSignerRoles(signerRoles.filter(r => r.key !== key));
+  };
+  const insertSignatureBlock = () => {
+    const role = sigDraft.role || signerOptions[0]?.key || 'employee';
+    activeEditor?.chain().focus().insertContent({
+      type: 'signatureBlock',
+      attrs: { role, label: sigDraft.label.trim(), withName: sigDraft.withName, withDate: sigDraft.withDate },
+    }).scrollIntoView().run();
+    // A template's Signers list always covers its blocks.
+    if (kind === 'template' && !signerRoles.some(r => r.key === role)) {
+      const known = signerOptions.find(r => r.key === role);
+      saveSignerRoles([...signerRoles, known || { key: role, label: role }]);
+    }
+    setSigPopoverOpen(false);
+    setSigDraft(d => ({ ...d, label: '' }));
+  };
+
+  // Publish: release this template's current wording to the HR packets that
+  // use it. Autosave never does this - a half-typed edit never reaches a
+  // candidate. Documents already out for signature never change.
+  const publishTemplate = async () => {
+    if (publishing) return;
+    if (!window.confirm(`Publish "${title}"? HR packets that have not been sent yet switch to this wording. Documents already out for signature do not change.`)) return;
+    setPublishing(true);
+    try {
+      await flushPendingSave();
+      const res = await api.publishDocTemplate(docId);
+      setDoc(d => ({ ...d, ...res }));
+      setSignerRoles(res.signerRoles || []);
+      toastOk?.(`Published version ${res.publishedVersion}.`);
+    } catch (e) {
+      toastErr?.(e.message || 'Could not publish the template');
+    } finally { setPublishing(false); }
+  };
+
+  // Phase 5 bridge: hand the document to E-Sign's existing SendWizard via the
+  // same window.__esignPrefill + nexus:navigate handoff HR->Hiring already
   // uses - no new backend send path, no change to esign.py's compliance logic.
+  // The PDF comes from /signing-pdf (Oct 14): rendered once with its signature
+  // blocks measured, so each signer's fields arrive already placed.
   const doSendForSignature = () => {
     if (doc?.signRequestId && !window.confirm('This document was already sent for signature. Start a new envelope anyway?')) return;
     setExporting('send');
-    flushPendingSave().then(() => api.exportDocumentPdf(docId)).then(({ blob, filename }) => {
-      const pdfFile = new File([blob], filename.endsWith('.pdf') ? filename : `${filename}.pdf`, { type: 'application/pdf' });
-      window.__esignPrefill = { title, file: pdfFile, source: 'pdf', sourceDocumentId: docId, parties: [] };
+    flushPendingSave().then(() => api.documentSigningPdf(docId)).then((out) => {
+      window.__esignPrefill = { title, source: 'pdf', sourceDocumentId: docId, parties: [], signing: out };
       window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'documents', sub: 'documents-esign' } }));
     }).catch(e => toastErr?.(e.message || 'Failed to prepare document for signature')).finally(() => setExporting(''));
   };
@@ -1646,6 +1741,21 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
           {saveStatus === 'error' && <AlertCircle size={12} />}
           {SAVE_LABEL[saveStatus]}
         </span>
+        {kind === 'template' && doc.status === 'active' && (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}
+            title="HR packets print the published version. Editing saves as you type; Publish releases your changes.">
+            {!doc.publishedVersion ? <span style={chipTone('orange')}>Not Published</span>
+              : doc.hasUnpublishedChanges ? <span style={chipTone('orange')}>Unpublished Changes</span>
+              : <span style={chipTone('green')}>Published v{doc.publishedVersion}</span>}
+            {(!doc.publishedVersion || doc.hasUnpublishedChanges) && !preview && (
+              <button onClick={publishTemplate} disabled={publishing} className="primary-btn"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, opacity: publishing ? 0.6 : 1 }}>
+                {publishing ? <Spinner size={14} /> : <BadgeCheck size={14} />}
+                {doc.publishedVersion ? 'Publish Changes' : 'Publish'}
+              </button>
+            )}
+          </span>
+        )}
         {!preview && kind === 'template' && (
           <label style={{ fontSize: 11.5, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer', whiteSpace: 'nowrap' }}>
             <input type="checkbox" checked={requiresLetterhead} onChange={toggleRequiresLetterhead} /> Requires letterhead
@@ -2076,6 +2186,61 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
                   </select>
                 </label>
                 <button onClick={insertTextbox} className="primary-btn" style={{ fontSize: 11.5, padding: '6px 10px' }}>Insert text box</button>
+              </div>
+            )}
+          </div>
+          <div style={{ position: 'relative' }}>
+            <ToolbarBtn title="Signature Block - where a signer signs" active={sigPopoverOpen}
+              onClick={() => { setSigPopoverOpen(o => !o); setSigDraft(d => ({ ...d, role: d.role || signerOptions[0]?.key || '' })); }}>
+              <PenLine size={15} />
+            </ToolbarBtn>
+            {sigPopoverOpen && (
+              <div style={{ position: 'absolute', top: '110%', left: 0, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', zIndex: 20, padding: 12, display: 'flex', flexDirection: 'column', gap: 9, width: 270 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700 }}>Insert Signature Block</div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', lineHeight: 1.45 }}>
+                  The signer's signature, name and date fields land here automatically when this is sent for signature.
+                </div>
+                <label style={{ fontSize: 11, color: 'var(--muted)', display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  Who Signs Here
+                  <select value={sigDraft.role} onChange={e => setSigDraft(d => ({ ...d, role: e.target.value }))}
+                    style={{ fontSize: 12, fontFamily: 'Inter, sans-serif', border: '1px solid var(--line)', borderRadius: 7, padding: '5px 6px', color: 'var(--ink)', background: 'var(--card)' }}>
+                    {signerOptions.map(r => <option key={r.key} value={r.key}>{r.label || r.key}</option>)}
+                  </select>
+                </label>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input className="form-input" style={{ fontSize: 12, flex: 1 }} placeholder="New signer, e.g. Manager"
+                    value={sigDraft.newSigner} onChange={e => setSigDraft(d => ({ ...d, newSigner: e.target.value }))}
+                    onKeyDown={e => e.key === 'Enter' && addSigner()} />
+                  <button onClick={addSigner} disabled={!signerKeyOf(sigDraft.newSigner)} className="secondary-btn"
+                    style={{ fontSize: 11.5, padding: '5px 10px' }}>Add Signer</button>
+                </div>
+                <label style={{ fontSize: 11, color: 'var(--muted)', display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  Caption (optional)
+                  <input className="form-input" style={{ fontSize: 12 }} placeholder="e.g. For {{company_legal}}"
+                    value={sigDraft.label} onChange={e => setSigDraft(d => ({ ...d, label: e.target.value }))} />
+                </label>
+                <div style={{ display: 'flex', gap: 14, fontSize: 12 }}>
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={sigDraft.withName} onChange={e => setSigDraft(d => ({ ...d, withName: e.target.checked }))} /> Name Line
+                  </label>
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={sigDraft.withDate} onChange={e => setSigDraft(d => ({ ...d, withDate: e.target.checked }))} /> Date Line
+                  </label>
+                </div>
+                <button onClick={insertSignatureBlock} className="primary-btn" style={{ fontSize: 12, padding: '7px 10px' }}>Insert Signature Block</button>
+                {kind === 'template' && signerRoles.length > 0 && (
+                  <div style={{ borderTop: '1px solid var(--line)', paddingTop: 8 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', marginBottom: 4 }}>Signers On This Template</div>
+                    {signerRoles.map((r, i) => (
+                      <div key={r.key} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '3px 0' }}>
+                        <span style={{ width: 18, color: 'var(--muted)', fontWeight: 700 }}>{i + 1}</span>
+                        <span style={{ flex: 1 }}>{r.label || r.key}</span>
+                        <button title="Remove this signer" onClick={() => removeSigner(r.key)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}><X size={12} /></button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>

@@ -5,7 +5,8 @@ import {
   Hash, MessageSquare,
 } from 'lucide-react';
 import { InviteExternalModal, ExternalPersonSection, ExternalBadge, inviteOutcomeToast } from './ExternalUsersPanel';
-import { openPersonProfile } from '../lib/personNav';
+import { RoleChangeModal } from '../components/HrPersonActions';
+import { RoleChangeRequestCard, RoleHistory } from '../components/RoleChangeRequests';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { usePeopleDirectory } from '../lib/queries';
@@ -41,7 +42,9 @@ const TIERS = Object.keys(ROLES);
 const EMPLOYEE_DEFAULT_BUNDLE = {
   dashboard: 'editor', timeclock: 'editor', myhr: 'editor', tasks: 'editor', tickets: 'editor',
   documents: 'editor', 'external-links': 'viewer', inventory: 'viewer', support: 'viewer',
-  credvault: 'viewer', sop: 'viewer',
+  sop: 'viewer',
+  // No credvault here (Neil, Oct 14 2026): the Credential Vault opens company
+  // passwords, so it is granted on purpose, never seeded onto a new role.
 };
 
 // Audit-tab module families - collapse 21 columns into 6 readable ones.
@@ -799,6 +802,9 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
   const [eff, setEff] = useState(null);
   const [busy, setBusy] = useState(false);
   const [promoteOpen, setPromoteOpen] = useState(false);
+  // Change Role here asks the manager / HR (Pranshu, Oct 13) - RoleChangeModal.
+  const [roleReqOpen, setRoleReqOpen] = useState(false);
+  const [roleReqKey, setRoleReqKey] = useState(0);
   // External (B2B guest) support: the selected person's external record (if
   // any) drives the extra panel section; the invite modal enrolls a new one.
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -809,7 +815,7 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
   // Which tiers this admin may hand out (mirrors the backend guard: owners give
   // any, others only strictly below their own level).
   const canAssignTier = t => can('owner') || (ROLES[t]?.level ?? 1) < myLevel;
-  useEffect(() => { setPromoteOpen(false); }, [person]);
+  useEffect(() => { setPromoteOpen(false); setRoleReqOpen(false); }, [person]);
 
   // Same courtesy as the role panel: picking a person deep in the list brings
   // their panel (role picker, groups) into view instead of leaving it above.
@@ -978,15 +984,15 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
               {eff.job_role
                 ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 13px', borderRadius: 999, background: 'var(--ink)', color: 'var(--card)', fontSize: 12.5, fontWeight: 700 }}><Shield size={13} /> {eff.job_role.name}{eff.job_role.company_id ? ` · ${companyName(eff.job_role.company_id)}` : ''}</span>
                 : <span style={{ fontSize: 12.5, color: 'var(--muted)', fontStyle: 'italic' }}>No job role yet</span>}
-              {/* Neil, Oct 8: "pull the promo and change role out of the
-                  settings. You need to leave roles in settings" - an employee's
-                  role changes in People (Promote / Change Role, with a letter).
-                  Settings keeps the first assignment and external users. */}
+              {/* Neil, Oct 8: a promotion is a letter made in People. A role
+                  change without one (Pranshu, Oct 13) is asked for here or in
+                  People and approved by their manager or HR before it applies.
+                  Settings keeps the first assignment and external users direct. */}
               {eff.job_role && !extRec ? (
-                <button className="secondary-btn" onClick={() => openPersonProfile(person)}
-                  title="Promote or change their role from their People profile - it sends the letter they sign"
+                <button className="secondary-btn" onClick={() => setRoleReqOpen(true)}
+                  title="Ask to change their role - their manager or HR approves it"
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px', fontSize: 12.5 }}>
-                  <TrendingUp size={13} /> Change In People
+                  <TrendingUp size={13} /> Change Role
                 </button>
               ) : (
                 <RoleMenu roles={roleChoices.filter(r => r.id !== eff.job_role?.id)} companyName={companyName}
@@ -995,8 +1001,24 @@ function PeopleTab({ people, membership, jobRoles, groups, person, setPerson, na
             </div>
             {eff.job_role && !extRec && (
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 6 }}>
-                Promotions and role changes are made in People - the employee and their manager sign a letter, and pay and access change together.
+                A role change here goes to their manager and HR - it takes effect when one of them approves.
               </div>
+            )}
+            {eff.job_role && !extRec && (
+              <div style={{ marginTop: 12 }}>
+                <RoleChangeRequestCard email={person} refreshKey={roleReqKey} toastOk={toastOk} toastErr={toastErr}
+                  onDecided={() => { setRoleReqKey(n => n + 1); refresh(); }} />
+                <RoleHistory email={person} refreshKey={`${roleReqKey}-${eff.job_role?.id || ''}`} />
+              </div>
+            )}
+            {roleReqOpen && (
+              <RoleChangeModal employee={{ workEmail: person, firstName: nameOf(person), jobTitle: eff.job_role?.name || '' }}
+                roles={roleChoices.filter(r => r.id !== eff.job_role?.id)} approval
+                onClose={() => setRoleReqOpen(false)} toastErr={toastErr}
+                onChanged={res => {
+                  setRoleReqOpen(false); setRoleReqKey(n => n + 1);
+                  toastOk(`Sent to ${res.approvers.map(a => a.name).join(' and ')} - the role changes when one of them approves.${res.warning ? ` ${res.warning}` : ''}`);
+                }} />
             )}
             {promoteOpen && (
               <PromoteModal person={person} eff={eff} nameOf={nameOf} companyName={companyName}

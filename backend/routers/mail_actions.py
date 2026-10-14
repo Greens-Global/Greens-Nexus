@@ -241,7 +241,9 @@ def _extend(request: Request, db, *, user: dict, task_id: str, new_due: str, bt:
         tasks_router.propose_due(tasks_router.DueProposal(due_on=picked.isoformat()), task_id, user=user, db=db)
         who = task_due.requester_of(t)
         return f"Asked {_name(db, who) if who else 'the requester'} to move the due date to {when}"
-    tasks_router.update_task(task_id, tasks_router.TaskUpdate(due_on=picked.isoformat()), bt, user=user, db=db)
+    saved = tasks_router.update_task(task_id, tasks_router.TaskUpdate(due_on=picked.isoformat()), bt, user=user, db=db)
+    if saved.get("dueAgreement") == task_due.REQUESTED:
+        return f"Asked for approval to move the due date to {when}"
     return f"Due date moved to {when}"
 
 

@@ -29,12 +29,12 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
+from currency import money_prefix
 from models import HrEntity, HrLifeEvent, HrSignParty, HrSignRequest, NexusEmployee
 
 FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"
 INK, MUTED, LINE, SOFT = "#111827", "#6b7280", "#e5e7eb", "#f9fafb"
 EMPLOYMENT = {"full_time": "Full-Time", "part_time": "Part-Time", "contractor": "Contractor", "intern": "Intern"}
-SYMBOL = {"USD": "$", "INR": "₹"}
 
 
 # ── formatting ───────────────────────────────────────────────────────────────
@@ -56,7 +56,7 @@ def _short(iso: str) -> str:
 
 
 def _money(amount: float, currency: str = "USD", cents: bool = False) -> str:
-    sym = SYMBOL.get(currency or "USD", "")
+    sym = money_prefix(currency or "USD")
     return f"{sym}{amount:,.2f}" if cents else f"{sym}{amount:,.0f}"
 
 
@@ -575,8 +575,41 @@ def _context(db: Session, ev: HrLifeEvent):
 
 
 def _docs_of(req) -> list:
-    names = [req.title] + [x.get("name", "") for x in (getattr(req, "documents", None) or [])]
+    first = req.title
+    if getattr(req, "source", "") == "pdf" and getattr(req, "pdf_storage_path", ""):
+        # A packet built from Documents (Oct 14): the first document is a file.
+        first = req.pdf_storage_path.rsplit("/", 1)[-1]
+    names = [first] + [x.get("name", "") for x in (getattr(req, "documents", None) or [])]
     return [n for n in names if n]
+
+
+def intake_email(db: Session, ev: HrLifeEvent, link: str) -> tuple:
+    """(subject, html) asking a candidate for their details (Oct 14). No pay,
+    nothing about the offer beyond the role - the documents come later, in
+    their own signing email."""
+    company, _location, _manager = _context(db, ev)
+    first = escape(((ev.intake or {}).get("first_name") or (ev.subject_name or "").split(" ")[0] or "there"))
+    role = escape((ev.inputs or {}).get("job_title") or "your new role")
+    expires = _long((ev.intake_expires_on or "")[:10])
+    accent = "#15803d"
+    body = "".join([
+        _heading(f"Hi {first}, almost there", accent),
+        _p(f"{escape(company)} is preparing your hiring documents for <b>{role}</b>. Please confirm your "
+           f"details - your legal name, address, phone and an emergency contact - so they come out right."),
+        f'<div style="margin:26px 0">{_button("Complete Your Details", link, accent)}</div>',
+        _p("It takes about two minutes. You will receive the documents to sign in a separate email once HR "
+           "has prepared them." + (f" This link works through {expires}." if expires else "")),
+        _p('<span style="font-size:13px;color:#6b7280">&#128274; This link is unique to you - please do not '
+           'forward this email.</span>'),
+    ])
+    brand = (f'<span style="font-family:{FONT};font-size:17px;font-weight:800;color:{INK}">'
+             f'{escape(company)}</span>')
+    top = _band(brand, pad="22px 40px", extra=f"border-bottom:4px solid {accent}")
+    pre = _preheader("Confirm your details for your hiring documents")
+    html = (f'<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>'
+            f'<body style="margin:0;padding:0;background:#ffffff;font-family:{FONT}">{pre}{top}'
+            f'{_band(body, pad="40px 40px 36px")}</body></html>')
+    return f"{company} - please confirm your details", html
 
 
 def _event_email(db: Session, req: HrSignRequest, party, sender: dict, link: str, stage: str):

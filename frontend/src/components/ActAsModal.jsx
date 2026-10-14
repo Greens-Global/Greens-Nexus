@@ -4,6 +4,7 @@ import { Search, X, UserCog, ChevronLeft, ChevronRight } from "lucide-react";
 import { api } from "../api";
 import { matchPeople } from "../lib/peopleSearch";
 import { useListNav } from "../lib/listNav";
+import { usePhotoMap } from "../lib/peoplePhotos";
 
 // Search box + people list for starting an Act As session (Jul 2026). The
 // eligible list is already filtered server-side to roles strictly below the
@@ -21,6 +22,10 @@ export function ActAsPicker({ onStart, onDone, autoFocus = true, pageSize = 0 })
   const [starting, setStarting] = useState("");
   const [error, setError]     = useState("");
   const [page, setPage]       = useState(0);
+  // Profile pictures (Neil, Oct 13 2026): the row's own photoUrl from the
+  // eligible list, else the app-wide photo map (the same curated People
+  // directory every avatar reads), else initials.
+  const photos = usePhotoMap();
 
   useEffect(() => {
     let cancelled = false;
@@ -83,9 +88,14 @@ export function ActAsPicker({ onStart, onDone, autoFocus = true, pageSize = 0 })
             }}
             onMouseEnter={e => { if (!starting) e.currentTarget.style.background = 'var(--mist)'; }}
             onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>
-            <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'var(--mist)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: 'var(--muted)', flexShrink: 0 }}>
-              {p.name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()}
-            </div>
+            {(p.photoUrl || photos[p.email]) ? (
+              <img src={p.photoUrl || photos[p.email]} alt="" loading="lazy"
+                style={{ width: 30, height: 30, borderRadius: '50%', objectFit: 'cover', flexShrink: 0, display: 'block' }} />
+            ) : (
+              <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'var(--mist)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: 'var(--muted)', flexShrink: 0 }}>
+                {p.name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()}
+              </div>
+            )}
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
               <div style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.email}</div>

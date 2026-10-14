@@ -66,8 +66,24 @@ describe('Help widget', () => {
   it('has an accessible Help button in the header', () => {
     render(<HelpMenu activeView="dashboard" />);
     const btn = screen.getByRole('button', { name: 'Help' });
-    expect(btn.getAttribute('title')).toBe('Help');
+    expect(btn.getAttribute('title')).toBe('Help and Support (?)');
     expect(btn.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('offers Take the Tour under Help with This Page only where a tour exists, and starts it', async () => {
+    // The Tour moved here from the profile dropdown (Neil, Oct 13 2026).
+    const heard = vi.fn();
+    window.addEventListener('nexus:tasks-tour', heard);
+    const { unmount } = render(<HelpMenu activeView="tasks" />);
+    await openWidget();
+    fireEvent.click(screen.getByRole('button', { name: /Take the Tour.*A guided walk through/ }));
+    expect(heard).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'Help' }).getAttribute('aria-expanded')).toBe('false');   // the panel closed
+    window.removeEventListener('nexus:tasks-tour', heard);
+    unmount();
+    render(<HelpMenu activeView="dashboard" />);
+    await openWidget();
+    expect(screen.queryByRole('button', { name: /Take the Tour/ })).toBeNull();
   });
 
   it('opens on Home with the greeting and the three cards', async () => {

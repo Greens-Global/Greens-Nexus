@@ -24,6 +24,7 @@ vi.mock('../api', () => ({
     getDocTemplates: () => Promise.resolve([]),
     getDocLetterheads: () => Promise.resolve([]),
     getEmployees: () => Promise.resolve([]),
+    listPacketDocuments: () => Promise.reject(new Error('403')),   // the HR Records probe - not HR
     searchDocuments: () => Promise.resolve([]),
     // The Documents tour (Oct 1) as already seen, so these tests see the module itself.
     getToursSeen: () => Promise.resolve({ seen: { documents: '2026-10-01' } }),

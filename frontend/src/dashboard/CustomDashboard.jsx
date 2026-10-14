@@ -4,7 +4,7 @@ import { LayoutGrid, Plus, Save, Pencil, MoreHorizontal, Star, Share2, Trash2, C
 import { useRole } from '../contexts/RoleContext';
 import { useNotifications } from '../contexts/NotificationContext';
 import { useDashboards } from './useDashboards';
-import { WIDGETS, widgetAllowed, widgetHidden } from './widgets.jsx';
+import { WIDGETS, widgetAllowed, widgetHidden, limitsOf } from './widgets.jsx';
 import DashboardGrid from './DashboardGrid';
 import DeskHome, { DeskGreeting } from './DeskHome';
 import { WidgetGallery, ConfigModal } from './WidgetGallery';
@@ -125,7 +125,7 @@ export default function CustomDashboard() {
   // functional state updates queue in order so this clears the whole list.
   const clearAllNotifs = () => { markAllRead(); clearRead(); };
 
-  const renderWidget = (it) => {
+  const renderWidget = (it, { phone = false } = {}) => {
     const def = WIDGETS[it.type];
     if (!def) return <div className="dash-card" style={{ height: '100%', boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12.5, color: 'var(--muted)', textAlign: 'center', padding: 16 }}>This widget is no longer available.</div>;
     // Role-gated widget in a layout the user inherited (e.g. a dept template):
@@ -142,7 +142,7 @@ export default function CustomDashboard() {
     return (
       <Suspense fallback={<div className="dash-card" style={{ height: '100%', boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><LoadingState compact /></div>}>
         <Comp
-          config={it.config || {}} size={{ w: it.w, h: it.h }} kpis={d.kpis} notifications={notifications}
+          config={it.config || {}} size={{ w: it.w, h: it.h }} phone={phone} kpis={d.kpis} notifications={notifications}
           markRead={markRead} markAllRead={markAllRead} dismiss={dismiss} clearAll={clearAllNotifs}
           updateConfig={(patch) => d.updateWidgetConfig(it.i, patch)}
         />
@@ -354,8 +354,9 @@ export default function CustomDashboard() {
               onDuplicate={d.duplicateWidget}
               onConfigure={(it) => WIDGETS[it.type]?.configurable ? setConfigItem(it) : null}
               canConfigure={(it) => !!WIDGETS[it.type]?.configurable}
-              limitsFor={(it) => WIDGETS[it.type]?.limits}
+              limitsFor={(it) => limitsOf(it.type, it.config)}
               compactFor={(it) => !!WIDGETS[it.type]?.compact}
+              rowsFor={(it) => WIDGETS[it.type]?.phoneRowsWhen?.(it.config)}
               stacked={isPhone}
               onMove={d.moveWidget}
               emptyState={(

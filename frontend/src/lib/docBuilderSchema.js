@@ -9,7 +9,7 @@ import Link from '@tiptap/extension-link';
 import Subscript from '@tiptap/extension-subscript';
 import Superscript from '@tiptap/extension-superscript';
 import Highlight from '@tiptap/extension-highlight';
-import { MergeField, PageBreak, DocShape, DocTextbox, ResizableImage, Bookmark, SectionBox } from './docBuilderExtensions';
+import { MergeField, PageBreak, DocShape, DocTextbox, ResizableImage, Bookmark, SectionBox, SignatureBlock } from './docBuilderExtensions';
 
 // Word-style cell shading - TipTap's stock TableCell/TableHeader carry no
 // background-color attribute, so both are extended identically with one
@@ -82,6 +82,7 @@ export const BODY_EXTENSIONS = [
   Table.configure({ resizable: true }),
   TableRow, TableHeader, TableCell,
   MergeField, PageBreak, DocShape, DocTextbox, Bookmark, SectionBox,
+  SignatureBlock,
   TextStyleKit,
   Subscript, Superscript, Highlight.configure({ multicolor: true }),
   TextAlign.configure({ types: ['paragraph', 'heading'] }),
