@@ -727,6 +727,15 @@ export const DOCS = [
         ],
       },
       {
+        title: "Find a Person's HR Documents",
+        steps: [
+          'Open Documents > HR Records (shown to People editors only).',
+          'Every document an HR packet generated is listed - offer letters, NDAs, promotion letters, separation packages - with the person, the template version it came from and where it stands (In Review, Out For Signature, Signed...).',
+          'Open shows the document (the sealed, signed copy once it is signed). Documents that show pay open only with Pay & Benefits access.',
+          'These records are never edited. To change the wording for future packets, click Open Template, edit it and Publish.',
+        ],
+      },
+      {
         title: 'Publish Template Changes',
         steps: [
           'Edits to a template save as you type, but HR packets keep printing the last PUBLISHED version, so a half-finished edit never reaches a candidate.',

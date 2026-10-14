@@ -2247,6 +2247,8 @@ export const api = {
   reopenPacketIntake:  (eid) => req(`/hr/life-events/${eid}/reopen-intake`, { method: 'POST' }),
   // A promotion letter built from Documents: generated, then verified and sent.
   startPromotion:      (eid, data) => req(`/hr/employees/${eid}/promotion/start`, { method: 'POST', body: JSON.stringify(data) }),
+  // Documents > HR Records: every document HR packets generated (HR only).
+  listPacketDocuments: ({ q = '', status = '' } = {}) => req(`/hr/packet-documents?${new URLSearchParams({ q, status })}`),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

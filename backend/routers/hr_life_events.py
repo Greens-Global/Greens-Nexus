@@ -704,6 +704,51 @@ def verify_and_send_packet(eid: str, body: VerifyIn, request: Request, user: dic
     return out
 
 
+# ── Documents > HR Records (Oct 14) ──────────────────────────────────────────
+# "Any document that's in this company going forward is going to be in the
+# document module" (Neil). Every document an HR packet generated, listed in
+# Documents for HR in scope - read-only (edits happen to the template), pay
+# documents locked for anyone without Pay & Benefits. Never returns a value.
+
+_RECORD_STATUS = {"intake": "Waiting On Details", "review": "In Review", "awaiting_sender": "Out For Signature",
+                  "sent": "Out For Signature", "completed": "Signed", "declined": "Declined",
+                  "voided": "Voided", "expired": "Expired"}
+
+
+@router.get("/packet-documents")
+def packet_documents(q: str = "", status: str = "", limit: int = 200, user: dict = Depends(require_hr_read),
+                     db: Session = Depends(get_db)):
+    from models import DocTemplate, Document
+    scope = hr_scope(user, db)
+    comp = _has_comp(user, db)
+    query = db.query(Document).filter(Document.source == "hr-packet", Document.life_event_id != "")
+    if q.strip():
+        query = query.filter(Document.title.ilike(f"%{q.strip()[:80]}%"))
+    rows = query.order_by(Document.updated_at.desc()).limit(max(1, min(limit, 500))).all()
+    events = {e.id: e for e in db.query(HrLifeEvent).filter(
+        HrLifeEvent.id.in_({r.life_event_id for r in rows})).all()} if rows else {}
+    settings, out = {}, []
+    for r in rows:
+        ev = events.get(r.life_event_id)
+        if ev is None or (scope is not None and (ev.entity_id or "") not in scope):
+            continue
+        label = "Archived" if r.status == "archived" else _RECORD_STATUS.get(ev.status, ev.status)
+        if status and label != status:
+            continue
+        if ev.setting_id not in settings:
+            settings[ev.setting_id] = hpd.event_setting(db, ev)
+        s = settings[ev.setting_id]
+        prints = s is None or hpd.doc_prints_pay(s, hpd.row_snap(db, r))
+        tpl = db.query(DocTemplate.name).filter(DocTemplate.id == r.template_id).first()
+        out.append({"documentId": r.id, "title": r.title, "person": ev.subject_name, "kind": ev.kind,
+                    "packet": hle.EVENT_TITLES.get(ev.kind, ""), "templateId": r.template_id,
+                    "templateName": tpl[0] if tpl else "", "templateVersion": r.template_version,
+                    "status": label, "printsPay": prints, "locked": prints and not comp,
+                    "eventId": ev.id, "signRequestId": ev.sign_request_id or "",
+                    "signed": ev.status == "completed", "updatedAt": r.updated_at or ""})
+    return out
+
+
 # ── promotion / role change ──────────────────────────────────────────────────
 
 @router.post("/employees/{eid}/promotion/preview")

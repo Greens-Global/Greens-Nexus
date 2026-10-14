@@ -376,6 +376,18 @@ class GuardTests(ReviewCase):
             "details": {"first_name": "Jane", "last_name": "Doe"}})
         self.assertEqual(r.status_code, 409, r.text)
 
+    def test_hr_records_lists_packet_documents_without_values(self):
+        eid = self._start()["id"]
+        rows = self.client.get("/hr/packet-documents").json()
+        self.assertEqual(sorted(r["title"] for r in rows), ["NDA - Jane Doe", "Offer Letter - Jane Doe"])
+        self.assertTrue(all(r["eventId"] == eid and r["status"] == "In Review" for r in rows))
+        self.assertNotIn("85,000", str(rows))
+        self.assertFalse(any(r["locked"] for r in rows))
+        self._as(PLAIN)                                   # People editor without Pay & Benefits
+        self.assertTrue(all(r["locked"] for r in self.client.get("/hr/packet-documents").json()))
+        self._as(CAND)                                    # nobody in People
+        self.assertEqual(self.client.get("/hr/packet-documents").status_code, 403)
+
     def test_status_at_send(self):
         hr = {"email": HR, "ordinal": 1, "partyRole": "signer"}
         cand = {"email": CAND, "ordinal": 2, "partyRole": "signer"}
