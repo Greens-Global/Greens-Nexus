@@ -2188,6 +2188,12 @@ export const api = {
   weatherCallMine:      ()                    => req('/weather-call/mine'),
   weatherCallMyPrefs:   ()                    => req('/weather-call/my-prefs'),
   weatherCallMyPrefsSave: (data)              => req('/weather-call/my-prefs', { method: 'PUT', body: JSON.stringify(data) }),
+  // Accounting > Loans & Financing > Loan Planning (Charmi, item 25, Oct 15):
+  // planned loans saved by name per entity (routers/accounting_loan_plans.py).
+  getPlannedLoans:   ()         => req('/accounting/loan-plans/planned'),
+  createPlannedLoan: (body)     => req('/accounting/loan-plans/planned', { method: 'POST', body: JSON.stringify(body) }),
+  updatePlannedLoan: (id, body) => req(`/accounting/loan-plans/planned/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deletePlannedLoan: (id)       => req(`/accounting/loan-plans/planned/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
