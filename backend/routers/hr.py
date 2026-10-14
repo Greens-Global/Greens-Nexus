@@ -4432,6 +4432,17 @@ def apply_status_change(db: Session, row: NexusEmployee, body: StatusChangeIn, a
                                        actor=actor)
             if entry is not None and (handover["reassigned"] or handover["projectsTransferred"]):
                 entry["taskHandover"] = handover
+        # Credential Vault (Oct 14 2026): the company credentials they own go to
+        # the same person their tasks went to, they stop being a backup owner,
+        # and the shared access they held ends now. Their Personal Vault is not
+        # touched - nobody else may read it. See credvault.handover_person.
+        try:
+            from routers.credvault import handover_person as vault_handover
+            vault = vault_handover(db, row.work_email, to_email, actor=actor)
+            if entry is not None and any(vault[k] for k in ("credentials", "backups", "grants", "requests")):
+                entry["vaultHandover"] = vault
+        except Exception as e:   # noqa: BLE001 - the vault is the least of the three handovers
+            print(f"[hr] credential vault handover skipped for {row.work_email}: {e}")
     row.status = body.status
     row.status_log = log
     row.updated_at = now

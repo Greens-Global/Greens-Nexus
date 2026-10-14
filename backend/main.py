@@ -541,6 +541,10 @@ def _run_migrations():
             # Personal Links department/category (Aug 14)
             "ALTER TABLE personal_links ADD COLUMN department VARCHAR DEFAULT ''",
             "ALTER TABLE personal_links ADD COLUMN category VARCHAR DEFAULT ''",
+            # Credential Vault rebuild (Oct 14 2026): notes + previous password
+            "ALTER TABLE vault_credentials ADD COLUMN note VARCHAR DEFAULT ''",
+            "ALTER TABLE vault_credentials ADD COLUMN prev_secret_enc VARCHAR DEFAULT ''",
+            "ALTER TABLE vault_credentials ADD COLUMN prev_rotated_at VARCHAR DEFAULT ''",
             # External Links directory rebuild (Aug 2026) - real Accounting-view
             # data sourced from start.greensglobal.com (screenshot, Aug 12); name-keyed
             # idempotent inserts so this only fires once per row, everywhere. A few
@@ -1598,6 +1602,10 @@ def _run_migrations():
         # Personal Links department/category (Aug 14)
         "ALTER TABLE personal_links ADD COLUMN IF NOT EXISTS department VARCHAR DEFAULT ''",
         "ALTER TABLE personal_links ADD COLUMN IF NOT EXISTS category VARCHAR DEFAULT ''",
+        # Credential Vault rebuild (Oct 14 2026): notes + previous password
+        "ALTER TABLE vault_credentials ADD COLUMN IF NOT EXISTS note VARCHAR DEFAULT ''",
+        "ALTER TABLE vault_credentials ADD COLUMN IF NOT EXISTS prev_secret_enc VARCHAR DEFAULT ''",
+        "ALTER TABLE vault_credentials ADD COLUMN IF NOT EXISTS prev_rotated_at VARCHAR DEFAULT ''",
         # external_links predates this table's proper build-out and was created
         # via create_all with RLS OFF like every other gap CLAUDE.md records -
         # closing it now that this is a real, admin-editable module.
@@ -2777,6 +2785,23 @@ def _startup_seeds():
             db.close()
     except Exception as e:
         print(f"[startup] monitoring_policy company backfill skipped: {e}")
+    # Credential Vault reuse hashes (Oct 14 2026): the plain SHA-256 of each
+    # password becomes an HMAC keyed with the vault key, so a database dump
+    # alone no longer lets anyone brute-force the weak entries. One pass,
+    # marked in nexus_settings; a no-op afterwards (routers/credvault.py
+    # rehash_secret_hashes).
+    try:
+        from database import SessionLocal
+        from routers.credvault import rehash_secret_hashes
+        db = SessionLocal()
+        try:
+            n = rehash_secret_hashes(db)
+            if n:
+                print(f"[startup] credential vault: rehashed {n} reuse hash(es) with the keyed scheme")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] credential vault rehash skipped: {e}")
 
 
 @asynccontextmanager

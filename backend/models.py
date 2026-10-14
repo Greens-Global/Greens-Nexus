@@ -3856,6 +3856,12 @@ class VaultCredential(Base):
     deleted_by         = Column(String, default="")
     created_at         = Column(String, default="")
     created_by         = Column(String, default="")
+    # Oct 14 2026 rebuild: free-text notes (recovery hints, who to call) - shown
+    # only to people who can reveal; and the password before the last rotation,
+    # kept for ONE rotation so a botched change is not lost (owner/backup/admin).
+    note               = Column(String, default="")
+    prev_secret_enc    = Column(String, default="")
+    prev_rotated_at    = Column(String, default="")
 
 
 class VaultPersonalCredential(Base):

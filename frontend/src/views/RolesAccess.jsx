@@ -42,7 +42,9 @@ const TIERS = Object.keys(ROLES);
 const EMPLOYEE_DEFAULT_BUNDLE = {
   dashboard: 'editor', timeclock: 'editor', myhr: 'editor', tasks: 'editor', tickets: 'editor',
   documents: 'editor', 'external-links': 'viewer', inventory: 'viewer', support: 'viewer',
-  credvault: 'viewer', sop: 'viewer',
+  sop: 'viewer',
+  // No credvault here (Neil, Oct 14 2026): the Credential Vault opens company
+  // passwords, so it is granted on purpose, never seeded onto a new role.
 };
 
 // Audit-tab module families - collapse 21 columns into 6 readable ones.

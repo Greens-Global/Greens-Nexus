@@ -121,12 +121,16 @@ class NotifyCompanyTests(unittest.TestCase):
         self.assertEqual(row.recipient, "")
         self.assertEqual(row.company, "globex")
 
-    def test_credential_vault_broadcast(self):
+    def test_credential_vault_backup_owner_bell_is_stamped_from_the_actor(self):
+        # Oct 14 2026: adding a credential no longer broadcasts to every manager;
+        # the one bell it writes goes to the backup owner, stamped with the
+        # ACTOR's company (Dean of acme), not the recipient's.
         credvault.create_credential(
-            credvault.CredentialIn(name="Router Admin", dept="IT", secret="Tr0ub4dor&3-horse-staple"),
+            credvault.CredentialIn(name="Router Admin", dept="IT", secret="Tr0ub4dor&3-horse-staple",
+                                   backupOwner=GLOBEX),
             user={"email": ACME, "level": 4}, db=self.db)
         row = self._only("vault_change")
-        self.assertEqual(row.recipient, "")
+        self.assertEqual(row.recipient, GLOBEX)
         self.assertEqual(row.company, "acme")
 
     def test_credential_vault_targeted_falls_back_to_recipient(self):
