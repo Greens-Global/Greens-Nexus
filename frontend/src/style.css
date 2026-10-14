@@ -5890,6 +5890,8 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
 .acct-report .acct-chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 0.7rem; font-weight: 600; line-height: 1.5; }
 .acct-report .acct-chip-warn { background: color-mix(in srgb, #f59e0b 22%, var(--bg-card)); color: var(--warn-fg, #b45309); }
 .acct-report .acct-chip-muted { background: var(--bg-secondary); color: var(--text-secondary); border: 1px solid var(--border-color); }
+/* Flux review: Answered - written, the reviewer's turn (Charmi, 10/15). */
+.acct-report .acct-chip-info { background: var(--wk-brand-tint, #e8ecfd); color: var(--wk-brand, #2b45e1); }
 .acct-report tbody tr.acct-flag.acct-flag-done td { background: color-mix(in srgb, #f59e0b 6%, var(--bg-card)); }
 .acct-report .acct-op-filter { display: flex; gap: 3px; align-items: center; }
 .acct-report .acct-op-filter select {

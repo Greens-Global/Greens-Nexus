@@ -2258,6 +2258,9 @@ export const api = {
   signOnceStatus:      (sid, entityId = '') => req(`/hr/packets/${sid}/sign-once?entity_id=${encodeURIComponent(entityId)}`),
   signOnceCode:        (sid, data) => req(`/hr/packets/${sid}/sign-once/code`, { method: 'POST', body: JSON.stringify(data) }),
   signOnce:            (sid, data) => req(`/hr/packets/${sid}/sign-once`, { method: 'POST', body: JSON.stringify(data) }),
+  // Flux Analysis review (Charmi, Oct 15): close (sign off) or reopen one
+  // account's review - { entity, period, accountNo, closed }.
+  saveAccountingFluxReview: (body) => req('/accounting/flux-notes/review', { method: 'PUT', body: JSON.stringify(body) }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

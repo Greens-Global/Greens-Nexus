@@ -5074,6 +5074,14 @@ class AccountingFluxNote(Base):
     note       = Column(String, default="")
     noted_by   = Column(String, default="")
     noted_at   = Column(String, default="")
+    # Review status (Charmi, Oct 15: "once a comment has been added ... the
+    # review is answered"): Open = flagged, no explanation; Answered = an
+    # explanation is written; Closed = a reviewer signed the line off. Only
+    # `closed` is stored - Open / Answered follow from the note. A closed row
+    # outlives its note being removed.
+    closed     = Column(Boolean, default=False)
+    closed_by  = Column(String, default="")
+    closed_at  = Column(String, default="")
 
 
 class AccountingPartnerChange(Base):

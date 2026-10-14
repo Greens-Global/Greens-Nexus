@@ -206,7 +206,7 @@ export default function Accounting({ activeSub, onSubChange }) {
     if (next !== sub) onSubChange?.(next);
   };
   const reportsTab = isReports(sub) && (
-    <ReportsTab report={reportOf(sub)} onReportChange={onReportPicked}
+    <ReportsTab report={reportOf(sub)} onReportChange={onReportPicked} canEdit={canEdit}
       searchText={searchText} onSearchText={setSearchText} onWaiting={setSearchWaiting} />
   );
 

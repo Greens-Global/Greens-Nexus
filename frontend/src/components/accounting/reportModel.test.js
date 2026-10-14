@@ -582,10 +582,10 @@ describe('flux analysis (R8)', () => {
     expect(api.getAccountingPnl.mock.calls.map((x) => x.slice(0, 2))).toEqual([['2026-09-01', '2026-09-30'], ['2026-08-01', '2026-08-31']]);
     expect(r.columns.map((x) => `${x.key}:${x.type}`)).toEqual(['cur:amount', 'prior:amount', 'var:variance', 'pct:pct', 'flag:text', 'note:text']);
     const rent = r.rows.find((x) => x.code === '41000');
-    expect(rent.values).toEqual([12000, 10000, 2000, '20.0%', 'Review', '']);
+    expect(rent.values).toEqual([12000, 10000, 2000, '20.0%', 'Open', '']);
     expect(rent.flag).toBe(true);
     expect(r.rows.find((x) => x.label === 'Net Income').values.slice(0, 4)).toEqual([12000, 10000, 2000, '20.0%']);
-    expect(r.summary.find((s) => s.label === 'Flagged').value).toBe('1');
+    expect(r.summary.find((s) => s.label === 'Review').value).toBe('1 Open');
     expect(r.flux.period).toBe('2026-09-01_2026-09-30');
     const noted = withFluxNotes(r, { 41000: 'Two new tenants.' });
     expect(noted.rows.find((x) => x.code === '41000').values[5]).toBe('Two new tenants.');

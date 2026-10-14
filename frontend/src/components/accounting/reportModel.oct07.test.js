@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   bookLabel, bookOptions, cashFlowFigures, defaultConfig, glGroupOf, glLineParams, hideInactive, lineMatchesDims, numberFilterHit, parseFigure,
-  reportPages, resolveConfig, runReport, setUserBooks, withFluxNotes,
+  reportPages, resolveConfig, runReport, setUserBooks, withFluxNotes, filterFlux, fluxStatus,
 } from './reportModel';
 
 // Accounting > Reports, Oct 7 batch (Charmi, Neil): the General Ledger's
@@ -156,22 +156,50 @@ describe('General Ledger groups, counter and inactive accounts (items 20 / 22 / 
   });
 });
 
-describe('Flux explanations (item 26b)', () => {
-  it('reads Explained once a flagged line has an explanation, and splits the count', () => {
-    const result = {
-      flux: { period: 'p' },
-      summary: [{ label: 'Flagged', value: '2' }],
-      rows: [
-        { kind: 'account', code: '61000', flag: true, values: [1, 2, 3, '4%', 'Review', ''] },
-        { kind: 'account', code: '62000', flag: true, values: [1, 2, 3, '4%', 'Review', ''] },
-        { kind: 'account', code: '41000', flag: false, values: [1, 1, 0, '', '', ''] },
-      ],
-    };
-    const r = withFluxNotes(result, { 61000: 'Roof repair.', 41000: 'Steady.' });
-    expect(r.rows.map((x) => x.values[4])).toEqual(['Explained', 'Review', '']);
-    expect(r.rows[0].explained).toBe(true);
-    expect(r.rows[2].values[5]).toBe('Steady.');
-    expect(r.summary[0].value).toBe('1 to review · 1 explained');
+describe('Flux explanations (item 26b) and review status (Charmi, 10/15)', () => {
+  const result = {
+    flux: { period: 'p' },
+    summary: [{ label: 'Review', value: '3 Open' }],
+    rows: [
+      { kind: 'section', section: 'revenue', label: 'Revenue', count: 1, values: [1, 1, 0, '', '', ''] },
+      { kind: 'account', section: 'revenue', code: '41000', flag: false, values: [1, 1, 0, '', '', ''] },
+      { kind: 'section', section: 'expense', label: 'Operating Expenses', count: 3, values: [3, 6, 9, '', '', ''] },
+      { kind: 'account', section: 'expense', code: '61000', flag: true, values: [1, 2, 3, '4%', 'Open', ''] },
+      { kind: 'account', section: 'expense', code: '62000', flag: true, values: [1, 2, 3, '4%', 'Open', ''] },
+      { kind: 'account', section: 'expense', code: '63000', flag: true, values: [1, 2, 3, '4%', 'Open', ''] },
+      { kind: 'grand', label: 'Net Income', values: [1, 2, 3, '', '', ''] },
+    ],
+  };
+  it('a comment answers the review; a reviewer closes it; removing the comment does not reopen a closed line', () => {
+    const r = withFluxNotes(result, {
+      61000: 'Roof repair.', 41000: 'Steady.',
+      63000: { note: '', closed: true, closedBy: 'charmi@greensglobal.com' },
+    });
+    const by = Object.fromEntries(r.rows.filter((x) => x.code).map((x) => [x.code, x]));
+    expect([by[61000].values[4], by[62000].values[4], by[63000].values[4], by[41000].values[4]]).toEqual(['Answered', 'Open', 'Closed', 'Answered']);
+    expect([by[61000].status, by[62000].status, by[63000].status]).toEqual(['answered', 'open', 'closed']);
+    expect(by[61000].explained).toBe(true);
+    expect(by[63000].closedBy).toBe('charmi@greensglobal.com');
+    expect(by[41000].values[5]).toBe('Steady.');
+    expect(r.fluxCounts).toEqual({ open: 1, answered: 2, closed: 1 });
+    expect(r.summary[0].value).toBe('1 Open · 2 Answered · 1 Closed');
+    expect(fluxStatus(true, { note: 'x', closed: false })).toBe('answered');
+    expect(fluxStatus(true, { note: '', closed: false })).toBe('open');
+    expect(fluxStatus(false, '')).toBe('');
+  });
+  it('filters the lines by review state, keeping their headings and the totals', () => {
+    const r = withFluxNotes(result, { 61000: 'Roof repair.', 63000: { note: 'Ok', closed: true } });
+    const codes = (x) => x.rows.filter((y) => y.kind === 'account').map((y) => y.code);
+    expect(filterFlux(r, { status: 'all' })).toBe(r);
+    expect(codes(filterFlux(r, { status: 'open' }))).toEqual(['62000']);
+    expect(codes(filterFlux(r, { status: 'answered' }))).toEqual(['61000']);
+    expect(codes(filterFlux(r, { status: 'closed' }))).toEqual(['63000']);
+    expect(codes(filterFlux(r, { status: 'flagged' }))).toEqual(['61000', '62000', '63000']);
+    const open = filterFlux(r, { status: 'open' });
+    expect(open.rows.map((y) => y.label || y.code)).toEqual(['Operating Expenses', '62000', 'Net Income']);
+    expect(open.rows[0].count).toBe(1);
+    expect(resolveConfig({ report: 'flux', fluxStatus: 'answered' }).fluxStatus).toBe('answered');
+    expect(resolveConfig({ report: 'flux', fluxStatus: 'nope' }).fluxStatus).toBe('all');
   });
 });
 

@@ -1032,6 +1032,10 @@ def _run_migrations():
             # Packet Details Form + Signs Once (Oct 14). models.HrPacketSetting.
             "ALTER TABLE hr_packet_settings ADD COLUMN details_form JSON DEFAULT '[]'",
             "ALTER TABLE hr_packet_settings ADD COLUMN saved_signatures JSON DEFAULT '[]'",
+            # Flux review status (Charmi, Oct 15). models.AccountingFluxNote.closed_*.
+            "ALTER TABLE accounting_flux_notes ADD COLUMN closed INTEGER DEFAULT 0",
+            "ALTER TABLE accounting_flux_notes ADD COLUMN closed_by VARCHAR DEFAULT ''",
+            "ALTER TABLE accounting_flux_notes ADD COLUMN closed_at VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2290,6 +2294,10 @@ def _run_migrations():
         # Packet Details Form + Signs Once (Oct 14). models.HrPacketSetting.
         "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS details_form JSONB DEFAULT '[]'::jsonb",
         "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS saved_signatures JSONB DEFAULT '[]'::jsonb",
+        # Flux review status (Charmi, Oct 15). models.AccountingFluxNote.closed_*.
+        "ALTER TABLE accounting_flux_notes ADD COLUMN IF NOT EXISTS closed BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE accounting_flux_notes ADD COLUMN IF NOT EXISTS closed_by VARCHAR DEFAULT ''",
+        "ALTER TABLE accounting_flux_notes ADD COLUMN IF NOT EXISTS closed_at VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

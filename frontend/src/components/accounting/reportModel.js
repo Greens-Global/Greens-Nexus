@@ -256,7 +256,7 @@ const ISO = /^\d{4}-\d{2}-\d{2}$/;
 
 export function defaultConfig(now = new Date()) {
   const [f, t] = presetRange('ytd', now).map(iso);
-  return { report: 'pnl', preset: 'ytd', from: f, to: t, asof: iso(now), asofToday: true, book: 'accrual', cols: 'total', entities: [], dims: { ...EMPTY_DIMS }, accounts: [], showZero: false, ...FLUX_DEFAULTS };
+  return { report: 'pnl', preset: 'ytd', from: f, to: t, asof: iso(now), asofToday: true, book: 'accrual', cols: 'total', entities: [], dims: { ...EMPTY_DIMS }, accounts: [], showZero: false, ...FLUX_DEFAULTS, fluxStatus: 'all' };
 }
 
 // A config as it should run TODAY: a named period ("Year-to-Date") moves with
@@ -292,6 +292,8 @@ export function resolveConfig(config, now = new Date()) {
   // Flux thresholds: a number each, never below zero.
   c.fluxPct = Number.isFinite(Number(c.fluxPct)) && Number(c.fluxPct) >= 0 ? Number(c.fluxPct) : FLUX_DEFAULTS.fluxPct;
   c.fluxAmount = Number.isFinite(Number(c.fluxAmount)) && Number(c.fluxAmount) >= 0 ? Number(c.fluxAmount) : FLUX_DEFAULTS.fluxAmount;
+  // Flux review filter (Charmi, 10/15): which review state the lines show.
+  c.fluxStatus = ['all', 'flagged', 'open', 'answered', 'closed'].includes(c.fluxStatus) ? c.fluxStatus : 'all';
   return c;
 }
 
@@ -336,6 +338,9 @@ export function filterChips(config, entities = [], names = {}) {
   (config.accounts || []).forEach((code) => {
     out.push({ key: `account:${code}`, label: `Account: ${code}`, patch: { accounts: config.accounts.filter((c) => c !== code) } });
   });
+  if (config.report === 'flux' && config.fluxStatus && config.fluxStatus !== 'all') {
+    out.push({ key: 'flux-status', label: `Review: ${config.fluxStatus === 'flagged' ? 'Flagged' : config.fluxStatus[0].toUpperCase() + config.fluxStatus.slice(1)}`, patch: { fluxStatus: 'all' } });
+  }
   return out;
 }
 export function dimsText(config) {
@@ -1092,7 +1097,7 @@ async function fluxAnalysis(api, config, book) {
     { key: 'cur', label: rangeText(range), type: 'amount', drill: drillOf(range) },
     { key: 'prior', label: rangeText(prior), type: 'amount', drill: drillOf(prior) },
     { key: 'var', label: 'Variance $', type: 'variance' }, { key: 'pct', label: 'Variance %', type: 'pct' },
-    { key: 'flag', label: 'Flag', type: 'text' }, { key: 'note', label: 'Explanation', type: 'text' },
+    { key: 'flag', label: 'Review', type: 'text' }, { key: 'note', label: 'Explanation', type: 'text' },
   ];
   const lines = fluxRows(a.sections, b.sections, config);
   const wanted = config.accounts?.length ? new Set(config.accounts) : null;
@@ -1108,7 +1113,7 @@ async function fluxAnalysis(api, config, book) {
     const shown = config.showZero ? accounts : accounts.filter((r) => Math.abs(r.cur) >= 0.005 || Math.abs(r.prior) >= 0.005);
     if (!shown.length && totals[key].every((v) => Math.abs(v) < 0.005)) return;
     rows.push({ kind: 'section', section: key, label, count: shown.length, values: vals(...totals[key]) });
-    shown.forEach((r) => rows.push({ kind: 'account', section: key, code: r.code, title: r.title, flag: r.flag, values: [r.cur, r.prior, r.variance, share(r.pct), r.flag ? 'Review' : '', ''], ...(r.inactive ? { inactive: true } : {}) }));
+    shown.forEach((r) => rows.push({ kind: 'account', section: key, code: r.code, title: r.title, flag: r.flag, values: [r.cur, r.prior, r.variance, share(r.pct), r.flag ? 'Open' : '', ''], ...(r.inactive ? { inactive: true } : {}) }));
   });
   const t = (k) => totals[k] || [0, 0];
   const at = (i) => {
@@ -1127,30 +1132,70 @@ async function fluxAnalysis(api, config, book) {
     { label: 'Net Income', value: money(c.net), amount: c.net, tone: c.net >= 0 ? 'good' : 'bad' },
     { label: 'Prior', value: money(p.net), amount: p.net },
     { label: 'Change', value: [money(c.net - p.net), pct(c.net, p.net)].filter(Boolean).join(' · '), tone: c.net - p.net >= 0 ? 'good' : 'bad' },
-    { label: 'Flagged', value: String(flagged) },
+    { label: 'Review', value: `${flagged.toLocaleString('en-US')} Open` },
   ];
-  const notes = [`A line is flagged when its variance passes both ${config.fluxPct}% and ${money(config.fluxAmount)} (Customize changes the thresholds). Write why an account moved in its Explanation cell (the pencil edits it, the trash removes it); a flagged line with an explanation reads Explained. Notes are kept for this entity set and period.`];
+  const notes = [`A line is flagged when its variance passes both ${config.fluxPct}% and ${money(config.fluxAmount)} (Customize changes the thresholds). A flagged line is Open until its Explanation is written (the pencil edits it, the trash removes it), then Answered; a reviewer Closes it with the check mark. Removing an explanation reopens the line unless it was closed. Notes are kept for this entity set and period.`];
   return { org: a.org || '', generatedAt: a.generated_at || '', mode: 'compare', otherLabel: rangeText(prior), columns, rows, summary, pickable, notes, flux: { period: `${config.from}_${config.to}` } };
 }
-const FLUX_FLAG_AT = 4;    // the Flag column's index
+const FLUX_FLAG_AT = 4;    // the Review column's index
+/** The review states of a flux line, in the order they are worked (Charmi, 10/15). */
+export const FLUX_STATUSES = [
+  { key: 'open', label: 'Open', hint: 'Flagged, no explanation yet' },
+  { key: 'answered', label: 'Answered', hint: 'An explanation is written, waiting for the reviewer' },
+  { key: 'closed', label: 'Closed', hint: 'Reviewed and signed off' },
+];
+const STATUS_LABEL = Object.fromEntries(FLUX_STATUSES.map((s) => [s.key, s.label]));
+/** One kept note as { note, closed, closedBy, closedAt } - an older answer was the text alone. */
+export const fluxNoteOf = (n) => (n && typeof n === 'object' ? { note: n.note || '', closed: !!n.closed, closedBy: n.closedBy || '', closedAt: n.closedAt || '' } : { note: n || '', closed: false, closedBy: '', closedAt: '' });
 /**
- * The flux result with the kept explanations filled in: `notes` = { accountNo: text }.
- * A flagged line with an explanation reads "Explained" instead of "Review"
- * (Charmi's Friday list, item 26b) and stays a flagged line; the Flagged
- * figure up top reads "N to review · M explained".
+ * The review state of one flux line: closed (a reviewer signed it off) >
+ * answered (an explanation is written) > open (flagged, nothing written).
+ * A line that is neither flagged nor noted has none ('').
+ */
+export function fluxStatus(flag, kept) {
+  const k = fluxNoteOf(kept);
+  if (k.closed) return 'closed';
+  if (k.note) return 'answered';
+  return flag ? 'open' : '';
+}
+/**
+ * The flux result with the kept explanations filled in: `notes` =
+ * { accountNo: { note, closed, closedBy } } (or the text alone). Charmi,
+ * 10/15: a comment answers the review - the Review column reads Open,
+ * Answered or Closed, and the Flagged figure up top counts each.
  */
 export function withFluxNotes(result, notes) {
   if (!result?.flux) return result;
-  let review = 0;
-  let explained = 0;
+  const counts = { open: 0, answered: 0, closed: 0 };
   const rows = result.rows.map((r) => {
     if (r.kind !== 'account' || !r.code) return r;
-    const note = notes?.[r.code] || '';
-    if (r.flag) { if (note) explained += 1; else review += 1; }
-    return { ...r, explained: !!(r.flag && note), values: r.values.map((v, i) => (i === FLUX_NOTE_AT ? note : i === FLUX_FLAG_AT ? (r.flag ? (note ? 'Explained' : 'Review') : '') : v)) };
+    const kept = fluxNoteOf(notes?.[r.code]);
+    const status = fluxStatus(r.flag, kept);
+    if (status) counts[status] += 1;
+    return {
+      ...r, status, explained: !!(r.flag && (kept.note || kept.closed)), closedBy: kept.closed ? kept.closedBy : '',
+      values: r.values.map((v, i) => (i === FLUX_NOTE_AT ? kept.note : i === FLUX_FLAG_AT ? (STATUS_LABEL[status] || '') : v)),
+    };
   });
-  const summary = (result.summary || []).map((f) => (f.label === 'Flagged' ? { ...f, value: `${review.toLocaleString('en-US')} to review · ${explained.toLocaleString('en-US')} explained` } : f));
-  return { ...result, rows, summary };
+  const n = (x) => x.toLocaleString('en-US');
+  const summary = (result.summary || []).map((f) => (f.label === 'Review' ? { ...f, value: `${n(counts.open)} Open · ${n(counts.answered)} Answered · ${n(counts.closed)} Closed` } : f));
+  return { ...result, rows, summary, fluxCounts: counts };
+}
+/** The Review Status filter's choices: every line, the flagged ones, or one state. */
+export const FLUX_STATUS_FILTERS = [{ key: 'all', label: 'All Lines' }, { key: 'flagged', label: 'Flagged' }, ...FLUX_STATUSES.map(({ key, label }) => ({ key, label }))];
+/**
+ * The flux lines a filter keeps (after withFluxNotes): `status` = all |
+ * flagged | open | answered | closed. A section heading stays while a line
+ * under it stays; subtotals and Net Income stay (they are the whole report's).
+ */
+export function filterFlux(result, { status = 'all' } = {}) {
+  if (!result?.flux || status === 'all' || !status) return result;
+  const keep = (r) => (status === 'flagged' ? !!r.flag : r.status === status);
+  const accounts = new Set(result.rows.filter((r) => r.kind === 'account' && keep(r)));
+  const sections = new Set([...accounts].map((r) => r.section));
+  const rows = result.rows.filter((r) => (r.kind === 'account' ? accounts.has(r) : r.kind === 'section' ? sections.has(r.section) : true))
+    .map((r) => (r.kind === 'section' ? { ...r, count: [...accounts].filter((a) => a.section === r.section).length } : r));
+  return { ...result, rows, fluxFiltered: true };
 }
 
 // ── Statement of Cash Flows (item 26c) ───────────────────────────────────────

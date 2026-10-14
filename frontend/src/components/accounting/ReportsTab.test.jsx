@@ -65,6 +65,7 @@ vi.mock('../../api', () => ({
     ] })),
     getAccountingFluxNotes: vi.fn(async () => ({ notes: [{ accountNo: '41100', note: 'New tenant in suite B.' }] })),
     saveAccountingFluxNote: vi.fn(async (body) => ({ accountNo: body.accountNo, note: body.note, by: 'me', at: '2026-10-02' })),
+    saveAccountingFluxReview: vi.fn(async (body) => ({ accountNo: body.accountNo, note: 'Roof repair last year, one-time.', closed: body.closed, closedBy: body.closed ? 'me' : '', status: body.closed ? 'closed' : 'answered' })),
     egnyteFolder: vi.fn(async (path) => ({ path, folders: [{ name: '2026', path: `${path}/2026` }, { name: 'Lenders', path: `${path}/Lenders` }], files: [] })),
     egnyteCreateFolder: vi.fn(async (path) => ({ path })),
     egnyteUpload: vi.fn(async (folder, file) => ({ path: `${folder}/${file.name}`, webUrl: 'https://greens.egnyte.com/navigate/file/abc' })),
@@ -614,14 +615,16 @@ describe('ReportsTab controls', () => {
     await screen.findByText('Rental Income');
     fireEvent.change(screen.getByLabelText('Report'), { target: { value: 'flux' } });
     await screen.findByRole('columnheader', { name: 'Variance $' });
-    expect(screen.getAllByRole('columnheader').map((h) => h.textContent).slice(3)).toEqual(['Variance $', 'Variance %', 'Flag', 'Explanation']);
+    expect(screen.getAllByRole('columnheader').map((h) => h.textContent).slice(3)).toEqual(['Variance $', 'Variance %', 'Review', 'Explanation']);
     const repairs = screen.getByText('Repairs').closest('tr');
     expect(repairs.className).toContain('acct-flag');
     expect([...repairs.querySelectorAll('td.acct-num')].map((c) => c.textContent)).toEqual(['400.00', '6,000.00', '(5,600.00)', '(93.3%)']);
-    expect(within(repairs).getByText('Review')).toBeTruthy();
+    expect(within(repairs).getByText('Open')).toBeTruthy();
     // Rental Income moved by nothing: no flag.
     expect(screen.getByText('Rental Income').closest('tr').className).not.toContain('acct-flag');
-    expect(screen.getByLabelText('Summary').textContent).toContain('Flagged 1 to review · 0 explained');
+    // Parking Income is not flagged but has an explanation: Answered.
+    await screen.findByText('New tenant in suite B.');
+    expect(screen.getByLabelText('Summary').textContent).toContain('Review 1 Open · 1 Answered · 0 Closed');
     // The kept explanation shows; a new one is written in the cell itself (item 26a), no dialog.
     await screen.findByText('New tenant in suite B.');
     fireEvent.click(within(repairs).getByRole('button', { name: /Add explanation for 61000/ }));
@@ -633,14 +636,35 @@ describe('ReportsTab controls', () => {
     expect(api.saveAccountingFluxNote.mock.calls[0][0]).toMatchObject({ entity: 'all', accountNo: '61000', note: 'Roof repair last year, one-time.' });
     expect(api.saveAccountingFluxNote.mock.calls[0][0].period).toMatch(/^\d{4}-\d{2}-\d{2}_\d{4}-\d{2}-\d{2}$/);
     await screen.findByText('Roof repair last year, one-time.');
-    // Explained = answered (item 26b): the flag reads Explained, still a flagged line.
+    // A comment answers the review (Charmi, 10/15), still a flagged line.
     const done = screen.getByText('Repairs').closest('tr');
-    expect(within(done).getByText('Explained')).toBeTruthy();
-    expect(within(done).queryByText('Review')).toBeNull();
+    expect(within(done).getByText('Answered')).toBeTruthy();
+    expect(within(done).queryByText('Open')).toBeNull();
     expect(done.className).toContain('acct-flag');
-    expect(screen.getByLabelText('Summary').textContent).toContain('Flagged 0 to review · 1 explained');
+    expect(screen.getByLabelText('Summary').textContent).toContain('Review 0 Open · 2 Answered · 0 Closed');
+    // The reviewer closes it; the Review Status filter shows one state at a time.
+    fireEvent.click(within(done).getByRole('button', { name: /Close the review of 61000/ }));
+    await waitFor(() => expect(within(screen.getByText('Repairs').closest('tr')).getByText('Closed')).toBeTruthy());
+    expect(api.saveAccountingFluxReview.mock.calls[0][0]).toMatchObject({ entity: 'all', accountNo: '61000', closed: true });
+    const status = screen.getByLabelText('Review Status');
+    expect([...status.options].map((o) => o.textContent)).toEqual(['Review: All Lines', 'Flagged (1)', 'Open (0)', 'Answered (1)', 'Closed (1)']);
+    const pnlReads = api.getAccountingPnl.mock.calls.length;
+    fireEvent.change(status, { target: { value: 'closed' } });
+    await waitFor(() => expect(screen.queryByText('Parking Income')).toBeNull());
+    expect(screen.getByText('Repairs')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Remove Review: Closed' })).toBeTruthy();
+    fireEvent.change(status, { target: { value: 'answered' } });
+    await waitFor(() => expect(screen.queryByText('Repairs')).toBeNull());
+    expect(screen.getByText('Parking Income')).toBeTruthy();
+    // A view filter: the ledger is not read again.
+    await new Promise((r) => setTimeout(r, 300));
+    expect(api.getAccountingPnl.mock.calls.length).toBe(pnlReads);
+    fireEvent.change(status, { target: { value: 'all' } });
+    await screen.findByText('Repairs');
+    fireEvent.click(within(screen.getByText('Repairs').closest('tr')).getByRole('button', { name: /Reopen the review of 61000/ }));
+    await waitFor(() => expect(within(screen.getByText('Repairs').closest('tr')).getByText('Answered')).toBeTruthy());
     // Esc leaves an edit without saving; the trash asks Remove / Keep in place.
-    fireEvent.click(within(done).getByRole('button', { name: /Edit explanation for 61000/ }));
+    fireEvent.click(within(screen.getByText('Repairs').closest('tr')).getByRole('button', { name: /Edit explanation for 61000/ }));
     const again = within(screen.getByText('Repairs').closest('tr')).getByLabelText('Explanation for 61000 Repairs');
     fireEvent.change(again, { target: { value: 'Changed my mind' } });
     fireEvent.keyDown(again, { key: 'Escape' });
@@ -652,7 +676,7 @@ describe('ReportsTab controls', () => {
     fireEvent.click(within(screen.getByText('Repairs').closest('tr')).getByRole('button', { name: 'Remove' }));
     await waitFor(() => expect(api.saveAccountingFluxNote).toHaveBeenCalledTimes(2));
     expect(api.saveAccountingFluxNote.mock.calls[1][0]).toMatchObject({ accountNo: '61000', note: '' });
-    await waitFor(() => expect(within(screen.getByText('Repairs').closest('tr')).getByText('Review')).toBeTruthy());
+    await waitFor(() => expect(within(screen.getByText('Repairs').closest('tr')).getByText('Open')).toBeTruthy());
     // Customize carries the thresholds; a looser one takes the flag off.
     fireEvent.click(screen.getByRole('button', { name: /Customize/ }));
     fireEvent.change(screen.getByLabelText('Flux variance amount threshold'), { target: { value: '6000' } });
