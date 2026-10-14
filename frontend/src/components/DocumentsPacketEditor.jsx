@@ -24,9 +24,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { X, Plus, Trash2, FileText, ChevronUp, ChevronDown, CheckCircle, AlertTriangle, Eye, ExternalLink, ListChecks, PenTool, Heading } from 'lucide-react';
 import { api } from '../api';
 import { setPendingOpen } from '../lib/pendingOpen';
-import { flowFor, keyLabel, formKey } from '../lib/packetFlow';
+import { flowFor, keyLabel, formKey, readinessSummary } from '../lib/packetFlow';
 import { Spinner } from './AsyncState';
 import SignOnceModal from './SignOnceModal';
+import PacketReadiness from './PacketReadiness';
 import { formatDate } from '../lib/datetime';
 
 const lbl = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', margin: '14px 0 5px', textTransform: 'uppercase', letterSpacing: '.04em' };
@@ -101,6 +102,14 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
   const [adding, setAdding] = useState('');
   const [onceStatus, setOnceStatus] = useState(packet?.signOnce || []);
   const [signing, setSigning] = useState(null);
+  // Ready To Send (Oct 14): the server's checklist for the saved packet.
+  const [readiness, setReadiness] = useState(packet?.engine === 'documents' ? (packet.readiness || []) : []);
+  const [formNote, setFormNote] = useState('');
+  const refreshReady = () => {
+    if (!p.id) return;
+    api.packetReadiness(p.id).then(r => setReadiness(r.readiness || [])).catch(() => {});
+    if (companyId) api.signOnceStatus(p.id, companyId).then(setOnceStatus).catch(() => {});
+  };
   const set = (k, v) => { setP(x => ({ ...x, [k]: v })); setServerProblems([]); };
   // Who signs once for this company, and whether they have (with isMe).
   useEffect(() => {
@@ -149,6 +158,15 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
     if (!formKeys.has(v.token) && !wanted.some(w => w.token === v.token)) wanted.push(v);
   }));
   const setField = (i, patch) => set('detailsForm', p.detailsForm.map((f, j) => j === i ? { ...f, ...patch } : f));
+  // The checklist's "Add To Details Form": every variable nothing fills, in one go.
+  const addVariables = (vars) => {
+    const have = new Set(p.detailsForm.map(f => f.key || formKey(f.label)));
+    const add = vars.filter(v => !have.has(v.token)).map(v => ({ key: v.token, label: v.label, required: true, sensitive: false, last4: false, options: [],
+      type: ['date', 'email', 'number'].includes(v.type) ? v.type : 'text' }));
+    if (add.length) set('detailsForm', [...p.detailsForm, ...add]);
+    setFormNote(`Added ${add.length} field${add.length === 1 ? '' : 's'} to the Details Form below - click Save Packet to keep them.`);
+  };
+  const summary = readinessSummary(readiness);
   const addField = (f) => set('detailsForm', [...p.detailsForm, { label: '', type: 'text', required: false, sensitive: false, last4: false, options: [], ...f }]);
 
   // Quick checks while typing; the server's full list arrives on Save.
@@ -171,6 +189,9 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
           key: key || '', label, type, required: !!required, sensitive: !!sensitive, last4: !!last4, options: options || [], help: help || '',
         })) : [],
       });
+      // Stay open on the checklist: what is still missing shows at once.
+      setP(x => ({ ...x, id: saved.id }));
+      setReadiness(saved.readiness || []);
       onSaved(saved);
     } catch (e) {
       setServerProblems([e?.message || 'Could not save the packet.']);
@@ -197,6 +218,21 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
           <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 4 }}><X size={18} /></button>
         </div>
         <div style={{ overflowY: 'auto', flex: 1, padding: '2px 22px 18px' }}>
+          {p.id && readiness.length > 0 && (
+            <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '10px 12px', marginTop: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <b style={{ fontSize: 13 }}>Ready To Send</b>
+                {summary && <Chip tone={summary.tone}>{summary.label}</Chip>}
+                <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Everything a hire needs before this packet can go out.</span>
+              </div>
+              <PacketReadiness checks={readiness} toastErr={toastErr}
+                meEmails={onceStatus.filter(s => s.isMe).map(s => s.email)}
+                onChanged={refreshReady}
+                onSignOnce={(step) => setSigning(onceStatus.find(s => s.key === step) || { key: step, roleLabel: 'HR', name: '' })}
+                onAddToForm={addVariables} />
+              {formNote && <div style={{ ...hint, color: 'hsl(var(--color-orange))' }}>{formNote}</div>}
+            </div>
+          )}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '0 16px' }}>
             <div>
               <label style={lbl}>Packet Name</label>
@@ -439,7 +475,7 @@ export function DocumentsPacketEditor({ packet, event, eventLabel, companyId, co
       </div>
       {signing && (
         <SignOnceModal packetId={p.id} entityId={companyId} step={signing} packetName={p.name} companyName={companyName}
-          toastErr={toastErr} onClose={() => setSigning(null)} onDone={(status) => { setOnceStatus(status); setSigning(null); }} />
+          toastErr={toastErr} onClose={() => setSigning(null)} onDone={(status) => { setOnceStatus(status); setSigning(null); refreshReady(); }} />
       )}
       {preview && (
         <PreviewModal templateId={preview.id} name={preview.name} companyId={companyId} flow={p.flow}

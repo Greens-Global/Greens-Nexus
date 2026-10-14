@@ -421,6 +421,16 @@ def _once_holder_or_403(db: Session, setting: HrPacketSetting, step_key: str, en
                                  f"({s['roleLabel']}) can sign this packet once.")
 
 
+@router.get("/packets/{sid}/readiness")
+def packet_readiness(sid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
+    """The packet's Ready To Send checklist, read again after a fix."""
+    setting = db.query(HrPacketSetting).filter(HrPacketSetting.id == sid).first()
+    if not setting or not hle.is_documents(setting):
+        raise HTTPException(404, "Packet not found")
+    _setting_in_scope(setting.entity_id or "", hr_scope(user, db), write=False)
+    return {"readiness": hpd.readiness(db, setting)}
+
+
 @router.get("/packets/{sid}/sign-once")
 def sign_once_status(sid: str, entity_id: str = "", user: dict = Depends(get_current_user),
                      db: Session = Depends(get_db)):

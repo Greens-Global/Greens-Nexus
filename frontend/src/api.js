@@ -2251,6 +2251,8 @@ export const api = {
   listPacketDocuments: ({ q = '', status = '' } = {}) => req(`/hr/packet-documents?${new URLSearchParams({ q, status })}`),
   // Signs Once (Oct 14): the company signs a packet once - a one-time code,
   // then the signature goes on every packet until someone else holds the role.
+  // Ready To Send (Oct 14): the packet's checklist, read again after a fix.
+  packetReadiness:     (sid) => req(`/hr/packets/${sid}/readiness`),
   signOnceStatus:      (sid, entityId = '') => req(`/hr/packets/${sid}/sign-once?entity_id=${encodeURIComponent(entityId)}`),
   signOnceCode:        (sid, data) => req(`/hr/packets/${sid}/sign-once/code`, { method: 'POST', body: JSON.stringify(data) }),
   signOnce:            (sid, data) => req(`/hr/packets/${sid}/sign-once`, { method: 'POST', body: JSON.stringify(data) }),

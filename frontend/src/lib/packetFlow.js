@@ -18,6 +18,16 @@ export const formKey = (label) => {
   const k = String(label || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60).replace(/_+$/, '');
   return !k || /^[a-z]/.test(k) ? k : `f_${k}`;
 };
+/** "Ready To Send" / "2 To Fix" / "1 Warning" - the packet list's chip. */
+export function readinessSummary(checks) {
+  const list = checks || [];
+  const blocks = list.filter(c => !c.ok && c.severity === 'block').length;
+  const warns = list.filter(c => !c.ok && c.severity === 'warn').length;
+  if (!list.length) return null;
+  if (blocks) return { tone: 'red', label: `${blocks} To Fix` };
+  if (warns) return { tone: 'orange', label: `${warns} Warning${warns === 1 ? '' : 's'}` };
+  return { tone: 'green', label: 'Ready To Send' };
+}
 export const keyLabel = (k) => String(k || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 
 /** The signing order after documents change: every signer key a document's

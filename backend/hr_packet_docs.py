@@ -1344,3 +1344,121 @@ def adopt_signature(db: Session, setting: HrPacketSetting, *, step_key: str, ent
     recs.append(rec)
     setting.saved_signatures = recs        # reassigned, never mutated in place (JSON column)
     return rec
+
+
+# ── Ready To Send (Oct 14) ───────────────────────────────────────────────────
+# "Nothing is ever silently missing" (Pranshu, after running a hire end to end
+# on dev: the salary never printed and the company had no HR contact - and
+# nothing said so until deep in the flow). Every check a packet needs before a
+# hire can go out, each with what fixes it. A pure read.
+
+_PAY_EVENTS = ("hire", "promotion")
+
+
+def _check(key: str, ok: bool, label: str, detail: str = "", severity: str = "block", fix: Optional[dict] = None) -> dict:
+    return {"key": key, "ok": bool(ok), "label": label, "detail": detail,
+            "severity": "ok" if ok else severity, "fix": fix if not ok else None}
+
+
+def unfilled_variables(setting: HrPacketSetting, snaps: list) -> list:
+    """{token, label} of every variable the packet's templates print that
+    nothing fills: not built in, not on the Details Form, no Default Value,
+    not pay. HR would have to type each one on every packet."""
+    reserved = _reserved_tokens()
+    form = {f["key"] for f in form_fields(setting)}
+    out, seen = [], set()
+    for s in snaps:
+        defaults = {fd.get("token") for fd in s.field_defs if str(fd.get("default") or "").strip()}
+        for t in sorted(s.tokens):
+            if (t in seen or t in reserved or t in form or t in defaults or "." in t
+                    or is_pay_token(t, s.defs)):
+                continue
+            seen.add(t)
+            fd = s.defs.get(t) or {}
+            out.append({"token": t, "label": fd.get("label") or t.replace("_", " ").title(),
+                        "type": fd.get("type") or "text", "templateId": s.tpl.id, "templateName": s.name})
+    return out
+
+
+def readiness(db: Session, setting: HrPacketSetting) -> list:
+    """The packet's Ready To Send checklist: what is fine, what stops a hire
+    from going out (block) and what would come out wrong (warn) - each with
+    the fix the screen offers."""
+    ids = list(setting.doc_template_ids or [])
+    snaps, snap_problems = load_snaps(db, ids)
+    out = []
+    # 1. The documents: there, active, published.
+    unpublished = next((t for t in (db.query(DocTemplate).filter(DocTemplate.id == i).first() for i in ids)
+                        if t is not None and (t.status != "active" or not t.published_version)), None)
+    out.append(_check("documents", bool(ids) and not snap_problems,
+                      "Documents Published",
+                      (snap_problems[0] if snap_problems else "Add at least one document from Documents > Templates.")
+                      if (snap_problems or not ids) else f"{len(snaps)} document{'s' if len(snaps) != 1 else ''}, published",
+                      fix={"kind": "template", "templateId": unpublished.id} if unpublished is not None else None))
+    # 2. The signing order makes sense with the documents' signature blocks.
+    order = config_problems(db, setting, snaps, [])
+    out.append(_check("signing", not order, "Signing Order", order[0] if order else "Every signature block has a signer"))
+    # 3. The company holds every role the packet needs (a company's packet;
+    #    a packet for every company is checked per company when it starts).
+    entity = db.query(HrEntity).filter(HrEntity.id == setting.entity_id).first() if setting.entity_id else None
+    verify = setting.verify_role or "hr"
+    if entity is not None:
+        ctx = {"entity": entity, "owners": hc.role_owners(db, entity.id)}
+        roles = list(dict.fromkeys([s["role"] for s in clean_flow(setting.flow)
+                                    if s["role"] not in (SUBJECT_ROLE, "manager", "sender")] + [verify]))
+        for role in roles:
+            email = resolve_role(db, role, ctx)
+            p = person(db, email) if email else None
+            ok = bool(email) and p is not None and (p.status or "") in ("active", "onboarding")
+            field = {"hr": "hr_contact_email", "signatory": "signatory_email"}.get(role)
+            fix = ({"kind": "entityField", "field": field, "entityId": entity.id, "role": role} if field
+                   else {"kind": "checklistOwners", "role": role})
+            label = {"hr": "HR Contact", "signatory": "Authorized Signatory"}.get(role, role_label(role))
+            out.append(_check(f"role:{role}", ok, f"{entity.name} Has {label}",
+                              f"{name_of(db, email)}" if ok else
+                              (f"{email} is not an active person in People." if email else
+                               f"Nobody holds {label} for {entity.name} yet - " +
+                               ("they verify and sign this packet." if role == verify else "they sign this packet.")),
+                              fix=fix))
+        # Company details the documents print.
+        tokens = {t for s in snaps for t in s.tokens}
+        merge = {"company_address": (getattr(entity, "physical_address", "") or entity.registered_address or "")}
+        for tok, lbl in (("company_address", "Company Address"),):
+            if tok in tokens:
+                out.append(_check(f"company:{tok}", bool(merge[tok].strip()), f"{entity.name} Has A {lbl}",
+                                  merge[tok] if merge[tok].strip() else f"The documents print {{{{{tok}}}}} - set it in Company Settings.",
+                                  fix={"kind": "entityField", "field": "physical_address", "entityId": entity.id}))
+        # 4. Whoever verifies can see pay, when the documents show it.
+        vemail = resolve_role(db, verify, ctx)
+        if vemail and packet_prints_pay(setting, snaps):
+            out.append(_check("payAccess", has_comp_for(db, vemail), "Verifier Can See Pay",
+                              f"{name_of(db, vemail)} has Pay & Benefits access" if has_comp_for(db, vemail) else
+                              f"{name_of(db, vemail)} verifies this packet but has no Pay & Benefits access - "
+                              f"give it in Settings > Access, or change Verified By."))
+        # 5. Signs Once: the company has signed.
+        for s in company_once_status(db, setting, entity):
+            out.append(_check(f"once:{s['key']}", s["signed"], "Company Signed Once",
+                              f"{s['name']} signed on {s['adoptedAt'][:10]}" if s["signed"] else
+                              (f"{s['name']} ({s['roleLabel']}) signs once - after that it goes on every packet."
+                               if s["email"] else f"Nobody holds {s['roleLabel']} yet."),
+                              fix={"kind": "signOnce", "step": s["key"], "email": s["email"]}))
+    else:
+        out.append(_check("company", True, "Company Roles", "Checked for each company the first time this packet is used"))
+    # 6. The pay HR enters is printed somewhere (hire / promotion).
+    if setting.event in _PAY_EVENTS and snaps:
+        prints = bool(pay_tokens(snaps))
+        out.append(_check("payPrints", prints, "Pay Shows In A Document",
+                          "Printed where the templates say {{salary}}" if prints else
+                          "The pay entered when the packet starts is not printed anywhere - put the Salary variable "
+                          "where the pay goes in a template.",
+                          severity="warn", fix={"kind": "template", "templateId": snaps[0].tpl.id}))
+    # 7. Every variable has a source.
+    missing = unfilled_variables(setting, snaps)
+    out.append(_check("variables", not missing, "Every Variable Is Filled",
+                      "Nexus, the Details Form or a Default Value fills each one" if not missing else
+                      "Nothing fills " + ", ".join(m["label"] for m in missing[:6]) + ("..." if len(missing) > 6 else "") +
+                      (" - add them to the Details Form, or give them a Default Value in the template."
+                       if setting.event == "hire" else " - give them a Default Value in the template, or HR types them each time."),
+                      fix={"kind": "addToForm" if setting.event == "hire" else "template", "variables": missing,
+                           "templateId": missing[0]["templateId"] if missing else ""}))
+    return out
