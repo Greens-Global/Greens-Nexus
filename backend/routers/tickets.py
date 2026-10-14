@@ -704,7 +704,7 @@ def _deliver_teams_dm(row_id: str) -> None:
 
 
 def _queue_requester_teams_dm(db: Session, t: models.TaskTicket, actor_email: str, *,
-                              assigned: bool = False, closed: bool = False,
+                              closed: bool = False,
                               comment: str = "") -> "models.TicketTeamsMessage | None":
     """Queue a Teams DM to the ticket's requester - same guaranteed-delivery
     queue TimeBod posts use (teams_post.py), posted AS the agent who made the
@@ -712,7 +712,7 @@ def _queue_requester_teams_dm(db: Session, t: models.TaskTicket, actor_email: st
 
     Only three things are worth a Teams message (Neil, Oct 1 2026, after
     Ankush's requester got one every time he touched her ticket): the ticket
-    was ASSIGNED (`assigned` - names the assignee), a public REPLY from
+    was ASSIGNED (sent by the assignees - _queue_assignment_dms), a public REPLY from
     someone else (`comment` - the text itself, not "your ticket was
     updated"), or it was RESOLVED / CLOSED (`closed` - with the resolution
     note). Status moves, priority, field edits and opening the ticket send
@@ -735,8 +735,6 @@ def _queue_requester_teams_dm(db: Session, t: models.TaskTicket, actor_email: st
     html = tmpl.requester_teams_dm_html(
         code=t.code, subject=t.subject, link=tmpl._ticket_url(app_url(), t.id, for_requester=True),
         actor_name=_name_of(db, actor),
-        assigned_to=(_name_of(db, t.assignee_email)
-                     if assigned and t.assignee_email and t.assignee_email.lower() != requester else ""),
         closed_status=t.status if (closed and t.status in ("resolved", "closed")) else "",
         resolution_note=t.resolution_note or "", comment=comment or "")
     if not html:
@@ -745,6 +743,29 @@ def _queue_requester_teams_dm(db: Session, t: models.TaskTicket, actor_email: st
                                      requester_email=requester, html=html, created_at=now_iso())
     db.add(row)
     return row
+
+
+def _queue_assignment_dms(db: Session, t: models.TaskTicket, prev_assignee: str) -> list:
+    """Assignment DMs come from the assignees, never from whoever clicked
+    Assign (Neil, 10/14: "the administrator should not be involved in this
+    at all"). First assignment: the assignee tells the requester it is being
+    worked on. A -> B: A says it was reassigned to B, and B says it is theirs
+    now. Nobody messages themselves."""
+    requester = (t.requester_email or "").strip().lower()
+    new, old = (t.assignee_email or "").strip().lower(), (prev_assignee or "").strip().lower()
+    common = dict(code=t.code, subject=t.subject, link=tmpl._ticket_url(app_url(), t.id, for_requester=True))
+    sends = [(new, tmpl.assignment_teams_dm_html(**common, reassigned=bool(old)))]
+    if old and old != new:
+        sends.insert(0, (old, tmpl.assignment_teams_dm_html(**common, handed_to=_name_of(db, new))))
+    rows = []
+    for sender, html in sends:
+        if not requester or not sender or sender == requester:
+            continue
+        row = models.TicketTeamsMessage(id=gen_id(), ticket_id=t.id, agent_email=sender,
+                                         requester_email=requester, html=html, created_at=now_iso())
+        db.add(row)
+        rows.append(row)
+    return rows
 
 
 @router.get("/task-tickets")
@@ -1531,11 +1552,14 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
         background_tasks.add_task(notify_ticket_event, t.id, "updated", actor,
                                    update_kind="New comment added", latest_comment=public_comment)
 
-    # Teams DM - the same three events, in ONE message per save, never one per
-    # change (see _queue_requester_teams_dm).
-    if assigned_now or closing or public_comment:
-        dm_row = _queue_requester_teams_dm(db, t, actor, assigned=assigned_now, closed=closing,
-                                           comment=public_comment)
+    # Teams DM - the same three events. An assignment is told by the assignees
+    # (_queue_assignment_dms); a reply / close by the actor, in ONE message per
+    # save, never one per change (see _queue_requester_teams_dm).
+    dm_rows = _queue_assignment_dms(db, t, prev_assignee) if assigned_now else []
+    if closing or public_comment:
+        dm_rows.append(_queue_requester_teams_dm(db, t, actor, closed=closing, comment=public_comment))
+    dm_rows = [r for r in dm_rows if r is not None]
+    if dm_rows:
         db.commit()
         # One delivery attempt right away so the common case lands in Teams
         # without waiting for ticket_teams_post_loop's next sweep (up to ~5
@@ -1544,8 +1568,8 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
         # status change open until Teams answered (Neil, Sep 30: clicking
         # Resolved "is lagging a lot"). Anything that fails stays queued for
         # the sweep to retry.
-        if dm_row is not None:
-            background_tasks.add_task(_deliver_teams_dm, dm_row.id)
+        for r in dm_rows:
+            background_tasks.add_task(_deliver_teams_dm, r.id)
 
     # With its latest comment: this reply replaces the row in the list, and a
     # reply sent with the save is the newest comment now.
