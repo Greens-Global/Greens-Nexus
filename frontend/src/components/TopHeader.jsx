@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect, useMemo } from "react";
-import { Menu, Search, LogOut, Settings, User, ArrowLeft, Shield, Check, ChevronDown, LayoutDashboard, Camera, Clock, Sparkles, X, UserCog, Archive, PlayCircle, Eye, Mail, Scale, Rocket } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import { Menu, Search, LogOut, User, ArrowLeft, Shield, ChevronDown, Sparkles, X, UserCog, Eye, Mail, Scale, Rocket } from "lucide-react";
 import NotificationBell from "./NotificationBell";
 import HelpMenu from "../support/HelpMenu";
 import { TabGroupButton, useHeaderTabs } from "./ModuleTabs";
@@ -27,31 +27,23 @@ function takeEmailSettingsLink() {
 }
 import { useMsal }        from "@azure/msal-react";
 import { BFF_MODE, bffLogout } from "../bffAuth";
-import { useRole, ROLES, MODULES, EXTERNAL_ROLE_META } from "../contexts/RoleContext";
+import { useRole, ROLES, EXTERNAL_ROLE_META } from "../contexts/RoleContext";
 import { usePersonPhoto } from "../lib/peoplePhotos";
-import { openContact } from "../lib/contactNav";
 import { api } from "../api";
-import { Spinner } from './AsyncState';
+import { useNexusSearch, SEARCH_PLACEHOLDER, SEARCH_HINT, SEARCH_LABEL } from './search/useNexusSearch';
+import SearchResults from './search/SearchResults';
 
-// Header search reaches into the Task module's content, not just the module
-// list, so typing a task's title finds the task. Grouped by kind the way Asana's
-// own search is - a flat list of mixed things forces the reader to work out what
-// each row IS before deciding whether it is the one they want.
-const SEARCH_GROUPS = [
-  { key: 'tasks',      label: 'Tasks' },
-  { key: 'projects',   label: 'Projects' },
-  { key: 'people',     label: 'People' },
-  { key: 'portfolios', label: 'Portfolios' },
-  { key: 'teams',      label: 'Teams' },
-];
-const EMPTY_HITS = { tasks: [], projects: [], people: [], portfolios: [], teams: [] };
+import { isSearchShortcut, isPhone } from '../lib/keys';
+
+const MOD_KEY = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || '') ? '⌘' : 'Ctrl';
 
 export default function TopHeader({ title, activeView, theme, onThemeToggle, sidebarPinned, onSidebarPinnedChange, onMobileToggle, canGoBack, onBack, onNavigate, prevLabel }) {
   const { instance, accounts } = useMsal();
-  const { myRole, can, myGrantedModules, actingAs, stopActAs, isExternal } = useRole();
+  const { myRole, can, actingAs, stopActAs, isExternal } = useRole();
   // Module tab strip published by the active module (<ModuleTabs>). When
-  // present it takes the header center (Work OS shell) and the global search
-  // collapses to a magnifier icon on the right.
+  // present it takes the header center (Work OS shell). The search bar is
+  // NOT part of that bargain any more: it sits in the right cluster on
+  // every module, the same size in the same place (Neil, Oct 14 2026).
   const headerTabs = useHeaderTabs();
   // Modules that opt into syncTitle (<ModuleTabs syncTitle>) get the active
   // tab's own name in the breadcrumb instead of the module's fixed name - so
@@ -127,8 +119,11 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
   }, [activeView, changelogUnseen]);
   const [searchQuery,  setSearchQuery]  = useState('');
   const [searchOpen,   setSearchOpen]   = useState(false);
+  const [searchIdx,    setSearchIdx]    = useState(0);
   const dropRef   = useRef(null);
   const searchRef = useRef(null);
+  const searchInputRef = useRef(null);
+  const searchListRef  = useRef(null);
 
   // Visual theme for the Work OS surfaces (profile menu → Theme): 'cobalt'
   // (default Stella blue) or 'warm' (Lisso sand). Applied as a data attribute
@@ -169,81 +164,39 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
     try { localStorage.removeItem('gg-zoom'); } catch { /* private mode */ }
   }, []);
 
-  // Restricted view IDs that need at minimum supervisor role
-  const RESTRICTED_MIN_SUPERVISOR = new Set([
-    'manager-dashboard','tasks','tickets','sop','it','ops','operations','development',
-    'property-asset','accounting','investor-relations','hr','marketing','external-links',
-  ]);
-
-  const searchResults = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return [];
-    return MODULES.filter(m => {
-      // 'admin' is a permission id only now - its old screen was retired (Sep 26).
-      if (m.id === 'admin') return false;
-      // Grant-driven below admin: a restricted screen only appears in search if
-      // the user is admin+ or an Access Group grants it (Jun 17).
-      if (RESTRICTED_MIN_SUPERVISOR.has(m.id) && !can?.('administrator') && !myGrantedModules?.has(m.id)) return false;
-      return m.label.toLowerCase().includes(q) || m.id.toLowerCase().includes(q);
-    }).slice(0, 6);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchQuery, myRole, myGrantedModules]);
-
-  // Content search, debounced so a fast typist makes one call rather than one
-  // per keystroke. Failures fall back to an empty result set: the module
-  // matches above are computed locally and must keep working if the API is down.
-  const [hits, setHits] = useState(EMPTY_HITS);
-  // True from the first keystroke until the answer for the CURRENT text lands
-  // (debounce included). The popover used to sit empty for that beat and read
-  // as "no results" until the rows popped in.
-  const [searching, setSearching] = useState(false);
+  // ONE search engine for the app - the phone sheet (GlobalSearch) uses the
+  // same hook, so a search finds the same things wherever it is typed.
+  const search = useNexusSearch(searchQuery, { enabled: searchOpen });
   useEffect(() => {
-    const term = searchQuery.trim();
-    if (term.length < 2) { setHits(EMPTY_HITS); setSearching(false); return undefined; }
-    let live = true;
-    setSearching(true);
-    const id = setTimeout(() => {
-      api.searchTaskModule(term)
-        .then((r) => { if (live) setHits({ ...EMPTY_HITS, ...r }); })
-        .catch(() => { if (live) setHits(EMPTY_HITS); })
-        .finally(() => { if (live) setSearching(false); });
-    }, 180);
-    return () => { live = false; clearTimeout(id); };
-  }, [searchQuery]);
-
-  const hitCount = SEARCH_GROUPS.reduce((n, g) => n + (hits[g.key]?.length || 0), 0);
-
-  // Every result closes the popover, then routes by what it is. Tasks and
-  // people go through window events (nexus:open-task / nexus:tasks-person)
-  // because the Task module owns the drawer and the workspace - the header
-  // only says WHAT was picked, never how to render it.
-  function openAllTasks(q) {
+    searchListRef.current?.querySelector('[data-active="true"]')?.scrollIntoView?.({ block: 'nearest' });
+  }, [searchIdx]);
+  function closeSearch(blur = false) {
     setSearchQuery(''); setSearchOpen(false);
-    window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'tasks', sub: 'mine' } }));
-    setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:tasks-search', { detail: { q } })), 0);
+    if (blur) searchInputRef.current?.blur();
+  }
+  function pickSearch(row) {
+    closeSearch(true);
+    row.run?.();
   }
 
-  function openHit(kind, item) {
-    setSearchQuery(''); setSearchOpen(false);
-    const toTasks = (sub) => window.dispatchEvent(
-      new CustomEvent('nexus:navigate', { detail: { view: 'tasks', sub } }));
-    if (kind === 'tasks') {
-      toTasks('mine');
-      setTimeout(() => window.dispatchEvent(
-        new CustomEvent('nexus:open-task', { detail: { taskId: item.id } })), 0);
-    } else if (kind === 'people') {
-      // A person opens their Contact Directory card (Oct 2026) - chat, call,
-      // email, reporting line. Their tasks are one click further ("View
-      // Tasks" on the card, for anyone with the Tasks module).
-      openContact(item.email);
-    } else if (kind === 'projects') {
-      toTasks('projects');
-    } else if (kind === 'portfolios') {
-      toTasks('portfolios');
-    } else if (kind === 'teams') {
-      toTasks('teams');
-    }
-  }
+  // Keyboard, desktop only: Ctrl/Cmd+K lands in this bar. "/" lands in the
+  // page's own search box when the page tags one (data-slash-search:
+  // Contact Directory, Knowledge Base), else here. Listens on document so it
+  // runs before the sheet's window listener, which then sees defaultPrevented
+  // and stands down; on a phone this does nothing and the sheet (GlobalSearch)
+  // answers the same keys.
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!isSearchShortcut(e) || isPhone()) return;
+      e.preventDefault();
+      const own = e.key === '/' ? document.querySelector('input[data-slash-search]') : null;
+      if (own) { own.focus(); return; }
+      searchInputRef.current?.focus();
+      setSearchOpen(true);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
 
   useEffect(() => {
     function handleClick(e) {
@@ -254,21 +207,13 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
+  // The highlighted row, clamped: a shrinking result set never strands it.
+  const activeIdx = search.rows.length ? Math.min(searchIdx, search.rows.length - 1) : 0;
   function handleSearchKey(e) {
-    if (e.key === 'Escape') { setSearchQuery(''); setSearchOpen(false); }
-    if (e.key !== 'Enter') return;
-    // Content beats a page: someone typing a task's title wants the task, and
-    // the module list is the fallback it always was.
-    const group = SEARCH_GROUPS.find((g) => hits[g.key]?.length);
-    if (group) { openHit(group.key, hits[group.key][0]); return; }
-    if (searchResults.length > 0) {
-      onNavigate(searchResults[0].id);
-      setSearchQuery(''); setSearchOpen(false);
-    }
-  }
-  function goTo(id) {
-    onNavigate(id);
-    setSearchQuery(''); setSearchOpen(false);
+    if (e.key === 'Escape') { e.preventDefault(); closeSearch(true); return; }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setSearchIdx(Math.min(Math.max(0, search.rows.length - 1), activeIdx + 1)); return; }
+    if (e.key === 'ArrowUp') { e.preventDefault(); setSearchIdx(Math.max(0, activeIdx - 1)); return; }
+    if (e.key === 'Enter' && search.rows[activeIdx]) { e.preventDefault(); pickSearch(search.rows[activeIdx]); }
   }
 
   function handleSignOut() {
@@ -281,139 +226,44 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
     });
   }
 
-  // One search implementation, two placements: the full centered bar when no
-  // module tabs are published, or inside a right-side popover when they are.
-  const searchInput = (
-    <div className="search-bar">
-      <Search style={{ width: 14, height: 14, flexShrink: 0 }} />
-      <input
-        placeholder="Search tasks, projects, people…"
-        value={searchQuery}
-        onChange={e => { setSearchQuery(e.target.value); setSearchOpen(true); }}
-        onFocus={() => setSearchOpen(true)}
-        onKeyDown={handleSearchKey}
-        autoFocus={!!headerTabs}
-      />
-      {searchQuery && <button className="search-clear" onClick={() => { setSearchQuery(''); setSearchOpen(false); }} title="Clear search" aria-label="Clear search"><X size={13} /></button>}
+  // The search bar: one element, one size, one place - the right cluster,
+  // before Help - on every module. Hidden on phones, where the icon on the
+  // left opens the same search as a sheet.
+  const searchBar = (
+    <div className="hdr-search" ref={searchRef}>
+      <div className="search-bar" role="search">
+        <Search style={{ width: 14, height: 14, flexShrink: 0 }} />
+        <input
+          ref={searchInputRef}
+          placeholder={SEARCH_PLACEHOLDER}
+          aria-label={SEARCH_LABEL}
+          title={`${SEARCH_LABEL} (${MOD_KEY} K)`}
+          aria-keyshortcuts="Control+K Meta+K /"
+          value={searchQuery}
+          onChange={e => { setSearchQuery(e.target.value); setSearchIdx(0); setSearchOpen(true); }}
+          onFocus={() => setSearchOpen(true)}
+          onKeyDown={handleSearchKey}
+        />
+        {searchQuery
+          ? <button className="search-clear" onClick={() => closeSearch(true)} title="Clear" aria-label="Clear search"><X size={13} /></button>
+          : <kbd className="hdr-search-kbd" aria-hidden="true">{MOD_KEY} K</kbd>}
+      </div>
+      {searchOpen && (
+        <div className="hdr-search-panel">
+          {searchQuery.trim()
+            ? <SearchResults query={searchQuery} groups={search.groups} rows={search.rows} searching={search.searching}
+                activeIdx={activeIdx} onActive={setSearchIdx} onPick={pickSearch} listRef={searchListRef} />
+            : <div className="gs-hint">{SEARCH_HINT}</div>}
+        </div>
+      )}
     </div>
-  );
-
-  const panelStyle = {
-    position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0,
-    background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10,
-    boxShadow: '0 8px 28px rgba(0,0,0,0.15)', zIndex: 500, overflow: 'hidden',
-  };
-  const rowStyle = {
-    width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px',
-    background: 'transparent', border: 'none', cursor: 'pointer',
-    fontFamily: 'Inter,sans-serif', fontSize: 13, color: 'var(--ink)', textAlign: 'left',
-  };
-  const headingStyle = {
-    padding: '7px 14px 4px', fontSize: 10.5, fontWeight: 700, letterSpacing: '.07em',
-    textTransform: 'uppercase', color: 'var(--muted)', background: 'var(--mist)',
-  };
-  const subStyle = { fontSize: 11.5, color: 'var(--muted)' };
-  const hover = (on) => (e) => (e.currentTarget.style.background = on ? 'var(--mist)' : 'transparent');
-
-  const searchResultsDropdown = (
-    <>
-      {searchOpen && (searchResults.length > 0 || hitCount > 0 || searching) && (
-        <div style={{ ...panelStyle, maxHeight: '70vh', overflowY: 'auto' }}>
-          {searching && hitCount === 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', fontSize: 12.5, color: 'var(--muted)' }}>
-              <Spinner size={14} />
-              Searching tasks, projects and people…
-            </div>
-          )}
-          {SEARCH_GROUPS.map((g) => (hits[g.key]?.length ? (
-            <div key={g.key}>
-              <div style={headingStyle}>{g.label}</div>
-              {hits[g.key].map((item) => (
-                <button key={item.id || item.email} onClick={() => openHit(g.key, item)}
-                  style={rowStyle} onMouseEnter={hover(true)} onMouseLeave={hover(false)}>
-                  {g.key === 'tasks' ? (
-                    <>
-                      <Check size={13} style={{ color: item.completed ? 'var(--ok, #16a34a)' : 'var(--muted)', flexShrink: 0 }} />
-                      <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                        textDecoration: item.completed ? 'line-through' : 'none' }}>
-                        {item.title}
-                        {/* A subtask says whose it is - same-titled subtasks
-                            across many parents are otherwise identical lines. */}
-                        {item.parentTitle && <span style={{ ...subStyle, marginLeft: 6 }}>‹ {item.parentTitle}</span>}
-                      </span>
-                      {item.projectName && <span style={{ ...subStyle, flexShrink: 0 }}>{item.projectName}</span>}
-                    </>
-                  ) : g.key === 'people' ? (
-                    <>
-                      <User size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-                      <span style={{ fontWeight: 500 }}>{item.name}</span>
-                      <span style={{ ...subStyle, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.email}</span>
-                    </>
-                  ) : (
-                    <>
-                      {/* An archived project is still findable here - archiving
-                          hides it from the active list and from task pickers, not
-                          from history. It is dimmed and labelled so nobody opens
-                          one thinking it is live work. */}
-                      {item.archived
-                        ? <Archive size={13} style={{ color: 'var(--muted)', flexShrink: 0, opacity: 0.75 }} />
-                        : <LayoutDashboard size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />}
-                      <span style={{ fontWeight: 500, color: item.archived ? 'var(--muted)' : undefined }}>{item.name}</span>
-                      {item.archived && (
-                        <span style={{
-                          flexShrink: 0, fontSize: 10.5, fontWeight: 700, letterSpacing: '.04em',
-                          textTransform: 'uppercase', padding: '1px 7px', borderRadius: 999,
-                          color: 'var(--muted)', border: '1px solid var(--border, #d4d4d8)',
-                        }}>Archived</span>
-                      )}
-                    </>
-                  )}
-                </button>
-              ))}
-              {(hits.totals?.[g.key] || 0) > hits[g.key].length && (
-                g.key === 'tasks' ? (
-                  <button onClick={() => openAllTasks(searchQuery)} style={{ ...rowStyle, ...subStyle }} onMouseEnter={hover(true)} onMouseLeave={hover(false)}>
-                    See all {hits.totals[g.key]} tasks matching "{searchQuery.trim()}"
-                  </button>
-                ) : (
-                  <div style={{ ...subStyle, padding: '6px 12px 8px' }}>
-                    and {hits.totals[g.key] - hits[g.key].length} more {g.label.toLowerCase()}
-                  </div>
-                )
-              )}
-            </div>
-          ) : null))}
-          {searchResults.length > 0 && (
-            <div>
-              <div style={headingStyle}>Pages</div>
-              {searchResults.map((m) => (
-                <button key={m.id} onClick={() => goTo(m.id)} style={rowStyle}
-                  onMouseEnter={hover(true)} onMouseLeave={hover(false)}>
-                  <LayoutDashboard size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-                  <span style={{ fontWeight: 500 }}>{m.label}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-      {/* "No results" only once the answer for THIS text is back - while the
-          request is in flight the panel above shows the searching line instead.
-          Saying "no results" during the debounce made every search flash a
-          denial before the rows arrived. */}
-      {searchOpen && !searching && searchQuery.trim().length >= 2 && searchResults.length === 0 && hitCount === 0 && (
-        <div style={{ ...panelStyle, padding: '12px 14px', fontSize: 13, color: 'var(--muted)', textAlign: 'center' }}>
-          No results for "{searchQuery}"
-        </div>
-      )}
-    </>
   );
 
   return (
     <>
     <header className="top-header">
       <div className="header-left">
-        <button className="mobile-toggle" onClick={onMobileToggle} aria-label="Toggle Sidebar">
+        <button className="mobile-toggle" onClick={onMobileToggle} aria-label="Menu" title="Menu">
           <Menu style={{ width: 18, height: 18 }} />
         </button>
         {/* Phone-only back button - the breadcrumb (with its back arrow) is
@@ -427,7 +277,7 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
         )}
         {/* Phone search lives LEFT of the centered wordmark - a 4th icon on
             the right collided with NEXUS (Visesh screenshot, Jun 12) */}
-        <button className="icon-btn header-search-left" aria-label="Search"
+        <button className="icon-btn header-search-left" aria-label={SEARCH_LABEL} title={SEARCH_LABEL}
           onClick={() => window.dispatchEvent(new CustomEvent('nexus:search-open'))}>
           <Search style={{ width: 16, height: 16 }} />
         </button>
@@ -450,7 +300,7 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
       </div>
 
       <div className={`header-center${headerTabs ? ' has-tabs' : ''}`}>
-        {headerTabs ? (
+        {headerTabs && (
           <nav className="hdr-tabs" aria-label="Module sections" data-tour="module-tabs">
             <TabInk key={headerTabs.tabs.map((t) => t.key).join('|')} active={headerTabs.active} />
             {headerTabs.tabs.map(({ key, label, Icon, badge, items }) => (items ? (
@@ -467,47 +317,12 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
               </button>
             )))}
           </nav>
-        ) : (
-          <div style={{ position: 'relative' }} ref={searchRef}>
-            {searchInput}
-            {searchResultsDropdown}
-          </div>
         )}
       </div>
 
       <div className="header-right">
-        {/* Module tabs occupy the center → search moves here. Tasks gets its
-            own always-visible compact bar rather than an icon someone has to
-            already know to click - task/people search was going unnoticed
-            entirely because nothing on screen showed it existed (Aug 2026).
-            Every other module keeps the plain icon-triggered popover it
-            always had; the content search this bar reaches into (tasks,
-            projects, portfolios, teams, people) is Task-module content, so
-            widening it everywhere just added a search box other modules
-            don't have anything of their own to search. */}
-        {headerTabs && activeView === 'tasks' && (
-          <div className="hdr-search-wrap hdr-search-inline" ref={searchRef}>
-            {searchInput}
-            {searchResultsDropdown}
-          </div>
-        )}
-        {headerTabs && activeView !== 'tasks' && (
-          <div className="hdr-search-wrap" ref={searchRef}>
-            <button className="icon-btn" aria-label="Search Nexus" title="Search"
-              onClick={() => setSearchOpen(o => !o)}>
-              <Search style={{ width: 16, height: 16 }} />
-            </button>
-            {searchOpen && (
-              <div className="hdr-search-pop">
-                <div style={{ position: 'relative' }}>
-                  {searchInput}
-                  {searchResultsDropdown}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-        {/* "?" Help menu: search the guide, help for this page, then Contact
+        {searchBar}
+        {/* "?" Help menu: search the guide, help with this page, then Contact
             Support - self-service first (Neil, Sep 26). support/HelpMenu.jsx. */}
         <HelpMenu activeView={activeView} onWhatsNew={openChangelog} />
         <NotificationBell onNavigate={onNavigate} />
@@ -515,7 +330,7 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
         {/* Unseen-changelog eye icon: only rendered while there's a published
             update this user hasn't opened What's New for yet. */}
         {changelogUnseen && activeView !== 'whats-new' && (
-          <button onClick={openChangelog} title="New update published - view What's New" aria-label="New update published"
+          <button onClick={openChangelog} title="What's New: a new update is available" aria-label="New update published"
             style={{
               position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center',
               width: 32, height: 32, borderRadius: 8, border: 'none', background: 'transparent',
@@ -531,7 +346,7 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
 
         {/* User profile pill */}
         <div className="header-user-wrap" ref={dropRef}>
-          <button className="header-user-pill" onClick={() => setOpen(o => !o)}>
+          <button className="header-user-pill" onClick={() => setOpen(o => !o)} title="Account" aria-label="Account menu" aria-haspopup="menu" aria-expanded={open}>
             <div className="header-avatar">
               {photo
                 ? <img src={photo} alt="" style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover', display: 'block' }} />
@@ -593,45 +408,10 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
               </button>
               {/* Dark Mode + Theme moved into My Profile (Neil: group appearance
                   settings with the rest of "your" settings instead of loose in
-                  the top-level menu). Page help is the header's Help panel
-                  ("Help for This Page"); the row that was here went Oct 12. */}
-              {/* Task module's guided walkthrough. Moved out of the module's own
-                  header (was cluttering the primary bar next to Manage) into
-                  here - only meaningful while the Task
-                  module is the active view, so it's gated on activeView rather
-                  than shown everywhere. Tasks.jsx owns the tour state; this just
-                  asks it to open via the same nexus:tasks-* event pattern the
-                  module already uses for header search. */}
-              {activeView === 'tasks' && (
-                <button className="hud-item" onClick={() => { setOpen(false); window.dispatchEvent(new CustomEvent('nexus:tasks-tour')); }}>
-                  <PlayCircle size={14} /> Tour
-                </button>
-              )}
-              {/* Ticket module's own guided walkthrough - same pattern as the Task
-                  module's above, but gated on activeView === 'tickets' and firing
-                  TicketsView's nexus:tickets-tour instead (tickets/TicketsView.jsx
-                  owns that tour's state). */}
-              {activeView === 'tickets' && (
-                <button className="hud-item" onClick={() => { setOpen(false); window.dispatchEvent(new CustomEvent('nexus:tickets-tour')); }}>
-                  <PlayCircle size={14} /> Tour
-                </button>
-              )}
-              {/* Support page's own guided walkthrough - same pattern as the
-                  Task/Ticket rows above, gated on activeView === 'support' and
-                  firing Support.jsx's own nexus:support-tour. */}
-              {activeView === 'support' && (
-                <button className="hud-item" onClick={() => { setOpen(false); window.dispatchEvent(new CustomEvent('nexus:support-tour')); }}>
-                  <PlayCircle size={14} /> Tour
-                </button>
-              )}
-              {/* Documents module's guided walkthrough (Oct 1) - same pattern,
-                  gated on activeView === 'documents' and firing Documents.jsx's
-                  own nexus:documents-tour. */}
-              {activeView === 'documents' && (
-                <button className="hud-item" onClick={() => { setOpen(false); window.dispatchEvent(new CustomEvent('nexus:documents-tour')); }}>
-                  <PlayCircle size={14} /> Tour
-                </button>
-              )}
+                  the top-level menu). Page help and the guided Tour are the
+                  header's Help panel ("Help with This Page" / "Take the Tour",
+                  support/HelpWidget.jsx) - the rows that were here went Oct 12
+                  and Oct 13 (Neil: the Tour was buried under the user's name). */}
 
               {/* Legal (Neil, 10/06): the Privacy Policy and Terms & Conditions,
                   one page with a tab each - "nothing to do with Support". The

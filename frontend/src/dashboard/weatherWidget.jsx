@@ -4,6 +4,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import { SkeletonBlocks } from '../components/AsyncState';
+import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { WEATHER_DEFAULT, sky, TONE } from './weatherLib';
 
 // ── Weather widget (Neil, Sep 29: "a weather widget for the main screen ...
@@ -113,14 +114,9 @@ export default function WeatherWidget({ config = {}, updateConfig }) {
   }, [where, units]);
 
   useEffect(() => { load(); }, [load]);
-  // Keep it current: every 15 minutes, and when the tab comes back.
-  useEffect(() => {
-    const t = setInterval(load, REFRESH_MS);
-    const onVis = () => { if (document.visibilityState === 'visible' && data?.fetchedAt
-      && Date.now() - Date.parse(data.fetchedAt) > REFRESH_MS) load(); };
-    document.addEventListener('visibilitychange', onVis);
-    return () => { clearInterval(t); document.removeEventListener('visibilitychange', onVis); };
-  }, [load, data?.fetchedAt]);
+  // Keep it current: every 15 minutes while the tab is visible, and on coming
+  // back to it when a refresh was missed.
+  useEffect(() => pollWhileVisible(load, REFRESH_MS), [load]);
 
   // A name for "my location" ("Escondido, CA"); a picked city carries its own.
   useEffect(() => {

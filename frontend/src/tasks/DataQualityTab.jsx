@@ -21,8 +21,8 @@ import { useTableColumns, TableHead, ResetColumnsButton } from './tableCols';
 
 // The Task List's table, cell for cell (Sagar, Oct 14 2026: "make this table
 // as the whole task module"): a rounded card, a hairline border on every
-// cell, centered Title Case headers, Priority as a solid colored block and
-// Team as a colored pill - the same PillSelect the list uses. What a row is
+// cell, centered Title Case headers, Priority as the list's priority signal
+// and Team as a colored pill - the same PillSelect the list uses. What a row is
 // missing is in its Missing column: grey labels, red for a required field.
 // Columns move, resize and auto-fit exactly as the Task List's do - the
 // same kit (tableCols.jsx), saved to the person's profile as 'dataquality'.
@@ -132,10 +132,10 @@ function GapRow({ t, gaps, store, onOpen, selected, toggleSel, cols }) {
           onPick={(id) => store.updateTask(t.id, { projectId: id || null })} />
       </div>
     ),
-    // A solid block the width of the cell, as Priority is in the list.
+    // The list's priority signal (soft labels, Oct 14 2026).
     priority: (
-      <div style={{ ...cell, padding: 0, alignItems: 'stretch' }} onClick={stop}>
-        <PillSelect solid center label={pm ? pm.label : '-'} color={pm ? pm.color : NX.faint} tint={pm ? pm.tint : 'transparent'}
+      <div style={cell} onClick={stop}>
+        <PillSelect variant="priority" center label={pm ? pm.label : '-'} color={pm ? pm.color : NX.faint} tint={pm ? pm.tint : 'transparent'}
           currentKey={t.priority || ''}
           options={PRIORITY_ORDER.map((p) => ({ key: p, label: PRIORITY_META[p].label, color: PRIORITY_META[p].color }))}
           onSelect={(k) => store.updateTask(t.id, { priority: k || null })} />

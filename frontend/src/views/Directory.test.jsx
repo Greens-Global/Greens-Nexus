@@ -31,7 +31,9 @@ vi.mock('../api', () => ({ api: {
 
 const { default: Directory } = await import('./Directory');
 
-afterEach(() => { cleanup(); payload = { ...payload, gaps: undefined }; });
+// The lens a test leaves behind persists in localStorage; clear it so every
+// test starts in Departments whatever ran before.
+afterEach(() => { cleanup(); payload = { ...payload, gaps: undefined }; localStorage.removeItem('nexus-directory-lens'); });
 
 describe('Contact Directory', () => {
   it('groups by department A-Z, shows shift and Teams status, and opens a card with Teams actions', async () => {
@@ -108,6 +110,29 @@ describe('Contact Directory', () => {
     fireEvent.click(screen.getByText('Collapse All'));
     expect(onChart()).toEqual(['bo@x.com']);
     payload = { ...payload, people: PEOPLE };
+  });
+
+  it('keeps the title on a phone row and puts the shift pill beside it', async () => {
+    // vitest.setup.js's matchMedia never matches; this one matches the
+    // Directory's phone breakpoint so the rows take their phone layout.
+    const real = window.matchMedia;
+    window.matchMedia = (q) => ({
+      matches: /max-width:\s*820px/.test(q), media: q, onchange: null,
+      addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false,
+    });
+    try {
+      render(<Directory />);
+      expect(await screen.findByText('Accounting')).toBeTruthy();
+      const rows = document.querySelectorAll('.dir-row');
+      expect(rows[1].textContent).toContain('Analyst');            // Sam's title stays (it used to give way to the pill)
+      expect(rows[1].textContent).toContain('On Shift');
+      expect(rows[2].textContent).toContain('Tech');
+      expect(rows[2].textContent).toContain('Off Today');
+      expect(await screen.findByText('On a Call')).toBeTruthy();  // Bo's Teams status lands on his title line
+      expect(rows[0].textContent).toContain('Controller');
+    } finally {
+      window.matchMedia = real;
+    }
   });
 
   it('keeps the completeness chip behind Manage when the server sends gaps', async () => {

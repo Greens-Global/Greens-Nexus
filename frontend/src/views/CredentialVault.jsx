@@ -1,7 +1,9 @@
-// Credential Vault - thin wrapper around the self-contained module port in
-// src/credvault/ (mirrors the Marketing standalone-app port pattern).
+// Credential Vault - thin wrapper around the module in src/credvault/.
+// `activeSub` carries deep links from the bell and the header search:
+// "approvals" | "personal" | "activity" | "trash" | "cred-<id>" (see
+// credvault/vaultModel.parseSub).
 import CredentialVaultApp from "../credvault/CredentialVaultApp";
 
-export default function CredentialVault() {
-  return <CredentialVaultApp />;
+export default function CredentialVault({ activeSub, onSubChange }) {
+  return <CredentialVaultApp activeSub={activeSub} onSubChange={onSubChange} />;
 }

@@ -578,7 +578,7 @@ def _ser_request(r: HrSignRequest, parties: Optional[List[HrSignParty]] = None,
            "routing": r.routing or "sequential",
            "expiresOn": r.expires_on, "createdBy": r.created_by, "createdAt": r.created_at,
            "completedAt": r.completed_at, "finalSha256": r.final_sha256,
-           "hasFinalPdf": bool(r.final_pdf_path)}
+           "hasFinalPdf": bool(r.final_pdf_path), "printsPay": bool(getattr(r, "prints_pay", 0))}
     if parties is not None:
         out["parties"] = [_ser_party(p) for p in sorted(parties, key=lambda x: x.ordinal)]
     if events is not None:
@@ -1694,7 +1694,8 @@ def _create_request(db: Session, user: dict, *, title: str, source: str, templat
                     egnyte_folder: str = "", excluded_ack: bool = False,
                     document_class: str = "", governing_law: str = "",
                     link_kind: str = "", link_id: str = "",
-                    sender_signs_first: bool = False) -> dict:
+                    sender_signs_first: bool = False, prints_pay: bool = False,
+                    saved: Optional[dict] = None) -> dict:
     # Server-side, at the one point BOTH send paths reach: a guardrail that
     # lives only in the wizard is not a guardrail - the API is reachable
     # without it, and this is the check that keeps a will or an eviction
@@ -1728,7 +1729,10 @@ def _create_request(db: Session, user: dict, *, title: str, source: str, templat
                         created_at=now, excluded_ack_at=now, excluded_ack_by=user["email"],
                         document_class=document_class or "",
                         governing_law=(governing_law or _DEFAULT_GOVERNING_LAW).upper()[:2],
-                        link_kind=link_kind or "", link_id=link_id or "")
+                        link_kind=link_kind or "", link_id=link_id or "",
+                        # Set before the commit below: the party links go out in
+                        # this same request, so a later flag would leave a window.
+                        prints_pay=1 if prints_pay else 0)
     db.add(req)
     rows = []
     for p in ordered:
@@ -1744,6 +1748,13 @@ def _create_request(db: Session, user: dict, *, title: str, source: str, templat
                                 and bool((p.phone or "").strip()),
                                 status="waiting", token=secrets.token_urlsafe(32)))
         db.add(rows[-1])
+    # Signs Once (HR packets, Oct 14): a signer whose signature was adopted
+    # once for the packet carries it from the start; it goes on when their
+    # turn comes, exactly where a typed or drawn one would.
+    for r in rows:
+        rec = (saved or {}).get(r.role_key)
+        if rec and _signs(r):
+            _preset_saved(r, rec)
     _record_packet_at_send(db, req)
     _log(db, req.id, "created",
          f"by {user['email']} - {len(rows)} parties ({routing})", ip=ip, user_agent=user_agent)
@@ -1757,6 +1768,13 @@ def _create_request(db: Session, user: dict, *, title: str, source: str, templat
     # in the order is who the envelope is waiting on.
     actors = [r for r in rows if _role_of(r) in _ACTING_ROLES]
     to_notify = actors if routing == "parallel" else actors[:1]
+    if routing != "parallel" and actors and _is_saved_pending(actors[0]):
+        # The first signer signed once already: apply it, then invite whoever
+        # is next (or seal, if nobody is).
+        db.flush()
+        _apply_saved(db, req, actors[0])
+        _advance_or_finalize(db, req)
+        to_notify = []
     for r in to_notify:
         # The sender signing their own envelope right after sending it (an HR
         # packet: the company signs, then the person) needs no invite email -
@@ -1835,7 +1853,7 @@ def envelope_from_template(db: Session, user: dict, tpl: HrSignTemplate, *, part
                            user_agent: str = "", excluded_ack: bool = False,
                            document_class: str = "", governing_law: str = "",
                            link_kind: str = "", link_id: str = "",
-                           sender_signs_first: bool = False) -> dict:
+                           sender_signs_first: bool = False, prints_pay: bool = False) -> dict:
     """Template-sourced envelope: resolve merges, freeze the snapshot, create the
     ordered parties, notify the first. The one path for POST /requests and for
     the HR packets (hr_life_events.py)."""
@@ -1867,7 +1885,36 @@ def envelope_from_template(db: Session, user: dict, tpl: HrSignTemplate, *, part
                            document_class=document_class or "",
                            governing_law=governing_law or "",
                            link_kind=link_kind, link_id=link_id,
-                           sender_signs_first=sender_signs_first)
+                           sender_signs_first=sender_signs_first, prints_pay=prints_pay)
+
+
+def envelope_from_documents(db: Session, user: dict, *, documents: list, parties: List[PartyIn],
+                            title: str, employee_id: str = "", candidate_id: str = "",
+                            entity_id: str = "", message: str = "", expires_on: str = "",
+                            ip: str = "", user_agent: str = "", excluded_ack: bool = False,
+                            document_class: str = "employment", link_kind: str = "",
+                            link_id: str = "", sender_signs_first: bool = False,
+                            prints_pay: bool = False, saved: Optional[dict] = None) -> dict:
+    """Server-rendered documents - HR packets built from the Documents module
+    (Oct 14). Each {name, path, fields} is a PDF already in _DOC_BUCKET with its
+    fields placed from the template's signature blocks. The first is the
+    envelope's source PDF, the rest ride as packet documents - the shape a PDF
+    send with attachments already has, so signing, sealing and the
+    certificate are untouched."""
+    if not documents:
+        raise HTTPException(400, "The packet has no documents")
+    docs = [{"name": d["name"], "path": d["path"], "fields": _clean_fields(list(d.get("fields") or []))}
+            for d in documents]
+    _validate_parties(parties, {f.get("role", "") for d in docs for f in d["fields"]} - {""})
+    first, rest = docs[0], docs[1:]
+    return _create_request(db, user, title=title, source="pdf", template_id="",
+                           employee_id=employee_id, candidate_id=candidate_id, entity_id=entity_id,
+                           body_snapshot=[], pdf_storage_path=first["path"], fields=first["fields"],
+                           message=message, expires_on=expires_on, parties=parties, ip=ip,
+                           user_agent=user_agent, documents=rest, routing="sequential",
+                           egnyte_folder="", excluded_ack=excluded_ack, document_class=document_class,
+                           link_kind=link_kind, link_id=link_id, sender_signs_first=sender_signs_first,
+                           prints_pay=prints_pay, saved=saved)
 
 
 @router.post("/requests")
@@ -2253,7 +2300,13 @@ def get_request(rid: str, user: dict = Depends(require_hr_read), db: Session = D
     _check_expiry(db, req)
     events = (db.query(HrSignEvent).filter(HrSignEvent.request_id == rid)
               .order_by(HrSignEvent.at).all())
-    return _ser_request(req, parties=_parties(db, rid), events=events)
+    out = _ser_request(req, parties=_parties(db, rid), events=events)
+    # The detail screen disables Download / Copy Link / recipient fixes up
+    # front instead of failing on click (the 403s above are the real gate).
+    if out["printsPay"]:
+        from routers.hr import _has_comp
+        out["payLocked"] = not _has_comp(user, db)
+    return out
 
 
 @router.post("/requests/{rid}/remind")
@@ -2337,6 +2390,18 @@ def reroute_party(db: Session, req: HrSignRequest, party: HrSignParty, *, email:
     return True
 
 
+def _require_pay_access(db: Session, req: HrSignRequest, user: dict) -> None:
+    """An envelope whose documents print pay (offer and promotion letters) opens
+    only for hr_comp holders - owner or explicit grant; an administrator's role
+    alone does not. Guards everything that hands out the document bytes: the
+    sealed PDF, a party's signing link, and re-pointing a party (which hands
+    that link to someone else). Signers keep their own access by their token."""
+    if getattr(req, "prints_pay", 0):
+        from routers.hr import _has_comp
+        if not _has_comp(user, db):
+            raise HTTPException(403, "This envelope shows pay - Pay & Benefits access is needed")
+
+
 @router.patch("/requests/{rid}/parties/{pid}")
 def correct_party(rid: str, pid: str, body: PartyFix, request: Request,
                   user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
@@ -2348,6 +2413,7 @@ def correct_party(rid: str, pid: str, body: PartyFix, request: Request,
                                          HrSignParty.request_id == rid).first()
     if not req or not party:
         raise HTTPException(404, "Not found")
+    _require_pay_access(db, req, user)
     _check_expiry(db, req)
     if req.status != "pending":
         raise HTTPException(409, f"Request is {req.status}")
@@ -2389,6 +2455,7 @@ def party_link(rid: str, pid: str, user: dict = Depends(require_hr_write),
                                          HrSignParty.request_id == rid).first()
     if not req or not party:
         raise HTTPException(404, "Not found")
+    _require_pay_access(db, req, user)
     if party.kind != "external":
         raise HTTPException(400, "Teammates sign inside Nexus - there is no external link")
     if req.status != "pending":
@@ -2406,6 +2473,7 @@ def download_final(rid: str, user: dict = Depends(require_hr_read), db: Session 
     req = db.query(HrSignRequest).filter(HrSignRequest.id == rid).first()
     if not req or not req.final_pdf_path:
         raise HTTPException(404, "No completed document")
+    _require_pay_access(db, req, user)
     resp = _storage_signed_url(_DOC_BUCKET, req.final_pdf_path)
     if not resp.is_success:
         raise HTTPException(502, "Could not create download link")
@@ -2560,6 +2628,8 @@ def my_signatures(user: dict = Depends(get_current_user), db: Session = Depends(
     for p in parties:
         if _role_of(p) not in _ACTING_ROLES:
             continue                       # CC recipients never have anything to do
+        if (p.auth_method or "") == "saved_signature":
+            continue                       # signed once already - applied automatically
         req = db.query(HrSignRequest).filter(HrSignRequest.id == p.request_id).first()
         if not req:
             continue
@@ -2897,6 +2967,16 @@ def _advance_or_finalize(db: Session, req: HrSignRequest) -> list:
     _link_hook("progress", db, req)
     remaining = [p for p in _parties(db, req.id)
                  if _role_of(p) in _ACTING_ROLES and not _is_done(p)]
+    # Signs Once: a signature adopted once is applied the moment its turn
+    # comes - nobody is emailed to sign it again.
+    while remaining and (req.routing or "sequential") == "sequential":
+        nxt = min(remaining, key=lambda p: p.ordinal)
+        if not _is_saved_pending(nxt):
+            break
+        _apply_saved(db, req, nxt)
+        db.flush()
+        _link_hook("progress", db, req)
+        remaining = [p for p in remaining if p.id != nxt.id]
     if remaining:
         if (req.routing or "sequential") == "sequential":
             nxt = min(remaining, key=lambda p: p.ordinal)
@@ -2913,6 +2993,41 @@ def _advance_or_finalize(db: Session, req: HrSignRequest) -> list:
         raise HTTPException(502, f"The sealed PDF could not be generated ({str(e)[:150]}). "
                                  f"Your response was not saved - please try again or contact HR.")
     return []
+
+
+def _preset_saved(party: HrSignParty, rec: dict) -> None:
+    """Carry a Signs Once signature on its party (HR packets, Oct 14). The
+    record is what the holder adopted: signed in to Nexus, consented to sign
+    electronically, verified with a one-time code - stored as fact here so
+    the certificate states it."""
+    party.signature_kind = rec.get("kind") or "typed"
+    party.signature_data = rec.get("data") or ""
+    party.signature_digest = rec.get("digest") or hashlib.sha256((party.signature_data or "").encode()).hexdigest()
+    party.auth_method = "saved_signature"
+    party.auth_factors = ["session", "otp", f"otp_challenge:{rec.get('otpChallengeId') or ''}",
+                         f"adopted_at:{rec.get('adoptedAt') or ''}"]
+    party.consent_at = rec.get("adoptedAt") or ""
+    party.consent_text_version = rec.get("consentVersion") or _CONSENT_VERSION
+    party.authenticated_at = rec.get("adoptedAt") or ""
+    party.ip, party.user_agent = rec.get("ip") or "", rec.get("userAgent") or ""
+
+
+def _is_saved_pending(p: HrSignParty) -> bool:
+    return (p.auth_method or "") == "saved_signature" and _signs(p) and not _is_done(p)
+
+
+def _apply_saved(db: Session, req: HrSignRequest, party: HrSignParty) -> None:
+    """A Signs Once signature goes on: the party is signed now, with the
+    signature they adopted once, and the audit trail says exactly that."""
+    adopted = next((f.split(":", 1)[1] for f in (party.auth_factors or []) if str(f).startswith("adopted_at:")), "")
+    party.status = "signed"
+    party.signed_at = _now_iso()
+    party.field_values = party.field_values or {}
+    _log(db, req.id, "signed",
+         f"{party.name} signed with the signature they adopted once for this packet"
+         + (f" on {adopted[:10]}" if adopted else "")
+         + " (signed in to Nexus, identity verified by one-time code) - applied automatically when the packet was sent",
+         party_id=party.id)
 
 
 def _apply_signature(db: Session, req: HrSignRequest, party: HrSignParty, body: SignIn,

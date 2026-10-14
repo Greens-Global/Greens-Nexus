@@ -7,7 +7,7 @@ import { X, Check, ChevronDown, ChevronLeft, ChevronRight, Plus,
   ListTree, MessageSquare, Paperclip, Download, CalendarDays, UserPlus, Repeat,
   LayoutGrid, List, FileText, Sheet } from 'lucide-react';
 import { api } from '../api';
-import { NX, FONT, colorForKey, initialsOf, statusChip, priorityChip, btn, chip, STATUS_META, input as inputStyle } from './theme';
+import { NX, FONT, colorForKey, initialsOf, btn, STATUS_META, input as inputStyle } from './theme';
 import { fmtDate, teamInProject, teamProjectIds } from './lib';
 import { rootZoom } from '../lib/utils';
 import AnchoredMenu from '../components/AnchoredMenu';
@@ -25,6 +25,7 @@ import { useBackToClose } from '../lib/useBackToClose';
 import { toDownloadUrl } from '../lib/storageView';
 import { frequentRows } from './frequentPeople';
 import TeamPicks, { pickableTeams, firstTeamPick, toggleRoster } from './teamPicks';
+import { StatusLabel, PrioritySignal } from '../components/StatusLabel';
 
 // `card={false}` opts a call site out of the hover card - for avatars that are
 // already inside an interactive row (menu items, pickers), where a second click
@@ -50,17 +51,15 @@ export function Avatar({ email, name, size = 26, card = true }) {
   return <PersonHover email={email} name={label} disabled={!card}>{img}</PersonHover>;
 }
 
-export function StatusChip({ status }) {
+// Soft labels (Oct 14 2026) - see components/StatusLabel.jsx.
+export function StatusChip({ status, size }) {
   // Reflect custom statuses (Manage → Custom Statuses) in addition to built-ins.
   const { statusMeta } = useTasks();
-  const m = statusMeta?.[status];
-  if (m) return <span style={{ ...chip(m.color, m.tint) }}>{m.label}</span>;
-  const { label, ...s } = statusChip(status);
-  return <span style={s}>{label}</span>;
+  const m = statusMeta?.[status] || STATUS_META[status] || { label: status, color: '#64748b' };
+  return <StatusLabel label={m.label} color={m.color} size={size} />;
 }
 export function PriorityChip({ priority }) {
-  const { label, ...s } = priorityChip(priority);
-  return <span style={s}>{label}</span>;
+  return <PrioritySignal priority={priority} />;
 }
 
 // Single floating "+" action, styled like the create segment of MobileTaskBar

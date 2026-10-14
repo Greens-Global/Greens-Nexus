@@ -375,7 +375,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, clock = null }) {
   const toLabel = (t) => timeOffLabel(t) || 'Time Off';
   const dayOf = (d) => formatDate(d + 'T12:00:00');
   const spanLabel = (r) => r.startDate === r.endDate ? dayOf(r.startDate) : `${dayOf(r.startDate)} - ${dayOf(r.endDate)}`;
-  const clockParts = typeof clock === 'function' ? clock(profile?.firstName || '') : null;
+  const clockParts = typeof clock === 'function' ? clock() : null;
   // undefined = no clock handed in (no shift data at all); null = loading.
   const shiftInfo = clockParts ? clockParts.shift : undefined;
   // Time-tracking exempt: Workday hands in what it already knows (the
@@ -384,17 +384,16 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, clock = null }) {
   const hoursExempt = clockParts?.exempt ?? !!sheet?.timeTrackingExempt;
 
   return (
-    <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out', fontFamily: 'var(--wk-font)' }}>
+    <div className="wd-overview" style={{ animation: 'fadeIn var(--transition-normal) ease-in-out', fontFamily: 'var(--wk-font)' }}>
       {toast && (
         <div style={{ padding: '9px 14px', borderRadius: 10, marginBottom: 14, fontSize: 12.5, fontWeight: 600,
           background: toast.ok ? 'hsla(var(--color-green),0.1)' : 'rgba(220,38,38,0.08)',
           color: toast.ok ? 'hsl(var(--color-green))' : '#b91c1c' }}>{toast.t}</div>
       )}
 
-      {/* Top of the page, in reading order (Oct 2): the greeting, the summary
-          tiles, then the clock card. The clock never waits on the HR profile -
+      {/* Top of the page, in reading order (Oct 2, greeting dropped Oct 14):
+          the summary tiles, then the clock card. The clock never waits on the HR profile -
           only the tiles do, and they hold their place with a skeleton. */}
-      {clockParts?.intro}
       {profile ? (
         <>
           {/* ── Stat tiles ── each opens what it counts. Hours hidden for

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { useMsal } from '@azure/msal-react';
 import {
@@ -32,6 +32,7 @@ const WeatherWidget = lazy(() => import('./weatherWidget.jsx'));
 // The one-tap Punch tile (Oct 11) brings the whole punch stack (gates, the
 // durable queue, geolocation, agent pairing) - loaded only when a board has one.
 const PunchTile = lazy(() => import('./essentials/PunchTile.jsx'));
+const PunchIcon = lazy(() => import('./essentials/PunchTile.jsx').then(m => ({ default: m.PunchIcon })));
 
 const ApprovalsPanel    = lazyPanel('ApprovalsPanel');
 const WhoHasWhatPanel   = lazyPanel('WhoHasWhatPanel');
@@ -640,15 +641,53 @@ export const QUICK_ACTIONS = [
   { key: 'purchase',      label: 'New Purchase Request', view: 'purchase',                 color: 'purple', Icon: ShoppingCart },
   { key: 'timeclock',     label: 'Time Clock',        view: 'timeclock',    color: 'green',  Icon: Clock },
   { key: 'kb',            label: 'Knowledge Base',    view: 'sop',          color: 'brand',  Icon: BookOpen },
+  // More places to reach in one tap (Neil, 10/13). `module` names the Access
+  // Group grant the screen needs (same rule as a module-gated widget); a
+  // person without it never sees the action offered or placed.
+  { key: 'find-person',   label: 'Find a Person',     view: 'directory',                      color: 'blue',   Icon: Users },
+  { key: 'checkout-item', label: 'Check Out an Item', view: 'inventory', sub: 'checkouts',    color: 'orange', Icon: HandCoins },
+  { key: 'my-shifts',     label: 'My Shifts',         view: 'shifts', sub: 'mine',            color: 'green',  Icon: CalendarDays },
+  { key: 'briefing',      label: 'My Briefing',       view: 'briefing',                       color: 'brand',  Icon: Sun },
+  { key: 'credvault',     label: 'Credential Vault',  view: 'credvault', module: 'credvault', color: 'purple', Icon: ShieldCheck },
 ];
 // Time Clock and Knowledge Base left the default set for New Ticket (Neil,
 // 10/08); both stay in the catalog for a tile that picks them.
 export const DEFAULT_QUICK_ACTIONS = ['task', 'event', 'email', 'request-item', 'ticket'];
+// The tile's config `actions` is an ORDERED list of keys (the picker reorders
+// it, Oct 13) over the Action Tile's catalog, so the punch is a quick action
+// too. Keys the catalog no longer carries are skipped, never crash.
 export function resolveQuickActions(config) {
   const keys = Array.isArray(config?.actions) && config.actions.length ? config.actions : DEFAULT_QUICK_ACTIONS;
-  const picked = new Set(keys);
-  return QUICK_ACTIONS.filter(a => picked.has(a.key));
+  return keys.map(actionChoice).filter(Boolean);
 }
+// May this person use an action? The punch is nothing to a time-tracking-
+// exempt person; a `module` action needs that grant (administrators bypass,
+// a Viewer-level grant is enough) - the same tests widgetAllowed applies.
+export function actionAllowed(a, role) {
+  if (!a) return false;
+  if (a.timeTracked && role?.timeTrackingExempt === true) return false;
+  if (a.module && !role?.canAccessModule?.(a.module, 'administrator', 'viewer')) return false;
+  return true;
+}
+// How a Quick Actions tile draws (Neil, 10/13): bare icons on the board, one
+// per grid cell, is the default for a new tile; a tile saved before styles
+// existed carries no `style` and keeps the list it was sized for.
+export const QUICK_STYLES = [
+  { key: 'icons', label: 'Icons Only',   hint: 'Bare icons on the board, one per cell - a dock you can drop anywhere' },
+  { key: 'tiles', label: 'Icons + Names', hint: 'App-style tiles with the name under each icon' },
+  { key: 'list',  label: 'List',         hint: 'One row per action with its name and an arrow' },
+];
+export const DEFAULT_QUICK_STYLE = 'icons';
+export const quickStyleOf = (config) => (QUICK_STYLES.some(st => st.key === config?.style) ? config.style : 'list');
+// Size rules per style: a dock goes down to one row (2x1 = two icons), the
+// named tiles need two rows for an icon and a name, the list keeps its old
+// bounds. Read through `limitsWhen` so the resize handle follows the style.
+export const QUICK_LIMITS = {
+  icons: { minW: 2, minH: 1, maxW: 12, maxH: 4 },
+  tiles: { minW: 2, minH: 2, maxW: 12, maxH: 6 },
+  list:  { minW: 3, minH: 2, maxW: 6,  maxH: 6 },
+};
+export const QUICK_SIZE = { icons: { w: 3, h: 2 }, tiles: { w: 4, h: 2 }, list: { w: 3, h: 4 } };
 // Which composer is open and the one-line note it left behind, shared by the
 // Quick Actions card and the Action Tile. Composers report whether Graph sent
 // it or Outlook took over, so the card can say which actually happened
@@ -671,22 +710,140 @@ function useComposer() {
   return { modal, setModal, note, close };
 }
 
-function QuickActionsWidget({ config }) {
+// One icon of a dock or a tile grid. The punch is live (its icon is the next
+// punch, it turns green while clocked in) and lazy, like the Punch tile; any
+// other action is a plain chip that composes or navigates.
+function QuickIcon({ a, className, onRun, onNote }) {
+  if (a.key === 'punch') {
+    return (
+      <Suspense fallback={<button type="button" className={`${className} dk-chip--green`} aria-label="Punch Clock" title="Punch Clock" disabled><Clock /></button>}>
+        <PunchIcon className={className} onNote={onNote} />
+      </Suspense>
+    );
+  }
+  return (
+    <button type="button" className={`${className} dk-chip--${a.color}`} title={a.label} aria-label={a.label} onClick={() => onRun(a)}>
+      <a.Icon />
+    </button>
+  );
+}
+
+// The list rows - the List style and the dock's overflow sheet draw the
+// same rows (icon chip, label, chevron: DeskHome's quick-action anatomy).
+// The punch row is the live punch icon with its name beside it.
+function QuickActionRows({ actions, onRun, onNote }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      {actions.map(a => (
+        a.key === 'punch'
+          ? <div key={a.key} className="dk-key qa-list-punch"><QuickIcon a={a} className="dk-chip qa-list-punch-chip" onRun={onRun} onNote={onNote} /> {a.label}</div>
+          : (
+            <button key={a.key} className="dk-key" onClick={() => onRun(a)}>
+              <span className={`dk-chip dk-chip--${a.color}`}><a.Icon /></span> {a.label}
+              <ChevronRight size={14} className="dk-key-arrow" />
+            </button>
+          )
+      ))}
+    </div>
+  );
+}
+
+// The actions a dock could not fit, as the list rows, in a sheet.
+function QuickActionsSheet({ actions, onRun, onNote, onClose }) {
+  return createPortal((
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" style={{ width: 360, maxWidth: '92vw' }} onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h3>Quick Actions</h3>
+          <button className="close-btn" onClick={onClose} aria-label="Close"><X size={16} /></button>
+        </div>
+        <div style={{ padding: '10px 14px 16px' }}>
+          <QuickActionRows actions={actions} onRun={onRun} onNote={onNote} />
+        </div>
+      </div>
+    </div>
+  ), document.body);
+}
+
+// Icons Only (Neil, 10/13): no card - the icons sit on the board, one per
+// grid cell, so a w x h tile is exactly w x h icons and a 3x1 is a dock.
+// More actions than cells: the last cell is "+N" and opens the rest as a
+// sheet, so a row is never half drawn. On a phone the board stacks to one
+// column and the tile is one row tall (phoneRowsWhen), so the dock is a
+// single strip: the icons spread across it, and scroll sideways when there
+// are more than fit. The composer's one-line result floats over the strip
+// for a moment since there is no card header to carry it.
+// `phone` is the grid's own stacking decision (DashboardGrid hands it to
+// every widget), so the dock is a strip exactly when its cell is one row.
+function QuickActionDock({ actions, size, phone, note, onRun, onNote }) {
+  const [more, setMore] = useState(false);
+  const w = Math.max(1, size?.w || 3), h = Math.max(1, size?.h || 1);
+  const cap = phone ? actions.length : w * h;
+  const shown = actions.length > cap ? actions.slice(0, Math.max(0, cap - 1)) : actions;
+  const rest = actions.slice(shown.length);
+  return (
+    <div className={`qa-dock${phone ? ' qa-dock--row' : ''}`} role="group" aria-label="Quick actions"
+      style={phone ? undefined : { gridTemplateColumns: `repeat(${w}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${h}, minmax(0, 1fr))` }}>
+      {actions.length === 0 && <span className="qa-empty">No quick actions apply to you - configure this tile</span>}
+      {shown.map(a => <QuickIcon key={a.key} a={a} className="qa-icon" onRun={onRun} onNote={onNote} />)}
+      {rest.length > 0 && (
+        <button type="button" className="qa-icon qa-icon--more" onClick={() => setMore(true)}
+          title={`${rest.length} more`} aria-label={`${rest.length} more quick actions`}>+{rest.length}</button>
+      )}
+      {note && <span role="status" className="qa-note">{note}</span>}
+      {more && <QuickActionsSheet actions={rest} onNote={onNote} onClose={() => setMore(false)} onRun={(a) => { setMore(false); onRun(a); }} />}
+    </div>
+  );
+}
+
+function QuickActionsWidget({ config, size, phone }) {
   const { modal, setModal, note, close } = useComposer();
-  const actions = resolveQuickActions(config);
-  // Same row anatomy as DeskHome's quick actions - icon chip, label, chevron.
+  const role = useRole();
+  const style = quickStyleOf(config);
+  const actions = resolveQuickActions(config).filter(a => actionAllowed(a, role));
+  const run = (a) => (a.act ? setModal(a.act) : navigate(a.view, a.sub));
+  // Stable: PunchIcon pushes its note through this once per note, not once
+  // per render of this widget.
+  const onNote = useCallback((t) => close({ toast: t }), [close]);
+  const composer = modal && <Suspense fallback={<ModalLoading />}><QuickActionModal kind={modal} onClose={close} /></Suspense>;
+  if (style === 'icons') {
+    return (
+      <>
+        <QuickActionDock actions={actions} size={size} phone={phone} note={note} onRun={run} onNote={onNote} />
+        {composer}
+      </>
+    );
+  }
+  if (style === 'tiles') {
+    // App-icon tiles with the name under each, no header (the icons say what
+    // the card is); the grid wraps to the width and scrolls past the height.
+    return (
+      <div className="dash-card qa-tiles-card">
+        {actions.length === 0 && <div className="qa-empty">No quick actions apply to you - configure this tile.</div>}
+        <div className="qa-tiles" role="group" aria-label="Quick actions">
+          {actions.map(a => (
+            a.key === 'punch'
+              ? <div key={a.key} className="qa-tile qa-tile--static"><QuickIcon a={a} className="qa-icon qa-tile-chip" onRun={run} onNote={onNote} /><span className="qa-tile-name">{a.label}</span></div>
+              : (
+                <button key={a.key} type="button" className="qa-tile" onClick={() => run(a)} title={a.label}>
+                  <span className={`qa-icon qa-tile-chip dk-chip--${a.color}`} aria-hidden="true"><a.Icon /></span>
+                  <span className="qa-tile-name">{a.label}</span>
+                </button>
+              )
+          ))}
+        </div>
+        {note && <div className="qa-tiles-note" role="status">{note}</div>}
+        {composer}
+      </div>
+    );
+  }
+  // List - the original.
   return (
     <DashCard title="Quick Actions" sub={note || undefined}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-        {actions.map(a => (
-          <button key={a.key} className="dk-key"
-            onClick={() => a.act ? setModal(a.act) : navigate(a.view, a.sub)}>
-            <span className={`dk-chip dk-chip--${a.color}`}><a.Icon /></span> {a.label}
-            <ChevronRight size={14} className="dk-key-arrow" />
-          </button>
-        ))}
-      </div>
-      {modal && <Suspense fallback={<ModalLoading />}><QuickActionModal kind={modal} onClose={close} /></Suspense>}
+      {actions.length === 0
+        ? <div className="qa-empty" style={{ padding: '10px 0' }}>No quick actions apply to you - configure this tile.</div>
+        : <QuickActionRows actions={actions} onRun={run} onNote={onNote} />}
+      {composer}
     </DashCard>
   );
 }
@@ -896,7 +1053,12 @@ export const WIDGETS = {
   'links-folder': { title: 'Links Folder',   cat: 'Links',     icon: FolderOpen,   size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 4, maxH: 6 }, render: LinksFolderWidget, configurable: 'links-folder' },
   favorites:     { title: 'Favorites',       cat: 'Links',     icon: Bookmark,     size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 6, maxH: 6 }, render: FavoritesWidget },
   'personal-links': { title: 'My Personal Links', cat: 'Links', icon: Link2,       size: { w: 3, h: 4 }, limits: { minW: 2, minH: 3, maxW: 6, maxH: 6 }, render: PersonalLinksWidget },
-  'quick-actions': { title: 'Quick Actions', cat: 'Actions',   icon: ListTodo,         size: { w: 3, h: 4 }, limits: { minW: 3, minH: 2, maxW: 6, maxH: 6 }, render: QuickActionsWidget, configurable: 'quick-actions' },
+  // Quick Actions (styles Oct 13): the size, the resize bounds and the phone
+  // height all follow the style in the tile's config - a bare icon dock is
+  // one row on a phone, the list keeps what it had.
+  'quick-actions': { title: 'Quick Actions', cat: 'Actions',   icon: ListTodo,         size: QUICK_SIZE.icons, limits: QUICK_LIMITS.list, render: QuickActionsWidget, configurable: 'quick-actions',
+                     sizeWhen: (config) => QUICK_SIZE[quickStyleOf(config)], limitsWhen: (config) => QUICK_LIMITS[quickStyleOf(config)],
+                     phoneRowsWhen: (config) => (quickStyleOf(config) === 'icons' ? 1 : undefined) },
   notifications: { title: 'Notifications',   cat: 'Live',      icon: Bell,         size: { w: 4, h: 4 }, limits: { minW: 3, minH: 3, maxW: 8, maxH: 6 }, render: NotificationsWidget },
   // 'agenda' is the pre-merge widget type (My Agenda, list-only) - kept as a
   // hidden alias so dashboards that already have one keep working, but it now
@@ -977,8 +1139,15 @@ export function sizeLabel({ w, h } = {}) {
 }
 
 // Clamp a layout item to its widget's limits (also keeps it inside the 12-col grid).
+// A widget's size bounds, with the config's say (a Quick Actions style
+// changes them) - the one place the grid, the clamp and the config update
+// ask. `limitsFor` in CustomDashboard and updateWidgetConfig read this too.
+export function limitsOf(type, config) {
+  const def = WIDGETS[type];
+  return def?.limitsWhen?.(config) || def?.limits || {};
+}
 export function clampToLimits(it) {
-  const lim = WIDGETS[it.type]?.limits || {};
+  const lim = limitsOf(it.type, it.config);
   const w = Math.min(Math.max(it.w, lim.minW ?? 2), lim.maxW ?? 12);
   const h = Math.min(Math.max(it.h, lim.minH ?? 2), lim.maxH ?? 8);
   const x = Math.min(Math.max(0, it.x), 12 - w);

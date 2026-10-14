@@ -50,6 +50,7 @@ _LEASE_STALE_SECONDS = 45   # a leader silent this long is considered dead
 _CLAIM_TIMEOUT_SECONDS = 20
 
 _is_leader = _IS_SQLITE     # single-process local dev is always the leader
+_released = False           # set by release_lease(): this process is shutting down
 
 
 def is_background_leader() -> bool:
@@ -110,8 +111,36 @@ def _ensure_table():
 def _claim_lease() -> bool:
     """Sync (runs in a worker thread): atomically claim or renew the lease.
     Returns True if this instance now holds it."""
+    if _released:
+        return False            # shutting down - never take back what we handed over
     with engine.begin() as conn:
         return conn.execute(_CLAIM, {"me": _INSTANCE, "stale": _LEASE_STALE_SECONDS}).first() is not None
+
+
+# Hand the lease back: mark OUR heartbeat stale, so the next claim by anyone
+# wins at once. A no-op (0 rows) when somebody else holds it - a worker that is
+# not the leader must never touch the leader's row.
+_RELEASE = text(
+    "UPDATE nexus_leader SET heartbeat_at = now() - make_interval(secs => :stale) "
+    "WHERE id = 1 AND holder = :me"
+)
+
+
+def release_lease() -> bool:
+    """Sync (run it in a worker thread): give up the lease on shutdown, if this
+    process holds it. Without it a restarted or recycled leader's lease sat
+    there until it went stale, and the background jobs ran nowhere for up to
+    _LEASE_STALE_SECONDS. Returns True if a lease was actually released.
+    Nothing to release on SQLite (no lease). May raise on a DB error - the
+    caller (main.py's lifespan shutdown) swallows it; the staleness window is
+    still the backstop."""
+    global _is_leader, _released
+    _released = True
+    if _IS_SQLITE:
+        return False
+    _is_leader = False
+    with engine.begin() as conn:
+        return conn.execute(_RELEASE, {"me": _INSTANCE, "stale": _LEASE_STALE_SECONDS + 1}).rowcount > 0
 
 
 async def elect_and_run(start_jobs):
@@ -124,7 +153,8 @@ async def elect_and_run(start_jobs):
     rather than silently halting every reminder/notification. On a single instance
     that's correct; if it ever fired with two instances you'd see duplicate sends and
     know to look."""
-    global _is_leader
+    global _is_leader, _released
+    _released = False           # a fresh start (only ever re-entered in tests)
 
     if _IS_SQLITE:
         _is_leader = True

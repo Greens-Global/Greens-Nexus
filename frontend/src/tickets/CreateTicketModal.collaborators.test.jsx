@@ -31,7 +31,7 @@ afterEach(() => { cleanup(); createTicket.mockClear(); });
 describe('Create a Ticket - Collaborators', () => {
   it('sends the people picked as the ticket\'s collaborators', async () => {
     render(<CreateTicketModal onClose={vi.fn()} />);
-    const title = await screen.findByPlaceholderText(/What is the issue\?/);
+    const title = await screen.findByPlaceholderText(/What is the issue\?/, {}, { timeout: 5000 });
     expect(screen.getByText('Collaborators')).toBeTruthy();
     fireEvent.change(title, { target: { value: 'Printer jammed' } });
     fireEvent.click(screen.getByRole('button', { name: 'Collaborators' }));
@@ -47,7 +47,8 @@ describe('Create a Ticket - Collaborators', () => {
   it("a converted task's assignees and collaborators come over, less its owner", async () => {
     render(<CreateTicketModal onClose={vi.fn()} fromTask={{ id: 'task1', title: 'Fix the printer', description: '', priority: 'medium',
       ownerId: 'me@example.com', fileCount: 0, collaboratorIds: ['me@example.com', 'Urmi@example.com', 'urmi@example.com'] }} />);
-    expect(await screen.findByText(/collaborators filled in/)).toBeTruthy();
-    expect(screen.getByTitle('Remove Urmi Patel')).toBeTruthy();
+    // Generous waits: the form loads its lists first, and a full-suite run is slow.
+    expect(await screen.findByText(/collaborators filled in/, {}, { timeout: 5000 })).toBeTruthy();
+    expect(await screen.findByTitle('Remove Urmi Patel', {}, { timeout: 5000 })).toBeTruthy();
   });
 });

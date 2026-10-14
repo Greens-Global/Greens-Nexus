@@ -27,6 +27,7 @@ import { repeatOption } from '../RecurrenceMenu';
 import { useFlip } from '../../lib/motion';
 import ChangeFlash from '../../components/ChangeFlash';
 import { changedRecently } from '../recentChanges';
+import { StatusLabel, PrioritySignal } from '../../components/StatusLabel';
 
 const BASE_COLS = [
   { key: 'checkbox', label: '', width: 28, fixed: true },
@@ -40,8 +41,8 @@ const BASE_COLS = [
   // arrangement of this column.
   { key: 'estimate', label: 'Time', width: 104 },
   { key: 'actual', label: 'Actual', width: 86 },
-  { key: 'priority', label: 'Priority', width: 96, center: true },
-  { key: 'status', label: 'Status', width: 116, center: true },
+  { key: 'priority', label: 'Priority', width: 108, center: true },
+  { key: 'status', label: 'Status', width: 140, center: true },
   { key: 'team', label: 'Team', width: 126, center: true },
   { key: 'timeline', label: 'Timeline', width: 148, center: true },
 ];
@@ -184,29 +185,31 @@ const dueColor = (iso, completed) => {
 };
 
 // A colored pill that opens an app-styled dropdown (matches the export's PillMenu).
-// `solid` renders the monday.com-style full-cell colored block (white text on the
-// status color) instead of a translucent pill.
+// `variant` 'status' / 'priority' draws the shared soft status label or the
+// priority signal (components/StatusLabel.jsx) - the monday.com-style solid
+// cell fills were retired (Neil, Oct 14 2026).
 // Exported for Manage > Data Quality, whose table is this one's (Oct 14 2026).
-export function PillSelect({ label, color, tint, icon, options, currentKey, onSelect, center, solid }) {
+export function PillSelect({ label, color, tint, icon, options, currentKey, onSelect, center, variant }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   const panelRef = useRef(null);
   const close = () => setOpen(false);
   useClickOutside([ref, panelRef], close, open);
   return (
-    <div ref={ref} style={{ position: 'relative', display: 'flex', justifyContent: center ? 'center' : 'flex-start', ...(solid ? { width: '100%', height: '100%' } : {}) }}>
-      <button onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }} style={solid ? {
-        position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, width: '100%', height: '100%', minHeight: 32,
-        padding: '0 18px', borderRadius: 0, fontSize: 12.5, fontWeight: 500, background: color, color: '#fff', border: 'none',
-        cursor: 'pointer', transition: 'filter 0.12s', whiteSpace: 'nowrap',
+    <div ref={ref} style={{ position: 'relative', display: 'flex', justifyContent: center ? 'center' : 'flex-start', minWidth: 0, maxWidth: '100%', ...(variant ? { width: '100%', alignSelf: 'stretch' } : {}) }}>
+      <button onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }} style={variant ? {
+        display: 'flex', alignItems: 'center', justifyContent: center ? 'center' : 'flex-start', gap: 4, minWidth: 0, width: '100%', padding: 0,
+        background: 'none', border: 'none', cursor: 'pointer', fontFamily: FONT, color: NX.dim,
       } : {
         display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: '100%', padding: '2px 8px', borderRadius: 999,
         fontSize: 12, fontWeight: 600, background: tint, color, border: 'none', cursor: 'pointer',
       }}>
-        {icon}<span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
-        {/* A solid cell's chevron floats on the right edge so the label sits
-            in the true middle of the cell, under its centered header. */}
-        <ChevronDown size={12} className="rl-chevron" style={{ flexShrink: 0, ...(solid ? { position: 'absolute', right: 5 } : {}) }} />
+        {variant === 'status' ? <StatusLabel label={label} color={color} />
+          : variant === 'priority' ? <PrioritySignal priority={currentKey} />
+          : <>{icon}<span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span></>}
+        {/* A label is its own affordance; the hidden chevron's room would
+            only truncate it in a narrow column. */}
+        {!variant && <ChevronDown size={12} className="rl-chevron" style={{ flexShrink: 0 }} />}
       </button>
       {open && (
         <PortalDropdown anchorRef={ref} panelRef={panelRef} align={center ? 'left' : 'left'} width={168}>
@@ -298,10 +301,9 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
   const parent = t.parentTaskId ? rootParent(t, store.taskById) : null;
   const parentProjectId = parent ? effectiveProjectId(t, store.taskById) : '';
   // monday-style spreadsheet cells: every cell carries a right border, rows are
-  // a compact ~36px, and status/priority blocks fill their cell edge-to-edge.
+  // a compact ~36px; status and priority are soft labels (Oct 14 2026).
   const cellPad = { minWidth: 0, display: 'flex', alignItems: 'center', minHeight: 36, padding: '2px 8px', borderRight: `1px solid ${NX.border2}`, boxSizing: 'border-box' };
   const editCell = { ...cellPad };
-  const flushCell = { ...cellPad, padding: 0, alignItems: 'stretch' };
   const pm = PRIORITY_META[t.priority] || { label: t.priority, color: NX.dim, tint: NX.border2 };
   const sm = store.statusMeta[t.status] || { label: t.status, color: NX.dim, tint: NX.border2 };
   const team = t.teamId ? store.teamById(t.teamId) : null;
@@ -474,18 +476,18 @@ function TaskRow({ t, cols, customFields = [], store, people, selected, toggleSe
           <span style={{ color: NX.faint, fontSize: 12 }}>h</span>
         </div>
         ),
-        // priority - monday-style edge-to-edge colored cell
+        // priority - the shared priority signal (Oct 14 2026)
         priority: (
-        <div style={flushCell} onClick={(e) => e.stopPropagation()}>
-          <PillSelect solid center label={pm.label} color={pm.color} tint={pm.tint} currentKey={t.priority}
+        <div className="rl-cell" style={editCell} onClick={(e) => e.stopPropagation()}>
+          <PillSelect variant="priority" center label={pm.label} color={pm.color} tint={pm.tint} currentKey={t.priority}
             options={PRIORITY_ORDER.map((p) => ({ key: p, label: PRIORITY_META[p].label, color: PRIORITY_META[p].color }))}
             onSelect={(k) => store.updateTask(t.id, { priority: k })} />
         </div>
         ),
-        // status - monday-style edge-to-edge colored cell
+        // status - the shared soft status label (Oct 14 2026)
         status: (
-        <div style={flushCell} onClick={(e) => e.stopPropagation()}>
-          <PillSelect solid center label={sm.label} color={sm.color} tint={sm.tint} currentKey={t.status}
+        <div className="rl-cell" style={editCell} onClick={(e) => e.stopPropagation()}>
+          <PillSelect variant="status" center label={sm.label} color={sm.color} tint={sm.tint} currentKey={t.status}
             // This row's OWN project, not the view's - the list is cross-project in My Tasks.
             options={(store.statusOrderFor ? store.statusOrderFor(t.projectId) : store.statusOrder).map((s) => ({ key: s, label: store.statusMeta[s]?.label || s, color: store.statusMeta[s]?.color }))}
             onSelect={(k) => store.setStatus(t.id, k)} />

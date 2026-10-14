@@ -42,6 +42,7 @@ import { RecurrenceMenu, RecurrenceEnds, repeatOption, repeatSummary } from './R
 // Moved to RecurrenceMenu.jsx with the rest of the Repeat controls; still
 // importable from here.
 export { CommitNumberInput } from './RecurrenceMenu';
+import { StatusLabel, PrioritySignal } from '../components/StatusLabel';
 
 const DEP_TYPES = { FS: 'Finish → Start', SS: 'Start → Start', FF: 'Finish → Finish', SF: 'Start → Finish' };
 // ── tiny inline primitives ───────────────────────────────────────────────────
@@ -2032,8 +2033,8 @@ function PropertiesTab({ task, nameOf, projectName, teamName, customFields, patc
   const sm = statusMeta[task.status] || {};
   const pm = PRIORITY_META[task.priority] || {};
   const rows = [
-    ['Status', <Chip color={sm.color} tint={sm.tint}>{sm.label}</Chip>],
-    ['Priority', <Chip color={pm.color} tint={pm.tint}>{pm.label}</Chip>],
+    ['Status', <StatusLabel label={sm.label} color={sm.color} />],
+    ['Priority', <PrioritySignal priority={task.priority} />],
     ['Assignee', taskAssignees(task).length
       ? <span style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
           {taskAssignees(task).map((e) => (

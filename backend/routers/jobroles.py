@@ -472,6 +472,18 @@ def assign_job_role(jr_id: str, body: AssignBody, user: dict = Depends(get_curre
     if not email:
         raise HTTPException(status_code=400, detail="Email is required")
     warning = check_can_assign(db, user, jr, email)
+    # Swapping an employee's role needs their manager's or HR's approval
+    # (Pranshu, Oct 13 - role_change.py); only a Global Admin may still do it
+    # directly. A first role, re-applying the same role (reset to the role's
+    # tier) and external users are unchanged.
+    if user["role"] != "owner":
+        from hr_life_events import current_job_role
+        cur = current_job_role(db, email)
+        emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
+        if cur and cur.id != jr.id and emp and (emp.identity_type or "internal") == "internal":
+            raise HTTPException(status_code=409, detail=(
+                "Changing someone's role needs their manager's or HR's approval - use Change Role "
+                "on their People profile or in Settings > Access."))
     tier = apply_job_role(db, jr, email, user["email"])
     db.commit()
     return {"assigned": email, "job_role": jr.name, "tier": tier,
