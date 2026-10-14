@@ -16,7 +16,7 @@ let PHONE = false;
 const realMatchMedia = window.matchMedia;
 beforeEach(() => {
   window.matchMedia = (q) => ({
-    matches: PHONE && /max-width:\s*900px/.test(q), media: q, onchange: null,
+    matches: (PHONE && /max-width:\s*900px/.test(q)) || (!PHONE && /hover:\s*hover/.test(q)), media: q, onchange: null,
     addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false,
   });
 });

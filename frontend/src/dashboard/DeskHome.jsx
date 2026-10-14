@@ -21,6 +21,11 @@ import {
 import { useRole } from '../contexts/RoleContext';
 import { api } from '../api';
 import { useTimeStatus } from '../lib/useTimeStatus';
+// The header chip shows today's worked hours as H:MM - the same number and
+// format as the sidebar's time clock chip (Neil, Oct 14 2026), not seconds
+// since the last punch.
+import { fmtHM } from '../lib/timeclockStore';
+import { deriveMyTime } from './essentials/usePunchClock.jsx';
 import { useWorldClockPicks, headerClocks } from '../lib/worldClockZones';
 import { formatTimeIn, greetingFor } from '../lib/datetime';
 import { ModalLoading } from '../components/AsyncState';
@@ -69,12 +74,6 @@ const ZoneClock = ({ clock, now }) => (
   <>{clock.label && <>{clock.label} </>}<b>{formatTimeIn(now, clock.tz)}{clock.abbr && ` ${clock.abbr}`}</b></>
 );
 
-// H:MM, no seconds (Neil, Oct 14 2026: the ticking seconds were distracting;
-// same format as the sidebar's time clock chip).
-const fmtElapsed = (secs) => {
-  const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60);
-  return `${h}:${String(m).padStart(2, '0')}`;
-};
 
 const timeAgo = (ts) => {
   if (!ts) return '';
@@ -183,7 +182,7 @@ export function DeskGreeting({ summary = null, right = null, menu = null }) {
             style={{ flexShrink: 0, whiteSpace: 'nowrap' }}
           >
             <span className={`dk-dot ${clockedIn ? 'dk-dot--up' : 'dk-dot--off'}`} />
-            {clockedIn ? <>Clocked in · <b>{fmtElapsed(elapsed)}</b></> : <>Clocked out<span className="dk-session-long"> · Open time clock</span></>}
+            {clockedIn ? <>Clocked in · <b>{fmtHM(deriveMyTime({ status, now }).todayMin)}</b></> : <>Clocked out<span className="dk-session-long"> · Open time clock</span></>}
           </button>
           {/* "…" view menu: its own distinct button, at the far right corner
               after the session chip - not merged with it (Pranshu, Sep 15

@@ -8,7 +8,7 @@
 // A surface that takes over the desktop drawing claims it (the sidebar chip
 // while it is on screen); the capsule then renders only its modals. The claim
 // is a counter so two sidebars during a boundary reset never leave it stuck.
-import { useEffect, useState } from 'react';
+import { useSyncExternalStore } from 'react';
 
 let vm = null;
 let vmKey = '';
@@ -29,14 +29,11 @@ export function publishTimeclock(next) {
   vmSubs.forEach((f) => f(next));
 }
 
+const subscribeVm = (cb) => { vmSubs.add(cb); return () => vmSubs.delete(cb); };
+const subscribeClaims = (cb) => { claimSubs.add(cb); return () => claimSubs.delete(cb); };
+
 export function useTimeclock() {
-  const [state, setState] = useState(vm);
-  useEffect(() => {
-    vmSubs.add(setState);
-    setState(vm);
-    return () => vmSubs.delete(setState);
-  }, []);
-  return state;
+  return useSyncExternalStore(subscribeVm, () => vm, () => vm);
 }
 
 // Call from a surface that draws the clock in the page chrome. Returns the
@@ -50,13 +47,7 @@ export function timeclockSurfaceClaimed() { return claims > 0; }
 
 // Hook form of the claim count, for the capsule.
 export function useTimeclockClaimed() {
-  const [n, setN] = useState(claims);
-  useEffect(() => {
-    claimSubs.add(setN);
-    setN(claims);
-    return () => claimSubs.delete(setN);
-  }, []);
-  return n > 0;
+  return useSyncExternalStore(subscribeClaims, () => claims > 0, () => false);
 }
 
 // Minutes as H:MM - no seconds (Neil, Oct 14 2026: "very distracting").

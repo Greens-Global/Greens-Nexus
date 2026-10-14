@@ -44,24 +44,28 @@ describe('ClockChip', () => {
   it('capture: off, recording with another-screen, paused for break', () => {
     const vm = working({ capture: { screens: 0, paused: false, intervalMin: 5, randomize: false } });
     const r = render(<ClockChip vm={vm} />);
-    fireEvent.click(screen.getByRole('button', { name: /Capture off/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Capture Off/ }));
     expect(vm.actions.toggleCapture).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('button', { name: 'Capture another screen' })).toBeNull();
     r.unmount();
     const vm2 = working({ capture: { screens: 2, paused: false, intervalMin: 5, randomize: true } });
     const r2 = render(<ClockChip vm={vm2} />);
-    expect(screen.getByRole('button', { name: /Recording · 2 screens/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Recording · 2 Screens/ })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Capture another screen' }));
     expect(vm2.actions.addScreen).toHaveBeenCalledTimes(1);
     r2.unmount();
     render(<ClockChip vm={working({ state: 'break', timer: '0:03', capture: { screens: 1, paused: true, intervalMin: 5, randomize: false } })} />);
-    expect(screen.getByRole('button', { name: /Paused for break/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Paused for Break/ })).toBeTruthy();
   });
 
-  it('a parked punch: the warning line and Retry', () => {
-    render(<ClockChip vm={working({ lost: true })} />);
+  it('a parked punch: the warning line and Retry, and the rail tile says so too', () => {
+    const r = render(<ClockChip vm={working({ lost: true })} />);
     expect(screen.getByText(/A punch has not recorded/)).toBeTruthy();
     expect(screen.getByRole('button', { name: /Retry/ })).toBeTruthy();
+    r.unmount();
+    const { container } = render(<ClockChip vm={working({ lost: true })} variant="tile" />);
+    expect(container.querySelector('.sbclock-tile--lost')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /a punch has not recorded/ })).toBeTruthy();
   });
 
   it('the rail tile names the state in its label and opens the clock', () => {

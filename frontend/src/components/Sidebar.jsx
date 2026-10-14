@@ -10,8 +10,7 @@ import {
   ClipboardCheck, Calculator,
   FileSpreadsheet, Landmark, BarChart3,
   Users, LogIn, PenTool, Files, Megaphone, ExternalLink,
-  Settings, ChevronRight,
-  HelpCircle, Store, Calendar, Package, Contact, HandCoins, Warehouse, ListChecks, Scale,
+  Settings, HelpCircle, Store, Calendar, Package, Contact, HandCoins, Warehouse, ListChecks, Scale,
   FlaskConical,
   KeyRound,
   Briefcase, FileSignature, ArrowDownToLine, ArrowUpFromLine,
@@ -208,6 +207,9 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
   // surface). Only where the sidebar is a real sidebar - on a phone it is a
   // drawer and the capsule stays. Nothing when clocked out or exempt.
   const phone = useIsMobile('(max-width: 900px)');
+  // Touch browsers synthesize mouseenter on every tap, so a tablet's rail
+  // tap would also slide the peek open: peek only where hover is real.
+  const canHover = useIsMobile('(hover: hover)');
   const tc = useTimeclock();
   const liveClock = !phone && !!tc && (tc.state === 'in' || tc.state === 'break');
   useEffect(() => (liveClock ? claimTimeclockSurface() : undefined), [liveClock]);
@@ -256,7 +258,7 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
   return (
     <>
       <aside ref={ref} className={`sidebar${isOpen ? " open" : ""}${collapsed ? " collapsed" : ""}${peek ? " peek" : ""}`}
-        onMouseEnter={() => { if (collapsed && !phone) setPeek(true); }}
+        onMouseEnter={() => { if (collapsed && !phone && canHover) setPeek(true); }}
         onMouseLeave={() => setPeek(false)}>
 
         {/* ── Header: the mark is the way Home, the green chevron folds the

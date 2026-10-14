@@ -354,7 +354,7 @@ h1,h2,h3,h4,h5,h6,
 /* The mark + wordmark is the way Home; the green chevron folds the rail
    (Oct 14 2026): 34px, radius 8 - the N's own geometry - in the brand
    color so it is the obvious thing to hit. */
-.sidebar-header { padding: 16px 12px 12px; gap: 8px; border-bottom: none; }
+.sidebar-header { border-bottom: none; }   /* padding and gap: the Work OS rule further down */
 .sidebar-brand { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; text-decoration: none; color: inherit; border-radius: 10px; }
 .sidebar-brand:hover .dk-mark { filter: brightness(1.06); }
 .sidebar-brand:focus-visible { outline: 2px solid var(--wk-brand); outline-offset: 2px; }
@@ -421,6 +421,7 @@ h1,h2,h3,h4,h5,h6,
 }
 .sbclock-tile svg { width: 18px; height: 18px; }
 .sbclock-tile--break { border-color: rgba(180,83,9,.28); background: rgba(180,83,9,.06); }
+.sbclock-tile--lost { border-color: #b91c1c; background: rgba(185,28,28,.07); color: #b91c1c; }
 .sbclock-tile .sbclock-dot { position: absolute; right: -3px; top: -3px; width: 10px; height: 10px; border: 2px solid var(--card); box-sizing: content-box; }
 .sbclock-tile-cap { position: absolute; right: -3px; bottom: -3px; width: 9px; height: 9px; border-radius: 3px; background: #b91c1c; border: 2px solid var(--card); }
 .sbclock-tile-cap.is-paused { background: #b45309; }
@@ -3630,7 +3631,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 
 /* ── Shell polish: sidebar ──────────────────────────────────────────────── */
 .sidebar { font-family: var(--wk-font); }
-.sidebar-header { gap: 10px; padding: 18px 16px 14px; }
+.sidebar-header { gap: 8px; padding: 16px 12px 12px; }
 .dk-mark {
   width: 34px; height: 34px; border-radius: 8px;
   background: var(--wk-brand); color: #fff;

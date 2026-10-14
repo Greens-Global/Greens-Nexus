@@ -424,6 +424,9 @@ export default function TimeclockWidget() {
     },
   };
   useEffect(() => { publishTimeclock(vm); });
+  // Unmounted (a boundary reset, sign-out): the surfaces must not keep
+  // drawing a shift whose actions belong to a dead instance.
+  useEffect(() => () => publishTimeclock({ state: 'unknown' }), []);
 
   // Salaried/exempt people are never time-tracked - no floating timer for them
   // (Charmi, Aug 21).

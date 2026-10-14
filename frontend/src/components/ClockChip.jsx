@@ -22,10 +22,12 @@ export default function ClockChip({ vm, variant = 'wide', onAfterAction }) {
   const after = (fn) => () => { fn(); onAfterAction?.(); };
 
   if (variant === 'tile') {
-    const label = `${onBreak ? 'On Break' : 'Working'} · ${vm.timer}${capture ? (capture.paused ? ' · capture paused' : capture.screens ? ' · recording' : '') : ''} - open the time clock`;
+    // A parked punch must never hide inside the rail (the capsule used to
+    // force itself open for it): the tile goes red-edged and says so.
+    const label = `${onBreak ? 'On Break' : 'Working'} · ${vm.timer}${capture ? (capture.paused ? ' · capture paused' : capture.screens ? ' · recording' : '') : ''}${vm.lost ? ' · a punch has not recorded, open to retry' : ''} - open the time clock`;
     return (
-      <button type="button" className={`sbclock-tile sbclock-tile--${tone}`} onClick={a.openClock} title={label} aria-label={label}>
-        <Clock aria-hidden="true" />
+      <button type="button" className={`sbclock-tile sbclock-tile--${tone}${vm.lost ? ' sbclock-tile--lost' : ''}`} onClick={a.openClock} title={label} aria-label={label}>
+        {vm.lost ? <AlertTriangle aria-hidden="true" /> : <Clock aria-hidden="true" />}
         <span className={`sbclock-dot${onBreak ? '' : ' sbclock-dot--live'}`} aria-hidden="true" />
         {capture && capture.screens > 0 && <span className={`sbclock-tile-cap${capture.paused ? ' is-paused' : ''}`} aria-hidden="true" />}
       </button>
@@ -64,7 +66,7 @@ export default function ClockChip({ vm, variant = 'wide', onAfterAction }) {
                 ? `Screen capture is on (${capture.screens} screen${capture.screens === 1 ? '' : 's'}) - a frame of each is saved every ${capture.intervalMin} minute${capture.intervalMin === 1 ? '' : 's'}${capture.randomize ? ' (timing varies)' : ''}. Click to stop.`
                 : 'Start work-session screen capture (you pick the screen; your browser shows a sharing indicator the whole time)'}>
             {capture.paused ? <MonitorPause size={11} /> : capture.screens ? <MonitorUp size={11} /> : <MonitorX size={11} />}
-            {capture.paused ? 'Paused for break' : capture.screens ? `Recording${capture.screens > 1 ? ` · ${capture.screens} screens` : ''}` : 'Capture off'}
+            {capture.paused ? 'Paused for Break' : capture.screens ? `Recording${capture.screens > 1 ? ` · ${capture.screens} Screens` : ''}` : 'Capture Off'}
           </button>
           {capture.screens > 0 && (
             <button type="button" className="sbclock-cap-add" onClick={a.addScreen} title="Also capture another screen (pick your second monitor)" aria-label="Capture another screen">+</button>
