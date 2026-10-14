@@ -24,7 +24,7 @@ import { useTimeStatus } from '../lib/useTimeStatus';
 // The header chip shows today's worked hours as H:MM - the same number and
 // format as the sidebar's time clock chip (Neil, Oct 14 2026), not seconds
 // since the last punch.
-import { fmtHM } from '../lib/timeclockStore';
+import { SessionChip } from './SessionChip';
 import { deriveMyTime } from './essentials/usePunchClock.jsx';
 import { useWorldClockPicks, headerClocks } from '../lib/worldClockZones';
 import { formatTimeIn, greetingFor } from '../lib/datetime';
@@ -124,7 +124,6 @@ export function DeskGreeting({ summary = null, right = null, menu = null }) {
   // The same derivation as the sidebar chip (stale shifts and exempt people
   // read as clocked out), so the two never disagree on whether a shift is live.
   const mine = deriveMyTime({ status, now });
-  const clockedIn = mine.state === 'in' || mine.state === 'break';
 
   const greeting = greetingFor(now);
   const dateLine = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric' }).format(now);
@@ -173,15 +172,7 @@ export function DeskGreeting({ summary = null, right = null, menu = null }) {
             same row as those controls (Neil, Sep 15 follow-up). */}
         <div className="dk-toolbar" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {right}
-          <button
-            className={`dk-session-chip${clockedIn ? ' dk-session-chip--on' : ''}`}
-            onClick={() => navTo('timeclock')}
-            title="Open time clock"
-            style={{ flexShrink: 0, whiteSpace: 'nowrap' }}
-          >
-            <span className={`dk-dot ${clockedIn ? 'dk-dot--up' : mine.exempt ? 'dk-dot--na' : 'dk-dot--off'}`} />
-            {clockedIn ? <>Clocked In · <b>{fmtHM(mine.todayMin)}</b></> : <>Clocked Out<span className="dk-session-long"> · Open time clock</span></>}
-          </button>
+          <SessionChip mine={mine} onOpen={() => navTo('timeclock')} />
           {/* "…" view menu: its own distinct button, at the far right corner
               after the session chip - not merged with it (Pranshu, Sep 15
               2nd follow-up: the pill merge read as one control when he
