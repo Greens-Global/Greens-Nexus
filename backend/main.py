@@ -1055,6 +1055,9 @@ def _run_migrations():
             # Add Time batches (Oct 14) - see the Postgres list.
             "ALTER TABLE time_punches ADD COLUMN batch_id TEXT DEFAULT ''",
             "CREATE INDEX IF NOT EXISTS ix_time_punches_batch_id ON time_punches (batch_id)",
+            # MRI Lease Term is a pick, not text (Charmi + Neil, Oct 15) - see the Postgres list.
+            "ALTER TABLE leases ADD COLUMN term_type VARCHAR DEFAULT ''",
+            "ALTER TABLE leases ADD COLUMN term_months INTEGER",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2337,6 +2340,10 @@ def _run_migrations():
         # an id, so the batch can be undone as one.
         "ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS batch_id TEXT DEFAULT ''",
         "CREATE INDEX IF NOT EXISTS ix_time_punches_batch_id ON time_punches (batch_id)",
+        # MRI Lease Term is a pick, not text (Charmi + Neil, Oct 15): annual |
+        # month_to_month | custom, and the months it runs. models.Lease.term_*.
+        "ALTER TABLE leases ADD COLUMN IF NOT EXISTS term_type VARCHAR DEFAULT ''",
+        "ALTER TABLE leases ADD COLUMN IF NOT EXISTS term_months INTEGER",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

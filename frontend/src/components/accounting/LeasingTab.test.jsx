@@ -44,7 +44,7 @@ vi.mock('../../api', () => ({
   },
 }));
 
-import LeasingTab from './LeasingTab';
+import LeasingTab, { leaseTermLabel, parseLeaseTerm } from './LeasingTab';
 import { api } from '../../api';
 import { resetAccountingPrefs } from './prefs';
 
@@ -535,5 +535,105 @@ describe('LeasingTab shared controls', () => {
     } finally {
       window.removeEventListener('nexus:accounting-drill', onDrill);
     }
+  });
+
+  // Oct 15 (Charmi + Neil): Lease Term is a pick, never free text.
+  const withLeases = async (first, second, run) => {
+    const custom = { ...roll, rows: [{ ...roll.rows[0], lease: lease(first) }, { ...roll.rows[1], lease: lease({ id: 'L2', propertyName: '47385 RCR, Temecula', tenantName: 'Santos Blancas Jr.', customerId: 'C00497', email: '', ...second }) }] };
+    api.getLeasingRentRollFor.mockImplementation(async () => custom);
+    try { await run(); } finally { api.getLeasingRentRollFor.mockImplementation(async () => roll); }
+  };
+
+  it('Lease Term is a dropdown: Annual, Month to Month, Custom - in that order', async () => {
+    render(<LeasingTab canEdit />);
+    fireEvent.click(await screen.findByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    const dialog = screen.getByRole('dialog', { name: 'Change lease' });
+    const select = within(dialog).getByLabelText('Lease Term');
+    expect(select.tagName).toBe('SELECT');
+    expect([...select.options].map((o) => o.textContent)).toEqual(['Annual', 'Month to Month', 'Custom']);
+    // The old free text "Annual" reads as Annual.
+    expect(select.value).toBe('annual');
+    expect(within(dialog).queryByLabelText('Lease Term in Months')).toBeNull();
+  });
+
+  it('Custom asks for the months and saves them as a whole number', async () => {
+    render(<LeasingTab canEdit />);
+    fireEvent.click(await screen.findByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    const dialog = screen.getByRole('dialog', { name: 'Change lease' });
+    fireEvent.change(within(dialog).getByLabelText('Lease Term'), { target: { value: 'custom' } });
+    const months = within(dialog).getByLabelText('Lease Term in Months');
+    // Nothing yet: Save waits for the months.
+    expect(within(dialog).getByRole('button', { name: 'Save' }).disabled).toBe(true);
+    fireEvent.change(months, { target: { value: '18' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.updateLeasingLease).toHaveBeenCalled());
+    const [, body] = api.updateLeasingLease.mock.calls[0];
+    expect(body.termType).toBe('custom');
+    expect(body.termMonths).toBe(18);
+    expect(Number.isInteger(body.termMonths)).toBe(true);
+    // The old text is kept, never lost.
+    expect(body.leaseTerms).toBe('Annual');
+  });
+
+  it('Month to Month saves no months', async () => {
+    render(<LeasingTab canEdit />);
+    fireEvent.click(await screen.findByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    const dialog = screen.getByRole('dialog', { name: 'Change lease' });
+    fireEvent.change(within(dialog).getByLabelText('Lease Term'), { target: { value: 'month_to_month' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.updateLeasingLease).toHaveBeenCalled());
+    expect(api.updateLeasingLease.mock.calls[0][1]).toMatchObject({ termType: 'month_to_month', termMonths: null });
+  });
+
+  it('reads old free-text terms best-effort', () => {
+    expect(parseLeaseTerm('Annual')).toEqual({ termType: 'annual', termMonths: 12 });
+    expect(parseLeaseTerm('12 months')).toEqual({ termType: 'annual', termMonths: 12 });
+    expect(parseLeaseTerm('1 Year')).toEqual({ termType: 'annual', termMonths: 12 });
+    expect(parseLeaseTerm('Month to month')).toEqual({ termType: 'month_to_month', termMonths: null });
+    expect(parseLeaseTerm('Month-to-Month')).toEqual({ termType: 'month_to_month', termMonths: null });
+    expect(parseLeaseTerm('MTM')).toEqual({ termType: 'month_to_month', termMonths: null });
+    expect(parseLeaseTerm('18 months')).toEqual({ termType: 'custom', termMonths: 18 });
+    expect(parseLeaseTerm('2 years')).toEqual({ termType: 'custom', termMonths: 24 });
+    expect(parseLeaseTerm('Until the building sells')).toBeNull();
+    expect(parseLeaseTerm('')).toBeNull();
+    expect(leaseTermLabel({ termType: 'custom', termMonths: 18 })).toBe('Custom - 18 Months');
+    expect(leaseTermLabel({ termType: 'month_to_month' })).toBe('Month to Month');
+    expect(leaseTermLabel({ leaseTerms: 'Annual' })).toBe('Annual');
+    expect(leaseTermLabel({ leaseTerms: 'Until the building sells' })).toBe('Until the building sells');
+  });
+
+  it('shows the term in the grid, and keeps text it cannot read with a prompt to pick a term', async () => {
+    await withLeases({ termType: 'custom', termMonths: 18, leaseTerms: '' }, { leaseTerms: 'Until the building sells', termType: '', termMonths: null, termLegacy: 'Until the building sells' }, async () => {
+      render(<LeasingTab canEdit />);
+      await screen.findByText('910 SECR - Ste 100, San Clemente');
+      fireEvent.click(screen.getByRole('button', { name: 'Payers' }));
+      const row = screen.getByText('910 SECR - Ste 100, San Clemente').closest('tr');
+      expect(within(row).getByText('Term: Custom - 18 Months')).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: 'Change 47385 RCR, Temecula' }));
+      const dialog = screen.getByRole('dialog', { name: 'Change lease' });
+      expect(within(dialog).getByLabelText('Lease Term').value).toBe('');
+      expect(within(dialog).getByText('Saved as "Until the building sells" - pick a term.')).toBeTruthy();
+    });
+  });
+
+  it('the rent changes are a table with Effective Date, Rent, CAM, Other and Note over the inputs', async () => {
+    render(<LeasingTab canEdit />);
+    fireEvent.click(await screen.findByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    const dialog = screen.getByRole('dialog', { name: 'Change lease' });
+    const table = within(dialog).getByRole('table', { name: 'Rent Changes' });
+    const heads = within(table).getAllByRole('columnheader').map((h) => h.textContent);
+    expect(heads.slice(0, 5)).toEqual(['Effective Date', 'Rent', 'CAM', 'Other', 'Note']);
+    // The header row is above the inputs, one label per input column.
+    const [headRow, firstRow] = within(table).getAllByRole('row');
+    expect(headRow.closest('thead')).toBeTruthy();
+    const cells = within(firstRow).getAllByRole('cell');
+    expect(within(cells[0]).getByLabelText('Rent 1 starts')).toBeTruthy();
+    expect(within(cells[1]).getByLabelText('Rent of rent 1').value).toBe('3000');
+    expect(within(cells[2]).getByLabelText('CAM of rent 1').value).toBe('200');
+    expect(within(cells[3]).getByLabelText('Other of rent 1')).toBeTruthy();
+    expect(within(cells[4]).getByLabelText('Note of rent 1')).toBeTruthy();
+    expect(within(cells[5]).getByRole('button', { name: 'Remove rent 1' })).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: /Add Rent Change/ }));
+    expect(within(table).getAllByRole('row')).toHaveLength(3);
   });
 });

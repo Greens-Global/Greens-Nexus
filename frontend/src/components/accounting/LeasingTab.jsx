@@ -145,7 +145,44 @@ const monthName = (key) => `${MONTHS[Number(key.slice(5, 7)) - 1]} ${key.slice(0
 // with it - not today (a lease typed in on the 2nd expected 30/31 of a month
 // and nothing before it).
 const firstOfMonth = () => `${iso(new Date()).slice(0, 7)}-01`;
-const blank = (incomeType = 'lease') => ({ incomeType, propertyName: '', region: '', tenancy: 'external', landlord: '', entityCode: '', incomeAccounts: leaseLike(incomeType) ? ['41101'] : [], customerId: '', tenantName: '', contactName: '', phone: '', email: '', mailingAddress: '', leaseStart: firstOfMonth(), leaseEnd: '', securityDeposit: 0, leaseTerms: '', lateFee: 0, dueDay: 1, graceDays: 5, status: 'active', notes: '', rates: [{ startDate: firstOfMonth(), rent: 0, cam: 0, other: 0, note: '' }] });
+const blank = (incomeType = 'lease') => ({ incomeType, propertyName: '', region: '', tenancy: 'external', landlord: '', entityCode: '', incomeAccounts: leaseLike(incomeType) ? ['41101'] : [], customerId: '', tenantName: '', contactName: '', phone: '', email: '', mailingAddress: '', leaseStart: firstOfMonth(), leaseEnd: '', securityDeposit: 0, leaseTerms: '', termType: '', termMonths: null, lateFee: 0, dueDay: 1, graceDays: 5, status: 'active', notes: '', rates: [{ startDate: firstOfMonth(), rent: 0, cam: 0, other: 0, note: '' }] });
+// Oct 15 (Charmi + Neil): the lease term is a pick - Annual, Month to Month or
+// Custom with a whole number of months - never free text a typo can break.
+const TERM_OPTIONS = [['annual', 'Annual'], ['month_to_month', 'Month to Month'], ['custom', 'Custom']];
+const TERM_MAX_MONTHS = 600;
+const WORD_NUM = { one: 1, two: 2, three: 3, four: 4, five: 5 };
+/** Old free-text Lease Terms read as a term, best-effort (the server does the
+ *  same): "Annual" / "12 months" / "1 year" -> annual, "Month to month" /
+ *  "MTM" -> month to month, "18 months" / "2 years" -> custom. null when it
+ *  cannot be read. */
+export function parseLeaseTerm(text) {
+  const s = String(text || '').toLowerCase().replace(/[^a-z0-9.]+/g, ' ').trim().replace(/^[ .]+|[ .]+$/g, '');
+  if (!s) return null;
+  if (['annual', 'annually', 'yearly', 'annual lease', 'annual term', 'annual renewal'].includes(s)) return { termType: 'annual', termMonths: 12 };
+  if (['mtm', 'm2m', 'month to month', 'monthly', 'month to month lease'].includes(s)) return { termType: 'month_to_month', termMonths: null };
+  let m = s.match(/^(\d{1,3}) ?(?:months?|mos?|mths?)(?: lease| term)?$/);
+  let n = m ? Number(m[1]) : null;
+  if (!m) {
+    m = s.match(/^(\d{1,2}|one|two|three|four|five) ?(?:years?|yrs?)(?: lease| term)?$/);
+    if (m) n = (WORD_NUM[m[1]] || Number(m[1])) * 12;
+  }
+  if (!m || !(n > 0 && n <= TERM_MAX_MONTHS)) return null;
+  return n === 12 ? { termType: 'annual', termMonths: 12 } : { termType: 'custom', termMonths: n };
+}
+/** The term a lease row carries: its pick, else its old text read best-effort. */
+const termOf = (l) => {
+  if (TERM_OPTIONS.some(([k]) => k === l?.termType)) return { termType: l.termType, termMonths: l.termType === 'annual' ? 12 : l.termType === 'custom' ? (l.termMonths ?? null) : null, termLegacy: '' };
+  const parsed = parseLeaseTerm(l?.leaseTerms);
+  return parsed ? { ...parsed, termLegacy: '' } : { termType: '', termMonths: null, termLegacy: l?.termLegacy || String(l?.leaseTerms || '').trim() };
+};
+/** "Annual", "Month to Month", "Custom - 18 Months"; the old text when it could not be read. */
+export function leaseTermLabel(l) {
+  const t = termOf(l);
+  if (t.termType === 'annual') return 'Annual';
+  if (t.termType === 'month_to_month') return 'Month to Month';
+  if (t.termType === 'custom' && t.termMonths) return `Custom - ${t.termMonths} Months`;
+  return t.termLegacy;
+}
 /** The name the tenant goes by: Intacct's when the customer record came with the row. */
 const tenantOf = (r) => (r.kind === 'account' ? 'From the ledger' : r.lease.status === 'vacant' ? 'Vacant' : r.customer?.name || r.lease.tenantName || r.lease.customerId || '-');
 /** A month that counts: in force, past or present, and read. A month posted
@@ -328,8 +365,8 @@ export default function LeasingTab({ canEdit = false, canDelete = false }) {
         totals: [`Total Outstanding - ${list.length}`, '', '', '', list.reduce((s, r) => s + r.owed, 0), list.reduce((s, r) => s + r.lateFees, 0), ''] };
     }
     if (section === 'tenants') {
-      return { title, subtitle, name: `${title} - ${year}`, columns: [{ label: 'Property or Source', width: 220 }, { label: 'Type', width: 90 }, { label: 'Payer', width: 200 }, { label: 'Customer', width: 80 }, { label: 'Landlord', width: 160 }, { label: 'Start', width: 90 }, { label: 'End', width: 90 }, { label: 'Amount', num: true, width: 90 }, { label: 'CAM', num: true, width: 80 }, { label: 'Deposit', num: true, width: 90 }, { label: 'Status', width: 120 }],
-        rows: sources.map((r) => { const l = r.lease; const rate = l.rates[l.rates.length - 1]; return [l.propertyName, TYPE_LABEL[typeOf(r)], tenantOf(r), l.customerId, l.landlord, l.leaseStart ? formatDate(l.leaseStart) : '', l.leaseEnd ? formatDate(l.leaseEnd) : 'Month to Month', rate ? rate.rent : 0, rate ? rate.cam : 0, l.securityDeposit || 0, [LEASE_STATUS[l.status] || l.status, standing(r)].filter(Boolean).join(', ')]; }),
+      return { title, subtitle, name: `${title} - ${year}`, columns: [{ label: 'Property or Source', width: 220 }, { label: 'Type', width: 90 }, { label: 'Payer', width: 200 }, { label: 'Customer', width: 80 }, { label: 'Landlord', width: 160 }, { label: 'Start', width: 90 }, { label: 'End', width: 90 }, { label: 'Term', width: 130 }, { label: 'Amount', num: true, width: 90 }, { label: 'CAM', num: true, width: 80 }, { label: 'Deposit', num: true, width: 90 }, { label: 'Status', width: 120 }],
+        rows: sources.map((r) => { const l = r.lease; const rate = l.rates[l.rates.length - 1]; return [l.propertyName, TYPE_LABEL[typeOf(r)], tenantOf(r), l.customerId, l.landlord, l.leaseStart ? formatDate(l.leaseStart) : '', l.leaseEnd ? formatDate(l.leaseEnd) : 'Month to Month', leaseTermLabel(l), rate ? rate.rent : 0, rate ? rate.cam : 0, l.securityDeposit || 0, [LEASE_STATUS[l.status] || l.status, standing(r)].filter(Boolean).join(', ')]; }),
         totals: null };
     }
     const shownMonths = MONTHS.slice(span[0], span[1] + 1);
@@ -825,7 +862,7 @@ function Tenants({ rows, py, canEdit, onEdit, onReplace, pageSize = 0, pageKey =
                   <td><TypeChip type={typeOf(r)} /></td>
                   <td style={{ whiteSpace: 'normal' }}>{l.customerId ? <span className="acct-code">{l.customerId}</span> : null}<TenantName row={r} /></td>
                   <td style={{ whiteSpace: 'normal' }}>{l.landlord || '-'}</td>
-                  <td>{l.leaseStart ? formatDate(l.leaseStart) : '-'} to {l.leaseEnd ? formatDate(l.leaseEnd) : 'Month to Month'}</td>
+                  <td>{l.leaseStart ? formatDate(l.leaseStart) : '-'} to {l.leaseEnd ? formatDate(l.leaseEnd) : 'Month to Month'}{leaseTermLabel(l) ? <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)' }}>Term: {leaseTermLabel(l)}</div> : null}</td>
                   <td className="acct-num">{rate ? <Amount value={rate.rent} /> : '-'}</td>
                   <td className="acct-num">{rate?.cam ? <Amount value={rate.cam} /> : '-'}</td>
                   <td className="acct-num">{l.securityDeposit ? <Amount value={l.securityDeposit} /> : '-'}</td>
@@ -1014,7 +1051,7 @@ function LeaveConfirm({ onKeep, onDiscard }) {
 }
 
 function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved }) {
-  const [l, setL] = useState(() => ({ incomeType: 'lease', ...lease, rates: (lease.rates || []).map((r) => ({ ...r })) }));
+  const [l, setL] = useState(() => { const t = termOf(lease); return { incomeType: 'lease', ...lease, termType: t.termType, termMonths: t.termMonths, termLegacy: t.termLegacy, rates: (lease.rates || []).map((r) => ({ ...r })) }; });
   const [initial] = useState(() => JSON.stringify(l));
   const isLease = leaseLike(l.incomeType);
   const isCam = l.incomeType === 'cam';
@@ -1046,8 +1083,12 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved }) {
   // Oct 7: the first rent starts with the lease unless it was set apart -
   // a lease start moved to January takes its first rent along.
   const setStart = (v) => setL((x) => ({ ...x, leaseStart: v, rates: x.rates.map((r, i) => (i === 0 && (!r.startDate || r.startDate === x.leaseStart) ? { ...r, startDate: v } : r)) }));
-  const ready = l.propertyName.trim() && (vacant || l.tenantName.trim()) && l.rates.every((r) => r.startDate);
-  const body = () => ({ ...l, incomeType: l.incomeType || 'lease', securityDeposit: Number(l.securityDeposit) || 0, lateFee: Number(l.lateFee) || 0, dueDay: Number(l.dueDay) || 1, graceDays: Number(l.graceDays) || 0,
+  const customMonths = Number(l.termMonths);
+  const termOk = l.termType !== 'custom' || (Number.isInteger(customMonths) && customMonths >= 1 && customMonths <= TERM_MAX_MONTHS);
+  const ready = l.propertyName.trim() && (vacant || l.tenantName.trim()) && l.rates.every((r) => r.startDate) && termOk;
+  const pickTerm = (v) => set({ termType: v, termMonths: v === 'annual' ? 12 : v === 'custom' ? (l.termType === 'custom' ? l.termMonths : '') : null });
+  const body = () => ({ ...l, termLegacy: undefined, termType: l.termType || '', termMonths: l.termType === 'annual' ? 12 : l.termType === 'custom' ? customMonths : null,
+    incomeType: l.incomeType || 'lease', securityDeposit: Number(l.securityDeposit) || 0, lateFee: Number(l.lateFee) || 0, dueDay: Number(l.dueDay) || 1, graceDays: Number(l.graceDays) || 0,
     incomeAccounts: String(l.incomeAccounts).split(',').map((x) => x.trim()).filter(Boolean),
     rates: l.rates.map((r) => ({ startDate: r.startDate, rent: Number(r.rent) || 0, cam: Number(r.cam) || 0, other: Number(r.other) || 0, note: r.note || '' })) });
   const save = () => {
@@ -1130,7 +1171,21 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved }) {
               <input id="lease-leaseEnd" type="date" value={l.leaseEnd || ''} onChange={(e) => set({ leaseEnd: e.target.value })} style={{ ...control, width: '100%' }} />
               <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 3 }}>Leave empty for month to month.</div>
             </div>
-            {field('leaseTerms', 'Lease Terms', { maxLength: 200, placeholder: 'Annual, month to month...' })}
+            <div>
+              <label style={label} htmlFor="lease-termType">Lease Term</label>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <select id="lease-termType" value={l.termType || ''} onChange={(e) => pickTerm(e.target.value)} style={{ ...control, flex: 1, minWidth: 0 }}>
+                  {!l.termType && <option value="" disabled>Pick a Term</option>}
+                  {TERM_OPTIONS.map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                </select>
+                {l.termType === 'custom' && (
+                  <input id="lease-termMonths" type="number" inputMode="numeric" min={1} max={TERM_MAX_MONTHS} step={1} value={l.termMonths ?? ''} placeholder="Months" aria-label="Lease Term in Months"
+                    onChange={(e) => set({ termMonths: e.target.value.replace(/\D/g, '') })} style={{ ...control, width: 90 }} />
+                )}
+              </div>
+              {l.termType === 'custom' && !termOk && <div style={{ fontSize: '0.7rem', color: 'var(--bad-fg, #dc2626)', marginTop: 3 }}>A whole number of months, 1 to {TERM_MAX_MONTHS}.</div>}
+              {!l.termType && l.termLegacy && <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 3 }} data-testid="lease-term-legacy">Saved as "{l.termLegacy}" - pick a term.</div>}
+            </div>
             {field('securityDeposit', 'Security Deposit', { type: 'number', min: 0, step: '0.01' })}
             {field('lateFee', 'Late Fee', { type: 'number', min: 0, step: '0.01' })}
             {field('dueDay', 'Rent Due on Day', { type: 'number', min: 1, max: 28 })}
@@ -1142,19 +1197,36 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved }) {
               <span style={label}>Rent - each change is a new line, in force until the next one</span>
               <button type="button" className="secondary-btn" onClick={() => set({ rates: [...l.rates, { startDate: '', rent: l.rates[l.rates.length - 1]?.rent || 0, cam: l.rates[l.rates.length - 1]?.cam || 0, other: 0, note: '' }] })} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: '0.74rem', padding: '3px 10px' }}><Plus size={12} /> Add Rent Change</button>
             </div>
-            <div style={{ display: 'grid', gap: 6, marginTop: 4 }}>
-              {l.rates.map((r, i) => (
-                <div key={i} style={{ display: 'grid', gridTemplateColumns: '150px repeat(3, minmax(90px, 1fr)) minmax(120px, 2fr) 30px', gap: 6, alignItems: 'center' }}>
-                  <input type="date" value={r.startDate} aria-label={`Rent ${i + 1} starts`} onChange={(e) => set({ rates: l.rates.map((x, k) => (k === i ? { ...x, startDate: e.target.value } : x)) })} style={control} />
-                  {[['rent', 'Rent'], ['cam', 'CAM'], ['other', 'Other']].map(([k, text]) => (
-                    <input key={k} type="number" min="0" step="0.01" value={r[k]} placeholder={text} aria-label={`${text} of rent ${i + 1}`} onChange={(e) => set({ rates: l.rates.map((x, n) => (n === i ? { ...x, [k]: e.target.value } : x)) })} style={control} />
-                  ))}
-                  <input type="text" value={r.note || ''} maxLength={200} placeholder="Note, such as Renewal" aria-label={`Note of rent ${i + 1}`} onChange={(e) => set({ rates: l.rates.map((x, k) => (k === i ? { ...x, note: e.target.value } : x)) })} style={control} />
-                  <button type="button" style={icon} aria-label={`Remove rent ${i + 1}`} onClick={() => set({ rates: l.rates.filter((_, k) => k !== i) })}><Trash2 size={14} /></button>
-                </div>
-              ))}
+            {/* Oct 15 (Neil): a normal table - the labels sit over their inputs. */}
+            <div style={{ overflowX: 'auto', marginTop: 4 }}>
+              {l.rates.length > 0 && (
+                <table aria-label="Rent Changes" style={{ width: '100%', minWidth: 620, borderCollapse: 'separate', borderSpacing: '6px 4px', tableLayout: 'fixed', margin: '0 -6px' }}>
+                  <colgroup>
+                    <col style={{ width: 150 }} /><col style={{ width: '16%' }} /><col style={{ width: '16%' }} /><col style={{ width: '16%' }} /><col /><col style={{ width: 30 }} />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      {[['Effective Date', 'The date this rent starts'], ['Rent', ''], ['CAM', 'Common area maintenance'], ['Other', ''], ['Note', '']].map(([text, hint]) => (
+                        <th key={text} scope="col" title={hint || undefined} style={{ ...label, textAlign: 'left', padding: 0, margin: 0 }}>{text}</th>
+                      ))}
+                      <th scope="col" aria-label="Remove" style={{ padding: 0 }} />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {l.rates.map((r, i) => (
+                      <tr key={i}>
+                        <td style={{ padding: 0 }}><input type="date" value={r.startDate} aria-label={`Rent ${i + 1} starts`} onChange={(e) => set({ rates: l.rates.map((x, k) => (k === i ? { ...x, startDate: e.target.value } : x)) })} style={{ ...control, width: '100%' }} /></td>
+                        {[['rent', 'Rent'], ['cam', 'CAM'], ['other', 'Other']].map(([k, text]) => (
+                          <td key={k} style={{ padding: 0 }}><input type="number" min="0" step="0.01" value={r[k]} aria-label={`${text} of rent ${i + 1}`} onChange={(e) => set({ rates: l.rates.map((x, n) => (n === i ? { ...x, [k]: e.target.value } : x)) })} style={{ ...control, width: '100%' }} /></td>
+                        ))}
+                        <td style={{ padding: 0 }}><input type="text" value={r.note || ''} maxLength={200} placeholder="Such as Renewal" aria-label={`Note of rent ${i + 1}`} onChange={(e) => set({ rates: l.rates.map((x, k) => (k === i ? { ...x, note: e.target.value } : x)) })} style={{ ...control, width: '100%' }} /></td>
+                        <td style={{ padding: 0 }}><button type="button" style={icon} aria-label={`Remove rent ${i + 1}`} onClick={() => set({ rates: l.rates.filter((_, k) => k !== i) })}><Trash2 size={14} /></button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
               {!l.rates.length && <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>No rent yet. Without one, nothing is expected from this lease.</div>}
-              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Starts On, Rent, CAM (common area maintenance), Other, Note.</div>
             </div>
           </div>
 
