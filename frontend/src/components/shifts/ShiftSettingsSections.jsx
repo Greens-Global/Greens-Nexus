@@ -219,6 +219,15 @@ export function ShiftSettingsPanel({ toastOk, toastErr }) {
               ))}
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Trading (swaps, offers) and open shift requests are off unless turned on here.</div>
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Every request still needs a manager's approval. Turning one off stops new requests of that kind. A confidential time-off reason is never shown to teammates.</div>
+              {/* Shifts Phase 3b (Oct 15): staff move their own work. */}
+              <div style={{ marginTop: 10 }}>
+                <label style={CHECK}><input type="checkbox" checked={cfg.releaseShifts === true} onChange={(e) => save({ ...cfg, releaseShifts: e.target.checked })} /> People can release a shift to the open pool</label>
+                <label style={{ ...CHECK, paddingLeft: 24, color: cfg.releaseShifts === true ? 'var(--ink)' : 'var(--muted)', cursor: cfg.releaseShifts === true ? 'pointer' : 'default' }}>
+                  <input type="checkbox" disabled={cfg.releaseShifts !== true} checked={cfg.releaseNeedsApproval !== false} onChange={(e) => save({ ...cfg, releaseNeedsApproval: e.target.checked })} /> A manager approves a release
+                </label>
+                <label style={CHECK}><input type="checkbox" checked={cfg.openShiftsAcrossTeams === true} onChange={(e) => save({ ...cfg, openShiftsAcrossTeams: e.target.checked })} /> Open shifts can be claimed across teams</label>
+                <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Off by default. Turn on per company. With approval off, a released shift goes to the open pool right away.</div>
+              </div>
             </div>
             <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
               <label style={{ display: 'grid', gap: 4 }}><span style={LBL}>Team Time Zone</span>

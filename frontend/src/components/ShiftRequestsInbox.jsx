@@ -7,8 +7,11 @@
 // shift_requests.py, PATCH /timeclock/timeoff/{id}), so their rules and
 // notifications are unchanged. The settings that used to sit under this
 // list live in Settings > Global Settings > Shifts now.
+// Shifts Phase 3b (Oct 15): a Releases tab - someone wants their shift in
+// the open pool. It shows when the company turned releases on, or when a
+// release request exists from before it was turned off.
 import { useState } from 'react';
-import { CheckCircle2, XCircle, ArrowLeftRight, Send, Hand, CalendarOff, Lock, Clock } from 'lucide-react';
+import { CheckCircle2, XCircle, ArrowLeftRight, Send, Hand, Undo2, CalendarOff, Lock, Clock } from 'lucide-react';
 import AsyncSection, { SkeletonBlocks } from './AsyncState';
 import { Avatar } from './ShiftScheduleExtras';
 import { api } from '../api';
@@ -16,12 +19,16 @@ import { dialog } from '../ui/dialog';
 import { formatDate, formatDateTime, formatWeekday } from '../lib/datetime';
 import { useNameResolver } from '../lib/useNameResolver';
 import { ShiftBlock } from './shifts/ShiftBlock';
+import { span } from './shifts/ShiftRequestDialog';
 import { timeOffLabel } from './shiftScheduleLib';
 import { timeOffWhen, isAllDayOff } from './shifts/shiftLib';
 import { notifyInboxChanged } from './shifts/useManagerInbox';
 
-const KIND = { open: ['Open Shift', Hand], swap: ['Swap', ArrowLeftRight], offer: ['Offer', Send] };
-const TABS = [['timeoff', 'Time Off', CalendarOff], ['swap', 'Swaps', ArrowLeftRight], ['offer', 'Offers', Send], ['open', 'Open Shifts', Hand]];
+const KIND = { open: ['Open Shift', Hand], swap: ['Swap', ArrowLeftRight], offer: ['Offer', Send], release: ['Release', Undo2] };
+const TABS = [['timeoff', 'Time Off', CalendarOff], ['swap', 'Swaps', ArrowLeftRight], ['offer', 'Offers', Send], ['open', 'Open Shifts', Hand], ['release', 'Releases', Undo2]];
+// What a request row says. A release is worded here so the row always reads
+// "<who> wants to release <shift>" whatever summary the API sent.
+const summaryOf = (r, who) => (r.kind === 'release' && r.shift ? `${who(r.requester)} wants to release ${span(r.shift)}` : r.summary);
 const STATUS_CHIP = {
   approved: ['Approved', 'hsl(var(--color-green))'], declined: ['Declined', 'hsl(var(--color-red))'], rejected: ['Declined', 'hsl(var(--color-red))'],
   cancelled: ['Cancelled', 'var(--muted)'], pending_peer: ['Waiting On Teammate', 'hsl(var(--color-orange))'], pending_manager: ['Waiting On Manager', 'hsl(var(--color-orange))'],
@@ -69,8 +76,10 @@ export default function ShiftRequestsInbox({ inbox, timeoff, loading, error, onR
   const waiting = (inbox?.waitingOnPeer || []).filter((r) => r.kind === tab);
   const recent = (inbox?.recent || []).filter((r) => r.kind === tab);
   const offList = timeoff || [];
-  const counts = { timeoff: offList.filter((t) => t.canDecide !== false).length, swap: 0, offer: 0, open: 0 };
+  const counts = { timeoff: offList.filter((t) => t.canDecide !== false).length, swap: 0, offer: 0, open: 0, release: 0 };
   (inbox?.pending || []).forEach((r) => { counts[r.kind] = (counts[r.kind] || 0) + 1; });
+  const anyRelease = ['pending', 'waitingOnPeer', 'recent'].some((k) => (inbox?.[k] || []).some((r) => r.kind === 'release'));
+  const tabs = TABS.filter(([k]) => k !== 'release' || inbox?.settings?.releaseShifts === true || anyRelease);
   const changed = () => { onChanged?.(); notifyInboxChanged(); };
 
   async function decideTimeOff(t, approve, removeShifts = false) {
@@ -102,7 +111,7 @@ export default function ShiftRequestsInbox({ inbox, timeoff, loading, error, onR
     setBusyId(r.id);
     try {
       await api.shiftRequestDecide(r.id, { approve, note: notes[r.id] || '', ...(force ? { force: true } : {}) });
-      toastOk?.(approve ? 'Approved. The schedule is updated and everyone involved was told.' : 'Declined. Everyone involved was told.');
+      toastOk?.(approve ? (r.kind === 'release' ? 'Approved. The shift is in the open pool and they were told.' : 'Approved. The schedule is updated and everyone involved was told.') : 'Declined. Everyone involved was told.');
       changed();
     } catch (e) {
       // 409: the new owner would have a conflict (CONTRACT.md 7) - ask, then force.
@@ -126,7 +135,7 @@ export default function ShiftRequestsInbox({ inbox, timeoff, loading, error, onR
   return (
     <div style={{ fontFamily: 'Inter,sans-serif' }}>
       <div className="scroll-tabs" role="tablist" aria-label="Request types" style={{ display: 'flex', gap: 2, marginBottom: 14, borderBottom: '1px solid var(--wk-line)' }}>
-        {TABS.map(([k, label, Icon]) => {
+        {tabs.map(([k, label, Icon]) => {
           const on = tab === k;
           const n = counts[k] || 0;
           return (
@@ -204,7 +213,7 @@ export default function ShiftRequestsInbox({ inbox, timeoff, loading, error, onR
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em', flexWrap: 'wrap' }}>
                         <Icon size={12} /> {label} <span style={{ fontWeight: 500, textTransform: 'none', letterSpacing: 0 }}>· asked {formatDateTime(`${r.createdAt}Z`)}</span>
                       </div>
-                      <div style={{ fontSize: 13.5, color: 'var(--ink)', margin: '4px 0' }}>{r.summary}.</div>
+                      <div style={{ fontSize: 13.5, color: 'var(--ink)', margin: '4px 0' }}>{summaryOf(r, who)}.</div>
                       <RequestShifts r={r} who={who} />
                       {r.note && <div style={{ fontSize: 12, color: 'var(--muted)' }}>{who(r.requester)}: “{r.note}”</div>}
                       {r.peerNote && <div style={{ fontSize: 12, color: 'var(--muted)' }}>{who(r.target)}: “{r.peerNote}”</div>}
@@ -246,7 +255,7 @@ export default function ShiftRequestsInbox({ inbox, timeoff, loading, error, onR
             <div style={HEAD}>Recently Decided</div>
             {recent.map((r) => (
               <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, padding: '6px 0', borderTop: '1px solid var(--line)', flexWrap: 'wrap' }}>
-                <span style={{ flex: 1, minWidth: 200 }}>{r.summary}{r.decisionNote ? <span style={{ color: 'var(--muted)' }}> · {r.decisionNote}</span> : null}</span>
+                <span style={{ flex: 1, minWidth: 200 }}>{summaryOf(r, who)}{r.decisionNote ? <span style={{ color: 'var(--muted)' }}> · {r.decisionNote}</span> : null}</span>
                 <StatusChip status={r.status} />
                 <span style={{ color: 'var(--muted)', whiteSpace: 'nowrap' }}>{r.decidedAt ? formatDate(`${r.decidedAt}Z`) : ''}</span>
               </div>

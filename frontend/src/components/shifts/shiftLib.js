@@ -280,12 +280,19 @@ export function conflictMap(scheduled = [], timeoff = [], availability = {}) {
           const off = isAllDayOff(t) ? [dayIndex(ds) * 1440, dayIndex(ds) * 1440 + 1440] : spanOf(ds, t.startTime, t.endTime);
           if (hits(mine, off)) { seen.add(t); found.push(['timeoff', `On approved ${offType(t)}`]); }
         }));
+        // A row for THIS date (Phase 3b, {date, kind, ...}) replaces the
+        // weekday rule for that day - "not this Tuesday" or "only 9-1 this
+        // Tuesday" - the same precedence as the server's _shift_conflicts;
+        // the trailing {kind: 'prefs'} row matches neither.
         const wd = (parseIso(s.date).getDay() + 6) % 7;
-        avail.filter((a) => a.weekday === wd).forEach((a) => {
-          if (a.kind === 'unavailable') found.push(['availability', `Outside availability: ${DAY3[wd]} unavailable`]);
-          else if (a.start && a.end) {
+        const dated = avail.filter((a) => a?.date === s.date);
+        const rows = dated.length ? dated : avail.filter((a) => a?.weekday === wd);
+        rows.forEach((a) => {
+          const on = a.date ? formatDate(a.date) : DAY3[wd];
+          if (a.kind === 'unavailable') found.push(['availability', `Outside availability: ${on} unavailable`]);
+          else if (a.kind === 'available' && a.start && a.end) {
             const win = spanOf(s.date, a.start, a.end);
-            if (win && !(win[0] <= mine[0] && mine[1] <= win[1])) found.push(['availability', `Outside availability: ${DAY3[wd]} ${shortTimeText(a.start, a.end)}`]);
+            if (win && !(win[0] <= mine[0] && mine[1] <= win[1])) found.push(['availability', `Outside availability: ${on} ${shortTimeText(a.start, a.end)}`]);
           }
         });
       }

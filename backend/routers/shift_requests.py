@@ -10,6 +10,22 @@ Nexus Shifts was read-only for staff (My Workday > Shifts). This adds:
          trade owners
   offer  employee -> teammate accepts -> manager approves -> the shift moves
          to the teammate
+  release (Shifts Phase 3b, Neil, Oct 14 2026) employee -> manager approves
+         -> their own shared shift becomes an open slot IN PLACE (same row,
+         same team, still shared) for anyone on the team to ask for. With
+         releaseNeedsApproval off it goes to the pool at once and the
+         approvers get one FYI bell. A shift on no team cannot be released
+         (409) - the pool is per team.
+
+Cross-team open shifts (Phase 3b, openShiftsAcrossTeams, off by default):
+when the REQUESTER's company turns it on, the open slots of every team in
+their company (or a team on no company) are offered to them too, marked
+crossTeam with the team's name. A slot of another company is never shown.
+The slot's OWN team decides a cross-team claim - its schedulers (manager
+level or above), else its company's managers (People > Companies) - not the
+requester's manager, who cannot judge another team's staffing; a Global
+Admin / unscoped scheduler can always decide. When the team has nobody to
+decide, the requester's usual approvers hear and decide as before.
 
 Rules that keep it safe:
   - A teammate is someone in one of your shift groups - the same "team" My
@@ -56,11 +72,12 @@ from notify_company import notification_company
 from routers.timeclock import (require_schedule_write, require_shift_manage, SHIFT_MANAGE_LEVEL, _visible_emails,
                                _team_alert_recipients, _sched_dict, _hm12, _shift_local_now,
                                _shift_conflicts, _timeoff_dict, _availability, _company_holidays_for_employee,
-                               _TimeoffPrivacy, _DEFAULT_TEAM_TZ, _require_company_manage, _company_choices)
+                               _TimeoffPrivacy, _DEFAULT_TEAM_TZ, _require_company_manage, _company_choices,
+                               _schedulers)
 
 router = APIRouter(prefix="/timeclock/shift-requests", tags=["Shift Requests"])
 
-KINDS = ("open", "swap", "offer")
+KINDS = ("open", "swap", "offer", "release")
 PENDING = ("pending_peer", "pending_manager")
 WEEK_STARTS = ("monday", "sunday")
 # Settings live in one nexus_settings row per tenant (_SETTINGS_KEY) and,
@@ -110,19 +127,26 @@ _DEFAULTS = {"openShifts": False, "swaps": False, "offers": False, "teamSchedule
              # Ask each person to confirm they have seen a shared schedule
              # (shift_confirm.py): the publish bell and email say so, and a
              # manager sees who has not.
-             "confirmRequests": True}
+             "confirmRequests": True,
+             # Shifts Phase 3b (Neil, Oct 14 2026) - built, OFF by default:
+             # a person may ask to release their own shared shift to the
+             # team's open pool; a manager approves it unless
+             # releaseNeedsApproval is off; and open shifts of every team
+             # in the company are offered to everyone, not only that team.
+             "releaseShifts": False, "releaseNeedsApproval": True, "openShiftsAcrossTeams": False}
 _TEXT_SETTINGS = ("timeZone", "weekStart")
 SHOW_AS = ("free", "busy")
 # key -> (min, max), clamped on read and save
 _INT_SETTINGS = {"defaultGraceMin": (0, 120), "noShowAlertMin": (0, 240), "leftEarlyMin": (0, 240),
                  "ruleMinRestHours": (0, 24), "ruleMaxDaysInRow": (0, 14), "ruleDailyOtHours": (0, 24),
                  "ruleWeeklyOtHours": (0, 80), "ruleMaxWeekHours": (0, 100)}
-_KIND_SETTING = {"open": "openShifts", "swap": "swaps", "offer": "offers"}
+_KIND_SETTING = {"open": "openShifts", "swap": "swaps", "offer": "offers", "release": "releaseShifts"}
 _EMPLOYEE_ACTION = {"view": "shifts", "sub": "mine"}
 _APPROVER_ACTION = {"view": "shifts", "sub": "schedule"}   # the Shifts module (Sep 29)
-_KIND_LABEL = {"open": "open shift", "swap": "swap", "offer": "offer"}
+_KIND_LABEL = {"open": "open shift", "swap": "swap", "offer": "offer", "release": "release"}
 FILLED_NOTE = "Another request filled this shift"
 CHANGED_NOTE = "Shift changed before a decision"
+RELEASED_NOTE = "Shift released to the open pool"
 
 
 def _now() -> str:
@@ -158,6 +182,30 @@ def _upcoming(row, presets: dict, cfg: dict) -> bool:
     this, so after 5:00 PM Pacific the rest of today's shifts could not be
     swapped, offered or asked for."""
     return (row.work_date or "") >= _shift_local_now(shift_zone(row, presets, cfg)).date().isoformat()
+
+
+def _started(row, presets: dict, cfg: dict) -> bool:
+    """The shift's start has passed IN ITS OWN ZONE. A release (Phase 3b)
+    must come before the shift begins: a slot for a shift already under way
+    has nobody to turn up for it, and the person may be punched in on it -
+    so today's shift is released only until it starts, overnight or not
+    (_upcoming alone still allows the rest of the day)."""
+    try:
+        start = datetime.strptime(f"{(row.work_date or '')[:10]} {(row.start_hhmm or '')[:5]}", "%Y-%m-%d %H:%M")
+    except ValueError:
+        return False
+    return _shift_local_now(shift_zone(row, presets, cfg)) >= start
+
+
+def _release_blocked(db: Session, shift, cfg: dict) -> str:
+    """Why this shift cannot go to the open pool, or '' when it can: it is
+    on no team (the pool is per team), or it has already started."""
+    if not (getattr(shift, "group_id", "") or ""):
+        return "This shift is not on a team, so it cannot go to the open pool."
+    preset = db.query(models.Shift).filter(models.Shift.id == shift.shift_id).first() if shift.shift_id else None
+    if _started(shift, {preset.id: preset} if preset else {}, cfg):
+        return "This shift has already started, so it cannot go to the open pool."
+    return ""
 
 
 def _us(iso: str) -> str:
@@ -283,6 +331,9 @@ class SettingsIn(BaseModel):
     outlookCalendar: Optional[bool] = None      # shared shifts onto Outlook calendars (Phase 3a)
     outlookShowAs: Optional[str] = None         # free | busy
     confirmRequests: Optional[bool] = None      # ask people to confirm a shared schedule
+    releaseShifts: Optional[bool] = None        # staff may release a shared shift to the open pool (Phase 3b)
+    releaseNeedsApproval: Optional[bool] = None # a manager approves a release; off = at once
+    openShiftsAcrossTeams: Optional[bool] = None   # open shifts of every team in the company, for everyone
 
 
 @router.get("/settings")
@@ -406,6 +457,8 @@ def _describe(r: models.ShiftRequest, names: dict) -> str:
     mine = _when(r.shift_date, r.shift_start, r.shift_end)
     if r.kind == "open":
         return f"{who} asked for the open shift {mine}"
+    if r.kind == "release":
+        return f"{who} asked to release {mine} to the open pool"
     other = names.get(r.target_email, r.target_email)
     if r.kind == "swap":
         return f"{who} wants to swap {mine} for {other}'s {_when(r.target_date, r.target_start, r.target_end)}"
@@ -424,10 +477,18 @@ def _live_dicts(db: Session, rows: list) -> dict:
             for s in db.query(models.ScheduledShift).filter(models.ScheduledShift.id.in_(list(ids))).all()}
 
 
-def _to_dict(r: models.ShiftRequest, names: dict, live: dict = None) -> dict:
+def _team_names(db: Session) -> dict:
+    return {g.id: g.name or "" for g in db.query(models.ShiftGroup).all()}
+
+
+def _to_dict(r: models.ShiftRequest, names: dict, live: dict = None, teams: dict = None) -> dict:
     live = live or {}
+    shift = live.get(r.shift_id) or {}
     return {
         "id": r.id, "kind": r.kind, "status": r.status, "summary": _describe(r, names),
+        # The team the (live) shift is on - what a cross-team claim or a
+        # release shows in the inbox (Phase 3b); '' when the shift is gone.
+        "team": (teams or {}).get(shift.get("groupId") or "", ""),
         "requester": {"email": r.requester_email, "name": names.get(r.requester_email, r.requester_email)},
         "target": ({"email": r.target_email, "name": names.get(r.target_email, r.target_email)}
                    if r.target_email else None),
@@ -445,29 +506,97 @@ def _to_dict(r: models.ShiftRequest, names: dict, live: dict = None) -> dict:
 
 def _dicts(db: Session, rows: list, names: dict) -> list:
     live = _live_dicts(db, rows)
-    return [_to_dict(r, names, live) for r in rows]
+    teams = _team_names(db)
+    return [_to_dict(r, names, live, teams) for r in rows]
+
+
+def _slot_deciders(db: Session, group_id: str) -> list:
+    """Who decides a claim on an open slot of THIS team when the requester is
+    not on it (a cross-team claim, Phase 3b): the team's schedulers who hold
+    Manage access to Shifts (manager and above), else the managers of the
+    team's company (People > Companies). [] when nobody fits - the
+    requester's usual approvers then decide."""
+    from auth import level_for
+    g = db.query(models.ShiftGroup).filter(models.ShiftGroup.id == group_id).first() if group_id else None
+    if g is None:
+        return []
+    named = [e for e in _schedulers(g) if level_for(e, db) >= SHIFT_MANAGE_LEVEL]
+    if named:
+        return list(dict.fromkeys(named))
+    cid = getattr(g, "company_id", "") or ""
+    ent = db.query(models.HrEntity).filter(models.HrEntity.id == cid).first() if cid else None
+    if ent is None:
+        return []
+    mgrs = [str(e).strip().lower() for e in (ent.manager_emails or []) if str(e).strip()]
+    if not mgrs and (ent.manager_email or "").strip():
+        mgrs = [ent.manager_email.strip().lower()]
+    return [e for e in dict.fromkeys(mgrs) if level_for(e, db) >= SHIFT_MANAGE_LEVEL]
+
+
+def _slot_group_id(db: Session, r: models.ShiftRequest) -> str:
+    """The team of the shift an OPEN request points at; '' for any other
+    kind or once the shift is gone (the last slot was filled)."""
+    if r.kind != "open" or not r.shift_id:
+        return ""
+    row = db.query(models.ScheduledShift.group_id).filter(models.ScheduledShift.id == r.shift_id).first()
+    return (row.group_id or "") if row else ""
+
+
+def _claim_deciders(db: Session, r: models.ShiftRequest, cache: dict = None) -> list:
+    """The slot's own deciders for a CROSS-TEAM open claim (the requester is
+    not on the slot's team); [] for a claim on the requester's own team, any
+    other kind, or a team with nobody to decide. `cache` memoizes per team
+    across one inbox read."""
+    gid = _slot_group_id(db, r)
+    if not gid or gid in set(_my_groups(db, r.requester_email)):
+        return []
+    cache = cache if cache is not None else {}
+    if gid not in cache:
+        cache[gid] = _slot_deciders(db, gid)
+    return cache[gid]
+
+
+def _approver_emails(db: Session, r: models.ShiftRequest, actor: str) -> list:
+    """Who decides this request, in bell order. A cross-team open claim goes
+    to the slot's own team (_slot_deciders); everything else to the
+    requester's (and the teammate's) manager, else the HR contact, else the
+    Global Admins (Oct 2) - and only people who can actually decide it
+    (managers and above, Sep 29): an HR contact below manager would get a
+    request they are refused on."""
+    from auth import level_for
+    people = {r.requester_email} | ({r.target_email} if r.target_email else set())
+    out = [e for e in _claim_deciders(db, r) if e not in people and e != actor]
+    if out:
+        return out
+    for p in people:
+        for rec in _team_alert_recipients(db, p, actor, owners_as_fallback=True):
+            if rec not in out and rec not in people and level_for(rec, db) >= SHIFT_MANAGE_LEVEL:
+                out.append(rec)
+    return out
 
 
 def _notify_approvers(db: Session, r: models.ShiftRequest, names: dict, actor: str) -> None:
-    from auth import level_for
-    people = {r.requester_email} | ({r.target_email} if r.target_email else set())
-    sent = set()
-    for p in people:
-        # The manager, else the HR contact, else the Global Admins (Oct 2) -
-        # and only people who can actually decide it (managers and above,
-        # Sep 29): an HR contact below manager would get a request they are
-        # refused on.
-        for rec in _team_alert_recipients(db, p, actor, owners_as_fallback=True):
-            if rec not in sent and rec not in people and level_for(rec, db) >= SHIFT_MANAGE_LEVEL:
-                sent.add(rec)
-                _bell(db, rec, "Shift request to approve", _describe(r, names) + ".", r.id, actor, _APPROVER_ACTION)
+    for rec in _approver_emails(db, r, actor):
+        _bell(db, rec, "Shift request to approve", _describe(r, names) + ".", r.id, actor, _APPROVER_ACTION)
 
 
-def _open_visible(row, my_groups) -> bool:
+def _open_visible(row, my_groups, cfg: dict = None, groups: dict = None, company: str = "") -> bool:
     """An open shift is offered to the people on its team; a legacy slot with
-    no team (before Oct 2) still shows to everyone."""
+    no team (before Oct 2) still shows to everyone. With openShiftsAcrossTeams
+    on in `cfg` (the REQUESTER's company settings, Phase 3b) it is also
+    offered to anyone in the company: a slot whose team (`groups`, {id:
+    ShiftGroup}) is on no company or on the requester's `company`. A team on
+    another company, or an archived one, never shows."""
     gid = getattr(row, "group_id", "") or ""
-    return not gid or gid in my_groups
+    if not gid or gid in my_groups:
+        return True
+    if not (cfg or {}).get("openShiftsAcrossTeams"):
+        return False
+    g = (groups or {}).get(gid)
+    if g is None or int(getattr(g, "archived", 0) or 0):
+        return False
+    gc = getattr(g, "company_id", "") or ""
+    return not gc or gc == (company or "")
 
 
 # ── Employee side ─────────────────────────────────────────────────────────
@@ -490,18 +619,26 @@ def my_requests(start: str = "", end: str = "", user: dict = Depends(get_current
     my_groups = set(_my_groups(db, me))
     open_shifts = []
     if cfg["openShifts"] and start and end:
+        from auth import company_of
         lo = max(start[:10], _earliest_today())
         presets = {s.id: s for s in db.query(models.Shift).all()}
+        groups = {g.id: g for g in db.query(models.ShiftGroup).all()}
+        my_company = company_of(me, db)
         asked = {r.shift_id for r in mine if r.kind == "open" and r.status in PENDING}
         for r in (db.query(models.ScheduledShift)
                   .filter(models.ScheduledShift.employee_email == "", models.ScheduledShift.published == 1,
                           models.ScheduledShift.work_date >= lo, models.ScheduledShift.work_date <= end[:10])
                   .order_by(models.ScheduledShift.work_date, models.ScheduledShift.start_hhmm).all()):
-            if (r.pending_delete or int(r.open_slots or 0) < 1 or not _open_visible(r, my_groups)
-                    or not _upcoming(r, presets, cfg)):
+            if (r.pending_delete or int(r.open_slots or 0) < 1
+                    or not _open_visible(r, my_groups, cfg, groups, my_company) or not _upcoming(r, presets, cfg)):
                 continue
             d = _sched_dict(r, presets, team_tz=tz)
             d["requested"] = r.id in asked
+            gid = getattr(r, "group_id", "") or ""
+            g = groups.get(gid)
+            # Phase 3b: which team, and whether it is one the person is not on.
+            d["team"] = (g.name or "") if g is not None else ""
+            d["crossTeam"] = bool(gid) and gid not in my_groups
             open_shifts.append(d)
     # What the swap dialog can offer: teammates' published, upcoming shifts
     # in the range - and nothing else, so it works even when admins hide the
@@ -538,7 +675,8 @@ def create_request(body: CreateIn, user: dict = Depends(get_current_user), db: S
     kind = (body.kind or "").strip()
     if kind not in KINDS:
         raise HTTPException(400, "Unknown request type.")
-    if not settings_for(db, me)[_KIND_SETTING[kind]]:
+    cfg = settings_for(db, me)
+    if not cfg[_KIND_SETTING[kind]]:
         raise HTTPException(403, f"{_KIND_LABEL[kind].capitalize()} requests are turned off.")
     shift = _live_shift(db, body.shift_id)
     if not shift:
@@ -546,10 +684,22 @@ def create_request(body: CreateIn, user: dict = Depends(get_current_user), db: S
     target_email = (body.target_email or "").strip().lower()
     target = None
     if kind == "open":
+        from auth import company_of
         if shift.employee_email or int(shift.open_slots or 0) < 1:
             raise HTTPException(409, "That open shift has already been filled.")
-        if not _open_visible(shift, set(_my_groups(db, me))):
+        groups = {g.id: g for g in db.query(models.ShiftGroup).all()}
+        if not _open_visible(shift, set(_my_groups(db, me)), cfg, groups, company_of(me, db)):
             raise HTTPException(403, "That open shift belongs to another team.")
+        target_email = ""
+    elif kind == "release":
+        # Only my own shared, upcoming shift (_live_shift: published, not
+        # being removed, today or later) - and it must be on a team, since
+        # the open pool is per team.
+        if (shift.employee_email or "").lower() != me:
+            raise HTTPException(403, "You can only release your own shifts.")
+        why = _release_blocked(db, shift, cfg)
+        if why:
+            raise HTTPException(409, why)
         target_email = ""
     else:
         if (shift.employee_email or "").lower() != me:
@@ -568,7 +718,7 @@ def create_request(body: CreateIn, user: dict = Depends(get_current_user), db: S
     if dup:
         raise HTTPException(409, "You already have a request open for this shift.")
     r = models.ShiftRequest(
-        id=str(uuid.uuid4()), kind=kind, status="pending_manager" if kind == "open" else "pending_peer",
+        id=str(uuid.uuid4()), kind=kind, status="pending_manager" if kind in ("open", "release") else "pending_peer",
         requester_email=me, shift_id=shift.id, target_email=target_email,
         target_shift_id=target.id if target else "",
         shift_date=shift.work_date, shift_start=shift.start_hhmm, shift_end=shift.end_hhmm,
@@ -577,7 +727,21 @@ def create_request(body: CreateIn, user: dict = Depends(get_current_user), db: S
         note=(body.note or "").strip()[:300], created_at=_now())
     db.add(r)
     names = _names(db)
-    if kind == "open":
+    if kind == "release" and not cfg["releaseNeedsApproval"]:
+        # No approval needed (releaseNeedsApproval off): the shift goes to
+        # the pool now, decided by the requester, and the people who would
+        # have approved it get one FYI bell each (named, never a broadcast).
+        had_edit = bool(shift.pending_json)
+        _apply(db, r, me)
+        r.status, r.decided_by, r.decided_at = "approved", me, _now()
+        who = names.get(me, me)
+        for rec in _approver_emails(db, r, me):
+            _bell(db, rec, "Shift released to the open pool",
+                  f"{who} released {_when(r.shift_date, r.shift_start, r.shift_end)} to the open pool"
+                  + (f": {r.note}" if r.note else ".") + " No approval was needed."
+                  + (" The unshared edit to this shift was dropped - the shared times went to the pool." if had_edit else ""),
+                  r.id, me, _APPROVER_ACTION)
+    elif kind in ("open", "release"):
         _notify_approvers(db, r, names, me)
     else:
         _bell(db, target_email, f"Shift {_KIND_LABEL[kind]} request", _describe(r, names) + ". Accept or decline it in My Shifts.",
@@ -649,6 +813,20 @@ def _in_scope(r: models.ShiftRequest, scope) -> bool:
     return r.requester_email in scope and (not r.target_email or r.target_email in scope)
 
 
+def _decidable(db: Session, r: models.ShiftRequest, scope, me: str, cache: dict = None) -> bool:
+    """May this manager see and decide the request? The usual team scope
+    (_in_scope) - except a CROSS-TEAM open claim (Phase 3b), which the
+    slot's own team decides: its deciders, or an unscoped scheduler (a
+    Global Admin), never the requester's own scoped manager. When the slot's
+    team has nobody to decide, the usual scope applies."""
+    if scope is None:
+        return True
+    deciders = _claim_deciders(db, r, cache) if r.kind == "open" and r.status in PENDING else []
+    if deciders:
+        return me in deciders
+    return _in_scope(r, scope)
+
+
 @router.get("")
 def inbox(user: dict = Depends(require_schedule_write), db: Session = Depends(get_db)):
     """Requests waiting on a manager, for people the caller manages, the
@@ -657,10 +835,11 @@ def inbox(user: dict = Depends(require_schedule_write), db: Session = Depends(ge
     scope = _visible_emails(db, user)
     names = _names(db)
     me = user["email"].lower()
+    cache = {}
     # A manager's own swap/offer/pickup waits on ANOTHER manager (Sep 29).
     pending_rows = [r for r in db.query(models.ShiftRequest).filter(models.ShiftRequest.status.in_(PENDING))
                     .order_by(models.ShiftRequest.created_at).all()
-                    if _in_scope(r, scope) and me not in (r.requester_email, r.target_email)]
+                    if _decidable(db, r, scope, me, cache) and me not in (r.requester_email, r.target_email)]
     waiting = [r for r in pending_rows if r.status == "pending_manager"]
     on_peer = [r for r in pending_rows if r.status == "pending_peer"]
     recent = [r for r in db.query(models.ShiftRequest)
@@ -669,9 +848,10 @@ def inbox(user: dict = Depends(require_schedule_write), db: Session = Depends(ge
     # Faces for the inbox cards (Visesh, 09/30: "no pictures here").
     photos = {(e.work_email or "").lower(): (e.photo_url or "") for e in db.query(models.NexusEmployee).all() if e.work_email and getattr(e, "photo_url", "")}
     live = _live_dicts(db, waiting + on_peer + recent)
-    return {"pending": [_to_dict(r, names, live) for r in waiting],
-            "waitingOnPeer": [_to_dict(r, names, live) for r in on_peer],
-            "recent": [_to_dict(r, names, live) for r in recent],
+    teams = _team_names(db)
+    return {"pending": [_to_dict(r, names, live, teams) for r in waiting],
+            "waitingOnPeer": [_to_dict(r, names, live, teams) for r in on_peer],
+            "recent": [_to_dict(r, names, live, teams) for r in recent],
             "photos": photos,
             "settings": get_settings(db),
             # The settings are company-wide switches (save_settings).
@@ -757,6 +937,37 @@ def _apply(db: Session, r: models.ShiftRequest, actor: str, force: bool = False)
         return []                # slots left: other people's asks still stand
     if not shift or (shift.employee_email or "").lower() != r.requester_email:
         raise stale
+    if r.kind == "release":
+        # The SAME row becomes an open slot of its team: still shared, one
+        # slot, no owner, the owner's unshared edit dropped. The log row
+        # stays on the person who released it; their Outlook event goes.
+        # Not once the shift has started (_started) - the request may have
+        # waited past it.
+        why = _release_blocked(db, shift, settings_for(db, r.requester_email))
+        if why:
+            raise HTTPException(409, why + " Decline it instead.")
+        old = (shift.employee_email or "").lower()
+        had_edit = bool(shift.pending_json)
+        before = shift_log.snapshot(shift)
+        shift.employee_email, shift.open_slots, shift.pending_json = "", 1, ""
+        if actor != r.requester_email:
+            # The manager who sent it to the pool owns the slot: a scoped
+            # scheduler may edit or remove only the open shifts they
+            # created (_open_row_mine), and the original creator may be
+            # long gone. An instant release keeps the creator.
+            shift.created_by = actor
+        shift_log.record(db, "released", {"id": shift.id, "email": old, "date": shift.work_date}, actor,
+                         before=before, after=shift_log.snapshot(shift),
+                         reason=f"Released by {r.requester_email}" + (" (an unshared edit was dropped)" if had_edit else ""))
+        import shift_calendar
+        shift_calendar.enqueue_delete(db, shift.id, old)
+        # Every other pending request about this shift (an offer, a swap)
+        # describes a shift that no longer has an owner: cancelled, the same
+        # way a publish cancels them (cancel_requests_for_shifts), with this
+        # request itself left alone.
+        _end_others(db, [shift.id], r.id, actor, "cancelled", RELEASED_NOTE, "Shift request cancelled",
+                    "A shift in your request was released to the open pool before it was decided, so the request was cancelled.")
+        return []
     if r.kind == "swap":
         other = _live_shift(db, r.target_shift_id, lock=True)
         if not other or (other.employee_email or "").lower() != r.target_email:
@@ -815,7 +1026,7 @@ def cancel_requests_for_shifts(db: Session, shift_ids: list, actor: str) -> int:
 def decide(req_id: str, body: DecideIn, user: dict = Depends(require_schedule_write), db: Session = Depends(get_db)):
     actor = user["email"].lower()
     r = _own(db, req_id, lock=True)
-    if not _in_scope(r, _visible_emails(db, user)):
+    if not _decidable(db, r, _visible_emails(db, user), actor):
         raise HTTPException(403, "This request is for people outside your team.")
     # Nobody decides a request they are part of - not even a manager on
     # their own shift (Sep 29). Another manager (theirs) approves it.

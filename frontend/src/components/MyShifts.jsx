@@ -248,7 +248,9 @@ export default function MyShifts({ focusConfirm = '' }) {
   const teamZone = data?.timeZone || '';
   const teamZoneLabel = teamZone ? zoneOptionLabel(teamZone) : '';
   const cfg = reqs?.settings || {};
-  const canAsk = (reqs?.teammates || []).length > 0 && (cfg.swaps !== false || cfg.offers !== false);
+  // Phase 3b: a release needs no teammate - the shift goes to the open pool.
+  const canRelease = cfg.releaseShifts === true;
+  const canAsk = ((reqs?.teammates || []).length > 0 && (cfg.swaps !== false || cfg.offers !== false)) || canRelease;
   const pendingIds = new Set((reqs?.mine || []).filter((r) => PENDING.includes(r.status)).map((r) => r.shift?.id));
   const openList = cfg.openShifts ? reqs?.openShifts || [] : [];
   const whenText = (x) => (x.d.isToday ? 'today' : x.d.key === isoDate(addDays(now, 1)) ? 'tomorrow' : dayShort(x.d.date));
@@ -348,7 +350,7 @@ export default function MyShifts({ focusConfirm = '' }) {
                     {s.note && <div style={{ fontSize: 10.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.note}</div>}
                     {pendingIds.has(s.id) ? <div style={{ fontSize: 10.5, color: 'hsl(var(--color-orange))', fontWeight: 600, marginTop: 2 }}>Request Pending</div>
                       : askable && (
-                        <button type="button" onClick={() => setAsk({ shift: s })} aria-label={`Request a swap or offer for ${formatHHMM(s.start)} - ${formatHHMM(s.end)}`}
+                        <button type="button" onClick={() => setAsk({ shift: s })} aria-label={`Request a swap${canRelease ? ', offer or release' : ' or offer'} for ${formatHHMM(s.start)} - ${formatHHMM(s.end)}`}
                           style={{ alignSelf: 'flex-start', marginTop: 3, display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, fontWeight: 700, padding: '1px 7px', borderRadius: 6,
                             border: '1px solid var(--wk-line2)', background: 'var(--card)', color: 'var(--ink)', cursor: 'pointer', fontFamily: 'inherit' }}>
                           <ArrowLeftRight size={10} /> Request
@@ -370,7 +372,7 @@ export default function MyShifts({ focusConfirm = '' }) {
 
       {flash && <div role="status" style={{ marginTop: 12, fontSize: 12.5, fontWeight: 600, color: 'hsl(var(--color-green))' }}>{flash}</div>}
       {ask && reqs && (
-        <ShiftRequestDialog reqs={reqs} myShifts={(data?.scheduled || []).filter((s) => s.date >= todayKey)} shift={ask.shift} kind={cfg.swaps !== false ? 'swap' : 'offer'}
+        <ShiftRequestDialog reqs={reqs} myShifts={(data?.scheduled || []).filter((s) => s.date >= todayKey)} shift={ask.shift} kind={cfg.swaps !== false ? 'swap' : cfg.offers !== false ? 'offer' : 'release'}
           nameOf={nameOf} onClose={() => setAsk(null)} onDone={done} />
       )}
 
@@ -390,7 +392,7 @@ export default function MyShifts({ focusConfirm = '' }) {
           Shifts are set by your manager. Only shifts they have shared appear here - ask them if something looks wrong.
           {data?.shift && ' Usual hours are your regular schedule, shown on days with no shared shift.'}
           {data && teams.length === 0 && ' Your group will show here once your manager adds you to one.'}
-          {' '}Swaps, offers and open-shift requests are in Workday &gt; Time Off.
+          {' '}Swaps, offers{canRelease ? ', releases' : ''} and open-shift requests are in Workday &gt; Time Off.
         </span>
       </div>
       {prefs && (

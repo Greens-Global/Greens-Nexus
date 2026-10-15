@@ -82,8 +82,23 @@ export function gridKeys(e, on) {
 // `confirm` (Phase 3a): 'all' = every schedule shared in view is confirmed
 // (a 12px green check after the name), 'some' = one is not yet (a hollow
 // mark), null = no share in view asked them - nothing.
+// `prefs` (Phase 3b): the person's preferred / most hours a week - one tiny
+// muted line, "prefers 24h · max 30h", only when they set one. The grid's
+// availability list carries them as its last row, `{kind: 'prefs', ...}`
+// (routers/timeclock.py `_availability`); `emp.prefs` and a `{days, dates,
+// prefs}` payload are read too.
+const hoursPrefsText = (emp) => {
+  const list = Array.isArray(emp.availability) ? emp.availability : null;
+  const p = emp.prefs || list?.find((a) => a?.kind === 'prefs') || (emp.availability && !list ? emp.availability.prefs : null) || null;
+  const bits = [];
+  if (Number(p?.preferredHoursWeek) > 0) bits.push(`prefers ${Number(p.preferredHoursWeek)}h`);
+  if (Number(p?.maxHoursWeek) > 0) bits.push(`max ${Number(p.maxHoursWeek)}h`);
+  return bits.join(' · ');
+};
 export function PersonCell({ emp, isMe = false, hrs, over = [], viewOnly = false, photos = true, onNow = false, usual = null, confirm = null, tools, style, ...rest }) {
-  const limited = emp.availability?.length > 0;
+  const availRows = (Array.isArray(emp.availability) ? emp.availability : emp.availability?.days || []).filter((a) => a && a.kind !== 'prefs' && a.weekday !== undefined && a.weekday !== null && !a.date);
+  const limited = availRows.length > 0;
+  const prefsText = hoursPrefsText(emp);
   return (
     <div {...rest} className="sched-person"
       style={{ padding: `${PAD + 2}px ${tools ? 30 : 10}px ${PAD}px 14px`, display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0, position: 'relative',
@@ -107,13 +122,16 @@ export function PersonCell({ emp, isMe = false, hrs, over = [], viewOnly = false
           {fmtHrs(hrs)}{over.length > 0 && ' · over 40'}
           {viewOnly && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 4 }}><Lock size={10} /> View Only</span>}
         </div>
+        {prefsText && (
+          <div data-hours-prefs title="Their preferred and most hours a week (My Availability). A guide, never a block." style={{ fontSize: 10.5, color: 'var(--muted)', ...ELLIPSIS }}>{prefsText}</div>
+        )}
         {usual && (
           <div title="Their usual hours (shift type). Fill From Usual Hours places them." style={{ fontSize: 11, color: 'var(--muted)', ...ELLIPSIS }}>
             Usual {shiftShortText(usual)}
           </div>
         )}
         {limited && (
-          <div title={`Availability: ${availText(emp.availability)}`} style={{ fontSize: 11, color: 'hsl(var(--color-orange))', fontWeight: 600, ...ELLIPSIS }}>Limited Availability</div>
+          <div title={`Availability: ${availText(availRows)}`} style={{ fontSize: 11, color: 'hsl(var(--color-orange))', fontWeight: 600, ...ELLIPSIS }}>Limited Availability</div>
         )}
       </span>
       {tools && <span style={{ position: 'absolute', right: 6, top: PAD + 2, display: 'inline-flex' }}>{tools}</span>}
@@ -519,7 +537,7 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
               const inner = (
                 <>
                   {av?.kind === 'unavailable' && !offHere.length && !hol && (
-                    <div title={`${emp.name} is unavailable on ${DAY_LONG[(d.getDay() + 6) % 7]}s`} aria-label="Unavailable"
+                    <div title={`${emp.name} is unavailable on ${av.date ? formatDate(av.date) : `${DAY_LONG[(d.getDay() + 6) % 7]}s`}`} aria-label="Unavailable"
                       style={{ position: 'absolute', inset: 0, background: 'repeating-linear-gradient(135deg, hsla(var(--color-orange),0.10) 0 6px, transparent 6px 12px)', pointerEvents: 'none' }} />
                   )}
                   {hol && <HolidayBlock holiday={hol} compact={compact} style={{ marginBottom: 0 }} />}

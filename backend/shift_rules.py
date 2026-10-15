@@ -11,7 +11,10 @@ Five schedule rules, set per company in Settings > Shifts
                      routers/timeclock._week_start_str's anchor - never the
                      grid's display week; 'ca' and 'federal'; 'none' skips
                      both overtime rules but keeps the rest)
-  ruleMaxWeekHours   paid hours in the display week (`weekStart`), everyone
+  ruleMaxWeekHours   paid hours in the display week (`weekStart`), everyone -
+                     or, when tighter, the person's own max_hours_week (Phase
+                     3b, My Shifts > Availability), which also applies when
+                     the company has no cap
 
 A person's overtime rule (`config_for`): their PayrollRate.overtime_rule
 when they have a rate row; else from their country (nexus_employees
@@ -96,12 +99,16 @@ def _int(cfg: dict, key: str) -> int:
         return 0
 
 
-def evaluate(shifts: list, cfg: dict, ot_rule: str = "ca", week_start: str = "monday") -> dict:
+def evaluate(shifts: list, cfg: dict, ot_rule: str = "ca", week_start: str = "monday",
+             max_hours_week: int = 0) -> dict:
     """One person's shifts across a window -> {shift id: [warning sentences]}.
     Each shift: {id, date (YYYY-MM-DD), start, end (HH:MM), paidMin, cancelled,
     tz (optional IANA zone)}. `week_start` is the DISPLAY week and bounds
-    only ruleMaxWeekHours; the overtime rules use the payroll week
-    (OT_WEEK_START)."""
+    only the week cap; the overtime rules use the payroll week
+    (OT_WEEK_START). `max_hours_week` is the person's OWN cap
+    (ShiftAvailabilityPref, Phase 3b; 0 = none): the tighter of it and the
+    company's ruleMaxWeekHours is the week cap, and the sentence says whose
+    it was."""
     out = {}
 
     def warn(sid, text):
@@ -166,9 +173,16 @@ def evaluate(shifts: list, cfg: dict, ot_rule: str = "ca", week_start: str = "mo
     # weekly cap (everyone) on the display week: the warning lands on the
     # shift that crosses the line and every one after.
     weekly = _int(cfg, "ruleWeeklyOtHours") if rule in ("ca", "federal") else 0
-    max_wk = _int(cfg, "ruleMaxWeekHours")
+    company_wk = _int(cfg, "ruleMaxWeekHours")
+    try:
+        own_wk = max(0, int(max_hours_week or 0))
+    except (TypeError, ValueError):
+        own_wk = 0
+    # The person's own cap applies when it is the only one, or the tighter one.
+    max_wk, own_cap = (own_wk, True) if own_wk > 0 and (company_wk <= 0 or own_wk < company_wk) else (company_wk, False)
+    cap_text = "(they asked for at most {n}h)" if own_cap else "({n}h is the most)"
     for limit, anchor, text in ((weekly, OT_WEEK_START, "(over {n}h is overtime)"),
-                                (max_wk, week_start, "({n}h is the most)")):
+                                (max_wk, week_start, cap_text)):
         if limit <= 0:
             continue
         by_week = {}
@@ -273,6 +287,18 @@ def config_for(db, emails) -> dict:
     return out
 
 
+def own_caps_for(db, emails) -> dict:
+    """{email: max_hours_week} for the people who set their own weekly cap
+    (ShiftAvailabilityPref, Phase 3b); nobody else has a key."""
+    from models import ShiftAvailabilityPref
+    emails = sorted({(e or "").lower() for e in emails if e})
+    if not emails:
+        return {}
+    return {(p.employee_email or "").lower(): int(p.max_hours_week or 0)
+            for p in db.query(ShiftAvailabilityPref).filter(ShiftAvailabilityPref.employee_email.in_(emails)).all()
+            if int(p.max_hours_week or 0) > 0}
+
+
 def _evaluate_people(db, emails, start: str, end: str, extra: list = None, exclude_ids=None,
                      view: str = "effective", report=None, presets: dict = None):
     """The engine behind rule_warnings / publish_warnings: ({shift id:
@@ -302,10 +328,11 @@ def _evaluate_people(db, emails, start: str, end: str, extra: list = None, exclu
         keep.add(rs["id"])
         shifts.setdefault(x["email"].strip().lower(), []).append(rs)
     conf = config_for(db, emails)
+    caps = own_caps_for(db, emails)
     out, where = {}, {}
     for em, lst in shifts.items():
         cfg, rule = conf.get(em) or ({}, "ca")
-        found = evaluate(lst, cfg, rule, cfg.get("weekStart") or "monday")
+        found = evaluate(lst, cfg, rule, cfg.get("weekStart") or "monday", max_hours_week=caps.get(em, 0))
         dated = {s["id"]: s["date"] for s in lst}
         for sid, texts in found.items():
             day = (dated.get(sid) or "")[:10]
