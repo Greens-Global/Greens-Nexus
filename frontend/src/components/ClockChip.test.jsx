@@ -58,13 +58,38 @@ describe('ClockChip', () => {
     expect(screen.queryByText('2:10')).toBeNull();
   });
 
-  it('a break starting lifts the coffee cup; a resume sweeps the dial', () => {
+  // Each accepted punch has its own flourish, drawn in a layer on the page
+  // (outside the chip) so it can travel right, clear of the tooltip.
+  const fx = () => document.querySelector('[data-flourish]')?.getAttribute('data-flourish') || '';
+  it('a break starting lifts the coffee cup with steam; nothing on first paint', () => {
     const { container, rerender } = render(<ClockChip vm={working()} />);
-    expect(container.querySelector('.sbtr-coffee')).toBeNull();
+    expect(fx()).toBe('');
     rerender(<ClockChip vm={working({ state: 'break', timer: '0:00' })} />);
-    expect(container.querySelector('.sbtr-coffee')).toBeTruthy();
+    expect(fx()).toBe('coffee');
+    expect(document.querySelectorAll('.sbfx-coffee i')).toHaveLength(3);
+    expect(container.querySelector('[data-flourish]')).toBeNull();          // not inside the chip
+  });
+
+  it('End Break draws a check and sweeps the dial', () => {
+    const { container, rerender } = render(<ClockChip vm={working({ state: 'break', timer: '0:00' })} />);
     rerender(<ClockChip vm={working()} />);
+    expect(fx()).toBe('check');
+    expect(document.querySelector('.sbfx-check path')).toBeTruthy();
     expect(container.querySelector('.sbring-sweep')).toBeTruthy();
+  });
+
+  it('Punch In bursts stars and sweeps; Punch Out fans stars, from either working state', () => {
+    const { container, rerender } = render(<ClockChip vm={working({ state: 'out' })} />);
+    rerender(<ClockChip vm={working()} />);
+    expect(fx()).toBe('in');
+    expect(document.querySelectorAll('.sbfx-star')).toHaveLength(5);
+    expect(container.querySelector('.sbring-sweep')).toBeTruthy();
+    rerender(<ClockChip vm={working({ state: 'out' })} />);
+    expect(fx()).toBe('out');
+    rerender(<ClockChip vm={working()} />);
+    rerender(<ClockChip vm={working({ state: 'break' })} />);
+    rerender(<ClockChip vm={working({ state: 'out' })} />);
+    expect(fx()).toBe('out');
   });
 
   it('tooltips name the action and what it does', () => {

@@ -7,9 +7,9 @@ import { useIsMobile } from '../../lib/useIsMobile';
 import EntryDetail from './EntryDetail';
 import Amount from './Amount';
 import { useAccountingPrefs } from './prefs';
-import { PopoverPanel, usePopover } from './reportControls';
+import { OpFilter, PopoverPanel, usePopover } from './reportControls';
 import { linesBaseName } from './linesExport';
-import { DIM_KINDS, NUM_OPS, glLineParams, lineMatchesDims, numberFilterHit, parseFigure } from './reportModel';
+import { DIM_KINDS, bookOptions, bookTitle, glLineParams, lineMatchesDims, numberFilterHit, parseFigure } from './reportModel';
 
 // Search results and report drill-downs for Accounting -> Reports.
 //
@@ -277,7 +277,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
     // A vendor, customer or employee column drills into that party; a
     // department column into that department (the Department filter box).
     setDropped([]);
-    setParty(drill.party || applied.party); setJournal(''); setBook(drill.book === 'cash' ? 'cash' : 'accrual'); setScope('period');
+    setParty(drill.party || applied.party); setJournal(''); setBook(drill.book && drill.book !== 'both' ? drill.book : 'accrual'); setScope('period');
     setTyped(drill.department ? { department: drill.department } : {});
   }, [drill]); // eslint-disable-line react-hooks/exhaustive-deps
   // A single vendor / customer / employee on the report follows into the search.
@@ -366,7 +366,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
       return {
         title: `Ledger Lines - ${heading}`,
         period: periodText.replace(/\//g, '-'),
-        subtitle: [entityName, periodText, book === 'all' ? 'all books' : `${book} book`, `${all.length.toLocaleString('en-US')} lines`].filter(Boolean).join(' · '),
+        subtitle: [entityName, periodText, book === 'all' ? 'All Books' : bookTitle(book), `${all.length.toLocaleString('en-US')} lines`].filter(Boolean).join(' · '),
         columns: columns.map((c) => ({ label: c.label, num: !!c.num, width: colWidth(c) })),
         rows: all.map((r) => columns.map((c) => (c.num ? (Number(r[c.key]) || 0) : c.text(r)))),
         totals: firstNum > 0 ? columns.map((c, i) => (c.num ? Math.round(sums[c.key] * 100) / 100 : i === 0 ? `Totals - ${all.length.toLocaleString('en-US')} lines` : '')) : null,
@@ -387,7 +387,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
         <div style={{ minWidth: 0 }}>
           <h3 style={{ fontSize: '0.98rem', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{heading}</h3>
           <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
-            {entityName} · {periodText} · {book === 'all' ? 'all books' : `${book} book`}{loading ? (data ? ' · updating' : ' · searching') : ''}
+            {entityName} · {periodText} · {book === 'all' ? 'All Books' : bookTitle(book)}{loading ? (data ? ' · updating' : ' · searching') : ''}
           </div>
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
@@ -399,8 +399,9 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
           )}
           <select value={book} onChange={(e) => setBook(e.target.value)} style={select} aria-label="Book">
             <option value="all">All Books</option>
-            <option value="accrual">Accrual Book</option>
-            <option value="cash">Cash Book</option>
+            {/* Every single book a report reads (10/15), the drill's own book included. */}
+            {[...bookOptions({ report: 'general-ledger' }), ...(book !== 'all' && !bookOptions({ report: 'general-ledger' }).some((b) => b.key === book) ? [{ key: book }] : [])]
+              .map((b) => <option key={b.key} value={b.key}>{bookTitle(b.key)}</option>)}
           </select>
           {!isPhone && <ColumnChooser layout={layout} visible={visible} onChange={setLayout} />}
         </div>
@@ -544,23 +545,6 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
       ) : null}
       {openEntry && <EntryDetail entryId={openEntry.id} entryNo={openEntry.no} onClose={closeEntry} />}
     </div>
-  );
-}
-
-// The operator box under an amount column - the same control as the Reports
-// tables' (ReportsTab, item 26d): =, >, <, >=, <=, Between and a value.
-function OpFilter({ label, value, onChange }) {
-  const v = value && typeof value === 'object' ? value : { op: '=', a: '', b: '' };
-  return (
-    <span className="acct-op-filter">
-      <select value={v.op || '='} onChange={(e) => onChange({ ...v, op: e.target.value })} aria-label={`Operator for ${label}`} title="Compare with">
-        {NUM_OPS.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
-      </select>
-      <input type="text" inputMode="decimal" value={v.a || ''} onChange={(e) => onChange({ ...v, a: e.target.value })} aria-label={`Filter ${label}`} placeholder="0.00" className="acct-num" />
-      {v.op === 'between' && (
-        <input type="text" inputMode="decimal" value={v.b || ''} onChange={(e) => onChange({ ...v, b: e.target.value })} aria-label={`Filter ${label} up to`} placeholder="and" className="acct-num" />
-      )}
-    </span>
   );
 }
 

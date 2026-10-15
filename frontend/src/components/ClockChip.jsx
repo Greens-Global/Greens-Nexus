@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Play, Pause, Square, Coffee, MonitorUp, MonitorX, MonitorPause, Plus } from 'lucide-react';
 import { Spinner } from './AsyncState';
 
@@ -71,6 +72,49 @@ function Tip({ title, sub, edge = '', native = false, children }) {
   );
 }
 
+// The flourish for a punch the server accepted (Neil, Oct 14 2026). It is
+// drawn in a layer on the page, pinned over the button it came from, so it
+// can travel RIGHT - clear of the tooltip that opens above the button, and
+// past the folded rail's clipped edge:
+//   coffee - Start Break: the cup pops, drifts right with a wobble, steam
+//            curling up off it the whole way
+//   check  - End Break: a check draws itself in green, then the same drift
+//   in     - Punch In: green and gold stars burst up and to the right
+//   out    - Punch Out: gold stars fan right and settle down, the day done
+const STARS_IN = [[28, -40, 160, 0], [54, -22, 220, 60], [22, -12, 120, 110], [44, -52, 260, 160], [64, -6, 200, 220]];
+const STARS_OUT = [[30, 14, -160, 0], [56, 28, -220, 70], [24, 40, -120, 130], [48, 6, -260, 190], [68, 22, -200, 250]];
+const STAR = 'M12 2l2.6 6.3 6.8.6-5.2 4.5 1.6 6.6L12 16.6 6.2 20l1.6-6.6L2.6 8.9l6.8-.6z';
+export function Flourish({ kind, anchor: a }) {
+  const box = useRef(null);
+  // Pinned to the button's centre on the screen; written straight to the
+  // node so placing it costs no render.
+  useLayoutEffect(() => {
+    const el = box.current, at = a?.current;
+    if (!el || !at) return;
+    const r = at.getBoundingClientRect();
+    el.style.left = `${r.left + r.width / 2}px`;
+    el.style.top = `${r.top + r.height / 2}px`;
+  }, [a]);
+  const stars = kind === 'in' ? STARS_IN : kind === 'out' ? STARS_OUT : null;
+  return createPortal(
+    <div ref={box} className={`sbfx sbfx--${kind}`} aria-hidden="true" data-flourish={kind}>
+      {kind === 'coffee' && <span className="sbfx-coffee"><Coffee /><i /><i /><i /></span>}
+      {kind === 'check' && (
+        <span className="sbfx-check">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10.5" /><path d="M7 12.5l3.3 3.3L17.2 8.8" /></svg>
+        </span>
+      )}
+      {stars && stars.map(([dx, dy, r, delay], i) => (
+        <svg key={i} className="sbfx-star" viewBox="0 0 24 24"
+          style={{ '--dx': `${dx}px`, '--dy': `${dy}px`, '--r': `${r}deg`, animationDelay: `${delay}ms`, '--sz': `${i % 2 ? 12 : 17}px` }}>
+          <path d={STAR} />
+        </svg>
+      ))}
+    </div>,
+    document.body,
+  );
+}
+
 export default function ClockChip({ vm, variant = 'wide', onAfterAction, leaving = false }) {
   const state = vm?.state;
   const live = state === 'in' || state === 'break';
@@ -79,15 +123,20 @@ export default function ClockChip({ vm, variant = 'wide', onAfterAction, leaving
   // transition, not the state, so a page that opens on a break shows nothing.
   const prev = useRef(state);
   const [flourish, setFlourish] = useState('');
+  const playRef = useRef(null), pauseRef = useRef(null), stopRef = useRef(null);
   useEffect(() => {
     const from = prev.current; prev.current = state;
     if (from === 'in' && state === 'break') setFlourish('coffee');
-    else if (from === 'break' && state === 'in') setFlourish('sweep');
-    else if (from === 'out' && state === 'in') setFlourish('sweep');
+    else if (from === 'break' && state === 'in') setFlourish('check');
+    else if (from === 'out' && state === 'in') setFlourish('in');
+    else if ((from === 'in' || from === 'break') && state === 'out') setFlourish('out');
     else return undefined;
-    const t = setTimeout(() => setFlourish(''), 1100);
+    const t = setTimeout(() => setFlourish(''), 1900);
     return () => clearTimeout(t);
   }, [state]);
+  // The dial still sweeps on a return to work (Resume or Punch In).
+  const sweep = flourish === 'check' || flourish === 'in';
+  const fxAnchor = flourish === 'coffee' ? pauseRef : flourish === 'out' ? stopRef : playRef;
   if (!vm || (state !== 'in' && state !== 'break' && state !== 'out')) return null;
 
   const { actions: a, capture } = vm;
@@ -119,7 +168,7 @@ export default function ClockChip({ vm, variant = 'wide', onAfterAction, leaving
   const pause = off
     ? { label: 'Start Break', sub: 'Punch in first', onClick: null, dim: true }
     : onBreak
-      ? { label: 'On Break', sub: 'Press Play to resume', onClick: null, lit: true }
+      ? { label: 'On Break', sub: 'Press Play to Punch Back In', onClick: null, lit: true }
       : { label: 'Start Break', sub: 'Your working time pauses', onClick: after(a.toggleBreak), lit: false };
   const stop = off
     ? { label: 'Punch Out', sub: 'You are off the clock', onClick: null, dim: true }
@@ -135,26 +184,24 @@ export default function ClockChip({ vm, variant = 'wide', onAfterAction, leaving
           never slid; only the landing pop inside it is re-keyed. */}
       <span className="sbtr-lit" style={{ '--sb-lit': lit }} aria-hidden="true"><i className="sbtr-land" key={`${tone}-${lit}`} /></span>
       <Tip title={play.label} sub={play.sub} edge={vertical ? '' : 'start'} native={vertical}>
-        <button type="button" className={`sbtr-btn sbtr-btn--play${play.lit ? ' is-lit' : ''}${play.next ? ' is-next' : ''}${!play.onClick ? ' is-inert' : ''}`}
+        <button ref={playRef} type="button" className={`sbtr-btn sbtr-btn--play${play.lit ? ' is-lit' : ''}${play.next ? ' is-next' : ''}${!play.onClick ? ' is-inert' : ''}`}
           onClick={play.onClick || undefined} disabled={busyAny} aria-disabled={!play.onClick || undefined} aria-pressed={play.lit && !off ? true : undefined} aria-label={play.label}>
           {vm.busy === 'in' ? <Spinner size={12} /> : <Play />}
         </button>
       </Tip>
       <Tip title={pause.label} sub={pause.sub} native={vertical}>
-        <button type="button" className={`sbtr-btn sbtr-btn--pause${pause.lit ? ' is-lit' : ''}${pause.dim ? ' is-dim' : ''}${!pause.onClick ? ' is-inert' : ''}`}
+        <button ref={pauseRef} type="button" className={`sbtr-btn sbtr-btn--pause${pause.lit ? ' is-lit' : ''}${pause.dim ? ' is-dim' : ''}${!pause.onClick ? ' is-inert' : ''}`}
           onClick={pause.onClick || undefined} disabled={busyAny} aria-disabled={!pause.onClick || undefined} aria-pressed={pause.lit ? true : undefined} aria-label={pause.label}>
           {vm.breakBusy ? <Spinner size={12} /> : <Pause />}
-          {flourish === 'coffee' && (
-            <span className="sbtr-coffee" aria-hidden="true"><Coffee /><i /><i /></span>
-          )}
         </button>
       </Tip>
       <Tip title={stop.label} sub={stop.sub} edge={vertical ? '' : 'end'} native={vertical}>
-        <button type="button" className={`sbtr-btn sbtr-btn--stop${stop.dim ? ' is-dim' : ''}${!stop.onClick ? ' is-inert' : ''}`}
+        <button ref={stopRef} type="button" className={`sbtr-btn sbtr-btn--stop${stop.dim ? ' is-dim' : ''}${!stop.onClick ? ' is-inert' : ''}`}
           onClick={stop.onClick || undefined} disabled={busyAny} aria-disabled={!stop.onClick || undefined} aria-label={stop.label}>
           {vm.busy === true || vm.busy === 'out' ? <Spinner size={12} /> : <Square />}
         </button>
       </Tip>
+      {flourish && flourish !== 'sweep' && <Flourish key={flourish} kind={flourish} anchor={fxAnchor} />}
     </div>
   );
 
@@ -165,7 +212,7 @@ export default function ClockChip({ vm, variant = 'wide', onAfterAction, leaving
         {alert && <span role="status" className="dk-sr-only">{alert}</span>}
         <Tip title={stateLabel} sub={`${live ? `${vm.timer} today · ` : ''}${vm.sinceLabel}${alert ? ` · ${alert}` : ''}`} native>
           <button type="button" className="sbclock-ringbtn" onClick={a.openClock} aria-label={ringLabel}>
-            <ClockRing pct={pct} tone={tone} alert={!!alert} sweep={flourish === 'sweep'} size={36} stroke={3} ticks={tickCount} />
+            <ClockRing pct={pct} tone={tone} alert={!!alert} sweep={sweep} size={36} stroke={3} ticks={tickCount} />
           </button>
         </Tip>
         {transport}
@@ -183,7 +230,7 @@ export default function ClockChip({ vm, variant = 'wide', onAfterAction, leaving
   return (
     <section className={`sbclock sbclock--${tone}${leaving ? ' is-leaving' : ''}`} aria-label="Time clock">
       <button type="button" className="sbclock-head" onClick={a.openClock} title="Open Time Clock">
-        <ClockRing pct={pct} tone={tone} alert={!!alert} sweep={flourish === 'sweep'} size={38} ticks={tickCount} />
+        <ClockRing pct={pct} tone={tone} alert={!!alert} sweep={sweep} size={38} ticks={tickCount} />
         <span className="sbclock-text">
           <span className="sbclock-line">
             <span className="sbclock-state">{stateLabel}</span>

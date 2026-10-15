@@ -2177,6 +2177,9 @@ class TimePunch(Base):
     edit_status      = Column(String, default="")   # '' | pending | approved | rejected
     edit_reviewed_by = Column(String, default="")   # approver email
     edit_reviewed_at = Column(String, default="")
+    # Add Time (Oct 14 2026): every punch a manager's batch wrote together
+    # shares an id, so the batch can be undone as one.
+    batch_id         = Column(String, default="", index=True)
 
 
 class TimeScreenshot(Base):
@@ -5093,6 +5096,14 @@ class AccountingFluxNote(Base):
     note       = Column(String, default="")
     noted_by   = Column(String, default="")
     noted_at   = Column(String, default="")
+    # Review status (Charmi, Oct 15: "once a comment has been added ... the
+    # review is answered"): Open = flagged, no explanation; Answered = an
+    # explanation is written; Closed = a reviewer signed the line off. Only
+    # `closed` is stored - Open / Answered follow from the note. A closed row
+    # outlives its note being removed.
+    closed     = Column(Boolean, default=False)
+    closed_by  = Column(String, default="")
+    closed_at  = Column(String, default="")
 
 
 class AccountingPartnerChange(Base):

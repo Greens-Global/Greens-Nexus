@@ -148,8 +148,17 @@ describe('the other Oct 7 controls', () => {
     await screen.findByText('Rental Income');
     fireEvent.change(screen.getByLabelText('Report'), { target: { value: 'cash-flow' } });
     await screen.findByText('Cash Flows From Operating Activities');
-    expect(screen.queryByLabelText('Book')).toBeNull();
     expect(screen.getByText(/^Cash at End of Period/).closest('tr').textContent).toContain('6,100.00');
     expect(screen.getByText('Net Change in Cash').closest('tr').textContent).toContain('1,100.00');
+    // Oct 15 (Charmi, Urmi): the Statement of Cash Flows reads the book picked;
+    // two books side by side are not offered on it.
+    const book = screen.getByLabelText('Book');
+    expect([...book.options].map((o) => o.value)).not.toContain('both');
+    const calls = api.getAccountingBalanceSheet.mock.calls.length;
+    fireEvent.change(book, { target: { value: 'cash' } });
+    await waitFor(() => expect(api.getAccountingBalanceSheet.mock.calls.length).toBeGreaterThan(calls), { timeout: 2500 });
+    expect(api.getAccountingBalanceSheet.mock.calls.at(-1)[3]).toBe('cash');
+    expect(api.getAccountingPnl.mock.calls.at(-1)[4]).toBe('cash');
+    await waitFor(() => expect(screen.getByRole('heading', { level: 3 }).textContent).toBe('Statement of Cash Flows (Cash Book)'));
   });
 });

@@ -181,7 +181,7 @@ export const NAV = [
   },
   // BI board (Neil, Sep 14): cross-module KPIs, sortable/filterable, reusing
   // the same widget-grid engine as Dashboard - see dashboard/useDashboards.js.
-  { view: "bi", code: "BI", label: "Business Intelligence", icon: Gauge, minRole: 'supervisor' },
+  { view: "bi", code: "INS", label: "Insights", icon: Gauge, minRole: 'supervisor' },
   { view: "credvault", code: "VLT", label: "Credential Vault", icon: KeyRound, minRole: 'supervisor' },
   { divider: true },
   { view: "support", code: "SUP",        label: "Support",        icon: HelpCircle },
