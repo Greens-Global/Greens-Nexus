@@ -211,6 +211,28 @@ export function applyOrder(cols, order) {
   return cols.map((c) => (c.fixed ? c : seq[i++]));
 }
 
+// Tracks a row lays out in front of the shared template, read from its own
+// inline `grid-template-columns` ("16px var(--nx-grid)" -> 1). Split on spaces
+// outside parentheses, so a `minmax(0, 1fr)` in front still counts as one.
+function leadingTracks(row) {
+  const m = /grid-template-columns:\s*([^;]*)/.exec(row.getAttribute('style') || '');
+  const tpl = m ? m[1] : '';
+  const at = tpl.indexOf('var(--nx-grid)');
+  if (at <= 0) return 0;
+  let n = 0, depth = 0, inTrack = false;
+  for (const ch of tpl.slice(0, at)) {
+    if (ch === '(') depth += 1;
+    else if (ch === ')') depth -= 1;
+    if (depth === 0 && /\s/.test(ch)) { inTrack = false; continue; }
+    if (!inTrack) { n += 1; inTrack = true; }
+  }
+  return n;
+}
+
+// A column with no default width whose track takes a share of the free space
+// (Name's `minmax(220px,1fr)`) - the one that fills the row.
+const isElastic = (c) => !c.width && /fr\b/.test(c.template || 'minmax(0,1fr)');
+
 // ── The hook ────────────────────────────────────────────────────────────────
 /** `table` is this list's id in the saved document ("richlist", "mytasks", …).
  *  `cols` is the ordered list of VISIBLE default columns, each `{ key, width }`
@@ -334,30 +356,85 @@ export function useTableColumns({ table, cols, trailing = '' }) {
   const autofitWidth = useCallback((key) => {
     const wrap = wrapRef.current;
     if (!wrap) return;
-    const idx = colsRef.current.findIndex((c) => c.key === key);
+    const cols = colsRef.current;
+    const idx = cols.findIndex((c) => c.key === key);
     if (idx < 0) return;
-    const widthOf = (c) => {
+    const col = cols[idx];
+    const trackOf = (c) => {
       const w = widthsRef.current[c.key] && Math.max(widthsRef.current[c.key], c.minWidth || 0);
       if (w) return `${w}px`;
       return c.template || (c.width ? `${c.width}px` : 'minmax(0,1fr)');
     };
-    const probe = colsRef.current.map((c, i) => (i === idx ? 'max-content' : widthOf(c)));
-    if (trailing) probe.push(trailing);
-
-    const before = wrap.style.getPropertyValue('--nx-grid');
-    wrap.style.setProperty('--nx-grid', probe.join(' '));
+    const templateWith = (track) => {
+      const parts = cols.map((c, i) => (i === idx ? track : trackOf(c)));
+      if (trailing) parts.push(trailing);
+      return parts.join(' ');
+    };
     // Every grid that follows the template carries it in its inline style, so
     // this finds the header and the rows without each table having to tag them.
-    let widest = 0;
-    for (const row of wrap.querySelectorAll('[style*="var(--nx-grid)"]')) {
-      const cell = row.children[idx];
-      if (cell) widest = Math.max(widest, cell.getBoundingClientRect().width);
-    }
-    wrap.style.setProperty('--nx-grid', before);
+    // The header comes first in every table that uses this hook.
+    const rows = Array.from(wrap.querySelectorAll('[style*="var(--nx-grid)"]'));
+    // A row can put its own tracks in front of the shared ones - the Task
+    // List's select checkbox is '16px var(--nx-grid)' - so the column's cell is
+    // that many children further along. Reading children[idx] there measured
+    // the column to the LEFT of the one double-clicked.
+    const cellOf = (row) => row.children[leadingTracks(row) + idx];
+    const widthIn = (row) => (row && cellOf(row)?.getBoundingClientRect().width) || 0;
+    const overflow = () => (rows[0] ? Math.max(0, rows[0].scrollWidth - rows[0].clientWidth) : 0);
 
-    if (!widest) return;   // nothing rendered in that column - leave it alone
-    const next = Math.round(Math.min(Math.max(widest + AUTOFIT_PAD, MIN_W), AUTOFIT_MAX_W));
-    patchTable(table, { widths: { ...widthsRef.current, [key]: next } });
+    const before = wrap.style.getPropertyValue('--nx-grid');
+    const probe = (track) => wrap.style.setProperty('--nx-grid', templateWith(track));
+    let next;
+    let fillsAnyway = false;
+    try {
+      probe('max-content');
+      let widest = 0;
+      for (const row of rows) widest = Math.max(widest, widthIn(row));
+      if (!widest) return;   // nothing rendered in that column - leave it alone
+      const label = widthIn(rows[0]);
+      next = Math.round(Math.min(Math.max(widest + AUTOFIT_PAD, MIN_W), AUTOFIT_MAX_W));
+
+      if (isElastic(col)) {
+        // The column that fills the row (Name) stays a filler when its content
+        // fits the share it gets that way: pinning it to its content would
+        // leave a blank strip down the right of the table. Only content wider
+        // than that share pins it, and then the table scrolls, as a sheet does.
+        probe(col.template || 'minmax(0,1fr)');
+        fillsAnyway = widthIn(rows[0]) >= next;
+      } else {
+        // Fit without shoving the table off screen: when the rest of the table
+        // fits its container, the column takes what is left after the filler
+        // column's own minimum, and a longer value ellipsizes (its full text is
+        // in the cell's tooltip). A table that scrolls sideways regardless -
+        // the wide project list - grows freely.
+        probe(`${MIN_W}px`);
+        if (!overflow()) {
+          const floor = Math.round(Math.max(MIN_W, col.minWidth || 0, Math.min(label + AUTOFIT_PAD, next)));
+          // Overflow shrinks one-for-one with the track, so this settles in one
+          // step; the extra passes absorb any padding the browser counts in.
+          for (let i = 0; i < 3 && next > floor; i += 1) {
+            probe(`${next}px`);
+            const over = overflow();
+            if (!over) break;
+            next = Math.max(floor, Math.floor(next - over));
+          }
+        }
+      }
+    } finally {
+      wrap.style.setProperty('--nx-grid', before);
+    }
+
+    // Decided by content and room alone, never by the current width: one
+    // double-click can arrive both as two presses and as a `dblclick`, and the
+    // second call must land on the same answer as the first.
+    const rest = { ...widthsRef.current };
+    if (fillsAnyway) {
+      if (!(key in rest)) return;
+      delete rest[key];
+      patchTable(table, { widths: rest });
+      return;
+    }
+    patchTable(table, { widths: { ...rest, [key]: next } });
   }, [table, trailing]);
   autofitRef.current = autofitWidth;
 
