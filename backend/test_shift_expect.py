@@ -8,6 +8,8 @@ shift_expect - the one expected-start / Late rule (Shifts Phase 0, Oct 2026).
   - zone: the placement's own column, else its preset's, else the team's;
   - grace: the placement's preset, else the Shifts setting's default (10
     when the setting is missing);
+  - the team zone and default grace are the PERSON'S COMPANY'S (its Shifts
+    override over the tenant row); an untagged person reads the tenant's;
   - the preset counts only on its working days;
   - late_now / is_late_at judge on the shift's own zone clock;
   - expected_starts reads a whole team in bulk, expected_start one person,
@@ -154,7 +156,8 @@ class DatabaseTests(unittest.TestCase):
 
     def setUp(self):
         self.db = database.SessionLocal()
-        for m in (models.Shift, models.ShiftAssignment, models.ScheduledShift, models.NexusSetting):
+        for m in (models.Shift, models.ShiftAssignment, models.ScheduledShift, models.NexusSetting,
+                  models.NexusEmployee):
             self.db.query(m).delete()
         self.db.commit()
 
@@ -181,9 +184,15 @@ class DatabaseTests(unittest.TestCase):
         self.db.commit()
         return rid
 
-    def _settings(self, **cfg):
+    def _settings(self, company="", **cfg):
         import json
-        self.db.add(models.NexusSetting(key="shift_requests_config", value=json.dumps(cfg)))
+        key = f"shift_requests_config:{company}" if company else "shift_requests_config"
+        self.db.add(models.NexusSetting(key=key, value=json.dumps(cfg)))
+        self.db.commit()
+
+    def _person(self, email, company=""):
+        self.db.add(models.NexusEmployee(id=gen_id(), first_name=email.split("@")[0].title(), last_name="",
+                                         work_email=email, company=company, status="active"))
         self.db.commit()
 
     def test_defaults_without_the_settings_row(self):
@@ -225,6 +234,33 @@ class DatabaseTests(unittest.TestCase):
         # until then the fallback is 10. Either answer is a valid state here.
         self.assertIn(exp["grace"], (10, 20))
         self.assertEqual(se.default_grace_min(self.db), exp["grace"])
+
+    def test_a_companys_override_of_zone_and_grace_reaches_its_people_only(self):
+        self._settings(timeZone=LA, defaultGraceMin=10)                # the tenant
+        self._settings(company="co-east", timeZone=NY, defaultGraceMin=20)   # one company's override
+        self._person(AMY, company="co-east")
+        self._person(BOB, company="co-west")                           # no override: the tenant's
+        self._placed(AMY, "09:00")                                     # no preset, no zone of its own
+        self._placed(BOB, "09:00")
+        out = se.expected_starts(self.db, [AMY, BOB], THU)
+        self.assertEqual((out[AMY]["tz"], out[AMY]["grace"]), (NY, 20))
+        self.assertEqual((out[BOB]["tz"], out[BOB]["grace"]), (LA, 10))
+        self.assertEqual(se.expected_start(self.db, AMY, THU), out[AMY])
+        self.assertEqual(se.defaults_for(self.db, AMY), (NY, 20))
+        self.assertEqual(se.defaults_for(self.db, BOB), (LA, 10))
+        self.assertEqual(se.defaults_for(self.db, "nobody@greensglobal.com"), (LA, 10))
+        # 9:15 AM New York (13:15 UTC): inside Amy's 20-minute grace; 9:25 is late.
+        # Bob's 9:00 is Pacific - 13:25 UTC is 6:25 AM for him, not late at all.
+        self.assertFalse(se.late_now(THU, out[AMY], datetime(2026, 10, 8, 13, 15, tzinfo=timezone.utc)))
+        self.assertTrue(se.late_now(THU, out[AMY], datetime(2026, 10, 8, 13, 25, tzinfo=timezone.utc)))
+        self.assertFalse(se.late_now(THU, out[BOB], datetime(2026, 10, 8, 13, 25, tzinfo=timezone.utc)))
+        # Had Amy been on the tenant's defaults, 9:25 Eastern would not even be shift time yet.
+        self.assertFalse(se.late_now(THU, out[BOB], datetime(2026, 10, 8, 16, 5, tzinfo=timezone.utc)))
+        self.assertTrue(se.late_now(THU, out[BOB], datetime(2026, 10, 8, 16, 10, tzinfo=timezone.utc)))
+        # A clock-in at 9:15 Eastern is on time for Amy; the same instant read on
+        # the tenant's clock (6:15 Pacific) would be a judgment on the wrong day part.
+        self.assertFalse(se.is_late_at("2026-10-08T13:15:00", THU, out[AMY]))
+        self.assertTrue(se.is_late_at("2026-10-08T13:25:00", THU, out[AMY]))
 
     def test_newest_assignment_wins(self):
         old, new = self._preset(start="06:00", days="4"), self._preset(start="11:00", days="4")

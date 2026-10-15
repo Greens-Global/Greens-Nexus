@@ -5285,10 +5285,15 @@ def list_shifts(company: str = "", user: dict = Depends(require_team_read), db: 
     rows = [s for s in db.query(Shift).order_by(Shift.name).all()
             if _company_admitted(getattr(s, "company_id", "") or "", admit)
             and (not company or (getattr(s, "company_id", "") or "") in ("", company))]
+    manage = _manage_companies(db, user)
     return {"shifts": [{**_shift_dict(s), "placed": int(placed.get(s.id, 0)), "assigned": int(assigned.get(s.id, 0))}
                        for s in rows],
             "defaultTimezone": _sr_settings(db, company).get("timeZone") or "America/Los_Angeles",
-            "companies": companies, "canPickCompany": can_pick}
+            "companies": companies, "canPickCompany": can_pick,
+            # Whether this caller may add / edit / delete shift types at all
+            # (company-wide, or for at least one company) - a plain manager
+            # cannot since Phase 0, and the screen hides the controls.
+            "canManage": can_manage_shifts(user) and (manage is None or bool(manage))}
 
 
 @router.post("/shifts")
@@ -5315,7 +5320,7 @@ def update_shift(shift_id: str, body: ShiftIn, user: dict = Depends(require_shif
     s = db.query(Shift).filter(Shift.id == shift_id).first()
     if not s:
         raise HTTPException(404, "Shift not found")
-    _require_company_manage(user, db, getattr(s, "company_id", "") or "", "Editing this shift type")
+    _require_company_manage(user, db, getattr(s, "company_id", "") or "", "Editing this shift type", preset_id=s.id)
     if body.company_id is not None and (body.company_id or "").strip() != (getattr(s, "company_id", "") or ""):
         new_company = _company_for_new(db, user, body.company_id)
         _require_company_manage(user, db, new_company, "Moving a shift type to that company")
@@ -5340,7 +5345,7 @@ def delete_shift(shift_id: str, user: dict = Depends(require_shift_manage), db: 
     s = db.query(Shift).filter(Shift.id == shift_id).first()
     kept = 0
     if s:
-        _require_company_manage(user, db, getattr(s, "company_id", "") or "", "Deleting this shift type")
+        _require_company_manage(user, db, getattr(s, "company_id", "") or "", "Deleting this shift type", preset_id=s.id)
         # Shifts already placed from this preset stay on the schedule. They
         # took their code and color from the preset, so hand both to each
         # shift before it goes - otherwise they turn into gray, unnamed
@@ -5389,17 +5394,49 @@ def _manage_companies(db: Session, user: dict):
     return set()
 
 
-def _require_company_manage(user: dict, db: Session, company_id: str, what: str) -> None:
+def _require_company_manage(user: dict, db: Session, company_id: str, what: str,
+                            preset_id: str = "", group_id: str = "") -> None:
     """403 unless the caller may change something that belongs to
-    `company_id`. A shared record (company_id '') always needs company-wide
-    access; a company's own record also passes for a caller whose access is
-    limited to that company."""
+    `company_id`. A company's own record passes for a caller whose access is
+    limited to that company. A SHARED record (company_id '') needs
+    company-wide access - except an EXISTING shared preset (`preset_id`) or
+    group (`group_id`), which a company-limited caller may change when
+    everyone on it is in their companies, or nobody is on it at all:
+    ownership by use (the migration left every preset shared, and a company
+    administrator could no longer touch any of them). Creating a new shared
+    record and the tenant settings stay company-wide only."""
     allowed = _manage_companies(db, user)
     if allowed is None:
         return
     if company_id and company_id in allowed:
         return
+    if not company_id and allowed and (preset_id or group_id) \
+            and _shared_used_within(db, allowed, preset_id=preset_id, group_id=group_id):
+        return
     raise HTTPException(403, f"{what} needs company-wide access")
+
+
+def _shared_used_within(db: Session, companies: set, preset_id: str = "", group_id: str = "") -> bool:
+    """Whether every person a shared preset / group is in use for - assigned
+    it as usual hours, placed on it, or a member of the group - belongs to
+    one of `companies`. True when nobody is on it."""
+    emails: set = set()
+    if preset_id:
+        emails |= {(e or "").lower() for (e,) in db.query(ShiftAssignment.employee_email)
+                   .filter(ShiftAssignment.shift_id == preset_id).all() if e}
+        emails |= {(e or "").lower() for (e,) in db.query(ScheduledShift.employee_email)
+                   .filter(ScheduledShift.shift_id == preset_id, ScheduledShift.employee_email != "").all() if e}
+    if group_id:
+        emails |= {(e or "").lower() for (e,) in db.query(ShiftGroupMember.employee_email)
+                   .filter(ShiftGroupMember.group_id == group_id).all() if e}
+        emails |= {(e or "").lower() for (e,) in db.query(ScheduledShift.employee_email)
+                   .filter(ScheduledShift.group_id == group_id, ScheduledShift.employee_email != "").all() if e}
+    if not emails:
+        return True
+    theirs = {(em or "").lower(): (c or "").strip() for em, c in
+              db.query(NexusEmployee.work_email, NexusEmployee.company)
+              .filter(func.lower(NexusEmployee.work_email).in_(sorted(emails))).all()}
+    return all(theirs.get(em, "") in companies for em in emails)
 
 
 def _visible_companies(db: Session, user: dict):
@@ -5442,13 +5479,14 @@ def _company_choices(db: Session, user: dict, admit=...) -> tuple:
 def _company_for_new(db: Session, user: dict, requested) -> str:
     """The company a new shift type or group lands on: the one asked for,
     else the caller's own company when their access is company-limited,
-    else '' (shared). A named company must exist."""
+    else '' (shared). A company-limited caller sending None OR '' gets their
+    own company (an older client always sends '' - it must not mean "shared",
+    which they may not create). A named company must exist."""
     from auth import company_of
     from models import HrEntity
-    if requested is not None:
-        cid = (requested or "").strip()
-    else:
-        cid = "" if _manage_companies(db, user) is None else (company_of(user, db) or "")
+    cid = (requested or "").strip() if requested is not None else ""
+    if not cid and _manage_companies(db, user) is not None:
+        cid = company_of(user, db) or ""
     if cid and not db.query(HrEntity.id).filter(HrEntity.id == cid).first():
         raise HTTPException(400, "Company not found.")
     return cid
@@ -5631,7 +5669,7 @@ def set_group_members(group_id: str, body: GroupIn, user: dict = Depends(require
     g = db.query(ShiftGroup).filter(ShiftGroup.id == group_id).first()
     if not g:
         raise HTTPException(404, "Group not found")
-    _require_company_manage(user, db, getattr(g, "company_id", "") or "", "Managing shift groups")
+    _require_company_manage(user, db, getattr(g, "company_id", "") or "", "Managing shift groups", group_id=g.id)
     if body.company_id is not None and (body.company_id or "").strip() != (getattr(g, "company_id", "") or ""):
         new_company = _company_for_new(db, user, body.company_id)
         _require_company_manage(user, db, new_company, "Moving a shift group to that company")
@@ -5790,7 +5828,8 @@ def delete_shift_group(group_id: str, user: dict = Depends(require_shift_manage)
     if not group_id.strip():
         raise HTTPException(404, "Team not found")
     g = db.query(ShiftGroup).filter(ShiftGroup.id == group_id).first()
-    _require_company_manage(user, db, (getattr(g, "company_id", "") or "") if g else "", "Managing shift groups")
+    _require_company_manage(user, db, (getattr(g, "company_id", "") or "") if g else "", "Managing shift groups",
+                            group_id=group_id if g else "")
     db.query(ShiftGroup).filter(ShiftGroup.id == group_id).delete()
     db.query(ShiftGroupMember).filter(ShiftGroupMember.group_id == group_id).delete()
     db.query(ScheduleDayNote).filter(ScheduleDayNote.group_id == group_id).delete(synchronize_session=False)
@@ -5811,22 +5850,28 @@ def assign_shift(body: AssignIn, user: dict = Depends(require_shift_manage), db:
     An empty shift_id clears the assignment."""
     now = _now_iso()
     scope = _visible_emails(db, user)   # scoped admins may only touch their own people
-    emails = list(dict.fromkeys(e.strip().lower() for e in body.emails if e.strip()))
+    # Out-of-scope people are skipped quietly (as always) BEFORE the company
+    # check, so they never turn a request into a 400.
+    emails = [em for em in dict.fromkeys(e.strip().lower() for e in body.emails if e.strip())
+              if scope is None or em in scope]
     preset = db.query(Shift).filter(Shift.id == body.shift_id).first() if body.shift_id else None
     preset_company = (getattr(preset, "company_id", "") or "") if preset else ""
     if preset_company and emails:
         # A company's shift type goes on that company's people only; a
         # shared one ('') on anyone (Shifts Phase 0).
-        theirs = {(em or "").lower(): (c or "").strip() for em, c in
-                  db.query(NexusEmployee.work_email, NexusEmployee.company)
-                  .filter(func.lower(NexusEmployee.work_email).in_(emails)).all()}
+        people = {(e.work_email or "").lower(): e for e in
+                  db.query(NexusEmployee).filter(func.lower(NexusEmployee.work_email).in_(emails)).all()}
         for em in emails:
-            if theirs.get(em, "") != preset_company:
-                raise HTTPException(400, f"{em} is not in the company this shift type belongs to.")
+            e = people.get(em)
+            theirs = ((e.company if e else "") or "").strip()
+            if theirs == preset_company:
+                continue
+            who = (f"{e.first_name or ''} {e.last_name or ''}".strip() if e else "") or em
+            if not theirs:
+                raise HTTPException(400, f"{who} is not in a company yet - set it in People first.")
+            raise HTTPException(400, f"{who} is not in the company this shift type belongs to.")
     n = 0
     for em in emails:
-        if scope is not None and em not in scope:
-            continue
         row = db.query(ShiftAssignment).filter(ShiftAssignment.employee_email == em).first()
         if not row:
             row = ShiftAssignment(id=str(uuid.uuid4()), employee_email=em)

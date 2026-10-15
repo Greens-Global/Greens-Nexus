@@ -237,7 +237,7 @@ class ShiftAuditTests(unittest.TestCase):
         self.assertFalse(self.client.get("/timeclock/shift-groups").json()["canManageGroups"])
         refused = self.client.put("/timeclock/shift-requests/settings", json={"swaps": False})
         self.assertEqual(refused.status_code, 403)
-        self.assertEqual(refused.json()["detail"], "Changing shift settings needs company-wide team access")
+        self.assertEqual(refused.json()["detail"], "Changing shift settings needs company-wide access")
 
     # ── What staff see of a teammate ─────────────────────────────────────
     def _timeoff(self, email, confidential=0, note="Family trip"):

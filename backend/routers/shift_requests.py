@@ -54,7 +54,7 @@ from auth import get_current_user
 from database import get_db
 from notify_company import notification_company
 from routers.timeclock import (require_schedule_write, require_shift_manage, SHIFT_MANAGE_LEVEL, _visible_emails,
-                               _team_alert_recipients, _require_unscoped_team, _sched_dict, _hm12, _shift_local_now,
+                               _team_alert_recipients, _sched_dict, _hm12, _shift_local_now,
                                _shift_conflicts, _timeoff_dict, _availability, _company_holidays_for_employee,
                                _TimeoffPrivacy, _DEFAULT_TEAM_TZ, _require_company_manage, _company_choices)
 
@@ -252,8 +252,12 @@ def read_settings(company: str = "", user: dict = Depends(get_current_user), db:
 def save_settings(body: SettingsIn, company: str = "", user: dict = Depends(require_shift_manage),
                   db: Session = Depends(get_db)):
     """No company: the tenant defaults (company-wide access, like shared
-    groups). `?company=<id>`: that company's override - only the keys sent
-    are stored, so the rest keeps following the tenant row."""
+    groups). `?company=<id>`: that company's override - of the keys sent,
+    only those that DIFFER from the tenant's effective value are stored, and
+    a stored key that now equals the tenant's is dropped, so the override
+    stays sparse (a client that sends the whole form pins nothing extra) and
+    the rest keeps following the tenant row. An override left with nothing
+    in it is removed (hasOverride false)."""
     cid = _company_param(db, company)
     if body.timeZone is not None and not _zone_ok(body.timeZone):
         raise HTTPException(400, "Pick a time zone from the list.")
@@ -263,11 +267,19 @@ def save_settings(body: SettingsIn, company: str = "", user: dict = Depends(requ
     sent = {k: v for k, v in sent.items() if v is not None}
     if cid:
         _require_company_manage(user, db, cid, "Changing this company's shift settings")
+        tenant = get_settings(db)
         cfg = _saved_settings(db, cid)
         cfg.update(sent)
-        _store_settings(db, user, _settings_key(cid), cfg)
+        cfg = {k: v for k, v in cfg.items() if v != tenant.get(k)}
+        if cfg:
+            _store_settings(db, user, _settings_key(cid), cfg)
+        else:
+            (db.query(models.NexusSetting).filter(models.NexusSetting.key == _settings_key(cid))
+               .delete(synchronize_session=False))
     else:
-        _require_unscoped_team(user, db, "Changing shift settings")   # company-wide switches, like shift groups
+        # Company-wide only - a company-limited administrator changes their
+        # company's override, never every company's defaults.
+        _require_company_manage(user, db, "", "Changing shift settings")
         cfg = get_settings(db)
         cfg.update(sent)
         _store_settings(db, user, _SETTINGS_KEY, cfg)

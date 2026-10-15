@@ -413,8 +413,7 @@ def expected_for_day(emp, dd: date, ctx: dict, cfg: dict) -> dict:
     placed = ctx["scheduled"].get(em, {}).get(iso) or []
     # Start / grace / zone: the one rule (shift_expect) - a cancelled day has
     # none, so it is never late. The MINUTES below are this module's own.
-    exp = shift_expect.pick_start(placed, ctx["presets"], ctx["assigned"].get(em, ""), dd,
-                                  ctx["team_tz"], ctx.get("default_grace", shift_expect.DEFAULT_GRACE_MIN))
+    exp = shift_expect.pick_start(placed, ctx["presets"], ctx["assigned"].get(em, ""), dd, *_defaults_of(emp, ctx))
     if exp:
         out.update(start=exp["start"], grace=exp["grace"], tz=exp["tz"])
     if placed:
@@ -495,7 +494,7 @@ def _local_today(emp, punches: list, ctx: dict) -> date:
         off = punches[-1].tz_offset_min or 0
         return (datetime.now(timezone.utc) - timedelta(minutes=off)).date()
     preset = ctx["presets"].get(ctx["assigned"].get(emp.work_email.lower(), ""))
-    tz = (preset.timezone if preset else "") or ctx["team_tz"]
+    tz = (preset.timezone if preset else "") or _defaults_of(emp, ctx)[0]
     return daily._shift_local_now(tz).date()
 
 
@@ -540,12 +539,24 @@ def _holidays(db: Session, people: list, ctx: dict, start: str, end: str) -> dic
     return out
 
 
+def _defaults_of(emp, ctx: dict) -> tuple:
+    """(team_tz, default_grace) for one person: their company's Shifts
+    settings (Phase 0 review, Oct 14 - a company's override of the team zone
+    or default grace reaches the Late rule), the tenant's when untagged."""
+    by_company = ctx.get("company_defaults") or {}
+    cid = (getattr(emp, "company", "") or "").strip()
+    return by_company.get(cid) or by_company.get("") or (ctx.get("team_tz") or shift_expect.DEFAULT_TEAM_TZ,
+                                                         ctx.get("default_grace", shift_expect.DEFAULT_GRACE_MIN))
+
+
 def _context(db: Session, people: list, ws: date, cfg: dict) -> dict:
     """Every table the scorecard reads, loaded once for the whole roster."""
     emails = [e.work_email.lower() for e in people]
     start, end = ws.isoformat(), (ws + timedelta(days=6)).isoformat()
     ctx = {"team_tz": _team_tz(db), "break_cfg": _breakpolicy_cfg(db),
-           "default_grace": shift_expect.default_grace_min(db),   # a placement with no preset
+           "default_grace": shift_expect.default_grace_min(db),   # a placement with no preset (tenant)
+           # {company id: (team_tz, default_grace)} - each person reads their own company's (_defaults_of).
+           "company_defaults": shift_expect.defaults_by_company(db, [(e.company or "") for e in people]),
            "scheduled": {}, "assigned": {}, "presets": {}, "time_off": {}, "holidays": {},
            "punches": {}, "activity": {}, "rates": {}, "company_country": {}, "managers": {}}
     if not emails:

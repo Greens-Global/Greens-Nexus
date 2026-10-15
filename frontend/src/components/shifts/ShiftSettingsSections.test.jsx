@@ -8,7 +8,9 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 // on the team time zone; the switches, zone and week start save at once.
 // Shifts Phase 0 (Oct 14): settings, shift types and groups per company -
 // one remembered picker across the three panels, shown only to people the
-// API lets pick.
+// API lets pick. A viewer offered exactly one company is pinned to it; a
+// company save sends only what changed; a remembered company that fails to
+// load is dropped for the defaults; the type controls follow canManage.
 
 const timeShiftsFor = vi.fn();
 const timeShiftGroups = vi.fn();
@@ -282,6 +284,87 @@ describe('Companies', () => {
     render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} />);
     await waitFor(() => expect(shiftRequestSettingsGetFor).toHaveBeenLastCalledWith(''));
     expect(localStorage.getItem('shifts.settings.company')).toBe('');
+  });
+
+  it('pins a company-scoped administrator to their one company, and every save carries it', async () => {
+    const one = [COMPANIES[0]];
+    shiftRequestSettingsGetFor.mockImplementation(async (company) => ({ ...SETTINGS, companyId: company, companies: one, canPickCompany: false }));
+    render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} />);
+    await waitFor(() => expect(shiftRequestSettingsGetFor).toHaveBeenLastCalledWith('c1'));
+    expect(screen.queryByLabelText('Company')).toBeNull();   // nothing to pick
+    expect(await screen.findByText('Using the default settings. Changing anything here saves settings for Greens Storage only.')).toBeTruthy();
+    expect(localStorage.getItem('shifts.settings.company')).toBe('c1');
+    fireEvent.click(screen.getByLabelText('Staff can swap shifts with teammates'));
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenCalledWith({ swaps: true }, 'c1'));
+    expect(toastOk).toHaveBeenCalledWith('Shift settings saved for Greens Storage.');
+    // A new shift type and a new group land on that company too, with no Company select offered.
+    timeShiftsFor.mockImplementation(async () => ({ shifts: [preset], defaultTimezone: ASIA, companies: one, canPickCompany: false, canManage: true }));
+    render(<ShiftTypesPanel toastOk={toastOk} toastErr={toastErr} />);
+    await waitFor(() => expect(timeShiftsFor).toHaveBeenLastCalledWith('c1'));
+    fireEvent.click(await screen.findByText('New Shift Type'));
+    const dlg = screen.getByRole('dialog', { name: 'New Shift Type' });
+    expect(within(dlg).queryByLabelText('Shift type company')).toBeNull();
+    fireEvent.change(within(dlg).getByLabelText('Name'), { target: { value: 'Evening' } });
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(timeShiftCreate).toHaveBeenCalled());
+    expect(timeShiftCreate.mock.calls[0][0]).toMatchObject({ name: 'Evening', company_id: 'c1' });
+    timeShiftGroups.mockResolvedValue({ groups, canManageGroups: true, companies: one, canPickCompany: false });
+    render(<ShiftGroupsPanel toastOk={toastOk} toastErr={toastErr} />);
+    fireEvent.click(await screen.findByText('New Group'));
+    const gdlg = await screen.findByRole('dialog', { name: 'New Group' });
+    expect(within(gdlg).queryByLabelText('Group company')).toBeNull();
+    fireEvent.change(within(gdlg).getByLabelText('Group name'), { target: { value: 'Yard' } });
+    fireEvent.click(within(gdlg).getByRole('button', { name: /Save/ }));
+    await waitFor(() => expect(timeShiftGroupCreate).toHaveBeenCalled());
+    expect(timeShiftGroupCreate.mock.calls[0][0]).toMatchObject({ name: 'Yard', company_id: 'c1' });
+  });
+
+  it('sends only the changed key for a company and shows what the server kept', async () => {
+    localStorage.setItem('shifts.settings.company', 'c1');
+    shiftRequestSettingsGetFor.mockImplementation(async (company) => withCompanies({ companyId: company, hasOverride: false }));
+    // The server stores only what differs from the tenant: a switch that
+    // differs makes an override, one set back to the tenant's value leaves none.
+    shiftRequestSettingsSaveFor.mockImplementation(async (patch) => withCompanies({ ...SETTINGS, ...patch, companyId: 'c1', hasOverride: patch.swaps === true }));
+    render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} />);
+    const swaps = await screen.findByLabelText('Staff can swap shifts with teammates');
+    fireEvent.click(swaps);
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenCalledWith({ swaps: true }, 'c1'));
+    expect(shiftRequestSettingsSaveFor.mock.calls[0][0]).toEqual({ swaps: true });   // never the whole form
+    expect(await screen.findByText(/Greens Storage has its own settings/)).toBeTruthy();
+    fireEvent.click(screen.getByLabelText('Staff can swap shifts with teammates'));
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ swaps: false }, 'c1'));
+    expect(await screen.findByText(/Using the default settings/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Week starts on'), { target: { value: 'sunday' } });
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ weekStart: 'sunday' }, 'c1'));
+  });
+
+  it('drops a remembered company that no longer loads and shows the defaults, not an error', async () => {
+    localStorage.setItem('shifts.settings.company', 'c2');
+    const refused = Object.assign(new Error('API error 403'), { status: 403 });
+    shiftRequestSettingsGetFor.mockImplementation(async (company) => { if (company) throw refused; return withCompanies({ companyId: '' }); });
+    render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} />);
+    expect(await screen.findByLabelText('Staff can request open shifts')).toBeTruthy();
+    expect(shiftRequestSettingsGetFor).toHaveBeenLastCalledWith('');
+    expect(screen.queryByText('The shift settings could not be loaded right now.')).toBeNull();
+    expect(localStorage.getItem('shifts.settings.company')).toBe('');
+    const gone = Object.assign(new Error('API error 404'), { status: 404 });
+    localStorage.setItem('shifts.settings.company', 'c2');
+    timeShiftsFor.mockImplementation(async (company) => { if (company) throw gone; return { shifts: [preset], defaultTimezone: ASIA, companies: COMPANIES, canPickCompany: true }; });
+    render(<ShiftTypesPanel toastOk={toastOk} toastErr={toastErr} />);
+    expect(await screen.findByLabelText('Delete shift type Store')).toBeTruthy();
+    expect(timeShiftsFor).toHaveBeenLastCalledWith('');
+    expect(screen.queryByText('The shift types could not be loaded right now.')).toBeNull();
+    expect(localStorage.getItem('shifts.settings.company')).toBe('');
+  });
+
+  it('hides New / Edit / Delete from a manager who may not change shift types', async () => {
+    timeShiftsFor.mockResolvedValue({ shifts: [preset], defaultTimezone: ASIA, companies: [COMPANIES[0]], canPickCompany: false, canManage: false });
+    render(<ShiftTypesPanel toastOk={toastOk} toastErr={toastErr} />);
+    expect(await screen.findByText('Store')).toBeTruthy();
+    expect(screen.queryByText('New Shift Type')).toBeNull();
+    expect(screen.queryByLabelText('Edit shift type Store')).toBeNull();
+    expect(screen.queryByLabelText('Delete shift type Store')).toBeNull();
+    expect(screen.getByText('Shift types are set by company administrators.')).toBeTruthy();
   });
 
   it('offers the Company select in the shift type form only to people who can pick, and sends it', async () => {

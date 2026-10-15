@@ -5,7 +5,15 @@ Shifts Phase 0 - the company dimension (Neil, Oct 14 2026).
     '' = shared with every company. Changing one needs company-wide access,
     or access limited to exactly that company (timeclock._require_company_manage)
     - a plain manager can no longer edit or delete a preset every company's
-    shifts point at.
+    shifts point at. An EXISTING shared one is owned by use: a company-limited
+    administrator may change it when everyone on it is in their company (or
+    nobody is); creating a shared one, and the tenant settings, stay
+    company-wide only. A company-limited caller's '' company is their own.
+  - GET /timeclock/shifts says whether the caller may manage types at all
+    (canManage) so the screen can hide New / Edit / Delete.
+  - Usual hours skip out-of-scope people quietly, then refuse a company's
+    shift type on another company's person (or an untagged one, saying so).
+  - A company's settings override stores only what differs from the tenant.
   - The shift-type list is cut to the shared ones plus the caller's companies,
     and says which companies the caller may pick from.
   - Usual hours refuse a company's shift type on another company's person.
@@ -143,13 +151,30 @@ class ShiftCompanyTests(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.text)
         return r.json()
 
-    def _published(self, email, sid):
+    def _published(self, email, sid, shift_id="", group_id=GROUP):
         db = database.SessionLocal()
         try:
             db.add(models.ScheduledShift(id=sid, employee_email=email, work_date=DAY, start_hhmm="09:00",
-                                         end_hhmm="17:00", published=1, created_by=BOSS, group_id=GROUP,
-                                         created_at="2026-10-14T00:00:00"))
+                                         end_hhmm="17:00", published=1, created_by=BOSS, group_id=group_id,
+                                         shift_id=shift_id, created_at="2026-10-14T00:00:00"))
             db.commit()
+        finally:
+            db.close()
+
+    def _assigned(self, email, shift_id):
+        db = database.SessionLocal()
+        try:
+            db.query(models.ShiftAssignment).filter(models.ShiftAssignment.employee_email == email).delete()
+            db.add(models.ShiftAssignment(id=f"sa-sco-{email}", employee_email=email, shift_id=shift_id,
+                                          assigned_by=BOSS, assigned_at="2026-10-14T00:00:00"))
+            db.commit()
+        finally:
+            db.close()
+
+    def _saved_override(self, company):
+        db = database.SessionLocal()
+        try:
+            return shift_requests._saved_settings(db, company)
         finally:
             db.close()
 
@@ -167,6 +192,7 @@ class ShiftCompanyTests(unittest.TestCase):
                          {P_SHARED: "Type D", P_A: "Type A"})
 
     def test_a_company_admin_edits_their_own_companys_types_only(self):
+        self._assigned(B, P_SHARED)   # the shared type is in use by company B: not Alpha's to change
         self._walls(True)
         self._as(ADMIN_A)
         ok = self.client.patch(f"/timeclock/shifts/{P_A}", json=self._preset_body(name="Alpha Day"))
@@ -178,15 +204,25 @@ class ShiftCompanyTests(unittest.TestCase):
         self.assertEqual(self.client.patch(f"/timeclock/shifts/{P_B}", json=self._preset_body()).status_code, 403)
         self.assertEqual(self.client.delete(f"/timeclock/shifts/{P_SHARED}").status_code, 403)
         self.assertEqual(self.client.delete(f"/timeclock/shifts/{P_B}").status_code, 403)
-        # A new type lands on their company by default; shared or another
-        # company's is refused; moving their type out of the company too.
+        # A new type lands on their company by default - also when the client
+        # sends '' (an older screen always does); another company's is refused.
         new = self.client.post("/timeclock/shifts", json=self._preset_body(name="Alpha Night"))
         self.assertEqual(new.status_code, 200, new.text)
         self.assertEqual(new.json()["companyId"], CO_A)
-        self.assertEqual(self.client.post("/timeclock/shifts", json=self._preset_body(name="S", company_id="")).status_code, 403)
+        blank = self.client.post("/timeclock/shifts", json=self._preset_body(name="S", company_id=""))
+        self.assertEqual(blank.status_code, 200, blank.text)
+        self.assertEqual(blank.json()["companyId"], CO_A)
         self.assertEqual(self.client.post("/timeclock/shifts", json=self._preset_body(name="S", company_id=CO_B)).status_code, 403)
-        self.assertEqual(self.client.patch(f"/timeclock/shifts/{P_A}", json=self._preset_body(company_id="")).status_code, 403)
+        # '' on an edit of their own type is their own company too: it stays put.
+        kept = self.client.patch(f"/timeclock/shifts/{P_A}", json=self._preset_body(company_id=""))
+        self.assertEqual(kept.status_code, 200, kept.text)
+        self.assertEqual(kept.json()["companyId"], CO_A)
+        self.assertEqual(self.client.patch(f"/timeclock/shifts/{P_A}", json=self._preset_body(company_id=CO_B)).status_code, 403)
         self.assertEqual(self.client.delete(f"/timeclock/shifts/{P_A}").status_code, 200)
+        # The tenant settings stay company-wide only.
+        tenant = self.client.put(SETTINGS, json={"swaps": True})
+        self.assertEqual(tenant.status_code, 403)
+        self.assertEqual(tenant.json()["detail"], "Changing shift settings needs company-wide access")
         # The Global Admin still changes a shared type, and may tag one to a company.
         self._as(BOSS)
         r = self.client.patch(f"/timeclock/shifts/{P_SHARED}", json=self._preset_body(name="Everyone", company_id=CO_B))
@@ -194,7 +230,61 @@ class ShiftCompanyTests(unittest.TestCase):
         self.assertEqual(r.json()["companyId"], CO_B)
         self.assertEqual(self.client.post("/timeclock/shifts", json=self._preset_body(name="X", company_id="nope")).status_code, 400)
 
+    def test_a_shared_type_or_group_is_owned_by_the_people_on_it(self):
+        """The migration left every preset shared ('') - a company
+        administrator must still be able to change the ones only their
+        people use, or nobody uses."""
+        self._walls(True)
+        self._as(ADMIN_A)
+        # Nobody on it: theirs to change.
+        ok = self.client.patch(f"/timeclock/shifts/{P_SHARED}", json=self._preset_body(name="Everyone"))
+        self.assertEqual(ok.status_code, 200, ok.text)
+        self.assertEqual(ok.json()["companyId"], "")   # still shared - editing does not claim it
+        # Only company A's people on it (usual hours and a placement): still theirs.
+        self._assigned(A, P_SHARED)
+        self._published(A, "ss-sco-a-shared", shift_id=P_SHARED)
+        self.assertEqual(self.client.patch(f"/timeclock/shifts/{P_SHARED}", json=self._preset_body(name="Alpha Uses")).status_code, 200)
+        # Someone from company B placed on it: no longer theirs.
+        self._published(B, "ss-sco-b-shared", shift_id=P_SHARED)
+        refused = self.client.patch(f"/timeclock/shifts/{P_SHARED}", json=self._preset_body(name="Nope"))
+        self.assertEqual(refused.status_code, 403)
+        self.assertEqual(refused.json()["detail"], "Editing this shift type needs company-wide access")
+        self.assertEqual(self.client.delete(f"/timeclock/shifts/{P_SHARED}").status_code, 403)
+        db = database.SessionLocal()
+        try:
+            db.query(models.ScheduledShift).filter(models.ScheduledShift.id == "ss-sco-b-shared").delete()
+            db.commit()
+        finally:
+            db.close()
+        self.assertEqual(self.client.delete(f"/timeclock/shifts/{P_SHARED}").status_code, 200)
+        # A plain manager has no company to own anything by: still refused.
+        self._walls(False)
+        self._as(MGR)
+        self.assertEqual(self.client.patch(f"/timeclock/shifts/{P_A}", json=self._preset_body()).status_code, 403)
+        # Groups follow the same rule: the Store group holds A and B (403);
+        # a shared group with only A, or nobody, is Alpha's to change.
+        self._as(BOSS)
+        mine = self.client.post("/timeclock/shift-groups", json={"name": "Alpha Only", "members": [A], "company_id": ""}).json()["id"]
+        empty = self.client.post("/timeclock/shift-groups", json={"name": "Nobody Yet", "members": [], "company_id": ""}).json()["id"]
+        self._walls(True)
+        self._as(ADMIN_A)
+        self.assertEqual(self.client.patch(f"/timeclock/shift-groups/{GROUP}", json={"name": "Store 2", "members": [A]}).status_code, 403)
+        self.assertEqual(self.client.delete(f"/timeclock/shift-groups/{GROUP}").status_code, 403)
+        self.assertEqual(self.client.patch(f"/timeclock/shift-groups/{mine}", json={"name": "Alpha Only 2", "members": [A]}).status_code, 200)
+        self.assertEqual(self.client.delete(f"/timeclock/shift-groups/{empty}").status_code, 200)
+        # A company B placement under the group makes it B's too.
+        self._published(B, "ss-sco-b-grouped", group_id=mine)
+        self.assertEqual(self.client.delete(f"/timeclock/shift-groups/{mine}").status_code, 403)
+
     # ── Lists ─────────────────────────────────────────────────────────────
+    def test_the_shift_type_list_says_who_may_manage(self):
+        self.assertTrue(self._ids()["canManage"])            # Global Admin: company-wide
+        self._as(MGR)
+        self.assertFalse(self._ids()["canManage"])           # a plain manager: nothing to manage
+        self._walls(True)
+        self._as(ADMIN_A)
+        self.assertTrue(self._ids()["canManage"])            # one company is enough
+
     def test_the_shift_type_list_is_cut_to_the_callers_companies(self):
         boss = self._ids()
         self.assertEqual(sorted(s["id"] for s in boss["shifts"]), sorted([P_SHARED, P_A, P_B]))
@@ -245,10 +335,21 @@ class ShiftCompanyTests(unittest.TestCase):
     def test_usual_hours_refuse_another_companys_shift_type(self):
         bad = self.client.post("/timeclock/shift-assign", json={"shift_id": P_B, "emails": [A]})
         self.assertEqual(bad.status_code, 400)
-        self.assertIn(A, bad.json()["detail"])
+        # Named by their People name, never the raw email.
+        self.assertEqual(bad.json()["detail"], "A@GREENSGLOBAL X is not in the company this shift type belongs to.")
+        # An untagged person is told what to do, not just refused.
+        untagged = self.client.post("/timeclock/shift-assign", json={"shift_id": P_A, "emails": [BOSS]})
+        self.assertEqual(untagged.status_code, 400)
+        self.assertEqual(untagged.json()["detail"], "BOSS@GREENSGLOBAL X is not in a company yet - set it in People first.")
         self.assertEqual(self.client.post("/timeclock/shift-assign", json={"shift_id": P_A, "emails": [A]}).json()["assigned"], 1)
         self.assertEqual(self.client.post("/timeclock/shift-assign", json={"shift_id": P_SHARED, "emails": [A, B]}).json()["assigned"], 2)
         self.assertEqual(self.client.post("/timeclock/shift-assign", json={"shift_id": "", "emails": [A, B]}).json()["assigned"], 2)
+        # Someone outside the caller's scope (B is not on MGR's team) is
+        # skipped quietly, as always - never a 400 about their company.
+        self._as(MGR)
+        r = self.client.post("/timeclock/shift-assign", json={"shift_id": P_A, "emails": [A, B]})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["assigned"], 1)
 
     # ── Settings ──────────────────────────────────────────────────────────
     def test_company_settings_override_the_tenant_row_and_delete_restores_it(self):
@@ -293,6 +394,32 @@ class ShiftCompanyTests(unittest.TestCase):
         self.assertEqual(self.client.delete(f"{SETTINGS}?company={CO_B}").status_code, 403)
         mine = self.client.get(f"{SETTINGS}?company={CO_A}").json()
         self.assertEqual(([c["id"] for c in mine["companies"]], mine["canPickCompany"]), ([CO_A], False))
+
+    def test_a_company_override_keeps_only_what_differs_from_the_tenant(self):
+        self.client.put(SETTINGS, json={"swaps": True, "timeZone": "Asia/Kolkata"})
+        # The whole form sent for a company (what the first screen did) pins
+        # only the key that differs.
+        over = self.client.put(f"{SETTINGS}?company={CO_A}",
+                               json={"swaps": False, "openShifts": False, "timeZone": "Asia/Kolkata", "weekStart": "monday",
+                                     "defaultGraceMin": 10})
+        self.assertEqual(over.status_code, 200, over.text)
+        self.assertTrue(over.json()["hasOverride"])
+        self.assertEqual(self._saved_override(CO_A), {"swaps": False})
+        # A different key changed on the tenant flows through to the company.
+        self.client.put(SETTINGS, json={"timeZone": "America/New_York", "weekStart": "sunday", "defaultGraceMin": 25})
+        mine = self.client.get(f"{SETTINGS}?company={CO_A}").json()
+        self.assertEqual((mine["swaps"], mine["timeZone"], mine["weekStart"], mine["defaultGraceMin"]),
+                         (False, "America/New_York", "sunday", 25))
+        # Setting the one key back to the tenant's value shrinks the override away.
+        back = self.client.put(f"{SETTINGS}?company={CO_A}", json={"swaps": True})
+        self.assertEqual((back.json()["swaps"], back.json()["hasOverride"]), (True, False))
+        self.assertEqual(self._saved_override(CO_A), {})
+        # A stored key that the tenant later catches up with is dropped on the next save.
+        self.client.put(f"{SETTINGS}?company={CO_A}", json={"weekStart": "monday"})
+        self.assertEqual(self._saved_override(CO_A), {"weekStart": "monday"})
+        self.client.put(SETTINGS, json={"weekStart": "monday"})
+        self.client.put(f"{SETTINGS}?company={CO_A}", json={"offers": True})
+        self.assertEqual(self._saved_override(CO_A), {"offers": True})
 
     def test_trading_is_off_until_the_switch_is_on(self):
         cfg = self.client.get(SETTINGS).json()

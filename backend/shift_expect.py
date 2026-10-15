@@ -38,7 +38,10 @@ the minute, with no clock-in).
 Company defaults come from the Shifts settings (`routers.shift_requests.
 get_settings`): `timeZone` for the team zone and `defaultGraceMin` for a
 placement with no preset - both read per call with safe fallbacks, so this
-works whether or not the settings row carries them.
+works whether or not the settings row carries them. They are read PER
+COMPANY (Phase 0 review, Oct 14): a person's defaults are their company's
+(`nexus_employees.company`, its override layered on the tenant row), an
+untagged person's the tenant's - `defaults_for` / `defaults_by_company`.
 
 Never imports routers.timeclock at module import time (timeclock will
 import this module); the settings reader is imported inside the functions.
@@ -59,28 +62,53 @@ _FALLBACK_START = "09:00"
 
 # ── Company defaults ──────────────────────────────────────────────────────
 
-def _settings(db: Session) -> dict:
+def _settings(db: Session, company_id: str = "") -> dict:
     try:
         from routers.shift_requests import get_settings
-        return get_settings(db) or {}
+        return get_settings(db, company_id or "") or {}
     except Exception:
         return {}
 
 
-def team_tz(db: Session) -> str:
+def team_tz(db: Session, company_id: str = "") -> str:
     """The team time zone (Shifts settings, Teams "Team time zone") - what a
-    shift with no zone of its own and no preset runs on."""
-    return str(_settings(db).get("timeZone") or "").strip() or DEFAULT_TEAM_TZ
+    shift with no zone of its own and no preset runs on. With `company_id`,
+    that company's (its override, else the tenant's)."""
+    return str(_settings(db, company_id).get("timeZone") or "").strip() or DEFAULT_TEAM_TZ
 
 
-def default_grace_min(db: Session) -> int:
+def default_grace_min(db: Session, company_id: str = "") -> int:
     """Grace minutes for a placement that has no preset to take them from:
-    the Shifts setting `defaultGraceMin`, else 10."""
+    the Shifts setting `defaultGraceMin` (that company's when `company_id`
+    names one), else 10."""
     try:
-        v = int(_settings(db).get("defaultGraceMin", DEFAULT_GRACE_MIN))
+        v = int(_settings(db, company_id).get("defaultGraceMin", DEFAULT_GRACE_MIN))
     except (TypeError, ValueError):
         return DEFAULT_GRACE_MIN
     return v if v >= 0 else DEFAULT_GRACE_MIN
+
+
+def companies_of(db: Session, emails: Iterable[str]) -> dict:
+    """{email(lower): HrEntity company id or ''} from nexus_employees for the
+    emails given; an email with no People row is simply absent ('' = tenant)."""
+    emails_l = _lower(emails)
+    if not emails_l:
+        return {}
+    return {(em or "").lower(): (c or "").strip() for em, c in
+            db.query(models.NexusEmployee.work_email, models.NexusEmployee.company)
+            .filter(func.lower(models.NexusEmployee.work_email).in_(emails_l)).all() if em}
+
+
+def defaults_by_company(db: Session, company_ids: Iterable[str]) -> dict:
+    """{company id: (team_tz, default_grace)} - one settings read per
+    company, the tenant ('') always included as the fallback."""
+    return {c: (team_tz(db, c), default_grace_min(db, c)) for c in ({""} | {(c or "").strip() for c in company_ids})}
+
+
+def defaults_for(db: Session, email: str) -> tuple:
+    """(team_tz, default_grace) that apply to one person: their company's."""
+    cid = companies_of(db, [email]).get((email or "").strip().lower(), "")
+    return team_tz(db, cid), default_grace_min(db, cid)
 
 
 # ── Pieces ────────────────────────────────────────────────────────────────
@@ -186,8 +214,9 @@ def expected_starts(db: Session, emails: Iterable[str], dd: date) -> dict:
     preset_ids = {r.shift_id for rows in by_email.values() for r in rows if r.shift_id} | set(assigned.values())
     presets = ({p.id: p for p in db.query(models.Shift).filter(models.Shift.id.in_(sorted(preset_ids))).all()}
                if preset_ids else {})
-    tz, grace = team_tz(db), default_grace_min(db)
-    return {em: pick_start(by_email.get(em, []), presets, assigned.get(em, ""), dd, tz, grace)
+    company = companies_of(db, emails_l)
+    defaults = defaults_by_company(db, company.values())
+    return {em: pick_start(by_email.get(em, []), presets, assigned.get(em, ""), dd, *defaults[company.get(em, "")])
             for em in emails_l}
 
 

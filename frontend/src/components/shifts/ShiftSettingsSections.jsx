@@ -65,11 +65,32 @@ export function useSettingsCompany() {
   };
   return [company, setCompany];
 }
-// A stored company the API no longer offers (or a caller who may not pick)
-// falls back to the default; the caller's effect then reloads.
-function settleCompany(r, company, setCompany) {
+// Settle the remembered company against what the API offers; the caller's
+// effect then reloads. Someone who cannot pick and is offered exactly one
+// company is PINNED to it (a company-scoped administrator: their new shift
+// types, groups and settings must carry that company, never '' - the tenant,
+// which they may not change). Offered none, or more than one without
+// picking, means the default (''). A stored company the API no longer
+// offers falls back to the default. `skip` is a company that just failed to
+// load - never pin back to it, or the reload would loop.
+function settleCompany(r, company, setCompany, skip = '') {
+  const list = Array.isArray(r?.companies) ? r.companies : null;
+  if (r?.canPickCompany === false) {
+    const only = list && list.length === 1 && list[0].id !== skip ? list[0].id : '';
+    if (only !== (company || '')) setCompany(only);
+    return;
+  }
   if (!company) return;
-  if (r?.canPickCompany === false || (Array.isArray(r?.companies) && !r.companies.some((c) => c.id === company))) setCompany('');
+  if (list && !list.some((c) => c.id === company)) setCompany('');
+}
+// A load that fails while a company is set (remembered from last time but
+// gone, or no longer the viewer's to see: 403 / 404) drops the company and
+// loads the defaults instead of showing the error. Returns true when it did.
+function dropFailedCompany(company, setCompany, failed) {
+  if (!company) return false;
+  failed.current = company;
+  setCompany('');
+  return true;
 }
 const companyNameOf = (companies, id) => (companies || []).find((c) => c.id === id)?.name || 'this company';
 export function CompanyPicker({ value, onChange, companies, hint }) {
@@ -126,6 +147,7 @@ export function ShiftSettingsPanel({ toastOk, toastErr }) {
   const [canPick, setCanPick] = useState(false);
   const [companies, setCompanies] = useState([]);
   const [graceDraft, setGraceDraft] = useState(null);   // null = not being typed
+  const failed = useRef('');
   useEffect(() => {
     let live = true;
     setError(null);
@@ -138,19 +160,24 @@ export function ShiftSettingsPanel({ toastOk, toastErr }) {
         setCfg(next);
         if (next.canPickCompany !== undefined) setCanPick(next.canPickCompany === true);
         if (Array.isArray(next.companies)) setCompanies(next.companies);
-        settleCompany(next, company, setCompany);
+        settleCompany(next, company, setCompany, failed.current);
+        if (company) failed.current = '';
       })
-      .catch((e) => { if (live) setError(e?.message || 'Could not load the settings.'); });
+      .catch((e) => { if (live && !dropFailedCompany(company, setCompany, failed)) setError(e?.message || 'Could not load the settings.'); });
     return () => { live = false; };
   }, [tick, company]);   // eslint-disable-line react-hooks/exhaustive-deps
   const graceShown = graceDraft ?? String(cfg?.defaultGraceMin ?? 10);
   const companyName = companyNameOf(companies, company);
-  async function save(next) {
+  // Only the key(s) that changed go to the API: a company's override stays
+  // sparse (the server stores what differs from the tenant and says whether
+  // anything is left - hasOverride), and nothing stale is written back.
+  async function save(patch) {
     const before = cfg;
+    const next = { ...cfg, ...patch };
     setCfg(next);
     try {
-      const r = await api.shiftRequestSettingsSaveFor(next, company);
-      setCfg({ ...next, ...(r || {}), hasOverride: !!company });   // a save for a company is its override
+      const r = await api.shiftRequestSettingsSaveFor(patch, company);
+      setCfg({ ...next, hasOverride: !!company, ...(r || {}) });
       toastOk?.(company ? `Shift settings saved for ${companyName}.` : 'Shift settings saved.');
     } catch (e) { toastErr?.(e.message || 'Could not save the settings.'); setCfg(before); }
   }
@@ -160,7 +187,7 @@ export function ShiftSettingsPanel({ toastOk, toastErr }) {
     setGraceDraft(null);
     if (graceDraft.trim() === '' || !Number.isFinite(typed)) return;
     const n = Math.max(0, Math.min(120, Math.round(typed)));
-    if (n !== (cfg.defaultGraceMin ?? 10)) save({ ...cfg, defaultGraceMin: n });
+    if (n !== (cfg.defaultGraceMin ?? 10)) save({ defaultGraceMin: n });
   }
   async function useDefaults() {
     const ok = await dialog.confirm(`Drop the shift settings ${companyName} has of its own? It then follows the default settings, and whatever changes there.`, { title: 'Use the Defaults', confirmText: 'Use the Defaults' });
@@ -174,7 +201,7 @@ export function ShiftSettingsPanel({ toastOk, toastErr }) {
       <AsyncSection loading={!cfg && !error} error={!!error} onRetry={() => setTick((t) => t + 1)} errorMessage="The shift settings could not be loaded right now." skeleton={<SkeletonBlocks count={3} height={36} borderRadius={8} />}>
         {cfg && (
           <div style={{ display: 'grid', gap: 14 }}>
-            {company && canPick && (
+            {company && (
               <div style={{ fontSize: 12, border: '1px solid var(--line)', borderRadius: 10, padding: '8px 12px', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', background: 'var(--card)' }}>
                 <span style={{ flex: 1, minWidth: 200, color: cfg.hasOverride ? 'var(--ink)' : 'var(--muted)' }}>
                   {cfg.hasOverride
@@ -187,18 +214,18 @@ export function ShiftSettingsPanel({ toastOk, toastErr }) {
             <div>
               <div style={LBL}>Requests And Visibility</div>
               {SWITCHES.map(([k, text]) => (
-                <label key={k} style={CHECK}><input type="checkbox" checked={OFF_BY_DEFAULT.has(k) ? cfg[k] === true : cfg[k] !== false} onChange={(e) => save({ ...cfg, [k]: e.target.checked })} /> {text}</label>
+                <label key={k} style={CHECK}><input type="checkbox" checked={OFF_BY_DEFAULT.has(k) ? cfg[k] === true : cfg[k] !== false} onChange={(e) => save({ [k]: e.target.checked })} /> {text}</label>
               ))}
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Trading (swaps, offers) and open shift requests are off unless turned on here.</div>
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Every request still needs a manager's approval. Turning one off stops new requests of that kind. A confidential time-off reason is never shown to teammates.</div>
             </div>
             <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
               <label style={{ display: 'grid', gap: 4 }}><span style={LBL}>Team Time Zone</span>
-                <ZonePick label="Team time zone" value={cfg.timeZone} onChange={(v) => save({ ...cfg, timeZone: v })} />
+                <ZonePick label="Team time zone" value={cfg.timeZone} onChange={(v) => save({ timeZone: v })} />
                 <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>What a shift with no shift type runs on, and what a new shift type starts with.</span>
               </label>
               <label style={{ display: 'grid', gap: 4 }}><span style={LBL}>Week Starts On</span>
-                <select className="form-input" aria-label="Week starts on" value={cfg.weekStart === 'sunday' ? 'sunday' : 'monday'} onChange={(e) => save({ ...cfg, weekStart: e.target.value })} style={{ width: 'auto', fontSize: 12.5, padding: '4px 30px 4px 8px' }}>
+                <select className="form-input" aria-label="Week starts on" value={cfg.weekStart === 'sunday' ? 'sunday' : 'monday'} onChange={(e) => save({ weekStart: e.target.value })} style={{ width: 'auto', fontSize: 12.5, padding: '4px 30px 4px 8px' }}>
                   <option value="monday">Monday</option>
                   <option value="sunday">Sunday</option>
                 </select>
@@ -268,6 +295,10 @@ export function ShiftTypesPanel({ toastOk, toastErr }) {
   const [defaultTz, setDefaultTz] = useState(BLANK.timezone);
   const [canPick, setCanPick] = useState(false);
   const [companies, setCompanies] = useState([]);
+  // Whether the API lets this viewer add / edit / delete shift types at all
+  // (a plain manager cannot since Phase 0); an older API says nothing = yes.
+  const [canManage, setCanManage] = useState(true);
+  const failed = useRef('');
   useEffect(() => {
     let live = true;
     setError(null);
@@ -278,8 +309,10 @@ export function ShiftTypesPanel({ toastOk, toastErr }) {
       if (r.defaultTimezone) setDefaultTz(r.defaultTimezone);
       if (r.canPickCompany !== undefined) setCanPick(r.canPickCompany === true);
       if (Array.isArray(r.companies)) setCompanies(r.companies);
-      settleCompany(r, company, setCompany);
-    }).catch((e) => { if (live) setError(e?.message || 'Could not load the shift types.'); });
+      setCanManage(r.canManage !== false);
+      settleCompany(r, company, setCompany, failed.current);
+      if (company) failed.current = '';
+    }).catch((e) => { if (live && !dropFailedCompany(company, setCompany, failed)) setError(e?.message || 'Could not load the shift types.'); });
     return () => { live = false; };
   }, [tick, company]);   // eslint-disable-line react-hooks/exhaustive-deps
   const reload = () => setTick((t) => t + 1);
@@ -315,7 +348,9 @@ export function ShiftTypesPanel({ toastOk, toastErr }) {
       <div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
           <span style={{ fontSize: 12.5, color: 'var(--muted)', flex: 1 }}>The shifts a manager places with one click. A person's usual hours are one of these.</span>
-          <button type="button" className="secondary-btn" onClick={() => setForm({ ...BLANK, timezone: defaultTz, company_id: company || '' })} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={12} /> New Shift Type</button>
+          {canManage ? (
+            <button type="button" className="secondary-btn" onClick={() => setForm({ ...BLANK, timezone: defaultTz, company_id: company || '' })} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Plus size={12} /> New Shift Type</button>
+          ) : <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Shift types are set by company administrators.</span>}
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 10 }}>
           {shifts?.length === 0 && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No shift types yet.</div>}
@@ -324,8 +359,8 @@ export function ShiftTypesPanel({ toastOk, toastErr }) {
               <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                 {s.code && <span style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--ink)', background: alpha(s.color || DEFAULT_SHIFT_COLOR, 0.14), borderRadius: 5, padding: '2px 6px', flexShrink: 0 }}>{s.code}</span>}
                 <span style={{ fontSize: 13, fontWeight: 800, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</span>
-                <button type="button" onClick={() => setForm({ ...s, start_hhmm: s.start, end_hhmm: s.end, grace_min: s.graceMin, break_min: s.breakMin || 0, company_id: s.companyId || '' })} aria-label={`Edit shift type ${s.name}`} title="Edit" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><Pencil size={12} /></button>
-                <button type="button" onClick={() => remove(s)} aria-label={`Delete shift type ${s.name}`} title="Delete" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex' }}><Trash2 size={12} /></button>
+                {canManage && <button type="button" onClick={() => setForm({ ...s, start_hhmm: s.start, end_hhmm: s.end, grace_min: s.graceMin, break_min: s.breakMin || 0, company_id: s.companyId || '' })} aria-label={`Edit shift type ${s.name}`} title="Edit" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><Pencil size={12} /></button>}
+                {canManage && <button type="button" onClick={() => remove(s)} aria-label={`Delete shift type ${s.name}`} title="Delete" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex' }}><Trash2 size={12} /></button>}
               </div>
               <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 5 }}>{formatHHMM(s.start)} - {formatHHMM(s.end)} · {daysLabel(s.days)}</div>
               <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{s.graceMin}m grace{s.breakMin ? ` · ${s.breakMin}m unpaid break` : ''} · {zoneOptionLabel(s.timezone || 'America/Los_Angeles')}</div>
