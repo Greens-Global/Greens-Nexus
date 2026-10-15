@@ -13,6 +13,10 @@ const timeSchedDelete = vi.fn();
 const timeSchedDiscard = vi.fn();
 const timeSchedPublish = vi.fn();
 const timeSchedUnshared = vi.fn();
+const timeSchedPublishReview = vi.fn();
+const timeSchedHistory = vi.fn();
+const timeSchedCellHistory = vi.fn();
+const timeSchedShares = vi.fn();
 const timeSchedCheck = vi.fn();
 const timeSchedCopy = vi.fn();
 const timeSchedClear = vi.fn();
@@ -45,6 +49,10 @@ vi.mock('../api', () => ({
     timeSchedDiscard: (...a) => timeSchedDiscard(...a),
     timeSchedPublish: (...a) => timeSchedPublish(...a),
     timeSchedUnshared: (...a) => timeSchedUnshared(...a),
+    timeSchedPublishReview: (...a) => timeSchedPublishReview(...a),
+    timeSchedHistory: (...a) => timeSchedHistory(...a),
+    timeSchedCellHistory: (...a) => timeSchedCellHistory(...a),
+    timeSchedShares: (...a) => timeSchedShares(...a),
     timeSchedCreate: (...a) => timeSchedCreate(...a),
     timeSchedUpdate: (...a) => timeSchedUpdate(...a),
     timeSchedMove: (...a) => timeSchedMove(...a),
@@ -131,6 +139,10 @@ beforeEach(() => {
   timeSchedDiscard.mockReset().mockResolvedValue({});
   timeSchedPublish.mockReset().mockResolvedValue({ published: 1, added: 1, notified: 1 });
   timeSchedUnshared.mockReset().mockResolvedValue({ count: 1 });
+  timeSchedPublishReview.mockReset().mockResolvedValue({ changes: [{ email: 'amy@greensglobal.com', name: 'Amy Adams', kind: 'added', date: monday, start: '09:00', end: '17:00', label: '', was: null }], people: 1, warnings: [], reasonRequired: false });
+  timeSchedHistory.mockReset().mockResolvedValue({ entries: [] });
+  timeSchedCellHistory.mockReset().mockResolvedValue({ entries: [] });
+  timeSchedShares.mockReset().mockResolvedValue({ shares: [] });
   timeSchedCheck.mockReset().mockResolvedValue({ warnings: [] });
   timeSchedCopy.mockReset().mockResolvedValue({ created: 4, replaced: 0, skipped: 1, timeoffSkipped: 0, targetStart: plusDays(monday, 7), targetEnd: plusDays(monday, 13) });
   timeSchedClear.mockReset().mockResolvedValue({ removed: 2, pending: 1 });
@@ -285,6 +297,13 @@ describe('Grid: blocks, time off beside shifts, open shifts per group', () => {
     expect(screen.getByText('No Location Set')).toBeTruthy();
   });
 
+  it('calls the corner count warnings once any of them is a schedule rule (Oct 15)', async () => {
+    timeSchedule.mockResolvedValue(data([shift({ conflicts: ['Only 8h 00m rest before this shift (10h minimum).'], ruleWarnings: ['Only 8h 00m rest before this shift (10h minimum).'] })]));
+    render(<ShiftSchedule toastOk={toastOk} />);
+    await screen.findByText('Amy Adams');
+    expect(screen.getByRole('button', { name: /^1 warning$/ })).toBeTruthy();
+  });
+
   it('marks people with limited availability, and a conflict on a shift', async () => {
     timeSchedule.mockResolvedValue({ ...grid([shift({ conflicts: ['On approved time off that day (sick).'] })]),
       availability: { 'amy@greensglobal.com': [{ weekday: 0, kind: 'unavailable', start: '', end: '', note: '' }, { weekday: 1, kind: 'available', start: '08:00', end: '12:00', note: '' }] } });
@@ -424,6 +443,31 @@ describe('Menus, clipboard, keyboard and touch', () => {
     fireEvent.click(within(menu).getByText(/NGT · 9:00 PM - 5:00 AM/));
     await waitFor(() => expect(timeSchedCreate).toHaveBeenCalledWith({ employee_email: 'bob@greensglobal.com', work_date: monday, shift_id: 'p2', group_id: '' }));
     expect(toastOk).toHaveBeenCalledWith('NGT placed as a draft.');
+  });
+
+  it('offers History on an empty day only once the API says a shift was there (Oct 15)', async () => {
+    timeSchedule.mockResolvedValue(data([]));
+    render(<ShiftSchedule toastOk={toastOk} />);
+    await screen.findByText('Amy Adams');
+    fireEvent.contextMenu(cellOf('bob@greensglobal.com'));
+    let menu = screen.getByRole('menu', { name: 'Day options' });
+    await waitFor(() => expect(timeSchedCellHistory).toHaveBeenCalledWith('bob@greensglobal.com', monday));
+    expect(within(menu).queryByText('History')).toBeNull();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    timeSchedCellHistory.mockResolvedValue({ email: 'bob@greensglobal.com', date: monday, entries: [
+      { action: 'removed', actor: 'mia@greensglobal.com', actorName: 'Mia Lee', at: '2026-10-14T22:12:00Z', before: { start: '09:00', end: '17:00', label: 'Yard' }, after: null, reason: 'offboarded' },
+      { action: 'created', actor: 'mia@greensglobal.com', actorName: 'Mia Lee', at: '2026-10-10T15:00:00Z', before: null, after: { start: '09:00', end: '17:00', label: 'Yard' }, reason: '' },
+    ] });
+    fireEvent.contextMenu(cellOf('bob@greensglobal.com'));
+    menu = screen.getByRole('menu', { name: 'Day options' });
+    const item = await within(menu).findByText('History');
+    fireEvent.click(item);
+    const dlg = screen.getByRole('dialog', { name: 'Cell History' });
+    expect(dlg.textContent).toContain('Bob · ');
+    expect(dlg.textContent).toContain('Removed by Mia Lee');
+    expect(dlg.textContent).toContain('9:00 AM - 5:00 PM · Yard');
+    expect(dlg.textContent).toContain('"offboarded"');
+    expect(dlg.textContent).toContain('Created by Mia Lee');
   });
 
   it('copies and pastes with Ctrl+C / Ctrl+V, the menu, and a click on an empty day', async () => {
@@ -914,9 +958,45 @@ describe('Share, copy, clear, discard', () => {
     fireEvent.change(within(dlg).getByLabelText('Share to'), { target: { value: plusDays(monday, 13) } });
     await waitFor(() => expect(timeSchedUnshared).toHaveBeenLastCalledWith(monday, plusDays(monday, 13)));
     fireEvent.click(within(dlg).getByText('The whole team'));
+    // Phase 2: Review first, then Share from the review.
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Review' }));
+    await within(dlg).findByText('Review And Share');
+    expect(timeSchedPublishReview).toHaveBeenCalledWith({ start: monday, end: plusDays(monday, 13) });
+    expect(within(dlg).getByText('No warnings.')).toBeTruthy();
     fireEvent.click(within(dlg).getByRole('button', { name: 'Share' }));
-    await waitFor(() => expect(timeSchedPublish).toHaveBeenCalledWith({ start_date: monday, end_date: plusDays(monday, 13), notify: 'team' }));
+    await waitFor(() => expect(timeSchedPublish).toHaveBeenCalledWith({ start_date: monday, end_date: plusDays(monday, 13), notify: 'team', reason: '' }));
     expect(toastOk).toHaveBeenCalledWith('Shared with the team: 2 new, 1 removed. 2 people notified.');
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Share Schedule' })).toBeNull());
+  });
+
+  it('shows the server refusal in the review and keeps it open', async () => {
+    timeSchedule.mockResolvedValue(data([shift({ published: false })]));
+    timeSchedPublish.mockRejectedValue(Object.assign(new Error('A reason is needed to share a schedule with warnings.'), { status: 400 }));
+    render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
+    await screen.findByText('Amy Adams');
+    fireEvent.click(screen.getByRole('button', { name: 'Share, 1 unshared' }));
+    const dlg = screen.getByRole('dialog', { name: 'Share Schedule' });
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Review' }));
+    await within(dlg).findByText('Review And Share');
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Share' }));
+    expect((await within(dlg).findByRole('alert')).textContent).toBe('A reason is needed to share a schedule with warnings.');
+    expect(toastErr).toHaveBeenCalledWith('A reason is needed to share a schedule with warnings.');
+    expect(screen.getByRole('dialog', { name: 'Share Schedule' })).toBeTruthy();
+  });
+
+  it('jumps from a review warning to the cell on the grid and pulses it', async () => {
+    timeSchedule.mockResolvedValue(data([shift({ published: false })]));
+    timeSchedPublishReview.mockResolvedValue({ changes: [{ email: 'amy@greensglobal.com', name: 'Amy Adams', kind: 'added', date: monday, start: '09:00', end: '17:00', label: '', was: null }], people: 1,
+      warnings: [{ email: 'amy@greensglobal.com', name: 'Amy Adams', date: monday, shiftId: 's1', text: 'Only 6 hours of rest.', kind: 'rule' }], reasonRequired: false });
+    render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
+    await screen.findByText('Amy Adams');
+    fireEvent.click(screen.getByRole('button', { name: 'Share, 1 unshared' }));
+    const dlg = screen.getByRole('dialog', { name: 'Share Schedule' });
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Review' }));
+    await within(dlg).findByText('Review And Share');
+    fireEvent.click(within(dlg).getByText('Only 6 hours of rest.'));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Share Schedule' })).toBeNull());
+    await waitFor(() => expect(cellOf('amy@greensglobal.com').className).toContain('m-pulse-cell'));
   });
 
   it('refuses more than 92 days, and still counts locally on an older API', async () => {
@@ -929,7 +1009,7 @@ describe('Share, copy, clear, discard', () => {
     expect(within(dlg).getByText('1 change to share in these dates.')).toBeTruthy();
     fireEvent.change(within(dlg).getByLabelText('Share to'), { target: { value: plusDays(monday, 100) } });
     expect(within(dlg).getByText('Share at most 92 days at a time.')).toBeTruthy();
-    expect(within(dlg).getByRole('button', { name: 'Share' }).disabled).toBe(true);
+    expect(within(dlg).getByRole('button', { name: 'Review' }).disabled).toBe(true);
   });
 
   it('copies the week on screen to the next week as drafts', async () => {
@@ -1129,7 +1209,7 @@ describe('Actuals: the schedule meets the clock', () => {
     expect(bar.style.background).toBe('hsl(var(--color-orange))');
     expect(blockOf('s1').getAttribute('title')).toContain('Clocked in 9:04 AM (4 min late)\nClocked out 4:58 PM');
     expect(blockOf('s1').getAttribute('aria-label')).toBe('Shift 9:00 AM - 5:00 PM GST, Late');
-    expect(blockOf('s1').textContent).toBe('9:00a - 5:00pGST');   // the bar is the only addition
+    expect(blockOf('s1').textContent).toBe('9:00a - 5:00pGSTL');   // the bar and the letter badge are the only additions
     // The line follows the people on screen.
     const dlg = viewOptions();
     fireEvent.change(within(dlg).getByLabelText('Search people'), { target: { value: 'amy' } });

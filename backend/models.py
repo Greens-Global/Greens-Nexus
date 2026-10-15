@@ -6436,3 +6436,28 @@ class ShiftNoShowAlert(Base):
     last_at     = Column(String, default="")
     emailed_at  = Column(String, default="")
     resolved_at = Column(String, default="")
+
+
+class ShiftChangeLog(Base):
+    """Shifts Phase 2 (Oct 14 2026, shift_log.py): who did what to a placed
+    shift, in order. One row per shift per action - created, edited (an
+    unshared edit saved), removed, assigned, copied, moved, cleared,
+    discarded, shared (a publish: every row it shared carries the reason
+    given and the publish_id), claimed / swapped / offered (a request
+    approved), weather (a weather call applied or reversed). before_json /
+    after_json hold the small {start, end, label, shiftId, date, email,
+    openSlots} snapshot either side. Rows outlive their shift: a removed
+    shift's history stays. New table - create_all builds it; RLS comes from
+    main._enable_rls_everywhere's startup sweep."""
+    __tablename__ = "shift_change_log"
+    id             = Column(String, primary_key=True)              # uuid
+    shift_id       = Column(String, default="", index=True)        # ScheduledShift.id
+    employee_email = Column(String, default="", index=True)        # '' for an open slot
+    work_date      = Column(String, default="", index=True)        # YYYY-MM-DD at the time
+    action         = Column(String, default="", index=True)
+    actor          = Column(String, default="", index=True)        # who made the change
+    at             = Column(String, default="", index=True)        # UTC ISO
+    before_json    = Column(String, default="")
+    after_json     = Column(String, default="")
+    reason         = Column(String, default="")                    # a publish over warnings, a weather call
+    publish_id     = Column(String, default="", index=True)        # one per publish; '' otherwise

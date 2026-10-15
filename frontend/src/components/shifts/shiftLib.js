@@ -332,6 +332,15 @@ export function coverageFor(members, dayIsos, { byCell = {}, offOn = () => [], u
 // excused | exempt. The block draws ONE thin bar in the status color and
 // says the rest on hover; the week line above the grid adds the totals.
 export const ACTUAL_WORDS = { upcoming: 'Upcoming', in_progress: 'In Progress', on_time: 'On Time', late: 'Late', left_early: 'Left Early', no_show: 'No-Show', excused: 'Excused', exempt: 'Exempt' };
+// A one-letter cue at the right end of the bar for anyone who cannot tell
+// the colors apart (Oct 15): L late, E left early, N no-show, a check on
+// time. Nothing while it runs or when nothing was judged.
+export const ACTUAL_LETTERS = { on_time: '\u2713', late: 'L', left_early: 'E', no_show: 'N' };
+export const actualLetter = (status) => ACTUAL_LETTERS[status] || '';
+// What the API's `excuse` and `over` keys mean in words.
+export const EXCUSE_WORDS = { time_off: 'approved time off', holiday: 'company holiday', weather: 'weather call', sick: 'sick leave', vacation: 'vacation', personal: 'personal time' };
+export const OVER_WORDS = { time_off: 'Scheduled over approved time off', holiday: 'Scheduled over a company holiday' };
+const excuseWord = (x) => EXCUSE_WORDS[x] || x || '';
 const ACTUAL_COLORS = { on_time: 'hsl(var(--color-green))', late: 'hsl(var(--color-orange))', left_early: 'hsl(var(--color-orange))', no_show: 'hsl(var(--color-red))', excused: 'var(--muted)', exempt: 'var(--muted)' };
 // The bar's color: green / orange / red / grey by status; a shift still in
 // progress wears the block's own color (`own`). Nothing for an upcoming one.
@@ -359,19 +368,29 @@ export function punchTime(iso, tz = '') {
 // The hover lines, one per fact, joined with newlines (the block's title):
 //   "Clocked in 8:04 AM (4 min late)" / "Clocked out 5:02 PM (23 min early)"
 //   "No clock-in (no-show)" / "Excused: approved time off" / "In progress since 8:04 AM"
+//   A cell shared over approved time off or a holiday adds "Scheduled over
+//   approved time off"; a `private` cell (the API gave a reader who is not
+//   a manager status words only) is just the word.
 export function actualLabel(a) {
   const status = a?.status;
   if (!status || status === 'upcoming') return '';
+  const over = OVER_WORDS[a.over] || '';
+  const withOver = (text) => (over ? `${text}\n${over}` : text);
+  if (a.private) return withOver(ACTUAL_WORDS[status] || '');
   const inAt = punchTime(a.firstIn, a.tz), outAt = punchTime(a.lastOut, a.tz);
-  if (status === 'in_progress') return inAt ? `In progress since ${inAt}` : 'In progress';
-  if (status === 'no_show') return 'No clock-in (no-show)';
-  if (status === 'excused' || status === 'exempt') return `${ACTUAL_WORDS[status]}${a.excuse ? `: ${a.excuse}` : ''}`;
+  if (status === 'in_progress') return withOver(inAt ? `In progress since ${inAt}` : 'In progress');
+  if (status === 'no_show') return withOver('No clock-in (no-show)');
+  if (status === 'excused' || status === 'exempt') return `${ACTUAL_WORDS[status]}${a.excuse ? `: ${excuseWord(a.excuse)}` : ''}`;
   const late = Number(a.lateMin) || 0, early = Number(a.earlyMin) || 0;
   const lines = [];
   if (inAt) lines.push(`Clocked in ${inAt}${late > 0 ? ` (${late} min late)` : ''}`);
   if (outAt) lines.push(`Clocked out ${outAt}${early > 0 ? ` (${early} min early)` : ''}`);
-  return lines.length ? lines.join('\n') : (ACTUAL_WORDS[status] || '');
+  return withOver(lines.length ? lines.join('\n') : (ACTUAL_WORDS[status] || ''));
 }
+// Whether a sentence on a shift's `conflicts` is one of the schedule rules
+// (shift_rules.py) rather than a conflict - the grid's corner says "N
+// warnings" when any of them is (Oct 15).
+export const isRuleWarning = (text) => /rest before this shift|day in a row|is overtime\)|is the most\)/.test(String(text || ''));
 // The cell's actual for one of the shifts in it: the one it names, else the
 // only shift there (an older row may carry no shiftId).
 export function actualFor(cell, shift, sole = false) {

@@ -307,6 +307,22 @@ class ShiftCompanyTests(unittest.TestCase):
         self.assertFalse(adm["canPickCompany"])
 
     # ── Groups ────────────────────────────────────────────────────────────
+    def test_the_group_list_is_cut_to_the_callers_companies(self):
+        """Like the shift types: shared groups and the caller's companies'
+        only - a company-limited caller never learns another company's
+        team by name (QA, Oct 15)."""
+        for name, cid in (("Alpha Crew", CO_A), ("Beta Crew", CO_B)):
+            self.assertEqual(self.client.post("/timeclock/shift-groups", json={"name": name, "members": [], "company_id": cid}).status_code, 200)
+        names = lambda: sorted(g["name"] for g in self.client.get("/timeclock/shift-groups").json()["groups"])   # noqa: E731
+        self.assertEqual(names(), ["Alpha Crew", "Beta Crew", "Store"])
+        self._as(MGR)
+        self.assertEqual(names(), ["Alpha Crew", "Store"], "a manager: the shared ones and their team's company")
+        self._walls(True)
+        self._as(ADMIN_A)
+        self.assertEqual(names(), ["Alpha Crew", "Store"])
+        self._as(BOSS)
+        self.assertEqual(names(), ["Alpha Crew", "Beta Crew", "Store"])
+
     def test_groups_carry_a_company_and_follow_the_same_guard(self):
         made = self.client.post("/timeclock/shift-groups", json={"name": "Alpha Crew", "members": [A], "company_id": CO_A})
         self.assertEqual(made.status_code, 200, made.text)
@@ -394,6 +410,12 @@ class ShiftCompanyTests(unittest.TestCase):
         self.assertEqual(self.client.delete(f"{SETTINGS}?company={CO_B}").status_code, 403)
         mine = self.client.get(f"{SETTINGS}?company={CO_A}").json()
         self.assertEqual(([c["id"] for c in mine["companies"]], mine["canPickCompany"]), ([CO_A], False))
+        # Another company's settings are not theirs to READ either: across the
+        # wall a company does not exist (QA, Oct 15 - the read used to answer).
+        self.assertEqual(self.client.get(f"{SETTINGS}?company={CO_B}").status_code, 404)
+        self.assertEqual(self.client.get(SETTINGS).status_code, 200, "the tenant row still reads (it is their fallback)")
+        self._as(BOSS)
+        self.assertEqual(self.client.get(f"{SETTINGS}?company={CO_B}").status_code, 200, "a Global Admin reads every company")
 
     def test_a_company_override_keeps_only_what_differs_from_the_tenant(self):
         self.client.put(SETTINGS, json={"swaps": True, "timeZone": "Asia/Kolkata"})

@@ -15,19 +15,39 @@ tile and the Workforce Scorecard:
      only when there is nobody else). When the group-day's set empties -
      everyone clocked in, or the six-hour window after the start passed -
      the bell is closed (actioned) and retitled "All In: ..." with who came
-     in late. A person on approved time off, a company holiday, a weather-
-     cancelled shift, a removal waiting to be published, or exempt from time
-     tracking is never a no-show. A person is judged ONCE per day, on the
-     earliest live placement (shift_expect.pick_start - the rule the
-     timecard, My Team and the scorecard share), under that placement's
-     group; its own zone clock (placement zone -> preset zone -> the
-     company's team zone) and the grace of its preset, else the company's
-     `defaultGraceMin`. `shift_noshow_alerts` is the scan's memory and the
-     record: a group-day that empties and fills again (a later start missed
-     after the morning's "All In") reopens its own row, so the one email per
-     recipient per group-day holds. The bell is refreshed quietly (stays
-     read) while only the minutes change and is made unread again only when
-     a new name joins it.
+     in late - "Came In Late: ..." when someone only clocked in after the
+     window had closed, "Missed Shift: ..." when someone never did (a closed
+     bell is retitled when they turn up later). A weather-cancelled shift,
+     a removal waiting to be published, someone who is not an active
+     person, or exempt from time tracking is never a no-show. A LIVE
+     published placement on a company holiday or over approved time off
+     is NOT excused by the clock (hardening pass, Oct 15 2026): the review
+     warned and the manager shared anyway, so the scan alerts and the
+     actuals judge it (the bell line and the cell say it was scheduled over
+     time off / a holiday). A punch whose job category classes as leave
+     (timeclock._leave_class: sick / vacation / personal) is NOT a clock-
+     in: the scan treats the person as on leave (excused, never "came in").
+     A person is judged ONCE per day, on the earliest live placement
+     (shift_expect.pick_start - the rule the timecard, My Team and the
+     scorecard share), under that placement's group; its own zone clock
+     (placement zone -> preset zone -> the company's team zone) and the
+     grace of its preset, else the company's `defaultGraceMin`. With the
+     company's `noShowOnUsualHours` on, a person with NO placement but a
+     usual-hours preset on one of its working days is a candidate too (the
+     preset path of pick_start; time off and holidays DO excuse those, as
+     nobody scheduled them). `noShowAlertMin` is clamped at scan time so
+     start + grace + alert never passes the six-hour window. Recipients
+     are the person's manager, their Backup Manager when one is set on
+     their profile, and the group's schedulers (never the person); the
+     company's HR contact only when there is nobody else. `shift_noshow_
+     alerts` is the scan's memory and the record: a group-day that empties
+     and fills again (a later start missed after the morning's "All In")
+     reopens its own row, so the one email per recipient per group-day
+     holds. The bell rides notify_rollup (one notice per recipient per
+     team-day, type custom_alert with action.kind "shift_noshow", priority
+     1 while open): refreshed quietly (stays read) while only the minutes
+     change, made unread again only when a new name joins it, resolved in
+     place.
      No Teams message: Nexus posts to Teams as a signed-in person
      (weather_watch._post_teams rides a live session), which a minute-by-
      minute attendance scan must not depend on.
@@ -41,8 +61,15 @@ tile and the Workforce Scorecard:
      clock, not the viewer's), and totals per person and overall. Late is
      shift_expect.is_late_at; left early is a clock-out more than the
      company's `leftEarlyMin` before the end once the shift is over. A shift
-     that crosses midnight is judged by its own end, never by the calendar
-     date turning. No pay figure appears anywhere in it.
+     that crosses midnight is judged by its own end (wall clock in the
+     shift's zone, so a 10 PM - 6 AM shift across a DST change ends when
+     the clock on the wall says 6:00 - shift_expect.end_utc), never by the
+     calendar date turning. A judged cell over approved time off or a
+     holiday says so (`over`); a day with a leave punch is `excused` with
+     the leave class as its excuse. No pay figure appears anywhere in it.
+     `for_viewer` strips the stamps and minutes from everyone else's cells
+     for a reader who is not a manager (a group scheduler below manager, a
+     People viewer): status words only.
 
 All DB work is synchronous: the loop runs it in a thread (CLAUDE.md: never
 block the event loop), the route is a plain `def`. Never imports
@@ -62,6 +89,7 @@ import models
 import shift_expect
 from app_url import app_url
 from database import SessionLocal
+from notify_rollup import resolve_rollup, retitle_resolved, upsert_rollup
 
 SCAN_SEC = 60
 NOSHOW_WINDOW_HOURS = 6     # a start older than this is no longer watched
@@ -133,11 +161,6 @@ def _people(db: Session, emails: Iterable[str] = None) -> dict:
 
 def _active(e) -> bool:
     return e is not None and (e.status or "active").lower() == "active" and not (e.deleted_at or "")
-
-
-def _on_books(e) -> bool:
-    """Someone who can still be expected at work: not deleted, not offboarded."""
-    return e is not None and not (e.deleted_at or "") and (e.status or "active").lower() != "offboarded"
 
 
 def _is_live(row) -> bool:
@@ -214,10 +237,20 @@ def _paid_minutes(row) -> int:
 
 
 def _end_utc(dd: date, exp: dict) -> Optional[datetime]:
-    start = shift_expect.start_utc(dd, exp)
-    if start is None:
-        return None
-    return start + timedelta(minutes=_shift_minutes(exp.get("start") or "", exp.get("end") or ""))
+    """The shift's end in UTC from its wall-clock end in its own zone - a
+    10 PM - 6 AM shift across spring-forward is seven real hours, across
+    fall-back nine (shift_expect.end_utc), never start + a fixed length."""
+    return shift_expect.end_utc(dd, exp)
+
+
+def _leave_class(category: str) -> str:
+    """'' for worked time, else sick / vacation / personal (the timecard's
+    _leave_class - one rule for the pay class and the clock)."""
+    from routers.timeclock import _leave_class as lc
+    return lc(category or "")
+
+
+OVER_TEXT = {"time_off": "scheduled over approved time off", "holiday": "scheduled over a company holiday"}
 
 
 def _leave_dates(db: Session, emails: list, start: str, end: str) -> set:
@@ -282,8 +315,9 @@ def _candidate_rows(db: Session, dates: list) -> list:
 
 
 def _in_punches(db: Session, emails: list, dates: list, since: datetime, until: datetime) -> dict:
-    """{email: [(at_utc, local_date)]} of live clock-ins dated in `dates` or
-    stamped inside [since, until]."""
+    """{email: [(at_utc, local_date, leave_class)]} of live clock-ins dated
+    in `dates` or stamped inside [since, until]. `leave_class` is '' for a
+    real clock-in, else sick / vacation / personal - a leave punch."""
     if not emails:
         return {}
     rows = (db.query(models.TimePunch)
@@ -296,30 +330,45 @@ def _in_punches(db: Session, emails: list, dates: list, since: datetime, until: 
     for p in rows:
         t = _parse(p.at)
         if t is not None:
-            out.setdefault((p.employee_email or "").lower(), []).append((t, p.local_date or ""))
+            out.setdefault((p.employee_email or "").lower(), []).append((t, p.local_date or "", _leave_class(p.category)))
     return out
 
 
 def _first_in_for(punches: list, work_date: str, start: datetime, now: datetime) -> Optional[datetime]:
     """The clock-in that counts for a shift: the earliest live 'in' dated
-    the work date, or stamped between two hours before the start and now."""
+    the work date, or stamped between two hours before the start and now.
+    A leave punch (sick / vacation / personal) is not a clock-in."""
     best = None
-    for t, local_date in punches or []:
+    for t, local_date, leave in punches or []:
+        if leave:
+            continue
         if local_date == work_date or (start - timedelta(hours=_PUNCH_BEFORE_HOURS) <= t <= now):
             if best is None or t < best:
                 best = t
     return best
 
 
-def _recipients_for(row, person, people: dict, groups: dict, hr_contacts: dict) -> list:
-    """The person's manager plus the group's schedulers (active People rows
-    only, never the person); the company's HR contact when nobody else."""
-    me = (row.employee_email or "").lower()
+def _leave_on(punches: list, work_date: str) -> str:
+    """The leave class of a leave punch dated `work_date`, else ''."""
+    for _t, local_date, leave in punches or []:
+        if leave and local_date == work_date:
+            return leave
+    return ""
+
+
+def _recipients_for(group_id: str, person, people: dict, groups: dict, hr_contacts: dict) -> list:
+    """The person's manager, their Backup Manager when one is set on their
+    profile (Neil, Oct 13: the backup has the manager's rights - and the
+    manager's news), plus the group's schedulers (active People rows only,
+    never the person, no duplicates); the company's HR contact when nobody
+    else."""
+    me = (getattr(person, "work_email", "") or "").lower()
     out = []
-    mgr = (getattr(person, "manager_email", "") or "").strip().lower()
-    if mgr:
-        out.append(mgr)
-    g = groups.get(row.group_id or "")
+    for attr in ("manager_email", "backup_manager_email"):
+        em = (getattr(person, attr, "") or "").strip().lower()
+        if em:
+            out.append(em)
+    g = groups.get(group_id or "")
     if g is not None:
         out.extend(_schedulers(g))
     out = [e for e in dict.fromkeys(out) if e and e != me and _active(people.get(e))]
@@ -330,40 +379,32 @@ def _recipients_for(row, person, people: dict, groups: dict, hr_contacts: dict) 
     return out
 
 
+def _alert_window_min(cfg: dict, grace: int) -> int:
+    """`noShowAlertMin` as the scan uses it: 0 = off, else clamped so the
+    alert line (start + grace + alert) always lands inside the six-hour
+    window - a setting of 240 with a 150-minute grace still alerts, one
+    minute before the window closes."""
+    alert = _int_setting(cfg, "noShowAlertMin", 0)
+    if alert <= 0:
+        return 0
+    return max(1, min(alert, NOSHOW_WINDOW_HOURS * 60 - int(grace or 0) - 1))
+
+
 def _bell(db: Session, recipient: str, ref_id: str, title: str, body: str, *, action: dict, company: str,
           priority: int, fresh: bool = True) -> None:
-    """One bell per (person, ref_id), refreshed in place while it is still
-    open - weather_watch._bell. `fresh` = the story changed (a new name):
+    """One bell per (person, ref_id) through notify_rollup - refreshed in
+    place while it is still open. `fresh` = the story changed (a new name):
     the bell is unread and at the top again, and comes back if its reader
     had closed it. Not fresh = only the minutes moved: the words are updated
     and the bell stays where the reader left it (a scan every minute must
-    not flip a read bell unread every minute)."""
-    now = datetime.now(timezone.utc).isoformat()
-    row = (db.query(models.NexusNotification)
-           .filter(models.NexusNotification.recipient == recipient, models.NexusNotification.ref_id == ref_id,
-                   models.NexusNotification.actioned == False)   # noqa: E712 - SQLAlchemy expression
-           .order_by(models.NexusNotification.created_at.desc()).first())
-    if row is not None:
-        row.title, row.body, row.priority = title, body, priority
-        row.action = json.dumps(action)
-        if fresh:
-            row.created_at, row.read_by, row.closed_by = now, "", ""
-        return
-    db.add(models.NexusNotification(
-        id=str(uuid.uuid4()), type="custom_alert", recipient=recipient, title=title, body=body,
-        ref_id=ref_id, item_name="", requested_by="", action=json.dumps(action), actioned=False, read_by="",
-        company=company or "", created_at=now, priority=priority))
+    not flip a read bell unread every minute). A resolved bell is history:
+    the same team-day opening again gets a new one (open_only)."""
+    upsert_rollup(db, recipient=recipient, key=ref_id, title=title, line=body, action=action, company=company or "",
+                  replace=True, quiet=not fresh, priority=priority, open_only=True)
 
 
 def _close_bell(db: Session, recipient: str, ref_id: str, title: str, body: str) -> bool:
-    row = (db.query(models.NexusNotification)
-           .filter(models.NexusNotification.recipient == recipient, models.NexusNotification.ref_id == ref_id,
-                   models.NexusNotification.actioned == False)   # noqa: E712 - SQLAlchemy expression
-           .order_by(models.NexusNotification.created_at.desc()).first())
-    if row is None:
-        return False
-    row.title, row.body, row.actioned, row.priority = title, body, True, 0
-    return True
+    return resolve_rollup(db, recipient=recipient, key=ref_id, title=title, line=body)
 
 
 def _ref_id(group_id: str, work_date: str) -> str:
@@ -371,7 +412,11 @@ def _ref_id(group_id: str, work_date: str) -> str:
 
 
 def _action(group_id: str, work_date: str) -> dict:
-    return {"view": "shifts", "sub": f"schedule:{work_date}:{group_id if group_id != NO_GROUP else ''}"}
+    """The bell's action: the schedule on that day and team. `kind` names
+    the flow for the bell (the type stays custom_alert - the main bell's
+    scope rules know that one; NotificationBell.jsx is Visesh's)."""
+    return {"view": "shifts", "sub": f"schedule:{work_date}:{group_id if group_id != NO_GROUP else ''}",
+            "kind": "shift_noshow"}
 
 
 def _subject_of(people_lines: list, group_name: str) -> str:
@@ -385,19 +430,37 @@ def _subject_of(people_lines: list, group_name: str) -> str:
 
 
 def _line(p: dict) -> str:
-    return f"{p['name']} - scheduled {_t12(p['start'])}, {int(p['lateMin'])} min late"
+    over = OVER_TEXT.get(p.get("over") or "", "")
+    return (f"{p['name']} - scheduled {_t12(p['start'])}, {int(p['lateMin'])} min late"
+            + (f" ({over})" if over else ""))
 
 
 def _email_html(subject: str, work_date: str, lines: list, link: str) -> str:
-    items = "".join(f"<li>{escape(ln)}</li>" for ln in lines)
-    return (f"<div style=\"font-family:Inter,Segoe UI,Arial,sans-serif;font-size:14px;color:#0f172a\">"
-            f"<p style=\"font-size:16px;font-weight:600;margin:0 0 8px\">{escape(subject)}</p>"
-            f"<p style=\"margin:0 0 8px\">Not clocked in for {escape(_us(work_date))}:</p>"
-            f"<ul style=\"margin:0 0 12px 18px;padding:0\">{items}</ul>"
-            f"<p style=\"margin:0 0 12px\">You will not be emailed again for this team and day; the bell in "
-            f"Nexus keeps up as people come in.</p>"
-            f"<p style=\"margin:0\"><a href=\"{escape(link)}\" style=\"color:#2563eb\">Open the schedule</a></p>"
-            f"</div>")
+    """The no-show email, in the saved email theme (header band, logo,
+    footer) like shift_notify's publish email - every Nexus email wears it."""
+    import email_theme
+    theme = email_theme.current()
+    band = theme.color("#0f3d2e")
+    td = "padding:10px 12px;border-top:1px solid #e5e7eb;font-size:13.5px;color:#111827"
+    rows = "".join(f"<tr><td style='{td}'>{escape(ln)}</td></tr>" for ln in lines)
+    return f"""<div style="background:#f3f4f6;padding:28px 12px;font-family:'Segoe UI',Arial,Helvetica,sans-serif">
+  <table align="center" width="620" cellpadding="0" cellspacing="0" style="max-width:620px;width:100%;background:#ffffff;border:1px solid #e5e7eb;border-collapse:collapse">
+    <tr><td style="background:{band};padding:16px 28px">{theme.logo_block()}</td></tr>
+    <tr><td style="padding:24px 28px 0">
+      <div style="font-size:20px;font-weight:600;color:#111827">{escape(subject)}</div>
+      <div style="font-size:14px;line-height:1.55;color:#374151;margin-top:8px">Not clocked in for {escape(_us(work_date))}:</div>
+    </td></tr>
+    <tr><td style="padding:18px 28px 0">
+      <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e5e7eb;border-collapse:collapse">{rows}</table>
+    </td></tr>
+    <tr><td style="padding:24px 28px 28px">
+      <a href="{escape(link)}" style="display:inline-block;padding:10px 22px;border-radius:4px;background:{band};color:#ffffff;text-decoration:none;font-weight:600;font-size:13px">Open The Schedule</a>
+    </td></tr>
+    <tr><td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 28px;font-size:11.5px;line-height:1.6;color:#6b7280">
+      You will not be emailed again for this team and day; the bell in Nexus keeps up as people come in.{theme.footer_lines()}
+    </td></tr>
+  </table>
+</div>"""
 
 
 def _send_email(to: str, subject: str, html: str) -> bool:
@@ -436,10 +499,12 @@ def _told(a) -> list:
 
 
 def _recipient_people(db: Session, people: dict, groups: dict, hr_contacts: dict) -> None:
-    """Add the possible recipients - the candidates' managers, their groups'
-    schedulers, the companies' HR contacts - to `people`, in one bounded
-    query (never the whole People table every minute)."""
+    """Add the possible recipients - the candidates' managers and backup
+    managers, their groups' schedulers, the companies' HR contacts - to
+    `people`, in one bounded query (never the whole People table every
+    minute)."""
     want = {(getattr(p, "manager_email", "") or "").strip().lower() for p in people.values()}
+    want |= {(getattr(p, "backup_manager_email", "") or "").strip().lower() for p in people.values()}
     for g in groups.values():
         want |= set(_schedulers(g))
     want |= {(e or "").strip().lower() for e in hr_contacts.values()}
@@ -448,11 +513,37 @@ def _recipient_people(db: Session, people: dict, groups: dict, hr_contacts: dict
         people.update(_people(db, want))
 
 
+def _usual_hours_candidates(db: Session, dates: list, settings, exclude: set) -> dict:
+    """Shifts Phase 1 hardening (Oct 15): for every company whose
+    `noShowOnUsualHours` is on, {(email, date): exp} for each active person
+    with no placement that day but a usual-hours preset that works it
+    (pick_start's preset path). Nothing for a company with it off - the
+    usual tick reads no People table at all."""
+    from routers.shift_requests import _DEFAULTS
+    company_ids = [""] + [e.id for e in db.query(models.HrEntity.id).all()]
+    on = [cid for cid in company_ids if bool(settings(cid).get("noShowOnUsualHours", _DEFAULTS.get("noShowOnUsualHours")))]
+    if not on:
+        return {}
+    q = db.query(models.NexusEmployee.work_email, models.NexusEmployee.company).filter(models.NexusEmployee.work_email != "")
+    emails = [(em or "").lower() for em, company in q.all()
+              if em and ((company or "") in on) and (em or "").lower() not in exclude]
+    if not emails:
+        return {}
+    out = {}
+    for iso in dates:
+        dd = date.fromisoformat(iso)
+        for em, exp in shift_expect.expected_starts(db, emails, dd).items():
+            if exp and exp.get("source") == "preset":
+                out[(em, iso)] = exp
+    return out
+
+
 def noshow_scan(db: Session, now_utc: datetime = None) -> dict:
     """One pass: who should be in and is not, told to whom; what opened and
     what closed. Returns a summary {candidates, noShows, alerts, reopened,
-    updated, resolved, emails}. Every query is bound to the day's candidates
-    and the open alerts' people - an idle tick is two small reads."""
+    updated, resolved, retitled, emails}. Every query is bound to the day's
+    candidates and the open alerts' people - an idle tick is two small
+    reads (plus the usual-hours roster of a company that asked for it)."""
     now = now_utc or _utcnow()
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
@@ -460,15 +551,25 @@ def noshow_scan(db: Session, now_utc: datetime = None) -> dict:
     rows = _candidate_rows(db, dates)
     alerts = _alert_rows(db, dates)
     open_alerts = [a for a in alerts if not (a.resolved_at or "")]
+    # A closed bell whose story may still change: someone it said missed
+    # the shift (no clock-in by the window's end) is re-checked while the
+    # day is in the scan's window - they may have come in late after all.
+    unsettled = [a for a in alerts if (a.resolved_at or "") and a.work_date in dates
+                 and any(p.get("missed") and not p.get("came") for p in _told(a))]
     summary = {"candidates": len(rows), "noShows": 0, "alerts": 0, "reopened": 0, "updated": 0, "resolved": 0,
-               "emails": 0}
-    if not rows and not open_alerts:
+               "retitled": 0, "emails": 0}
+    settings = _settings_by_company(db)
+    by_day: dict = {}       # (email, date) -> that person's live placements that day
+    for r in rows:
+        by_day.setdefault(((r.employee_email or "").lower(), r.work_date), []).append(r)
+    usual = _usual_hours_candidates(db, dates, settings, {em for em, _d in by_day})
+    summary["candidates"] += len(usual)
+    if not rows and not open_alerts and not unsettled and not usual:
         return summary
-    alert_people = {str(p.get("email") or "").lower() for a in open_alerts for p in _told(a)}
-    emails = _lower([r.employee_email for r in rows] + list(alert_people))
+    alert_people = {str(p.get("email") or "").lower() for a in open_alerts + unsettled for p in _told(a)}
+    emails = _lower([r.employee_email for r in rows] + [em for em, _d in usual] + list(alert_people))
     people = _people(db, emails)
     exempt = _exempt(db)
-    settings = _settings_by_company(db)
     presets = _presets(db, rows)
     group_ids = sorted({r.group_id for r in rows if r.group_id}
                        | {a.group_id for a in alerts if a.group_id and a.group_id != NO_GROUP})
@@ -481,46 +582,55 @@ def noshow_scan(db: Session, now_utc: datetime = None) -> dict:
     _recipient_people(db, people, groups, hr_contacts)
     leave = _leave_dates(db, emails, dates[0], dates[-1])
     holidays = _holiday_dates(db, {em: people[em] for em in emails if em in people}, dates[0], dates[-1])
-    punch_dates = sorted(set(dates) | {a.work_date for a in open_alerts if a.work_date})
+    punch_dates = sorted(set(dates) | {a.work_date for a in open_alerts + unsettled if a.work_date})
     punches = _in_punches(db, emails, punch_dates,
                           now - timedelta(hours=NOSHOW_WINDOW_HOURS + _PUNCH_BEFORE_HOURS + 24), now)
-    by_day: dict = {}       # (email, date) -> that person's live placements that day
-    for r in rows:
-        by_day.setdefault(((r.employee_email or "").lower(), r.work_date), []).append(r)
 
     # Who is a no-show right now, per (recipient, group-day). One judgment
-    # per person and day: the earliest live start, under its group.
+    # per person and day: the earliest live start, under its group - or the
+    # usual hours, under no group.
     wanted: dict = {}       # (recipient, group_key, date) -> {email: person line}
     companies: dict = {}    # (group_key, date) -> company for the bell
-    for (em, work_date), day_rows in by_day.items():
+    judged = [(em, work_date, day_rows, None) for (em, work_date), day_rows in by_day.items()]
+    judged += [(em, work_date, [], exp) for (em, work_date), exp in usual.items()]
+    for em, work_date, day_rows, usual_exp in judged:
         person = people.get(em)
-        if not _on_books(person) or em in exempt:
+        if not _active(person) or em in exempt:
             continue
-        if (em, work_date) in leave or (em, work_date) in holidays:
-            continue
+        on_leave = (em, work_date) in leave
+        on_holiday = (em, work_date) in holidays
+        if usual_exp is not None and (on_leave or on_holiday):
+            continue    # nobody scheduled them: time off and holidays excuse the usual hours
         cfg = settings(person.company or "")
-        alert_min = _int_setting(cfg, "noShowAlertMin", 0)
-        if alert_min <= 0:
-            continue
         dd = date.fromisoformat(work_date)
-        exp = _expect_day(day_rows, presets, cfg, dd)
+        exp = usual_exp if usual_exp is not None else _expect_day(day_rows, presets, cfg, dd)
         start = shift_expect.start_utc(dd, exp) if exp else None
         if start is None:
+            continue
+        alert_min = _alert_window_min(cfg, int(exp["grace"]))
+        if alert_min <= 0:
             continue
         threshold = start + timedelta(minutes=int(exp["grace"]) + alert_min)
         if now < threshold or now >= start + timedelta(hours=NOSHOW_WINDOW_HOURS):
             continue
+        if _leave_on(punches.get(em), work_date):
+            continue    # a leave punch: on leave, not a clock-in and not a no-show
         if _first_in_for(punches.get(em), work_date, start, now) is not None:
             continue
-        r = next((x for x in day_rows if x.id == exp["rowId"]), day_rows[0])
-        gkey = r.group_id or NO_GROUP
-        g = groups.get(r.group_id or "")
+        if day_rows:
+            r = next((x for x in day_rows if x.id == exp["rowId"]), day_rows[0])
+            gkey = r.group_id or NO_GROUP
+        else:
+            gkey = NO_GROUP
+        g = groups.get(gkey) if gkey != NO_GROUP else None
         group_company = (getattr(g, "company_id", "") or "") if g is not None else ""
         companies.setdefault((gkey, work_date), group_company or (person.company or ""))
         late_min = int((now - start).total_seconds() // 60)
         line = {"email": em, "name": _name(person), "start": exp["start"], "lateMin": late_min,
-                "startUtc": _iso(start)}
-        for rcpt in _recipients_for(r, person, people, groups, hr_contacts):
+                "startUtc": _iso(start), "over": "time_off" if on_leave else "holiday" if on_holiday else ""}
+        if not line["over"]:
+            del line["over"]
+        for rcpt in _recipients_for(gkey if gkey != NO_GROUP else "", person, people, groups, hr_contacts):
             wanted.setdefault((rcpt, gkey, work_date), {})[em] = line
     summary["noShows"] = len({em for b in wanted.values() for em in b})
 
@@ -560,42 +670,74 @@ def noshow_scan(db: Session, now_utc: datetime = None) -> dict:
             else:
                 summary["updated"] += 1
             for p in lines:
-                known[p["email"]] = p
+                old = known.get(p["email"]) or {}
+                known[p["email"]] = {**{k: v for k, v in old.items() if k in ("came", "missed")}, **p}
             a.people_json = json.dumps(sorted(known.values(), key=lambda p: (p["start"], p["name"].lower())))
             a.last_at = now_iso
         if not (a.emailed_at or ""):
             a.emailed_at = now_iso
-            to_email.append((rcpt, f"Not in yet: {subject} ({_us(work_date)})",
+            to_email.append((rcpt, f"Not In Yet: {subject} ({_us(work_date)})",
                              _email_html(title, work_date, [_line(p) for p in lines], _link(work_date, gkey))))
+
+    def story(a, told: list) -> tuple:
+        """(title, body, told) of a group-day at or after its resolution:
+        who came in (and when), who is on leave, who never clocked in."""
+        gkey, work_date = a.group_id or NO_GROUP, a.work_date
+        g = groups.get(gkey) if gkey != NO_GROUP else None
+        gname = (g.name or "") if g is not None else ""
+        came, missed, after_window = [], [], False
+        for p in told:
+            em = str(p.get("email") or "").lower()
+            start = _parse(p.get("startUtc") or "")
+            first = _first_in_for(punches.get(em), work_date, start, now) if start is not None else None
+            leave_cls = _leave_on(punches.get(em), work_date)
+            p.pop("missed", None)
+            if first is not None:
+                zone = shift_expect.zone(_zone_of(by_day.get((em, work_date), []), em, presets, settings, people))
+                late = max(0, int((first - start).total_seconds() // 60))
+                p["came"] = _iso(first)
+                if first >= start + timedelta(hours=NOSHOW_WINDOW_HOURS):
+                    after_window = True
+                came.append(f"{p.get('name') or em} came in at {_clock12(first.astimezone(zone))}"
+                            + (f", {late} min late" if late > 0 else ""))
+            elif leave_cls:
+                p["leave"] = leave_cls
+                came.append(f"{p.get('name') or em} - {leave_cls} leave (not a clock-in)")
+            else:
+                p["missed"] = True
+                missed.append(f"{p.get('name') or em} did not clock in")
+        subject = _subject_of(told, gname) if told else (gname or "Shift")
+        if missed:
+            title = f"Missed Shift: {subject}"
+        elif after_window:
+            title = f"Came In Late: {subject}"
+        else:
+            title = f"All In: {gname or (told[0].get('name') if len(told) == 1 else subject)}"
+        return title, "\n".join(came + missed) or "Nobody is still expected.", told
+
     # Resolve what emptied.
     for key, a in list(by_key.items()):
         if key in wanted or (a.resolved_at or ""):
             continue
         rcpt, gkey, work_date = key
-        told = _told(a)
-        g = groups.get(gkey) if gkey != NO_GROUP else None
-        gname = (g.name or "") if g is not None else ""
-        came, missed = [], []
-        for p in told:
-            em = str(p.get("email") or "").lower()
-            start = _parse(p.get("startUtc") or "")
-            first = _first_in_for(punches.get(em), work_date, start, now) if start is not None else None
-            if first is not None:
-                zone = shift_expect.zone(_zone_of(by_day.get((em, work_date), []), em, presets, settings, people))
-                late = max(0, int((first - start).total_seconds() // 60))
-                came.append(f"{p.get('name') or em} came in at {_clock12(first.astimezone(zone))}"
-                            + (f", {late} min late" if late > 0 else ""))
-            else:
-                missed.append(f"{p.get('name') or em} did not clock in")
-        subject = _subject_of(told, gname) if told else (gname or "Shift")
-        if missed:
-            title = f"Missed Shift: {subject}"
-        else:
-            title = f"All In: {gname or (told[0].get('name') if len(told) == 1 else subject)}"
-        body = "\n".join(came + missed) or "Nobody is still expected."
+        title, body, told = story(a, _told(a))
         _close_bell(db, rcpt, _ref_id(gkey, work_date), title, body)
+        a.people_json = json.dumps(told)
         a.resolved_at = now_iso
         summary["resolved"] += 1
+    # Re-check what closed with someone still out: a late arrival after the
+    # window retitles the closed bell ("Came In Late"), once.
+    for a in unsettled:
+        key = (a.recipient, a.group_id or NO_GROUP, a.work_date)
+        if key in wanted or not (a.resolved_at or ""):
+            continue
+        before = {str(p.get("email") or ""): bool(p.get("missed")) for p in _told(a)}
+        title, body, told = story(a, _told(a))
+        if {str(p.get("email") or ""): bool(p.get("missed")) for p in told} == before:
+            continue
+        retitle_resolved(db, recipient=a.recipient, key=_ref_id(a.group_id or NO_GROUP, a.work_date), title=title, line=body)
+        a.people_json = json.dumps(told)
+        summary["retitled"] += 1
     # The record is committed BEFORE anything is sent (weather_watch's rule).
     db.commit()
     for rcpt, subject, html in to_email:
@@ -680,15 +822,52 @@ def _open_on(punches: list, now: datetime, work_date: str) -> bool:
     return seg_in is not None and (seg_in.local_date or "") == work_date
 
 
+def _leave_class_on(punches: list, work_date: str) -> str:
+    """The leave class of the day's first clock-in (TimePunch rows), else ''."""
+    for p in punches or []:
+        if p.kind == "in" and (p.local_date or "") == work_date:
+            return _leave_class(getattr(p, "category", "") or "")
+    return ""
+
+
+_PRIVATE_CELL = ("firstIn", "lastOut", "workedMin", "lateMin", "earlyMin")
+_PRIVATE_TOTALS = ("scheduledMin", "workedMin")
+
+
+def for_viewer(out: dict, me: str, full: bool) -> dict:
+    """The actuals payload a reader may see. A manager (`full`) sees it all;
+    anyone else - a group scheduler below manager, a People viewer - gets
+    status words only for everyone but themself: no clock stamps, no
+    minutes, and no minute totals for other people or overall."""
+    if full:
+        return out
+    me = (me or "").strip().lower()
+    cells = {}
+    for key, cell in (out.get("cells") or {}).items():
+        if key.split("|")[0] == me:
+            cells[key] = cell
+        else:
+            cells[key] = {**{k: v for k, v in cell.items() if k not in _PRIVATE_CELL}, "private": True}
+    people = {}
+    for em, tot in (out.get("people") or {}).items():
+        people[em] = tot if em == me else {k: v for k, v in tot.items() if k not in _PRIVATE_TOTALS}
+    totals = {k: v for k, v in (out.get("totals") or {}).items() if k not in _PRIVATE_TOTALS}
+    return {**out, "cells": cells, "people": people, "totals": totals, "private": True}
+
+
 def actuals(db: Session, emails: Iterable[str], start: str, end: str, now_utc: datetime = None) -> dict:
     """Scheduled vs. punched for `emails` over [start, end] (YYYY-MM-DD).
 
     {"cells": {"<email>|<date>": {shiftId, shifts, status, firstIn, lastOut,
-    workedMin, scheduledMin, lateMin, earlyMin, excuse}},
+    workedMin, scheduledMin, lateMin, earlyMin, excuse, over, tz}},
      "people": {email: {scheduledMin, workedMin, late, noShow, leftEarly,
     onTime, judged}}, "totals": {the same}}.
     A person with two live shifts on a day is judged on the earliest start
-    (pick_start's rule) and the latest end; scheduledMin sums them all."""
+    (pick_start's rule) and the latest end; scheduledMin sums them all.
+    `over` is 'time_off' / 'holiday' when the placement was shared over
+    approved time off or a company holiday (judged all the same); `excuse`
+    is weather, or the leave class of a leave punch (sick / vacation /
+    personal). Someone who is not an active person has no cells."""
     from routers.timeclock import _day_summaries
     now = now_utc or _utcnow()
     if now.tzinfo is None:
@@ -728,10 +907,16 @@ def actuals(db: Session, emails: Iterable[str], start: str, end: str, now_utc: d
 
     for (em, work_date), day_rows in sorted(by_day.items()):
         person = people.get(em)
-        cfg = settings((person.company or "") if person else "")
+        if not _active(person):
+            continue
+        cfg = settings(person.company or "")
         cell = {"shiftId": "", "shifts": len(day_rows), "status": "upcoming", "firstIn": "", "lastOut": "",
                 "workedMin": 0, "scheduledMin": sum(_paid_minutes(r) for r in day_rows),
-                "lateMin": 0, "earlyMin": 0, "excuse": "", "tz": _company_tz(cfg)}
+                "lateMin": 0, "earlyMin": 0, "excuse": "", "over": "", "tz": _company_tz(cfg)}
+        if (em, work_date) in leave:
+            cell["over"] = "time_off"
+        elif (em, work_date) in holidays:
+            cell["over"] = "holiday"
         s = summaries.get(em, {}).get(work_date) or {}
         cell["firstIn"], cell["lastOut"], cell["workedMin"] = s.get("firstIn", ""), s.get("lastOut", ""), int(s.get("workedMin", 0) or 0)
         if cell["firstIn"] and not cell["lastOut"]:
@@ -746,14 +931,15 @@ def actuals(db: Session, emails: Iterable[str], start: str, end: str, now_utc: d
             # The latest end among the live placements is the one to stay for.
             exp["end"] = max(live, key=lambda r: _shift_minutes(exp["start"], r.end_hhmm or "")).end_hhmm or ""
         judged = False
+        leave_cls = _leave_class_on(punches.get(em), work_date)
         if em in exempt:
             cell["status"] = "exempt"
         elif exp is None:
             cell["status"], cell["excuse"] = "excused", "weather"
-        elif (em, work_date) in leave:
-            cell["status"], cell["excuse"] = "excused", "time_off"
-        elif (em, work_date) in holidays:
-            cell["status"], cell["excuse"] = "excused", "holiday"
+        elif leave_cls:
+            # A sick / vacation / personal punch is leave, not a clock-in.
+            cell["status"], cell["excuse"] = "excused", leave_cls
+            cell["firstIn"], cell["lastOut"], cell["workedMin"] = "", "", 0
         else:
             tz = shift_expect.zone(exp["tz"])
             today = now.astimezone(tz).date()

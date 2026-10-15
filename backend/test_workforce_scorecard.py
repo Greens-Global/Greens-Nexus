@@ -250,6 +250,29 @@ class ExpectationTests(_Case):
         self.assertEqual((wed["expectedMin"], wed["source"]), (480, "preset"))
         self.assertEqual((thu["expectedMin"], thu["source"]), (480, "preset"))
 
+    def test_a_weather_cancelled_placement_expects_nothing(self):
+        """A day the company called off for weather is not an absence: the
+        cancelled placement contributes 0 expected minutes and the day reads
+        'weather'. A half-cancelled day (one of two placements) keeps the
+        live one's minutes and no weather reason (QA, Oct 15)."""
+        sid = self._preset(AMY)
+        self.db.add(models.ScheduledShift(id=gen_id(), employee_email=AMY, work_date="2026-10-06", shift_id=sid,
+                                          start_hhmm="08:00", end_hhmm="16:30", break_min=30, published=1,
+                                          weather_status="cancelled", weather_decision_id="wd-1"))
+        self.db.add(models.ScheduledShift(id=gen_id(), employee_email=AMY, work_date="2026-10-07",
+                                          start_hhmm="08:00", end_hhmm="12:00", published=1,
+                                          weather_status="cancelled", weather_decision_id="wd-2"))
+        self.db.add(models.ScheduledShift(id=gen_id(), employee_email=AMY, work_date="2026-10-07",
+                                          start_hhmm="14:00", end_hhmm="16:00", published=1))
+        self.db.commit()
+        amy = self._row(AMY)
+        tue, wed = amy["days"][1], amy["days"][2]
+        self.assertEqual((tue["expectedMin"], tue["source"], tue["reason"], tue["reasonLabel"], tue["shiftStart"]),
+                         (0, "scheduled", "weather", "Called off for weather", ""))
+        self.assertNotEqual(self._day(amy, 1).get("band", ""), "absent")
+        self.assertEqual((wed["expectedMin"], wed["source"], wed["reason"], wed["shiftStart"]), (120, "scheduled", "", "14:00"))
+        self.assertEqual(amy["expectedMin"], 120 + 480 * 3, "the cancelled Tuesday never counts against the week")
+
     def test_holidays_by_company_and_country(self):
         self.db.add(models.HrCompanyHoliday(id=gen_id(), company_id="gg-in", date="2026-10-06", name="Dussehra",
                                             source="public", country_code="IN", type="mandatory"))

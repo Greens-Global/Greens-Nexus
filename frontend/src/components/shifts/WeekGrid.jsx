@@ -257,7 +257,7 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
   ariaRole = 'grid', ariaLabel = 'Schedule', notesRow = false, maxHeight = 'calc(100vh - 150px)',
   single = false, emptyNote = null, cornerTools = null, ghostOf = () => null, blockClass = () => '', motion = true, glowToday = false,
   personFill = null, usualCan = () => false, coverageOf = null, onCoverage = null, pulseCells = null, conflictCount = 0, onConflicts = null,
-  actualOf = null, adherence = null }) {
+  conflictWord = 'conflict', actualOf = null, adherence = null }) {
   const today = todayIso();
   const n = days.length;
   const coarse = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)')?.matches;
@@ -276,7 +276,7 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
   // the only shift in the cell).
   const block = (s, email, ds, groupId, sole = false) => (
     <ShiftBlock key={s.id} shift={s} open={!email} compact={compact} teamZone={teamZone} tabIndex={-1} dragging={dragId === s.id} className={blockClass(s)}
-      showConflicts={prefs.conflicts !== false} style={{ marginBottom: 0 }} actual={actualOf && email ? actualFor(actualOf(email, ds), s, sole) : null}
+      showConflicts={prefs.conflicts !== false} style={{ marginBottom: 0 }} actual={actualOf && email ? actualFor(actualOf(email, ds), s, sole) : null} tapActual={coarse}
       {...(on ? {
         onOpen: (e) => on.openShift(e, s, email, ds),
         dragProps: dragProps(s), ...hoverShift(s),
@@ -336,7 +336,7 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
               style={{ alignSelf: 'flex-start', border: 'none', background: 'hsla(var(--color-orange),0.12)', color: 'hsl(var(--color-orange))', borderRadius: 999, padding: '1px 8px',
                 fontFamily: 'inherit', fontSize: 11, fontWeight: 700, cursor: onConflicts ? 'pointer' : 'default', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
               <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: '50%', background: 'hsl(var(--color-orange))' }} />
-              {conflictCount} conflict{conflictCount === 1 ? '' : 's'}
+              {conflictCount} {conflictWord}{conflictCount === 1 ? '' : 's'}
             </button>
           )}
           <span title="Paid hours of the people shown. Open shifts are counted on their own row.">Week · {fmtHrs(weekMin)}</span>

@@ -252,7 +252,7 @@ export default function MyShifts() {
               {d.shifts.map((s) => {
                 const askable = canAsk && s.date >= todayKey && !pendingIds.has(s.id);
                 return (
-                  <ShiftBlock key={s.id} shift={s} teamZone={teamZone} style={{ marginBottom: 0 }} actual={actualOf(s, d.shifts.length === 1)}>
+                  <ShiftBlock key={s.id} shift={s} teamZone={teamZone} style={{ marginBottom: 0 }} actual={actualOf(s, d.shifts.length === 1)} tapActual>
                     {s.note && <div style={{ fontSize: 10.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.note}</div>}
                     {pendingIds.has(s.id) ? <div style={{ fontSize: 10.5, color: 'hsl(var(--color-orange))', fontWeight: 600, marginTop: 2 }}>Request Pending</div>
                       : askable && (

@@ -209,7 +209,11 @@ class ConflictAndBreakApiTests(unittest.TestCase):
     def test_check_warns_live_and_leaves_out_the_shift_being_edited(self):
         sid = self._place()["id"]
         q = f"/timeclock/schedule/check?email={A}&date={DATE}&start=12:00&end=18:00"
-        self.assertEqual(len(self.client.get(q).json()["warnings"]), 1)
+        # `conflicts` is the overlap alone; `warnings` adds the schedule rules
+        # (Phase 2: the two shifts make a 14-hour day) after it.
+        body = self.client.get(q).json()
+        self.assertEqual(len(body["conflicts"]), 1)
+        self.assertEqual(body["warnings"][:1], body["conflicts"])
         self.assertEqual(self.client.get(q + f"&exclude_id={sid}").json()["warnings"], [])
 
     def test_start_and_end_at_the_same_time_is_refused(self):
