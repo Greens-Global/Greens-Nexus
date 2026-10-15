@@ -238,18 +238,18 @@ describe('MyShifts parts (Workday vs Team, Oct 13 2026)', () => {
   });
 });
 
-describe('MyShifts compact (Workday > My Schedule, Oct 15 2026)', () => {
-  it('shows the week as seven chips, a shift chip asks for a swap, and availability is behind a toggle', async () => {
-    render(<MyShifts compact />);
+describe('MyShifts embedded (Workday > My Schedule, Oct 15 2026)', () => {
+  it('switches between my week and the group grid, with availability behind a toggle', async () => {
+    render(<MyShifts embedded />);
     await screen.findByRole('status', { name: 'Week summary' });
-    expect(document.querySelectorAll('[data-day]')).toHaveLength(7);
+    expect(screen.getByRole('button', { name: /Request a swap or offer/ })).toBeTruthy();   // my own day cards
     expect(screen.queryByRole('table', { name: 'Store schedule' })).toBeNull();
-    expect(screen.queryByText('Usual Hours')).toBeNull();                  // no day cards
-    expect(screen.queryByText('Edit Availability')).toBeNull();            // folded until opened
+    expect(screen.queryByText('Edit Availability')).toBeNull();                              // folded until opened
     fireEvent.click(screen.getByRole('button', { name: 'My Availability' }));
     expect(await screen.findByText('Edit Availability')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: /request a swap or offer/ }));
-    expect(screen.getByRole('dialog', { name: 'New Request' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: 'Team' }));
+    expect(await screen.findByRole('table', { name: 'Store schedule' })).toBeTruthy();       // the group's week
+    expect(screen.queryByRole('status', { name: 'Week summary' })).toBeNull();
   });
 });
 

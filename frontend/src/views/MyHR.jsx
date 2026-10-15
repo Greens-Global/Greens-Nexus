@@ -570,8 +570,20 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, clock = null }) {
               </div>
             </div>
 
-            {/* ── Main grid: documents beside time off, then Ask HR ── */}
+            {/* ── Main grid: My Schedule across the top, documents beside time
+                off, then Ask HR ── */}
             <div className="myhr-main">
+              {/* My Schedule (Pranshu, Oct 15 2026): your own shifts, in
+                  Workday as Neil asked (Oct 13), as a full-width card - the
+                  week's day cards, a My Week | Team switch for your group's
+                  week, swap/offer requests and availability. Above Documents
+                  and Time Off, beside (never above) your details column, so
+                  the hero and the clock stay where they are. */}
+              <div className="dash-card myhr-span2" id="myhr-schedule" style={{ scrollMarginTop: 80 }}>
+                {cardHead('My Schedule', 'Your shifts this week, and your group\'s')}
+                <MyShifts embedded />
+              </div>
+
               <div className="dash-card">
                 {cardHead('My Documents', 'Signed copies, files HR filed for you and your paystubs',
                   totalDocCount > 3 ? (
@@ -644,19 +656,13 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, clock = null }) {
                   fetchPreview={myhrFetchPreview} downloadFile={myhrDownloadFile} />
               )}
 
-              {/* My Schedule (Pranshu, Oct 15 2026): your week of shifts (the
-                  compact MyShifts, with swap/offer requests and availability)
-                  over the time off coming up - one card, both halves of your
-                  schedule, in the slot the Time Off card had so nothing else on
-                  the Overview moves. Requesting time off and the full history
+              {/* Time Off: what is coming up. Requesting and the full history
                   live on the Time Off tab (one surface, not two). */}
-              <div className="dash-card" id="myhr-schedule" style={{ display: 'flex', flexDirection: 'column', scrollMarginTop: 80 }}>
-                {cardHead('My Schedule', 'Your shifts, and time off coming up',
+              <div className="dash-card" style={{ display: 'flex', flexDirection: 'column' }}>
+                {cardHead('Time Off', 'Coming up - pending and approved',
                   pendingCount > 0
                     ? <span style={{ padding: '2px 10px', borderRadius: 14, fontSize: 11, fontWeight: 700, background: STATUS_META.pending.bg, color: STATUS_META.pending.fg }}>{pendingCount} Pending</span>
                     : <CalendarOff size={15} style={{ color: 'var(--muted)' }} />)}
-                <MyShifts part="mine" compact />
-                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.04em', color: 'var(--muted)', textTransform: 'uppercase', margin: '14px 0 2px' }}>Time Off Coming Up</div>
                 {leave === null ? (
                   <LoadingState compact />
                 ) : leave === false ? (

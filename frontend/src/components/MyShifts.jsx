@@ -33,12 +33,13 @@ import MyAvailability from './MyAvailability';
 
 const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
 
-// `compact` (Pranshu, Oct 15 2026): the Workday Overview's My Schedule card -
-// the week as a row of seven chips, the summary line, weather calls, and
-// availability behind a toggle. The same data and the same request dialog;
-// only the day cards, the decorated date and the footer note are left out,
-// so the card never pushes the rest of the Overview down.
-export default function MyShifts({ part = 'mine', compact = false }) {
+// `embedded` (Pranshu, Oct 15 2026): the Workday Overview's My Schedule card.
+// A My Week | Team switch in the toolbar flips between the two parts, so your
+// group's week is one click away without leaving Workday; availability sits
+// behind a toggle and the footer note is left out, so the card stays short.
+export default function MyShifts({ part: partProp = 'mine', embedded = false }) {
+  const [partState, setPart] = useState(partProp);
+  const part = embedded ? partState : partProp;
   const mine = part !== 'team';
   const [availOpen, setAvailOpen] = useState(false);
   const nameOf = useNameResolver();
@@ -190,9 +191,18 @@ export default function MyShifts({ part = 'mine', compact = false }) {
         </div>
         {/* The decorated date, same as the Schedule's: calendar tile, "Sep 28 - Oct 4",
             the year and week under it; a click picks a week from a month calendar. */}
-        {compact
-          ? <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{formatMonthDay(first)} - {formatMonthDay(addDays(first, 6))}</span>
-          : <DateBlock view="week" first={start} last={end} weekStart={weekStart} compact={phone} onPick={(ds) => setCursor(parseIso(ds))} />}
+        <DateBlock view="week" first={start} last={end} weekStart={weekStart} compact={phone} onPick={(ds) => setCursor(parseIso(ds))} />
+        {embedded && (
+          <div role="tablist" aria-label="Whose week" style={{ marginLeft: 'auto', display: 'inline-flex', gap: 2, background: 'var(--wk-line2)', borderRadius: 9, padding: 2 }}>
+            {[['mine', 'My Week'], ['team', 'Team']].map(([k, label]) => (
+              <button key={k} type="button" role="tab" aria-selected={part === k} onClick={() => setPart(k)}
+                style={{ border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 700, padding: '5px 12px', borderRadius: 7,
+                  background: part === k ? 'var(--card)' : 'transparent', color: part === k ? 'var(--ink)' : 'var(--muted)', boxShadow: part === k ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}>
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {mine && openCalls.length > 0 && (
@@ -227,37 +237,8 @@ export default function MyShifts({ part = 'mine', compact = false }) {
       {error ? (
         <ErrorBanner message="Your shifts could not be loaded right now." onRetry={() => setReload((n) => n + 1)} />
       ) : !data ? (
-        <SkeletonBlocks count={7} height={compact ? 56 : 96} gridTemplateColumns={compact ? 'repeat(7, 1fr)' : 'repeat(auto-fill, minmax(150px, 1fr))'} />
-      ) : !mine ? null : compact ? (
-        /* One chip per day: the day, then the shift (click to request a swap
-           or offer), time off, a holiday, usual hours, or a dash. */
-        <div aria-label="My week" style={{ display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 6 }}>
-          {days.map((d) => {
-            const s = d.shifts[0];
-            const askable = s && canAsk && s.date >= todayKey && !pendingIds.has(s.id);
-            const pending = s && pendingIds.has(s.id);
-            const body = s ? <span style={{ fontWeight: 700, color: 'var(--ink)' }}>{shortTime(s.start)}<br />{shortTime(s.end)}</span>
-              : d.timeoff.length ? <span style={{ color: 'hsl(var(--color-orange))', fontWeight: 600 }}>Off</span>
-                : d.holiday ? <span style={{ color: 'hsl(var(--color-blue))', fontWeight: 600 }}>Holiday</span>
-                  : d.usual ? <span style={{ color: 'var(--muted)' }}>{shortTime(d.usual.start)}<br />{shortTime(d.usual.end)}</span>
-                    : <span style={{ color: 'var(--muted)' }}>-</span>;
-            const title = [s && `${shiftShortText(s)}${s.label ? ` · ${s.label}` : ''}`, ...d.timeoff.map((t) => t.type || 'Time off'), d.holiday, d.note, d.usual && !s && 'Usual hours - no shift shared yet']
-              .filter(Boolean).join(' · ');
-            const Tag = askable ? 'button' : 'div';
-            return (
-              <Tag key={d.key} type={askable ? 'button' : undefined} title={title || undefined} data-day={d.key}
-                onClick={askable ? () => setAsk({ shift: s }) : undefined}
-                aria-label={askable ? `${dayShort(d.date)}: ${shiftShortText(s)} - request a swap or offer` : undefined}
-                style={{ fontFamily: 'inherit', textAlign: 'center', padding: '7px 2px', borderRadius: 10, minWidth: 0, fontSize: 11, lineHeight: 1.3, cursor: askable ? 'pointer' : 'default',
-                  background: s ? 'var(--wk-brand-tint)' : 'var(--card)', border: `1px solid ${d.isToday ? 'var(--wk-brand)' : 'var(--wk-line2)'}`, boxShadow: d.isToday ? '0 0 0 2px var(--wk-brand-tint)' : 'none' }}>
-                <div style={{ fontSize: 11, fontWeight: 800, color: d.isToday ? 'var(--wk-brand)' : 'var(--muted)', marginBottom: 3, whiteSpace: 'nowrap' }}>{dayShort(d.date)}</div>
-                {body}
-                {pending && <div style={{ fontSize: 9.5, color: 'hsl(var(--color-orange))', fontWeight: 700, marginTop: 2 }}>Pending</div>}
-              </Tag>
-            );
-          })}
-        </div>
-      ) : (
+        <SkeletonBlocks count={7} height={96} gridTemplateColumns="repeat(auto-fill, minmax(150px, 1fr))" />
+      ) : !mine ? null : (
         <div style={{ display: 'grid', gridTemplateColumns: phone ? '1fr' : 'repeat(auto-fill, minmax(150px, 1fr))', gap: phone ? 6 : 10 }}>
           {days.map((d, i) => (
             <div key={d.key} style={{
@@ -313,15 +294,15 @@ export default function MyShifts({ part = 'mine', compact = false }) {
         <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>Times in {teamZoneLabel}</div>
       ) : null}
 
-      {mine && compact && (
+      {mine && embedded && (
         <button type="button" onClick={() => setAvailOpen((v) => !v)} aria-expanded={availOpen}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 10, padding: 0, border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 700, color: 'var(--ink)' }}>
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 12, padding: 0, border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>
           {availOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />} My Availability
         </button>
       )}
-      {mine && (!compact || availOpen) && <MyAvailability />}
+      {mine && (!embedded || availOpen) && <MyAvailability />}
 
-      {!compact && <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 14, fontSize: 12, color: 'var(--muted)' }}>
+      {!embedded && <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 14, fontSize: 12, color: 'var(--muted)' }}>
         <Info size={13} style={{ flexShrink: 0 }} />
         <span>
           Shifts are set by your manager. Only shifts they have shared appear here - ask them if something looks wrong.

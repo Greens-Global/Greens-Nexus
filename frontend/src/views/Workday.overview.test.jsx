@@ -106,7 +106,7 @@ describe('Workday Overview with the Time Clock', () => {
     expect(await screen.findByText('9:00 AM - 5:30 PM')).toBeTruthy();
     expect(screen.queryByText(/^Good (Morning|Afternoon|Evening), Amy$/)).toBeNull();   // no greeting (Oct 14)
     expect(screen.queryByText('Your clock, hours, documents and time off - only you see this')).toBeNull();   // no header band
-    expect(screen.getByText('Front Desk')).toBeTruthy();
+    expect(screen.getAllByText('Front Desk').length).toBeGreaterThan(0);   // the hero tile, and the My Schedule card below
     expect(screen.getByText("Today's Shift")).toBeTruthy();
   }, SLOW);
 
