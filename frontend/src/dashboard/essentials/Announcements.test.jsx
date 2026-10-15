@@ -133,7 +133,7 @@ describe('Announcements tile', () => {
     fireEvent.change(within(form).getByPlaceholderText('Plain text, line breaks are kept.'), { target: { value: 'Use the side street.' } });
     fireEvent.change(within(form).getByDisplayValue('Company'), { target: { value: 'department' } });
     fireEvent.change(within(form).getByPlaceholderText('e.g. Operations'), { target: { value: 'Operations' } });
-    fireEvent.click(within(form).getByLabelText('Requires acknowledgement'));
+    fireEvent.click(within(form).getByLabelText('Requires acknowledgment'));
     apiMock.getAnnouncements.mockResolvedValue([ann({ title: 'Parking lot closed', audience: 'department', department: 'Operations', read_count: 0, ack_count: 0, requires_ack: true })]);
     fireEvent.click(within(form).getByText('Post Announcement'));
     await waitFor(() => expect(apiMock.createAnnouncement).toHaveBeenCalledWith({

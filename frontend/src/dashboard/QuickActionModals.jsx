@@ -6,6 +6,7 @@
 // Tasks-module CreateTaskModal - it needs TasksProvider, which lives on the
 // Tasks view, so we mount a provider around it here just for the modal.
 import { useState, useEffect, useMemo, lazy, Suspense } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Send } from 'lucide-react';
 import { api } from '../api';
 import { sendMail, createEvent } from '../m365';
@@ -15,25 +16,39 @@ import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
 // "Add Personal Link" is the Links tab's own form (src/links/), not a copy.
 import { PersonalLinkComposer } from '../links/personalLinkModal.jsx';
+import { useVisualViewport } from '../lib/useVisualViewport';
+import { useIsMobile } from '../lib/useIsMobile';
 
-const Overlay = ({ children, onClose }) => (
-  <div onClick={e => { if (e.target === e.currentTarget) onClose(); }}
-    style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-    {children}
-  </div>
-);
+// Portaled to <body>: the composers are opened from inside a dashboard tile,
+// and a fixed overlay rendered there is boxed in by the card (and painted
+// over by later tiles) whenever an ancestor sets a transform / contain.
+// Pinned to the visual viewport (lib/useVisualViewport.js) so with the phone
+// keyboard up the card, and its Send button, stay on screen.
+const Overlay = ({ children, onClose }) => {
+  const vv = useVisualViewport();
+  return createPortal(
+    <div data-testid="quick-action-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+      style={{ position: 'fixed', ...(vv ? { left: 0, right: 0, top: vv.top, height: vv.height } : { inset: 0 }), background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, boxSizing: 'border-box' }}>
+      {children}
+    </div>,
+    document.body,
+  );
+};
+
+// 36px hit area around a small icon (tap target), with a name for screen readers.
+const iconBtn = { background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 36, minHeight: 36, padding: 0, borderRadius: 8, flexShrink: 0 };
 
 const Shell = ({ title, sub, onClose, footer, children }) => (
-  <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(520px, 60vw, 980px)', maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
-    <div style={{ padding: '15px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10 }}>
-      <div style={{ flex: 1 }}>
+  <div role="dialog" aria-modal="true" aria-label={title} style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(520px, 60vw, 980px)', maxHeight: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
+    <div style={{ padding: '9px 12px 9px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
         <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800 }}>{title}</h3>
         {sub && <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>{sub}</p>}
       </div>
-      <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={18} /></button>
+      <button type="button" onClick={onClose} aria-label="Close" style={iconBtn}><X size={18} /></button>
     </div>
-    <div style={{ padding: 18, overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>{children}</div>
-    {footer && <div style={{ padding: '13px 18px', borderTop: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'flex-end' }}>{footer}</div>}
+    <div style={{ padding: 18, overflow: 'auto', flex: 1, minHeight: 0, overscrollBehavior: 'contain', display: 'flex', flexDirection: 'column', gap: 14 }}>{children}</div>
+    {footer && <div style={{ padding: '13px 18px', borderTop: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>{footer}</div>}
   </div>
 );
 
@@ -81,8 +96,8 @@ function PeoplePicker({ value, onChange, people, label, placeholder }) {
                   {p?.name || email}
                   {p?.name && <span style={{ color: 'var(--muted)', marginLeft: 6, fontSize: 12 }}>{email}</span>}
                 </span>
-                <button onClick={() => onChange(value.filter((v) => v !== email))} title="Remove"
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}>
+                <button type="button" onClick={() => onChange(value.filter((v) => v !== email))} title="Remove"
+                  aria-label={`Remove ${p?.name || email}`} style={{ ...iconBtn, margin: '-6px 0' }}>
                   <X size={14} />
                 </button>
               </div>
@@ -136,7 +151,7 @@ function EmailModal({ onClose }) {
   return (
     <>
       <Overlay onClose={guard.requestClose}>
-        <Shell title="New email" sub="Sends from your Outlook mailbox" onClose={guard.requestClose}
+        <Shell title="New Email" sub="Sends from your Outlook mailbox" onClose={guard.requestClose}
           footer={<><ErrorLine error={error} />
             <SubmitBtn busy={busy} disabled={!to.length} onClick={submit}><Send size={14} /> {busy ? 'Sending...' : 'Send'}</SubmitBtn></>}>
           <PeoplePicker value={to} onChange={setTo} people={people} label="To" placeholder="Add a recipient..." />
@@ -171,6 +186,8 @@ function defaultWindow() {
 }
 
 function EventModal({ onClose }) {
+  // Two datetime-local inputs side by side need ~420px; a phone stacks them.
+  const isPhone = useIsMobile();
   const people = usePeopleDirectory();
   const [defStart, defEnd] = useMemo(() => defaultWindow(), []);
   const [subject, setSubject] = useState('');
@@ -195,14 +212,14 @@ function EventModal({ onClose }) {
   return (
     <>
       <Overlay onClose={guard.requestClose}>
-        <Shell title="New event" sub="Adds to your Outlook calendar and invites attendees" onClose={guard.requestClose}
+        <Shell title="New Event" sub="Adds to your Outlook calendar and invites attendees" onClose={guard.requestClose}
           footer={<><ErrorLine error={error} />
-            <SubmitBtn busy={busy} disabled={!subject.trim()} onClick={submit}><Send size={14} /> {busy ? 'Creating...' : 'Create event'}</SubmitBtn></>}>
+            <SubmitBtn busy={busy} disabled={!subject.trim()} onClick={submit}><Send size={14} /> {busy ? 'Creating...' : 'Create Event'}</SubmitBtn></>}>
           <div>
             <Label>Title</Label>
             <input className="form-input" value={subject} onChange={(e) => setSubject(e.target.value)} style={{ width: '100%' }} />
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isPhone ? 'minmax(0,1fr)' : 'minmax(0,1fr) minmax(0,1fr)', gap: 12 }}>
             <div>
               <Label>Starts</Label>
               <input type="datetime-local" className="form-input" value={start} onChange={(e) => onStart(e.target.value)} style={{ width: '100%' }} />

@@ -112,7 +112,7 @@ describe('BiInsights', () => {
     unmount();
     dashInsights.mockRejectedValueOnce(new Error('boom'));
     render(<BiInsights />);
-    expect(await screen.findByText('The board could not load')).toBeInTheDocument();
+    expect(await screen.findByText('The Board Could Not Load')).toBeInTheDocument();
     expect(screen.getByText('Try Again')).toBeInTheDocument();
   });
 });

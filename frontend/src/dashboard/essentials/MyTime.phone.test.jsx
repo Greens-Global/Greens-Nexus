@@ -15,6 +15,7 @@ vi.mock('@azure/msal-react', () => ({ useMsal: () => ({ accounts: [{ name: 'Neil
 vi.mock('../../contexts/NotificationContext.jsx', () => ({ useNotifications: () => ({ openPanel: vi.fn() }) }));
 
 import MyTime from './MyTime.jsx';
+import { queryClient } from '../../lib/queryClient';
 
 const realMatchMedia = window.matchMedia;
 function screenWidth(w) {
@@ -30,6 +31,7 @@ const TODAY = localKey(NOW);
 const yesterday = localKey(new Date(NOW.getTime() - 86400000));
 
 beforeEach(() => {
+  queryClient.clear();
   vi.useFakeTimers({ shouldAdvanceTime: true });
   vi.setSystemTime(NOW);
   apiMock.timeStatus.mockResolvedValue({
@@ -58,8 +60,16 @@ describe('My Time on a phone', () => {
     screenWidth(1400);
     render(<MyTime />);
     const out = await screen.findByRole('button', { name: /Punch Out/ });
-    expect(minH(out)).toBe(34);
+    expect(minH(out)).toBe(36);
     expect(out.style.flex).toMatch(/^1 /);   // the buttons share the row on every width
+    // One row, never wrapped: a second row was cut in half at the 3x3 default.
+    expect(out.parentElement.style.flexWrap).toBe('nowrap');
     expect(screen.getByRole('button', { name: /Open Time Clock/ }).style.minHeight).toBe('');
+  });
+
+  it('the grid\'s phone prop wins over the viewport width', async () => {
+    screenWidth(1400);
+    render(<MyTime phone />);
+    expect(minH(await screen.findByRole('button', { name: /Punch Out/ }))).toBe(44);
   });
 });

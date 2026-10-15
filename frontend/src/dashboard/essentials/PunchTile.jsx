@@ -30,10 +30,12 @@ export default function PunchTile({ row }) {
     return <ActionFace row={row} Icon={Clock} color="green" label="Open Time Clock" sub="Could not load your time right now." tone="bad" onClick={go} />;
   }
   const Icon = ACTION_ICON[next.kind] || Clock;
-  // The caption: what the last tap did (or why it did not), else where the
+  // The caption: what the last tap did (or why it did not) - in its short
+  // form, since the caption has a line or two and phones never show the
+  // title tooltip - else where the
   // day stands - clocked in since when with today's hours, on break since
   // when, or when the last shift ended.
-  const sub = note ? note.text
+  const sub = note ? (note.short || note.text)
     : vm.state === 'in' ? `Clocked in ${vm.sinceLabel} · ${fmtH(vm.todayMin)} today`
     : vm.state === 'break' ? `On break ${vm.sinceLabel}`
     : vm.lastOutLabel;
