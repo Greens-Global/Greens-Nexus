@@ -43,6 +43,23 @@ const ASK_TYPES = [
   ['question', 'Question for HR'], ['other', 'Something else'],
 ];
 
+// Ask HR updates (Pranshu, Oct 15 2026): a request HR has acted on - answered,
+// resolved, or otherwise moved off Open - wears a dot on the Ask HR button
+// until the person opens the panel. The mark changes when HR acts again, so
+// a second answer is a new dot.
+// shortcut: "seen" lives in this browser's localStorage, so a reply read on
+// the phone still shows a dot on the laptop - move it to a column on the
+// request row if that ever matters.
+const ASK_SEEN_KEY = 'nexus:askhr-seen';
+const askMark = (a) => (a.response || a.resolvedAt || (a.status && a.status !== 'open'))
+  ? `${a.status || ''}|${a.resolvedAt || ''}|${a.response || ''}` : '';
+function readAskSeen() {
+  try { return JSON.parse(localStorage.getItem(ASK_SEEN_KEY) || '{}') || {}; } catch { return {}; }
+}
+function writeAskSeen(m) {
+  try { localStorage.setItem(ASK_SEEN_KEY, JSON.stringify(m)); } catch { /* storage unavailable - the dot just comes back */ }
+}
+
 // Same labels as the HR module's EMP_TYPES (HR.jsx) - not imported, that
 // chunk is far too big to pull into My HR. Raw "full_time" read "full time".
 const EMP_TYPE_LABEL = { full_time: 'Full-Time', part_time: 'Part-Time', contractor: 'Contractor', intern: 'Intern' };
@@ -129,6 +146,27 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, clock = null }) {
   const [assetFilter, setAssetFilter] = useState('all');
   const [askFilter, setAskFilter] = useState('all');
   const [askOpen, setAskOpen] = useState(false);
+  // The Ask HR panel (top-right button) and what was new when it opened.
+  const [askPanel, setAskPanel] = useState(false);
+  const [askSeen, setAskSeen] = useState(readAskSeen);
+  const [askFresh, setAskFresh] = useState(() => new Set());
+  const isAskUnseen = (a) => { const m = askMark(a); return !!m && askSeen[a.id] !== m; };
+  const askUnseen = asks.filter(isAskUnseen).length;
+  const askOpenCount = asks.filter((a) => a.status === 'open').length;
+  const openAskPanel = () => {
+    setAskFresh(new Set(asks.filter(isAskUnseen).map((a) => a.id)));
+    const next = { ...askSeen };
+    asks.forEach((a) => { const m = askMark(a); if (m) next[a.id] = m; });
+    setAskSeen(next);
+    writeAskSeen(next);
+    setAskPanel(true);
+  };
+  useEffect(() => {
+    if (!askPanel) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') { setAskPanel(false); setAskOpen(false); } };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [askPanel]);
   const [sheet, setSheet] = useState(null);
   // The Hours tile counts this week; the clock card above switches between
   // Today / This Week / Pay Period.
@@ -326,8 +364,6 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, clock = null }) {
     finally { setAskBusy(false); }
   };
 
-  // Today's Shift on the hero: the My Schedule card further down this page.
-  const goMyShifts = () => document.getElementById('myhr-schedule')?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
   const goInventory = () => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'inventory', sub: 'checkouts' } }));
 
   // ── Derived stats ──
@@ -369,8 +405,6 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, clock = null }) {
   const chip = (s) => { const m = STATUS_META[s] || STATUS_META.pending; return <span style={{ padding: '2px 10px', borderRadius: 14, fontSize: 11, fontWeight: 700, background: m.bg, color: m.fg, flexShrink: 0 }}>{m.label}</span>; };
   const pendingCount = Array.isArray(leave) ? leave.filter(r => r.status === 'pending').length : 0;
   const clockParts = typeof clock === 'function' ? clock() : null;
-  // undefined = no clock handed in (no shift data at all); null = loading.
-  const shiftInfo = clockParts ? clockParts.shift : undefined;
   // Time-tracking exempt: Workday hands in what it already knows (the
   // remembered answer, then /time/status), so the Hours tile never shows for
   // a salaried person while /time/me is still on its way (Neil, 10/08).
@@ -391,13 +425,12 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, clock = null }) {
         <>
           {/* ── Stat tiles ── each opens what it counts. Hours hidden for
               salaried/exempt people (Charmi, Aug 21). */}
-          <div className="wd-statgrid">
-            {/* Hours this week beside today's shift - the two things someone
-                opening Workday wants first (Oct 2). Exempt people have no hours
-                tile, so their shift gets a tile of its own. */}
+          {/* One row (Pranshu, Oct 15 2026): this week's hours, time off, time
+              with us, and Ask HR at the right edge. Today's shift left the hero
+              - your week is the My Schedule card below. */}
+          <div className={`wd-statgrid${hoursExempt ? ' wd-statgrid--nohours' : ''}`}>
             {!hoursExempt ? (
-              /* Two targets in one tile (Oct 2): the hours open the Time
-                 Sheet, today's shift scrolls to My Schedule below. */
+              /* The hours open the Time Sheet. */
               <div className="dk-stat dk-stat--hero wd-stat wd-hero" style={{ cursor: 'default' }}>
                 <button type="button" className="wd-hero-part" onClick={onOpenTimeSheet} disabled={!onOpenTimeSheet}
                   title={`Your punched hours from ${formatDate(rStart)} to ${formatDate(rEnd)}, after breaks${openMin ? ', including the shift you are on now' : ''}. Opens your Time Sheet.`}>
@@ -408,22 +441,8 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, clock = null }) {
                     <span className="dk-stat-sub">{`${formatDate(rStart)} - ${formatDate(rEnd)} · ${daysWorkedLive} day${daysWorkedLive === 1 ? '' : 's'} worked`}</span>
                   </span>
                 </button>
-                {shiftInfo !== undefined && (
-                  <button type="button" className="wd-hero-part wd-hero-shift" onClick={goMyShifts} title="Open My Shifts">
-                    <span style={{ flex: 1, minWidth: 0 }}>
-                      <span className="wd-hero-shift-l"><CalendarDays size={12} /> Today&apos;s Shift</span>
-                      <span className="wd-hero-shift-v" style={{ display: 'block' }}>{shiftInfo === null ? '…' : shiftInfo.time || 'No Shift Today'}</span>
-                      <span className="wd-hero-shift-s" style={{ display: 'block' }}>{shiftInfo === null ? '' : shiftInfo.time ? (shiftInfo.label || 'Scheduled in Shifts') : 'Nothing on your schedule'}</span>
-                    </span>
-                    <ArrowRight size={16} className="dk-stat-arrow" aria-hidden="true" />
-                  </button>
-                )}
               </div>
-            ) : shiftInfo !== undefined && (
-              <Stat label="Today's Shift" value={shiftInfo === null ? '…' : shiftInfo.time || 'None'}
-                hint={shiftInfo?.time ? (shiftInfo.label || 'Scheduled in Shifts') : 'Nothing on your schedule'}
-                color="blue" Icon={CalendarDays} onClick={goMyShifts} />
-            )}
+            ) : null}
             <Stat label="Time Off This Year" value={leaveLabel}
               hint={pendingCount ? `Approved working days · ${pendingCount} pending` : `Approved working days in ${yr}`}
               title={`Approved time off in ${yr}, counted in working days (Mon-Fri). A partial day counts as its share of an 8-hour day. Opens Time Off.`}
@@ -432,6 +451,25 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, clock = null }) {
               hint={tenure !== '-' ? `Since ${formatDate(profile.startDate)}` : 'No start date on your HR record'}
               title="Counted from the start date on your HR record. If it is wrong, ask HR to correct it."
               color="orange" Icon={Hourglass} />
+            {/* Ask HR (Pranshu, Oct 15 2026): a button at the end of the row
+                instead of a card at the bottom. It opens the panel with New
+                Request and every request sent; a dot says HR did something
+                you have not looked at yet. */}
+            <button type="button" className="dk-stat wd-stat" onClick={openAskPanel}
+              aria-label={askUnseen ? `Ask HR, ${askUnseen} update${askUnseen === 1 ? '' : 's'} from HR` : 'Ask HR'}>
+              <span className="dk-chip dk-chip--blue" style={{ position: 'relative' }}>
+                <MessageSquarePlus />
+                {askUnseen > 0 && <span data-askhr-dot aria-hidden="true" style={{ position: 'absolute', top: -3, right: -3, width: 10, height: 10, borderRadius: '50%', background: 'hsl(var(--color-red))', boxShadow: '0 0 0 2px var(--card)' }} />}
+              </span>
+              <span className="wd-stat-text">
+                <span className="dk-stat-label" style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>Ask HR</span>
+                <span className="dk-stat-sub" style={{ color: askUnseen ? 'hsl(var(--color-red))' : undefined, fontWeight: askUnseen ? 600 : undefined }}>
+                  {askUnseen ? `${askUnseen} update${askUnseen === 1 ? '' : 's'} from HR`
+                    : askOpenCount ? `${askOpenCount} open request${askOpenCount === 1 ? '' : 's'}` : 'Documents, profile changes, questions'}
+                </span>
+              </span>
+              <ArrowRight size={16} className="dk-stat-arrow" aria-hidden="true" />
+            </button>
           </div>
         </>
       ) : !profErr && <SkeletonBlocks count={1} height={74} />}
@@ -650,91 +688,110 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, clock = null }) {
                   fetchPreview={myhrFetchPreview} downloadFile={myhrDownloadFile} />
               )}
 
-              {/* ── Ask HR ── the requests already sent; New Request opens the
-                  form in place (a full form on an overview read as heavy). */}
-              <div className="dash-card myhr-span2">
-                {cardHead('Ask HR', 'A document update, a profile change or anything else',
-                  !askOpen && (
-                    <button className="primary-btn" onClick={() => setAskOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '6px 12px' }}>
-                      <MessageSquarePlus size={13} /> New Request
-                    </button>
-                  ))}
-                <div style={{ display: 'grid', gap: 16, alignItems: 'start' }}>
-                  {askOpen && (
-                  <div>
-                    <label style={{ ...lbl, marginTop: 0 }}>What do you need?</label>
-                    <select className="form-input" style={input} value={askForm.type} onChange={e => setAskForm(f => ({ ...f, type: e.target.value }))}>
-                      {ASK_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                    </select>
-                    <label style={lbl}>Details</label>
-                    <textarea className="form-input" rows={3} style={{ ...input, resize: 'vertical' }} value={askForm.message} autoFocus
-                      placeholder='e.g. "My visa was renewed - please update my right-to-work document."'
-                      onChange={e => setAskForm(f => ({ ...f, message: e.target.value }))} />
-                    {/* Optional attachment - the new/updated document itself */}
-                    <input ref={askFileRef} type="file" style={{ display: 'none' }}
-                      onChange={e => setAskFile(e.target.files?.[0] || null)} />
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-                      <button className="secondary-btn" onClick={() => askFileRef.current?.click()}
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '6px 12px' }}>
-                        <FileText size={13} /> {askFile ? 'Change File' : 'Attach Document'}
-                      </button>
-                      {askFile && (
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--ink)', background: 'var(--mist)', borderRadius: 8, padding: '4px 10px', maxWidth: 220 }}>
-                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{askFile.name}</span>
-                          <X size={12} style={{ cursor: 'pointer', flexShrink: 0 }} onClick={() => { setAskFile(null); if (askFileRef.current) askFileRef.current.value = ''; }} />
-                        </span>
-                      )}
-                      <div style={{ flex: 1 }} />
-                      <button className="secondary-btn" onClick={() => setAskOpen(false)} disabled={askBusy}>Cancel</button>
-                      <button className="primary-btn" onClick={submitAsk} disabled={askBusy || !askForm.message.trim()}>
-                        {askBusy ? <><Spinner size={13} /> Sending…</> : 'Send to HR'}
-                      </button>
-                    </div>
-                  </div>
-                  )}
-
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                      <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>My Requests</span>
-                      {asks.length > 0 && (
-                        <select className="form-input" value={askFilter} onChange={e => setAskFilter(e.target.value)} aria-label="Filter my requests"
-                          style={{ fontSize: 11.5, fontWeight: 600, padding: '3px 22px 3px 8px', height: 'auto' }}>
-                          <option value="all">All</option>
-                          <option value="open">Open</option>
-                          <option value="resolved">Resolved</option>
-                        </select>
-                      )}
-                    </div>
-                    {asks.length === 0 && (
-                      <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '10px 0 4px' }}>Nothing sent yet - HR answers here.</div>
-                    )}
-                    {asks.filter(a => askFilter === 'all' || a.status === askFilter).map(a => (
-                      <div key={a.id} style={{ padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span style={{ flex: 1, fontSize: 12.5, fontWeight: 600, color: 'var(--ink)' }}>
-                            {(ASK_TYPES.find(([v]) => v === a.type)?.[1]) || a.type} · {fmtD(a.createdAt?.slice(0, 10))}
-                          </span>
-                          {chip(a.status)}
-                        </div>
-                        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{a.message}</div>
-                        {a.attachmentName && (
-                          <div style={{ fontSize: 11.5, color: 'hsl(var(--color-blue))', marginTop: 3, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                            <FileText size={11} /> {a.attachmentName}
-                          </div>
-                        )}
-                        {a.response && (
-                          <div style={{ fontSize: 12, color: 'var(--ink)', marginTop: 5, padding: '7px 10px', background: 'var(--mist)', borderRadius: 8 }}>
-                            <strong>HR:</strong> {a.response}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
             </div>
           </div>
         </>
+      )}
+      {/* Ask HR panel (Pranshu, Oct 15 2026): opened from the Ask HR button at
+          the end of the top row. New Request, then every request sent with
+          HR's answer; what HR changed since the last look is marked. */}
+      {askPanel && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+          onClick={() => { setAskPanel(false); setAskOpen(false); }}>
+          <div role="dialog" aria-label="Ask HR" onClick={(e) => e.stopPropagation()}
+            style={{ background: 'var(--card)', borderRadius: 14, width: 640, maxWidth: '100%', maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+            <div style={{ padding: '16px 18px 12px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid var(--line)' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--ink)' }}>Ask HR</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>A document update, a profile change or anything else</div>
+              </div>
+              {!askOpen && (
+                <button className="primary-btn" onClick={() => setAskOpen(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '6px 12px' }}>
+                  <MessageSquarePlus size={13} /> New Request
+                </button>
+              )}
+              <button type="button" onClick={() => { setAskPanel(false); setAskOpen(false); }} aria-label="Close"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={16} /></button>
+            </div>
+            <div style={{ overflowY: 'auto', flex: 1, minHeight: 0, padding: '14px 18px 18px' }}>
+                    <div style={{ display: 'grid', gap: 16, alignItems: 'start' }}>
+                      {askOpen && (
+                      <div>
+                        <label style={{ ...lbl, marginTop: 0 }}>What do you need?</label>
+                        <select className="form-input" style={input} value={askForm.type} onChange={e => setAskForm(f => ({ ...f, type: e.target.value }))}>
+                          {ASK_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                        </select>
+                        <label style={lbl}>Details</label>
+                        <textarea className="form-input" rows={3} style={{ ...input, resize: 'vertical' }} value={askForm.message} autoFocus
+                          placeholder='e.g. "My visa was renewed - please update my right-to-work document."'
+                          onChange={e => setAskForm(f => ({ ...f, message: e.target.value }))} />
+                        {/* Optional attachment - the new/updated document itself */}
+                        <input ref={askFileRef} type="file" style={{ display: 'none' }}
+                          onChange={e => setAskFile(e.target.files?.[0] || null)} />
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                          <button className="secondary-btn" onClick={() => askFileRef.current?.click()}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '6px 12px' }}>
+                            <FileText size={13} /> {askFile ? 'Change File' : 'Attach Document'}
+                          </button>
+                          {askFile && (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--ink)', background: 'var(--mist)', borderRadius: 8, padding: '4px 10px', maxWidth: 220 }}>
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{askFile.name}</span>
+                              <X size={12} style={{ cursor: 'pointer', flexShrink: 0 }} onClick={() => { setAskFile(null); if (askFileRef.current) askFileRef.current.value = ''; }} />
+                            </span>
+                          )}
+                          <div style={{ flex: 1 }} />
+                          <button className="secondary-btn" onClick={() => setAskOpen(false)} disabled={askBusy}>Cancel</button>
+                          <button className="primary-btn" onClick={submitAsk} disabled={askBusy || !askForm.message.trim()}>
+                            {askBusy ? <><Spinner size={13} /> Sending…</> : 'Send to HR'}
+                          </button>
+                        </div>
+                      </div>
+                      )}
+
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                          <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>My Requests</span>
+                          {asks.length > 0 && (
+                            <select className="form-input" value={askFilter} onChange={e => setAskFilter(e.target.value)} aria-label="Filter my requests"
+                              style={{ fontSize: 11.5, fontWeight: 600, padding: '3px 22px 3px 8px', height: 'auto' }}>
+                              <option value="all">All</option>
+                              <option value="open">Open</option>
+                              <option value="resolved">Resolved</option>
+                            </select>
+                          )}
+                        </div>
+                        {asks.length === 0 && (
+                          <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '10px 0 4px' }}>Nothing sent yet - HR answers here.</div>
+                        )}
+                        {asks.filter(a => askFilter === 'all' || a.status === askFilter).map(a => (
+                          <div key={a.id} data-ask-fresh={askFresh.has(a.id) || undefined} style={{ padding: askFresh.has(a.id) ? '8px 10px' : '8px 0', borderBottom: '1px solid var(--line)',
+                            background: askFresh.has(a.id) ? 'hsla(var(--color-blue),0.06)' : undefined, borderRadius: askFresh.has(a.id) ? 8 : undefined }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              {askFresh.has(a.id) && <span title="Updated by HR" style={{ width: 8, height: 8, borderRadius: '50%', background: 'hsl(var(--color-red))', flexShrink: 0 }} />}
+                              <span style={{ flex: 1, fontSize: 12.5, fontWeight: 600, color: 'var(--ink)' }}>
+                                {(ASK_TYPES.find(([v]) => v === a.type)?.[1]) || a.type} · {fmtD(a.createdAt?.slice(0, 10))}
+                              </span>
+                              {askFresh.has(a.id) && <span style={{ fontSize: 10.5, fontWeight: 700, color: 'hsl(var(--color-red))' }}>Updated by HR</span>}
+                              {chip(a.status)}
+                            </div>
+                            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{a.message}</div>
+                            {a.attachmentName && (
+                              <div style={{ fontSize: 11.5, color: 'hsl(var(--color-blue))', marginTop: 3, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                <FileText size={11} /> {a.attachmentName}
+                              </div>
+                            )}
+                            {a.response && (
+                              <div style={{ fontSize: 12, color: 'var(--ink)', marginTop: 5, padding: '7px 10px', background: 'var(--mist)', borderRadius: 8 }}>
+                                <strong>HR:</strong> {a.response}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

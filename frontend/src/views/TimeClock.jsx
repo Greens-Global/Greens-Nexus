@@ -147,7 +147,8 @@ if (typeof document !== 'undefined' && !document.getElementById('ts-anim')) {
     [data-theme="dark"] .wd-clock-side { background: rgba(255,255,255,.02); }
     /* Overview tiles (dk-stat look, hero gradient included) in one compact
        row: chip, then number / label / hint, then the arrow. */
-    .wd-statgrid { display: grid; grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+    .wd-statgrid { display: grid; grid-template-columns: minmax(0, 1.3fr) repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+    .wd-statgrid--nohours { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     .dk-stat.wd-stat.wd-hero { padding: 0; gap: 0; align-items: stretch; }
     .wd-hero-part { display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: none; border: none; color: inherit; font: inherit; text-align: left; cursor: pointer; min-width: 0; border-radius: inherit; transition: background .15s ease; }
     .wd-hero-part:first-child { flex: 1.15; }
