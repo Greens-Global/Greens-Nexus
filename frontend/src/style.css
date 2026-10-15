@@ -473,13 +473,40 @@ h1,h2,h3,h4,h5,h6,
 .sbtr-btn--pause:not(.is-dim) { background: rgba(180,83,9,.12); color: #b45309; box-shadow: none; }
 .sbtr-btn--stop:not(.is-dim) { background: rgba(185,28,28,.1); color: #b91c1c; box-shadow: none; }
 .sbtr-btn:focus-visible { outline: 2px solid var(--sb-tone, var(--wk-brand)); outline-offset: 2px; }
-/* the coffee cup that rises out of Pause when a break starts */
-.sbtr-coffee { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; color: #b45309; pointer-events: none; animation: sbCup 1.1s cubic-bezier(.22,1,.36,1) forwards; filter: drop-shadow(0 2px 4px rgba(180,83,9,.25)); }
-.sbtr-coffee svg { width: 22px; height: 22px; fill: none; stroke-width: 2.4; }
-.sbtr-coffee i { position: absolute; left: 7px; top: -7px; width: 2.5px; height: 7px; border-radius: 2px; background: currentColor; opacity: 0; animation: sbSteam 1s ease-out .2s forwards; }
-.sbtr-coffee i + i { left: 13px; animation-delay: .45s; }
-@keyframes sbCup { 0% { opacity: 0; transform: translateY(0) scale(.5); } 25% { opacity: 1; transform: translateY(-18px) scale(1.2); } 70% { opacity: 1; transform: translateY(-28px) scale(1.05); } 100% { opacity: 0; transform: translateY(-38px) scale(.9); } }
-@keyframes sbSteam { 0% { opacity: 0; transform: translateY(0); } 40% { opacity: .9; } 100% { opacity: 0; transform: translateY(-8px); } }
+/* the punch flourishes (ClockChip Flourish): a layer pinned over the button
+   they come from. Only static look lives here - the motion is sampled
+   physics played by the animation engine (lib/flourishMotion.js), on
+   transform and opacity only. Everything starts hidden (opacity 0) so a
+   frame before the first sample never flashes. */
+.sbfx { position: fixed; left: 0; top: 0; width: 0; height: 0; z-index: 2000; pointer-events: none; }
+.sbfx [data-fx] { will-change: transform, opacity; }
+.sbfx-coffee { position: absolute; left: -16px; top: -16px; width: 32px; height: 32px; color: #b45309; opacity: 0; transform-origin: 50% 70%; }
+/* the mug sits on a disc, like the End Break check, so it reads cleanly
+   over the buttons it passes - a static shadow (only the layer moves) */
+.sbfx-coffee::before { content: ''; position: absolute; inset: 0; border-radius: 50%; background: var(--card, #fff); box-shadow: 0 0 0 1.5px rgba(180,83,9,.35), 0 4px 12px rgba(120,53,15,.22); }
+.sbfx-coffee .sbfx-mug { position: absolute; left: 5px; top: 5px; width: 22px; height: 22px; }
+.sbfx-mug { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; overflow: visible; }
+.sbfx-mug-body { fill: #fff7ed; }
+.sbfx-mug-coffee { stroke: #92400e; stroke-width: 1.6; opacity: .55; }
+[data-theme="dark"] .sbfx-mug-body { fill: #3b2a1a; }
+/* steam rises from the rim (top of the mug is y=8.5 of 24) and stays on it */
+.sbfx-steam { position: absolute; left: 6px; top: -11px; width: 20px; height: 13px; }
+.sbfx-steam svg { position: absolute; bottom: 0; width: 5px; height: 13px; overflow: visible; opacity: 0; transform-origin: 50% 100%; }
+.sbfx-steam path { fill: none; stroke: rgba(180,83,9,.62); stroke-width: 1.7; stroke-linecap: round; stroke-dasharray: 1; stroke-dashoffset: 1; }
+[data-theme="dark"] .sbfx-steam path { stroke: rgba(253,186,116,.55); }
+.sbfx-check { position: absolute; left: -13px; top: -13px; width: 26px; height: 26px; color: hsl(var(--color-green)); opacity: 0; }
+.sbfx-check svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; overflow: visible; }
+.sbfx-check .sbfx-disc { stroke: none; fill: color-mix(in srgb, currentColor 16%, var(--card, #fff)); }
+.sbfx-check [data-fx=ring] { stroke-width: 2; stroke-dasharray: 1; stroke-dashoffset: 1; transform: rotate(-90deg); transform-origin: 12px 12px; }
+.sbfx-check [data-fx=tick] { stroke-width: 2.6; stroke-dasharray: 1; stroke-dashoffset: 1; }
+.sbfx-pulse { position: absolute; left: -14px; top: -14px; width: 28px; height: 28px; border-radius: 50%; border: 2px solid currentColor; opacity: 0; }
+.sbfx--check .sbfx-pulse, .sbfx--in .sbfx-pulse { color: hsl(var(--color-green)); }
+.sbfx--out .sbfx-pulse { color: #eab308; }
+.sbfx-star { position: absolute; opacity: 0; }
+.sbfx--in .sbfx-star { fill: hsl(var(--color-green)); }
+.sbfx--in .sbfx-star:nth-of-type(3n) { fill: #eab308; }
+.sbfx--out .sbfx-star { fill: #eab308; }
+.sbfx--out .sbfx-star:nth-of-type(even) { fill: #f59e0b; }
 /* our tooltip: a dark pill that rises in, a bold line and a quiet one */
 .sbtt-pop {
   position: absolute; left: 50%; bottom: calc(100% + 8px); transform: translate(-50%, 4px); z-index: 30; pointer-events: none;
@@ -541,9 +568,9 @@ h1,h2,h3,h4,h5,h6,
 .sbclock-rail .sbtr-btn--share svg { fill: none; }
 .sbclock-ringbtn:focus-visible, .sbclock-head:focus-visible { outline: 2px solid var(--sb-tone, var(--wk-brand)); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) {
-  .sbclock, .sbclock-rail, .sbclock-timer, .sbring-arc, .sbring--in, .sbring--break, .sbtr-btn--play.is-next, .sbtr-coffee, .sbtr-coffee i, .sbring-sweep, .sbtr-land { animation: none; }
+  .sbclock, .sbclock-rail, .sbclock-timer, .sbring-arc, .sbring--in, .sbring--break, .sbtr-btn--play.is-next, .sbring-sweep, .sbtr-land { animation: none; }
   .sbring-arc, .sbtr-lit { transition: none; }
-  .sbtr-coffee { display: none; }
+  .sbfx { display: none; }
 }
 
 /* The phone capsule (components/TimeclockWidget.jsx, below 900px where
@@ -3295,15 +3322,11 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 
 /* Phones - icon-only Create/Manage, compact navbar, full-bleed cards. */
 @media (max-width: 640px) {
-  .nx-primary-bar { padding: 0 12px !important; }
-  /* Create / Manage / Exit collapse to their icon. */
-  .nx-tasks .nx-btn-label { display: none; }
-  .nx-tasks .nx-iconbtn {
-    padding: 8px !important;
-    gap: 0 !important;
-    min-width: 36px;
-    justify-content: center;
-  }
+  /* One tight row: Customize and Manage sit together at the right, each
+     keeping its word (Neil, Oct 14: the bare gear read as nothing). */
+  .nx-primary-bar { padding: 0 12px !important; gap: 8px !important; }
+  .nx-primary-bar #nx-tasks-bar-actions { gap: 8px !important; }
+  .nx-tasks .nx-iconbtn { padding: 7px 10px !important; gap: 6px !important; }
 
   /* Navbar: both rows shrink so the whole header fits one screen. */
   .nx-ptab { padding: 8px 10px !important; font-size: 0.85rem !important; }
@@ -4159,7 +4182,6 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
 .dk-dot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; }   /* bigger (Neil, Oct 14 2026): seen from across the room */
 .dk-dot--up { background: #00c875; }
 .dk-dot--off { background: #b91c1c; opacity: .75; }   /* red = off the clock (Neil, Oct 14 2026: green working, amber break, red not) */
-.dk-dot--na { background: var(--wk-faint); }          /* never on a clock (exempt): neutral, not an alarm */
 
 /* stat cards */
 .dk-board { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }

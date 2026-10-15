@@ -25,7 +25,10 @@ import DataTab from '../components/accounting/dashboard/DataTab';
 import BudgetTab from '../components/accounting/BudgetTab';
 import PartnersTab from '../components/accounting/PartnersTab';
 import AllocationsTab from '../components/accounting/AllocationsTab';
-import AmaTab from '../components/accounting/AmaTab';
+import ManagementFeesTab from '../components/accounting/ManagementFeesTab';
+// Oct 15 (Neil): AMA is Ask My Accountant; the agreements are Management Fees.
+import AskAccountantTab from '../components/accounting/AskAccountantTab';
+import { MessageCircleQuestion } from 'lucide-react';
 import { Calculator, Handshake, Split, Users } from 'lucide-react';
 import { ArrowLeftRight, BookOpen, PieChart, Scale, Target, Activity } from 'lucide-react';
 // Oct 15 (Charmi + Neil): Profitability and Employee Compensation under Reporting.
@@ -94,8 +97,12 @@ const TABS = [
     { key: 'mri', label: 'MRI', Icon: KeyRound },
     // Oct 6: Monthly Recurring Expenses, beside MRI.
     { key: 'mre', label: 'MRE', Icon: Receipt },
-    // Oct 7 (Priyanka): Asset Management Agreements, billed read from the ledger.
-    { key: 'ama', label: 'AMA', Icon: Handshake },
+    // Oct 15 (Neil: "AMA means Ask My Accountant"): questions on ledger lines
+    // and the lines parked on the Ask My Accountant account.
+    { key: 'ama', label: 'AMA', Icon: MessageCircleQuestion },
+    // Oct 7 (Priyanka): Asset Management Agreements, billed read from the
+    // ledger - first built as "AMA", renamed Management Fees on Oct 15.
+    { key: 'mgmt-fees', label: 'Management Fees', Icon: Handshake },
     // Oct 15: per-entity NOI / net income / debt service vs prior year, and
     // wages and hours per employee (Full level on Accounting only).
     { key: 'profitability', label: 'Profitability', Icon: ChartColumn },
@@ -125,7 +132,7 @@ const TABS = [
     { key: 'imports', label: 'Import Hub', Icon: Upload },
   ] },
 ];
-const LIMITED_TABS = ['reports', ...REPORT_SHORTCUTS.map((r) => `rpt-${r.report}`), 'packages', 'mri', 'mre', 'loans', 'budget', 'partners', 'imports', 'ama', 'profitability'];
+const LIMITED_TABS = ['reports', ...REPORT_SHORTCUTS.map((r) => `rpt-${r.report}`), 'packages', 'mri', 'mre', 'loans', 'budget', 'partners', 'imports', 'ama', 'mgmt-fees', 'profitability'];
 // Links made before a rename still land; a group's own key opens its first item.
 const ALIAS = { leasing: 'mri', financing: 'loans' };
 const leafKeys = (tabs) => tabs.flatMap((t) => (t.items ? t.items.map((i) => i.key) : [t.key]));
@@ -240,7 +247,8 @@ export default function Accounting({ activeSub, onSubChange }) {
     allocations: 'The monthly payroll allocation entry - wages split across entities by hours worked at each site',
     mre: 'Monthly recurring expenses - what posts every month, by vendor and entity',
     imports: 'Turn a bank or brokerage statement into an Intacct journal entry import file',
-    ama: 'Asset management agreements - the fee per managed entity, billed against expected',
+    ama: 'Ask My Accountant - lines parked for the accountant and questions on any ledger line',
+    'mgmt-fees': 'Asset management agreements - the fee per managed entity, billed against expected',
     profitability: 'Revenue, NOI, net income and cash flow after debt service per entity, against the prior year',
     compensation: 'Hours and gross wages per employee from Time Clock, with payroll expense on the ledger',
   }[isReports(sub) ? 'reports' : sub];
@@ -300,7 +308,8 @@ export default function Accounting({ activeSub, onSubChange }) {
           {sub === 'partners' && <PartnersTab canApprove={canApprovePartners} />}
           {sub === 'mre' && <MreTab canEdit={canEdit} canDelete={canManage} />}
           {sub === 'imports' && <ImportHub />}
-          {sub === 'ama' && <AmaTab canEdit={canEdit} />}
+          {sub === 'ama' && <AskAccountantTab canEdit={canEdit} limited />}
+          {sub === 'mgmt-fees' && <ManagementFeesTab canEdit={canEdit} />}
           {sub === 'profitability' && <ProfitabilityReport limited />}
         </div>
       ) : (
@@ -325,7 +334,8 @@ export default function Accounting({ activeSub, onSubChange }) {
               {sub === 'allocations' && <AllocationsTab canEdit={canManage} />}
               {sub === 'mre' && <MreTab canEdit={canEdit} canDelete={canManage} />}
               {sub === 'imports' && <ImportHub />}
-              {sub === 'ama' && <AmaTab canEdit={canEdit} />}
+              {sub === 'ama' && <AskAccountantTab canEdit={canEdit} />}
+              {sub === 'mgmt-fees' && <ManagementFeesTab canEdit={canEdit} />}
               {sub === 'profitability' && <ProfitabilityReport />}
               {sub === 'compensation' && canManage && <CompensationReport />}
             </div>

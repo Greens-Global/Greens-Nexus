@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
-import { Play, Pause, Square, Coffee, MonitorUp, MonitorX, MonitorPause, Plus } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { planFor, playPlan, starSpec, FLOURISH_MS } from '../lib/flourishMotion';
+import { Play, Pause, Square, MonitorUp, MonitorX, MonitorPause, Plus } from 'lucide-react';
 import { Spinner } from './AsyncState';
 
 // The time clock as one object (Neil, Oct 14 2026): a dial that fills with
@@ -71,6 +73,73 @@ function Tip({ title, sub, edge = '', native = false, children }) {
   );
 }
 
+// The flourish for a punch the server accepted (Neil, Oct 14 2026). It is
+// drawn in a layer on the page, pinned over the button it came from, so it
+// can travel RIGHT - clear of the tooltip that opens above the button, and
+// past the folded rail's clipped edge:
+//   coffee - Start Break: the cup pops, drifts right with a wobble, steam
+//            curling up off it the whole way
+//   check  - End Break: a check draws itself in green, then the same drift
+//   in     - Punch In: green and gold stars burst up and to the right
+//   out    - Punch Out: gold stars fan right and settle down, the day done
+const STAR = 'M12 2.5l2.7 6 6.5.7-4.9 4.4 1.4 6.4L12 16.8 6.3 20l1.4-6.4L2.8 9.2l6.5-.7z';
+const STEAM = ['M3 15c-2-3 2-5 0-8s2-5 0-7', 'M3 15c2-3-2-5 0-8s-2-5 0-7', 'M3 15c-1.5-3 1.5-5 0-8s1.5-5 0-7'];
+export function Flourish({ kind, anchor: a }) {
+  const box = useRef(null);
+  // Pinned to the button's centre on the screen (written straight to the
+  // node, no render), then the motion plan runs (lib/flourishMotion.js).
+  useLayoutEffect(() => {
+    const el = box.current, at = a?.current;
+    if (!el || !at) return undefined;
+    const r = at.getBoundingClientRect();
+    el.style.left = `${r.left + r.width / 2}px`;
+    el.style.top = `${r.top + r.height / 2}px`;
+    const reduce = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    return reduce ? undefined : playPlan(el, planFor(kind));
+  }, [a, kind]);
+  return createPortal(
+    <div ref={box} className={`sbfx sbfx--${kind}`} aria-hidden="true" data-flourish={kind}>
+      {kind === 'coffee' && (
+        <span className="sbfx-coffee" data-fx="body">
+          <span className="sbfx-steam">
+            {STEAM.map((d, i) => (
+              <svg key={i} data-fx={`w${i}`} viewBox="0 0 6 16" style={{ left: 3 + i * 5 }}><path d={d} pathLength="1" /></svg>
+            ))}
+          </span>
+          {/* Drawn here, not the Coffee icon: that icon carries three fixed
+              steam ticks of its own, which sat under the moving steam. */}
+          <svg className="sbfx-mug" viewBox="0 0 24 24">
+            <path className="sbfx-mug-body" d="M4.5 8.5h12v5.2a5.3 5.3 0 0 1-5.3 5.3h-1.4a5.3 5.3 0 0 1-5.3-5.3z" />
+            <path className="sbfx-mug-coffee" d="M5.6 10.4h9.8" />
+            <path d="M16.5 10h1.3a2.6 2.6 0 0 1 0 5.2h-1.6" />
+            <path d="M3 21.2h15" />
+          </svg>
+        </span>
+      )}
+      {kind === 'check' && (
+        <>
+          <span className="sbfx-pulse" data-fx="pulse" />
+          <span className="sbfx-check" data-fx="body">
+            <svg viewBox="0 0 24 24"><circle className="sbfx-disc" cx="12" cy="12" r="10.5" /><circle data-fx="ring" cx="12" cy="12" r="10.5" pathLength="1" /><path data-fx="tick" d="M7 12.5l3.3 3.3L17.2 8.8" pathLength="1" /></svg>
+          </span>
+        </>
+      )}
+      {(kind === 'in' || kind === 'out') && (
+        <>
+          <span className="sbfx-pulse" data-fx="pulse" />
+          {starSpec(kind).map(([, , size], i) => (
+            <svg key={i} data-fx={`s${i}`} className="sbfx-star" viewBox="0 0 24 24"
+              style={{ width: size, height: size, left: -size / 2, top: -size / 2 }}>
+              <path d={STAR} />
+            </svg>
+          ))}
+        </>
+      )}
+    </div>,
+    document.body,
+  );
+}
+
 export default function ClockChip({ vm, variant = 'wide', onAfterAction, leaving = false }) {
   const state = vm?.state;
   const live = state === 'in' || state === 'break';
@@ -79,15 +148,22 @@ export default function ClockChip({ vm, variant = 'wide', onAfterAction, leaving
   // transition, not the state, so a page that opens on a break shows nothing.
   const prev = useRef(state);
   const [flourish, setFlourish] = useState('');
+  const playRef = useRef(null), pauseRef = useRef(null), stopRef = useRef(null);
   useEffect(() => {
     const from = prev.current; prev.current = state;
-    if (from === 'in' && state === 'break') setFlourish('coffee');
-    else if (from === 'break' && state === 'in') setFlourish('sweep');
-    else if (from === 'out' && state === 'in') setFlourish('sweep');
-    else return undefined;
-    const t = setTimeout(() => setFlourish(''), 1100);
+    const kind = from === 'in' && state === 'break' ? 'coffee'
+      : from === 'break' && state === 'in' ? 'check'
+        : from === 'out' && state === 'in' ? 'in'
+          : (from === 'in' || from === 'break') && state === 'out' ? 'out' : '';
+    if (!kind) return undefined;
+    setFlourish(kind);
+    // Cleared after its longest track (the steam's second puff, for the cup).
+    const t = setTimeout(() => setFlourish(''), FLOURISH_MS[kind] + (kind === 'coffee' ? 300 : 150));
     return () => clearTimeout(t);
   }, [state]);
+  // The dial still sweeps on a return to work (Resume or Punch In).
+  const sweep = flourish === 'check' || flourish === 'in';
+  const fxAnchor = flourish === 'coffee' ? pauseRef : flourish === 'out' ? stopRef : playRef;
   if (!vm || (state !== 'in' && state !== 'break' && state !== 'out')) return null;
 
   const { actions: a, capture } = vm;
@@ -119,7 +195,7 @@ export default function ClockChip({ vm, variant = 'wide', onAfterAction, leaving
   const pause = off
     ? { label: 'Start Break', sub: 'Punch in first', onClick: null, dim: true }
     : onBreak
-      ? { label: 'On Break', sub: 'Press Play to resume', onClick: null, lit: true }
+      ? { label: 'On Break', sub: 'Press Play to Punch Back In', onClick: null, lit: true }
       : { label: 'Start Break', sub: 'Your working time pauses', onClick: after(a.toggleBreak), lit: false };
   const stop = off
     ? { label: 'Punch Out', sub: 'You are off the clock', onClick: null, dim: true }
@@ -135,26 +211,24 @@ export default function ClockChip({ vm, variant = 'wide', onAfterAction, leaving
           never slid; only the landing pop inside it is re-keyed. */}
       <span className="sbtr-lit" style={{ '--sb-lit': lit }} aria-hidden="true"><i className="sbtr-land" key={`${tone}-${lit}`} /></span>
       <Tip title={play.label} sub={play.sub} edge={vertical ? '' : 'start'} native={vertical}>
-        <button type="button" className={`sbtr-btn sbtr-btn--play${play.lit ? ' is-lit' : ''}${play.next ? ' is-next' : ''}${!play.onClick ? ' is-inert' : ''}`}
+        <button ref={playRef} type="button" className={`sbtr-btn sbtr-btn--play${play.lit ? ' is-lit' : ''}${play.next ? ' is-next' : ''}${!play.onClick ? ' is-inert' : ''}`}
           onClick={play.onClick || undefined} disabled={busyAny} aria-disabled={!play.onClick || undefined} aria-pressed={play.lit && !off ? true : undefined} aria-label={play.label}>
           {vm.busy === 'in' ? <Spinner size={12} /> : <Play />}
         </button>
       </Tip>
       <Tip title={pause.label} sub={pause.sub} native={vertical}>
-        <button type="button" className={`sbtr-btn sbtr-btn--pause${pause.lit ? ' is-lit' : ''}${pause.dim ? ' is-dim' : ''}${!pause.onClick ? ' is-inert' : ''}`}
+        <button ref={pauseRef} type="button" className={`sbtr-btn sbtr-btn--pause${pause.lit ? ' is-lit' : ''}${pause.dim ? ' is-dim' : ''}${!pause.onClick ? ' is-inert' : ''}`}
           onClick={pause.onClick || undefined} disabled={busyAny} aria-disabled={!pause.onClick || undefined} aria-pressed={pause.lit ? true : undefined} aria-label={pause.label}>
           {vm.breakBusy ? <Spinner size={12} /> : <Pause />}
-          {flourish === 'coffee' && (
-            <span className="sbtr-coffee" aria-hidden="true"><Coffee /><i /><i /></span>
-          )}
         </button>
       </Tip>
       <Tip title={stop.label} sub={stop.sub} edge={vertical ? '' : 'end'} native={vertical}>
-        <button type="button" className={`sbtr-btn sbtr-btn--stop${stop.dim ? ' is-dim' : ''}${!stop.onClick ? ' is-inert' : ''}`}
+        <button ref={stopRef} type="button" className={`sbtr-btn sbtr-btn--stop${stop.dim ? ' is-dim' : ''}${!stop.onClick ? ' is-inert' : ''}`}
           onClick={stop.onClick || undefined} disabled={busyAny} aria-disabled={!stop.onClick || undefined} aria-label={stop.label}>
           {vm.busy === true || vm.busy === 'out' ? <Spinner size={12} /> : <Square />}
         </button>
       </Tip>
+      {flourish && flourish !== 'sweep' && <Flourish key={flourish} kind={flourish} anchor={fxAnchor} />}
     </div>
   );
 
@@ -165,7 +239,7 @@ export default function ClockChip({ vm, variant = 'wide', onAfterAction, leaving
         {alert && <span role="status" className="dk-sr-only">{alert}</span>}
         <Tip title={stateLabel} sub={`${live ? `${vm.timer} today · ` : ''}${vm.sinceLabel}${alert ? ` · ${alert}` : ''}`} native>
           <button type="button" className="sbclock-ringbtn" onClick={a.openClock} aria-label={ringLabel}>
-            <ClockRing pct={pct} tone={tone} alert={!!alert} sweep={flourish === 'sweep'} size={36} stroke={3} ticks={tickCount} />
+            <ClockRing pct={pct} tone={tone} alert={!!alert} sweep={sweep} size={36} stroke={3} ticks={tickCount} />
           </button>
         </Tip>
         {transport}
@@ -183,7 +257,7 @@ export default function ClockChip({ vm, variant = 'wide', onAfterAction, leaving
   return (
     <section className={`sbclock sbclock--${tone}${leaving ? ' is-leaving' : ''}`} aria-label="Time clock">
       <button type="button" className="sbclock-head" onClick={a.openClock} title="Open Time Clock">
-        <ClockRing pct={pct} tone={tone} alert={!!alert} sweep={flourish === 'sweep'} size={38} ticks={tickCount} />
+        <ClockRing pct={pct} tone={tone} alert={!!alert} sweep={sweep} size={38} ticks={tickCount} />
         <span className="sbclock-text">
           <span className="sbclock-line">
             <span className="sbclock-state">{stateLabel}</span>

@@ -238,9 +238,9 @@ describe('LedgerSearch grid', () => {
     const dialog = await screen.findByRole('dialog', { name: /Journal entry/ });
     await within(dialog).findByText('Supplies');
     expect(within(dialog).getAllByRole('columnheader').map((h) => h.textContent))
-      .toEqual(['Account', 'Debit', 'Credit', 'Department', 'Location', 'Memo', 'Vendor', 'Project-Job', 'Item', 'Employee', 'Customer']);
+      .toEqual(['Account', 'Debit', 'Credit', 'Department', 'Location', 'Memo', 'Vendor', 'Project-Job', 'Item', 'Employee', 'Customer', '']);
     const row = within(dialog).getByText('Supplies').closest('tr');
-    expect([...row.cells].map((c) => c.textContent)).toEqual(['71100General', '22.46', '', 'Personal', 'Rajesh and D', 'Amazon Marketplace Pay', 'V00225 American Express', 'Valley Center', 'Supplies', '', '']);
+    expect([...row.cells].map((c) => c.textContent)).toEqual(['71100General', '22.46', '', 'Personal', 'Rajesh and D', 'Amazon Marketplace Pay', 'V00225 American Express', 'Valley Center', 'Supplies', '', '', '']);   // the last cell: Ask My Accountant (Oct 15)
   });
 
   it('opens the entry the dashboard tile handed over on top of the lines, once', async () => {

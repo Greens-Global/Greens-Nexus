@@ -38,6 +38,8 @@ vi.mock('../components/accounting/LoansTab', () => stub('loans'));
 vi.mock('../components/accounting/BudgetTab', () => stub('budget'));
 vi.mock('../components/accounting/PartnersTab', () => stub('partners'));
 vi.mock('../components/accounting/AllocationsTab', () => stub('allocations'));
+vi.mock('../components/accounting/AskAccountantTab', () => ({ default: ({ limited }) => <div data-testid="tab-ama" data-limited={limited ? 'yes' : 'no'} /> }));
+vi.mock('../components/accounting/ManagementFeesTab', () => stub('mgmt-fees'));
 vi.mock('../components/accounting/dashboard/OverviewTab', () => stub('overview'));
 vi.mock('../components/accounting/dashboard/CashTab', () => stub('cash'));
 vi.mock('../components/accounting/dashboard/PerformanceTab', () => stub('performance'));
@@ -144,6 +146,28 @@ describe('Accounting navigation', () => {
     fireEvent.click(screen.getByRole('button', { name: /Tools/ }));
     fireEvent.click(screen.getByRole('menuitem', { name: 'Data' }));
     await waitFor(() => expect(screen.getByTestId('tab-data').getAttribute('data-exclude')).toBe('loans,intercompany,holdings'));
+  });
+
+  it('has AMA (Ask My Accountant) and Management Fees under Reporting (Neil, 10/15)', async () => {
+    render(<Harness start="overview" />);
+    fireEvent.click(await screen.findByRole('button', { name: /Reporting/ }));
+    expect(screen.getByRole('menuitem', { name: 'Management Fees' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'AMA' }));
+    expect(screen.getByTestId('sub').textContent).toBe('ama');
+    expect((await screen.findByTestId('tab-ama')).getAttribute('data-limited')).toBe('no');
+    expect(screen.getByText(/Ask My Accountant - lines parked/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Reporting/ }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Management Fees' }));
+    expect(await screen.findByTestId('tab-mgmt-fees')).toBeTruthy();
+    expect(screen.queryByTestId('tab-ama')).toBeNull();
+  });
+
+  it('gives a limited person AMA and Management Fees too', async () => {
+    role.limited = true;
+    render(<Harness start="ama" />);
+    expect((await screen.findByTestId('tab-ama')).getAttribute('data-limited')).toBe('yes');
+    fireEvent.click(screen.getByRole('button', { name: /Reporting/ }));
+    expect(screen.getByRole('menuitem', { name: 'Management Fees' })).toBeTruthy();
   });
 
   it('sends header search words to Reports, and the same box drives Reports there', async () => {
