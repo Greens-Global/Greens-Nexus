@@ -2340,6 +2340,16 @@ def _run_migrations():
         # an id, so the batch can be undone as one.
         "ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS batch_id TEXT DEFAULT ''",
         "CREATE INDEX IF NOT EXISTS ix_time_punches_batch_id ON time_punches (batch_id)",
+        # Cubby -> Supabase (Operations, Oct 15). New tables - RLS per CLAUDE.md. models.Cubby*.
+        "ALTER TABLE cubby_facilities ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE cubby_units ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE cubby_rentals ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE cubby_customers ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE cubby_payments ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE cubby_leads ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE cubby_receivables ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE cubby_tasks ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE cubby_sync_runs ENABLE ROW LEVEL SECURITY",
         # MRI Lease Term is a pick, not text (Charmi + Neil, Oct 15): annual |
         # month_to_month | custom, and the months it runs. models.Lease.term_*.
         "ALTER TABLE leases ADD COLUMN IF NOT EXISTS term_type VARCHAR DEFAULT ''",
@@ -3408,7 +3418,10 @@ def health():
                         # (NEXUS_AM_ORIGINATOR + NEXUS_AM_AUDIENCE) - the
                         # task-email card is only emitted when this is true.
                         "actionable_messages": bool(os.getenv("NEXUS_AM_ORIGINATOR", "").strip()
-                                                    and os.getenv("NEXUS_AM_AUDIENCE", "").strip())}}
+                                                    and os.getenv("NEXUS_AM_AUDIENCE", "").strip()),
+                        # Cubby -> database sync (Operations, Oct 15). Only the
+                        # sync needs it; the screens read the synced tables.
+                        "cubby_api_key": bool(os.getenv("CUBBY_API_KEY", "").strip())}}
 
 
 @app.get("/health/ready")
