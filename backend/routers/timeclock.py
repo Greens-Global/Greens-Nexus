@@ -435,9 +435,18 @@ def _notify_out_of_fence(db: Session, emp, row, geo: dict) -> None:
     site = geo.get("work_site_name") or "the nearest location"
     dist = int(geo.get("distance_m") or 0)
     when = _fmt_local(row.at, row.tz_offset_min or 0)
-    _hr_notify(db, emp.manager_email, "Out-of-fence punch",
-               f"{who} {verb} at {when}, {_us_distance(dist)} from {site} - outside the geofence. Open the timecard to review.",
-               ref_id=row.id, action=_timecard_action(db, emp.work_email, row.local_date))
+    # One notice per person per day, growing with each punch outside the
+    # fence (Neil, Oct 14 2026: "spammy" - it was a notice AND an email for
+    # every punch). The email goes with the first of the day only.
+    from notify_rollup import upsert_rollup
+    first = upsert_rollup(
+        db, recipient=emp.manager_email, key=f"fence:{(emp.work_email or '').lower()}:{row.local_date}",
+        title=f"Out-of-fence punches - {who}",
+        line=f"{verb.capitalize()} at {when}, {_us_distance(dist)} from {site}.",
+        action=_timecard_action(db, emp.work_email, row.local_date),
+        company=notification_company(db, emp.manager_email))
+    if not first:
+        return
     try:
         from graph_mail import graph_configured, send_mail, DEFAULT_FROM_EMAIL, GraphMailError  # noqa: F401
     except Exception:
@@ -1827,7 +1836,11 @@ def _team_alert_recipients(db: Session, employee_email: str, actor_email: str = 
     # Admins hear only when there is neither (Oct 2, Shifts QA B4-34: every
     # owner was bell-ed on every request). Oversight alerts (a timecard edit
     # by the manager themself) keep reaching the owners.
-    if not owners_as_fallback or not out:
+    # "Nobody else" is judged after the person who acted is taken out: a
+    # manager editing their own report's card, with no HR contact on file,
+    # still has to reach someone (the Aug 11 oversight rule).
+    others = [e for e in out if e not in (actor_email, employee_email)]
+    if not owners_as_fallback or not others:
         for r in db.query(NexusRole).filter(NexusRole.role == "owner").all():
             e = (r.email or "").strip().lower()
             if e and e not in out:
@@ -1884,12 +1897,34 @@ def _notify_timecard_change(db: Session, *, employee_email: str, actor_email: st
                             body: str, ref_id: str = "", local_date: str = "") -> None:
     """Oversight for DIRECT timecard edits (Visesh, Aug 11): a punch changed
     without going through a request/approval must still be seen by someone
-    OTHER than the person who changed it - the employee's manager and the
-    Global Admins (see _team_alert_recipients), so a manager's edit to their
-    own report still reaches a Global Admin."""
-    _notify_team_alert(db, employee_email=employee_email, actor_email=actor_email,
-                       title="Timecard edited", body=body, ref_id=ref_id,
-                       action=_timecard_action(db, employee_email, local_date))
+    OTHER than the person who changed it - the employee's manager and their
+    company's HR contact.
+
+    Global Admins hear only about their OWN direct reports (as the manager),
+    or when there is no one else to tell (Neil, Oct 14 2026: "Global admins
+    should not get a copy of every timecard edit, only their direct
+    reports"). And ONE notice per person per day per recipient, growing with
+    each edit (notify_rollup), not one per punch - ten fixes used to be ten
+    notices for every overseer."""
+    from notify_rollup import upsert_rollup
+    em = (employee_email or "").strip().lower()
+    key = f"tc-edit:{em}:{local_date or ''}"
+    title = f"Timecard edited - {_display_name(db, em)}"
+    action = _timecard_action(db, employee_email, local_date)
+    company = notification_company(db, employee_email, actor_email)
+    for recipient in _team_alert_recipients(db, employee_email, actor_email, owners_as_fallback=True):
+        upsert_rollup(db, recipient=recipient, key=key, title=title, line=body, action=action,
+                      company=company, requested_by=actor_email)
+
+
+def _tell_employee_timecard(db: Session, employee_email: str, local_date: str, line: str) -> None:
+    """The employee's side of a direct edit: one "Your timecard was changed"
+    notice per day, growing with each change, not one per punch."""
+    from notify_rollup import upsert_rollup
+    em = (employee_email or "").strip().lower()
+    upsert_rollup(db, recipient=em, key=f"tc-you:{em}:{local_date or ''}", title="Your timecard was changed",
+                  line=line, action={"view": "timeclock", "sub": "timecard"},
+                  company=notification_company(db, em))
 
 
 @router.patch("/punches/{punch_id}")
@@ -1941,11 +1976,9 @@ def adjust_punch(punch_id: str, body: PunchAdjust,
     # and symmetric with the employee-edit -> approver flow. Skip a manager editing
     # their own punch (no self-notification).
     if row.employee_email != user["email"]:
-        _hr_notify(db, row.employee_email, "Timecard corrected",
-                   f"Your {row.kind.replace('_', ' ')} punch on {row.local_date} was corrected by a manager"
-                   + (f": {body.adjust_note.strip()[:200]}" if body.adjust_note else ".")
-                   + " - open your timecard to review.",
-                   ref_id=row.id, action={"view": "timeclock", "sub": "timecard"})
+        _tell_employee_timecard(db, row.employee_email, row.local_date,
+                                f"Your {row.kind.replace('_', ' ')} punch on {_us_day(row.local_date)} was corrected by a manager"
+                                + (f": {body.adjust_note.strip()[:200]}" if body.adjust_note else "."))
     # And the oversight side (Visesh, Aug 11): the approver/HR/global admins
     # hear about EVERY direct edit, not just the person it happened to.
     what = "voided" if body.void else ("restored" if body.void is not None else "edited")
@@ -1998,10 +2031,8 @@ def manager_add_punch(body: ManagerPunchIn, user: dict = Depends(require_team_wr
     # learns a punch appeared on their card, and the approver/HR/global admins
     # learn who put it there.
     if row.employee_email != user["email"]:
-        _hr_notify(db, row.employee_email, "Punch added to your timecard",
-                   f"A {row.kind.replace('_', ' ')} punch on {_us_day(row.local_date)} was added to your "
-                   "timecard by a manager - open your timecard to review.",
-                   ref_id=row.id, action={"view": "timeclock", "sub": "timecard"})
+        _tell_employee_timecard(db, row.employee_email, row.local_date,
+                                f"A {row.kind.replace('_', ' ')} punch on {_us_day(row.local_date)} was added by a manager.")
     _notify_timecard_change(
         db, employee_email=row.employee_email, actor_email=user["email"],
         local_date=row.local_date,
@@ -9156,33 +9187,42 @@ def record_bod(body: BodIn, user: dict = Depends(get_current_user), db: Session 
                   send_error=("" if chan_id else (body.send_error or "")[:300]),
                   created_at=now, html=(body.html or "")[:8000], attempts=0, last_try_at="")
     db.add(row)
-    # A real BOD/EOD (not the "already sent elsewhere" skip marker) notifies the
-    # manager - one notification per employee per day, updated in place so a BOD
-    # then an EOD don't stack into two bell entries (see CLAUDE.md notification rule).
+    # A real BOD/EOD (not the "already sent elsewhere" skip marker) tells the
+    # manager in ONE day report per person, rewritten as the day goes (Neil,
+    # Oct 14 2026): "Beginning of Day - Amy" with her message when she clocks
+    # in, then the same notice becomes "End of Day - Amy" with both messages
+    # when she clocks out - unread again, back at the top.
     if kind in ("bod", "eod") and row.message != "(sent outside Nexus)":
         emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == user["email"]).first()
         if emp and emp.manager_email:
             name = f"{emp.first_name} {emp.last_name}".strip() or user["email"]
-            other = (db.query(TimeBod)
-                     .filter(TimeBod.employee_email == user["email"],
-                             TimeBod.local_date == row.local_date,
-                             TimeBod.kind.in_(("bod", "eod")))
-                     .filter(TimeBod.id != row.id).first())
-            both = other is not None and other.kind != kind
-            body_text = (f"{name} submitted both BOD and EOD for {row.local_date}."
-                         if both else f"{name} submitted their {kind.upper()} for {row.local_date}.")
-            ref_id = f"{user['email']}:{row.local_date}"
-            existing = db.query(NexusNotification).filter(
-                NexusNotification.ref_id == ref_id,
-                NexusNotification.type == "custom_alert",
-                NexusNotification.recipient == emp.manager_email.strip().lower(),
-            ).first()
-            if existing:
-                existing.body = body_text
-                existing.read_by = ""   # a fresh EOD reopens a bell the manager already read
-            else:
-                _hr_notify(db, emp.manager_email, f"Beginning/End of day - {name}", body_text,
-                           ref_id=ref_id, action={"view": "hr", "sub": "hr-people"})
+            day = [r for r in (db.query(TimeBod)
+                               .filter(TimeBod.employee_email == user["email"],
+                                       TimeBod.local_date == row.local_date,
+                                       TimeBod.kind.in_(("bod", "eod")))
+                               .filter(TimeBod.id != row.id).all())
+                   if (r.message or "") != "(sent outside Nexus)"] + [row]
+            tz = body.tz_offset_min or 0
+
+            def _at(r):
+                t = _parse_iso(r.created_at)
+                return (t - timedelta(minutes=tz)).strftime("%I:%M %p").lstrip("0") if t else ""
+
+            def _line(k, label):
+                r = max((x for x in day if x.kind == k), key=lambda x: x.created_at or "", default=None)
+                if not r:
+                    return ""
+                msg = " ".join((r.message or "").split())
+                msg = msg if len(msg) <= 220 else msg[:217].rstrip() + "..."
+                return f"{label}, {_at(r)}: {msg}" if msg else f"{label}, {_at(r)}"
+
+            lines = [x for x in (_line("bod", "Beginning of Day"), _line("eod", "End of Day")) if x]
+            stage = "End of Day" if any(x.kind == "eod" for x in day) else "Beginning of Day"
+            from notify_rollup import upsert_rollup
+            upsert_rollup(db, recipient=emp.manager_email, key=f"{user['email']}:{row.local_date}",
+                          title=f"{stage} - {name}", line="\n".join(lines), replace=True,
+                          action={"view": "hr", "sub": "hr-people"},
+                          company=notification_company(db, emp.manager_email))
     db.commit()
     # One inline delivery attempt so the common case lands in Teams before the
     # toast shows. Sync endpoint = FastAPI threadpool, so blocking HTTP is fine
@@ -10273,10 +10313,8 @@ def add_time(body: AddTimeIn, user: dict = Depends(require_team_write), db: Sess
     hrs = f"{total // 60}h {total % 60:02d}m"
     n = len(doing)
     if em != user["email"]:
-        _hr_notify(db, em, "Time added to your timecard",
-                   f"{hrs} over {n} day{'' if n == 1 else 's'} ({dates}) was added to your timecard by a manager: "
-                   f"{reason[:200]}. Open your timecard to review.",
-                   ref_id=batch_id, action={"view": "timeclock", "sub": "timecard"})
+        _tell_employee_timecard(db, em, doing[0]["date"],
+                                f"{hrs} over {n} day{'' if n == 1 else 's'} ({dates}) was added by a manager: {reason[:200]}")
     _notify_timecard_change(
         db, employee_email=em, actor_email=user["email"], local_date=doing[0]["date"],
         body=f"{_display_name(db, user['email'])} added {hrs} over {n} day{'' if n == 1 else 's'} ({dates}) "
@@ -10305,9 +10343,8 @@ def add_time_undo(batch_id: str, user: dict = Depends(require_team_write), db: S
         r.adjust_note = "Undo of Add Time"
     dates = ", ".join(_us_day(d) for d in sorted({r.local_date for r in rows}))
     if em != user["email"]:
-        _hr_notify(db, em, "Added time was undone",
-                   f"The time a manager added to your timecard for {dates} was taken back. Open your timecard to review.",
-                   ref_id=batch_id, action={"view": "timeclock", "sub": "timecard"})
+        _tell_employee_timecard(db, em, rows[0].local_date,
+                                f"The time a manager added for {dates} was taken back.")
     _notify_timecard_change(db, employee_email=em, actor_email=user["email"], local_date=rows[0].local_date,
                             body=f"{_display_name(db, user['email'])} undid the time added to {_display_name(db, em)}'s timecard for {dates}.",
                             ref_id=batch_id)
