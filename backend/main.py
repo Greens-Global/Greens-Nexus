@@ -1055,6 +1055,9 @@ def _run_migrations():
             # Add Time batches (Oct 14) - see the Postgres list.
             "ALTER TABLE time_punches ADD COLUMN batch_id TEXT DEFAULT ''",
             "CREATE INDEX IF NOT EXISTS ix_time_punches_batch_id ON time_punches (batch_id)",
+            # MRI Lease Term is a pick, not text (Charmi + Neil, Oct 15) - see the Postgres list.
+            "ALTER TABLE leases ADD COLUMN term_type VARCHAR DEFAULT ''",
+            "ALTER TABLE leases ADD COLUMN term_months INTEGER",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2347,6 +2350,10 @@ def _run_migrations():
         "ALTER TABLE cubby_receivables ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE cubby_tasks ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE cubby_sync_runs ENABLE ROW LEVEL SECURITY",
+        # MRI Lease Term is a pick, not text (Charmi + Neil, Oct 15): annual |
+        # month_to_month | custom, and the months it runs. models.Lease.term_*.
+        "ALTER TABLE leases ADD COLUMN IF NOT EXISTS term_type VARCHAR DEFAULT ''",
+        "ALTER TABLE leases ADD COLUMN IF NOT EXISTS term_months INTEGER",
         # Accounting > AMA, Ask My Accountant (Neil, 10/15). Three new tables -
         # RLS per CLAUDE.md. models.AccountingAmaThread / AccountingAmaMessage /
         # AccountingAmaSetting, routers/accounting_ask.py.

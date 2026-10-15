@@ -5008,6 +5008,12 @@ class Lease(Base):
     # Oct 7 (Charmi): MRI is one list of every recurring income source, so a
     # row says what it is - lease | interest | loan_payment | other.
     income_type      = Column(String, default="lease")
+    # Oct 15 (Charmi + Neil): the lease term is a pick, never free text -
+    # annual | month_to_month | custom ('' = not picked yet; lease_terms then
+    # holds the old free text, read best-effort). term_months: 12 for annual,
+    # None for month to month, N for custom.
+    term_type        = Column(String, default="")
+    term_months      = Column(Integer, nullable=True)
 
 
 class LeaseRate(Base):
