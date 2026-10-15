@@ -85,3 +85,36 @@ describe('the task drawer rows', () => {
     expect(screen.queryByRole('status')).toBeNull();
   });
 });
+
+// A multi-select field is one dropdown, not every option laid out as a chip
+// (Neil, Oct 15 2026: the Trade list filled the task card). Closed, only the
+// chosen options show in the trigger; open, the rest are a checkbox menu.
+describe('a multi-select field', () => {
+  const trade = {
+    id: 'f-trade', name: 'Trade', type: 'multiselect', appliesTo: ['task'], projectIds: [],
+    options: [{ id: 'gl', label: 'General Labor', color: '' }, { id: 'el', label: 'Electrician', color: '' }, { id: 'pl', label: 'Plumber', color: '' }],
+  };
+  const renderRows = (values, patch = vi.fn()) => {
+    render(<TaskCustomFieldRows task={{ id: 't', projectId: 'p-x', customFieldValues: values }} customFields={[trade]} projectName={() => ''} patch={patch} />);
+    return patch;
+  };
+
+  it('shows only the picked trades until it is opened', () => {
+    renderRows({ 'f-trade': ['el'] });
+    expect(screen.getByText('Electrician')).toBeTruthy();
+    expect(screen.queryByText('General Labor')).toBeNull();
+    expect(screen.queryByText('Plumber')).toBeNull();
+  });
+
+  it('reads "-" when nothing is picked', () => {
+    renderRows({});
+    expect(screen.getByText('-')).toBeTruthy();
+  });
+
+  it('opening it lists every option and a pick adds to the list', () => {
+    const patch = renderRows({ 'f-trade': ['el'] });
+    fireEvent.click(screen.getByText('Electrician').closest('button'));
+    fireEvent.click(screen.getByText('Plumber'));
+    expect(patch).toHaveBeenCalledWith({ customFieldValues: { 'f-trade': ['el', 'pl'] } });
+  });
+});
