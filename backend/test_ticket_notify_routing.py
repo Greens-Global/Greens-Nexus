@@ -59,14 +59,16 @@ class RecipientTests(unittest.TestCase):
         self.db = database.SessionLocal()
         self.addCleanup(self.db.close)
         for m in (models.NexusEmployee, models.TicketDepartment, models.TaskTicket,
-                  models.NexusRole, models.TaskActivity):
+                  models.NexusRole, models.TaskActivity, models.HrDepartment):
             self.db.query(m).delete()
         self.db.commit()
         # A department that still has a lead configured - nothing should route
         # to them any more.
         self.dept = models.TicketDepartment(id=str(uuid.uuid4()), company_id="co", name="IT",
-                                        lead_email=LEAD, backup_email="")
-        self.db.add(self.dept)
+                                        lead_email="", backup_email="")
+        # The head is the department's own (one head everywhere, Oct 15 2026).
+        self.live = models.HrDepartment(id=self.dept.id, company_id="co", name="IT", lead_email=LEAD)
+        self.db.add_all([self.dept, self.live])
         self.db.add(models.NexusRole(email=ADMIN, role="administrator"))
         self.db.add(models.NexusRole(email=OWNER, role="owner"))
         self.db.commit()
@@ -112,7 +114,7 @@ class RecipientTests(unittest.TestCase):
         self.assertEqual(got.get("backup@greensglobal.com"), "dept_head")
 
     def test_escalation_with_no_head_falls_back_to_the_desk(self):
-        self.dept.lead_email = ""
+        self.live.lead_email = ""
         self.db.commit()
         got = self._to(self._ticket(), "escalated")
         self.assertEqual(got.get(ADMIN), "it_admin")

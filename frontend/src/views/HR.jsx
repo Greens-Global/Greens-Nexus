@@ -3418,9 +3418,10 @@ function LeaveTab({ employees, toastOk, toastErr }) {
 // ── Companies / legal entities manager (HR Section A) ────────────────────────
 // Manage one company's department list (Neil: departments live within a company,
 // custom per company - not a Nexus-wide hardcoded list).
-function CompanyDepartments({ entity, employees = [], toastOk, toastErr }) {
+function CompanyDepartments({ entity, toastOk, toastErr }) {
   const [depts, setDepts] = useState(null);
   const [name, setName] = useState('');
+  const [head, setHead] = useState('');          // department head for the one being added
   const [busy, setBusy] = useState(false);
   const [editId, setEditId] = useState(null);   // department being renamed
   const [editName, setEditName] = useState('');
@@ -3433,16 +3434,33 @@ function CompanyDepartments({ entity, employees = [], toastOk, toastErr }) {
   const refreshDirectory = () => qc.invalidateQueries({ queryKey: qk.peopleDirectory });
   const load = () => { setLoadErr(false); return api.getCompanyDepartments(entity.id).then(setDepts).catch(() => setLoadErr(true)); };
   useEffect(() => { setDepts(null); load(); }, [entity.id]);   // eslint-disable-line react-hooks/exhaustive-deps
-  // Anyone with a work email can lead triage - not restricted to this company, since
-  // a shared function (IT, Finance) often serves several entities.
-  const staff = employees.filter(e => e.workEmail && e.status !== 'offboarded');
+  // The department head (Oct 15 2026) is THE head everywhere - tickets, hiring,
+  // equipment, the directory. Anyone in Nexus People, not only this company: a
+  // shared function (IT, Finance) often serves several entities.
+  const { data: people = [] } = usePeopleDirectory();
+  const nameOf = (email) => people.find(p => (p.email || '').toLowerCase() === (email || '').toLowerCase())?.name || email;
   async function add() {
     const n = name.trim();
     if (!n || busy) return; setBusy(true);
-    try { const list = await api.addCompanyDepartment(entity.id, n); setDepts(list); setName(''); refreshDirectory(); }
+    try { const list = await api.addCompanyDepartment(entity.id, n, head); setDepts(list); setName(''); setHead(''); refreshDirectory(); }
     catch (e) { toastErr(e?.message || 'Could not add department.'); }
     setBusy(false);
   }
+  async function setDeptHead(d, email) {
+    try {
+      setDepts(await api.updateCompanyDepartment(entity.id, d.id, { lead_email: email }));
+      toastOk?.(email ? `${nameOf(email)} is now the head of ${d.name}.` : `${d.name} has no department head now.`);
+    } catch (e) { toastErr(e?.message || 'Could not set the department head.'); }
+  }
+  const headPicker = (value, onPick, onClear, label) => value ? (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0, fontSize: 12.5 }}>
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={value}>{nameOf(value)}</span>
+      <button onClick={onClear} title={`Clear ${label}`} aria-label={`Clear ${label}`}
+        style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center', width: 20, height: 20, borderRadius: '50%', padding: 0, flexShrink: 0 }}>
+        <X size={12} />
+      </button>
+    </span>
+  ) : <PersonSearchSelect placeholder="Department head (optional)" groups={[{ label: 'Nexus People', people }]} onPick={onPick} />;
   async function remove(d) {
     if (!await dialog.confirm(
       `Delete the "${d.name}" department? Anyone currently assigned to it will be left with no department - you can reassign them on their profile.`,
@@ -3465,10 +3483,12 @@ function CompanyDepartments({ entity, employees = [], toastOk, toastErr }) {
     <div style={{ overflowY: 'auto', flex: 1, padding: '16px 22px' }}>
       <p style={{ fontSize: 12.5, color: 'var(--muted)', margin: '0 0 14px' }}>
         Departments for <strong>{entity.name}</strong>. These are the only choices when picking a department for someone in this company.
+        The department head is the one head Nexus uses everywhere: ticket escalations, hiring screening, equipment reminders and the Contact Directory.
       </p>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-        <input className="form-input" style={{ flex: 1 }} placeholder="e.g. Estimating" value={name}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+        <input className="form-input" style={{ flex: '1 1 180px' }} placeholder="e.g. Estimating" value={name}
           onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && add()} maxLength={40} />
+        <div style={{ flex: '1 1 200px', minWidth: 0 }}>{headPicker(head, setHead, () => setHead(''), 'department head')}</div>
         <button className="primary-btn" onClick={add} disabled={!name.trim() || busy} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, opacity: (!name.trim() || busy) ? 0.6 : 1 }}>
           <Plus size={14} /> Add
         </button>
@@ -3478,11 +3498,11 @@ function CompanyDepartments({ entity, employees = [], toastOk, toastErr }) {
         : depts.length === 0 ? <div style={{ color: 'var(--muted)', fontSize: 13, padding: '10px 0' }}>No departments yet - add the first one above.</div>
         : (
           <div style={{ border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 32px', gap: 10, padding: '8px 12px', background: 'var(--paper)', borderBottom: '1px solid var(--line)', fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.3 }}>
-              <span>Department</span><span />
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr) 32px', gap: 10, padding: '8px 12px', background: 'var(--paper)', borderBottom: '1px solid var(--line)', fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: 0.3 }}>
+              <span>Department</span><span>Department Head</span><span />
             </div>
             {depts.map(d => (
-              <div key={d.id} style={{ display: 'grid', gridTemplateColumns: '1fr 32px', gap: 10, padding: '8px 12px', alignItems: 'center', borderBottom: '1px solid var(--line)' }}>
+              <div key={d.id} style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr) 32px', gap: 10, padding: '8px 12px', alignItems: 'center', borderBottom: '1px solid var(--line)' }}>
                 {editId === d.id ? (
                   <input className="form-input" autoFocus value={editName} maxLength={40}
                     onChange={e => setEditName(e.target.value)}
@@ -3500,6 +3520,7 @@ function CompanyDepartments({ entity, employees = [], toastOk, toastErr }) {
                     </button>
                   </span>
                 )}
+                <div style={{ minWidth: 0 }}>{headPicker(d.leadEmail, (email) => setDeptHead(d, email), () => setDeptHead(d, ''), `head of ${d.name}`)}</div>
                 <button onClick={() => remove(d)} title={`Remove ${d.name}`} aria-label={`Remove ${d.name}`}
                   style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'grid', placeItems: 'center', width: 24, height: 24, borderRadius: '50%', padding: 0 }}
                   onMouseOver={e => { e.currentTarget.style.background = 'hsla(var(--color-red),0.14)'; e.currentTarget.style.color = 'hsl(var(--color-red))'; }}
@@ -3810,7 +3831,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
         )}
         {mode !== 'new' && tab === 'departments' && (
           editingEntity
-            ? <CompanyDepartments entity={editingEntity} employees={employees} toastOk={toastOk} toastErr={toastErr} />
+            ? <CompanyDepartments entity={editingEntity} toastOk={toastOk} toastErr={toastErr} />
             : <div style={{ padding: '24px 4px', color: 'var(--muted)' }}>Company not found.</div>
         )}
         {mode !== 'new' && tab === 'sites' && (
