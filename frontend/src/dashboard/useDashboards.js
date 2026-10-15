@@ -202,6 +202,11 @@ export function useDashboards(widgetTier) {
   const [editing, setEditing] = useState(false);
   const layoutRef = useRef(layout);
   useEffect(() => { layoutRef.current = layout; }, [layout]);
+  // The layout as the server has it (what a widget's own save patches), and
+  // the chain those saves run on - one at a time, so two Notes tiles saving
+  // together can't overwrite each other, nor an old reply land last.
+  const savedLayoutRef = useRef(null);
+  const saveChain = useRef(Promise.resolve());
 
   const applyView = useCallback((view) => {
     // clampToLimits normalizes layouts saved before per-widget size caps existed
@@ -209,6 +214,7 @@ export function useDashboards(widgetTier) {
     const items = (view && Array.isArray(view.layout) && view.layout.length)
       ? view.layout : defaultLayoutFor(widgetTier);
     setActiveId(view?.id ?? null);
+    savedLayoutRef.current = (view && Array.isArray(view.layout) && view.layout.length) ? view.layout : null;
     // Clamping can grow a tile into its neighbor, and boards saved before
     // collisions were settled may already overlap - settle on load.
     setLayoutState(resolveCollisions(items.map(clampToLimits)));
@@ -283,27 +289,30 @@ export function useDashboards(widgetTier) {
   const updateWidgetConfig = (i, patch) => setLayout(resolveCollisions(
     layoutRef.current.map(w => w.i === i ? clampToLimits({ ...w, config: { ...(w.config || {}), ...patch } }) : w), [i]));
 
-  // A widget's own content (the Notes text) - saved straight to the view,
-  // never through the layout's unsaved-changes flag (Oct 14: a note typed
-  // outside Customize had no Save button and was lost on reload). Only when
-  // this person may change the view; while Customize has unsaved layout
-  // changes, the note rides along with them instead of saving half a board.
+  // A widget's own content changed outside Customize (the Notes text, the
+  // Weather tile's city) - saved straight to the view, never through the
+  // layout's unsaved-changes flag (Oct 14: outside Customize there is no Save
+  // button, so a note was lost on reload). In Customize it rides along with
+  // the layout's Save like any other edit. Resolves { deferred } when it is
+  // waiting on that Save, { local } when this person may not change the view.
   const canSaveInPlace = !!activeView && (activeView.scope === 'personal' || (activeView.scope === 'department' && canPublish));
-  const saveWidgetConfig = async (i, patch) => {
-    const next = layoutRef.current.map(w => w.i === i ? { ...w, config: { ...(w.config || {}), ...patch } } : w);
-    if (dirty) { setLayout(next); return; }
+  const saveWidgetConfig = (i, patch) => {
+    const apply = (w) => (w.i === i ? { ...w, config: { ...(w.config || {}), ...patch } } : w);
+    const next = layoutRef.current.map(apply);
+    if (editing) { setLayout(next); return Promise.resolve({ deferred: true }); }
     setLayoutState(next);
     layoutRef.current = next;
-    if (!canSaveInPlace) return;
-    // Write the SAVED layout with only this tile's config changed, so a
-    // board normalized on load (clamped, settled) is not saved behind the
-    // person's back by typing a note.
-    const savedLayout = Array.isArray(activeView.layout) && activeView.layout.length ? activeView.layout : next;
-    const body = savedLayout.some(w => w.i === i)
-      ? savedLayout.map(w => w.i === i ? { ...w, config: { ...(w.config || {}), ...patch } } : w)
-      : next;
-    const updated = await api.dashUpdateView(activeId, { layout: body });
-    setViews(vs => vs.map(v => v.id === updated.id ? updated : v));
+    if (!canSaveInPlace) return Promise.resolve({ local: true });
+    // Patch the SAVED layout, so a board normalized on load (clamped,
+    // settled) is not saved behind the person's back by typing a note.
+    const base = savedLayoutRef.current;
+    const body = base && base.some(w => w.i === i) ? base.map(apply) : next;
+    savedLayoutRef.current = body;
+    const viewId = activeId;
+    const run = saveChain.current.then(() => api.dashUpdateView(viewId, { layout: body }))
+      .then((updated) => { setViews(vs => vs.map(v => v.id === updated.id ? updated : v)); return { saved: true }; });
+    saveChain.current = run.catch(() => {});
+    return run;
   };
 
   // Done (leaving Customize without saving): put back the view being edited.
@@ -326,6 +335,7 @@ export function useDashboards(widgetTier) {
   // unless you're editing the dept template as a manager).
   const save = async () => {
     const cur = layoutRef.current;
+    savedLayoutRef.current = cur;
     if (isOwnPersonal) {
       const updated = await api.dashUpdateView(activeId, { layout: cur });
       setViews(vs => vs.map(v => v.id === updated.id ? updated : v));
@@ -333,7 +343,7 @@ export function useDashboards(widgetTier) {
       const updated = await api.dashUpdateView(activeId, { layout: cur });
       setViews(vs => vs.map(v => v.id === updated.id ? updated : v));
     } else {
-      const created = await api.dashCreateView({ target: TARGET, name: 'My view', layout: cur, is_default: true });
+      const created = await api.dashCreateView({ target: TARGET, name: 'My View', layout: cur, is_default: true });
       setViews(vs => [...vs, created]);
       setActiveId(created.id);
     }
@@ -345,6 +355,7 @@ export function useDashboards(widgetTier) {
     const created = await api.dashCreateView({ target: TARGET, name: name || 'New view', layout: layoutRef.current });
     setViews(vs => [...vs, created]);
     setActiveId(created.id);
+    savedLayoutRef.current = layoutRef.current;
     setDirty(false);
     return created;
   };

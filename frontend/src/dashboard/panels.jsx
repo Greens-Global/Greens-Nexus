@@ -1,7 +1,7 @@
 // Heavy dashboard widgets ported from the old Overview / Team Analytics screens
 // (Dashboard.jsx portfolio + ManagerDashboard tabs). Lazy-loaded by widgets.jsx
 // so TimeAdmin & co. stay out of the main bundle.
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { CheckCircle, XCircle, ChevronDown, Package, Mail, Filter, AlertCircle, CakeSlice, PartyPopper } from 'lucide-react';
 import { useRequisitions }  from '../contexts/RequisitionContext';
@@ -495,14 +495,18 @@ export function CalendarPanel({ phone = false }) {
   // that scrolls (with a visible edge shadow and a count in its header).
   const isMobile = useIsMobile();
   const stackedLayout = phone || isMobile;
-  const boxRef = useRef(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
-  useEffect(() => {
-    const el = boxRef.current;
-    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+  // A callback ref, not a mount-time effect: the measured box only exists
+  // while the calendar is connected, so it can appear after mount (someone
+  // connects Outlook) and must be observed then too.
+  const roRef = useRef(null);
+  const boxRef = useCallback((el) => {
+    roRef.current?.disconnect();
+    roRef.current = null;
+    if (!el || typeof ResizeObserver === 'undefined') return;
     const ro = new ResizeObserver(([e]) => setBox({ w: Math.floor(e.contentRect.width), h: Math.floor(e.contentRect.height) }));
     ro.observe(el);
-    return () => ro.disconnect();
+    roRef.current = ro;
   }, []);
 
   useEffect(() => {

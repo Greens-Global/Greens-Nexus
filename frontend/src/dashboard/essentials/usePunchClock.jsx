@@ -18,7 +18,7 @@ import { api } from '../../api';
 import BodModal from '../../components/BodModal';
 import { punchDurable, replayPending, readPending } from '../../lib/punchQueue';
 import { punchPosition } from '../../lib/geoPosition';
-import { applyPunch, useTimeStatus } from '../../lib/useTimeStatus';
+import { applyPunch, useTimeStatus, refetchTimeStatusFresh } from '../../lib/useTimeStatus';
 import { pairLocalAgent } from '../../lib/agentPair';
 import { formatTime } from '../../lib/datetime';
 // The open shift's math is shared with the Time Clock tile so the two never
@@ -247,12 +247,18 @@ export function usePunchClock() {
         if (kind === 'out' && res.result?.promptEod) setEodOpen(true);
         // Stay busy until the fresh status is in: re-enabling now would offer
         // the punch just made for one more round trip (a second tap reopened
-        // the screen-share picker and got "Duplicate punch").
-        await loadStatus();
+        // the screen-share picker and got "Duplicate punch"). A fresh read,
+        // never one that left before this punch landed.
+        await Promise.resolve(refetchTimeStatusFresh()).catch(() => {});
         return;
       }
       // A clock-in that did not record and is not parked to record later.
-      if (kind === 'in' && !res.queued) dropCapture();
+      // Not on a 409, though: that is a state clash ("already clocked in" on
+      // another device, or a duplicate) - the person may well be on the clock,
+      // and dropping the share would leave that shift uncaptured. The server
+      // refuses capture from anyone who is not clocked in, so a stray share
+      // after a real clash ends there.
+      if (kind === 'in' && !res.queued && res.error?.status !== 409) dropCapture();
       if (res.unreachable) {
         say(false, res.queued
           ? 'Nexus could not reach the server. Your punch is saved on this device and will record when the connection returns.'

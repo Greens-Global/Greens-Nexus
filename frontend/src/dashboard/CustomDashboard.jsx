@@ -150,7 +150,9 @@ export default function CustomDashboard() {
           <Comp
             config={it.config || {}} size={{ w: it.w, h: it.h }} phone={phone} kpis={d.kpis} notifications={notifications}
             markRead={markRead} markAllRead={markAllRead} dismiss={dismiss} clearAll={clearAllNotifs}
-            updateConfig={(patch) => d.updateWidgetConfig(it.i, patch)}
+            // Outside Customize a widget's own change (the Weather tile's city)
+            // saves straight to the view - there is no Save button there.
+            updateConfig={(patch) => (d.editing ? d.updateWidgetConfig(it.i, patch) : d.saveWidgetConfig(it.i, patch))}
             saveConfig={(patch) => d.saveWidgetConfig(it.i, patch)} canSaveConfig={d.canSaveInPlace}
           />
         </Suspense>

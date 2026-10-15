@@ -434,7 +434,10 @@ export default function TimeclockWidget() {
   async function quickPunchOut() {
     if (busy || punchFlight.current) return false;
     punchFlight.current = true;
-    try { return await runPunchOut(); } finally { punchFlight.current = false; }
+    // busy is released here too: a throw inside runPunchOut (replay, the
+    // position read, the durable punch) used to leave Punch Out dead until
+    // a reload.
+    try { return await runPunchOut(); } finally { punchFlight.current = false; setBusy(false); }
   }
   async function runPunchOut() {
     setBusy(true);

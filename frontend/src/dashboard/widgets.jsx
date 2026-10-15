@@ -1009,29 +1009,40 @@ const NOTE_SAVE_MS = 1200;
 function NotesWidget({ config, saveConfig, canSaveConfig, phone }) {
   const saved = config?.text || '';
   const [text, setText] = useState(saved);
-  const [status, setStatus] = useState('');   // '' | 'saving' | 'saved' | 'error'
+  const [status, setStatus] = useState('');   // '' | 'saving' | 'saved' | 'unsaved' | 'error'
   const timer = useRef(null);
   const lastSaved = useRef(saved);
-  useEffect(() => { setText(saved); lastSaved.current = saved; }, [saved]);
+  const textRef = useRef(saved);
+  useEffect(() => { setText(saved); lastSaved.current = saved; textRef.current = saved; }, [saved]);
   const flush = useCallback((value) => {
     clearTimeout(timer.current);
     if (!canSaveConfig || !saveConfig || value === lastSaved.current) return;
     setStatus('saving');
     lastSaved.current = value;
     Promise.resolve(saveConfig({ text: value }))
-      .then(() => setStatus('saved'))
+      .then((r) => setStatus(r?.deferred ? 'unsaved' : 'saved'))
       .catch(() => { lastSaved.current = null; setStatus('error'); });
   }, [canSaveConfig, saveConfig]);
-  useEffect(() => () => clearTimeout(timer.current), []);
+  // Leaving within the debounce (a reload, closing the tab, switching view)
+  // must not drop the last few words.
+  const flushRef = useRef(flush);
+  useEffect(() => { flushRef.current = flush; }, [flush]);
+  useEffect(() => {
+    const onHide = () => flushRef.current(textRef.current);
+    window.addEventListener('pagehide', onHide);
+    return () => { window.removeEventListener('pagehide', onHide); clearTimeout(timer.current); flushRef.current(textRef.current); };
+  }, []);
   const onChange = (e) => {
     const v = e.target.value;
     setText(v);
+    textRef.current = v;
     setStatus('');
     clearTimeout(timer.current);
     timer.current = setTimeout(() => flush(v), NOTE_SAVE_MS);
   };
   const statusText = !canSaveConfig ? 'Shared view - save a copy as your own to keep notes'
-    : status === 'saving' ? 'Saving…' : status === 'saved' ? 'Saved' : status === 'error' ? "Couldn't save - try again" : '';
+    : status === 'saving' ? 'Saving…' : status === 'saved' ? 'Saved' : status === 'unsaved' ? 'Saved with the layout when you press Save'
+    : status === 'error' ? "Couldn't save - try again" : '';
   return (
     <DashCard title="Notes" sub={statusText || undefined} action={<StickyNote size={15} style={{ color: C('orange') }} />}>
       <textarea className="nx-inline-edit" value={text} onChange={onChange} onBlur={() => flush(text)}

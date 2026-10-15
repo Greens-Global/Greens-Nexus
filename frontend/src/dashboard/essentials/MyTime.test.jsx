@@ -345,14 +345,20 @@ describe('<MyTime /> render', () => {
     expect(punchMock.punchDurable).not.toHaveBeenCalled();
   });
 
-  it('a refused clock-in stops the share; a parked one keeps it', async () => {
+  it('a refused clock-in stops the share; a state clash (409) and a parked one keep it', async () => {
     const stopCap = vi.fn();
     window.__nexusCapture = { start: async () => true, stop: stopCap };
     apiMock.timeStatus.mockResolvedValue(clockedOutStatus());
-    punchMock.punchDurable.mockResolvedValueOnce({ ok: false, error: { status: 409, message: 'Duplicate punch.' } });
+    punchMock.punchDurable.mockResolvedValueOnce({ ok: false, error: { status: 400, message: 'Outside the work site.' } });
     render(<MyTime />);
     fireEvent.click(await screen.findByRole('button', { name: /Punch In/ }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Duplicate punch.');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Outside the work site.');
+    expect(stopCap).toHaveBeenCalledTimes(1);
+    // Already clocked in on another device: the person may be on the clock,
+    // so the share stays up.
+    punchMock.punchDurable.mockResolvedValueOnce({ ok: false, error: { status: 409, message: 'Duplicate punch.' } });
+    fireEvent.click(screen.getByRole('button', { name: /Punch In/ }));
+    expect(await screen.findByText('Duplicate punch.')).toBeTruthy();
     expect(stopCap).toHaveBeenCalledTimes(1);
     punchMock.punchDurable.mockResolvedValueOnce({ ok: false, unreachable: true, queued: true, error: {} });
     fireEvent.click(screen.getByRole('button', { name: /Punch In/ }));

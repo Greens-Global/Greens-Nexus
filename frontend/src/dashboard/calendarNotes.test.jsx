@@ -84,6 +84,23 @@ describe('Notes', () => {
     expect(saveConfig).not.toHaveBeenCalled();
   });
 
+  it('says so when the note is waiting on the layout Save (Customize), instead of "Saved"', async () => {
+    const saveConfig = vi.fn(async () => ({ deferred: true }));
+    render(<Notes config={{ text: '' }} saveConfig={saveConfig} canSaveConfig />);
+    fireEvent.change(screen.getByLabelText('Notes'), { target: { value: 'Draft' } });
+    await act(async () => { vi.advanceTimersByTime(1300); });
+    expect(screen.getByText(/when you press Save/)).toBeTruthy();
+    expect(screen.queryByText('Saved')).toBeNull();
+  });
+
+  it('saves the last words when the tile goes away inside the debounce', async () => {
+    const saveConfig = vi.fn(async () => {});
+    const { unmount } = render(<Notes config={{ text: '' }} saveConfig={saveConfig} canSaveConfig />);
+    fireEvent.change(screen.getByLabelText('Notes'), { target: { value: 'Last words' } });
+    unmount();
+    expect(saveConfig).toHaveBeenCalledWith({ text: 'Last words' });
+  });
+
   it('is read-only on a view this person cannot change, and says why', () => {
     render(<Notes config={{ text: 'Team note' }} saveConfig={vi.fn()} canSaveConfig={false} />);
     expect(screen.getByLabelText('Notes').readOnly).toBe(true);
