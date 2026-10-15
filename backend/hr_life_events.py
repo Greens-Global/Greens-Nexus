@@ -2573,9 +2573,13 @@ _APPLY["separation"] = _apply_separation_signed
 
 # ── Egnyte filing ────────────────────────────────────────────────────────────
 
-def file_one(db: Session, ev: HrLifeEvent) -> tuple:
+def file_one(db: Session, ev: HrLifeEvent, folder: str = "") -> tuple:
     """Create the person's Egnyte folder (if needed) and file the sealed packet
-    and any signer attachments into its event subfolder. (ok, message)."""
+    and any signer attachments into its event subfolder. (ok, message).
+
+    `folder` (File Manually, Oct 15 2026): an Egnyte folder HR picked when the
+    wired one cannot be made - it must already exist; nothing above it is
+    created, so a typo can never invent a company's folder tree."""
     from routers import esign
     import egnyte_wiring
     import services.egnyte as svc
@@ -2587,10 +2591,16 @@ def file_one(db: Session, ev: HrLifeEvent) -> tuple:
         return False, "There is no employee record to file this under."
     if not svc.configured():
         return False, "Egnyte is not connected."
-    try:
-        folder = egnyte_wiring.provision_person_folder(emp, db)
-    except ValueError as e:
-        return False, str(e)
+    if folder:
+        found = egnyte_wiring._match_path(folder)
+        if not found:
+            return False, f"There is no folder {svc.norm(folder)} in Egnyte - check the path, or create it there first."
+        folder = found
+    else:
+        try:
+            folder = egnyte_wiring.provision_person_folder(emp, db)
+        except ValueError as e:
+            return False, str(e)
     setting = db.query(HrPacketSetting).filter(HrPacketSetting.id == ev.setting_id).first() if ev.setting_id else None
     sub = _safe_name((setting.egnyte_subfolder if setting else "") or DEFAULT_SUBFOLDERS.get(ev.kind, ""), 60)
     target = svc.norm(f"{folder}/{sub}")
@@ -2606,6 +2616,47 @@ def file_one(db: Session, ev: HrLifeEvent) -> tuple:
     esign._log(db, req.id, "archived", f"filed in Egnyte {target}/{name}"
                + (f", with {n_att} attachment{'s' if n_att != 1 else ''}" if n_att else ""))
     return True, f"{target}/{name}"
+
+
+FILED_BY_HAND = "filed_by_hand"
+
+
+def file_by_hand(db: Session, ev: HrLifeEvent, folder: str, by: str) -> list:
+    """File Manually (Pranshu, Oct 15 2026): when automatic filing fails, HR
+    picks the Egnyte folder and every signed, unfiled packet for the same
+    person (the offer letter and the hiring packet together) is filed there.
+    Each one filed is marked filed by hand - the card leaves the profile at
+    once. Returns the events it tried; raises PacketError when none could be
+    filed. Commits."""
+    folder = (folder or "").strip()
+    if not folder:
+        raise PacketError("Paste the Egnyte folder to file into.")
+    q = db.query(HrLifeEvent).filter(HrLifeEvent.status == "completed", HrLifeEvent.filing_status != "filed")
+    if ev.employee_id:
+        q = q.filter(HrLifeEvent.employee_id == ev.employee_id)
+    else:
+        q = q.filter(HrLifeEvent.id == ev.id)
+    events = q.order_by(HrLifeEvent.completed_at).with_for_update().all()
+    if not events:
+        raise PacketError("Nothing left to file - it is already in Egnyte.", 409)
+    errors = []
+    for one in events:
+        try:
+            ok, msg = file_one(db, one, folder)
+        except Exception as e:      # Egnyte/network trouble
+            ok, msg = False, f"{type(e).__name__}: {str(e)[:200]}"
+        one.updated_at = _now()
+        if ok:
+            one.filing_status, one.filing_path, one.filing_error, one.filing_next_at = "filed", msg, "", ""
+            one.flags = [f for f in (one.flags or []) if f.get("code") != FILED_BY_HAND] + [
+                {"code": FILED_BY_HAND, "message": f"Filed by hand by {by} into {folder}"}]
+        else:
+            one.filing_error = msg[:500]
+            errors.append(msg)
+    db.commit()
+    if len(errors) == len(events):
+        raise PacketError(errors[0])
+    return events
 
 
 def run_filing(db: Session, ev: HrLifeEvent) -> None:
