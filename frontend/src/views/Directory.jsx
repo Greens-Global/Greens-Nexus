@@ -1,4 +1,4 @@
-// Contact Directory (Support > Contact Directory, Oct 2026).
+// Contact Directory (Oct 2026; Team > Contact since Neil, Oct 13 2026).
 //
 // Before this, the Support tile pointed at a view id that no longer routed
 // and everyone landed on the "Sub-Application" placeholder; the only people
@@ -49,7 +49,9 @@ function readLens() {
   try { const v = localStorage.getItem(LENS_KEY); return LENSES.some(([k]) => k === v) ? v : 'dept'; } catch { return 'dept'; }
 }
 
-export default function Directory() {
+// `embedded`: shown as Team's Contact tab, under Team's own title - the
+// page title row is dropped there, the tool buttons stay.
+export default function Directory({ embedded = false }) {
   const { can, myGrantedModules, myEmail } = useRole();
   const mobile = useIsMobile('(max-width: 820px)');
   const [data, setData] = useState(null);
@@ -293,11 +295,13 @@ export default function Directory() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18, fontFamily: FONT }}>
       <div className="view-header" style={{ flexWrap: 'wrap', gap: 10 }}>
-        <div className="view-title-group">
-          <h2>Contact Directory</h2>
-          <p>{data ? `${people.length} ${people.length === 1 ? 'person' : 'people'}` : 'Find and reach anyone in the company'}</p>
-        </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        {!embedded && (
+          <div className="view-title-group">
+            <h2>Contact Directory</h2>
+            <p>{data ? `${people.length} ${people.length === 1 ? 'person' : 'people'}` : 'Find and reach anyone in the company'}</p>
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginLeft: embedded ? 'auto' : undefined }}>
           {gaps && (
             <button type="button" onClick={() => { setManaging((v) => !v); setGapsOpen(!managing); }} aria-pressed={managing} className="dir-tool" style={{
               display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 9, cursor: 'pointer', fontFamily: FONT,

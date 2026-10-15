@@ -108,7 +108,7 @@ export const SHORTCUT_TARGETS = [
   { view: 'operations',       label: 'Operations',        Icon: ClipboardList, color: 'blue' },
   { view: 'ops',              label: 'Construction',      Icon: HardHat,      color: 'orange' },
   { view: 'external-links',   label: 'Links',             Icon: ExternalLink, color: 'blue' },
-  { view: 'support',          label: 'Support',           Icon: TicketIcon,   color: 'red' },
+  { view: 'support',          label: 'Help Center',           Icon: TicketIcon,   color: 'red' },
 ];
 
 const targetFor = (t) => SHORTCUT_TARGETS.find(s => s.view === t.view && (s.sub || '') === (t.sub || ''));
@@ -646,7 +646,7 @@ export const QUICK_ACTIONS = [
   // person without it never sees the action offered or placed.
   { key: 'find-person',   label: 'Find a Person',     view: 'directory',                      color: 'blue',   Icon: Users },
   { key: 'checkout-item', label: 'Check Out an Item', view: 'inventory', sub: 'checkouts',    color: 'orange', Icon: HandCoins },
-  { key: 'my-shifts',     label: 'My Shifts',         view: 'shifts', sub: 'mine',            color: 'green',  Icon: CalendarDays },
+  { key: 'my-shifts',     label: 'My Shifts',         view: 'myhr', sub: 'shifts',            color: 'green',  Icon: CalendarDays },
   { key: 'briefing',      label: 'My Briefing',       view: 'briefing',                       color: 'brand',  Icon: Sun },
   { key: 'credvault',     label: 'Credential Vault',  view: 'credvault', module: 'credvault', color: 'purple', Icon: ShieldCheck },
 ];
@@ -1035,7 +1035,11 @@ function ClockWidget() {
 const STAT_LIMITS = { minW: 2, minH: 2, maxW: 4, maxH: 3 };
 export const WIDGETS = {
   kpi:           { title: 'KPI Stat',        cat: 'Metrics',   icon: BarChart3,    size: { w: 3, h: 2 }, limits: STAT_LIMITS, render: KpiWidget,          configurable: 'kpi', compact: true },
-  'kpi-bar':     { title: 'KPI Bar Chart',   cat: 'Metrics',   icon: BarChart3,    size: { w: 4, h: 3 }, limits: { minW: 3, minH: 3, maxW: 6, maxH: 5 }, render: KpiBarWidget },
+  // At a Glance, retired (Neil, Oct 13 2026: "nobody cares that there's 1,925
+  // open tasks across the whole company"). Gone from every board and the
+  // gallery via widgetHidden; kept here so saved layouts that carry it load
+  // cleanly instead of showing "no longer available".
+  'kpi-bar':     { title: 'KPI Bar Chart',   cat: 'Metrics',   icon: BarChart3,    size: { w: 4, h: 3 }, limits: { minW: 3, minH: 3, maxW: 6, maxH: 5 }, render: KpiBarWidget, hidden: true, retired: true },
   // A two-row stat tile since Sep 29 (was 3x3 with its own header + button):
   // maxH 2 so every saved board shrinks with it on load, minW 3 so today
   // and the week fit on one baseline.
@@ -1124,7 +1128,10 @@ export function widgetAllowed(def, { can, myGrantedModules, canAccessModule }) {
 // `timeTrackedWhen(config)` is the same call for a tile whose relevance
 // depends on how it is set up (an Action Tile set to the punch); without a
 // config (the gallery asking about the type itself) it is never hidden.
+// A `retired` tile is hidden from everyone, the same way: out of every grid
+// and the gallery, never deleted from a saved layout.
 export function widgetHidden(def, { timeTrackingExempt }, config) {
+  if (def?.retired) return true;
   if (timeTrackingExempt !== true) return false;
   return !!def?.timeTracked || (!!config && !!def?.timeTrackedWhen?.(config));
 }

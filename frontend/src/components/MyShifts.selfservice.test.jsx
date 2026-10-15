@@ -107,7 +107,7 @@ describe('MyShifts week and group grid', () => {
             activities: [{ start: '12:00', end: '12:30', label: 'Lunch', paid: false }] }] },
         sched.teams[0].members[1],
       ] }] });
-    render(<MyShifts />);
+    render(<MyShifts part="team" />);
     const me = (await screen.findByText('Me Here')).closest('[data-member]');
     expect(me.querySelector('img').getAttribute('src')).toBe('https://x.test/me.jpg');
     const bob = screen.getByText('Bob Brown').closest('[data-member]');
@@ -152,7 +152,7 @@ describe('MyShifts week and group grid', () => {
       matches: /max-width/.test(q), media: q, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent() { return false; },
     }));
     try {
-      render(<MyShifts />);
+      render(<MyShifts part="team" />);
       const grid = await screen.findByRole('table', { name: 'Store schedule' });
       expect(within(grid).queryByRole('columnheader')).toBeNull();
       const strip = screen.getByRole('tablist', { name: 'Day' });
@@ -167,12 +167,15 @@ describe('MyShifts week and group grid', () => {
       timeoff: [{ id: 'to1', startDate: DAY, endDate: DAY, startTime: '14:00', endTime: '16:00', allDay: false, type: 'personal', status: 'approved', note: 'Dentist' }],
       teams: [{ id: 'g', name: 'Store', members: [sched.teams[0].members[0],
         { ...sched.teams[0].members[1], timeoff: [{ id: 'to2', startDate: DAY, endDate: DAY, startTime: '14:00', endTime: '16:00', allDay: false, type: 'personal', status: 'approved' }] }] }] });
-    render(<MyShifts />);
+    const { unmount } = render(<MyShifts part="team" />);
     const bob = (await screen.findByText('Bob Brown')).closest('[data-member]');
     expect(bob.querySelector('[data-shift="bob1"]')).toBeTruthy();          // the shift is still there
     expect(bob.querySelector('[data-timeoff="to2"]').textContent).toBe('2:00p - 4:00p Personal');
     expect(bob.textContent).toContain('8 Hrs');                              // and still counts
-    // My own day card shows both too, and my hours are not dropped.
+    unmount();
+    // My own day card (Workday > My Shifts) shows both too, and my hours are not dropped.
+    render(<MyShifts />);
+    await waitFor(() => expect(document.querySelector('[data-timeoff="to1"]')).toBeTruthy());
     expect(document.querySelector('[data-timeoff="to1"]').textContent).toContain('Personal');
     expect(screen.getAllByText('8 Hrs').length).toBeGreaterThan(0);
   });
@@ -180,13 +183,15 @@ describe('MyShifts week and group grid', () => {
   it('shows nothing, not "Off", on a day with nothing shared; usual hours as a reminder', async () => {
     timeMySchedule.mockResolvedValue({ ...sched, shift: { id: 'p', name: 'Day Shift', start: '08:30', end: '17:30', days: '1,2,3,4,5,6,7' },
       teams: [{ ...sched.teams[0], members: [{ ...sched.teams[0].members[0], shift: { id: 'p', start: '08:30', end: '17:30', days: '1,2,3,4,5,6,7' } }, sched.teams[0].members[1]] }] });
-    render(<MyShifts />);
+    const { unmount } = render(<MyShifts />);
     await screen.findAllByText('Usual Hours');
     expect(screen.getAllByText('Usual Hours')).toHaveLength(6);
     expect(screen.queryByText('Off')).toBeNull();
     expect(screen.getAllByText('8 Hrs').length).toBeGreaterThan(0);   // only the shared shift counts
-    // In the group grid, usual hours are one line under the name - the cells stay empty.
-    const me = screen.getByText('Me Here').closest('[data-member]');
+    unmount();
+    // In the group grid (Team > Shifts), usual hours are one line under the name - the cells stay empty.
+    render(<MyShifts part="team" />);
+    const me = (await screen.findByText('Me Here')).closest('[data-member]');
     expect(me.querySelector('[data-person]').textContent).toContain('Usual 8:30a - 5:30p');
     me.querySelectorAll('[data-cell]').forEach((c) => expect(c.textContent).toBe(''));
   });
@@ -194,7 +199,7 @@ describe('MyShifts week and group grid', () => {
   it('draws a teammate\'s days off as one spanning pill in the group grid', async () => {
     timeMySchedule.mockResolvedValue({ ...sched, teams: [{ ...sched.teams[0], members: [sched.teams[0].members[0],
       { ...sched.teams[0].members[1], scheduled: [], timeoff: [{ id: 'vac', startDate: monday, endDate: plus(30), type: 'vacation', status: 'pending' }] }] }] });
-    render(<MyShifts />);
+    render(<MyShifts part="team" />);
     const bob = (await screen.findByText('Bob Brown')).closest('[data-member]');
     const pills = bob.querySelectorAll('[data-timeoff="vac"]');
     expect(pills).toHaveLength(1);
@@ -220,6 +225,19 @@ describe('MyShifts week and group grid', () => {
   });
 });
 
+describe('MyShifts parts (Workday vs Team, Oct 13 2026)', () => {
+  it('shows my own days on Workday and only the group grid on Team', async () => {
+    const { unmount } = render(<MyShifts />);
+    await screen.findByRole('status', { name: 'Week summary' });
+    expect(screen.queryByRole('table', { name: 'Store schedule' })).toBeNull();
+    unmount();
+    render(<MyShifts part="team" />);
+    await screen.findByRole('table', { name: 'Store schedule' });
+    expect(screen.queryByRole('status', { name: 'Week summary' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Request a swap/ })).toBeNull();
+  });
+});
+
 describe('MyShifts requests', () => {
   it('opens the request dialog from a shift with it filled in, and sends a swap', async () => {
     render(<MyShifts />);
@@ -241,7 +259,7 @@ describe('MyShifts requests', () => {
     unmount();
     shiftRequestsMine.mockResolvedValue(reqs({ settings: { openShifts: true, swaps: false, offers: false } }));
     render(<MyShifts />);
-    await screen.findByText('Me Here');
+    await screen.findByText('Front Desk');
     expect(screen.queryByRole('button', { name: /Request a swap/ })).toBeNull();
   });
 
@@ -249,7 +267,7 @@ describe('MyShifts requests', () => {
     const open = [{ id: 'open1', date: DAY, start: '06:00', end: '14:00', label: 'Early', openSlots: 2 }];
     if (PAST) open.push({ id: 'open0', date: PAST, start: '06:00', end: '14:00', label: 'Gone', openSlots: 1 });
     shiftRequestsMine.mockResolvedValue(reqs({ openShifts: open }));
-    render(<MyShifts />);
+    render(<MyShifts part="team" />);
     await screen.findByText('Me Here');
     const block = await waitFor(() => { const el = document.querySelector('[data-shift="open1"]'); expect(el).toBeTruthy(); return el; });
     expect(block.closest('[data-member]').getAttribute('data-member')).toBe('open');

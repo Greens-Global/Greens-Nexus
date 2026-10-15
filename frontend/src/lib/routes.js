@@ -6,5 +6,8 @@
 //   itemmanagement <-> inventory   (Neil, Jun 16)
 //   construction   <-> ops         (the module was renamed, the id stayed)
 //   workday        <-> myhr        (Workday since Sep 3; the address since Oct 14)
-export const PATH_TO_VIEW = { itemmanagement: 'inventory', inventory: 'inventory', construction: 'ops', ops: 'ops', workday: 'myhr', myhr: 'myhr' };
-export const VIEW_TO_PATH = { inventory: 'itemmanagement', ops: 'construction', myhr: 'workday' };
+//   team           <-> shifts      (Team since Neil, Oct 13 2026)
+//   help-center    <-> support     (Help Center since Neil, Oct 13 2026)
+export const PATH_TO_VIEW = { itemmanagement: 'inventory', inventory: 'inventory', construction: 'ops', ops: 'ops', workday: 'myhr', myhr: 'myhr',
+  team: 'shifts', shifts: 'shifts', 'help-center': 'support', support: 'support' };
+export const VIEW_TO_PATH = { inventory: 'itemmanagement', ops: 'construction', myhr: 'workday', shifts: 'team', support: 'help-center' };

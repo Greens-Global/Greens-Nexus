@@ -7,10 +7,10 @@
 // what it is for, a picture, step-by-step walkthroughs (every step is one
 // action, so the count on each card is the click count), every feature, what
 // managers/admins get, and tips.
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Search, ArrowUpRight, ChevronLeft, ChevronRight, CheckCircle2, MousePointerClick,
-  ShieldCheck, Lightbulb, MapPin, UserCheck, BookOpen, X,
+  ShieldCheck, Lightbulb, MapPin, UserCheck, BookOpen, X, Rocket,
   Sparkles, LayoutDashboard, Contact, MonitorDot, CalendarClock, CheckSquare, HardDrive, Ticket,
   FileText, Monitor, HardHat, Store, Package, Home, Calculator, Landmark, Users,
   Megaphone, Gauge, KeyRound, HelpCircle, Settings,
@@ -21,6 +21,13 @@ import { useDocAccess } from './docsAccess';
 import { searchDocs, sectionDomId, walkthroughAnchor, featureAnchor, TIPS_ANCHOR, MANAGER_ANCHOR } from './docsSearch';
 import { DOCS_OPEN_EVENT, PENDING_DOCS_KIND, decodeDocTarget } from './openDoc';
 import { takePendingOpen } from '../lib/pendingOpen';
+import { SkeletonBlocks } from '../components/AsyncState';
+
+// The Implementation Guide is a section of Documentation (Neil, Oct 13 2026:
+// "technically it is all of documentation") - administrators see it at the
+// top of the index under Set Up Nexus. Lazy: only its readers load it.
+const ImplementationGuide = lazy(() => import('./ImplementationGuide'));
+const GUIDE_ID = 'implementation-guide';
 
 const ICONS = {
   Sparkles, LayoutDashboard, Contact, MonitorDot, CalendarClock, CheckSquare, HardDrive, Ticket,
@@ -260,11 +267,13 @@ function takeUrlTarget() {
   } catch { return null; }
 }
 
-export default function SupportDocs() {
+export default function SupportDocs({ canImplement = false, startOnGuide = false }) {
   // Where to open: a deep link (URL, or a help search that navigated here)
   // wins over the page this person last read.
   const [initialTarget] = useState(() => takeUrlTarget() || decodeDocTarget(takePendingOpen(PENDING_DOCS_KIND)));
-  const [activeId, setActiveId] = useState(() => initialTarget?.docId || readLast() || DOCS[0].id);
+  const [activeId, setActiveId] = useState(() => (startOnGuide ? GUIDE_ID : null) || initialTarget?.docId || readLast() || DOCS[0].id);
+  // /help-center/implementation while Documentation is already open.
+  useEffect(() => { if (startOnGuide) setActiveId(GUIDE_ID); }, [startOnGuide]);
   // Section to scroll to and flash once the page for it has rendered.
   const [flash, setFlash] = useState(() => (initialTarget ? { ...initialTarget, at: Date.now() } : null));
 
@@ -327,6 +336,10 @@ export default function SupportDocs() {
   const shownId = isShown(activeId) ? activeId : (matches && visible.length ? visible : allowed)[0].id;
   const idx = Math.max(0, allowed.findIndex((d) => d.id === shownId));
   const doc = allowed[idx];
+  // The guide is not a DOCS entry: it is listed (and shown) for
+  // administrators while the index is not being searched.
+  const listGuide = canImplement && !q;
+  const onGuide = listGuide && activeId === GUIDE_ID;
 
   const select = (id) => {
     setActiveId(id);
@@ -367,6 +380,15 @@ export default function SupportDocs() {
           {visible.length === 0 && (
             <div style={{ fontSize: 13, color: 'var(--muted)', padding: '8px 10px' }}>Nothing matches "{query.trim()}".</div>
           )}
+          {listGuide && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.07em', padding: '0 10px 5px' }}>Set Up Nexus</div>
+              <button type="button" onClick={() => select(GUIDE_ID)} className={`docs-index-item${onGuide ? ' active' : ''}`}>
+                <Rocket size={15} style={{ flexShrink: 0 }} />
+                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Implementation Guide</span>
+              </button>
+            </div>
+          )}
           {DOC_GROUPS.map((g) => {
             const items = visible.filter((d) => d.group === g);
             if (!items.length) return null;
@@ -375,7 +397,7 @@ export default function SupportDocs() {
                 <div style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.07em', padding: '0 10px 5px' }}>{g}</div>
                 {items.map((d) => {
                   const I = ICONS[d.icon] || BookOpen;
-                  const on = d.id === doc.id;
+                  const on = !onGuide && d.id === doc.id;
                   return (
                     <button key={d.id} type="button" onClick={() => select(d.id)} className={`docs-index-item${on ? ' active' : ''}`}>
                       <I size={15} style={{ flexShrink: 0 }} />
@@ -389,7 +411,8 @@ export default function SupportDocs() {
         </aside>
 
         {/* Index - phones */}
-        <select className="form-input docs-index-select" value={doc.id} onChange={(e) => select(e.target.value)} aria-label="Choose a module">
+        <select className="form-input docs-index-select" value={onGuide ? GUIDE_ID : doc.id} onChange={(e) => select(e.target.value)} aria-label="Choose a module">
+          {listGuide && <optgroup label="Set Up Nexus"><option value={GUIDE_ID}>Implementation Guide</option></optgroup>}
           {DOC_GROUPS.map((g) => {
             const items = visible.filter((d) => d.group === g);
             return items.length ? (
@@ -399,13 +422,17 @@ export default function SupportDocs() {
         </select>
 
         <div className="docs-article">
-          <Article
+          {onGuide ? (
+            <Suspense fallback={<SkeletonBlocks count={4} height={120} />}>
+              <ImplementationGuide />
+            </Suspense>
+          ) : <Article
             doc={doc}
             prev={allowed[idx - 1]}
             next={allowed[idx + 1]}
             onPrev={() => select(allowed[idx - 1].id)}
             onNext={() => select(allowed[idx + 1].id)}
-          />
+          />}
         </div>
       </div>
     </div>

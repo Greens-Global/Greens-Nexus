@@ -14,7 +14,6 @@ vi.mock('../bffAuth', () => ({ BFF_MODE: false, bffLogout: vi.fn() }));
 vi.mock('./NotificationBell', () => ({ default: () => null }));
 vi.mock('../support/HelpMenu', () => ({ default: () => <button aria-label="Help">?</button> }));
 vi.mock('./MyProfileModal', () => ({ default: () => null }));
-vi.mock('./EmailSettingsModal', () => ({ default: () => null }));
 const searchTaskModule = vi.fn(() => Promise.resolve({
   tasks: [{ id: 't1', title: 'Fix the gate', completed: false, projectName: 'Austin' }],
   projects: [], people: [{ name: 'Charmi Patel', email: 'charmi@x.com' }], portfolios: [], teams: [],

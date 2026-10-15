@@ -17,6 +17,9 @@
 //     cards that caused them.
 // Opened from a property in Asset Management (`property`), the property is
 // fixed - it is not a choice there (Pranshu, 10/06).
+// Batch Create (Neil, Oct 13 2026): the same form, renamed and made general -
+// the property is optional and any team can take the batch. Opened as the
+// second tab of Submit a Ticket (`onSingle` switches back to one ticket).
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Camera, ImagePlus, Plus, Trash2, Copy, X, CheckCircle2, ChevronDown, ChevronUp, RotateCcw } from 'lucide-react';
 import { api } from '../api';
@@ -34,6 +37,7 @@ import {
 import { uploadTicketEvidence } from './evidenceUpload';
 import { PropertySelect } from './PropertySelect';
 import { useTicketProperties, propertyLabel, groupTakesProperty, isBuildingGroup } from './propertyMeta';
+import CreateModeTabs from './CreateModeTabs';
 
 const MAX_LINES = 50;
 const MAX_PHOTOS = 6;
@@ -62,7 +66,7 @@ function writeDraft(d) {
 const revive = (lines) => (lines || []).map((l) => ({ ...blankLine(), ...l, key: l.key || uid(),
   photos: (l.photos || []).filter((p) => p.status === 'done' && p.url).map((p) => ({ ...p, preview: p.url })) }));
 
-export default function PropertyWalkthrough({ onClose, property = null, onDone = null }) {
+export default function PropertyWalkthrough({ onClose, property = null, onDone = null, onSingle = null }) {
   useTicketConfig();                                     // help topics + type switches from the server
   const isMobile = useIsMobile();
   const { properties } = useTicketProperties();
@@ -90,14 +94,15 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
   const titleRefs = useRef({});
   const focusKey = useRef(null);
 
-  // Only the teams whose tickets sit on a property (the server enforces the
-  // same); start on the one that handles buildings.
+  // Any team takes a batch (Batch Create, Oct 13 2026). Opened from a
+  // property, only the teams whose tickets sit on a property (the server
+  // enforces the same), starting on the one that handles buildings.
   useEffect(() => {
     api.getMyTicketDepartments()
       .then((d) => {
-        const list = (d || []).filter((x) => x.enabled !== false && !x.removed && groupTakesProperty(helpGroupFor(x.name)));
+        const list = (d || []).filter((x) => x.enabled !== false && !x.removed && (!property || groupTakesProperty(helpGroupFor(x.name))));
         setDepts(list);
-        const start = list.find((x) => isBuildingGroup(helpGroupFor(x.name))) || (list.length === 1 ? list[0] : null);
+        const start = (property && list.find((x) => isBuildingGroup(helpGroupFor(x.name)))) || (list.length === 1 ? list[0] : null);
         if (start) setDeptId((cur) => cur || start.id);
       })
       .catch(() => setDepts([]));
@@ -106,6 +111,9 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
   const prop = properties.find((p) => p.id === propertyId) || (property && property.id === propertyId ? property : null);
   const dept = (depts || []).find((d) => d.id === deptId);
   const group = helpGroupFor(dept?.name || '');
+  // The Property field shows for a building or site team only; any other
+  // team's batch carries no property.
+  const takesProperty = !!property || groupTakesProperty(group);
   const topicOptions = useMemo(() => [
     ...((group?.topics || []).map((tp) => [tp.name, tp.name])), [OTHER_TOPIC, 'Other'],
   ], [group]);
@@ -195,7 +203,6 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
   const submit = async () => {
     if (busy) return;
     setFormError('');
-    if (!propertyId) { setFormError('Pick the property you are walking.'); return; }
     if (!deptId) { setFormError('Pick the team that will handle these.'); return; }
     if (!filled.length) { setFormError('Add at least one issue.'); return; }
     if (uploading) { setFormError('Photos are still uploading - this takes a moment on a slow connection.'); return; }
@@ -209,7 +216,7 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
     setBusy(true);
     try {
       const r = await api.createTicketWalkthrough({
-        batch_id: batchId, property_asset_id: propertyId, hr_department_id: deptId,
+        batch_id: batchId, property_asset_id: takesProperty ? propertyId : '', hr_department_id: deptId,
         // Started from the property in Asset Management: every ticket keeps it.
         ...(property && property.id === propertyId ? { property_locked: true } : {}),
         lines: filled.map((l) => ({
@@ -227,7 +234,7 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
       const perLine = e?.detail?.lines;
       if (e?.status === 409 && e?.detail?.code === 'batch_mismatch') {
         // Filed earlier with different lines. Show what landed; every line
-        // not among them goes into a NEW walkthrough (new batch id).
+        // not among them goes into a NEW batch (new batch id).
         const filedSubjects = (e.detail.tickets || []).map((t) => t.subject.trim().toLowerCase());
         const leftover = filled.filter((l) => {
           const i = filedSubjects.indexOf(l.subject.trim().toLowerCase());
@@ -272,13 +279,13 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
   const continueLeftover = () => {
     const rest = mismatch.leftover.map((l) => ({ ...l, key: uid() }));
     setMismatch(null); setErrors({}); setFormError('');
-    setBatchId(newBatchId());                          // a NEW walkthrough - never the filed id
+    setBatchId(newBatchId());                          // a NEW batch - never the filed id
     setLines(rest.length ? rest : [blankLine()]);
   };
   const discard = () => {
     if (filled.length && !window.confirm(unconfirmed
-      ? 'Discard this walkthrough? If it was already filed, the tickets stay filed - check Tickets.'
-      : 'Discard this walkthrough? Lines not yet created are lost.')) return;
+      ? 'Discard this batch? If it was already filed, the tickets stay filed - check Tickets.'
+      : 'Discard this batch? Lines not yet created are lost.')) return;
     writeDraft(null);
     onClose();
   };
@@ -288,6 +295,10 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
   };
   const dropOffered = () => { writeDraft(null); setOffer(null); };
 
+  // The form's title: the Create a Ticket | Batch Create switch when opened
+  // from Submit a Ticket, the plain name otherwise (Asset Management).
+  const title = onSingle ? <CreateModeTabs active="batch" onChange={onSingle} /> : 'Batch Create';
+  const at = (p) => (p?.name ? <> at <b>{p.name}</b></> : null);
   const chip = (on) => ({ ...btn(on ? 'primary' : 'outline'), padding: '5px 10px', fontSize: 12.5 });
   const err = (l, f) => errors[l.key]?.[f];
   const unitsListId = `wt-units-${propertyId || 'none'}`;
@@ -308,13 +319,13 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
     const n = mismatch.tickets.length;
     const left = mismatch.leftover.length;
     return (
-      <Modal title="Property Walkthrough" onClose={onClose} width={560} footer={<>
+      <Modal title="Batch Create" onClose={onClose} width={560} footer={<>
         {left > 0 && <button style={{ ...btn('primary'), marginLeft: 'auto' }} onClick={continueLeftover}>
-          Start a Walkthrough With the {left} Unfiled Line{left === 1 ? '' : 's'}</button>}
+          Start a Batch With the {left} Unfiled Line{left === 1 ? '' : 's'}</button>}
         <button style={{ ...btn(left > 0 ? 'outline' : 'primary'), ...(left > 0 ? null : { marginLeft: 'auto' }) }} onClick={onClose}>Done</button>
       </>}>
         <div role="status" style={{ fontSize: 14, color: NX.ink, marginBottom: 12, fontFamily: FONT }}>
-          This walkthrough was already filed with <b>{n} ticket{n === 1 ? '' : 's'}</b> at <b>{mismatch.property?.name}</b>.
+          This batch was already filed with <b>{n} ticket{n === 1 ? '' : 's'}</b>{at(mismatch.property)}.
           {left > 0
             ? <div style={{ fontSize: 12.5, color: NX.dim, marginTop: 4 }}>{left} line{left === 1 ? ' was' : 's were'} added or changed after that and {left === 1 ? 'was' : 'were'} not filed yet.</div>
             : <div style={{ fontSize: 12.5, color: NX.dim, marginTop: 4 }}>Every line is among them - nothing was duplicated.</div>}
@@ -328,14 +339,14 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
   if (done) {
     const n = done.tickets?.length || 0;
     return (
-      <Modal title="Property Walkthrough" onClose={onClose} width={560} footer={<>
-        <button style={{ ...btn('outline'), marginLeft: 'auto' }} onClick={startOver}>Start Another Walkthrough</button>
+      <Modal title="Batch Create" onClose={onClose} width={560} footer={<>
+        <button style={{ ...btn('outline'), marginLeft: 'auto' }} onClick={startOver}>Start Another Batch</button>
         <button style={btn('primary')} onClick={onClose}>Done</button>
       </>}>
         <div role="status" style={{ display: 'flex', gap: 10, alignItems: 'flex-start', marginBottom: 14, fontFamily: FONT }}>
           <CheckCircle2 size={22} style={{ color: NX.green, flexShrink: 0 }} />
           <div style={{ fontSize: 14, color: NX.ink }}>
-            <b>{n} ticket{n === 1 ? '' : 's'}</b> created at <b>{done.property?.name}</b>.
+            <b>{n} ticket{n === 1 ? '' : 's'}</b> created{at(done.property)}.
             {done.replayed && <div style={{ fontSize: 12.5, color: NX.dim, marginTop: 4 }}>These were already filed - nothing was duplicated.</div>}
           </div>
         </div>
@@ -345,8 +356,8 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
   }
 
   return (
-    <Modal title="Property Walkthrough" onClose={onClose} footer={<>
-      <button style={{ ...btn('ghost'), color: NX.dim }} onClick={discard}>Discard Walkthrough</button>
+    <Modal title={title} onClose={onClose} footer={<>
+      <button style={{ ...btn('ghost'), color: NX.dim }} onClick={discard}>Discard Batch</button>
       <span style={{ marginLeft: 'auto', fontSize: 12.5, color: NX.dim }}>{filled.length} line{filled.length === 1 ? '' : 's'}</span>
       <button style={{ ...btn('primary'), opacity: busy || uploading ? 0.6 : 1 }} onClick={submit} disabled={busy}>
         {busy ? (unconfirmed ? 'Checking…' : 'Creating…')
@@ -362,7 +373,7 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
         )}
         {offer && (
           <div role="status" style={{ border: `1px solid ${NX.border}`, background: NX.surface2, borderRadius: 10, padding: '10px 12px', marginBottom: 14, fontSize: 12.5, color: NX.dim }}>
-            You have an unsent walkthrough ({offer.lines.length} line{offer.lines.length === 1 ? '' : 's'}) from {formatDateTime(offer.savedAt)}.
+            You have an unsent batch ({offer.lines.length} line{offer.lines.length === 1 ? '' : 's'}) from {formatDateTime(offer.savedAt)}.
             <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
               <button style={btn('primary')} onClick={resumeOffered}>Resume It</button>
               <button style={btn('outline')} onClick={dropOffered}>Discard It</button>
@@ -370,27 +381,29 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
           </div>
         )}
         {restoredAt && (
-          <div style={{ fontSize: 12, color: NX.faint, marginBottom: 10 }}>Restored your unsent walkthrough from {formatDateTime(restoredAt)}.</div>
+          <div style={{ fontSize: 12, color: NX.faint, marginBottom: 10 }}>Restored your unsent batch from {formatDateTime(restoredAt)}.</div>
         )}
         {/* Locked while unconfirmed: a disabled fieldset disables every input,
             select, file picker and button inside it, so the retry is the same request. */}
         <fieldset disabled={unconfirmed} style={{ border: 0, padding: 0, margin: 0, minWidth: 0, opacity: unconfirmed ? 0.65 : 1 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
-            <div style={fieldStyle}>
-              <label style={labelStyle}>Property <span style={{ color: NX.red }}>*</span></label>
-              {property ? (
-                <div style={{ ...inputStyle, display: 'flex', alignItems: 'center', background: NX.surface2 }}>{propertyLabel(prop) || property.name}</div>
-              ) : (
-                <PropertySelect value={propertyId} onChange={(v) => { setPropertyId(v); setFormError(''); }} />
-              )}
-            </div>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile || !takesProperty ? '1fr' : '1fr 1fr', gap: 12 }}>
             <div style={fieldStyle}>
               <label style={labelStyle}>Team <span style={{ color: NX.red }}>*</span></label>
-              <TicketSelect value={deptId} onChange={(v) => { setDeptId(v); setLines((ls) => ls.map((l) => ({ ...l, application: '', otherText: '' }))); }}
+              <TicketSelect value={deptId} onChange={(v) => { setDeptId(v); setFormError(''); setLines((ls) => ls.map((l) => ({ ...l, application: '', otherText: '' }))); }}
                 placeholder={depts === null ? 'Loading…' : 'Select team'} searchPlaceholder="Search teams…"
-                emptyText="No building or site team is set up for tickets."
+                emptyText={property ? 'No building or site team is set up for tickets.' : 'No team is set up for tickets.'}
                 options={(depts || []).map((d) => [d.id, d.name])} />
             </div>
+            {takesProperty && (
+              <div style={fieldStyle}>
+                <label style={labelStyle}>Property</label>
+                {property ? (
+                  <div style={{ ...inputStyle, display: 'flex', alignItems: 'center', background: NX.surface2 }}>{propertyLabel(prop) || property.name}</div>
+                ) : (
+                  <PropertySelect value={propertyId} onChange={(v) => { setPropertyId(v); setFormError(''); }} />
+                )}
+              </div>
+            )}
           </div>
           <datalist id={unitsListId}>{(prop?.units || []).map((u) => <option key={u} value={u} />)}</datalist>
 
@@ -415,7 +428,7 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
                   {group ? (
                     <TicketSelect value={l.application} invalid={!!err(l, 'application')} searchPlaceholder="Search…"
                       onChange={(v) => { patch(l.key, { application: v }); clearErr(l.key, 'application'); }}
-                      placeholder="HVAC, Plumbing, Painting…" options={topicOptions} />
+                      placeholder="Pick what it is…" options={topicOptions} />
                   ) : null}
                   {(!group || l.application === OTHER_TOPIC) && (
                     <input value={l.otherText} maxLength={TOPIC_MAX_LEN} placeholder="Name it in a few words"
@@ -487,7 +500,7 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
           </button>
           <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 6 }}>
             {lines.length >= MAX_LINES
-              ? `A walkthrough takes up to ${MAX_LINES} lines - create these, then start another.`
+              ? `A batch takes up to ${MAX_LINES} lines - create these, then start another.`
               : 'Press Enter in a title to start the next line. Your lines are kept on this device until you create them.'}
           </div>
         </fieldset>

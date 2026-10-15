@@ -1,4 +1,4 @@
-// Support -> Documentation: the written guide to every Nexus module.
+// Help Center -> Documentation: the written guide to every Nexus module.
 //
 // One entry per left-nav module (plus Getting Started), in the same order and
 // grouping as Sidebar.jsx's NAV, so a new person reads it in the order they
@@ -27,7 +27,7 @@
 export const DOC_GROUPS = ['Start Here', 'My Desk', 'Work', 'Modules', 'System'];
 
 export const ROLE_TIERS = [
-  { name: 'Employee', desc: 'Everyone starts here. Use the everyday screens: Dashboard, Workday, Knowledge Base, Item Management and Support.' },
+  { name: 'Employee', desc: 'Everyone starts here. Use the everyday screens: Dashboard, Workday, Team, Item Management and Help Center (with the Knowledge Base).' },
   { name: 'Supervisor', desc: 'Can hand over items and handle returns, plus any modules their job role or an Access Group grants.' },
   { name: 'Manager', desc: 'Approves requests (items, time off, documents) and sees team widgets and reports. Cannot grant access or delete core records.' },
   { name: 'IT Admin', desc: 'Sees every module, manages settings and item catalogs, and can grant access up to Manager.' },
@@ -84,8 +84,8 @@ export const DOCS = [
         title: 'Set Up Your Profile',
         steps: [
           'Click your photo or initials in the top-right corner.',
-          'Click My Profile to check your details, photo, Dark Mode and theme.',
-          'Click Email Settings to choose which emails Nexus sends you.',
+          'Click Profile to check your details, photo, signature, Dark Mode and theme.',
+          'Scroll to Email Settings in Profile to choose which emails Nexus sends you.',
         ],
       },
     ],
@@ -95,8 +95,8 @@ export const DOCS = [
       { name: 'Search (Ctrl+K)', desc: 'Searches pages, people, tasks, projects, portfolios and teams from anywhere.' },
       { name: 'Notification Bell', desc: 'Every alert meant for you: approvals, handovers, ticket updates, reminders. Click to open the item.' },
       { name: 'Page Help (?)', desc: 'The "?" in the header opens a short guide for the page you are on.' },
-      { name: 'Profile Menu', desc: 'My Profile, Email Settings, Tour and Sign Out.' },
-      { name: 'Tour', desc: 'Tasks, Tickets and Support have a guided tour. It runs once on your first visit, and you can replay it from the profile menu.' },
+      { name: 'Profile Menu', desc: 'Profile (your photo, signature, appearance, world clock and Email Settings - everything that is only about you), What\'s New, Legal and Sign Out.' },
+      { name: 'Tour', desc: 'Tasks, Tickets and Help Center have a guided tour. It runs once on your first visit, and you can replay it from the ? help panel (Take the Tour).' },
       { name: 'Phone Friendly', desc: 'Nexus works in your phone browser. The left menu becomes a menu button, and tabs become swipeable.' },
     ],
     manager: {
@@ -111,7 +111,7 @@ export const DOCS = [
     tips: [
       'Cannot see a module a colleague uses? It is not broken. You just have not been granted it yet. Ask your manager or raise a ticket.',
       'Dates show as MM/DD/YYYY and times as 12-hour AM/PM everywhere in Nexus.',
-      'Stuck? Support > Submit a Ticket reaches a real person.',
+      'Stuck? Help Center > Submit a Ticket reaches a real person.',
     ],
   },
 
@@ -162,7 +162,7 @@ export const DOCS = [
       { name: 'View Picker', desc: 'Switch between Home, your own saved views and department views.' },
       { name: 'Customize', desc: 'Edit mode: Add Widget, drag to arrange, resize, Auto-fit, Save and Done.' },
       { name: '"..." View Menu', desc: 'Rename View, Set as My Default, Make Home My Default, Save as New View, Publish to Department, Delete View.' },
-      { name: 'Widget Gallery', desc: 'Metrics (KPI Stat, KPI Bar Chart), Navigation (Shortcut Tile, Quick Links, Links Folder, Quick Actions), Live (Notifications, Calendar, Announcements), Utility (Clock, Notes), Workday (My Day, My Work, My Time), plus Team widgets.' },
+      { name: 'Widget Gallery', desc: 'Metrics (KPI Stat), Navigation (Shortcut Tile, Quick Links, Links Folder, Quick Actions), Live (Notifications, Calendar, Announcements), Utility (Clock, Notes), Workday (My Day, My Work, My Time), plus Team widgets.' },
       { name: 'Links Tab', desc: 'Every company and personal web link. Search, filter by category, department or company, pin, favorite, sort into folders, and switch between tile and list view.' },
       { name: 'Personal Links', desc: 'A link you add is visible only to you. Company-wide links are managed by admins through Manage Links.' },
     ],
@@ -184,7 +184,7 @@ export const DOCS = [
     tagline: 'Clock in and out, check your hours and request time off.',
     where: 'Left menu > Workday',
     access: 'Everyone (employees)',
-    purpose: 'Workday is everything about your own time and HR record in one place. Overview opens with the Time Clock, so you punch in and out (with breaks) from the page you land on; below it are your hours, documents, upcoming time off and profile. Check your time sheet for the pay period (your schedule is in Shifts), request time off, and keep your contact and emergency details up to date. Only you see your own Workday.',
+    purpose: 'Workday is everything about your own time and HR record in one place. Overview opens with the Time Clock, so you punch in and out (with breaks) from the page you land on; below it are your hours, documents, upcoming time off and profile. My Shifts shows your own week of shifts, time off and holidays. Check your time sheet for the pay period, request time off, and keep your contact and emergency details up to date. Only you see your own Workday.',
     gains: [
       'Get paid correctly. Every punch is timestamped and tagged with where it happened.',
       'See your hours for this pay period, day by day, before payroll does.',
@@ -229,6 +229,7 @@ export const DOCS = [
     features: [
       { name: 'Overview', desc: 'Opens with a greeting and three tiles: Hours This Week with your shift for today beside it (from Shifts - or No Shift Today), Time Off This Year (approved working days, Monday to Friday, a partial day counted as its share of 8 hours) and Time With Us (from the start date on your HR record - ask HR if it is wrong). Then the Time Clock, then your profile, contact and emergency details, assigned equipment and checkouts, My Documents (signed documents, the files HR keeps for you and your paystubs, by folder), upcoming time off, and Ask HR (New Request opens the form; your requests and the answers from HR are listed). Only you see this page.' },
       { name: 'Time Clock', desc: 'On Overview: Punch In, Start Break, End Break and Punch Out with a live dial for the shift you are on and where the punch was recorded. Beside it, your hours with a Today / This Week / Pay Period switch - the total, days worked, daily average and breaks, then the punches of the day on a timeline or daily bars against an 8-hour line. Time Sheet opens every punch, day by day.' },
+      { name: 'My Shifts', desc: 'Your own week (moved here from the Shifts module on 10/13/2026): a line that sums it up - shifts, paid hours, time off and your next shift - then your days one by one. Request under a shift asks to swap or offer it; weather calls on your days wait here for you to acknowledge, and your availability is at the bottom. Your group\'s week is in Team > Shifts.' },
       { name: 'Time Sheet', desc: 'Your hours this pay period, day by day. Sick, vacation and personal hours show on their own lines. To ask for missing time, click + add on the day, pick its Type - Regular, Break, Sick, Vacation or Personal - set the start and end, and give a reason. Times are in your own timezone. The request shows on its day as Not Yet Approved, with your reason, until your approver decides - it is not in your hours until then. The Notes column is yours: click a day to leave a note for your manager (they see it on your timecard; their own notes on your days are never shown to you).' },
       { name: 'Time Off', desc: 'Request time off: a Reason (Personal, Sick, Vacation or Medical Appointment), the dates, and an optional Note. Keep this confidential shows your team only that you are out and the reason, never the note. Every request you have made is listed under My Requests as Pending, Approved, Rejected or Cancelled, and you can cancel one that is pending or approved.' },
       { name: 'Location Tag', desc: 'Each punch shows the location you were at when you punched, judged by where the punch was made, even if you move between several locations in a day. A punch inside any of your company locations shows that site; a punch away from all of them shows Out of Location, and that time is never billed to the nearest site. A punch from a device with no GPS (a desktop) often gets only a rough location and shows Approx. Location, because it is too rough to tell which site you were at - punch from your phone for a precise one. A rough location that is nowhere near any site still shows Out of Location. Remote staff can punch from anywhere, and their location is still recorded. Click a location on the timecard to see the punches of that shift on the map; a manager can also change the location of the punch from there.' },
@@ -237,7 +238,7 @@ export const DOCS = [
       title: 'Managers & Admins',
       points: [
         'Time-off requests route to your approver. Managers review them from the Dashboard (Time Off to Review) and the bell.',
-        'Team hours, punch fixes and payroll time cards live in People > Time. The schedule itself is built in Shifts.',
+        'Team hours, punch fixes and payroll time cards live in People > Time. The schedule itself is built in Team > Schedule.',
         'HR sets locations (the geofence used for on-site checks) and holiday calendars in People.',
       ],
     },
@@ -309,13 +310,14 @@ export const DOCS = [
     ],
   },
   {
-    id: 'shifts', name: 'Shifts', group: 'My Desk', icon: 'CalendarClock', view: 'shifts',
-    tagline: 'See your shifts and your group\'s; managers build and share the schedule.',
-    where: 'Left menu > Shifts (managers: Schedule and Requests tabs)',
-    access: 'Everyone sees My Shifts. Managers and above also get Schedule (the grid) and Requests (the inbox). Shift types and groups are in Settings > Global Settings > Shifts; staff ask for swaps, offers and open shifts in Workday > Time Off.',
-    purpose: 'Shifts is where you see when you work and where the team schedule is made. Everyone opens on My Shifts: your next shift, this week\'s hours and time off at a glance, your week, then your team\'s shifts with you pinned at the top. Managers open Schedule to place shifts on a weekly grid, fill a whole group from a shift type in one go, post open shifts and Share when it is ready. Nothing reaches the team until it is shared.',
+    id: 'shifts', name: 'Team', group: 'My Desk', icon: 'Users', view: 'shifts',
+    tagline: 'Reach anyone in the company and see your group\'s shifts; managers build and share the schedule.',
+    where: 'Left menu > Team (managers: Schedule and Requests tabs)',
+    access: 'Everyone sees Contact and Shifts. Managers and above also get Schedule (the grid) and Requests (the inbox). Your own shifts are in Workday > My Shifts. Shift types and groups are in Settings > Global Settings > Shifts; staff ask for swaps, offers and open shifts in Workday > Time Off.',
+    purpose: 'Team is everything about the people you work with. Contact is the company directory: find anyone, see who is on shift or off today, and reach them on Teams, by phone or by email. Shifts is your group\'s week, with you pinned at the top. Managers open Schedule to place shifts on a weekly grid, fill a whole group from a shift type in one go, post open shifts and Share when it is ready. Nothing reaches the team until it is shared.',
     gains: [
-      'See your next shift and this week\'s hours without opening a calendar.',
+      'Find and reach anyone in the company, with who is in and who is off today.',
+      'See who else is on this week without messaging your manager.',
       'Ask for an open shift, or swap or offer a shift, without messaging your manager.',
       'Managers: plan the week on one grid, with daily and weekly hour totals as you go.',
       'Fill a group\'s schedule across a date range in one step instead of shift by shift.',
@@ -326,15 +328,23 @@ export const DOCS = [
       {
         title: 'Check When You Work',
         steps: [
-          'Open Shifts from the left menu. You land on My Shifts.',
+          'Open Workday from the left menu and click My Shifts.',
           'Read your next shift and this week\'s hours at the top, then your week day by day.',
-          'Scroll to Team Shifts to see who else is on. You are pinned at the top, and a green dot marks who is on shift now.',
+          'To see who else is on, open Team and click Shifts. You are pinned at the top, and a green dot marks who is on shift now.',
+        ],
+      },
+      {
+        title: 'Reach a Colleague',
+        steps: [
+          'Open Team from the left menu. You land on Contact.',
+          'Search a name, or browse by Departments, Reporting Line or Org Chart.',
+          'Click the person, then Chat, Call or Email.',
         ],
       },
       {
         title: 'Swap or Offer a Shift',
         steps: [
-          'On My Shifts, open one of your shifts and pick Swap or Offer.',
+          'In Workday > My Shifts, click Request under one of your shifts and pick Swap or Offer.',
           'Pick the teammate (and, for a swap, one of their shifts).',
           'Send it. Once your teammate accepts, it goes to a manager to approve.',
         ],
@@ -369,7 +379,7 @@ export const DOCS = [
         steps: [
           'Click Publish. The button counts the changes waiting.',
           'Choose who hears about it: only people whose shifts changed, or the whole team.',
-          'Click Publish. Staff see the shifts in Shifts > My Shifts.',
+          'Click Publish. Staff see the shifts in Workday > My Shifts.',
         ],
       },
       {
@@ -382,8 +392,9 @@ export const DOCS = [
       },
     ],
     features: [
-      { name: 'My Shifts', desc: 'Everyone: your next shift (or the one you are on now), this week\'s paid hours and time off, your week, then Team Shifts with you pinned at the top.' },
-      { name: 'Requests From Staff', desc: 'In Workday > Time Off > Shift Requests: ask for an open shift, swap or offer a shift to a teammate. My Availability is on My Shifts. Every request goes to a manager.' },
+      { name: 'Contact', desc: 'Reach anyone in the company (moved here from Support on 10/13/2026): Teams chat, call or video, email (opens Outlook in a new tab), phone numbers and who they report to. Every person shows whether they are on shift (On Shift, On Break, Off Shift, Off Today) and their Teams status (Available, Busy, On a Call, Away, Out of Office, Offline). Three lenses on the same people - Departments (A-Z, across every company), Reporting Line, and Org Chart (the company as a tree of cards you pan and zoom). Export PDF prints the people shown as a contact sheet with the reporting line. HR and administrators get a Manage button that shows what is still missing (managers, titles, photos, phones).' },
+      { name: 'Shifts', desc: 'Everyone: your group\'s week, with you pinned at the top and open shifts you can ask to take. Your own week is Workday > My Shifts.' },
+      { name: 'Requests From Staff', desc: 'In Workday > Time Off > Shift Requests: ask for an open shift, swap or offer a shift to a teammate. My Availability is on Workday > My Shifts. Every request goes to a manager.' },
       { name: 'Add', desc: 'Managers and above: one button on the Schedule for a shift, an open shift, time off or a day note. Editing opens a panel on the right so the grid stays in view.' },
       { name: 'Schedule', desc: 'The grid: one row per person, grouped by shift group, with Day, Week and Month views, Today and the arrows to move around.' },
       { name: 'Open Shifts', desc: 'A row of shifts nobody holds yet, with how many spots each needs. Staff can ask to take one.' },
@@ -402,7 +413,7 @@ export const DOCS = [
     manager: {
       title: 'Who Can Do What',
       points: [
-        'Everyone sees their own shifts and their team\'s. The schedule itself is read-only for them.',
+        'Everyone sees their own shifts (Workday > My Shifts) and their group\'s (Team > Shifts). The schedule itself is read-only for them.',
         'Managers and above see Schedule and Requests, and build and share schedules there.',
         'Request settings (under Requests) decide whether staff can request open shifts, swap, offer shifts, see teammates\' shifts and request time off.',
       ],
@@ -411,7 +422,7 @@ export const DOCS = [
       'A star on a shift means it is a draft the team cannot see yet.',
       'Scheduled hours leave out the unpaid break, so a 9:00 AM to 5:00 PM shift with a 30-minute lunch counts as 7.5 hours.',
       'Ctrl+C over a shift and Ctrl+V over a day copies it, like in Teams.',
-      'Shifts used to be a tab under People > Time and under Workday. Since 09/29/2026 it is one module, and old links open My Shifts.',
+      'Shifts became its own module on 09/29/2026 and part of Team on 10/13/2026, when your own shifts moved to Workday > My Shifts. Old Shifts and Contact Directory links still land in the right place.',
     ],
   },
 
@@ -542,9 +553,9 @@ export const DOCS = [
   {
     id: 'tickets', name: 'Tickets', group: 'Work', icon: 'Ticket', view: 'tickets',
     tagline: 'The service desk queue: route, work and resolve requests from across the company.',
-    where: 'Left menu > Tickets (agents). Everyone raises tickets from Support.',
-    access: 'Desk agents with the Tickets grant. Anyone can raise a ticket from Support.',
-    purpose: 'Tickets is the agent side of the help desk. Requests for IT, HR, facilities, finance apps and more arrive here with the right questions already answered. Each ticket has a type, priority, SLA due time, assignee and full thread. If you only need to ask for help, use Support instead. You do not need this module for that.',
+    where: 'Left menu > Tickets (agents). Everyone raises tickets from Help Center.',
+    access: 'Desk agents with the Tickets grant. Anyone can raise a ticket from Help Center.',
+    purpose: 'Tickets is the agent side of the help desk. Requests for IT, HR, facilities, finance apps and more arrive here with the right questions already answered. Each ticket has a type, priority, SLA due time, assignee and full thread. If you only need to ask for help, use Help Center instead. You do not need this module for that.',
     gains: [
       'Every request is in one queue, with nothing lost in email or chat.',
       'SLA timers show what is about to breach.',
@@ -615,7 +626,7 @@ export const DOCS = [
   {
     id: 'knowledge-base', name: 'Knowledge Base', group: 'Work', icon: 'BookOpen', view: 'sop',
     tagline: 'Every SOP, policy and guide, plus your training courses.',
-    where: 'Left menu > Knowledge Base',
+    where: 'Help Center > Knowledge Base & Training',
     access: 'Everyone',
     purpose: 'The Knowledge Base is how Greens does things, written down. The Playbook holds every approved SOP, manual and guide. Learn holds training courses with quizzes and certificates. Policies that need your acknowledgement ask you to read and e-sign them.',
     gains: [
@@ -629,7 +640,7 @@ export const DOCS = [
       {
         title: 'Find an Answer',
         steps: [
-          'Open Knowledge Base. You land on the Playbook.',
+          'Open Help Center and click Knowledge Base & Training. You land on the Playbook.',
           'Type in the big search box (or press "/") to filter the library live.',
           'Press Enter (or click Ask AI) to ask it as a question. The answer cites the SOPs it came from.',
         ],
@@ -975,8 +986,8 @@ export const DOCS = [
         steps: [
           'Open the property and go to Maintenance.',
           'Click Create New Ticket for one issue, or Start Walkthrough to log several line by line. The property is filled in and cannot be changed, and only building and site teams are offered.',
-          'Open Tickets lists everything still being worked at the property, including tickets raised from Support or Tickets for it. Closed Tickets is its maintenance history.',
-          'The property stays fixed on those tickets - in Support and Tickets too.',
+          'Open Tickets lists everything still being worked at the property, including tickets raised from Help Center or Tickets for it. Closed Tickets is its maintenance history.',
+          'The property stays fixed on those tickets - in Help Center and Tickets too.',
         ],
       },
       {
@@ -1005,7 +1016,7 @@ export const DOCS = [
     manager: {
       title: 'Asset Managers',
       points: [
-        'Each property has a PM / Asset Manager who gets its reminders, and one bell (and email) for every new ticket or walkthrough at the property.',
+        'Each property has a PM / Asset Manager who gets its reminders, and one bell (and email) for every new ticket or batch at the property.',
         'Link a property to another (for example, a parcel to its project).',
       ],
     },
@@ -1267,9 +1278,9 @@ export const DOCS = [
       { name: 'Employee Record', desc: 'Job, reporting line, contact, emergency contact, documents with expiry dates, and history. Reports To can be a Nexus person or an External User (listed in their own group) - a contractor or client-side lead someone answers to. Backup Manager covers the person when their manager is out and has the same rights over them as the manager: timesheets, punches, time off and approvals. It covers that person only - the people who report to them have backups of their own. Leave it on Default and it is the manager of their manager, or the HR contact of their company when there is none.' },
       { name: 'Office & Contact', desc: 'Office, mobile phone, office phone, street address, city, state, ZIP and country or region - the contact info Microsoft 365 shows in Outlook and Teams. It is kept in step both ways: edit it here (Edit on the profile) and Microsoft 365 updates when you save; a change made in the Microsoft 365 admin center comes into Nexus within 15 minutes, or straight away with Sync Now. If both sides changed the same field, the Nexus value wins. Job title and department sync the same way. Only production writes to Microsoft 365.' },
       { name: 'Hiring', desc: 'Candidates through Screening, Interview, Offer, Hired and Onboarding, with interview scores.' },
-      { name: 'Org Chart', desc: 'Reporting lines as a tree of cards you pan and zoom, colored by division. Drag a card onto a manager to move someone; drop it in open space to clear their reporting line. Everyone can see the same chart, read-only, under Support > Contact Directory > Org Chart.' },
+      { name: 'Org Chart', desc: 'Reporting lines as a tree of cards you pan and zoom, colored by division. Drag a card onto a manager to move someone; drop it in open space to clear their reporting line. Everyone can see the same chart, read-only, under Team > Contact > Org Chart.' },
       { name: 'Leave', desc: 'Time-off requests, approvals and the holiday calendar.' },
-      { name: 'Time', desc: 'Team punches, time cards and payroll hours. The time card has a Notes column for managers and HR: click a day\'s cell to write a note (the employee does not see it); a note the employee left on that day reads underneath it. The pencil on a row edits the punch - change the in or out time, the location or the Type, or delete the in-punch, the out-punch or both (a deleted punch comes out of the hours; the audit record keeps it with who deleted it). The plus on a day adds time for someone, on any pay type: pick the Type - Regular, Break, Sick, Vacation or Personal - and set its start and end. A Break has to fall inside a shift that day. Sick can be part of a day, for example one hour. On an hourly card leave pays the base rate; on a fixed-salary card a leave day is deducted like an absence unless hours were also worked. Add a Break under a day opens the same form with Break picked; Fix a Break Punch adds the start or end of a break that never recorded. A punch the employee asked for shows on its day as Not Yet Approved, with their reason, and Approve and Reject right there. Three tabs: Payroll, Action Log and Time Off. The Action Log is one list per person of everything that stands between a timecard and payroll - punch requests to approve or reject (tick several to decide them together) and missing punches to fix on the timecard (Fix on Timecard opens the right pay period). Filter it by department, by name, or to just requests or just missing punches; you only see the people you manage. Someone still on the clock is not listed as missing a clock-out. Who is on or off today is in Shifts > Schedule, and screenshots and hours by location are in Workforce Analytics. The tiles on top open what they count: Team Hours (hours by person and day) and Timesheets to Review. In the Time Sheet, type in the person picker to filter the list to matching names, then press Enter or click one.' },
+      { name: 'Time', desc: 'Team punches, time cards and payroll hours. The time card has a Notes column for managers and HR: click a day\'s cell to write a note (the employee does not see it); a note the employee left on that day reads underneath it. The pencil on a row edits the punch - change the in or out time, the location or the Type, or delete the in-punch, the out-punch or both (a deleted punch comes out of the hours; the audit record keeps it with who deleted it). The plus on a day adds time for someone, on any pay type: pick the Type - Regular, Break, Sick, Vacation or Personal - and set its start and end. A Break has to fall inside a shift that day. Sick can be part of a day, for example one hour. On an hourly card leave pays the base rate; on a fixed-salary card a leave day is deducted like an absence unless hours were also worked. Add a Break under a day opens the same form with Break picked; Fix a Break Punch adds the start or end of a break that never recorded. A punch the employee asked for shows on its day as Not Yet Approved, with their reason, and Approve and Reject right there. Three tabs: Payroll, Action Log and Time Off. The Action Log is one list per person of everything that stands between a timecard and payroll - punch requests to approve or reject (tick several to decide them together) and missing punches to fix on the timecard (Fix on Timecard opens the right pay period). Filter it by department, by name, or to just requests or just missing punches; you only see the people you manage. Someone still on the clock is not listed as missing a clock-out. Who is on or off today is in Team > Schedule, and screenshots and hours by location are in Workforce Analytics. The tiles on top open what they count: Team Hours (hours by person and day) and Timesheets to Review. In the Time Sheet, type in the person picker to filter the list to matching names, then press Enter or click one.' },
       { name: 'Company Editor', desc: 'Open a company to manage its Overview, Departments, Locations (the clock geofences), Holiday Calendar and Workforce Analytics Policy. A location is placed one way: its Google Maps link. In Google Maps click the building so a red pin shows, click Share - Copy link, and paste it into the Google Maps Link box (coordinates copied from a right-click work too). Nexus reads the exact point of the place from the link - a link that only shows a map view is flagged - and fills in the address from the same link, written the US way (25260 N Centre City Pkwy, Escondido, CA 92026), plus the name when the link is a business and the Name is empty. If the link has no address, or you need to change it, click Enter Manually and type it. The map on the right jumps to the location; drag the pin (or click the map) onto the exact building, and a pin moved far from the link point is flagged. Set the radius in feet with the slider (330-1,000 ft suits most locations; under 330 ft, phone GPS drift flags people who are on-site). Distances everywhere read in miles and feet. In the Location Library, the Companies dropdown sets who punches in there: tick All, or tick the companies that use it. The radius slider sits under the map. Show Punches Here (off unless you turn it on) shows the last 30 days of punches as green (inside) and red (outside) dots, and warns if a change would turn punches that were on-site into Out of Location. A location marked Verify Location was placed with the old map pin: edit it and paste its Google Maps link once.' },
       { name: 'Checklists', desc: 'Onboarding, offboarding and leave checklists per person, on the Checklist tab of their profile. Steps are grouped by phase, each with an owner and a due date counted from the start date, the exit date or the leave start. Business-day steps skip weekends and the company\'s holidays; a date that lands on a weekend moves to the Friday before; a step whose date has already passed when the checklist starts is due that day. When the start date on the profile changes, open dates move with it. Which steps a person gets depends on their worker type and country (an I-9 for US employees, PF for India, a W-9 for contractors) and, for offboarding, the exit type. Owners get one bell reminder per checklist when steps are due tomorrow or overdue, and see their steps under My Checklist Steps on My HR, where they can tick them without People access. Starting an offboarding checklist changes nothing in Microsoft 365 - Left still happens from Change Status.' },
       { name: 'Checklists Overview', desc: 'People > Checklists > Overview: everyone with an open onboarding, offboarding or leave checklist in one list, most urgent first. Tiles count Onboarding, Offboarding, On Leave, Steps Overdue and Waiting On You; click one to filter. Each row shows the person, the checklist and its date (for example Starts 11/02/2026 - in 12 days), progress, and the next step with its owner and due date. Click a row to open that person on their Checklist tab. People with an open checklist also show a small progress chip in the directory and next to their status on the profile.' },
@@ -1445,22 +1456,23 @@ export const DOCS = [
 
   // ───────────────────────────── System ─────────────────────────────
   {
-    id: 'support', name: 'Support', group: 'System', icon: 'HelpCircle', view: 'support',
-    tagline: 'Get help: raise a ticket or report a bug, and read this guide.',
-    where: 'Left menu > Support',
+    id: 'support', name: 'Help Center', group: 'System', icon: 'HelpCircle', view: 'support',
+    tagline: 'Get help and learn: raise a ticket, read this guide, take your training.',
+    where: 'Left menu > Help Center',
     access: 'Everyone',
-    purpose: 'Support is where anyone goes for help. Submit a ticket to IT, HR, facilities or any other team, report something broken in Nexus, find a colleague, and track everything you have raised. You do not need access to the Tickets module to use it.',
+    purpose: 'Help Center (Support until 10/13/2026) is where anyone goes for help or to learn. Submit a ticket to IT, HR, facilities or any other team - one ticket or a whole batch - report something broken in Nexus, and track everything you have raised. Documentation and the Knowledge Base & Training are here too. You do not need access to the Tickets module to use it.',
     gains: [
       'Help from the right team, with the right questions asked up front.',
       'Live status of everything you have raised.',
-      'This Documentation (the Documentation card on Support), for learning any module.',
+      'This Documentation (the Documentation card on Help Center), for learning any module.',
+      'SOPs and your training courses, one click away.',
     ],
     shot: 'support',
     walkthroughs: [
       {
         title: 'Submit a Ticket',
         steps: [
-          'Open Support and click Submit a Ticket.',
+          'Open Help Center and click Submit a Ticket.',
           'Give it a title. Requester is you - pick a colleague instead if you are raising it on their behalf.',
           'Describe the problem. Format it with the toolbar, and record your screen, upload a file or paste a screenshot with Ctrl+V right under it.',
           'Pick the department - the team that needs to help you - then what you need help with. If it is not listed, pick Other and name it in a few words. If a Which One? list appears (for example Outlook or Teams), pick the one it is about - it is optional.',
@@ -1468,12 +1480,12 @@ export const DOCS = [
         ],
       },
       {
-        title: 'Log a Property Walkthrough',
+        title: 'Batch Create Tickets',
         steps: [
-          'Walking a property and finding several issues? Click Property Walkthrough (the service desk, the Asset Management team and administrators see it). From Asset Management, open the property and use Start Walkthrough instead - the property is then filled in and fixed.',
-          'Pick the property and the team (only building and site teams are offered).',
-          'Type the first issue and press Enter to start the next line. For each line pick what it is (HVAC, Plumbing, Painting...), the priority and a location, and take a photo or paste one with Ctrl+V.',
-          'Click Create Tickets. Every line becomes its own ticket on that property, all at once - if one line needs fixing, nothing is filed until it is. Each person involved gets one notification for the whole walkthrough.',
+          'Found several issues at once - walking a property, setting up a new office? Click Submit a Ticket, then the Batch Create tab at the top (the service desk, the Asset Management team and administrators see it; it was Property Walkthrough until 10/13/2026). From Asset Management, open the property and use Start Walkthrough instead - the property is then filled in and fixed.',
+          'Pick the team. For a building or site team, a Property field appears - pick one to link every ticket to it, or leave it empty.',
+          'Type the first issue and press Enter to start the next line. For each line pick what it is, the priority and a location, and take a photo or paste one with Ctrl+V.',
+          'Click Create Tickets. Every line becomes its own ticket, all at once - if one line needs fixing, nothing is filed until it is. Each person involved gets one notification for the whole batch.',
           'No signal? Your lines are kept on this device. If the submit could not be confirmed, the lines lock and Try Again sends exactly the same lines - nothing is ever filed twice.',
         ],
       },
@@ -1499,15 +1511,16 @@ export const DOCS = [
       { name: 'Submit a Ticket', desc: 'The same form the Tickets module uses, with routing and due dates set automatically.' },
       { name: 'Bug Report', desc: 'A ticket type in Submit a Ticket, for anything broken in Nexus itself.' },
       { name: 'On Behalf Of', desc: 'Raise a ticket for a colleague by picking them as the Requester. They get the updates; you can still see it.' },
-      { name: 'Contact Directory', desc: 'Reach anyone in the company: Teams chat, call or video, email (opens Outlook in a new tab), phone numbers and who they report to. Every person shows whether they are on shift (On Shift, On Break, Off Shift, Off Today) and their Teams status (Available, Busy, On a Call, Away, Out of Office, Offline). Three lenses on the same people - Departments (A-Z, across every company), Reporting Line, and Org Chart (the company as a tree of cards you pan and zoom). Export PDF prints the people shown as a contact sheet with the reporting line. HR and administrators get a Manage button that shows what is still missing (managers, titles, photos, phones).' },
-      { name: 'Help Center', desc: 'The card with the question mark: opens the same help panel as the ? at the top of every page - search for help, ask a question, What\'s New, and help for the page you are on.' },
+      { name: 'Batch Create', desc: 'The second tab of Submit a Ticket: many tickets at once, one per line, for any team - with a property when a building or site team takes them.' },
+      { name: 'Assistant', desc: 'The card with the question mark: opens the same help panel as the ? at the top of every page - search for help, ask a question, What\'s New, and help for the page you are on.' },
+      { name: 'Knowledge Base & Training', desc: 'Opens the Knowledge Base: every SOP and guide, and your training courses.' },
       { name: 'Legal', desc: 'The Privacy Policy and Terms & Conditions, one page with a tab each. Open it from Legal in the menu under your name (top right), or Legal in the phone menu.' },
-      { name: 'Implementation Guide', desc: 'For administrators: how to set Nexus up for an organization, in 15 phases - Microsoft 365, branding, companies, job roles, people, time and pay, shifts, checklists, the modules, notifications, verification, go-live and running it after. Each phase has the decisions to make, steps with an Open button to each screen, checks that every administrator ticks off together, and pitfalls. Open it from Support or from the menu under your name.' },
+      { name: 'Implementation Guide', desc: 'For administrators: how to set Nexus up for an organization, in 15 phases - Microsoft 365, branding, companies, job roles, people, time and pay, shifts, checklists, the modules, notifications, verification, go-live and running it after. Each phase has the decisions to make, steps with an Open button to each screen, checks that every administrator ticks off together, and pitfalls. It is the first section of Documentation, under Set Up Nexus.' },
       { name: 'Open Tickets', desc: 'Everything you raised that is not closed yet, with when it was last updated and the latest comment. Sort, search and page through it, or mark one Resolved yourself.' },
       { name: 'Closed Tickets', desc: 'Your finished tickets, for reference. If the same problem comes back, submit a new ticket.' },
-      { name: 'Documentation', desc: 'This guide.' },
+      { name: 'Documentation', desc: 'This guide. Administrators also see the Implementation Guide at the top of its list.' },
     ],
-    manager: { title: 'Note', points: ['Ticket agents work the queue from the Tickets module. Support is the requester\'s side.'] },
+    manager: { title: 'Note', points: ['Ticket agents work the queue from the Tickets module. Help Center is the requester\'s side.'] },
     tips: ['Email and bell updates about your ticket open it right here.'],
   },
   {

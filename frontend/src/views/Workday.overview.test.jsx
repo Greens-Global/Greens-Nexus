@@ -64,7 +64,7 @@ describe('Workday Overview with the Time Clock', () => {
     expect(await screen.findByText('Amy Test')).toBeTruthy();
     // Overview, Time Sheet, Time Off - no Clock tab.
     const tabs = [...document.querySelectorAll('.module-tab-inline-btn')].map((b) => b.textContent.trim());
-    expect(tabs).toEqual(['Overview', 'Time Sheet', 'Time Off']);
+    expect(tabs).toEqual(['Overview', 'My Shifts', 'Time Sheet', 'Time Off']);
   }, SLOW);
 
   it('sends an old Clock link to Overview and rewrites the address', async () => {
@@ -137,13 +137,13 @@ describe('Workday Overview with the Time Clock', () => {
     expect(screen.queryByText('Signed, filed and paystubs')).toBeNull();
   }, SLOW);
 
-  it("opens Shifts > My Shifts from today's shift, and the Time Sheet from the hours", async () => {
+  it("opens Workday > My Shifts from today's shift, and the Time Sheet from the hours", async () => {
     globalThis.__answers.timeMySchedule = { scheduled: [] };
     const nav = vi.fn();
     window.addEventListener('nexus:navigate', nav);
     await renderWorkday('overview');
     fireEvent.click(await screen.findByRole('button', { name: /No Shift Today/ }));
-    expect(nav.mock.calls.at(-1)[0].detail).toEqual({ view: 'shifts', sub: 'mine' });
+    expect(nav.mock.calls.at(-1)[0].detail).toEqual({ view: 'myhr', sub: 'shifts' });
     window.removeEventListener('nexus:navigate', nav);
     fireEvent.click(screen.getByText('Hours · This Week'));
     expect(await screen.findByText('Timecard')).toBeTruthy();   // the Time Sheet tab
@@ -183,7 +183,7 @@ describe('Workday Overview with the Time Clock', () => {
     await screen.findByText('Amy Test');
     expect(screen.queryByRole('region', { name: 'Time Clock' })).toBeNull();
     expect(screen.queryByText('Hours · This Week')).toBeNull();
-    expect([...document.querySelectorAll('.module-tab-inline-btn')].map((b) => b.textContent.trim())).toEqual(['Overview', 'Time Off']);
+    expect([...document.querySelectorAll('.module-tab-inline-btn')].map((b) => b.textContent.trim())).toEqual(['Overview', 'My Shifts', 'Time Off']);
     expect(screen.getByText('Time Off This Year')).toBeTruthy();   // the rest of Overview is there
   }, SLOW);
 

@@ -13,7 +13,6 @@ vi.mock('../bffAuth', () => ({ BFF_MODE: false, bffLogout: vi.fn() }));
 vi.mock('./NotificationBell', () => ({ default: () => null }));
 vi.mock('../support/HelpMenu', () => ({ default: () => null }));
 vi.mock('./MyProfileModal', () => ({ default: () => null }));
-vi.mock('./EmailSettingsModal', () => ({ default: () => null }));
 const markSeen = vi.fn(() => Promise.resolve({}));
 const unseen = { value: false };
 vi.mock('../api', () => ({

@@ -66,7 +66,6 @@ const AdminConsole         = lazy(() => import("./views/AdminConsole"));
 // imports views/ExternalLinks itself now; no separate top-level route.
 const Support             = lazy(() => import("./views/Support"));
 const Placeholder         = lazy(() => import("./views/Placeholder"));
-const Directory           = lazy(() => import("./views/Directory"));   // Contact Directory (Support, Oct 2026)
 const PublicSign          = lazy(() => import("./views/PublicSign"));
 const PublicIntake        = lazy(() => import("./views/PublicIntake"));
 const PublicVerify        = lazy(() => import("./views/PublicVerify"));
@@ -93,7 +92,7 @@ const VIEW_LABELS = Object.fromEntries(MODULES.map(m => [m.id, m.label]));
 // title-cased version of their id so breadcrumbs never show raw lowercase ids.
 // Acronyms the title-caser would mangle ("pdf-editor" -> "Pdf Editor"). These
 // views live in Sidebar's NAV but not in MODULES, so they hit the fallback.
-const LABEL_OVERRIDES = { 'pdf-editor': 'PDF Tools', 'terms-conditions': 'Terms & Conditions', briefing: 'My Briefing', legal: 'Legal', 'whats-new': "What's New" };
+const LABEL_OVERRIDES = { shifts: 'Team', 'pdf-editor': 'PDF Tools', 'terms-conditions': 'Terms & Conditions', briefing: 'My Briefing', legal: 'Legal', 'whats-new': "What's New" };
 const viewLabel = (view) => VIEW_LABELS[view] || LABEL_OVERRIDES[view]
   || (view || '').split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
@@ -383,9 +382,6 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "inventory":          return <InventoryManagement activeSub={activeSub} onSubChange={onSubChange} onNavigate={onNavigate} />;
     case "admin-console":      return <AdminConsole activeSub={activeSub} onSubChange={onSubChange} />;
     case "support":            return <Support activeSub={activeSub} onSubChange={onSubChange} />;
-    // Open to every internal user (no VIEW_MIN_ROLES entry); externals get
-    // Access Restricted here and 403 from the API.
-    case "directory":          return <Directory />;
     case "whats-new":          return <WhatsNew />;
     case "timeclock":          return <TimeClock initialTab="overview" activeSub={activeSub} onSubChange={onSubChange} />;
     case "myhr":               return <TimeClock initialTab="overview" activeSub={activeSub} onSubChange={onSubChange} />;
@@ -443,7 +439,13 @@ function parsePath() {
   // The old Nexus Access Manager (/admin) was retired Sep 26 - Settings >
   // Global Settings > Access does the same job; old links land there.
   if (raw === 'admin') return { view: 'admin-console', sub: 'access' };
-  return { view: PATH_TO_VIEW[raw] || raw, sub: segs[1] || null };
+  // Team / Workday split (Neil, Oct 13 2026): the Contact Directory is Team's
+  // Contact tab, and your own shifts are Workday > My Shifts - old /directory
+  // and /shifts/mine links (bells, emails, bookmarks) land there.
+  if (raw === 'directory') return { view: 'shifts', sub: 'contact' };
+  const view = PATH_TO_VIEW[raw] || raw;
+  if (view === 'shifts' && segs[1] === 'mine') return { view: 'myhr', sub: 'shifts' };
+  return { view, sub: segs[1] || null };
 }
 
 const DEFAULT_SUBS = {
@@ -460,7 +462,7 @@ const DEFAULT_SUBS = {
   accounting:        "overview",
   egnyte:            "browse",
   "employee-tracking": "coverage",
-  shifts:            "mine",   // everyone's week; managers pick Manage
+  shifts:            "contact",   // Team opens on the people (Neil, Oct 13 2026)
   // Workday (TimeClock.jsx, merged My HR + Time Clock, Sep 3) - each view
   // id lands on its own natural tab so the URL is meaningful from the first
   // click, not just after switching tabs once (see TimeClock.jsx's own
@@ -677,6 +679,9 @@ function MainApp() {
     if (view === 'dashboard' && sub === 'external-links') sub = 'links';
     // Retired Nexus Access Manager -> Settings > Access (see parsePath).
     if (view === 'admin') { view = 'admin-console'; sub = 'access'; }
+    // Contact Directory -> Team > Contact, My Shifts -> Workday (see parsePath).
+    if (view === 'directory') { view = 'shifts'; sub = 'contact'; }
+    if (view === 'shifts' && sub === 'mine') { view = 'myhr'; sub = 'shifts'; }
     setActiveView(view);
     setActiveSub(sub ?? getDefaultSub(view));
     setSidebarOpen(false);

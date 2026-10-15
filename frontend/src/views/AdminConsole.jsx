@@ -152,7 +152,7 @@ const LEGACY_CATEGORIES = { 'service-desk': 'notifications', tasks: 'notificatio
 
 const GLOBAL_SECTIONS = [
   { id: 'email-signature', category: 'organization', icon: Signature, title: 'Email Signature',
-    sub: 'Choose each company\'s signature template and set custom signatures for specific addresses. Names, titles and contact details come from each employee\'s directory record, and employees choose their own sign-off in My Profile.',
+    sub: 'Choose each company\'s signature template and set custom signatures for specific addresses. Names, titles and contact details come from each employee\'s directory record, and employees choose their own sign-off in Profile.',
     keywords: 'template sign-off logo sender override shared inbox branding' },
   { id: 'work-sites', category: 'organization', icon: MapPinned, title: 'Location Library',
     sub: 'Every location employees can punch in at, with its geofence. Pick the companies that use each one right here, or from the Locations tab of each company.',

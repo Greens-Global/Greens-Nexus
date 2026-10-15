@@ -26,10 +26,15 @@ import MyAvailability from './MyAvailability';
 // off). Asking for a swap, an offer or an open shift lives in Workday >
 // Time Off; the "Request" link under a shift here opens that same dialog
 // with the shift filled in.
+//
+// `part` (Neil, Oct 13 2026): 'mine' is Workday > My Shifts - your own days,
+// weather calls, availability; 'team' is Team > Shifts - your group's week.
+// One component, one fetch: the group grid is built from the same week.
 
 const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
 
-export default function MyShifts() {
+export default function MyShifts({ part = 'mine' }) {
+  const mine = part !== 'team';
   const nameOf = useNameResolver();
   const phone = useIsMobile();
   const [weekStart, setWeekStartPref] = useState('monday');
@@ -182,7 +187,7 @@ export default function MyShifts() {
         <DateBlock view="week" first={start} last={end} weekStart={weekStart} compact={phone} onPick={(ds) => setCursor(parseIso(ds))} />
       </div>
 
-      {openCalls.length > 0 && (
+      {mine && openCalls.length > 0 && (
         <div style={{ display: 'grid', gap: 8, marginBottom: 12 }}>
           {openCalls.map((c) => (
             <div key={c.id} role="alert" data-weather-call={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '10px 12px', borderRadius: 12,
@@ -200,7 +205,7 @@ export default function MyShifts() {
         </div>
       )}
 
-      {glance && !error && (
+      {mine && glance && !error && (
         <div role="status" aria-label="Week summary" style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.5 }}>
           {thisWeek ? 'This week' : 'That week'}: <b style={{ color: 'var(--ink)' }}>{glance.shiftCount} shift{glance.shiftCount === 1 ? '' : 's'}</b>
           {' · '}<b style={{ color: 'var(--ink)' }}>{fmtHrs(glance.mins)}</b>
@@ -215,7 +220,7 @@ export default function MyShifts() {
         <ErrorBanner message="Your shifts could not be loaded right now." onRetry={() => setReload((n) => n + 1)} />
       ) : !data ? (
         <SkeletonBlocks count={7} height={96} gridTemplateColumns="repeat(auto-fill, minmax(150px, 1fr))" />
-      ) : (
+      ) : !mine ? null : (
         <div style={{ display: 'grid', gridTemplateColumns: phone ? '1fr' : 'repeat(auto-fill, minmax(150px, 1fr))', gap: phone ? 6 : 10 }}>
           {days.map((d, i) => (
             <div key={d.key} style={{
@@ -263,7 +268,7 @@ export default function MyShifts() {
           nameOf={nameOf} onClose={() => setAsk(null)} onDone={done} />
       )}
 
-      {data && team ? (
+      {mine ? null : data && team ? (
         <TeamShiftGrid teams={teams} team={team} onPickTeam={setTeamId} days={days} rows={teamRows} onNow={onNow}
           openShifts={openList} onRequestOpen={requestOpen} busyOpenId={busyOpen} thisWeek={thisWeek}
           timeZoneLabel={teamZoneLabel} teamZone={teamZone} />
@@ -271,18 +276,18 @@ export default function MyShifts() {
         <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>Times in {teamZoneLabel}</div>
       ) : null}
 
-      <MyAvailability />
+      {mine && <MyAvailability />}
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 14, fontSize: 12, color: 'var(--muted)' }}>
         <Info size={13} style={{ flexShrink: 0 }} />
         <span>
           Shifts are set by your manager. Only shifts they have shared appear here - ask them if something looks wrong.
-          {data?.shift && ' Usual hours are your regular schedule, shown on days with no shared shift.'}
-          {data && teams.length === 0 && ' Your group will show here once your manager adds you to one.'}
+          {mine && data?.shift && ' Usual hours are your regular schedule, shown on days with no shared shift.'}
+          {!mine && data && teams.length === 0 && ' Your group will show here once your manager adds you to one.'}
           {' '}Swaps, offers and open-shift requests are in Workday &gt; Time Off.
         </span>
       </div>
-      {prefs && (
+      {mine && prefs && (
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, fontSize: 12.5, cursor: 'pointer', color: 'var(--ink)' }}>
           <input type="checkbox" checked={prefs.weatherSms !== false} onChange={(e) => setWeatherSms(e.target.checked)} aria-label="Text me when a weather call changes my shift" />
           Text me when a weather call changes my shift{prefs.phone ? '' : ' (no phone number on file - ask HR to add one)'}

@@ -327,7 +327,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, clock = null }) {
     finally { setAskBusy(false); }
   };
 
-  const goMyShifts = () => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'shifts', sub: 'mine' } }));
+  const goMyShifts = () => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'myhr', sub: 'shifts' } }));
   const goInventory = () => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'inventory', sub: 'checkouts' } }));
 
   // ── Derived stats ──
@@ -404,7 +404,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, clock = null }) {
                 tile, so their shift gets a tile of its own. */}
             {!hoursExempt ? (
               /* Two targets in one tile (Oct 2): the hours open the Time
-                 Sheet, today's shift opens Shifts > My Shifts. */
+                 Sheet, today's shift opens Workday > My Shifts. */
               <div className="dk-stat dk-stat--hero wd-stat wd-hero" style={{ cursor: 'default' }}>
                 <button type="button" className="wd-hero-part" onClick={onOpenTimeSheet} disabled={!onOpenTimeSheet}
                   title={`Your punched hours from ${formatDate(rStart)} to ${formatDate(rEnd)}, after breaks${openMin ? ', including the shift you are on now' : ''}. Opens your Time Sheet.`}>

@@ -14,17 +14,19 @@ import { NAV } from './Sidebar';
 // tab the person may see (Overview, or Reports for entity-limited readers),
 // exactly like the desktop sidebar, with the tab strip pinned under the header.
 export const SUBMENUS = {
-  // Staff have My Shifts (their week + their group); managers add the
-  // Schedule and the Requests inbox (Charmi, 09/30). Staff ask for swaps,
-  // offers and open shifts in Workday > Time Off.
+  // Team (Neil, Oct 13 2026): Contact and the group's Shifts for everyone;
+  // managers add the Schedule and the Requests inbox (Charmi, 09/30). Your
+  // own week is Workday > My Shifts.
   shifts: {
     manager: [
-      { sub: 'mine', label: 'My Shifts' },
+      { sub: 'contact', label: 'Contact' },
+      { sub: 'shifts', label: 'Shifts' },
       { sub: 'schedule', label: 'Schedule' },
       { sub: 'requests', label: 'Requests' },
     ],
     employee: [
-      { sub: 'mine', label: 'My Shifts' },
+      { sub: 'contact', label: 'Contact' },
+      { sub: 'shifts', label: 'Shifts' },
     ],
   },
   inventory: {

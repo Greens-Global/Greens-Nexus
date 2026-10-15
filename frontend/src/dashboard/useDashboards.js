@@ -15,18 +15,18 @@ const DEFAULT_PERSONAL = [
   { i: 'd4', type: 'kpi',           x: 3, y: 0, w: 3, h: 2, config: { metric: 'my_checkouts' } },
   { i: 'd5', type: 'kpi',           x: 6, y: 0, w: 3, h: 2, config: { metric: 'my_assignments' } },
   { i: 'd6', type: 'kpi',           x: 9, y: 0, w: 3, h: 2, config: { metric: 'unread_notifications' } },
-  { i: 'd7', type: 'notifications', x: 0, y: 2, w: 6, h: 5 },
-  { i: 'd9', type: 'kpi-bar',       x: 6, y: 2, w: 3, h: 5 },
-  // A bare icon dock (Oct 13): 3x2 = six cells for the five default actions,
-  // one row on a phone. It used to be a 3x6 list that sat mostly empty.
-  { i: 'd2', type: 'quick-actions', x: 9, y: 2, w: 3, h: 2, config: { style: 'icons' } },
+  // w8: takes the space At a Glance had (retired - Neil, Oct 13 2026).
+  { i: 'd7', type: 'notifications', x: 0, y: 2, w: 8, h: 5 },
+  // A bare icon dock (Oct 13): 4x2 for the five default actions, one row on
+  // a phone. It used to be a 3x6 list that sat mostly empty.
+  { i: 'd2', type: 'quick-actions', x: 8, y: 2, w: 4, h: 2, config: { style: 'icons' } },
   // Calendar + My Agenda, merged (Outlook/Teams). Shows a quiet explainer for
   // non-M365 accounts. w8 so the month grid and the agenda list sit side by
   // side by default instead of wrapping to stacked.
   { i: 'd10', type: 'calendar',     x: 0, y: 7, w: 8, h: 5 },
   // h5: six link rows + header need ~260px - at h4 the last row clipped.
   // y4: straight under the dock, so the right column has no hole.
-  { i: 'd8', type: 'links',         x: 9, y: 4, w: 3, h: 5 },
+  { i: 'd8', type: 'links',         x: 8, y: 4, w: 4, h: 5 },
 ];
 
 // Role-tiered starting extras (Sep 4, Pranshu: "give a few default widgets" so

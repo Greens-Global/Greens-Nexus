@@ -7,6 +7,11 @@ HVAC, this is plumbing, this is tile... and then it all hits that property."
 One submit = one property, one department, one requester; N lines, each its
 own ticket with its own help topic, priority, location, details and photos.
 
+Batch Create (Neil, Oct 13 2026): the same endpoint behind Submit a Ticket's
+second tab, made general - "it could be IT, maintenance, anything". The
+property is optional: with one, the team must be a building or site team (as
+before); without one, any team takes the batch and no ticket is linked.
+
   * All or nothing. Every line is validated before anything is written; one
     bad line is a 422 naming the line and NOTHING is filed. A half-filed
     walkthrough is worse than none: the walker resubmits and the half that
@@ -87,7 +92,7 @@ class WalkLine(BaseModel):
 
 class WalkthroughBody(BaseModel):
     batch_id: str
-    property_asset_id: str
+    property_asset_id: Optional[str] = ""   # optional since Batch Create (Oct 13 2026)
     hr_department_id: str
     company_id: Optional[str] = ""
     requester_email: Optional[str] = ""
@@ -209,7 +214,7 @@ def _bells(db: Session, batch: models.TicketBatch, tickets: list, actor: str, de
     the requester, the desk. The walker hears nothing about their own act."""
     n = len(tickets)
     s = "s" if n > 1 else ""
-    name = batch.property_name
+    at = f" at {batch.property_name}" if batch.property_name else ""
     span = (ticket_no(tickets[0].code) if n == 1
             else f"{ticket_no(tickets[0].code)} to {ticket_no(tickets[-1].code)}")
     who = _name_of(db, actor) or actor
@@ -223,7 +228,7 @@ def _bells(db: Session, batch: models.TicketBatch, tickets: list, actor: str, de
         if em in told:
             continue
         task_notify(db, kind="ticket_assigned", for_email=em,
-                    title=f"You were assigned {len(ts)} ticket{'s' if len(ts) > 1 else ''} at {name}",
+                    title=f"You were assigned {len(ts)} ticket{'s' if len(ts) > 1 else ''}{at}",
                     body="; ".join(f"{ticket_no(t.code)} {t.subject}" for t in ts)[:500],
                     ticket_id=ts[0].id if len(ts) == 1 else "",
                     nexus_action={"view": "tickets", "label": "View Ticket" if len(ts) == 1 else "View Tickets"})
@@ -231,8 +236,8 @@ def _bells(db: Session, batch: models.TicketBatch, tickets: list, actor: str, de
 
     mgr = (batch.asset_manager_email or "").lower()
     if mgr and mgr not in told:
-        task_notify(db, kind="ticket_property", for_email=mgr, title=f"{n} new ticket{s} at {name}",
-                    body=f"Walkthrough by {who}: {span}"[:500],
+        task_notify(db, kind="ticket_property", for_email=mgr, title=f"{n} new ticket{s}{at}",
+                    body=f"Batch by {who}: {span}"[:500],
                     nexus_action={"view": "property-asset", "sub": f"tickets:{batch.property_asset_id}",
                                   "label": "View Property"})
         told.add(mgr)
@@ -240,7 +245,7 @@ def _bells(db: Session, batch: models.TicketBatch, tickets: list, actor: str, de
     req = (batch.requester_email or "").lower()
     if req and req not in told:
         task_notify(db, kind="ticket_received", for_email=req,
-                    title=f"{n} ticket{s} raised for you at {name}", body=f"{span} - filed by {who}"[:500],
+                    title=f"{n} ticket{s} raised for you{at}", body=f"{span} - filed by {who}"[:500],
                     nexus_action={"view": "support", "label": "View Tickets"})
         told.add(req)
 
@@ -253,7 +258,7 @@ def _bells(db: Session, batch: models.TicketBatch, tickets: list, actor: str, de
             if em in told:
                 continue
             task_notify(db, kind="ticket_needs_assignment", for_email=em,
-                        title=f"Walkthrough at {name}: {n} new ticket{s}",
+                        title=f"Batch{at}: {n} new ticket{s}",
                         body=f"{span} - {', '.join(parts)}. Filed by {who}."[:500],
                         nexus_action={"view": "tickets", "label": "View Tickets"})
             told.add(em)
@@ -264,7 +269,7 @@ def create_walkthrough(body: WalkthroughBody, background_tasks: BackgroundTasks,
                        user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     me = (user.get("email") or "").strip().lower()
     if not property_links.may_walkthrough(db, user):
-        raise HTTPException(403, "Property Walkthrough is for the service desk and the Asset Management team.")
+        raise HTTPException(403, "Batch Create is for the service desk and the Asset Management team.")
     batch_id = (body.batch_id or "").strip().lower()
     if not _UUID.match(batch_id):
         raise HTTPException(422, {"message": "This form is out of date - reload the page and try again.", "lines": []})
@@ -282,13 +287,14 @@ def create_walkthrough(body: WalkthroughBody, background_tasks: BackgroundTasks,
     if not lines:
         raise HTTPException(422, {"message": "Add at least one line.", "lines": []})
     if len(lines) > MAX_LINES:
-        raise HTTPException(422, {"message": f"A walkthrough takes up to {MAX_LINES} lines - "
-                                             "submit the rest as a second walkthrough.", "lines": []})
-    prop = property_links.require_linkable(db, body.property_asset_id, user)
+        raise HTTPException(422, {"message": f"A batch takes up to {MAX_LINES} lines - "
+                                             "submit the rest as a second batch.", "lines": []})
+    prop = (property_links.require_linkable(db, body.property_asset_id, user)
+            if (body.property_asset_id or "").strip() else None)
     dept_id = (body.hr_department_id or "").strip()
     if not dept_id or not T.dept_name(db, dept_id):
         raise HTTPException(422, {"message": "Pick the team that will handle these.", "lines": []})
-    if not property_links.department_takes_property(db, dept_id):
+    if prop is not None and not property_links.department_takes_property(db, dept_id):
         raise HTTPException(422, {"message": "Pick a building or site team - this team's tickets "
                                              "aren't linked to properties.", "lines": []})
     company_id = T._intake_company(db, user, body.company_id, requester)
@@ -300,8 +306,10 @@ def create_walkthrough(body: WalkthroughBody, background_tasks: BackgroundTasks,
         raise HTTPException(422, {"message": f"{n_bad} line{'s' if n_bad > 1 else ''} need attention - "
                                              "nothing was filed yet.", "lines": errors})
     now = now_iso()
-    prop_name = property_links.display_name(prop)
-    manager = property_links.manager_email(db, prop)      # loads every property + People: before the lock
+    prop_id = prop.id if prop is not None else ""
+    prop_name = property_links.display_name(prop) if prop is not None else ""
+    # Loads every property + People: before the lock.
+    manager = property_links.manager_email(db, prop) if prop is not None else ""
     desk_list = list(T._it_admins(db, company_id))
     # The walker and requester watch (as on any ticket). The asset manager is
     # told once (_bells) and NOT made a watcher - property_links rule 6.
@@ -317,7 +325,7 @@ def create_walkthrough(body: WalkthroughBody, background_tasks: BackgroundTasks,
     existing = db.get(models.TicketBatch, batch_id)
     if existing is not None:
         return _replay(db, existing, me, fp, response)
-    batch = models.TicketBatch(id=batch_id, lines_hash=fp, property_asset_id=prop.id, property_name=prop_name,
+    batch = models.TicketBatch(id=batch_id, lines_hash=fp, property_asset_id=prop_id, property_name=prop_name,
                                created_by_email=me, requester_email=requester, company_id=company_id,
                                hr_department_id=dept_id, asset_manager_email=manager,
                                note=" ".join((body.note or "").split())[:500], created_at=now)
@@ -334,8 +342,8 @@ def create_walkthrough(body: WalkthroughBody, background_tasks: BackgroundTasks,
             type_fields={"svc_unit": c["location"]} if c["location"] else {}, links=[], task_ids=[],
             component="", csat_rating=0, csat_comment="", application=c["application"],
             service_area=service_areas[c["application"]], sla_due_on=sla[c["priority"]], resolved_at="",
-            created_at=now, modified_at=now, property_asset_id=prop.id, property_name=prop_name,
-            batch_id=batch_id, approver_email="", property_locked=1 if body.property_locked else 0,
+            created_at=now, modified_at=now, property_asset_id=prop_id, property_name=prop_name,
+            batch_id=batch_id, approver_email="", property_locked=1 if body.property_locked and prop is not None else 0,
             approval_status="pending" if c["type"] in gated else "none")
         if t.assignee_email:
             t.status = "in_progress"   # born assigned = already being worked (create_ticket's rule)
@@ -346,7 +354,7 @@ def create_walkthrough(body: WalkthroughBody, background_tasks: BackgroundTasks,
         log_activity(db, type="created", actor_email=me, entity_kind="ticket", entity_id=t.id,
                      entity_code=t.code, entity_title=t.subject,
                      detail=json.dumps({**T._ticket_snapshot(t), "walkthrough": batch_id,
-                                        "property": prop_name}))
+                                        **({"property": prop_name} if prop_name else {})}))
         tickets.append(t)
     batch.ticket_ids = [t.id for t in tickets]
     batch.ticket_count = len(tickets)

@@ -1220,7 +1220,7 @@ _MODULE_ORDER = ["tasks", "tickets", "documents", "time_off", "timecard", "shift
 _MODULE_VIEW_URL = {
     "tasks": "/tasks/mine", "tickets": "/tickets", "documents": _ESIGN_URL,
     "time_off": "/timeclock", "timecard": "/timeclock", "items": "/itemmanagement",
-    "shifts": "/shifts",
+    "shifts": "/workday/shifts",   # your own shifts - Workday, My Shifts (Oct 13 2026)
 }
 # Every row a table lists is a full row with its actions (Oct 6: past the
 # first three, rows used to shrink to a title and Open only, so the same email

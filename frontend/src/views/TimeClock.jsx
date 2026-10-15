@@ -24,6 +24,7 @@ import { MyHROverview } from './MyHR';
 import { leaveRequestDays, openShiftMinutes } from '../lib/workdayStats';
 import { timeOffLabel } from '../components/shiftScheduleLib';
 import WorkdayShiftRequests from '../components/shifts/WorkdayShiftRequests';
+import MyShifts from '../components/MyShifts';
 import { formatDistance, formatAccuracy } from '../lib/distance';
 import { recallTimeExempt, rememberTimeExempt } from '../lib/timeTracking';
 import { pairLocalAgent } from '../lib/agentPair';
@@ -59,6 +60,9 @@ const KIND_DONE = { in: 'Punched in', out: 'Punched out', break_start: 'Break st
 // breadcrumb via <ModuleTabs syncTitle> below.
 const TAB_META = {
   overview:  { title: 'Workday',    label: 'Overview' },
+  // Your own shifts live here again (Neil, Oct 13 2026: "the personal shift
+  // data should move into your Workday"); the group's week is Team > Shifts.
+  shifts:    { title: 'My Shifts',  label: 'My Shifts' },
   timesheet: { title: 'Time Sheet', label: 'Time Sheet' },
   timeoff:   { title: 'Time Off',   label: 'Time Off' },
 };
@@ -446,12 +450,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     const t = tabFor(activeSub) || tabFor(initialTab);
     return TAB_META[t] ? t : 'overview';
   });
-  // Workday > Shifts moved into the Shifts module (Sep 29). Old links - a
-  // bookmark, a bell or schedule email sent before the move - land there.
-  useEffect(() => {
-    if (activeSub === 'shifts') window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'shifts', sub: 'mine' } }));
-  }, [activeSub]);   // overview | clock | timesheet | timeoff
-  useEffect(() => {
+  useEffect(() => {   // overview | clock | shifts | timesheet | timeoff
     const t = tabFor(activeSub);
     if (TAB_META[t] && t !== tab) setTab(t);
     // An old 'clock' address already shows Overview - rewrite it to say so.
@@ -459,9 +458,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSub]);
   useEffect(() => {
-    // Not while forwarding an old Shifts link - that would pull the address
-    // back to this view on its way out.
-    if (onSubChange && activeSub !== tab && activeSub !== 'shifts') onSubChange(tab);
+    if (onSubChange && activeSub !== tab) onSubChange(tab);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
   // The shared read (lib/useTimeStatus): this screen, the floating timer and
@@ -1227,8 +1224,8 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
         tabs={(exempt
           /* Salaried/exempt (Charmi, Aug 21): no punch card, no timesheet -
              time off is the only surface that applies. */
-          ? ['overview', ...(toReview > 0 || tab === 'timesheet' ? ['timesheet'] : []), 'timeoff']
-          : ['overview', 'timesheet', 'timeoff']
+          ? ['overview', 'shifts', ...(toReview > 0 || tab === 'timesheet' ? ['timesheet'] : []), 'timeoff']
+          : ['overview', 'shifts', 'timesheet', 'timeoff']
         ).map((key) => ({ key, label: TAB_META[key].label, title: TAB_META[key].title }))}
         active={tab} onChange={setTab} syncTitle />
 
@@ -1245,6 +1242,8 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       {tab === 'overview' && (
         <MyHROverview clock={clockWidget} onOpenTimeOff={() => setTab('timeoff')} onOpenTimeSheet={exemptKnown ? undefined : () => setTab('timesheet')} />
       )}
+
+      {tab === 'shifts' && <MyShifts part="mine" />}
 
       {/* Timesheets submitted to me, not decided yet - above my own timesheet,
           for exempt reviewers too. Renders nothing when nothing is waiting. */}

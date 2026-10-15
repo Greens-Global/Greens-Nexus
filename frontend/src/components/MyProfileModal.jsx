@@ -1,14 +1,18 @@
-import { useState, useEffect } from 'react';
-import { X, Camera, Sun, Moon, Palette, Check, PanelLeft, Globe2, Signature, Copy } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { X, Camera, Sun, Moon, Palette, Check, PanelLeft, Globe2, Signature, Copy, Mail } from 'lucide-react';
 import { api } from '../api';
 import PhotoEditorModal from './PhotoEditorModal';
 import { refreshPhotoMap } from '../lib/peoplePhotos';
 import { ZONE_GROUPS, MAX_ZONES, LOCAL_TZ, currentZones, setZones, zoneOptionLabel } from '../lib/worldClockZones';
 import { Spinner } from './AsyncState';
+import EmailSettingsPanel from '../tasks/MyEmailSettings';
 
 const WK_THEMES = [['cobalt', 'Cobalt', '#2b45e1'], ['warm', 'Warm Sand', '#f5ead0']];
 
-// "My Profile" (header dropdown) - every employee can add/change/remove their
+// "Profile" (header dropdown; "My Profile" until Neil, Oct 13 2026). It holds
+// the user-level settings - "everything as it relates to only you" - so Email
+// Settings, once a menu item and popup of its own, is a section here too.
+// Every employee can add/change/remove their
 // own photo here (Neil: the menu item was a dead button, no self-service path
 // to a photo existed at all). Reuses HR's PhotoEditorModal (pan/zoom crop,
 // paste-a-screenshot) pointed at the self-service /myhr/profile/photo
@@ -20,12 +24,22 @@ const WK_THEMES = [['cobalt', 'Cobalt', '#2b45e1'], ['warm', 'Warm Sand', '#f5ea
 // threaded down rather than re-implemented. sidebarPinned/onSidebarPinnedChange
 // are App.jsx's - "keep it open every time" turns off the existing
 // click-outside auto-collapse instead of adding a second collapse mechanism.
-export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme, setWkTheme, sidebarPinned, onSidebarPinnedChange }) {
+// `focusEmail`: opened from the "Email Settings" link in a task email - it
+// scrolls straight to that section.
+export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme, setWkTheme, sidebarPinned, onSidebarPinnedChange, focusEmail = false }) {
+  // The settings API answers 403 for an account with no Task module access -
+  // say so plainly instead of showing controls that cannot be saved.
+  const [emailUnavailable, setEmailUnavailable] = useState(false);
+  const emailRef = useRef(null);
   const [profile, setProfile] = useState(null);
+  const [signature, setSignature] = useState(null);
+  // Again as the photo and signature load above it, which pushes it down.
+  useEffect(() => {
+    if (focusEmail) emailRef.current?.scrollIntoView?.({ block: 'start' });
+  }, [focusEmail, profile, signature]);
   const [error,   setError]   = useState('');
   const [status,  setStatus]  = useState('');
   const [photoOpen, setPhotoOpen] = useState(false);
-  const [signature, setSignature] = useState(null);
   const [sigName, setSigName] = useState('');
   const [sigPhone, setSigPhone] = useState('');
   const [sigClosing, setSigClosing] = useState('');
@@ -126,7 +140,7 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
       <div style={{ background: 'var(--card)', borderRadius: 14, width: '60vw', minWidth: 420, maxWidth: '94vw', maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }} onClick={e => e.stopPropagation()}>
         <div style={{ padding: '16px 18px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--line)' }}>
-          <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--ink)' }}>My Profile</span>
+          <span style={{ fontWeight: 700, fontSize: 14, color: 'var(--ink)' }}>Profile</span>
           <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}>
             <X size={16} />
           </button>
@@ -308,6 +322,21 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
               </select>
             ))}
           </div>
+        </div>
+
+        {/* Email Settings (Neil, Oct 13 2026: "no need to have this as a
+            separate pop-up") - your own task email preferences. */}
+        <div ref={emailRef} style={{ borderTop: '1px solid var(--line)', padding: '14px 18px 18px', fontFamily: 'Inter, sans-serif', scrollMarginTop: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 8 }}>
+            <Mail size={11} /> Email Settings
+          </div>
+          {emailUnavailable ? (
+            <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>
+              Task email settings aren&apos;t available for your account because you don&apos;t have access to the Tasks module.
+            </p>
+          ) : (
+            <EmailSettingsPanel onUnavailable={() => setEmailUnavailable(true)} />
+          )}
         </div>
         </div>
       </div>
