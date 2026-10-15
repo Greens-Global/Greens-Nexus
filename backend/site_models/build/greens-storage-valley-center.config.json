@@ -78,150 +78,177 @@
   ],
   "buildings": [
     {
-      "id": "B",
+      "id": "A",
+      "name": "Building A",
+      "kind": "storage",
+      "height": 3.6,
+      "floors": 1,
+      "roof": "white",
+      "doorSide": "both",
       "letters": [
-        "B"
+        "A"
       ],
+      "u": [
+        -27.17,
+        -5.47
+      ],
+      "v": [
+        -22.04,
+        -5.91
+      ],
+      "inferred": false,
+      "note": "Building A: 28 10x10 units on two interior hallways (four rows of seven), entered from the south end. Traced from the Feb 2023 Building A key map and the Jun 2024 customer map."
+    },
+    {
+      "id": "B",
       "name": "Building B",
       "kind": "storage",
-      "rect": {
-        "E": 17.9,
-        "N": -86.2,
-        "L": 91.9,
-        "W": 21.6,
-        "bearing": 1.3
-      },
       "height": 7.5,
       "floors": 2,
       "roof": "white",
       "doorSide": "both",
-      "inferred": true,
-      "note": "Two-story climate-controlled building (county permit STP-03-026W1, 36,724 sq ft). B2xx and B3xx units are modeled on level 2. Letter match inferred from the unit mix. Six unit rows with three 3.5 ft hallways fit the 71 ft width.",
-      "corridor": 1.1
-    },
-    {
-      "id": "A",
       "letters": [
-        "A"
+        "B"
       ],
-      "name": "Building A",
-      "kind": "garage",
-      "rect": {
-        "E": -4.6,
-        "N": -95.7,
-        "L": 49.4,
-        "W": 6.4,
-        "bearing": 1.6
-      },
-      "height": 3.2,
-      "floors": 1,
-      "roof": "white",
-      "doorSide": "both",
-      "inferred": true,
-      "note": "28 drive-up 10x10 units in the narrow row beside Building B. Inferred from size."
-    },
-    {
-      "id": "D",
-      "letters": [
-        "D"
+      "corridor": 1.1,
+      "u": [
+        -131.65,
+        -39.75
       ],
-      "name": "Building D",
-      "kind": "storage",
-      "rect": {
-        "E": -11.0,
-        "N": -154.9,
-        "L": 65.9,
-        "W": 15.8,
-        "bearing": 89.5
-      },
-      "height": 3.6,
-      "floors": 1,
-      "roof": "solar",
-      "doorSide": "both",
-      "inferred": true,
-      "note": "Six 12x50 drive-through units plus 24 12x25 units: the only row deep enough for 50 ft. Inferred."
-    },
-    {
-      "id": "E",
-      "letters": [
-        "E"
+      "v": [
+        -30.95,
+        -7.46
       ],
-      "name": "Building E",
-      "kind": "storage",
-      "rect": {
-        "E": -0.3,
-        "N": -178.8,
-        "L": 71.7,
-        "W": 11.2,
-        "bearing": 88.6
-      },
-      "height": 3.6,
-      "floors": 1,
-      "roof": "solar",
-      "doorSide": "both",
-      "inferred": true,
-      "note": "10x20 and 12x35 drive-up units. Inferred from size."
-    },
-    {
-      "id": "F",
-      "letters": [
-        "F"
-      ],
-      "name": "Building F",
-      "kind": "storage",
-      "rect": {
-        "E": -28.1,
-        "N": -129.3,
-        "L": 47.9,
-        "W": 10.8,
-        "bearing": 88.9
-      },
-      "height": 3.3,
-      "floors": 1,
-      "roof": "solar",
-      "doorSide": "both",
-      "inferred": true,
-      "note": "Small 10x10 to 14x20 drive-up units. Inferred from size."
+      "inferred": false,
+      "note": "Two-story climate-controlled building (county permit STP-03-026W1, 36,724 sq ft). Level 1: B001-B169 plus the 23 split halves (B095A..B131A), drive-up rows on both long walls and two interior hallways; level 2: B201-B350. Traced from the Feb 2023 Building B level 1 and level 2 floor plans (CAD). Level 2 is about 66 ft wide against level 1's 77 ft, set back on the west side over the 10x15 drive-up row."
     },
     {
       "id": "C1",
-      "letters": [],
-      "name": "Building C (C001-C044)",
+      "name": "Building C1",
       "kind": "garage",
-      "rect": {
-        "E": 39.6,
-        "N": -104.9,
-        "L": 134.5,
-        "W": 6.1,
-        "bearing": 1.5
-      },
       "height": 3.2,
       "floors": 1,
       "roof": "white",
       "doorSide": "ne",
-      "inferred": true,
-      "note": "Long single row on the east property line, doors facing Building B. 132 m holds the 43 10x20 drive-ups end to end. Measured from imagery Oct 11.",
-      "units": "^C0(0[1-9]|[1-3][0-9]|4[0-4])$"
+      "letters": [],
+      "units": "^C0([0-3][0-9]|4[0-4])$",
+      "u": [
+        -169.43,
+        -36.62
+      ],
+      "v": [
+        -43.32,
+        -36.92
+      ],
+      "inferred": false,
+      "note": "Long single row on the east property line: C001-C043 10x20 drive-ups facing west toward Building B, C044 at the south end. Traced from the Jun 2024 customer map."
     },
     {
       "id": "C2",
-      "letters": [],
-      "name": "Building C (C045-C071)",
-      "kind": "storage",
-      "rect": {
-        "E": -67.2,
-        "N": -150.6,
-        "L": 34.7,
-        "W": 16.3,
-        "bearing": 178.4
-      },
-      "height": 5.6,
+      "name": "Building C2",
+      "kind": "garage",
+      "height": 3.6,
       "floors": 1,
       "roof": "white",
       "doorSide": "both",
-      "inferred": true,
-      "note": "Southwest corner building, the only open footprint on the parcel wide enough for the 12x35 C units. Inferred from size - confirm against the plan.",
-      "units": "^C"
+      "letters": [],
+      "units": "^C0(4[5-9]|[5-7][0-9])$",
+      "u": [
+        -184.86,
+        -171.85
+      ],
+      "v": [
+        -44.12,
+        32.43
+      ],
+      "inferred": false,
+      "note": "South row: C053-C071 12x35 drive-ups facing north, with the C045-C052 corner block at its east end. Traced from the Jun 2024 customer map."
+    },
+    {
+      "id": "D",
+      "name": "Building D",
+      "kind": "storage",
+      "height": 3.6,
+      "floors": 1,
+      "roof": "solar",
+      "doorSide": "both",
+      "letters": [
+        "D"
+      ],
+      "u": [
+        -163.46,
+        -147.92
+      ],
+      "v": [
+        -26.57,
+        39.69
+      ],
+      "inferred": false,
+      "note": "D001-D006 12x50 drive-throughs at the east end, then D007-D018 (doors north) back to back with D019-D030 (doors south), all 12x25. Traced from the Jun 2024 customer map."
+    },
+    {
+      "id": "E1",
+      "name": "Building E1",
+      "kind": "garage",
+      "height": 3.2,
+      "floors": 1,
+      "roof": "white",
+      "doorSide": "both",
+      "letters": [],
+      "units": "^E0(0[1-9]|1[0-9]|2[0-5])$",
+      "u": [
+        -121.88,
+        -45.38
+      ],
+      "v": [
+        0.31,
+        6.71
+      ],
+      "inferred": false,
+      "note": "Narrow row west of Building B: E001-E025, doors facing east toward B. Traced from the Jun 2024 customer map."
+    },
+    {
+      "id": "E2",
+      "name": "Building E2",
+      "kind": "garage",
+      "height": 3.6,
+      "floors": 1,
+      "roof": "solar",
+      "doorSide": "both",
+      "letters": [],
+      "units": "^E0(2[6-9]|3[0-9])$",
+      "u": [
+        -135.17,
+        -124.2
+      ],
+      "v": [
+        1.24,
+        49.09
+      ],
+      "inferred": false,
+      "note": "E026-E038 12x35 drive-ups (E026 and E038 12x25) facing south toward Building D. Traced from the Jun 2024 customer map."
+    },
+    {
+      "id": "F",
+      "name": "Building F",
+      "kind": "storage",
+      "height": 3.6,
+      "floors": 1,
+      "roof": "white",
+      "doorSide": "both",
+      "letters": [
+        "F"
+      ],
+      "u": [
+        -169.89,
+        -134.23
+      ],
+      "v": [
+        56.26,
+        72.03
+      ],
+      "inferred": false,
+      "note": "Southwest building: 43 units in four rows on one center hallway, the outer rows open to the outside. Traced from the Feb 2023 Building F key map and the Jun 2024 customer map."
     },
     {
       "id": "OFFICE",
@@ -231,19 +258,20 @@
       ],
       "name": "Office",
       "kind": "office",
-      "rect": {
-        "E": 1.1,
-        "N": -16.0,
-        "L": 14.7,
-        "W": 10.0,
-        "bearing": 178.8
-      },
       "height": 4.1,
       "floors": 1,
       "roof": "red",
       "doorSide": "sw",
       "inferred": true,
-      "note": "Office at the gate with the 279 rental mailboxes (M001-M279)."
+      "note": "Office at the gate with the 279 rental mailboxes (M001-M279). Mailbox positions are not on any plan, so they are laid out schematically.",
+      "u": [
+        -23.32,
+        -8.62
+      ],
+      "v": [
+        -5.85,
+        3.48
+      ]
     }
   ],
   "zones": [
@@ -255,30 +283,5744 @@
         "N",
         "P"
       ],
-      "en": [
+      "px": [
         [
-          8,
-          -40
+          960,
+          640
         ],
         [
-          30,
-          -40
+          1143,
+          640
         ],
         [
-          30,
-          -8
+          1143,
+          789
         ],
         [
-          8,
-          -8
+          960,
+          789
         ]
-      ]
+      ],
+      "note": "RV and vehicle stalls (N37, P001, P002) in the north field; no plan shows the stalls, so the outline is inferred from imagery."
     }
   ],
   "sources": [
     "Parcel: SANDAG / San Diego County Assessor parcel service (APN 1882504500, 28407 Lizard Rocks Rd, 5.74 ac)",
-    "Building massing: Microsoft Open Building Footprints (heights) refined against Esri World Imagery",
+    "Unit positions, Building B: Feb 25, 2023 Building B 1st and 2nd Floor Plans (CAD customer maps, Egnyte Greens Valley Center, LLC > Development > Resources > Customer Maps), every unit cell traced from the drawing",
+    "Unit positions, Buildings A, C1, C2, D, E1, E2, F: Jun 24, 2024 Customer Map GSVC ver 0.4 (Egnyte --Asset Management > 02 - GS Valley Center > Property Plans & Maps), cross-checked against the Jun 5, 2013 Valley Center Self Storage unit map",
+    "Building massing: Microsoft Open Building Footprints and Esri World Imagery; traced rows nudged onto the roofs in the detail imagery",
     "Units: Cubby FMS inventory export, Oct 11, 2026 (851 active units)",
     "Facility facts: San Diego County PDS2020-STP-03-026W1 (existing 88,253 sq ft facility; 2-story 36,724 sq ft climate-controlled expansion)"
+  ],
+  "runs": [
+    {
+      "building": "C1",
+      "at": [
+        0.15,
+        6.25
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "C044",
+        {
+          "gap": 0.54
+        },
+        "C043-C001"
+      ]
+    },
+    {
+      "building": "C2",
+      "at": [
+        0.38,
+        0.15
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "C048"
+      ],
+      "door": "ne"
+    },
+    {
+      "building": "C2",
+      "at": [
+        4.95,
+        3.2
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "C047",
+        "C046",
+        {
+          "gap": 1.46
+        },
+        "C045"
+      ]
+    },
+    {
+      "building": "C2",
+      "at": [
+        0.15,
+        6.46
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "C049"
+      ]
+    },
+    {
+      "building": "C2",
+      "at": [
+        3.6,
+        4.94
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "C050"
+      ],
+      "door": "ne"
+    },
+    {
+      "building": "C2",
+      "at": [
+        6.65,
+        4.94
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "C051"
+      ],
+      "door": "ne"
+    },
+    {
+      "building": "C2",
+      "at": [
+        9.69,
+        6.46
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "C052"
+      ]
+    },
+    {
+      "building": "C2",
+      "at": [
+        11.44,
+        6.91
+      ],
+      "dir": "+v",
+      "depth": "-u",
+      "units": [
+        "C053-C071"
+      ]
+    },
+    {
+      "building": "D",
+      "at": [
+        0.15,
+        0.15
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "D001"
+      ],
+      "door": "both"
+    },
+    {
+      "building": "D",
+      "at": [
+        0.15,
+        3.81
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "D002"
+      ],
+      "door": "both"
+    },
+    {
+      "building": "D",
+      "at": [
+        0.15,
+        7.47
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "D003"
+      ],
+      "door": "both"
+    },
+    {
+      "building": "D",
+      "at": [
+        0.15,
+        11.13
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "D004"
+      ],
+      "door": "both"
+    },
+    {
+      "building": "D",
+      "at": [
+        0.15,
+        14.78
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "D005"
+      ],
+      "door": "both"
+    },
+    {
+      "building": "D",
+      "at": [
+        0.15,
+        18.44
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "D006"
+      ],
+      "door": "both"
+    },
+    {
+      "building": "D",
+      "at": [
+        15.39,
+        22.17
+      ],
+      "dir": "+v",
+      "depth": "-u",
+      "units": [
+        "D007-D018"
+      ]
+    },
+    {
+      "building": "D",
+      "at": [
+        0.15,
+        22.21
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "D030-D019"
+      ]
+    },
+    {
+      "building": "E1",
+      "at": [
+        0.15,
+        0.15
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "E025-E002"
+      ]
+    },
+    {
+      "building": "E1",
+      "at": [
+        73.3,
+        3.81
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "E001"
+      ]
+    },
+    {
+      "building": "E2",
+      "at": [
+        3.2,
+        0.15
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "E026"
+      ]
+    },
+    {
+      "building": "E2",
+      "at": [
+        0.15,
+        3.81
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "E027-E037"
+      ]
+    },
+    {
+      "building": "E2",
+      "at": [
+        3.2,
+        44.04
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "E038"
+      ]
+    },
+    {
+      "building": "F",
+      "at": [
+        0.4,
+        0.15
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "F011-F001"
+      ]
+    },
+    {
+      "building": "F",
+      "at": [
+        0.34,
+        7.77
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "F033-F043"
+      ]
+    },
+    {
+      "building": "F",
+      "at": [
+        0.15,
+        9.53
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "F032"
+      ]
+    },
+    {
+      "building": "F",
+      "at": [
+        3.2,
+        8.92
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "F031-F024"
+      ]
+    },
+    {
+      "building": "F",
+      "at": [
+        28.49,
+        6.48
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "F023"
+      ]
+    },
+    {
+      "building": "F",
+      "at": [
+        32.76,
+        9.53
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "F022"
+      ]
+    },
+    {
+      "building": "F",
+      "at": [
+        3.36,
+        15.62
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "F012-F020",
+        {
+          "gap": 0.54
+        },
+        "F021"
+      ]
+    },
+    {
+      "building": "A",
+      "at": [
+        0.21,
+        3.2
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "A028-A022"
+      ]
+    },
+    {
+      "building": "A",
+      "at": [
+        0.15,
+        5.02
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "A015-A021"
+      ]
+    },
+    {
+      "building": "A",
+      "at": [
+        0.17,
+        11.11
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "A014-A008"
+      ]
+    },
+    {
+      "building": "A",
+      "at": [
+        0.2,
+        12.93
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "A001-A007"
+      ]
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        3.237,
+        0.146
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B028"
+      ],
+      "width": 2.984,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        6.302,
+        0.146
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B027"
+      ],
+      "width": 2.984,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        9.338,
+        0.146
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B026"
+      ],
+      "width": 2.984,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        12.361,
+        0.146
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B025"
+      ],
+      "width": 1.426,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        17.145,
+        0.146
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B024"
+      ],
+      "width": 2.877,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        20.022,
+        3.13
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B023"
+      ],
+      "width": 2.932,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        23.014,
+        0.146
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B022"
+      ],
+      "width": 2.984,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        26.121,
+        3.13
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B021"
+      ],
+      "width": 2.972,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        29.174,
+        0.146
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B020"
+      ],
+      "width": 2.984,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        32.303,
+        3.13
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B019"
+      ],
+      "width": 2.969,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        35.313,
+        0.146
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B018"
+      ],
+      "width": 2.984,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        38.402,
+        3.13
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B017"
+      ],
+      "width": 2.847,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        41.311,
+        0.146
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B016"
+      ],
+      "width": 2.984,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        44.422,
+        3.13
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B015"
+      ],
+      "width": 2.929,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        47.404,
+        0.146
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B014"
+      ],
+      "width": 2.984,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        50.504,
+        0.146
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B013"
+      ],
+      "width": 2.984,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        53.55,
+        0.146
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B012"
+      ],
+      "width": 2.984,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        56.649,
+        0.146
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B011"
+      ],
+      "width": 2.984,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        59.747,
+        3.13
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B010"
+      ],
+      "width": 2.969,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        62.717,
+        0.146
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B009"
+      ],
+      "width": 2.984,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        65.767,
+        0.146
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B008"
+      ],
+      "width": 2.984,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        68.825,
+        0.146
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B007"
+      ],
+      "width": 2.984,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        71.884,
+        3.13
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B006"
+      ],
+      "width": 2.981,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        76.465,
+        0.146
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B005"
+      ],
+      "width": 2.984,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        79.499,
+        0.146
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B004"
+      ],
+      "width": 2.984,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        0.155,
+        3.13
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B161"
+      ],
+      "width": 3.088,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        3.237,
+        3.13
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B162"
+      ],
+      "width": 3.088,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        6.302,
+        3.13
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B163"
+      ],
+      "width": 3.088,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        20.022,
+        3.13
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B167"
+      ],
+      "width": 2.932,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        22.954,
+        3.13
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B168"
+      ],
+      "width": 3.167,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        26.121,
+        3.13
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B169"
+      ],
+      "width": 2.972,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        29.093,
+        3.13
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B124"
+      ],
+      "width": 3.21,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        32.303,
+        3.13
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B125"
+      ],
+      "width": 2.969,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        35.271,
+        3.13
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B126A"
+      ],
+      "width": 1.565,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        36.837,
+        3.13
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B126"
+      ],
+      "width": 1.565,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        38.402,
+        3.13
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B127A"
+      ],
+      "width": 1.423,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        39.825,
+        3.13
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B127"
+      ],
+      "width": 1.423,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        41.249,
+        3.13
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B128A"
+      ],
+      "width": 1.586,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        42.835,
+        3.13
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B128"
+      ],
+      "width": 1.586,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        44.422,
+        3.13
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B129A"
+      ],
+      "width": 1.465,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        45.886,
+        3.13
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B129"
+      ],
+      "width": 1.465,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        47.351,
+        3.13
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B130A"
+      ],
+      "width": 1.577,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        48.928,
+        3.13
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B130"
+      ],
+      "width": 1.577,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        50.505,
+        3.13
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B131A",
+        "B131"
+      ],
+      "width": 1.522,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        53.55,
+        3.13
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B132"
+      ],
+      "width": 3.088,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        56.598,
+        3.13
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B133"
+      ],
+      "width": 3.149,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        59.747,
+        3.13
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B086"
+      ],
+      "width": 2.969,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        62.717,
+        3.13
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B087"
+      ],
+      "width": 3.088,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        65.767,
+        3.13
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B088"
+      ],
+      "width": 3.088,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        68.825,
+        3.13
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B089"
+      ],
+      "width": 3.088,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        71.884,
+        3.13
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B090"
+      ],
+      "width": 2.981,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        76.49,
+        3.13
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B091"
+      ],
+      "width": 2.999,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        79.499,
+        3.13
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B092"
+      ],
+      "width": 3.088,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        82.564,
+        3.13
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B003"
+      ],
+      "width": 3.088,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        9.338,
+        4.712
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B164"
+      ],
+      "width": 1.506,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        12.361,
+        4.712
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B165"
+      ],
+      "width": 1.506,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        17.145,
+        6.218
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B166"
+      ],
+      "width": 2.877,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        0.155,
+        7.919
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B160"
+      ],
+      "width": 3.075,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        3.237,
+        7.919
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B159"
+      ],
+      "width": 3.075,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        6.302,
+        7.919
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B158"
+      ],
+      "width": 3.075,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        9.351,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B157"
+      ],
+      "width": 3.021,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        12.372,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B156"
+      ],
+      "width": 3.027,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        17.145,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B155"
+      ],
+      "width": 2.877,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        20.022,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B154"
+      ],
+      "width": 2.932,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        22.954,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B153"
+      ],
+      "width": 3.167,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        26.121,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B152"
+      ],
+      "width": 2.972,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        29.093,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B123"
+      ],
+      "width": 3.21,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        32.303,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B122"
+      ],
+      "width": 2.969,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        35.271,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B121A"
+      ],
+      "width": 1.565,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        36.837,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B121"
+      ],
+      "width": 1.565,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        38.402,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B120A"
+      ],
+      "width": 1.423,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        39.825,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B120"
+      ],
+      "width": 1.423,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        41.249,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B119A"
+      ],
+      "width": 1.586,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        42.835,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B119"
+      ],
+      "width": 1.586,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        44.422,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B118A"
+      ],
+      "width": 1.465,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        45.886,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B118"
+      ],
+      "width": 1.465,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        47.351,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B117A"
+      ],
+      "width": 1.577,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        48.928,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B117"
+      ],
+      "width": 1.577,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        50.505,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B116A",
+        "B116"
+      ],
+      "width": 1.522,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        53.55,
+        7.919
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B115"
+      ],
+      "width": 3.075,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        56.598,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B114"
+      ],
+      "width": 3.149,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        59.747,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B085"
+      ],
+      "width": 2.969,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        62.717,
+        7.919
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B084"
+      ],
+      "width": 3.075,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        65.767,
+        7.919
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B083"
+      ],
+      "width": 3.075,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        68.825,
+        7.919
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B082"
+      ],
+      "width": 3.075,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        71.884,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B081"
+      ],
+      "width": 2.981,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        76.49,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B080"
+      ],
+      "width": 2.999,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        79.499,
+        7.919
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B079"
+      ],
+      "width": 3.075,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        82.564,
+        7.919
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B078"
+      ],
+      "width": 3.075,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        85.618,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B002"
+      ],
+      "width": 3.021,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        88.639,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B001"
+      ],
+      "width": 3.112,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        0.155,
+        10.994
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B143"
+      ],
+      "width": 3.075,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        3.237,
+        10.994
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B144"
+      ],
+      "width": 3.075,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        6.302,
+        10.994
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B145"
+      ],
+      "width": 3.075,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        9.351,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B146"
+      ],
+      "width": 3.021,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        12.372,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B147"
+      ],
+      "width": 3.027,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        17.145,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B148"
+      ],
+      "width": 2.877,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        20.022,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B149"
+      ],
+      "width": 2.932,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        22.954,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B150"
+      ],
+      "width": 3.167,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        26.121,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B151"
+      ],
+      "width": 2.972,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        29.093,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B104"
+      ],
+      "width": 3.21,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        32.303,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B105"
+      ],
+      "width": 2.969,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        35.271,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B106A"
+      ],
+      "width": 1.565,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        36.837,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B106"
+      ],
+      "width": 1.565,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        38.402,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B107A"
+      ],
+      "width": 1.423,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        39.825,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B107"
+      ],
+      "width": 1.423,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        41.249,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B108A"
+      ],
+      "width": 1.586,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        42.835,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B108"
+      ],
+      "width": 1.586,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        44.422,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B109A"
+      ],
+      "width": 1.465,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        45.886,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B109"
+      ],
+      "width": 1.465,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        47.351,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B110A"
+      ],
+      "width": 1.577,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        48.928,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B110"
+      ],
+      "width": 1.577,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        50.505,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B111A",
+        "B111"
+      ],
+      "width": 1.522,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        53.55,
+        10.994
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B112"
+      ],
+      "width": 3.075,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        56.598,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B113"
+      ],
+      "width": 3.149,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        59.747,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B068"
+      ],
+      "width": 2.969,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        62.717,
+        10.994
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B069"
+      ],
+      "width": 3.075,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        65.767,
+        10.994
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B070"
+      ],
+      "width": 3.075,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        68.825,
+        10.994
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B071"
+      ],
+      "width": 3.075,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        71.884,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B072"
+      ],
+      "width": 2.981,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        76.49,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B073"
+      ],
+      "width": 2.999,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        79.499,
+        10.994
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B074"
+      ],
+      "width": 3.075,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        82.564,
+        10.994
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B075"
+      ],
+      "width": 3.075,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        85.618,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B076"
+      ],
+      "width": 3.021,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        88.639,
+        10.994
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B077"
+      ],
+      "width": 3.112,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        0.137,
+        20.272
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B142"
+      ],
+      "width": 3.085,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        3.237,
+        15.758
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B141"
+      ],
+      "width": 3.072,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        6.302,
+        15.758
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B140"
+      ],
+      "width": 3.072,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        9.351,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B139"
+      ],
+      "width": 3.021,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        12.372,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B138"
+      ],
+      "width": 3.027,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        17.145,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B137"
+      ],
+      "width": 2.877,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        20.022,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B136"
+      ],
+      "width": 2.932,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        22.954,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B135"
+      ],
+      "width": 3.167,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        26.121,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B134"
+      ],
+      "width": 2.972,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        29.093,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B103"
+      ],
+      "width": 3.21,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        32.303,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B102"
+      ],
+      "width": 2.969,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        35.271,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B101A"
+      ],
+      "width": 1.565,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        36.837,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B101"
+      ],
+      "width": 1.565,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        38.402,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B100A"
+      ],
+      "width": 1.423,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        39.825,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B100"
+      ],
+      "width": 1.423,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        41.249,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B099A"
+      ],
+      "width": 1.586,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        42.835,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B099"
+      ],
+      "width": 1.586,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        44.422,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B098"
+      ],
+      "width": 1.426,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        45.837,
+        15.758
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B097"
+      ],
+      "width": 3.072,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        47.351,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B096A"
+      ],
+      "width": 1.577,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        48.928,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B096"
+      ],
+      "width": 1.577,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        50.505,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B095A",
+        "B095"
+      ],
+      "width": 1.522,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        53.55,
+        15.758
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B094"
+      ],
+      "width": 3.072,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        56.598,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B093"
+      ],
+      "width": 3.149,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        59.747,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B067"
+      ],
+      "width": 2.969,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        62.717,
+        15.758
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B066"
+      ],
+      "width": 3.072,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        65.767,
+        15.758
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B065"
+      ],
+      "width": 3.072,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        68.825,
+        15.758
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B064"
+      ],
+      "width": 3.072,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        71.851,
+        15.758
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B063"
+      ],
+      "width": 1.515,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        76.49,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B061"
+      ],
+      "width": 2.999,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        79.499,
+        15.758
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B060"
+      ],
+      "width": 3.072,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        82.564,
+        15.758
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B059"
+      ],
+      "width": 3.072,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        85.618,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B058"
+      ],
+      "width": 3.021,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        88.639,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B057"
+      ],
+      "width": 3.112,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        71.884,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B062"
+      ],
+      "width": 4.606,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        3.222,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B029"
+      ],
+      "width": 3.078,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        6.3,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B030"
+      ],
+      "width": 3.051,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        9.351,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B031"
+      ],
+      "width": 3.021,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        12.372,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B032"
+      ],
+      "width": 3.027,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        17.145,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B033"
+      ],
+      "width": 2.877,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        20.022,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B034"
+      ],
+      "width": 2.932,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        22.954,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B035"
+      ],
+      "width": 3.167,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        26.121,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B036"
+      ],
+      "width": 2.972,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        29.093,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B037"
+      ],
+      "width": 3.21,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        32.303,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B038"
+      ],
+      "width": 2.969,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        35.271,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B039"
+      ],
+      "width": 3.13,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        38.402,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B040"
+      ],
+      "width": 2.847,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        41.249,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B041"
+      ],
+      "width": 3.173,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        44.422,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B042"
+      ],
+      "width": 1.426,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        47.351,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B043"
+      ],
+      "width": 3.155,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        50.505,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B044"
+      ],
+      "width": 3.045,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        53.55,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B045"
+      ],
+      "width": 3.048,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        56.598,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B046"
+      ],
+      "width": 3.149,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        59.747,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B047"
+      ],
+      "width": 2.969,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        62.716,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B048"
+      ],
+      "width": 3.051,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        65.767,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B049"
+      ],
+      "width": 3.048,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        68.815,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B050",
+        {
+          "gap": 7.605
+        },
+        "B053"
+      ],
+      "width": 3.069,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        82.558,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B054"
+      ],
+      "width": 3.06,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        85.618,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B055"
+      ],
+      "width": 3.021,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        88.639,
+        18.831
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B056"
+      ],
+      "width": 3.112,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        71.851,
+        21.985
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B051"
+      ],
+      "width": 1.426,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 1,
+      "at": [
+        76.465,
+        21.985
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B052"
+      ],
+      "width": 1.426,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        3.002,
+        0.14
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B349"
+      ],
+      "width": 3.091,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        6.093,
+        0.14
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B348"
+      ],
+      "width": 3.124,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        9.217,
+        0.14
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B347"
+      ],
+      "width": 1.423,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        16.889,
+        0.14
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B346"
+      ],
+      "width": 3.027,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        19.919,
+        0.14
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B345"
+      ],
+      "width": 3.051,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        22.973,
+        0.14
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B344"
+      ],
+      "width": 3.051,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        26.024,
+        0.14
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B343"
+      ],
+      "width": 3.039,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        29.063,
+        0.14
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B288"
+      ],
+      "width": 2.975,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        32.038,
+        0.14
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B289"
+      ],
+      "width": 3.136,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        35.177,
+        0.14
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B290"
+      ],
+      "width": 3.051,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        38.228,
+        0.14
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B291"
+      ],
+      "width": 3.112,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        41.34,
+        0.14
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B292"
+      ],
+      "width": 2.999,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        44.339,
+        0.14
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B293"
+      ],
+      "width": 3.136,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        47.476,
+        0.14
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B294"
+      ],
+      "width": 2.972,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        50.45,
+        0.14
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B295"
+      ],
+      "width": 3.051,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        53.506,
+        0.14
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B296"
+      ],
+      "width": 3.051,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        56.571,
+        0.14
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B297"
+      ],
+      "width": 3.051,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        59.634,
+        0.14
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B231"
+      ],
+      "width": 3.051,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        62.685,
+        0.14
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B232"
+      ],
+      "width": 3.039,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        65.729,
+        0.14
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B233"
+      ],
+      "width": 3.051,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        68.781,
+        0.14
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B234"
+      ],
+      "width": 3.027,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        71.852,
+        0.14
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B235"
+      ],
+      "width": 3.051,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        76.468,
+        0.14
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B236"
+      ],
+      "width": 3.005,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        79.477,
+        0.14
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B237"
+      ],
+      "width": 3.051,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        -0.035,
+        1.667
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B350"
+      ],
+      "width": 1.524,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        82.547,
+        1.667
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B238"
+      ],
+      "width": 1.524,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        1.567,
+        6.291
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B334"
+      ],
+      "width": 1.436,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        3.024,
+        4.849
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B335"
+      ],
+      "width": 2.225,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        6.131,
+        4.849
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B336"
+      ],
+      "width": 2.225,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        9.211,
+        4.849
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B337"
+      ],
+      "width": 2.225,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        12.233,
+        4.849
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B338"
+      ],
+      "width": 2.225,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        16.878,
+        4.849
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B339"
+      ],
+      "width": 2.225,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        19.919,
+        4.849
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B340"
+      ],
+      "width": 2.225,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        22.973,
+        4.849
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B341"
+      ],
+      "width": 2.225,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        26.019,
+        4.849
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B342"
+      ],
+      "width": 2.225,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        29.026,
+        4.849
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B287"
+      ],
+      "width": 2.225,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        32.082,
+        4.849
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B286"
+      ],
+      "width": 2.225,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        35.177,
+        4.849
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B285"
+      ],
+      "width": 2.225,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        38.26,
+        4.849
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B284"
+      ],
+      "width": 2.225,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        41.316,
+        4.849
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B283"
+      ],
+      "width": 2.225,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        44.339,
+        7.074
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B282"
+      ],
+      "width": 1.524,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        47.438,
+        4.849
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B281"
+      ],
+      "width": 2.225,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        50.45,
+        4.849
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B280"
+      ],
+      "width": 2.225,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        53.506,
+        4.849
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B279"
+      ],
+      "width": 2.225,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        56.571,
+        4.849
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B278"
+      ],
+      "width": 2.225,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        59.634,
+        4.849
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B230"
+      ],
+      "width": 2.225,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        62.681,
+        4.849
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B229"
+      ],
+      "width": 2.225,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        65.729,
+        4.849
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B228"
+      ],
+      "width": 2.225,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        68.77,
+        4.849
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B227"
+      ],
+      "width": 2.225,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        71.799,
+        4.849
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B226"
+      ],
+      "width": 2.225,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        76.447,
+        4.849
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B225"
+      ],
+      "width": 2.225,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        79.477,
+        4.849
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B224"
+      ],
+      "width": 2.225,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        82.561,
+        4.849
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B223"
+      ],
+      "width": 1.442,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        1.567,
+        6.291
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B333"
+      ],
+      "width": 1.436,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        82.528,
+        6.291
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B220B"
+      ],
+      "width": 1.591,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        85.643,
+        6.291
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B221"
+      ],
+      "width": 3.011,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        88.712,
+        6.291
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B222"
+      ],
+      "width": 3.011,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        3.024,
+        7.074
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B332"
+      ],
+      "width": 2.228,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        6.131,
+        7.074
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B331"
+      ],
+      "width": 2.228,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        9.211,
+        7.074
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B330"
+      ],
+      "width": 2.228,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        12.233,
+        7.074
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B329"
+      ],
+      "width": 2.228,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        16.878,
+        7.074
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B328"
+      ],
+      "width": 2.228,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        19.919,
+        7.074
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B327"
+      ],
+      "width": 2.228,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        22.973,
+        7.074
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B326"
+      ],
+      "width": 2.228,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        26.019,
+        7.074
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B325"
+      ],
+      "width": 2.228,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        29.026,
+        7.074
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B268"
+      ],
+      "width": 2.228,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        32.082,
+        7.074
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B269"
+      ],
+      "width": 2.228,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        35.177,
+        7.074
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B270"
+      ],
+      "width": 2.228,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        38.26,
+        7.074
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B271"
+      ],
+      "width": 2.228,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        41.316,
+        7.074
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B272"
+      ],
+      "width": 2.228,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        44.339,
+        7.074
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B273"
+      ],
+      "width": 1.524,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        47.438,
+        7.074
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B274"
+      ],
+      "width": 2.228,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        50.45,
+        7.074
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B275"
+      ],
+      "width": 2.228,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        53.506,
+        7.074
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B276"
+      ],
+      "width": 2.228,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        56.571,
+        7.074
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B277"
+      ],
+      "width": 2.228,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        59.634,
+        7.074
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B213B"
+      ],
+      "width": 2.228,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        62.681,
+        7.074
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B214B"
+      ],
+      "width": 2.228,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        65.729,
+        7.074
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B215B"
+      ],
+      "width": 2.228,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        68.77,
+        7.074
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B216B"
+      ],
+      "width": 2.228,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        71.799,
+        7.074
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B217B"
+      ],
+      "width": 2.228,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        76.447,
+        7.074
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B218B"
+      ],
+      "width": 2.228,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        79.477,
+        7.074
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B219B"
+      ],
+      "width": 2.228,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        1.567,
+        12.518
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B316"
+      ],
+      "width": 1.436,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        3.024,
+        10.924
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B317"
+      ],
+      "width": 1.594,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        6.131,
+        10.924
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B318"
+      ],
+      "width": 1.594,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        9.211,
+        10.924
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B319"
+      ],
+      "width": 1.594,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        12.233,
+        10.924
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B320"
+      ],
+      "width": 1.594,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        16.878,
+        10.924
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B321"
+      ],
+      "width": 1.594,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        19.919,
+        10.924
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B322"
+      ],
+      "width": 1.594,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        22.973,
+        10.924
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B323"
+      ],
+      "width": 1.594,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        26.019,
+        10.924
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B324"
+      ],
+      "width": 1.594,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        29.026,
+        10.924
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B267"
+      ],
+      "width": 1.594,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        32.082,
+        10.924
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B266"
+      ],
+      "width": 1.594,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        35.177,
+        10.924
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B265"
+      ],
+      "width": 1.594,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        38.26,
+        10.924
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B264"
+      ],
+      "width": 1.594,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        41.316,
+        10.924
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B263"
+      ],
+      "width": 1.594,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        44.339,
+        10.924
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B262"
+      ],
+      "width": 1.594,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        47.438,
+        10.924
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B261"
+      ],
+      "width": 1.594,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        50.45,
+        10.924
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B260"
+      ],
+      "width": 1.594,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        53.506,
+        10.924
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B259"
+      ],
+      "width": 1.594,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        56.571,
+        10.924
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B258"
+      ],
+      "width": 1.594,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        59.634,
+        10.924
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B218A"
+      ],
+      "width": 1.594,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        62.681,
+        10.924
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B217A"
+      ],
+      "width": 1.594,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        65.729,
+        10.924
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B216A"
+      ],
+      "width": 1.594,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        68.77,
+        10.924
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B215A"
+      ],
+      "width": 1.594,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        71.799,
+        10.924
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B214A"
+      ],
+      "width": 1.594,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        76.447,
+        10.924
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B213A"
+      ],
+      "width": 1.594,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        79.477,
+        10.924
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B212A"
+      ],
+      "width": 1.594,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        82.561,
+        10.924
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B211A"
+      ],
+      "width": 1.594,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        85.643,
+        10.924
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B210A"
+      ],
+      "width": 1.594,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        88.712,
+        10.924
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B219"
+      ],
+      "width": 1.594,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        1.567,
+        12.518
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B315"
+      ],
+      "width": 1.436,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        3.024,
+        12.518
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B314"
+      ],
+      "width": 2.896,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        6.131,
+        12.518
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B313"
+      ],
+      "width": 2.896,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        9.211,
+        12.518
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B312"
+      ],
+      "width": 2.896,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        12.233,
+        12.518
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B311"
+      ],
+      "width": 2.896,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        16.878,
+        12.518
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B310"
+      ],
+      "width": 2.896,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        19.919,
+        12.518
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B309"
+      ],
+      "width": 2.896,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        22.973,
+        12.518
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B308"
+      ],
+      "width": 2.896,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        26.019,
+        12.518
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B307"
+      ],
+      "width": 2.896,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        29.026,
+        12.518
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B253"
+      ],
+      "width": 2.896,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        32.082,
+        12.518
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B254"
+      ],
+      "width": 2.896,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        35.177,
+        12.518
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B255"
+      ],
+      "width": 2.896,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        38.26,
+        12.518
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B256"
+      ],
+      "width": 2.896,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        41.34,
+        12.518
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B257"
+      ],
+      "width": 1.469,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        48.923,
+        12.518
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B246"
+      ],
+      "width": 1.524,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        50.45,
+        12.518
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B243"
+      ],
+      "width": 2.896,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        53.506,
+        12.518
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B244"
+      ],
+      "width": 2.896,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        56.571,
+        12.518
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B245"
+      ],
+      "width": 2.896,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        59.634,
+        12.518
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B213"
+      ],
+      "width": 2.896,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        62.681,
+        12.518
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B212"
+      ],
+      "width": 2.896,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        65.729,
+        12.518
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B211"
+      ],
+      "width": 2.896,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        68.77,
+        12.518
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B210"
+      ],
+      "width": 2.896,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        71.799,
+        12.518
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B209"
+      ],
+      "width": 2.896,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        76.447,
+        12.518
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B208"
+      ],
+      "width": 2.896,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        79.477,
+        12.518
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B207"
+      ],
+      "width": 2.896,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        82.528,
+        12.518
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B218"
+      ],
+      "width": 1.591,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        85.643,
+        12.518
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B206"
+      ],
+      "width": 2.896,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        88.712,
+        12.518
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B205"
+      ],
+      "width": 2.896,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        44.339,
+        14.018
+      ],
+      "dir": "+u",
+      "depth": "+v",
+      "units": [
+        "B247"
+      ],
+      "width": 1.524,
+      "door": "ne"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        -0.035,
+        17.069
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B306"
+      ],
+      "width": 1.527,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        3.024,
+        17.069
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B305"
+      ],
+      "width": 2.95,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        6.131,
+        17.069
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B304"
+      ],
+      "width": 2.95,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        9.211,
+        17.069
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B303"
+      ],
+      "width": 2.95,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        12.285,
+        17.069
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B302"
+      ],
+      "width": 2.95,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        16.878,
+        17.069
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B301"
+      ],
+      "width": 2.95,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        19.919,
+        17.069
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B300"
+      ],
+      "width": 2.95,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        22.973,
+        17.069
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B299"
+      ],
+      "width": 2.95,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        26.019,
+        17.069
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B298"
+      ],
+      "width": 2.95,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        29.026,
+        17.069
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B252"
+      ],
+      "width": 2.95,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        32.082,
+        17.069
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B251"
+      ],
+      "width": 2.95,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        35.177,
+        17.069
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B250"
+      ],
+      "width": 2.95,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        38.26,
+        17.069
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B249"
+      ],
+      "width": 2.95,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        41.316,
+        17.069
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B248"
+      ],
+      "width": 2.95,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        47.438,
+        17.069
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B242"
+      ],
+      "width": 2.95,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        50.45,
+        17.069
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B241"
+      ],
+      "width": 2.95,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        53.506,
+        17.069
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B240"
+      ],
+      "width": 2.95,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        56.571,
+        17.069
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B239"
+      ],
+      "width": 2.95,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        59.634,
+        17.069
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B214"
+      ],
+      "width": 2.95,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        62.681,
+        17.069
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B215"
+      ],
+      "width": 2.95,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        65.729,
+        17.069
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B216"
+      ],
+      "width": 2.95,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        68.77,
+        17.069
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B217"
+      ],
+      "width": 2.95,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        81.004,
+        20.019
+      ],
+      "dir": "+u",
+      "depth": "-v",
+      "units": [
+        "B201"
+      ],
+      "width": 1.524,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        82.547,
+        17.069
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B202"
+      ],
+      "width": 2.95,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        85.643,
+        17.069
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B203"
+      ],
+      "width": 2.95,
+      "door": "sw"
+    },
+    {
+      "building": "B",
+      "f": 2,
+      "at": [
+        88.712,
+        17.069
+      ],
+      "dir": "+v",
+      "depth": "+u",
+      "units": [
+        "B204"
+      ],
+      "width": 2.95,
+      "door": "sw"
+    }
   ]
 }
