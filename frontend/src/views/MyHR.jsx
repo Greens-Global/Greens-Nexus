@@ -455,20 +455,23 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, clock = null }) {
                 instead of a card at the bottom. It opens the panel with New
                 Request and every request sent; a dot says HR did something
                 you have not looked at yet. */}
-            <button type="button" className="dk-stat wd-stat" onClick={openAskPanel}
+            {/* Styled as the place to go (Pranshu, Oct 15 2026): a soft tint of
+                the hero's blue-to-green, a solid badge and an Ask a Question
+                pill - wd-askhr in TimeClock.jsx's Workday styles. */}
+            <button type="button" className="dk-stat wd-stat wd-askhr" onClick={openAskPanel}
               aria-label={askUnseen ? `Ask HR, ${askUnseen} update${askUnseen === 1 ? '' : 's'} from HR` : 'Ask HR'}>
-              <span className="dk-chip dk-chip--blue" style={{ position: 'relative' }}>
-                <MessageSquarePlus />
-                {askUnseen > 0 && <span data-askhr-dot aria-hidden="true" style={{ position: 'absolute', top: -3, right: -3, width: 10, height: 10, borderRadius: '50%', background: 'hsl(var(--color-red))', boxShadow: '0 0 0 2px var(--card)' }} />}
+              <span className="wd-askhr-badge" aria-hidden="true">
+                <MessageSquarePlus size={18} />
+                {askUnseen > 0 && <span data-askhr-dot className="wd-askhr-dot" />}
               </span>
               <span className="wd-stat-text">
-                <span className="dk-stat-label" style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>Ask HR</span>
-                <span className="dk-stat-sub" style={{ color: askUnseen ? 'hsl(var(--color-red))' : undefined, fontWeight: askUnseen ? 600 : undefined }}>
+                <span className="wd-askhr-title">Ask HR</span>
+                <span className={`wd-askhr-sub${askUnseen ? ' wd-askhr-sub--new' : ''}`}>
                   {askUnseen ? `${askUnseen} update${askUnseen === 1 ? '' : 's'} from HR`
                     : askOpenCount ? `${askOpenCount} open request${askOpenCount === 1 ? '' : 's'}` : 'Documents, profile changes, questions'}
                 </span>
               </span>
-              <ArrowRight size={16} className="dk-stat-arrow" aria-hidden="true" />
+              <span className="wd-askhr-cta" aria-hidden="true">{askUnseen ? 'View' : 'Ask a Question'} <ArrowRight size={13} /></span>
             </button>
           </div>
         </>

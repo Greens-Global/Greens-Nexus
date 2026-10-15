@@ -149,6 +149,24 @@ if (typeof document !== 'undefined' && !document.getElementById('ts-anim')) {
        row: chip, then number / label / hint, then the arrow. */
     .wd-statgrid { display: grid; grid-template-columns: minmax(0, 1.3fr) repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
     .wd-statgrid--nohours { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    /* Ask HR tile (Oct 15 2026): a light echo of the hero's gradient so it reads
+       as the place to go for HR, with a solid badge and a call-to-action pill. */
+    .dk-stat.wd-stat.wd-askhr { position: relative; overflow: hidden; border: 1px solid rgba(43, 69, 225, .18);
+      background: linear-gradient(135deg, rgba(66, 86, 232, .10) 0%, rgba(22, 163, 74, .10) 100%), var(--card);
+      box-shadow: 0 6px 18px rgba(43, 69, 225, .10); }
+    .dk-stat.wd-stat.wd-askhr::after { content: ''; position: absolute; right: -28px; top: -28px; width: 96px; height: 96px; border-radius: 50%;
+      background: radial-gradient(circle, rgba(66, 86, 232, .16), transparent 70%); pointer-events: none; }
+    .dk-stat.wd-stat.wd-askhr:hover { border-color: rgba(43, 69, 225, .35); box-shadow: 0 10px 24px rgba(43, 69, 225, .18); transform: translateY(-1px); }
+    .wd-askhr-badge { position: relative; flex-shrink: 0; width: 38px; height: 38px; border-radius: 11px; display: inline-flex; align-items: center; justify-content: center;
+      color: #fff; background: linear-gradient(135deg, #4256e8, #16a34a); box-shadow: 0 4px 12px rgba(43, 69, 225, .30); }
+    .wd-askhr-dot { position: absolute; top: -4px; right: -4px; width: 11px; height: 11px; border-radius: 50%; background: hsl(var(--color-red)); box-shadow: 0 0 0 2px var(--card); }
+    .wd-askhr-title { display: block; font-size: 15px; font-weight: 800; color: var(--ink); letter-spacing: -.01em; }
+    .wd-askhr-sub { display: block; font-size: 11.5px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .wd-askhr-sub--new { color: hsl(var(--color-red)); font-weight: 700; }
+    .wd-askhr-cta { position: relative; z-index: 1; flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px; padding: 5px 10px; border-radius: 999px;
+      font-size: 11.5px; font-weight: 700; color: #fff; background: var(--wk-brand, #2b45e1); white-space: nowrap; }
+    [data-theme="dark"] .dk-stat.wd-stat.wd-askhr { background: linear-gradient(135deg, rgba(66, 86, 232, .22) 0%, rgba(22, 163, 74, .16) 100%), var(--card); border-color: rgba(120, 140, 255, .28); }
+    @media (max-width: 1200px) { .wd-askhr-cta { display: none; } }
     .dk-stat.wd-stat.wd-hero { padding: 0; gap: 0; align-items: stretch; }
     .wd-hero-part { display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: none; border: none; color: inherit; font: inherit; text-align: left; cursor: pointer; min-width: 0; border-radius: inherit; transition: background .15s ease; }
     .wd-hero-part:first-child { flex: 1.15; }
