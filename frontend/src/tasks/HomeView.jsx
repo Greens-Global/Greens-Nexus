@@ -1,6 +1,9 @@
-// Task Module - Home (ported 1:1 from the export's HomePage). A customizable
-// widget dashboard: a reorderable grid of widgets (My tasks · Projects ·
-// Teams · Team members · Notifications), persisted to localStorage. Its one
+// Task Module - Home (ported 1:1 from the export's HomePage). Tasks, Updates
+// and Bookmarks are its CORE (Neil, Oct 15 2026: "Tasks and Updates should be
+// the core of home. Bookmarks, too"): always there, Tasks and Bookmarks down
+// the left and Updates beside them as a full-height column at a desk, stacked
+// on a phone. Under them, a customizable grid of the other widgets (Week
+// ahead, By priority, Teams...), arranged in the person's profile. Its one
 // page-level control, Customize, is portaled up into the module bar next to
 // Manage rather than rendered here.
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -15,7 +18,7 @@ import TaskDetailDrawer from './TaskDetailDrawer';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { useTableValue, whenTablePrefsLoaded } from './tableCols';
 import { api } from '../api';
-import { formatDateTime } from '../lib/datetime';
+import UpdatesCard from './HomeUpdates';
 
 const WIDGET_META = [
   { key: 'my_tasks', label: 'Tasks' },   // was "My Tasks" (Neil, Oct 13 2026); the key is what saved layouts store
@@ -39,12 +42,19 @@ const WIDGET_META = [
   { key: 'recycle', label: 'Recycle Bin' },
 ];
 const DEFAULT_LAYOUT = ['my_tasks', 'updates', 'projects', 'urgent', 'activity', 'week', 'priorities'];
+// Always on Home, in a layout of their own above the customizable grid - not
+// removable or draggable there. Saved layouts still list them; they are just
+// not drawn twice.
+const CORE = ['my_tasks', 'updates', 'projects'];
+// The core goes side by side from this width of the Home column (two cards of
+// ~430px - narrower and task titles and update sentences start to clip).
+const CORE_WIDE = 860;
 // Widgets added after people saved a layout. A saved layout is the whole
 // list, so a new widget would never reach anyone who had arranged their Home;
 // each one here is slotted in after Tasks ONCE and then recorded in the
-// layout's `introduced`, so taking it off again in Customize sticks.
+// layout's `introduced`, so taking it off again in Customize sticks. (Updates
+// was the first; it is core now, so the slotting no longer shows anywhere.)
 const INTRODUCED = ['updates'];
-const UPDATES_SHOWN = 6;
 const PRIORITY_COLORS = { urgent: '#fc6363', high: '#ffb546', medium: '#0998c3', low: '#9699a6' };
 const LAYOUT_KEY = 'nexus.homeWidgets';
 const TABS = ['Upcoming', 'Overdue', 'Completed'];
@@ -90,23 +100,6 @@ const addDays = (iso, n) => { const d = new Date(`${iso}T00:00:00`); d.setDate(d
 /** The local date a task was completed on ('' if it never recorded one). */
 const completedOn = (t) => (t.completedAt ? localISO(new Date(t.completedAt)) : '');
 const fmtUS = (iso) => fmtDate(iso);
-// "5m ago" / "3h ago" / "2d ago"; a week or older reads as the date.
-const ago = (iso) => {
-  const ms = Date.now() - new Date(iso).getTime();
-  if (!Number.isFinite(ms) || ms < 60e3) return 'Just now';
-  const m = Math.floor(ms / 60e3); if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60); if (h < 24) return `${h}h ago`;
-  const d = Math.floor(h / 24); if (d < 7) return `${d}d ago`;
-  return fmtDate(new Date(iso));   // the local date, not the UTC one
-};
-// Activity rows without a sentence of their own, by type.
-const VERBS = {
-  commented: 'commented', created: 'created this task', completed: 'completed this task',
-  task_completed: 'completed this task', status_changed: 'changed the status', assignee_changed: 'reassigned this task',
-  attached: 'attached a file', attachment_removed: 'removed a file', checklist_done: 'checked off a checklist item',
-  time_logged: 'logged time', comment_resolved: 'resolved a comment', comment_assigned: 'assigned a comment',
-  restored: 'restored this task', deleted: 'moved this task to Trash', closed_missed: 'closed this task as missed',
-};
 const dueColor = (iso, done) => { if (!iso || done) return NX.faint; const t = todayISO(); return iso < t ? NX.red : iso === t ? NX.amber : NX.dim; };
 
 export default function HomeView({ onNavigate }) {
@@ -135,11 +128,9 @@ export default function HomeView({ onNavigate }) {
   // /task-prefs, Oct 2026) so the Home they arranged at a desk is the Home
   // they get on a laptop. The pre-Oct-2026 localStorage copy is lifted once.
   const [homeData, setHomeData] = useTableValue('home', 'data', undefined);
-  const [prefsReady, setPrefsReady] = useState(false);
   useEffect(() => {
     let alive = true;
     whenTablePrefsLoaded().then(({ prefs, fromServer }) => {
-      if (alive) setPrefsReady(true);
       // Only after the server answered (not the offline fallback) and only
       // when the profile has no layout yet.
       if (!alive || !fromServer || prefs?.home?.data !== undefined) return;
@@ -189,7 +180,9 @@ export default function HomeView({ onNavigate }) {
     next.splice(next.indexOf(to) >= 0 ? next.indexOf(to) : next.length, 0, from);
     persist(next);
   };
-  const availableWidgets = WIDGET_META.filter((w) => !widgets.includes(w.key));
+  const availableWidgets = WIDGET_META.filter((w) => !widgets.includes(w.key) && !CORE.includes(w.key));
+  // The customizable grid: everything the person put on Home but the core.
+  const extraWidgets = widgets.filter((k) => !CORE.includes(k));
 
   // Subtasks assigned to me count as mine (Asana's My Tasks rule) - the old
   // top-level-only filter under-reported people's open work by up to a third.
@@ -203,12 +196,10 @@ export default function HomeView({ onNavigate }) {
   // `tasks`, so that is the signal that something happened.
   const [updates, setUpdates] = useState(null);   // null = not read yet
   const [updatesFailed, setUpdatesFailed] = useState(false);
-  const [allUpdates, setAllUpdates] = useState(false);
   const updatesRead = useRef(false);
-  // Not before the layout is known (the default layout has the card, the
-  // person may have taken it off) and not before the first task data is in
-  // (that load would only trigger a second read).
-  const showUpdates = prefsReady && !store.loading && widgets.includes('updates');
+  // Not before the first task data is in (that load would only trigger a
+  // second read). The card is core, so it is always on the page.
+  const showUpdates = !store.loading;
   // The 45s poll hands back a new `tasks` array even when nothing changed;
   // this stamp only moves when a task did.
   const tasksStamp = useMemo(() => `${tasks.length}:${tasks.reduce((m, t) => ((t.modifiedAt || '') > m ? t.modifiedAt : m), '')}`, [tasks]);
@@ -222,15 +213,6 @@ export default function HomeView({ onNavigate }) {
     }, updatesRead.current ? 800 : 0);
     return () => { alive = false; clearTimeout(timer); };
   }, [tasksStamp, showUpdates]);
-  // "Sagar changed the status to In Progress" - the activity row's own
-  // sentence, with a raw status key swapped for its label.
-  const whatHappened = (r) => {
-    const d = r.detail || '';
-    const m = d.match(/^changed status to (\S+)$/);
-    if (m) return `changed the status to ${store.statusMeta?.[m[1]]?.label || m[1].replace(/_/g, ' ')}`;
-    if (d) return d;
-    return VERBS[r.type] || 'updated this task';
-  };
   const rangeDef = RANGES.find((r) => r.key === range);
   const rangeEnd = addDays(todayISO(), rangeDef.days);
   // The My Day / My Week / My Month picker scopes every tile and tab except
@@ -334,7 +316,20 @@ export default function HomeView({ onNavigate }) {
 
   // Phones: slimmer card padding - the cards run edge to edge there (see the
   // phone block in style.css) and 20px a side cost a quarter of a task title.
-  const widgetBox = (children) => <div style={{ ...card, borderRadius: 16, padding: isMobile ? '14px 14px 12px' : 20, breakInside: 'avoid' }}>{children}</div>;
+  const widgetBox = (children, extra) => <div style={{ ...card, borderRadius: 16, padding: isMobile ? '14px 14px 12px' : 20, breakInside: 'avoid', ...extra }}>{children}</div>;
+  // The core's width decides side by side or stacked (CORE_WIDE). Measured,
+  // not a media query: the sidebar's width changes what the column gets.
+  const coreRef = useRef(null);
+  const [coreW, setCoreW] = useState(0);
+  useEffect(() => {
+    const el = coreRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    setCoreW(Math.round(el.getBoundingClientRect().width));
+    const ro = new ResizeObserver(([e]) => setCoreW((w) => { const n = Math.round(e.contentRect.width); return n === w ? w : n; }));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const coreWide = !isMobile && coreW >= CORE_WIDE;
   // My Day / My Week / My Month. On the summary card at a desk; on phones that
   // card is gone (Neil, Oct 14: keep it focused on the task list), so the
   // picker sits in the Tasks card's own header - it scopes those tabs.
@@ -403,69 +398,10 @@ export default function HomeView({ onNavigate }) {
         )}
       </>
     );
-    if (key === 'updates') {
-      const rows = updates || [];
-      const shownRows = allUpdates ? rows : rows.slice(0, UPDATES_SHOWN);
-      const openRow = (r) => { if (r.taskId && taskById.has(r.taskId)) setOpenId(r.taskId); };
-      return widgetBox(
-        <>
-          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, marginBottom: 10 }}>
-            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Updates</h2>
-            <span style={{ fontSize: 12.5, color: NX.faint, whiteSpace: 'nowrap' }}>Your tasks, last 14 days</span>
-          </div>
-          {updates === null && updatesFailed ? (
-            <p style={{ padding: '18px 0', textAlign: 'center', fontSize: 13, color: NX.faint }}>Updates could not be loaded. They will be tried again when something changes.</p>
-          ) : updates === null ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '6px 0' }}>
-              {[0, 1, 2].map((i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span className="skel" style={{ width: 28, height: 28, borderRadius: '50%', flexShrink: 0 }} />
-                  <span className="skel" style={{ width: `${70 - i * 12}%`, height: 12 }} />
-                </div>
-              ))}
-            </div>
-          ) : rows.length === 0 ? (
-            <p style={{ padding: '18px 0', textAlign: 'center', fontSize: 13, color: NX.faint }}>Nothing new on your tasks in the last 14 days.</p>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-              {shownRows.map((r) => {
-                const t = taskById.get(r.taskId);
-                const title = t?.title || r.entityTitle || r.entityCode || 'A task';
-                const who = nameOf(r.actorId) || r.actorId || 'Nexus';
-                return (
-                  <div key={r.id} data-update-row role="button" tabIndex={0} className="nx-row-hover"
-                    onClick={() => openRow(r)} onKeyDown={(e) => { if (e.key === 'Enter') openRow(r); }}
-                    title={`${who} ${r.relation === 'mentioned' ? 'mentioned you' : whatHappened(r)} · ${formatDateTime(r.at)}`}
-                    style={{ display: 'flex', alignItems: 'flex-start', gap: 10, borderTop: `1px solid ${NX.border2}`, padding: '9px 6px', margin: '0 -6px', borderRadius: 8, cursor: t ? 'pointer' : 'default' }}>
-                    <Avatar email={r.actorId} name={who} size={28} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, color: NX.ink, lineHeight: 1.35 }}>
-                        <span style={{ fontWeight: 700 }}>{who}</span> <span style={{ color: NX.dim }}>{r.relation === 'mentioned' ? 'mentioned you' : whatHappened(r)}</span>
-                      </div>
-                      {/* A comment shows what was said (Neil, Oct 18 2026). */}
-                      {r.preview && (
-                        <div style={{ fontSize: 12.5, color: NX.ink, lineHeight: 1.4, margin: '2px 0', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere' }}>
-                          “{r.preview}”
-                        </div>
-                      )}
-                      <div style={{ fontSize: 12.5, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: t?.completed ? 'line-through' : 'none' }}>
-                        {title}{r.relation === 'collaborator' ? <span style={{ color: NX.faint }}> · Following</span> : null}
-                      </div>
-                    </div>
-                    <span style={{ fontSize: 11.5, color: NX.faint, whiteSpace: 'nowrap', flexShrink: 0, paddingTop: 2, fontVariantNumeric: 'tabular-nums' }}>{ago(r.at)}</span>
-                  </div>
-                );
-              })}
-              {rows.length > UPDATES_SHOWN && (
-                <button onClick={() => setAllUpdates((a) => !a)} style={{ ...btn('ghost'), alignSelf: 'flex-start', padding: '8px 0 0', color: NX.blue, fontSize: 13 }}>
-                  {allUpdates ? 'Show Fewer' : `Show All ${rows.length}`}
-                </button>
-              )}
-            </div>
-          )}
-        </>
-      );
-    }
+    if (key === 'updates') return (
+      <UpdatesCard updates={updates} failed={updatesFailed} nameOf={nameOf} statusMeta={store.statusMeta}
+        taskById={taskById} onOpen={setOpenId} fill={coreWide} isMobile={isMobile} />
+    );
     if (key === 'projects') return widgetBox(
       <>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 12 }}>
@@ -511,7 +447,10 @@ export default function HomeView({ onNavigate }) {
             })}
           </div>
         )}
-      </>
+      </>,
+      // Beside Updates it runs to the bottom of that column, so the two
+      // sides end on one line.
+      coreWide ? { height: '100%', boxSizing: 'border-box' } : undefined,
     );
     if (key === 'recycle') return widgetBox(
       <>
@@ -785,6 +724,29 @@ export default function HomeView({ onNavigate }) {
       </div>
       )}
 
+      {/* The core: Tasks and Bookmarks down the left, Updates beside them for
+          the full height of both (its list scrolls inside), so the feed gets
+          real width instead of one 340px grid column. Stacked - Tasks,
+          Updates, Bookmarks - on a phone or a narrow window. */}
+      <div ref={coreRef} data-home-core={coreWide ? 'wide' : 'stacked'}
+        style={coreWide ? {
+          display: 'grid', gap: 16, marginBottom: 16,
+          gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
+          gridTemplateAreas: '"tasks updates" "bookmarks updates"',
+          gridTemplateRows: 'auto 1fr',
+        } : { display: 'flex', flexDirection: 'column', gap: isMobile ? 12 : 16, marginBottom: 16 }}>
+        <div style={{ gridArea: 'tasks', minWidth: 0 }}>{renderWidget('my_tasks')}</div>
+        {coreWide ? (
+          // Takes no height of its own (absolute inside), so the column is
+          // exactly as tall as Tasks + Bookmarks - with a floor, for a quiet
+          // week with three tasks and no bookmarks.
+          <div style={{ gridArea: 'updates', position: 'relative', minWidth: 0, minHeight: 520 }}>
+            <div style={{ position: 'absolute', inset: 0 }}>{renderWidget('updates')}</div>
+          </div>
+        ) : <div style={{ minWidth: 0 }}>{renderWidget('updates')}</div>}
+        <div style={{ gridArea: 'bookmarks', minWidth: 0 }}>{renderWidget('projects')}</div>
+      </div>
+
       {/* Customize mode: add-widget tray (only unused widgets) */}
       {customizing && availableWidgets.length > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
@@ -815,7 +777,7 @@ export default function HomeView({ onNavigate }) {
           columnGap: 16,
           ...(autofit && !isMobile ? { gridAutoRows: 8, rowGap: 0 } : { rowGap: 16, alignItems: 'start' }),
         }}>
-        {widgets.map((key) => (
+        {extraWidgets.map((key) => (
           <MasonryCell key={key} masonry={autofit && !isMobile}
             draggable={customizing}
             onDragStart={customizing ? () => setDragKey(key) : undefined}
