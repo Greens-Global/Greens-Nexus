@@ -23,7 +23,7 @@
 // and moves the stage.
 import { useEffect, useRef, useState } from 'react';
 import { X, CalendarDays, FileText, FileSignature, XCircle, ChevronRight, Video, ClipboardList,
-         RotateCcw, Trophy, Undo2, Check } from 'lucide-react';
+         RotateCcw, Trophy, Undo2, Check, CheckCircle2, Circle, AlertTriangle, Settings } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { formatDateTime } from '../lib/datetime';
@@ -43,6 +43,63 @@ export const STAGE_META = {
   rejected:  { label: 'Rejected',  hue: '350,65%,48%' },
 };
 export const candName = c => [c.firstName, c.lastName].filter(Boolean).join(' ');
+
+// Where the offer stands, one step per line (Pranshu, Oct 15 2026: "it
+// should show that the candidate has signed and HR too"). From the latest
+// offer letter that was not voided; the hiring packet step reads the packet
+// that follows it - it goes out by itself once both have signed.
+export function offerSteps(events, firstName = '') {
+  const all = events || [];
+  const offers = all.filter(e => e.kind === 'offer');
+  const ev = offers.find(e => e.status !== 'voided') || null;
+  if (!ev) return null;
+  const parties = ev.parties || [];
+  const company = parties.filter(p => !p.isSubject);
+  const cand = parties.find(p => p.isSubject);
+  const when = (iso) => (iso ? formatDateTime(iso) : '');
+  const verified = !!ev.verifiedAt || !['review', 'intake'].includes(ev.status);
+  const companySigned = company.length > 0 && company.every(p => p.signedAt);
+  const candSigned = !!cand?.signedAt || ev.status === 'completed';
+  const hire = all.find(e => e.kind === 'hire' && e.status !== 'voided');
+  const stuck = (ev.flags || []).find(f => f.code === 'packet_not_started');
+  const who = firstName || 'The candidate';
+  const steps = [
+    { key: 'prepared', label: 'Offer letter prepared', done: true, at: when(ev.createdAt) },
+    { key: 'verified', label: verified ? 'Checked by HR' : 'Waiting for HR to check the letter', done: verified, at: when(ev.verifiedAt) },
+    { key: 'company', label: companySigned ? `Signed by ${company.map(p => p.name).filter(Boolean).join(', ') || 'the company'}` : 'Waiting for the company (HR) to sign',
+      done: companySigned, at: when(company.map(p => p.signedAt).filter(Boolean).sort().pop()) },
+    { key: 'candidate', label: candSigned ? `Signed by ${who}` : `Waiting for ${who} to sign (no login)`, done: candSigned, at: when(cand?.signedAt) },
+    { key: 'packet', label: hire ? 'Hiring packet sent' : stuck ? `Hiring packet did not start - ${stuck.message}` : 'Hiring packet - goes out by itself once both have signed',
+      done: !!hire, error: !hire && !!stuck, at: when(hire?.createdAt) },
+  ];
+  const ended = ['declined', 'expired'].includes(ev.status) ? ev.status : '';
+  return { steps, ended, declineReason: ev.declineReason || '' };
+}
+
+function OfferProgress({ events, firstName }) {
+  const st = offerSteps(events, firstName);
+  if (!st) return null;
+  return (
+    <div role="list" aria-label="Offer progress" style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', marginBottom: 12, display: 'grid', gap: 8 }}>
+      <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--muted)' }}>Offer Progress</div>
+      {st.ended && (
+        <div style={{ fontSize: 12.5, color: 'hsl(var(--color-red))', fontWeight: 600 }}>
+          The offer was {st.ended}{st.declineReason ? ` - ${st.declineReason}` : ''}. Make the offer again to continue.
+        </div>
+      )}
+      {st.steps.map(s => (
+        <div key={s.key} role="listitem" data-step={s.key} data-done={s.done || undefined}
+          style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 13, color: s.done ? 'var(--ink)' : s.error ? 'hsl(var(--color-orange))' : 'var(--muted)' }}>
+          {s.done ? <CheckCircle2 size={16} style={{ color: 'hsl(var(--color-green))', flexShrink: 0 }} />
+            : s.error ? <AlertTriangle size={16} style={{ flexShrink: 0 }} />
+              : <Circle size={16} style={{ flexShrink: 0, opacity: 0.6 }} />}
+          <span style={{ flex: 1, minWidth: 0, fontWeight: s.done ? 600 : 500 }}>{s.label}</span>
+          {s.at && <span style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{s.at}</span>}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 const NEXT_STEP = {
   applied: 'Read the resume, then move them to Screening - or reject.',
@@ -127,16 +184,24 @@ export default function CandidateDetailModal({
   const packetOut = packetIsActive(packetEvents);
   // HR's own turn on the offer or packet: the footer's Sign & Offer (Pranshu, Oct 8).
   const awaitingMe = (packetEvents || []).find(e => ['offer', 'hire'].includes(e.kind) && e.status === 'awaiting_sender' && e.senderPartyId) || null;
-  // Offer letters this company can send (Oct 14). With none set up, the old
-  // packet-only send stays available so nothing is stuck.
+  // Offer letters this company can send (Oct 14). The offer comes first
+  // (Pranshu, Oct 15): with none set up, Move To Offer says so instead of
+  // quietly moving the stage, and the hiring packet waits for a signed offer.
+  // A failed check is an error (offerErr), never read as "none set up".
   const [offerChoices, setOfferChoices] = useState(null);
+  const [offerErr, setOfferErr] = useState(false);
+  const loadOfferChoices = () => api.offerOptions(c.id)
+    .then(o => { const list = o.choices || []; setOfferChoices(list); setOfferErr(false); return list; })
+    .catch(() => { setOfferErr(true); return null; });
   useEffect(() => {
-    if (!['interview', 'offer'].includes(c.stage) || !onMakeOffer) { setOfferChoices(null); return; }
-    api.offerOptions(c.id).then(o => setOfferChoices(o.choices || [])).catch(() => setOfferChoices([]));
+    if (!['interview', 'offer'].includes(c.stage) || !onMakeOffer) { setOfferChoices(null); setOfferErr(false); return; }
+    loadOfferChoices();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only whether there is an offer flow, not the callback's identity
   }, [c.id, c.stage, refreshKey, !!onMakeOffer]);
   const offers = onMakeOffer && (offerChoices === null || offerChoices.length > 0);
+  const noOfferLetter = !!onMakeOffer && Array.isArray(offerChoices) && offerChoices.length === 0;
   const offerSigned = (packetEvents || []).some(e => e.kind === 'offer' && e.status === 'completed');
+  const goHiringSettings = () => { onClose?.(); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'admin-console', sub: 'global-hiring' } })); };
   // Once an interview is on the books the record is settled - no more editing
   // of who they are or which company; the email goes with the packet.
   const canEdit = ['applied', 'screening'].includes(c.stage);
@@ -165,8 +230,20 @@ export default function CandidateDetailModal({
     if (!hadInterview && !await dialog.confirm('No interview has been completed yet. Make the offer anyway?', { title: 'Move To Offer', confirmText: 'Continue' })) return;
     // The offer questions come up right here (Neil: "right when you click move
     // to offer, these questions should come up").
-    if (offers) onMakeOffer(c);
-    else move('offer');
+    if (!onMakeOffer) { move('offer'); return; }   // a screen with no offer flow
+    // Not loaded yet, or the last check failed: ask again before deciding.
+    const list = (offerChoices === null || offerErr) ? await loadOfferChoices() : offerChoices;
+    if (list === null) { toastErr?.('Could not check the offer letters for this company - try again.'); return; }
+    if (!list.length) {
+      // No offer letter set up: say so here, not by silently moving the stage
+      // (Pranshu, Oct 15). The hiring packet follows a signed offer.
+      const go = await dialog.confirm(
+        `No offer letter is set up for ${companyName || 'this company'} yet. The offer letter comes first - once ${c.firstName || 'they'} and HR have signed it, the hiring packet goes out by itself.\n\nAdd one under Settings > Hiring > Hiring Documents > Offer Letter, then click Move To Offer again.`,
+        { title: 'Set Up an Offer Letter First', confirmText: 'Open Hiring Documents' });
+      if (go) goHiringSettings();
+      return;
+    }
+    onMakeOffer(c);
   }
   async function markHiredByHand() {
     // Neil, Oct 14: hiring "backwards" outside Nexus is what we are getting
@@ -205,11 +282,19 @@ export default function CandidateDetailModal({
       secondary('Another Interview', () => onSchedule(c), <Undo2 size={13} />),
       secondary('Mark Hired By Hand', markHiredByHand, null),
       awaitingMe && onSignPacket && primary('Sign & Offer', () => onSignPacket(awaitingMe.senderPartyId), <FileSignature size={14} />),
+      noOfferLetter && secondary('Set Up Offer Letter', goHiringSettings, <Settings size={13} />),
       !packetOut && offers && !offerSigned && primary('Make Offer', () => onMakeOffer(c), <FileSignature size={14} />, packetEvents === null),
-      // No letter fits this hire (say only an India contractor letter exists
-      // and this is a US employee): the old packet send stays reachable.
-      !packetOut && offers && !offerSigned && packetPick?.picked && secondary('Send Hiring Packet Without An Offer Letter', () => onSendPacket(c), <FileText size={13} />),
-      !packetOut && !offers && primary(packetPick?.picked?.engine === 'documents' ? 'Start Hiring Packet' : 'Send Hiring Packet',
+      // The hiring packet follows a signed offer (Pranshu, Oct 15): shown, but
+      // not clickable, until the candidate and HR have both signed - it then
+      // goes out by itself; Send is only for when that could not happen.
+      onMakeOffer && !offerSigned && !(packetEvents || []).some(e => e.kind === 'hire' && e.status !== 'voided') && (
+        <button key="packet-wait" className="secondary-btn" disabled title={`Goes out by itself once ${c.firstName || 'the candidate'} and HR have both signed the offer letter`}
+          style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6, opacity: 0.55, cursor: 'not-allowed' }}>
+          <FileText size={13} /> Send Hiring Packet
+        </button>
+      ),
+      // Screens with no offer flow keep the plain packet send.
+      !packetOut && !onMakeOffer && primary(packetPick?.picked?.engine === 'documents' ? 'Start Hiring Packet' : 'Send Hiring Packet',
         () => onSendPacket(c), <FileText size={14} />, packetEvents === null)],
     rejected: [!c.inactive && secondary('Remove From Board', () => removeFromBoard(true), <XCircle size={13} />),
       primary('Reopen', () => move('applied', 'Reopened'), <RotateCcw size={14} />)],
@@ -292,13 +377,22 @@ export default function CandidateDetailModal({
 
   const documents = (
     <div>
+      <OfferProgress events={packetEvents} firstName={c.firstName} />
       <HiringPacketStatus candidateId={c.id} refreshKey={refreshKey} onEvents={setPacketEvents} hideSign
         onSignNow={onSignPacket} onChanged={() => onUpdated?.(null)} toastOk={toastOk} toastErr={toastErr} />
       {c.stage === 'offer' && !packetOut && packetEvents !== null && !(packetEvents || []).length && (
         <div style={{ fontSize: 13, color: 'var(--muted)', padding: '14px 0' }}>
-          {offers ? 'No offer made yet - click Make Offer below.' : packetPick?.picked
-            ? <><b style={{ color: 'var(--ink)' }}>Hiring packet:</b> {packetPick.picked.templateName} <span>- {packetPick.picked.why}</span></>
-            : <span style={{ color: 'hsl(var(--color-orange))' }}>No hiring packet is set up for this company and role - add one in Settings &gt; Hiring &gt; Hiring Documents before sending.</span>}
+          {noOfferLetter ? (
+            <span style={{ color: 'hsl(var(--color-orange))' }}>
+              No offer letter is set up for {companyName || 'this company'} yet. The offer letter comes first - add one under
+              Settings &gt; Hiring &gt; Hiring Documents &gt; Offer Letter (Set Up Offer Letter below), then Make Offer.
+            </span>
+          ) : offerErr ? (
+            <span style={{ color: 'hsl(var(--color-red))' }}>Could not check the offer letters for this company - close and reopen the card to try again.</span>
+          ) : onMakeOffer ? 'No offer made yet - click Make Offer below. The hiring packet goes out by itself once they and HR have signed it.'
+            : packetPick?.picked
+              ? <><b style={{ color: 'var(--ink)' }}>Hiring packet:</b> {packetPick.picked.templateName} <span>- {packetPick.picked.why}</span></>
+              : <span style={{ color: 'hsl(var(--color-orange))' }}>No hiring packet is set up for this company and role - add one in Settings &gt; Hiring &gt; Hiring Documents before sending.</span>}
         </div>
       )}
       {c.stage === 'offer' && c.email && onSendForSignature && (

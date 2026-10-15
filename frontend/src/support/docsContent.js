@@ -1152,7 +1152,8 @@ export const DOCS = [
       {
         title: 'Make an Offer',
         steps: [
-          "Open the candidate and click Move To Offer (or Make Offer at the Offer stage, or Offer in the Interview Room). Make An Offer opens.",
+          "Open the candidate and click Move To Offer (or Make Offer at the Offer stage, or Offer in the Interview Room). Make An Offer opens. If no offer letter is set up for that company yet, Nexus says so and links to Settings > Hiring > Hiring Documents > Offer Letter - the offer comes first.",
+          "Follow it on the Offer & Documents tab: Offer Progress shows each step with its time - prepared, checked by HR, signed by the company, signed by the candidate, hiring packet sent. Send Hiring Packet stays greyed out until both have signed; the packet then goes out by itself.",
           "1. Who you are hiring: pick Employee (then Full-Time, Part-Time or Intern) or Contractor, and where they work. Nexus never guesses this - the same role can be either - and it decides which offer letter goes. A contractor's letter never says employment.",
           "Nexus shows the offer letter it picked for that kind of hire (for example US Employee Offer, or India Contractor Offer) and the hiring packet that will follow it. If none is set up, it says so - add one under Settings > Hiring > Hiring Documents > Offer Letter.",
           "2. The offer: their legal name, the start date, when the offer expires, the supervisor and the pay (Pay & Benefits access needed; a contractor's pay is their fee). The form asks only what the letter and the packet print - their address, the work location, the work hours - and every question the documents mark HR Answers At Offer (a probation period, a bonus). Answer once: the hiring packet reuses all of it.",
