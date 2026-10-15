@@ -636,4 +636,52 @@ describe('LeasingTab shared controls', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: /Add Rent Change/ }));
     expect(within(table).getAllByRole('row')).toHaveLength(3);
   });
+
+  // Oct 15 (Charmi): the Intacct customer record fills the lease form.
+  const withContacts = () => api.getLeasingCustomers.mockImplementationOnce(async () => ({ customers: [
+    { code: 'C00272', name: 'Dr. Azadeh Sham', phone: '(760) 555-0110', email: 'azadeh@example.com', address: '12 Palm Ave, Escondido, CA 92025' },
+    { code: 'C00498', name: 'Overstie Management', phone: '(949) 400-2788', email: '', address: '' },
+  ] }));
+
+  it('picking the tenant fills only the empty contact fields from Intacct, and says so', async () => {
+    withContacts();
+    render(<LeasingTab canEdit />);
+    fireEvent.click(await screen.findByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    const dialog = screen.getByRole('dialog', { name: 'Change lease' });
+    fireEvent.change(within(dialog).getByLabelText('Tenant Name'), { target: { value: 'azadeh' } });
+    fireEvent.click(await within(dialog).findByRole('option', { name: /Dr. Azadeh Sham/ }));
+    // Typed already: kept.
+    expect(within(dialog).getByLabelText('Phone').value).toBe('949-400-2788');
+    expect(within(dialog).getByLabelText('Email').value).toBe('tenant@example.com');
+    // Empty: filled from Intacct, with the hint under it.
+    const address = within(dialog).getByLabelText('Mailing Address');
+    expect(address.value).toBe('12 Palm Ave, Escondido, CA 92025');
+    expect(within(address.parentElement).getByText('Filled from Intacct')).toBeTruthy();
+    expect(within(within(dialog).getByLabelText('Phone').parentElement).queryByText('Filled from Intacct')).toBeNull();
+    expect(within(dialog).getByLabelText('Intacct Customer Code').value).toBe('C00272');
+    // Edited: the hint goes.
+    fireEvent.change(address, { target: { value: 'PO Box 9, Escondido' } });
+    expect(within(address.parentElement).queryByText('Filled from Intacct')).toBeNull();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.updateLeasingLease).toHaveBeenCalled());
+    expect(api.updateLeasingLease.mock.calls[0][1]).toMatchObject({ customerId: 'C00272', tenantName: 'Dr. Azadeh Sham', phone: '949-400-2788', email: 'tenant@example.com', mailingAddress: 'PO Box 9, Escondido' });
+  });
+
+  it('picking another customer replaces only what the last pick filled', async () => {
+    withContacts();
+    render(<LeasingTab canEdit />);
+    fireEvent.click(await screen.findByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    const dialog = screen.getByRole('dialog', { name: 'Change lease' });
+    fireEvent.change(within(dialog).getByLabelText('Email'), { target: { value: '' } });
+    fireEvent.change(within(dialog).getByLabelText('Tenant Name'), { target: { value: 'azadeh' } });
+    fireEvent.click(await within(dialog).findByRole('option', { name: /Dr. Azadeh Sham/ }));
+    expect(within(dialog).getByLabelText('Email').value).toBe('azadeh@example.com');
+    fireEvent.change(within(dialog).getByLabelText('Tenant Name'), { target: { value: 'overstie' } });
+    fireEvent.click(await within(dialog).findByRole('option', { name: /Overstie Management/ }));
+    // Overstie has no email or address in Intacct: what the last pick filled is cleared, nothing typed is touched.
+    expect(within(dialog).getByLabelText('Email').value).toBe('');
+    expect(within(dialog).getByLabelText('Mailing Address').value).toBe('');
+    expect(within(dialog).getByLabelText('Phone').value).toBe('949-400-2788');
+    expect(within(dialog).getByLabelText('Intacct Customer Code').value).toBe('C00498');
+  });
 });

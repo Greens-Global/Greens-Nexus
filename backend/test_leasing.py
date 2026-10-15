@@ -473,6 +473,21 @@ class LeasingApiTests(unittest.TestCase):
         self.assertNotIn("C00272", codes())      # on a lease of an entity outside the limit
         self.assertNotIn("C00900", codes())      # on no lease the caller may read
 
+    def test_the_customer_list_carries_intacct_contact_details(self):
+        """Oct 15 (Charmi): picking the tenant fills the lease form from the
+        Intacct customer record - phone, email and address ride on the list."""
+        _as(EDITOR)
+        self.partners = [{"id": "C00498", "name": "Greens Fairfield, LLC.", "phone": "(951) 555-0199", "email": "ap@fairfield.example",
+                          "address": {"line1": "100 Main St", "line2": "", "city": "Fairfield", "state": "CA", "zip": "94534", "country": ""}}]
+        c = self.client.get("/leasing/customers").json()["customers"][0]
+        self.assertEqual((c["code"], c["phone"], c["email"], c["address"]), ("C00498", "(951) 555-0199", "ap@fairfield.example", "100 Main St, Fairfield, CA 94534"))
+
+        async def down():
+            raise RuntimeError("501")
+        leasing._partner_customers = down
+        c = self.client.get("/leasing/customers").json()["customers"][0]
+        self.assertEqual((c["code"], c["phone"], c["email"], c["address"]), ("C00498", "", "", ""))
+
     def test_the_team_note(self):
         _as(EDITOR)
         lid = self.client.post("/leasing/leases", json=self._body()).json()["id"]

@@ -664,7 +664,28 @@ async def customers(scope: dict = Depends(entity_scope)):
         leases, _, _ = await asyncio.to_thread(_load_all)
         mine = {l.customer_id for l in _visible(leases, reach) if l.customer_id}
         data = {"values": [v for v in data.get("values") or [] if v.get("code") in mine]}
-    return {"customers": [{"code": v["code"], "name": v.get("name") or "", "status": v.get("status") or "", "active": customer_active(v.get("status"))} for v in data.get("values") or []]}
+    contacts = await _partner_contacts()
+    return {"customers": [{"code": v["code"], "name": v.get("name") or "", "status": v.get("status") or "", "active": customer_active(v.get("status")),
+                           **contacts.get(v["code"], {"phone": "", "email": "", "address": ""})} for v in data.get("values") or []]}
+
+
+async def _partner_contacts() -> dict[str, dict]:
+    """code -> {phone, email, address} from Intacct's customer records (Charmi,
+    Oct 15: picking the tenant fills the lease form's empty contact fields).
+    Read-only, through the same cached partners read as the customer card;
+    the accounting app sends no contact person, so Primary Contact is not
+    filled. Down or not shipped: no contacts, never an error."""
+    if _PARTNERS_DOWN.get("until", 0) > time.monotonic():
+        return {}
+    out: dict[str, dict] = {}
+    try:
+        for r in await _partner_customers():
+            code = (r.get("id") or "").strip()
+            if code:
+                out[code] = {"phone": r.get("phone") or "", "email": r.get("email") or "", "address": _address_text(r.get("address"))}
+    except Exception:  # noqa: BLE001 - names and codes still come from the ledger
+        _PARTNERS_DOWN["until"] = time.monotonic() + _PARTNERS_RETRY
+    return out
 
 
 @router.get("/customers/{code}")

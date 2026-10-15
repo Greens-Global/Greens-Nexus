@@ -1098,10 +1098,27 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved }) {
     const work = replacing ? api.replaceLeasingTenant(replacing.id, { ...body(), movedOut }) : l.id ? api.updateLeasingLease(l.id, body()) : api.createLeasingLease(body());
     work.then(onSaved).catch((e) => { setError(e?.message || 'Could not save the lease.'); setBusy(false); });
   };
+  // Oct 15 (Charmi): picking the tenant fills the empty contact fields from
+  // the Intacct customer record - never over something typed. A field filled
+  // this way says so until it is edited; picking another customer replaces
+  // only what the last pick filled.
+  const [fromIntacct, setFromIntacct] = useState({});
+  const pickCustomer = (c) => {
+    const p = { customerId: c.code, tenantName: c.name || c.code };
+    const marked = { customerId: true };
+    for (const [k, v] of [['phone', c.phone], ['email', c.email], ['mailingAddress', c.address]]) {
+      const value = String(v || '').trim();
+      if (value && (!String(l[k] ?? '').trim() || fromIntacct[k])) { p[k] = value; marked[k] = true; }
+      else if (!value && fromIntacct[k]) p[k] = '';
+    }
+    set(p);
+    setFromIntacct(marked);
+  };
   const field = (key, text, props = {}) => (
     <div>
       <label style={label} htmlFor={`lease-${key}`}>{text}</label>
-      <input id={`lease-${key}`} type="text" value={l[key] ?? ''} onChange={(e) => set({ [key]: e.target.value })} style={{ ...control, width: '100%' }} {...props} />
+      <input id={`lease-${key}`} type="text" value={l[key] ?? ''} onChange={(e) => { set({ [key]: e.target.value }); if (fromIntacct[key]) setFromIntacct((f) => ({ ...f, [key]: false })); }} style={{ ...control, width: '100%' }} {...props} />
+      {fromIntacct[key] && <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginTop: 3 }}>Filled from Intacct</div>}
     </div>
   );
   const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 };
@@ -1150,7 +1167,7 @@ function LeaseEditor({ lease, replacing, canDelete, onClose, onSaved }) {
             <div style={{ display: 'grid', gap: 10 }}>
               <div style={grid}>
                 <CustomerCombo id="lease-tenantName" text={isLease ? 'Tenant Name' : 'Payer Name'} value={l.tenantName || ''} customers={customers} picked={l.customerId}
-                  onType={(v) => set({ tenantName: v })} onPick={(c) => set({ customerId: c.code, tenantName: c.name || c.code })} />
+                  onType={(v) => set({ tenantName: v })} onPick={pickCustomer} />
                 {field('customerId', 'Intacct Customer Code', { maxLength: 60 })}
                 {field('contactName', 'Primary Contact', { maxLength: 200 })}
                 {field('phone', 'Phone', { maxLength: 60 })}
