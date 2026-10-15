@@ -979,7 +979,7 @@ def _seen_row(db: Session, email: str) -> models.ChangelogSeen:
 
 def _mark_changelog_seen(db: Session, email: str) -> None:
     """Whoever just published an entry has obviously seen it - stamp their own
-    row so the eye-icon badge doesn't light up for their own publish."""
+    row so their own publish does not raise the New in Nexus bar for them."""
     email = (email or "").lower().strip()
     if not email:
         return
@@ -1015,9 +1015,10 @@ def update_changelog(entry_id: str, body: ChangelogEntryBody, user: dict = Depen
 
 @view_router.get("/task-changelog/unseen")
 def get_changelog_unseen(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Powers the red-dot eye icon next to the profile pill: true when a
-    published (Released) entry exists that is newer than this user's last
-    visit to What's New."""
+    """True when a published (Released) entry exists that is newer than this
+    user's last visit to What's New. It powered the header's red-dot eye icon,
+    removed Oct 14 2026 (the announcement bar and the bell say it); kept for
+    tabs still running the old build until they reload."""
     rows = db.query(models.TaskChangelogEntry).all()
     latest = ""
     for e in rows:
