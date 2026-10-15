@@ -114,6 +114,21 @@ describe('Support documentation', () => {
     expect(screen.getByRole('heading', { level: 2, name: 'Item Management' })).toBeTruthy();
   });
 
+  it('gives administrators an Implementation Guide tab, and nobody else', async () => {
+    as({});
+    const { unmount } = render(<SupportDocs canImplement={false} />);
+    expect(screen.queryByRole('tab', { name: /Implementation Guide/ })).toBeNull();
+    unmount();
+    as({ admin: true });
+    render(<SupportDocs canImplement />);
+    expect(screen.getByRole('tab', { name: /Module Guides/ }).getAttribute('aria-selected')).toBe('true');
+    fireEvent.click(screen.getByRole('tab', { name: /Implementation Guide/ }));
+    expect(screen.getByRole('heading', { name: 'Set Nexus Up for an Organization' })).toBeTruthy();
+    expect(screen.queryByLabelText('Search the documentation')).toBeNull();   // the module search is for module guides
+    fireEvent.click(screen.getByRole('tab', { name: /Module Guides/ }));
+    expect(screen.getByLabelText('Search the documentation')).toBeTruthy();
+  });
+
   it('opens the page named in a ?doc= link, then drops it from the URL', () => {
     as({});
     window.history.replaceState(null, '', '/support/documentation?doc=item-management&section=tips');

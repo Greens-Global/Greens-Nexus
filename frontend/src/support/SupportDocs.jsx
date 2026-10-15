@@ -23,11 +23,12 @@ import { DOCS_OPEN_EVENT, PENDING_DOCS_KIND, decodeDocTarget } from './openDoc';
 import { takePendingOpen } from '../lib/pendingOpen';
 import { SkeletonBlocks } from '../components/AsyncState';
 
-// The Implementation Guide is a section of Documentation (Neil, Oct 13 2026:
-// "technically it is all of documentation") - administrators see it at the
-// top of the index under Set Up Nexus. Lazy: only its readers load it.
+// The Implementation Guide is part of Documentation (Neil, Oct 13 2026:
+// "technically it is all of documentation"). Administrators get a
+// Module Guides | Implementation Guide switch in the header (Pranshu, Oct 15
+// 2026: a row in the index was too easy to miss), and the guide takes the
+// full width. Lazy: only its readers load it.
 const ImplementationGuide = lazy(() => import('./ImplementationGuide'));
-const GUIDE_ID = 'implementation-guide';
 
 const ICONS = {
   Sparkles, LayoutDashboard, Contact, MonitorDot, CalendarClock, CheckSquare, HardDrive, Ticket,
@@ -271,9 +272,10 @@ export default function SupportDocs({ canImplement = false, startOnGuide = false
   // Where to open: a deep link (URL, or a help search that navigated here)
   // wins over the page this person last read.
   const [initialTarget] = useState(() => takeUrlTarget() || decodeDocTarget(takePendingOpen(PENDING_DOCS_KIND)));
-  const [activeId, setActiveId] = useState(() => (startOnGuide ? GUIDE_ID : null) || initialTarget?.docId || readLast() || DOCS[0].id);
-  // /help-center/implementation while Documentation is already open.
-  useEffect(() => { if (startOnGuide) setActiveId(GUIDE_ID); }, [startOnGuide]);
+  const [activeId, setActiveId] = useState(() => initialTarget?.docId || readLast() || DOCS[0].id);
+  // 'modules' | 'guide' - the header switch; /help-center/implementation opens on the guide.
+  const [section, setSection] = useState(() => (startOnGuide && canImplement ? 'guide' : 'modules'));
+  useEffect(() => { if (startOnGuide && canImplement) setSection('guide'); }, [startOnGuide, canImplement]);
   // Section to scroll to and flash once the page for it has rendered.
   const [flash, setFlash] = useState(() => (initialTarget ? { ...initialTarget, at: Date.now() } : null));
 
@@ -289,6 +291,7 @@ export default function SupportDocs({ canImplement = false, startOnGuide = false
       const { docId, anchor } = e.detail || {};
       if (!docId) return;
       takePendingOpen(PENDING_DOCS_KIND);   // served here; don't replay it on a later mount
+      setSection('modules');                // a module page, even if the guide was showing
       setQuery('');
       setActiveId(docId);
       writeLast(docId);
@@ -336,10 +339,7 @@ export default function SupportDocs({ canImplement = false, startOnGuide = false
   const shownId = isShown(activeId) ? activeId : (matches && visible.length ? visible : allowed)[0].id;
   const idx = Math.max(0, allowed.findIndex((d) => d.id === shownId));
   const doc = allowed[idx];
-  // The guide is not a DOCS entry: it is listed (and shown) for
-  // administrators while the index is not being searched.
-  const listGuide = canImplement && !q;
-  const onGuide = listGuide && activeId === GUIDE_ID;
+  const onGuide = canImplement && section === 'guide';
 
   const select = (id) => {
     setActiveId(id);
@@ -355,12 +355,30 @@ export default function SupportDocs({ canImplement = false, startOnGuide = false
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, fontWeight: 700, color: BRAND, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 999, padding: '3px 10px', marginBottom: 10 }}>
             <BookOpen size={12} /> Nexus Documentation
           </div>
-          <h2 style={{ margin: '0 0 6px', fontSize: 22, fontWeight: 800, color: 'var(--ink)', letterSpacing: '-0.02em' }}>Learn Any Module in a Few Minutes</h2>
+          <h2 style={{ margin: '0 0 6px', fontSize: 22, fontWeight: 800, color: 'var(--ink)', letterSpacing: '-0.02em' }}>{onGuide ? 'Set Nexus Up for an Organization' : 'Learn Any Module in a Few Minutes'}</h2>
           <p style={{ margin: 0, fontSize: 14, color: 'var(--muted)', lineHeight: 1.55, maxWidth: 560 }}>
-            What each module is for, how to use it step by step, every feature explained, and what managers get extra. New to Nexus? Start with Getting Started.
+            {onGuide
+              ? 'For administrators: set Nexus up for an organization, phase by phase - the decisions, the steps and the checks that prove each one is done.'
+              : 'What each module is for, how to use it step by step, every feature explained, and what managers get extra. New to Nexus? Start with Getting Started.'}
           </p>
+          {canImplement && (
+            <div role="tablist" aria-label="Documentation sections" className="scroll-tabs"
+              style={{ display: 'inline-flex', gap: 2, marginTop: 14, background: 'var(--mist)', border: '1px solid var(--line)', borderRadius: 10, padding: 3 }}>
+              {[['modules', 'Module Guides', BookOpen], ['guide', 'Implementation Guide', Rocket]].map(([key, label, I]) => {
+                const on = section === key;
+                return (
+                  <button key={key} type="button" role="tab" aria-selected={on} onClick={() => setSection(key)}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 7, border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13.5, fontWeight: 700,
+                      padding: '8px 14px', borderRadius: 8, whiteSpace: 'nowrap',
+                      background: on ? BRAND : 'transparent', color: on ? '#fff' : 'var(--ink)', boxShadow: on ? '0 2px 6px rgba(43,69,225,.25)' : 'none' }}>
+                    <I size={15} /> {label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
-        <div style={{ position: 'relative', width: 320, maxWidth: '100%', alignSelf: 'flex-end' }}>
+        {!onGuide && <div style={{ position: 'relative', width: 320, maxWidth: '100%', alignSelf: 'flex-end' }}>
           <Search size={15} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)', pointerEvents: 'none' }} />
           <input type="text" className="form-input" value={query} onChange={(e) => setQuery(e.target.value)}
             placeholder="Search e.g. time off, cart, signature…" aria-label="Search the documentation"
@@ -371,23 +389,19 @@ export default function SupportDocs({ canImplement = false, startOnGuide = false
               <X size={14} />
             </button>
           )}
-        </div>
+        </div>}
       </div>
 
+      {onGuide ? (
+        <Suspense fallback={<SkeletonBlocks count={4} height={120} />}>
+          <ImplementationGuide />
+        </Suspense>
+      ) : (
       <div className="docs-layout">
         {/* Index - desktop */}
         <aside className="docs-index" aria-label="Modules">
           {visible.length === 0 && (
             <div style={{ fontSize: 13, color: 'var(--muted)', padding: '8px 10px' }}>Nothing matches "{query.trim()}".</div>
-          )}
-          {listGuide && (
-            <div style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.07em', padding: '0 10px 5px' }}>Set Up Nexus</div>
-              <button type="button" onClick={() => select(GUIDE_ID)} className={`docs-index-item${onGuide ? ' active' : ''}`}>
-                <Rocket size={15} style={{ flexShrink: 0 }} />
-                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Implementation Guide</span>
-              </button>
-            </div>
           )}
           {DOC_GROUPS.map((g) => {
             const items = visible.filter((d) => d.group === g);
@@ -397,7 +411,7 @@ export default function SupportDocs({ canImplement = false, startOnGuide = false
                 <div style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.07em', padding: '0 10px 5px' }}>{g}</div>
                 {items.map((d) => {
                   const I = ICONS[d.icon] || BookOpen;
-                  const on = !onGuide && d.id === doc.id;
+                  const on = d.id === doc.id;
                   return (
                     <button key={d.id} type="button" onClick={() => select(d.id)} className={`docs-index-item${on ? ' active' : ''}`}>
                       <I size={15} style={{ flexShrink: 0 }} />
@@ -411,8 +425,7 @@ export default function SupportDocs({ canImplement = false, startOnGuide = false
         </aside>
 
         {/* Index - phones */}
-        <select className="form-input docs-index-select" value={onGuide ? GUIDE_ID : doc.id} onChange={(e) => select(e.target.value)} aria-label="Choose a module">
-          {listGuide && <optgroup label="Set Up Nexus"><option value={GUIDE_ID}>Implementation Guide</option></optgroup>}
+        <select className="form-input docs-index-select" value={doc.id} onChange={(e) => select(e.target.value)} aria-label="Choose a module">
           {DOC_GROUPS.map((g) => {
             const items = visible.filter((d) => d.group === g);
             return items.length ? (
@@ -422,19 +435,16 @@ export default function SupportDocs({ canImplement = false, startOnGuide = false
         </select>
 
         <div className="docs-article">
-          {onGuide ? (
-            <Suspense fallback={<SkeletonBlocks count={4} height={120} />}>
-              <ImplementationGuide />
-            </Suspense>
-          ) : <Article
+          <Article
             doc={doc}
             prev={allowed[idx - 1]}
             next={allowed[idx + 1]}
             onPrev={() => select(allowed[idx - 1].id)}
             onNext={() => select(allowed[idx + 1].id)}
-          />}
+          />
         </div>
       </div>
+      )}
     </div>
   );
 }
