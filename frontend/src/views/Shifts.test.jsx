@@ -27,15 +27,15 @@ beforeEach(() => {
 });
 
 describe('Team module', () => {
-  it('opens an employee on Contact, offers Shifts, and never a manager page by address', async () => {
+  it('opens an employee on Shifts, Contact last, and never a manager page by address', async () => {
     role.level = 1;
     const onSubChange = vi.fn();
     const { rerender } = render(<Shifts activeSub={null} onSubChange={onSubChange} />);
     expect(screen.getByRole('heading', { name: 'Team' })).toBeTruthy();
-    expect(await screen.findByText('Directory (embedded)')).toBeTruthy();
-    expect(tabNames()).toEqual(['Contact', 'Shifts']);
-    rerender(<Shifts activeSub="shifts" onSubChange={onSubChange} />);
     expect(screen.getByText('Group week')).toBeTruthy();
+    expect(tabNames()).toEqual(['Shifts', 'Contact']);
+    rerender(<Shifts activeSub="contact" onSubChange={onSubChange} />);
+    expect(await screen.findByText('Directory (embedded)')).toBeTruthy();
     rerender(<Shifts activeSub="schedule" onSubChange={onSubChange} />);
     expect(screen.queryByText('Schedule grid')).toBeNull();
     rerender(<Shifts activeSub="requests" onSubChange={onSubChange} />);
@@ -53,14 +53,14 @@ describe('Team module', () => {
     expect(screen.getByText('Schedule grid at 2026-10-16 for g1')).toBeTruthy();
     role.level = 1;
     render(<Shifts activeSub="schedule:2026-10-16:g1" onSubChange={vi.fn()} />);
-    expect(await screen.findByText('Directory (embedded)')).toBeTruthy();
+    expect(screen.getByText('Group week')).toBeTruthy();
   });
 
   it('gives a manager four tabs, with what waits counted on Requests', async () => {
     role.level = 3;
     const onSubChange = vi.fn();
     const { rerender } = render(<Shifts activeSub="shifts" onSubChange={onSubChange} />);
-    expect(tabNames().map((t) => t.replace(/\d+$/, '').trim())).toEqual(['Contact', 'Shifts', 'Schedule', 'Requests']);
+    expect(tabNames().map((t) => t.replace(/\d+$/, '').trim())).toEqual(['Shifts', 'Schedule', 'Requests', 'Contact']);
     expect(screen.queryByText(/Presets/)).toBeNull();
     // One pending swap + one decidable time-off request = 2 (the one that is not theirs to decide is not counted).
     expect(await screen.findByRole('tab', { name: 'Requests, 2 waiting' })).toBeTruthy();

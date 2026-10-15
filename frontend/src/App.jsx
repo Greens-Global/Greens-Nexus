@@ -462,7 +462,7 @@ const DEFAULT_SUBS = {
   accounting:        "overview",
   egnyte:            "browse",
   "employee-tracking": "coverage",
-  shifts:            "contact",   // Team opens on the people (Neil, Oct 13 2026)
+  shifts:            "shifts",    // Team opens on the group's Shifts; Contact is last (Oct 15 2026)
   // Workday (TimeClock.jsx, merged My HR + Time Clock, Sep 3) - each view
   // id lands on its own natural tab so the URL is meaningful from the first
   // click, not just after switching tabs once (see TimeClock.jsx's own

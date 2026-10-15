@@ -22,11 +22,12 @@ import { useManagerInbox } from '../components/shifts/useManagerInbox';
 // Lazy: the directory is a big screen, and only its tab needs it.
 const Directory = lazy(() => import('./Directory'));
 
+// Contact last (Pranshu, Oct 15 2026); Team opens on Shifts.
 const TABS = [
-  ['contact', 'Contact', Contact, false],
   ['shifts', 'Shifts', CalendarClock, false],
   ['schedule', 'Schedule', CalendarDays, true],
   ['requests', 'Requests', Inbox, true],
+  ['contact', 'Contact', Contact, false],
 ];
 const SUBTITLE = {
   contact: 'Find and reach anyone in the company',
@@ -43,7 +44,7 @@ export default function Shifts({ activeSub, onSubChange }) {
   // sub = "schedule:YYYY-MM-DD:<group id>" (Weather Call, Oct 2026). The tab
   // is the part before the first colon; the rest is where to land.
   const [subKey, focusDate = '', focusGroup = ''] = String(activeSub || '').split(':');
-  const tab = tabs.some(([k]) => k === subKey) ? subKey : 'contact';
+  const tab = tabs.some(([k]) => k === subKey) ? subKey : 'shifts';
   const focus = tab === 'schedule' && /^\d{4}-\d{2}-\d{2}$/.test(focusDate) ? { date: focusDate, groupId: focusGroup } : null;
   // Consumed once: the schedule has landed (its own effect ran first), so
   // the address goes back to plain "schedule" and the same bell clicked
@@ -63,6 +64,8 @@ export default function Shifts({ activeSub, onSubChange }) {
   const toastOk = useCallback((msg) => show(msg, 'ok'), [show]);
   const toastErr = useCallback((msg) => show(msg, 'error'), [show]);
   const openRequests = useCallback(() => onSubChange?.('requests'), [onSubChange]);
+  // Where the Contact tab's Manage / Export buttons go: the right end of the tab row.
+  const [toolSlot, setToolSlot] = useState(null);
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
@@ -78,7 +81,8 @@ export default function Shifts({ activeSub, onSubChange }) {
         </div>
       </div>
 
-      <div className="scroll-tabs" role="tablist" style={{ display: 'flex', gap: 2, marginBottom: 18, borderBottom: '1px solid var(--wk-line)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18, borderBottom: '1px solid var(--wk-line)', flexWrap: 'wrap' }}>
+      <div className="scroll-tabs" role="tablist" style={{ display: 'flex', gap: 2, minWidth: 0 }}>
         {tabs.map(([key, label, Icon]) => {
           const on = tab === key;
           const badge = key === 'requests' ? requests.pendingCount : 0;
@@ -95,8 +99,10 @@ export default function Shifts({ activeSub, onSubChange }) {
           );
         })}
       </div>
+      {tab === 'contact' && <div ref={setToolSlot} style={{ marginLeft: 'auto', padding: '4px 0' }} />}
+      </div>
 
-      {tab === 'contact' ? <Suspense fallback={<SkeletonBlocks count={4} height={96} />}><Directory embedded /></Suspense>
+      {tab === 'contact' ? <Suspense fallback={<SkeletonBlocks count={4} height={96} />}><Directory embedded toolsTarget={toolSlot} /></Suspense>
         : tab === 'shifts' ? <MyShifts part="team" />
         : tab === 'schedule' ? <ShiftSchedule toastOk={toastOk} toastErr={toastErr} onOpenRequests={openRequests} focus={focus} />
           : <ShiftRequestsPage inbox={requests.inbox} timeoff={requests.timeoff} loading={requests.loading} error={requests.error}

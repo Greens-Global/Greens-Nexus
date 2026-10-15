@@ -336,7 +336,7 @@ export const DOCS = [
       {
         title: 'Reach a Colleague',
         steps: [
-          'Open Team from the left menu. You land on Contact.',
+          'Open Team from the left menu and click the Contact tab (the last one).',
           'Search a name, or browse by Departments, Reporting Line or Org Chart.',
           'Click the person, then Chat, Call or Email.',
         ],

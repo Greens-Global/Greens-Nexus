@@ -19,14 +19,14 @@ export const SUBMENUS = {
   // own week is Workday > My Shifts.
   shifts: {
     manager: [
-      { sub: 'contact', label: 'Contact' },
       { sub: 'shifts', label: 'Shifts' },
       { sub: 'schedule', label: 'Schedule' },
       { sub: 'requests', label: 'Requests' },
+      { sub: 'contact', label: 'Contact' },
     ],
     employee: [
-      { sub: 'contact', label: 'Contact' },
       { sub: 'shifts', label: 'Shifts' },
+      { sub: 'contact', label: 'Contact' },
     ],
   },
   inventory: {
