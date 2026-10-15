@@ -1916,7 +1916,7 @@ def _record_ticket_comment(db: Session, t: models.TaskTicket, user: dict, text: 
                          body=f"{ticket_no(t.code)} · {t.subject}",
                          exclude=_skip or None)
     for who in mentioned:
-        task_notify(db, kind="ticket_comment", for_email=who,
+        task_notify(db, kind="ticket_comment", for_email=who, main_bell=True,
                     title="You were mentioned in a ticket comment",
                     body=f"{ticket_no(t.code)} · {t.subject}", ticket_id=t.id,
                     nexus_action={"view": "tickets", "label": "View ticket"})
