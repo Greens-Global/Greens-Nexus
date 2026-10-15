@@ -473,13 +473,46 @@ h1,h2,h3,h4,h5,h6,
 .sbtr-btn--pause:not(.is-dim) { background: rgba(180,83,9,.12); color: #b45309; box-shadow: none; }
 .sbtr-btn--stop:not(.is-dim) { background: rgba(185,28,28,.1); color: #b91c1c; box-shadow: none; }
 .sbtr-btn:focus-visible { outline: 2px solid var(--sb-tone, var(--wk-brand)); outline-offset: 2px; }
-/* the coffee cup that rises out of Pause when a break starts */
-.sbtr-coffee { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; color: #b45309; pointer-events: none; animation: sbCup 1.1s cubic-bezier(.22,1,.36,1) forwards; filter: drop-shadow(0 2px 4px rgba(180,83,9,.25)); }
-.sbtr-coffee svg { width: 22px; height: 22px; fill: none; stroke-width: 2.4; }
-.sbtr-coffee i { position: absolute; left: 7px; top: -7px; width: 2.5px; height: 7px; border-radius: 2px; background: currentColor; opacity: 0; animation: sbSteam 1s ease-out .2s forwards; }
-.sbtr-coffee i + i { left: 13px; animation-delay: .45s; }
-@keyframes sbCup { 0% { opacity: 0; transform: translateY(0) scale(.5); } 25% { opacity: 1; transform: translateY(-18px) scale(1.2); } 70% { opacity: 1; transform: translateY(-28px) scale(1.05); } 100% { opacity: 0; transform: translateY(-38px) scale(.9); } }
-@keyframes sbSteam { 0% { opacity: 0; transform: translateY(0); } 40% { opacity: .9; } 100% { opacity: 0; transform: translateY(-8px); } }
+/* the punch flourishes (ClockChip Flourish): a layer pinned over the
+   button they come from, travelling RIGHT, clear of the tooltip above */
+.sbfx { position: fixed; left: 0; top: 0; width: 0; height: 0; z-index: 2000; pointer-events: none; }
+.sbfx-coffee { position: absolute; left: -11px; top: -11px; width: 22px; height: 22px; color: #b45309; filter: drop-shadow(0 2px 3px rgba(180,83,9,.3)); animation: sbfxDrift 1.8s cubic-bezier(.22,1,.36,1) forwards; }
+.sbfx-coffee svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2.4; }
+.sbfx-coffee i { position: absolute; left: 5px; bottom: 19px; width: 3px; height: 9px; border-radius: 3px; background: currentColor; opacity: 0; filter: blur(.35px); transform-origin: 50% 100%; animation: sbfxSteam 1.25s ease-out .2s forwards; }
+.sbfx-coffee i:nth-child(3) { left: 10px; height: 11px; animation-delay: .38s; }
+.sbfx-coffee i:nth-child(4) { left: 15px; animation-delay: .56s; }
+@keyframes sbfxDrift {
+  0%   { opacity: 0; transform: translate(0, 0) scale(.4) rotate(0); }
+  14%  { opacity: 1; transform: translate(4px, -14px) scale(1.25) rotate(-10deg); }
+  28%  { transform: translate(16px, -14px) scale(1) rotate(7deg); }
+  42%  { transform: translate(26px, -14px) scale(1.04) rotate(-4deg); }
+  56%  { transform: translate(34px, -14px) scale(1) rotate(2deg); }
+  78%  { opacity: 1; transform: translate(46px, -14px) scale(1) rotate(0); }
+  100% { opacity: 0; transform: translate(62px, -16px) scale(.85) rotate(0); }
+}
+@keyframes sbfxSteam {
+  0%   { opacity: 0; transform: translate(0, 5px) scale(.6, .4); }
+  18%  { opacity: .9; transform: translate(-1px, 0) scale(1, 1); }
+  42%  { transform: translate(3px, -7px) scale(1.2, 1.2) rotate(8deg); }
+  66%  { opacity: .55; transform: translate(-2px, -13px) scale(1.5, 1.1) rotate(-10deg); }
+  100% { opacity: 0; transform: translate(3px, -20px) scale(1.9, .8) rotate(6deg); }
+}
+.sbfx-check { position: absolute; left: -12px; top: -12px; width: 24px; height: 24px; color: hsl(var(--color-green)); filter: drop-shadow(0 2px 4px rgba(22,163,74,.35)); animation: sbfxDrift 1.6s cubic-bezier(.22,1,.36,1) forwards; }
+.sbfx-check svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
+.sbfx-check circle { stroke-width: 2; fill: color-mix(in srgb, currentColor 14%, var(--card, #fff)); }
+.sbfx-check path { stroke-width: 2.6; stroke-dasharray: 16; stroke-dashoffset: 16; animation: sbfxDraw .42s ease-out .16s forwards; }
+@keyframes sbfxDraw { to { stroke-dashoffset: 0; } }
+.sbfx-star { position: absolute; left: calc(var(--sz) / -2); top: calc(var(--sz) / -2); width: var(--sz); height: var(--sz); opacity: 0; filter: drop-shadow(0 1px 2px rgba(0,0,0,.18)); animation: sbfxStar 1.7s cubic-bezier(.2,.9,.3,1) forwards; }
+.sbfx--in .sbfx-star { fill: hsl(var(--color-green)); }
+.sbfx--in .sbfx-star:nth-child(even) { fill: #eab308; }
+.sbfx--out .sbfx-star { fill: #eab308; }
+.sbfx--out .sbfx-star:nth-child(even) { fill: #f59e0b; }
+@keyframes sbfxStar {
+  0%   { opacity: 0; transform: translate(0, 0) scale(0) rotate(0); }
+  22%  { opacity: 1; transform: translate(calc(var(--dx) * .45), calc(var(--dy) * .45)) scale(1.25) rotate(calc(var(--r) * .35)); }
+  70%  { opacity: 1; }
+  100% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(.35) rotate(var(--r)); }
+}
 /* our tooltip: a dark pill that rises in, a bold line and a quiet one */
 .sbtt-pop {
   position: absolute; left: 50%; bottom: calc(100% + 8px); transform: translate(-50%, 4px); z-index: 30; pointer-events: none;
@@ -541,9 +574,9 @@ h1,h2,h3,h4,h5,h6,
 .sbclock-rail .sbtr-btn--share svg { fill: none; }
 .sbclock-ringbtn:focus-visible, .sbclock-head:focus-visible { outline: 2px solid var(--sb-tone, var(--wk-brand)); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) {
-  .sbclock, .sbclock-rail, .sbclock-timer, .sbring-arc, .sbring--in, .sbring--break, .sbtr-btn--play.is-next, .sbtr-coffee, .sbtr-coffee i, .sbring-sweep, .sbtr-land { animation: none; }
+  .sbclock, .sbclock-rail, .sbclock-timer, .sbring-arc, .sbring--in, .sbring--break, .sbtr-btn--play.is-next, .sbring-sweep, .sbtr-land { animation: none; }
   .sbring-arc, .sbtr-lit { transition: none; }
-  .sbtr-coffee { display: none; }
+  .sbfx { display: none; }
 }
 
 /* The phone capsule (components/TimeclockWidget.jsx, below 900px where

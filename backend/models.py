@@ -2177,6 +2177,9 @@ class TimePunch(Base):
     edit_status      = Column(String, default="")   # '' | pending | approved | rejected
     edit_reviewed_by = Column(String, default="")   # approver email
     edit_reviewed_at = Column(String, default="")
+    # Add Time (Oct 14 2026): every punch a manager's batch wrote together
+    # shares an id, so the batch can be undone as one.
+    batch_id         = Column(String, default="", index=True)
 
 
 class TimeScreenshot(Base):
