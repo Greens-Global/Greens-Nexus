@@ -11117,7 +11117,7 @@ def _my_prefs_payload(db: Session, email: str) -> dict:
     return {"shiftCalendar": on,
             # Why the switch may do nothing: the company has it off, or they
             # have no Microsoft 365 mailbox for the event to land in.
-            "companyOutlookCalendar": bool(cfg.get("outlookCalendar", True)),
+            "companyOutlookCalendar": bool(cfg.get("outlookCalendarOn", False)),
             "hasMailbox": bool(emp is not None and (emp.m365_id or "").strip()),
             "showAs": cfg.get("outlookShowAs") or "free"}
 

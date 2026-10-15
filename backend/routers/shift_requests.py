@@ -119,11 +119,14 @@ _DEFAULTS = {"openShifts": False, "swaps": False, "offers": False, "teamSchedule
              # 'federal'; the week cap to everyone.
              "ruleMinRestHours": 10, "ruleMaxDaysInRow": 6, "ruleDailyOtHours": 8,
              "ruleWeeklyOtHours": 40, "ruleMaxWeekHours": 0, "publishReasonRequired": True,
-             # Shifts Phase 3a (Neil, Oct 14 2026): shared shifts go onto
-             # people's Outlook calendars (shift_calendar.py) - on for
-             # everyone, per company; a person can still opt out. outlookShowAs
-             # is how the event blocks their time ('free' | 'busy').
-             "outlookCalendar": True, "outlookShowAs": "free",
+             # Shifts Phase 3a: shared shifts go onto people's Outlook
+             # calendars (shift_calendar.py), per company; a person can still
+             # opt out. OFF by default (Neil, Oct 15 2026: a shift event
+             # filled the whole working day on everyone's calendar). The key
+             # was renamed from outlookCalendar, which every settings save
+             # since the merge had stored as true - that old key is ignored.
+             # outlookShowAs is how the event blocks their time ('free' | 'busy').
+             "outlookCalendarOn": False, "outlookShowAs": "free",
              # Ask each person to confirm they have seen a shared schedule
              # (shift_confirm.py): the publish bell and email say so, and a
              # manager sees who has not.
@@ -328,7 +331,7 @@ class SettingsIn(BaseModel):
     ruleWeeklyOtHours: Optional[int] = None     # 0-80; 0 = off; 'ca' and 'federal'
     ruleMaxWeekHours: Optional[int] = None      # 0-100; 0 = off; everyone
     publishReasonRequired: Optional[bool] = None   # sharing over a warning needs a reason
-    outlookCalendar: Optional[bool] = None      # shared shifts onto Outlook calendars (Phase 3a)
+    outlookCalendarOn: Optional[bool] = None    # shared shifts onto Outlook calendars (Phase 3a; off by default)
     outlookShowAs: Optional[str] = None         # free | busy
     confirmRequests: Optional[bool] = None      # ask people to confirm a shared schedule
     releaseShifts: Optional[bool] = None        # staff may release a shared shift to the open pool (Phase 3b)

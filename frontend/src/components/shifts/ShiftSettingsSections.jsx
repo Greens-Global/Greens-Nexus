@@ -282,13 +282,13 @@ export function ShiftSettingsPanel({ toastOk, toastErr }) {
             </div>
             <div>
               <div style={LBL}>Sharing</div>
-              <label style={CHECK}><input type="checkbox" checked={cfg.outlookCalendar !== false} onChange={(e) => save({ ...cfg, outlookCalendar: e.target.checked })} /> Add shared shifts to people's Outlook calendars</label>
-              <label style={{ display: 'grid', gap: 4, maxWidth: 300, margin: '4px 0 6px' }}><span style={{ fontSize: 12.5, fontWeight: 600, color: cfg.outlookCalendar === false ? 'var(--muted)' : 'var(--ink)' }}>Show In Outlook As</span>
-                <select className="form-input" aria-label="Show in Outlook as" disabled={cfg.outlookCalendar === false} value={cfg.outlookShowAs === 'busy' ? 'busy' : 'free'} onChange={(e) => save({ ...cfg, outlookShowAs: e.target.value })} style={{ width: 'auto', fontSize: 12.5, padding: '4px 30px 4px 8px' }}>
+              <label style={CHECK}><input type="checkbox" checked={cfg.outlookCalendarOn === true} onChange={(e) => save({ ...cfg, outlookCalendarOn: e.target.checked })} /> Add shared shifts to people's Outlook calendars</label>
+              <label style={{ display: 'grid', gap: 4, maxWidth: 300, margin: '4px 0 6px' }}><span style={{ fontSize: 12.5, fontWeight: 600, color: cfg.outlookCalendarOn !== true ? 'var(--muted)' : 'var(--ink)' }}>Show In Outlook As</span>
+                <select className="form-input" aria-label="Show in Outlook as" disabled={cfg.outlookCalendarOn !== true} value={cfg.outlookShowAs === 'busy' ? 'busy' : 'free'} onChange={(e) => save({ ...cfg, outlookShowAs: e.target.value })} style={{ width: 'auto', fontSize: 12.5, padding: '4px 30px 4px 8px' }}>
                   <option value="free">Free</option>
                   <option value="busy">Busy</option>
                 </select>
-                <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Free keeps people bookable during a shift; Busy blocks the time. Each person can keep shifts out of their own calendar from My Shifts.</span>
+                <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Off unless a company turns it on. Free keeps people bookable during a shift; Busy blocks the time. Each person can keep shifts out of their own calendar from My Shifts. Turning it off takes the events already added back off people's calendars.</span>
               </label>
               <label style={CHECK}><input type="checkbox" checked={cfg.confirmRequests !== false} onChange={(e) => save({ ...cfg, confirmRequests: e.target.checked })} /> Ask people to confirm a shared schedule</label>
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>A share then asks each person to confirm in My Shifts; the schedule shows who has, and a manager can nudge the rest.</div>

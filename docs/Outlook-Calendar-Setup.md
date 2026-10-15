@@ -7,6 +7,12 @@ weather call or handed to someone else. Nothing lands until the Entra app is
 allowed to write calendars. This is a one-time admin step in the Azure
 portal; no code or deploy is involved.
 
+**Off by default (Neil, Oct 15 2026).** Even with the permission granted,
+nothing is written until a company turns on "Add shared shifts to people's
+Outlook calendars" in Global Settings > Shifts (`outlookCalendarOn`).
+Turning it off again takes the events already added back off people's
+calendars on the next sync tick (`queue_switched_off`).
+
 ## What the code does
 
 - `backend/shift_calendar.py` keeps a queue (`shift_calendar_events`, one row
