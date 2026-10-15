@@ -54,6 +54,9 @@ _DEFAULT_SETTINGS = {
         "created": True, "assigned": True, "updated": True,
         "resolved": True, "reopened": True, "approval_required": True,
         "escalated": True,
+        # Due-date / overdue reminders to the assignee (ticket_overdue.py).
+        # Off by default: they go out from managers' Teams accounts.
+        "overdue_reminder": False,
     },
 }
 
@@ -687,6 +690,12 @@ def _ticket_scan_once() -> None:
     try:
         _retry_failed_once(db)
         _auto_close_once(db)
+        try:
+            import ticket_overdue
+            ticket_overdue.run(db)
+        except Exception as e:   # reminders must never stop the retries above
+            db.rollback()
+            print(f"[ticket-overdue] pass failed: {e}")
     finally:
         db.close()
 

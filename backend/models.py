@@ -3449,6 +3449,11 @@ class TaskTicket(Base):
     # database.py; .execution_options(include_deleted=True) sees it.
     deleted_at          = Column(String, default="", index=True)
     deleted_by          = Column(String, default="")
+    # Overdue reminders (Oct 15 2026, ticket_overdue.py): {"due": the due date
+    # the counts belong to, "sent": reminders sent, "overdue": how many of
+    # those went out after the due date, "on": the assignee's local date of
+    # the last one}. A changed due date starts the counts over.
+    overdue_reminder    = Column(JSON, default=dict)
 
 
 class TicketEmailLog(Base):
