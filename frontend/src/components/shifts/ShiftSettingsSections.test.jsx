@@ -27,8 +27,12 @@ vi.mock('../../ui/dialog', () => ({ dialog: { confirm: (...a) => confirmAsk(...a
 vi.mock('../../teamsGraph', () => ({ graphTokenSilent: vi.fn(), graphTokenInteractive: vi.fn(), listMyChats: vi.fn(), channelTokenInteractive: vi.fn(), listMyChannels: vi.fn() }));
 const timeShiftGroupSet = vi.fn();
 const timeMyChannels = vi.fn();
+const timeCalendarSyncStatus = vi.fn();
+const role = { current: null };
+vi.mock('../../contexts/RoleContext', () => ({ useRole: () => role.current }));
 vi.mock('../../api', () => ({
   api: {
+    timeCalendarSyncStatus: (...a) => timeCalendarSyncStatus(...a),
     timeShiftsFor: (...a) => timeShiftsFor(...a),
     timeShiftGroups: (...a) => timeShiftGroups(...a),
     timeShiftDelete: (...a) => timeShiftDelete(...a),
@@ -74,6 +78,8 @@ beforeEach(() => {
   shiftRequestSettingsSaveFor.mockReset().mockImplementation(async (c) => c);
   shiftRequestSettingsReset.mockReset().mockResolvedValue({ ok: true });
   confirmAsk.mockReset().mockResolvedValue(true);
+  timeCalendarSyncStatus.mockReset().mockResolvedValue({ enabled: true, reason: '', pending: 3, ok: 124, errors: 0, skipped: 0 });
+  role.current = null;
   toastOk.mockReset(); toastErr.mockReset();
 });
 
@@ -504,5 +510,53 @@ describe('ShiftSettingsPanel rules', () => {
     commit(rest, '');
     expect(shiftRequestSettingsSaveFor).not.toHaveBeenCalled();
     expect(rest.value).toBe('8');
+  });
+});
+
+// Shifts Phase 3a (Oct 14): Sharing - Outlook calendars for shared shifts
+// (and how a shift shows there), confirmations, and for an administrator
+// the sync status: a count when it runs, a quiet amber note (never an
+// error) while the Entra permission is still to be granted.
+describe('ShiftSettingsPanel sharing', () => {
+  it('saves the three sharing settings, and Show In Outlook As follows the calendar switch', async () => {
+    render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} />);
+    const cal = await screen.findByLabelText("Add shared shifts to people's Outlook calendars");
+    expect(cal.checked).toBe(true);                                             // on by default
+    const showAs = screen.getByLabelText('Show in Outlook as');
+    expect(showAs.disabled).toBe(false);
+    expect(showAs.value).toBe('free');
+    fireEvent.change(showAs, { target: { value: 'busy' } });
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith(expect.objectContaining({ outlookShowAs: 'busy' }), ''));
+    fireEvent.click(cal);
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith(expect.objectContaining({ outlookCalendar: false, outlookShowAs: 'busy' }), ''));
+    expect(screen.getByLabelText('Show in Outlook as').disabled).toBe(true);
+    const ask = screen.getByLabelText('Ask people to confirm a shared schedule');
+    expect(ask.checked).toBe(true);
+    fireEvent.click(ask);
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith(expect.objectContaining({ confirmRequests: false }), ''));
+    expect(timeCalendarSyncStatus).not.toHaveBeenCalled();                     // not an administrator: no status line
+    expect(document.querySelector('[data-calendar-sync]')).toBeNull();
+  });
+
+  it('shows an administrator the sync count, or the quiet permission note, and nothing on a failed call', async () => {
+    role.current = { can: (r) => r === 'administrator' };
+    const { unmount } = render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} />);
+    const line = await screen.findByText('Outlook calendar: on - 124 synced, 3 pending');
+    expect(line.getAttribute('data-calendar-sync')).toBe('on');
+    unmount();
+    timeCalendarSyncStatus.mockResolvedValue({ enabled: false, reason: 'Calendars.ReadWrite is not granted - see docs/Outlook-Calendar-Setup.md', pending: 0, ok: 0, errors: 0, skipped: 0 });
+    const r2 = render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} />);
+    const note = await screen.findByRole('note');
+    expect(note.textContent).toBe('Outlook calendar sync is waiting on an Entra permission (Calendars.ReadWrite). See docs/Outlook-Calendar-Setup.md.');
+    expect(note.getAttribute('data-calendar-sync')).toBe('waiting');
+    expect(note.style.color).toBe('hsl(var(--color-orange))');                 // amber, never red
+    expect(screen.queryByRole('alert')).toBeNull();
+    r2.unmount();
+    timeCalendarSyncStatus.mockRejectedValue(new Error('API error 403'));
+    render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} />);
+    await screen.findByLabelText('Ask people to confirm a shared schedule');
+    await waitFor(() => expect(timeCalendarSyncStatus).toHaveBeenCalledTimes(3));
+    expect(document.querySelector('[data-calendar-sync]')).toBeNull();
+    expect(toastErr).not.toHaveBeenCalled();
   });
 });

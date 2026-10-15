@@ -208,7 +208,8 @@ class RequestRateLimit(BaseHTTPMiddleware):
                           "/marketing/gbp/oauth/callback", "/marketing/ads/oauth/callback",
                           "/qa/ci-results", "/qa/e2e-specs",
                           "/timeclock/agent/self-enroll", "/timeclock/agent/release",
-                          "/hr/intake/public/")
+                          "/hr/intake/public/",
+                          "/timeclock/ical/")   # the calendar subscribe feed: a signed link, no login (Shifts Phase 3a)
     SHARED_SOURCE_PER_MIN = int(os.getenv("NEXUS_RL_SHARED", "120"))
     SHARED_SOURCE_PREFIXES = ("/mail-actions/", "/briefing-actions/", "/webhooks/github")
     EXEMPT_PREFIXES = ("/health", "/version")

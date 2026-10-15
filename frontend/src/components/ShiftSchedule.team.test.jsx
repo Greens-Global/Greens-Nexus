@@ -12,6 +12,7 @@ const api = {
   timeSchedule: vi.fn(), timeSchedCreate: vi.fn(), timeSchedDelete: vi.fn(), timeSchedDiscard: vi.fn(), timeSchedBulk: vi.fn(),
   timeSchedCopy: vi.fn(), timeSchedUnshared: vi.fn(), timeSchedMove: vi.fn(), timeSchedCheck: vi.fn(), timeOffTypes: vi.fn(),
   timeShiftGroupMembers: vi.fn(), timeShiftGroupMeta: vi.fn(), timeSchedPublishReview: vi.fn(), timeSchedHistory: vi.fn(),
+  timeSchedConfirmations: vi.fn(), timeSchedNudge: vi.fn(),
 };
 vi.mock('../api', () => ({ api: new Proxy({}, { get: (_, k) => api[k] || vi.fn().mockResolvedValue({}) }) }));
 vi.mock('../ui/dialog', () => ({ dialog: { confirm: vi.fn().mockResolvedValue(true), prompt: vi.fn() } }));
@@ -53,6 +54,8 @@ beforeEach(() => {
   api.timeSchedUnshared.mockResolvedValue({ count: 4 });
   api.timeSchedCheck.mockResolvedValue({ warnings: [] });
   api.timeOffTypes.mockResolvedValue({ builtIn: ['vacation'], custom: [], requestsOn: true });
+  api.timeSchedConfirmations.mockResolvedValue([]);
+  api.timeSchedNudge.mockResolvedValue({ nudged: 0 });
 });
 
 describe('Team switcher', () => {

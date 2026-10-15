@@ -464,6 +464,10 @@ def decide(db: Session, user: dict, g, day: str, body: dict, defer=None) -> dict
     if touched:
         from routers.shift_requests import cancel_requests_for_shifts
         cancel_requests_for_shifts(db, touched, actor)
+    # Shifts Phase 3a: the Outlook events follow the call - a cancelled
+    # shift's event comes off, a delayed / shortened / moved one is updated.
+    import shift_calendar
+    shift_calendar.enqueue(db, [r.id for r in rows if r.employee_email])
     # The call as the day's note - a person may edit it afterward.
     decider_name = _name(people.get(actor)) or actor
     note = (db.query(models.ScheduleDayNote)
@@ -918,6 +922,8 @@ def _restore_rows(db: Session, decision_id: str, actor: str = "", why: str = "re
         r.weather_status, r.weather_decision_id = "", ""
         r.original_start_hhmm = r.original_end_hhmm = r.original_label = r.original_work_date = ""
         shift_log.record(db, "weather", r, actor, before=before, after=shift_log.snapshot(r, weather=""), reason=why)
+    import shift_calendar
+    shift_calendar.enqueue(db, [r.id for r in rows if r.employee_email])   # Phase 3a: events back as they were
     return rows
 
 

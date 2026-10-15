@@ -6124,6 +6124,13 @@ class NexusPersonPref(Base):
     email       = Column(String, primary_key=True)
     weather_sms = Column(Integer, default=1)
     updated_at  = Column(String, default="")
+    # Shifts Phase 3a (Neil, Oct 14 2026, shift_calendar.py): 1 = their shared
+    # shifts go onto their Outlook calendar (the company switch must be on
+    # too); 0 = they opted out. Added column -> ALTER lines in main.py.
+    shift_calendar = Column(Integer, default=1)
+    # The per-person salt in their calendar subscribe link (routers/
+    # shift_ical.py): rotating it invalidates every link issued before.
+    ical_salt   = Column(String, default="")
 
 
 class TaskAutomationRun(Base):
@@ -6461,3 +6468,59 @@ class ShiftChangeLog(Base):
     after_json     = Column(String, default="")
     reason         = Column(String, default="")                    # a publish over warnings, a weather call
     publish_id     = Column(String, default="", index=True)        # one per publish; '' otherwise
+
+
+class ShiftCalendarEvent(Base):
+    """Shifts Phase 3a (Oct 14 2026, shift_calendar.py): the Outlook event
+    that mirrors one shared shift on one person's calendar. One row per
+    (shift, person); the sync loop works the queue - state pending (create
+    or update), delete (the shift is gone, cancelled or someone else's), ok,
+    error (last_error says why; retried), skipped (the company switch is
+    off, the person opted out, no Microsoft 365 account). synced_hash is
+    the event body last sent, so an unchanged shift is never re-sent. New
+    table - create_all builds it; RLS comes from main._enable_rls_everywhere's
+    startup sweep."""
+    __tablename__ = "shift_calendar_events"
+    id             = Column(String, primary_key=True)              # uuid
+    shift_id       = Column(String, default="", index=True)        # ScheduledShift.id
+    employee_email = Column(String, default="", index=True)
+    event_id       = Column(String, default="")                    # Graph event id; '' = none yet
+    synced_hash    = Column(String, default="")
+    synced_at      = Column(String, default="")                    # UTC ISO
+    state          = Column(String, default="pending", index=True)
+    last_error     = Column(String, default="")
+    updated_at     = Column(String, default="", index=True)
+
+
+class ShiftPublish(Base):
+    """Shifts Phase 3a (Oct 14 2026): one row per Share (publish) of the
+    schedule - who, when, the range, the team it was narrowed to, the reason
+    given over warnings, and how many shifts it changed. shift_change_log
+    rows carry the same publish_id; shift_publish_confirms say who has seen
+    it. New table - create_all builds it; RLS comes from
+    main._enable_rls_everywhere's startup sweep."""
+    __tablename__ = "shift_publishes"
+    id         = Column(String, primary_key=True)                  # the publish_id
+    by         = Column(String, default="", index=True)
+    at         = Column(String, default="", index=True)            # UTC ISO
+    start_date = Column(String, default="")                        # YYYY-MM-DD
+    end_date   = Column(String, default="")
+    group_id   = Column(String, default="")
+    reason     = Column(String, default="")
+    changes    = Column(Integer, default=0)
+
+
+class ShiftPublishConfirm(Base):
+    """Shifts Phase 3a (Oct 14 2026, shift_confirm.py): a person asked to
+    confirm they have seen a publish that changed their shifts. One row per
+    (publish, person), made when the publish is announced and the company's
+    confirmRequests switch is on; confirmed_at when they pressed Confirm,
+    nudged_at when a manager sent the one reminder allowed. New table -
+    create_all builds it; RLS comes from main._enable_rls_everywhere's
+    startup sweep."""
+    __tablename__ = "shift_publish_confirms"
+    id             = Column(String, primary_key=True)              # uuid
+    publish_id     = Column(String, default="", index=True)        # ShiftPublish.id
+    employee_email = Column(String, default="", index=True)
+    confirmed_at   = Column(String, default="")                    # UTC ISO; '' = not yet
+    nudged_at      = Column(String, default="")                    # UTC ISO; '' = never

@@ -7,11 +7,12 @@
 // (Fill, Copy, Clear, Import, Export, Print, Discard, Requests, the View
 // menu, the filters) lives under + Add or ⋯. On a phone: [Team ▾] [+] [⋯]
 // over [‹ date ›] [Today] [Week ▾]; Share moves under ⋯.
-import { useEffect, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Plus, Send, MoreHorizontal, Clock, CalendarRange, CalendarOff, StickyNote, Copy, CalendarDays, Trash2, Upload, Download, Printer, RotateCcw, Inbox, SlidersHorizontal, X, Search, EyeOff, Keyboard, Gauge, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { ChevronLeft, ChevronRight, Plus, Send, MoreHorizontal, Clock, CalendarRange, CalendarOff, StickyNote, Copy, CalendarDays, Trash2, Upload, Download, Printer, RotateCcw, Inbox, SlidersHorizontal, X, Search, EyeOff, Keyboard, Gauge, ChevronDown, ChevronUp, AlertTriangle, CircleCheck, BellRing } from 'lucide-react';
 import { api } from '../../api';
 import { formatDate, formatDateTime, formatWeekday, formatHHMM } from '../../lib/datetime';
-import { MenuButton } from './Menu';
+import { MenuButton, POP, HEAD, useAnchor, useDismissBoth } from './Menu';
 import DateBlock from './DateBlock';
 import { RollingNumber } from './motion';
 import { addDaysIso } from './shiftLib';
@@ -36,7 +37,7 @@ const ARROW = { width: 30, height: 30, display: 'inline-flex', alignItems: 'cent
 const TODAY_BTN = { border: 'none', background: 'none', padding: '6px 8px', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 700, color: 'var(--wk-brand)', borderRadius: 7, whiteSpace: 'nowrap' };
 
 export function ScheduleToolbar({ view, onView, onPrev, onNext, onToday, range, onJump, showToday = false, slide = 0, teamSwitcher = null, canManage, busy, ready,
-  unsharedCount = 0, onAdd, onShare, actions, phone = false }) {
+  unsharedCount = 0, onAdd, onShare, actions, phone = false, confirmations = null, onNudge = null }) {
   const viewName = VIEWS.find(([k]) => k === view)?.[1] || (view === 'twoweeks' ? 'Two Weeks' : 'Week');
   const addItems = [
     { key: 'shift', label: 'Shift', Icon: Clock, onClick: () => onAdd('shift') },
@@ -84,6 +85,8 @@ export function ScheduleToolbar({ view, onView, onPrev, onNext, onToday, range, 
     <MenuButton label="" Icon={MoreHorizontal} items={moreItems} ariaLabel="More" align="right" width={240} style={{ padding: phone ? '7px 9px' : '6px 8px', height: phone ? 36 : undefined }}
       badge={phone && unsharedCount > 0 ? <span aria-hidden="true" style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--wk-brand)', marginLeft: -4 }} /> : null} />
   );
+  // "5 Of 8 Confirmed" (Phase 3a): only when a share in view asked someone to confirm.
+  const confirmChip = canManage && confirmations && confirmations.total > 0 ? <ConfirmChip c={confirmations} onNudge={onNudge} compact={phone} /> : null;
   if (phone) {
     const viewItems = VIEWS.map(([k, label]) => ({ key: k, label, hint: (view === k || (k === 'week' && view === 'twoweeks')) ? '✓' : '', onClick: () => onView(k) }));
     return (
@@ -97,6 +100,7 @@ export function ScheduleToolbar({ view, onView, onPrev, onNext, onToday, range, 
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
           {dateNav}
           <div style={{ flex: 1 }} />
+          {confirmChip}
           <MenuButton label={viewName} items={viewItems} ariaLabel="View" width={150} align="right" style={{ padding: '6px 10px', fontWeight: 700 }} />
         </div>
       </div>
@@ -119,6 +123,7 @@ export function ScheduleToolbar({ view, onView, onPrev, onNext, onToday, range, 
       </div>
       <div style={{ flex: 1 }} />
       <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+        {confirmChip}
         {canManage && <MenuButton label="Add" Icon={Plus} items={addItems} ariaLabel="Add" primary width={190} disabled={!ready} />}
         {canManage && (
           <button type="button" className={unsharedCount ? 'primary-btn' : 'secondary-btn'} onClick={onShare} disabled={busy || !ready}
@@ -132,6 +137,68 @@ export function ScheduleToolbar({ view, onView, onPrev, onNext, onToday, range, 
         {more}
       </div>
     </div>
+  );
+}
+
+// The confirmations chip (Shifts Phase 3a, Oct 14): "5 Of 8 Confirmed" for
+// the people a share in this range asked to confirm. A click lists who has
+// not, each with Nudge (or "Nudged 10/14" once they were), and Nudge
+// Everyone - one reminder per person about their latest share.
+const nudgedDay = (iso) => formatDate(iso).slice(0, 5);
+export function ConfirmChip({ c, onNudge, compact = false }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState('');
+  const close = useCallback(() => setOpen(false), []);
+  const btnRef = useRef(null);
+  const listRef = useRef(null);
+  useDismissBoth(open, [btnRef, listRef], close);
+  const pos = useAnchor(open, btnRef, 300, 'right');
+  const all = c.confirmed >= c.total;
+  const waiting = c.pending.filter((p) => !p.nudgedAt);
+  async function send(people, key) {
+    if (!onNudge || !people.length) return;
+    setBusy(key);
+    try { await onNudge(people); } finally { setBusy(''); }
+  }
+  const label = `${c.confirmed} Of ${c.total} Confirmed`;
+  return (
+    <span style={{ position: 'relative', display: 'inline-flex' }}>
+      <button ref={btnRef} type="button" data-confirm-chip="" onClick={() => setOpen((o) => !o)} aria-haspopup="dialog" aria-expanded={open} aria-label={label}
+        title={all ? 'Everyone has confirmed the shared schedule' : `${c.pending.length} ${c.pending.length === 1 ? 'person has' : 'people have'} not confirmed the shared schedule yet`}
+        style={{ border: '1px solid transparent', borderRadius: 999, padding: compact ? '4px 9px' : '5px 10px', fontFamily: 'inherit', fontSize: compact ? 11.5 : 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap',
+          display: 'inline-flex', alignItems: 'center', gap: 5, height: compact ? 36 : undefined,
+          background: all ? 'hsla(var(--color-green),0.12)' : 'var(--wk-brand-tint)', color: all ? 'hsl(var(--color-green))' : 'var(--wk-brand)' }}>
+        <CircleCheck size={13} />{compact ? `${c.confirmed}/${c.total}` : label}
+      </button>
+      {open && pos && createPortal(
+        <div ref={listRef} role="dialog" aria-label="Schedule confirmations" style={{ ...POP, ...pos, zIndex: 1350, padding: '4px 0 8px', maxHeight: `calc(100vh - ${Math.round(pos.top) + 12}px)`, overflowY: 'auto' }}>
+          <div style={HEAD}>{all ? 'Everyone Has Confirmed' : 'Not Confirmed Yet'}</div>
+          {c.pending.map((p) => (
+            <div key={p.email} data-confirm-pending={p.email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 12px', fontSize: 12.5 }}>
+              <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600 }}>{p.name}</span>
+              {p.nudgedAt ? (
+                <span style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }} title={`Nudged ${formatDateTime(p.nudgedAt)}`}>Nudged {nudgedDay(p.nudgedAt)}</span>
+              ) : (
+                <button type="button" onClick={() => send([p], p.email)} disabled={!!busy || !onNudge} aria-label={`Nudge ${p.name}`}
+                  style={{ border: '1px solid var(--line)', background: 'var(--card)', borderRadius: 7, padding: '2px 8px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  <BellRing size={11} /> Nudge
+                </button>
+              )}
+            </div>
+          ))}
+          {all && <div style={{ padding: '2px 12px 4px', fontSize: 12, color: 'var(--muted)' }}>{c.total} {c.total === 1 ? 'person' : 'people'} confirmed the shared schedule.</div>}
+          {!all && (
+            <div style={{ padding: '6px 12px 0', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ flex: 1, fontSize: 11.5, color: 'var(--muted)' }}>{waiting.length ? 'A nudge is one notification and email.' : 'Everyone waiting has been nudged.'}</span>
+              <button type="button" className="primary-btn" onClick={() => send(waiting, 'all')} disabled={!!busy || !waiting.length || !onNudge} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                <BellRing size={12} /> Nudge Everyone
+              </button>
+            </div>
+          )}
+        </div>,
+        document.body,
+      )}
+    </span>
   );
 }
 

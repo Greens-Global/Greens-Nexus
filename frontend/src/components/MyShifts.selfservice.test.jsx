@@ -19,10 +19,24 @@ const weatherCallMyPrefs = vi.fn();
 const weatherCallAck = vi.fn();
 const weatherCallMyPrefsSave = vi.fn();
 const timeSchedActuals = vi.fn();
+const timeMyConfirmations = vi.fn();
+const timeSchedConfirm = vi.fn();
+const timeMyPrefsGet = vi.fn();
+const timeMyPrefsSet = vi.fn();
+const timeMyIcalLink = vi.fn();
+const timeMyIcalRotate = vi.fn();
+const confirmAsk = vi.fn();
+vi.mock('../ui/dialog', () => ({ dialog: { confirm: (...a) => confirmAsk(...a), prompt: vi.fn(), alert: vi.fn() } }));
 vi.mock('../api', () => ({
   api: {
     timeMySchedule: (...a) => timeMySchedule(...a),
     timeSchedActuals: (...a) => timeSchedActuals(...a),
+    timeMyConfirmations: (...a) => timeMyConfirmations(...a),
+    timeSchedConfirm: (...a) => timeSchedConfirm(...a),
+    timeMyPrefsGet: (...a) => timeMyPrefsGet(...a),
+    timeMyPrefsSet: (...a) => timeMyPrefsSet(...a),
+    timeMyIcalLink: (...a) => timeMyIcalLink(...a),
+    timeMyIcalRotate: (...a) => timeMyIcalRotate(...a),
     weatherCallMine: (...a) => weatherCallMine(...a),
     weatherCallMyPrefs: (...a) => weatherCallMyPrefs(...a),
     weatherCallAck: (...a) => weatherCallAck(...a),
@@ -67,6 +81,13 @@ beforeEach(() => {
   weatherCallAck.mockReset().mockResolvedValue({ ok: true });
   weatherCallMyPrefsSave.mockReset().mockResolvedValue({ weatherSms: false, phone: false });
   timeSchedActuals.mockReset().mockResolvedValue({ cells: {}, people: {}, totals: {} });
+  timeMyConfirmations.mockReset().mockResolvedValue([]);
+  timeSchedConfirm.mockReset().mockResolvedValue({ ok: true });
+  timeMyPrefsGet.mockReset().mockResolvedValue({ shiftCalendar: true });
+  timeMyPrefsSet.mockReset().mockImplementation(async (b) => ({ shiftCalendar: b.shiftCalendar !== false }));
+  timeMyIcalLink.mockReset().mockResolvedValue({ url: 'https://api.nexus.test/timeclock/ical/abc123.ics' });
+  timeMyIcalRotate.mockReset().mockResolvedValue({ url: 'https://api.nexus.test/timeclock/ical/new456.ics' });
+  confirmAsk.mockReset().mockResolvedValue(true);
   shiftRequestsMine.mockReset().mockResolvedValue(reqs());
   shiftRequestCreate.mockReset().mockResolvedValue({});
   availabilityMine.mockReset().mockResolvedValue({ days: [] });
@@ -318,5 +339,112 @@ describe('actuals on my shifts', () => {
     await waitFor(() => expect(timeSchedActuals).toHaveBeenCalled());
     expect(document.querySelector('[data-actual]')).toBeNull();
     expect(line.textContent).not.toContain('late');
+  });
+});
+
+// Shifts Phase 3a (Oct 14): the schedule comes to people. A shared schedule
+// I have not confirmed sits at the top until I confirm it (then the next
+// one); the Calendar row holds my Outlook switch (no switch when the
+// company's is off) and my iCal link with Copy and New Link.
+describe('MyShifts confirmations and calendar', () => {
+  const banner = () => screen.queryByRole('note', { name: 'Confirm your schedule' });
+  it('asks me to confirm the newest shared schedule, then the next one; a failed confirm asks again', async () => {
+    timeMyConfirmations.mockResolvedValue([
+      { publishId: 'pub2', at: '2026-10-14T18:05:00Z', by: 'amy@x.com', start: monday, end: plus(6), changes: 3 },
+      { publishId: 'pub1', at: '2026-10-07T18:05:00Z', by: 'bob@x.com', start: monday, end: plus(6), changes: 1 },
+    ]);
+    timeSchedConfirm.mockRejectedValueOnce(new Error('API error 500')).mockResolvedValue({ ok: true });
+    render(<MyShifts />);
+    const b = await waitFor(() => { const el = banner(); expect(el).toBeTruthy(); return el; });
+    expect(b.textContent).toContain('Your schedule was shared on 10/14/2026 by amy@x.com (3 changes) - have a look and confirm.');
+    expect(b.textContent).toContain('1 more waiting.');
+    fireEvent.click(within(b).getByRole('button', { name: /Confirm/ }));
+    await waitFor(() => expect(timeSchedConfirm).toHaveBeenCalledWith('pub2'));
+    // The call failed: the same share is back with a quiet retry line, never an error banner.
+    await waitFor(() => expect(banner().textContent).toContain('Could not confirm - try again.'));
+    expect(banner().getAttribute('data-confirm-banner')).toBe('pub2');
+    fireEvent.click(within(banner()).getByRole('button', { name: /Confirm/ }));
+    await waitFor(() => expect(banner().getAttribute('data-confirm-banner')).toBe('pub1'));   // the next one steps up
+    expect(banner().textContent).toContain('by Bob Brown (1 change)');
+    expect(banner().textContent).not.toContain('more waiting');
+    fireEvent.click(within(banner()).getByRole('button', { name: /Confirm/ }));
+    await waitFor(() => expect(timeSchedConfirm).toHaveBeenLastCalledWith('pub1'));
+    await waitFor(() => expect(banner()).toBeNull());
+  });
+
+  it('shows no banner with nothing to confirm, or when the call fails', async () => {
+    timeMyConfirmations.mockRejectedValue(new Error('API error 500'));
+    render(<MyShifts />);
+    await screen.findByRole('status', { name: 'Week summary' });
+    await waitFor(() => expect(timeMyConfirmations).toHaveBeenCalled());
+    expect(banner()).toBeNull();
+  });
+
+  it('turns my Outlook calendar off and on from the Calendar row, and puts it back when the save fails', async () => {
+    render(<MyShifts />);
+    const sw = await screen.findByRole('switch', { name: 'In your Outlook calendar' });
+    expect(sw.getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(sw);
+    await waitFor(() => expect(timeMyPrefsSet).toHaveBeenCalledWith({ shiftCalendar: false }));
+    expect(screen.getByRole('switch', { name: 'In your Outlook calendar' }).getAttribute('aria-checked')).toBe('false');
+    timeMyPrefsSet.mockRejectedValueOnce(new Error('API error 500'));
+    fireEvent.click(screen.getByRole('switch', { name: 'In your Outlook calendar' }));
+    await waitFor(() => expect(timeMyPrefsSet).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByRole('switch', { name: 'In your Outlook calendar' }).getAttribute('aria-checked')).toBe('false'));
+    expect(screen.getByText('Could not save that.')).toBeTruthy();
+  });
+
+  it('says the company switch is off instead of offering mine', async () => {
+    shiftRequestsMine.mockResolvedValue(reqs({ settings: { openShifts: true, swaps: true, offers: true, outlookCalendar: false } }));
+    render(<MyShifts />);
+    expect(await screen.findByText('Outlook calendar is off for your company')).toBeTruthy();
+    expect(screen.queryByRole('switch', { name: 'In your Outlook calendar' })).toBeNull();
+    expect(screen.getByText('Subscribe in another calendar')).toBeTruthy();   // the iCal link still works
+  });
+
+  it('reveals my iCal link on request, copies it, and makes a new one only after a confirmation', async () => {
+    const writeText = vi.fn().mockResolvedValue();
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    try {
+      render(<MyShifts />);
+      await screen.findByRole('switch', { name: 'In your Outlook calendar' });
+      expect(timeMyIcalLink).not.toHaveBeenCalled();                       // lazy: only when asked
+      fireEvent.click(screen.getByText('Subscribe in another calendar'));
+      const url = await screen.findByLabelText('Calendar subscription link');
+      expect(url.value).toBe('https://api.nexus.test/timeclock/ical/abc123.ics');
+      fireEvent.click(screen.getByRole('button', { name: /Copy/ }));
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith('https://api.nexus.test/timeclock/ical/abc123.ics'));
+      expect(await screen.findByText('Copied')).toBeTruthy();
+      confirmAsk.mockResolvedValueOnce(false);
+      fireEvent.click(screen.getByRole('button', { name: /New Link/ }));
+      await waitFor(() => expect(confirmAsk).toHaveBeenCalled());
+      expect(timeMyIcalRotate).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole('button', { name: /New Link/ }));
+      await waitFor(() => expect(timeMyIcalRotate).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(screen.getByLabelText('Calendar subscription link').value).toBe('https://api.nexus.test/timeclock/ical/new456.ics'));
+      expect(screen.getByText('New link made. The old one no longer works.')).toBeTruthy();
+    } finally { delete navigator.clipboard; }
+  });
+
+  it('falls back to selecting the link when there is no clipboard, and says so quietly when the link cannot load', async () => {
+    delete navigator.clipboard;
+    document.execCommand = vi.fn(() => true);
+    render(<MyShifts />);
+    await screen.findByRole('switch', { name: 'In your Outlook calendar' });
+    fireEvent.click(screen.getByText('Subscribe in another calendar'));
+    const url = await screen.findByLabelText('Calendar subscription link');
+    url.select = vi.fn();
+    fireEvent.click(screen.getByRole('button', { name: /Copy/ }));
+    await waitFor(() => expect(document.execCommand).toHaveBeenCalledWith('copy'));
+    expect(url.select).toHaveBeenCalled();
+    delete document.execCommand;
+  });
+
+  it('shows no Calendar row when my preferences cannot load, unless the company switch is off', async () => {
+    timeMyPrefsGet.mockRejectedValue(new Error('API error 500'));
+    render(<MyShifts />);
+    await screen.findByRole('status', { name: 'Week summary' });
+    await waitFor(() => expect(timeMyPrefsGet).toHaveBeenCalled());
+    expect(document.querySelector('[data-calendar-row]')).toBeNull();
   });
 });

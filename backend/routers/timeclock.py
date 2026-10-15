@@ -7208,7 +7208,7 @@ def discard_all_changes(body: DiscardAllIn, user: dict = Depends(require_schedul
         narrow |= {(m.employee_email or "").lower() for m in
                    db.query(ShiftGroupMember).filter(ShiftGroupMember.group_id == body.group_id.strip()).all()
                    if m.employee_email}
-    n = 0
+    n, restored = 0, []
     for r in (db.query(ScheduledShift)
               .filter(ScheduledShift.work_date >= d0.isoformat(), ScheduledShift.work_date <= d1.isoformat(),
                       ScheduledShift.published == 1,
@@ -7224,7 +7224,10 @@ def discard_all_changes(body: DiscardAllIn, user: dict = Depends(require_schedul
                                                    if not r.pending_delete else r, pendingDelete=bool(r.pending_delete)),
                          after=shift_log.snapshot(r))
         r.pending_json, r.pending_delete = "", 0
+        restored.append(r.id)
         n += 1
+    import shift_calendar
+    shift_calendar.enqueue(db, restored)   # Phase 3a: the Outlook events follow what staff see
     db.commit()
     return {"discarded": n}
 
@@ -7502,10 +7505,15 @@ def delete_scheduled(sched_id: str, user: dict = Depends(require_schedule_write)
         raise HTTPException(403, "Outside your team")
     if not row.pending_delete:
         shift_log.record(db, "removed", row, user["email"], before=shift_log.snapshot(row))
+    import shift_calendar
     if row.published:
         row.pending_delete = 1
+        # The Outlook event stays until the removal is shared - staff still
+        # see the shift (Phase 3a); a re-check keeps the row honest.
+        shift_calendar.enqueue(db, [row.id])
         db.commit()
         return {"ok": True, "pending": True}
+    shift_calendar.enqueue_delete(db, row.id, row.employee_email)   # a draft never had one; tidy any row
     db.delete(row)
     db.commit()
     return {"ok": True, "pending": False}
@@ -7530,6 +7538,8 @@ def discard_scheduled_changes(sched_id: str, user: dict = Depends(require_schedu
                                                    if not row.pending_delete else row, pendingDelete=bool(row.pending_delete)),
                          after=shift_log.snapshot(row))
     row.pending_json, row.pending_delete = "", 0
+    import shift_calendar
+    shift_calendar.enqueue(db, [row.id])   # back to what staff see: the Outlook event follows (Phase 3a)
     db.commit()
     preset = db.query(Shift).filter(Shift.id == row.shift_id).first() if row.shift_id else None
     return _sched_dict(row, {preset.id: preset} if preset else {}, effective=True, team_tz=_team_tz(db))
@@ -7630,11 +7640,24 @@ def publish_schedule(body: PublishScheduleIn, bt: BackgroundTasks, user: dict = 
     # A swap / offer / open-shift request about a shift that just changed or
     # went away no longer describes the schedule (Oct 2, B2-5).
     cancelled = cancel_requests_for_shifts(db, touched, user["email"]) if touched else 0
+    # Shifts Phase 3a: the Outlook events follow what was shared - added and
+    # changed shifts re-sync, a shared removal takes the event off
+    # (shift_calendar, worked by its loop - no Graph call here) - and the
+    # publish itself is a record (shift_confirm.record_publish).
+    import shift_calendar
+    import shift_confirm
+    shift_calendar.enqueue(db, [c["shift_id"] for c in changes if c["kind"] != "removed" and c.get("shift_id")])
+    for c in changes:
+        if c["kind"] == "removed" and c["email"] and c.get("shift_id"):
+            shift_calendar.enqueue_delete(db, c["shift_id"], c["email"])
     if added + updated + removed:
         _remember_publish(db, user["email"], d0, d1, reason=reason, publish_id=publish_id)
+        shift_confirm.record_publish(db, publish_id, user["email"], d0, d1, group_id=(body.group_id or "").strip(),
+                                     reason=reason, changes=added + updated + removed)
     db.commit()
-    # Tell the people affected - one bell + one email each (Sep 28, QA item 2).
-    notified = shift_notify.notify_published(db, changes, user["email"], d0, d1, bt)
+    # Tell the people affected - one bell + one email each (Sep 28, QA item 2),
+    # asking them to confirm when their company says so (Phase 3a).
+    notified = shift_notify.notify_published(db, changes, user["email"], d0, d1, bt, publish_id=publish_id)
     if body.notify == "team" and (added + updated + removed):
         # ...and, when asked, a short bell to everyone else on the published
         # schedule for these dates (Sep 29, Teams "notify the entire team").
@@ -10881,3 +10904,135 @@ def recent_shares(start: str = "", end: str = "", limit: int = 10, user: dict = 
     shares = [{**r, "people": len(r["people"])} for r in out.values() if r["warnings"] or r["reason"]]
     shares.sort(key=lambda r: r["at"], reverse=True)
     return {"shares": shares[:max(1, min(int(limit or 10), 50))]}
+
+
+# ── Shifts Phase 3a: the schedule comes to people (Neil, Oct 14 2026) ─────
+# Outlook calendar sync (shift_calendar.py), the personal subscribe feed
+# (routers/shift_ical.py) and confirm-my-schedule (shift_confirm.py).
+
+class MyShiftPrefsIn(BaseModel):
+    shiftCalendar: Optional[bool] = None   # my shared shifts onto my Outlook calendar
+
+
+def _my_prefs_payload(db: Session, email: str) -> dict:
+    import models
+    em = (email or "").lower()
+    row = db.query(models.NexusPersonPref).filter(models.NexusPersonPref.email == em).first()
+    emp = db.query(NexusEmployee).filter(func.lower(NexusEmployee.work_email) == em).first()
+    from routers.shift_requests import settings_for as _sr_settings_for
+    cfg = _sr_settings_for(db, em)
+    on = True if row is None or row.shift_calendar is None else bool(int(row.shift_calendar))
+    return {"shiftCalendar": on,
+            # Why the switch may do nothing: the company has it off, or they
+            # have no Microsoft 365 mailbox for the event to land in.
+            "companyOutlookCalendar": bool(cfg.get("outlookCalendar", True)),
+            "hasMailbox": bool(emp is not None and (emp.m365_id or "").strip()),
+            "showAs": cfg.get("outlookShowAs") or "free"}
+
+
+@router.get("/my-prefs")
+def my_shift_prefs(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The signed-in person's own Shifts switches: {shiftCalendar} (plus why
+    it may be moot)."""
+    return _my_prefs_payload(db, user["email"])
+
+
+@router.put("/my-prefs")
+def save_my_shift_prefs(body: MyShiftPrefsIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Opting out takes the person's events off their calendar at the next
+    sync; opting back in puts the upcoming ones back."""
+    import models
+    em = user["email"].lower()
+    row = db.query(models.NexusPersonPref).filter(models.NexusPersonPref.email == em).first()
+    if row is None:
+        row = models.NexusPersonPref(email=em)
+        db.add(row)
+    if body.shiftCalendar is not None:
+        row.shift_calendar = 1 if body.shiftCalendar else 0
+        import shift_calendar
+        today = (datetime.now(timezone.utc) - timedelta(hours=12)).date().isoformat()
+        ids = [sid for (sid,) in db.query(ScheduledShift.id)
+               .filter(func.lower(ScheduledShift.employee_email) == em, ScheduledShift.published == 1,
+                       ScheduledShift.work_date >= today).all()]
+        shift_calendar.enqueue(db, ids)
+        if not body.shiftCalendar:
+            # Rows that already carry an event go through the skip path, which
+            # removes it; rows with no event yet are not worth a Graph call.
+            for e in (db.query(models.ShiftCalendarEvent)
+                      .filter(models.ShiftCalendarEvent.employee_email == em,
+                              models.ShiftCalendarEvent.event_id == "").all()):
+                e.state = "skipped"
+                e.last_error = "opted out of the Outlook calendar"
+    row.updated_at = datetime.now(timezone.utc).isoformat()
+    db.commit()
+    return _my_prefs_payload(db, em)
+
+
+@router.get("/calendar-sync/status")
+def calendar_sync_status(user: dict = Depends(require_administrator), db: Session = Depends(get_db)):
+    """Administrators: is the Outlook sync running, why not, and the queue
+    by state - {enabled, reason, pending, ok, errors, skipped}."""
+    import shift_calendar
+    return shift_calendar.status(db)
+
+
+@router.post("/schedule/confirm/{publish_id}")
+def confirm_schedule(publish_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The person confirms they have seen a shared schedule. 404 when they
+    were never asked for that publish."""
+    import shift_confirm
+    row = shift_confirm.confirm(db, publish_id, user["email"])
+    if row is None:
+        raise HTTPException(404, "No confirmation was asked of you for this schedule.")
+    # The ask on the bell is done with.
+    for n in (db.query(NexusNotification)
+              .filter(NexusNotification.recipient == user["email"].lower(),
+                      NexusNotification.actioned == False,   # noqa: E712 - SQLAlchemy expression
+                      NexusNotification.ref_id.in_([f"schedule-confirm:{publish_id}"])).all()):
+        n.actioned = True
+    db.commit()
+    return {"ok": True, "publishId": publish_id, "confirmedAt": row.confirmed_at,
+            "remaining": len(shift_confirm.my_unconfirmed(db, user["email"]))}
+
+
+@router.get("/my-schedule/confirmations")
+def my_schedule_confirmations(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The signed-in person's publishes still waiting on their Confirm:
+    [{publishId, at, by, byName, start, end, changes}]."""
+    import shift_confirm
+    return {"pending": shift_confirm.my_unconfirmed(db, user["email"])}
+
+
+@router.get("/schedule/confirmations")
+def schedule_confirmations(start: str, end: str, user: dict = Depends(require_schedule_write),
+                           db: Session = Depends(get_db)):
+    """Who has confirmed the publishes that touched their shifts in
+    [start, end] - the caller's team scope only:
+    {people: [{email, name, publishes: [{publishId, at, confirmedAt|null, nudgedAt|null}]}]}."""
+    import shift_confirm
+    d0, d1 = _parse_day(start, "start date").isoformat(), _parse_day(end, "end date").isoformat()
+    if d1 < d0:
+        raise HTTPException(400, "End date is before the start date.")
+    people = shift_confirm.manager_list(db, _visible_emails(db, user), d0, d1)
+    return {"people": people, "unconfirmed": sum(p["unconfirmed"] for p in people)}
+
+
+class NudgeIn(BaseModel):
+    publish_id: str
+    emails: List[str] = []     # optional: only these people
+
+
+@router.post("/schedule/nudge")
+def nudge_confirmations(body: NudgeIn, bt: BackgroundTasks, user: dict = Depends(require_schedule_write),
+                        db: Session = Depends(get_db)):
+    """"Please confirm your schedule" - one bell + one email per person asked
+    for this publish, once per publish, never to someone who confirmed,
+    only within the caller's scope."""
+    import shift_confirm
+    pid = (body.publish_id or "").strip()
+    if not pid:
+        raise HTTPException(400, "Which publish?")
+    out = shift_confirm.nudge(db, pid, body.emails, user["email"], _visible_emails(db, user), bt)
+    if out.get("error"):
+        raise HTTPException(404, out["error"])
+    return out

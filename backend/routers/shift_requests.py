@@ -101,8 +101,18 @@ _DEFAULTS = {"openShifts": False, "swaps": False, "offers": False, "teamSchedule
              # people whose overtime rule is 'ca'; weekly to 'ca' and
              # 'federal'; the week cap to everyone.
              "ruleMinRestHours": 10, "ruleMaxDaysInRow": 6, "ruleDailyOtHours": 8,
-             "ruleWeeklyOtHours": 40, "ruleMaxWeekHours": 0, "publishReasonRequired": True}
+             "ruleWeeklyOtHours": 40, "ruleMaxWeekHours": 0, "publishReasonRequired": True,
+             # Shifts Phase 3a (Neil, Oct 14 2026): shared shifts go onto
+             # people's Outlook calendars (shift_calendar.py) - on for
+             # everyone, per company; a person can still opt out. outlookShowAs
+             # is how the event blocks their time ('free' | 'busy').
+             "outlookCalendar": True, "outlookShowAs": "free",
+             # Ask each person to confirm they have seen a shared schedule
+             # (shift_confirm.py): the publish bell and email say so, and a
+             # manager sees who has not.
+             "confirmRequests": True}
 _TEXT_SETTINGS = ("timeZone", "weekStart")
+SHOW_AS = ("free", "busy")
 # key -> (min, max), clamped on read and save
 _INT_SETTINGS = {"defaultGraceMin": (0, 120), "noShowAlertMin": (0, 240), "leftEarlyMin": (0, 240),
                  "ruleMinRestHours": (0, 24), "ruleMaxDaysInRow": (0, 14), "ruleDailyOtHours": (0, 24),
@@ -171,6 +181,8 @@ def _clean_value(k: str, v):
     """The stored form of one setting, or None when the value is not usable."""
     if k == "weekStart":
         return str(v).lower() if str(v or "").lower() in WEEK_STARTS else None
+    if k == "outlookShowAs":
+        return str(v).lower() if str(v or "").lower() in SHOW_AS else None
     if k in _TEXT_SETTINGS:
         return str(v) if _zone_ok(v) else None
     if k in _INT_SETTINGS:
@@ -268,6 +280,9 @@ class SettingsIn(BaseModel):
     ruleWeeklyOtHours: Optional[int] = None     # 0-80; 0 = off; 'ca' and 'federal'
     ruleMaxWeekHours: Optional[int] = None      # 0-100; 0 = off; everyone
     publishReasonRequired: Optional[bool] = None   # sharing over a warning needs a reason
+    outlookCalendar: Optional[bool] = None      # shared shifts onto Outlook calendars (Phase 3a)
+    outlookShowAs: Optional[str] = None         # free | busy
+    confirmRequests: Optional[bool] = None      # ask people to confirm a shared schedule
 
 
 @router.get("/settings")
@@ -300,6 +315,8 @@ def save_settings(body: SettingsIn, company: str = "", user: dict = Depends(requ
         raise HTTPException(400, "Pick a time zone from the list.")
     if body.weekStart is not None and str(body.weekStart).lower() not in WEEK_STARTS:
         raise HTTPException(400, "The week starts on Monday or Sunday.")
+    if body.outlookShowAs is not None and str(body.outlookShowAs).lower() not in SHOW_AS:
+        raise HTTPException(400, "Outlook events show as Free or Busy.")
     sent = {k: _clean_value(k, v) for k, v in body.model_dump().items() if v is not None and k in _DEFAULTS}
     sent = {k: v for k, v in sent.items() if v is not None}
     if cid:
@@ -732,6 +749,8 @@ def _apply(db: Session, r: models.ShiftRequest, actor: str, force: bool = False)
                          reason=f"Open shift request by {r.requester_email}")
         shift_log.record(db, "claimed", shift, actor, before=was_open, after=shift_log.snapshot(shift),
                          reason=f"Open shift request by {r.requester_email}")
+        import shift_calendar
+        shift_calendar.enqueue(db, [claimed.id])   # onto the new owner's Outlook calendar (Phase 3a)
         if shift.open_slots <= 0:
             db.delete(shift)
             return [shift.id]    # filled: other asks for it can no longer be met
@@ -752,6 +771,8 @@ def _apply(db: Session, r: models.ShiftRequest, actor: str, force: bool = False)
         why = f"Swap between {r.requester_email} and {r.target_email}"
         shift_log.record(db, "swapped", shift, actor, before=b1, after=shift_log.snapshot(shift), reason=why)
         shift_log.record(db, "swapped", other, actor, before=b2, after=shift_log.snapshot(other), reason=why)
+        import shift_calendar
+        shift_calendar.enqueue(db, [shift.id, other.id])   # each event moves to its new owner (Phase 3a)
         return [shift.id, other.id]
     _check_new_owner(db, r.target_email, shift, {shift.id}, force)
     before = shift_log.snapshot(shift)
@@ -759,6 +780,8 @@ def _apply(db: Session, r: models.ShiftRequest, actor: str, force: bool = False)
     shift.pending_json = ""
     shift_log.record(db, "offered", shift, actor, before=before, after=shift_log.snapshot(shift),
                      reason=f"Offered by {r.requester_email} to {r.target_email}")
+    import shift_calendar
+    shift_calendar.enqueue(db, [shift.id])   # off the old owner's calendar, onto the new one's (Phase 3a)
     return [shift.id]
 
 
