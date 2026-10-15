@@ -15,9 +15,12 @@ import { CustomFieldInput } from './TaskDetailDrawer';
 // The two reuse flows live with the Templates screen so all three entry points
 // (Templates tab, this grid, and a project's own header) open the same dialogs.
 import { SaveTemplateModal, DuplicateProjectModal, todayIso } from './TemplatesView';
+import ProjectIcon from './ProjectIcon';
+import ProjectLookPicker from './ProjectLookPicker';
+import { projectLook } from './projectLook';
 
 const EMPTY_FORM = {
-  name: '', description: '', color: NX.blue, ownerId: null,
+  name: '', description: '', color: NX.blue, icon: '', ownerId: null,
   portfolioId: '', accessLevel: 'restricted', status: 'not_started',
   startOn: '', dueOn: '', archived: false, customFieldValues: {}, timeTracking: '',
 };
@@ -303,7 +306,7 @@ export default function ProjectsView({ onNavigate }) {
         <div className="nx-gutter" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(280px, 100%), 1fr))', gap: 14, padding: '16px 16px 76px' }}>
           {cards.map(({ project: p, stats }, idx) => {
             const pf = p.portfolioId ? portfolioById(p.portfolioId) : null;
-            const dcolor = p.color || NX.blue;
+            const dcolor = projectLook(p).color;
             return (
               <Fragment key={p.id}>
               {idx === firstArchivedAt && archivedHeading}
@@ -323,7 +326,7 @@ export default function ProjectsView({ onNavigate }) {
                       width: 28, height: 28, borderRadius: 8, flexShrink: 0,
                       display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                       background: `${dcolor}1f`, color: dcolor,
-                    }}><FolderKanban size={15} /></span>
+                    }}><ProjectIcon project={p} size={15} /></span>
                     <div title={p.name} style={{ flex: 1, minWidth: 0, fontSize: 14.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</div>
                     <div style={{ display: 'flex', gap: 2, flexShrink: 0 }} onClick={(e) => e.stopPropagation()}>
                       <button title="Save as Template" onClick={() => setTemplating(p)} style={{ ...btn('ghost'), padding: 5, borderRadius: 7 }}><LayoutTemplate size={13} /></button>
@@ -491,7 +494,7 @@ export function ProjectList({ cards, isMobile, nameOf, portfolioById, onOpen, on
           // mouse-out.
           const rowBg = idx % 2 === 1 ? NX.zebra : 'transparent';
           const pf = p.portfolioId ? portfolioById(p.portfolioId) : null;
-          const dcolor = p.color || NX.blue;
+          const dcolor = projectLook(p).color;
           const meta = PROJECT_STATUS_META[projectStatusFor(stats)];
           const actionsCell = (
             <div style={{ display: 'flex', gap: 2, justifyContent: 'flex-end',
@@ -534,7 +537,7 @@ export function ProjectList({ cards, isMobile, nameOf, portfolioById, onOpen, on
                   width: 26, height: 26, borderRadius: 8, flexShrink: 0,
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                   background: `${dcolor}1f`, color: dcolor,
-                }}><FolderKanban size={14} /></span>
+                }}><ProjectIcon project={p} size={14} /></span>
                 <span title={p.name} style={{ minWidth: 0, fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
                 {p.archived && <span style={{ ...chip(NX.faint, NX.border2), flexShrink: 0 }}><Archive size={11} />Archived</span>}
                 {pf && !isMobile && <span style={{ ...chip(NX.purple, `${NX.purple}1a`), flexShrink: 0 }}>{pf.name}</span>}
@@ -783,7 +786,12 @@ export function ProjectModal({ form, setForm, people, portfolios, onClose, onSav
 
         <div>
           <label style={label}>Name</label>
-          <input autoFocus={!isMobile} value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="Project Name" style={inputStyle} />
+          {/* The square in front of the name is the project's icon and color
+              (Neil, Oct 15 2026) - click it to change them. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <ProjectLookPicker color={form.color} icon={form.icon} onChange={(look) => set(look)} />
+            <input autoFocus={!isMobile} value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="Project Name" style={{ ...inputStyle, flex: 1, minWidth: 0 }} />
+          </div>
         </div>
 
         {template && (
@@ -1133,7 +1141,7 @@ export function ProjectCreateModal({ onClose, onCreated, defaults }) {
         setCopyFrom,
         (pr) => (
           <>
-            <span style={tile(pr.color || NX.blue)}><FolderKanban size={15} /></span>
+            <span style={tile(projectLook(pr).color)}><ProjectIcon project={pr} size={15} /></span>
             <span style={{ flex: 1, minWidth: 0 }}>
               <span style={{ display: 'block', fontSize: 13.5, fontWeight: 700, color: NX.ink }}>{pr.name}</span>
               {pr.description && (

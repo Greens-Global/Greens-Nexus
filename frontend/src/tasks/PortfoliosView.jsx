@@ -11,6 +11,8 @@ import { taskStats, topLevel, portfolioRowTree, portfolioDeepProjectIds } from '
 import { NX, FONT, btn, input as inputStyle, card, chip } from './theme';
 import { Avatar, EmptyState, Modal, usePeople, PersonSelect, useIsMobile, ChipMultiSelect, ViewToggle, ExportMenu } from './components';
 import { useTableColumns, TableHead, ResetColumnsButton, useTableValue } from './tableCols';
+import ProjectIcon from './ProjectIcon';
+import { projectLook } from './projectLook';
 
 // Columns in grid order, with the sort key each header drives. A portfolio's
 // name is elastic; the rollup columns are fixed until someone drags one.
@@ -580,7 +582,7 @@ function ProjectRows({ cols, projects, statsFor, empty, selected, onToggle, onOp
               <input type="checkbox" className="nx-check" checked={isPicked} onClick={(e) => e.stopPropagation()}
                 onChange={() => onToggle(p.id)} title="Select for a batch move"
                 style={{ cursor: 'pointer', flexShrink: 0 }} />
-              <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, borderRadius: 7, flexShrink: 0, background: `${NX.blue}1a`, color: NX.blue }}><FolderKanban size={13} /></span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 24, height: 24, borderRadius: 7, flexShrink: 0, background: `${projectLook(p).color}1a`, color: projectLook(p).color }}><ProjectIcon project={p} size={13} /></span>
               <span style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
             </div>
               ),
@@ -657,7 +659,7 @@ function PortfolioCard({ portfolio: pf, rollup: r, memberProjects, onOpen, onEdi
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
             {shown.map((p) => (
               <span key={p.id} title={p.name} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: '100%', fontSize: 11, fontWeight: 600, color: NX.dim, background: NX.surface2, borderRadius: 999, padding: '2px 8px' }}>
-                <FolderKanban size={11} style={{ flexShrink: 0 }} />
+                <ProjectIcon project={p} size={11} fallbackColor={NX.dim} />
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
               </span>
             ))}
@@ -894,10 +896,10 @@ function PortfolioDetail({ pf, store, rollup, people, onBack, onNavigate, onEdit
             {rows.map((p) => {
               const idx = ids.indexOf(p.id);
               const pr = rollup([p.id]);
-              const deptColor = p.color || NX.blue;
+              const deptColor = projectLook(p).color;
               return (
                 <div key={p.id} style={{ ...card, padding: 13, display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 34, height: 34, borderRadius: 9, flexShrink: 0, background: `${deptColor}1a`, color: deptColor }}><FolderKanban size={16} /></span>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 34, height: 34, borderRadius: 9, flexShrink: 0, background: `${deptColor}1a`, color: deptColor }}><ProjectIcon project={p} size={16} /></span>
                   <div
                     onClick={() => onNavigate && onNavigate({ view: 'tasks', projectId: p.id })}
                     style={{ minWidth: 0, flex: 1, cursor: onNavigate ? 'pointer' : 'default' }}
@@ -981,7 +983,7 @@ function ManageProjectsModal({ allProjects, currentIds, onClose, onSave }) {
             return (
               <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 11px', borderRadius: 9, border: `1px solid ${on ? NX.ink : NX.border}`, cursor: 'pointer', background: on ? NX.hover : NX.surface }}>
                 <input type="checkbox" className="nx-check" checked={on} onChange={() => toggle(p.id)} style={{ cursor: 'pointer' }} />
-                <FolderKanban size={15} style={{ color: NX.faint, flexShrink: 0 }} />
+                <ProjectIcon project={p} size={15} fallbackColor={NX.faint} />
                 <span style={{ fontSize: 13.5, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
                 {p.archived && <span style={{ ...chip(NX.dim, NX.border2), marginLeft: 'auto' }}>Archived</span>}
               </label>

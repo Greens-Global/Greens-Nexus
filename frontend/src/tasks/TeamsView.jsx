@@ -20,6 +20,7 @@ import { CalendarView } from './views/extras';
 import CreateTaskModal from './CreateTaskModal';
 import { emailToName } from '../lib/utils';
 import AnchoredMenu from '../components/AnchoredMenu';
+import ProjectIcon from './ProjectIcon';
 
 // Curated team icons (keys match the export's deptIcons set).
 const DEPT_ICONS = [
@@ -472,7 +473,7 @@ function TeamCard({ team, teamProjects, nameOf, taskCount, onOpen }) {
               <>
                 {shownProjects.map((p) => (
                   <span key={p.id} title={p.name} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, maxWidth: '100%', fontSize: 11, fontWeight: 600, color: NX.dim, background: NX.surface2, borderRadius: 999, padding: '2px 8px' }}>
-                    <FolderKanban size={11} style={{ flexShrink: 0 }} />
+                    <ProjectIcon project={p} size={11} fallbackColor={NX.dim} />
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
                   </span>
                 ))}
@@ -767,7 +768,7 @@ function TeamOverviewTab({ team, teamProjects, onSeeMembers, onNavigate }) {
                 style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px solid ${NX.border}`, borderRadius: 10, padding: '10px 12px', marginBottom: 8, background: 'transparent', cursor: 'pointer', textAlign: 'left', width: '100%' }}
                 onMouseEnter={(e) => { e.currentTarget.style.borderColor = NX.primary; e.currentTarget.style.background = NX.hover; }}
                 onMouseLeave={(e) => { e.currentTarget.style.borderColor = NX.border; e.currentTarget.style.background = 'transparent'; }}>
-                <span style={{ width: 28, height: 28, borderRadius: 8, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: NX.surface2, color: NX.faint }}><FolderKanban size={14} /></span>
+                <span style={{ width: 28, height: 28, borderRadius: 8, flexShrink: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: NX.surface2, color: NX.faint }}><ProjectIcon project={project} size={14} fallbackColor={NX.faint} /></span>
                 <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{project.name}</span>
                 <span style={{ fontSize: 12, color: NX.faint, flexShrink: 0 }}>{n} task{n === 1 ? '' : 's'}</span>
                 <ChevronRight size={15} style={{ color: NX.faint, flexShrink: 0 }} />
@@ -875,7 +876,7 @@ function ProjectWorkSection({ project, tasks, onNavigate }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '11px 14px', borderBottom: open ? `1px solid ${NX.border2}` : 'none' }}>
         <button onClick={() => setOpen((o) => !o)} style={{ ...btn('ghost'), padding: 0, display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, justifyContent: 'flex-start' }}>
           <ChevronRight size={15} style={{ color: NX.faint, transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 0.12s' }} />
-          <FolderKanban size={14} style={{ color: NX.faint }} />
+          <ProjectIcon project={project} size={14} fallbackColor={NX.faint} />
           <span style={{ fontSize: 14, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{project.name}</span>
           <span style={{ fontSize: 12, color: NX.faint }}>{projectTasks.length} task{projectTasks.length === 1 ? '' : 's'}</span>
         </button>
