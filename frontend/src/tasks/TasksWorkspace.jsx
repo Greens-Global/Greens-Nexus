@@ -49,12 +49,12 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
   // Owned here so the Hide / + Column controls can live in the toolbar above
   // while RichListView below renders according to them.
   const [hiddenCols, setHiddenCols] = useHiddenCols();
-  const { can } = useRole();
+  const { canAccessModule } = useRole();
   // Workload visibility:
   //  • Never on the project task view (lockedProjectId set) - removed per request.
   //  • Elsewhere (e.g. the Manage → Task List embed): management/oversight view,
-  //    shown only to manage access (manager+), matching the ChangelogView convention.
-  const canManage = !!can?.('manager');
+  //    shown only to manage access (manager+ or a Tasks Owner grant, as Manage).
+  const canManage = !!canAccessModule?.('tasks', 'manager', 'owner');
   const showWorkload = !lockedProjectId && canManage;
   const viewKinds = showWorkload ? VIEW_KINDS : VIEW_KINDS.filter((v) => v.key !== 'workload');
   const people = usePeople();

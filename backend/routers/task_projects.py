@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from typing import Optional
 import models
 from database import get_db
-from auth import get_current_user, require_manager, require_any_module_grant
+from auth import get_current_user, require_manager, require_any_module_grant, module_owner_acts_as
 from routers.task_util import (now_iso, gen_id, task_notify, is_manager, visible_project_ids,
                                require_project_role, team_project_ids, log_activity,
                                task_assignees, set_task_assignees, team_is_approved)
@@ -25,7 +25,8 @@ from routers.hr import _ensure_departments
 from routers.task_config import coerce_custom_field_values
 
 router = APIRouter(tags=["Tasks"],
-                   dependencies=[Depends(get_current_user), Depends(require_any_module_grant("tasks", "tickets"))])
+                   dependencies=[Depends(get_current_user), Depends(require_any_module_grant("tasks", "tickets")),
+                                 Depends(module_owner_acts_as("tasks", 3))])
 
 
 def _nz(v):

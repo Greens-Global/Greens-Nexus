@@ -15,6 +15,7 @@ const field = { marginBottom: 14 };
 const EVENT_LABELS = {
   created: 'Ticket created', assigned: 'Ticket assigned', updated: 'Replies to the requester',
   resolved: 'Ticket resolved', reopened: 'Ticket reopened', approval_required: 'Approval required',
+  overdue_reminder: 'Due and overdue reminders (Teams from the manager, and the bell)',
 };
 const STATUS_META = {
   sent: { color: NX.green, Icon: CheckCircle2 }, failed: { color: NX.red, Icon: AlertTriangle },
