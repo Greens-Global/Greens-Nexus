@@ -507,28 +507,50 @@ h1,h2,h3,h4,h5,h6,
 .sbfx--in .sbfx-star:nth-of-type(3n) { fill: #eab308; }
 .sbfx--out .sbfx-star { fill: #eab308; }
 .sbfx--out .sbfx-star:nth-of-type(even) { fill: #f59e0b; }
-/* our tooltip: a dark pill that rises in, a bold line and a quiet one */
-.sbtt-pop {
-  position: absolute; left: 50%; bottom: calc(100% + 8px); transform: translate(-50%, 4px); z-index: 30; pointer-events: none;
-  display: flex; flex-direction: column; gap: 1px; min-width: 112px; max-width: 180px; padding: 6px 10px; border-radius: 9px;
-  background: var(--ink); color: var(--card); font-size: 11.5px; line-height: 1.3; white-space: nowrap; text-align: center;
-  box-shadow: 0 8px 24px rgba(17,24,39,.22); opacity: 0; transition: opacity .12s ease, transform .12s ease;
+/* The sidebar's tooltips (components/NavTip.jsx, Neil Oct 14 2026: "large
+   and obvious"). A dark panel in a layer on the page, placed and flipped by
+   the component, so the folded rail cannot clip it. The control's name is
+   the big line (15px, semibold); a quieter second line only says why a
+   button cannot be pressed, or gives the clock's numbers. `data-tone` draws a
+   thin colored rule down its left edge - green Punch In, amber Break, red
+   Punch Out - color as a rule, never a chip. The arrow points at the control
+   wherever the clamp to the window moved the panel (--navtip-arrow). */
+.navtip {
+  --navtip-bg: #111827; --navtip-fg: #fff; --navtip-dim: rgba(255, 255, 255, .74);
+  position: fixed; left: 0; top: 0; z-index: 10050; pointer-events: none;
+  display: flex; flex-direction: column; gap: 3px;
+  width: max-content; max-width: 300px; padding: 9px 14px;
+  border-radius: 8px; background: var(--navtip-bg); color: var(--navtip-fg);
+  font-family: var(--wk-font, 'Inter', system-ui, sans-serif); text-align: left;
+  box-shadow: 0 12px 32px rgba(17, 24, 39, .28), 0 2px 6px rgba(17, 24, 39, .18);
+  animation: navtip-in .16s cubic-bezier(.16, 1, .3, 1) both;
 }
-.sbtt-pop b { font-weight: 700; }
-.sbtt-pop i { font-style: normal; font-size: 10.5px; opacity: .72; }
-.sbtt-pop::after { content: ''; position: absolute; left: 50%; top: 100%; margin-left: -5px; border: 5px solid transparent; border-top-color: var(--ink); }
-.sbtt:hover .sbtt-pop, .sbtt:focus-within .sbtt-pop { opacity: 1; transform: translate(-50%, 0); transition-delay: .25s; }
-/* the first and last buttons' tips hug the chip's edges instead of clipping at the sidebar's */
-.sbtt--start .sbtt-pop { left: 0; transform: translate(0, 4px); }
-.sbtt--start:hover .sbtt-pop, .sbtt--start:focus-within .sbtt-pop { transform: translate(0, 0); }
-.sbtt--start .sbtt-pop::after { left: 16px; margin-left: 0; }
-.sbtt--end .sbtt-pop { left: auto; right: 0; transform: translate(0, 4px); }
-.sbtt--end:hover .sbtt-pop, .sbtt--end:focus-within .sbtt-pop { transform: translate(0, 0); }
-.sbtt--end .sbtt-pop::after { left: auto; right: 16px; margin-left: 0; }
-.sbclock-rail .sbtt-pop { left: calc(100% + 12px); bottom: auto; top: 50%; transform: translate(-6px, -50%); text-align: left; }
-.sbclock-rail .sbtt-pop::after { left: -5px; top: 50%; margin: -5px 0 0; border: 5px solid transparent; border-right-color: var(--ink); }
-.sbclock-rail .sbtt:hover .sbtt-pop, .sbclock-rail .sbtt:focus-within .sbtt-pop { transform: translate(0, -50%); }
-@media (hover: none) { .sbtt-pop { display: none; } }
+[data-theme="dark"] .navtip {
+  --navtip-bg: #f9fafb; --navtip-fg: #111827; --navtip-dim: rgba(17, 24, 39, .68);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .5), 0 0 0 1px rgba(255, 255, 255, .08);
+}
+.navtip-label { font-size: 15px; font-weight: 600; line-height: 1.25; letter-spacing: -.005em; white-space: nowrap; }
+.navtip-detail { font-size: 12.5px; font-weight: 500; line-height: 1.4; color: var(--navtip-dim); }
+.navtip[data-tone] { padding-left: 20px; }
+.navtip[data-tone]::before {
+  content: ''; position: absolute; left: 9px; top: 9px; bottom: 9px; width: 3px; border-radius: 2px;
+  background: var(--navtip-tone);
+}
+.navtip[data-tone="in"] { --navtip-tone: hsl(var(--color-green)); }
+.navtip[data-tone="break"] { --navtip-tone: #f59e0b; }
+.navtip[data-tone="out"] { --navtip-tone: #ef4444; }
+.navtip::after { content: ''; position: absolute; border: 6px solid transparent; }
+.navtip[data-side="right"]::after { right: 100%; top: var(--navtip-arrow, 50%); margin-top: -6px; border-right-color: var(--navtip-bg); }
+.navtip[data-side="left"]::after { left: 100%; top: var(--navtip-arrow, 50%); margin-top: -6px; border-left-color: var(--navtip-bg); }
+.navtip[data-side="top"]::after { top: 100%; left: var(--navtip-arrow, 50%); margin-left: -6px; border-top-color: var(--navtip-bg); }
+.navtip[data-side="bottom"]::after { bottom: 100%; left: var(--navtip-arrow, 50%); margin-left: -6px; border-bottom-color: var(--navtip-bg); }
+/* It slides the last few pixels out from the control it names. */
+.navtip[data-side="right"] { --navtip-from: translateX(-6px); }
+.navtip[data-side="left"] { --navtip-from: translateX(6px); }
+.navtip[data-side="top"] { --navtip-from: translateY(6px); }
+.navtip[data-side="bottom"] { --navtip-from: translateY(-6px); }
+@keyframes navtip-in { from { opacity: 0; transform: var(--navtip-from, none); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .navtip { animation: none; } }
 /* monitoring: folded away until the pointer is on the chip (always open on
    touch, and always when a required share has dropped) - the row grows in
    over 180ms rather than sitting as a blank band */
