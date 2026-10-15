@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { paidMinutes, unpaidMinutes, unpaidLabel, planMinutes, fmtHrs, hrsNumber, weekStartOf, viewDays, dayHeading, timeOffOn, timeOffWhen, isAllDayOff, dayFullyOff, shiftState, orderGroups, alpha, isoDate } from './shiftLib';
-import { formatHHMM, formatWeekday, formatMonthYear, formatMonthDay } from '../../lib/datetime';
+import { paidMinutes, unpaidMinutes, unpaidLabel, planMinutes, fmtHrs, hrsNumber, weekStartOf, viewDays, dayHeading, timeOffOn, timeOffWhen, isAllDayOff, dayFullyOff, shiftState, orderGroups, alpha, isoDate,
+  actualLabel, actualColor, actualWord, actualFor, adherenceLine, hmText, punchTime } from './shiftLib';
+import { formatHHMM, formatWeekday, formatMonthYear, formatMonthDay, formatTime } from '../../lib/datetime';
 
 // One rule for hours, time off and dates across every Shifts screen (Oct 2026).
 
@@ -83,5 +84,68 @@ describe('state and groups', () => {
     expect(orderGroups([{ name: 'B', sortOrder: 1 }, { name: 'A', sortOrder: 1 }, { name: 'C', sortOrder: 0 }]).map((g) => g.name)).toEqual(['C', 'A', 'B']);
     expect(alpha('#2563eb', 0.2)).toBe('rgba(37,99,235,0.2)');
     expect(alpha('bad', 0.2)).toBe('rgba(100,116,139,0.2)');
+  });
+});
+
+// Actuals (Phase 1, Oct 14): what the clock said against the schedule - the
+// bar's color, the hover lines, which shift in a cell the result belongs
+// to, and the week line for the people on screen.
+describe('actuals', () => {
+  const at = (iso) => formatTime(new Date(`${iso}Z`));   // a naive-UTC punch stamp on the viewer's clock
+  it('says what the clock did, one line per fact, on the viewer\'s clock', () => {
+    expect(actualLabel({ status: 'late', firstIn: '2026-10-12T15:04:00', lastOut: '2026-10-13T00:02:00', lateMin: 4, earlyMin: 0 }))
+      .toBe(`Clocked in ${at('2026-10-12T15:04:00')} (4 min late)\nClocked out ${at('2026-10-13T00:02:00')}`);
+    expect(actualLabel({ status: 'left_early', firstIn: '2026-10-12T15:00:00', lastOut: '2026-10-12T23:37:00', lateMin: 0, earlyMin: 23 }))
+      .toBe(`Clocked in ${at('2026-10-12T15:00:00')}\nClocked out ${at('2026-10-12T23:37:00')} (23 min early)`);
+    expect(actualLabel({ status: 'on_time', firstIn: '2026-10-12T15:00:00', lastOut: '' })).toBe(`Clocked in ${at('2026-10-12T15:00:00')}`);
+    expect(actualLabel({ status: 'on_time' })).toBe('On Time');
+    expect(actualLabel({ status: 'in_progress', firstIn: '2026-10-12T15:04:00' })).toBe(`In progress since ${at('2026-10-12T15:04:00')}`);
+    expect(actualLabel({ status: 'no_show' })).toBe('No clock-in (no-show)');
+    expect(actualLabel({ status: 'excused', excuse: 'approved time off' })).toBe('Excused: approved time off');
+    expect(actualLabel({ status: 'exempt' })).toBe('Exempt');
+    expect(actualLabel({ status: 'upcoming' })).toBe('');
+    expect(actualLabel(null)).toBe('');
+    expect(punchTime('2026-10-12T15:04:00')).toBe(at('2026-10-12T15:04:00'));
+    expect(punchTime('')).toBe('');
+  });
+  it('colors the bar by status, the block\'s own color while in progress, nothing before', () => {
+    expect(actualColor('on_time')).toBe('hsl(var(--color-green))');
+    expect(actualColor('late')).toBe('hsl(var(--color-orange))');
+    expect(actualColor('left_early')).toBe('hsl(var(--color-orange))');
+    expect(actualColor('no_show')).toBe('hsl(var(--color-red))');
+    expect(actualColor('excused')).toBe('var(--muted)');
+    expect(actualColor('exempt')).toBe('var(--muted)');
+    expect(actualColor('in_progress', '#2563eb')).toBe('#2563eb');
+    expect(actualColor('upcoming')).toBe('');
+    expect(actualWord('left_early')).toBe('Left Early');
+    expect(actualWord('no_show')).toBe('No-Show');
+  });
+  it('hands a cell\'s result to the shift it names, or the only shift there', () => {
+    const cell = { shiftId: 's1', status: 'late' };
+    expect(actualFor(cell, { id: 's1' })).toBe(cell);
+    expect(actualFor(cell, { id: 's2' })).toBeNull();
+    expect(actualFor(cell, { id: 's2' }, true)).toBe(cell);         // the only shift in the cell
+    expect(actualFor({ status: 'late' }, { id: 's2' })).toEqual({ status: 'late' });   // no shiftId on the cell
+    expect(actualFor({ shiftId: 's1', status: 'upcoming' }, { id: 's1' })).toBeNull();
+    expect(actualFor(null, { id: 's1' })).toBeNull();
+  });
+  it('adds up the week line for the people shown, and knows when there is nothing to say', () => {
+    const people = {
+      'amy@x.com': { scheduledMin: 2400, workedMin: 2290, late: 2, noShow: 1, leftEarly: 0, onTime: 2 },
+      'Bob@x.com': { scheduledMin: 2400, workedMin: 2415, late: 0, noShow: 0, leftEarly: 2, onTime: 3 },
+      'cat@x.com': { scheduledMin: 480, workedMin: 480, late: 9, noShow: 9, leftEarly: 9, onTime: 0 },   // not on screen
+    };
+    const line = adherenceLine(people, ['amy@x.com', 'bob@x.com']);
+    expect(line.text).toBe('Scheduled 80h 00m · Worked 78h 25m · 2 Late · 1 No-Show · 2 Left Early');
+    expect(line.parts).toEqual(['Scheduled 80h 00m', 'Worked 78h 25m', '2 Late', '1 No-Show', '2 Left Early']);
+    expect(line.people).toBe(2);
+    expect(line.empty).toBe(false);
+    expect(adherenceLine(people, ['amy@x.com']).text).toBe('Scheduled 40h 00m · Worked 38h 10m · 2 Late · 1 No-Show');
+    const quiet = adherenceLine({ 'amy@x.com': { scheduledMin: 480, workedMin: 0, late: 0, noShow: 0, leftEarly: 0, onTime: 0 } }, ['amy@x.com']);
+    expect(quiet.empty).toBe(true);
+    expect(adherenceLine(people, ['nobody@x.com']).people).toBe(0);
+    expect(adherenceLine(null, ['amy@x.com']).empty).toBe(true);
+    expect(hmText(18750)).toBe('312h 30m');
+    expect(hmText(5)).toBe('0h 05m');
   });
 });

@@ -266,7 +266,7 @@ export function DayNoteDialog({ date, groups = [], notes = [], busy, onSave, onC
 // View Options (under ⋯): the filters and switches that used to crowd the
 // toolbar - search, rows by team or location, one shift type, Teams' Show
 // list, your own shifts only, and two weeks at a time.
-export const SHOW_OPTIONS = [['teams', 'Groups'], ['open', 'Open Shifts'], ['conflicts', 'Shift Conflicts'], ['availability', 'Availability'], ['photos', 'Profile Pictures'], ['sunday', 'Sunday']];
+export const SHOW_OPTIONS = [['teams', 'Groups'], ['open', 'Open Shifts'], ['conflicts', 'Shift Conflicts'], ['availability', 'Availability'], ['photos', 'Profile Pictures'], ['sunday', 'Sunday'], ['actuals', 'Actuals']];
 export function ViewOptionsDialog({ prefs, onPrefs, query, onQuery, groupBy, onGroupBy, presetFilter, onPresetFilter, presets = [], twoWeeks, onTwoWeeks, canViewByShift, onClose }) {
   const set = (k, v) => onPrefs({ ...prefs, [k]: v });
   return (

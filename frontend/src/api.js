@@ -2328,6 +2328,10 @@ export const api = {
   shiftRequestSettingsGetFor: (company = '') => req(`/timeclock/shift-requests/settings${company ? `?company=${encodeURIComponent(company)}` : ''}`),
   shiftRequestSettingsSaveFor: (data, company = '') => req(`/timeclock/shift-requests/settings${company ? `?company=${encodeURIComponent(company)}` : ''}`, { method: 'PUT', body: JSON.stringify(data) }),
   shiftRequestSettingsReset:  (company) => req(`/timeclock/shift-requests/settings?company=${encodeURIComponent(company)}`, { method: 'DELETE' }),
+  // Shifts Phase 1 (Oct 14): what the clock says against the schedule - one
+  // cell per person and day (status, punches, late / early minutes), per-
+  // person and overall totals. Someone who cannot manage shifts gets their own.
+  timeSchedActuals:           (start, end) => req(`/timeclock/schedule/actuals?start=${start}&end=${end}`),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

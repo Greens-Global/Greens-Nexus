@@ -10513,3 +10513,37 @@ def add_time_undo(batch_id: str, user: dict = Depends(require_team_write), db: S
                             ref_id=batch_id)
     db.commit()
     return {"voided": len(rows)}
+
+
+# ── Shifts Phase 1: scheduled vs. punched (Oct 14 2026) ──────────────────────
+
+@router.get("/schedule/actuals")
+def schedule_actuals(start: str, end: str, user: dict = Depends(require_schedule_read),
+                     db: Session = Depends(get_db)):
+    """Attendance against the published schedule for a date range - one cell
+    per person and day (shift_attendance.actuals: upcoming / in_progress /
+    on_time / late / left_early / no_show / excused / exempt, first in, last
+    out, worked minutes) and totals. The caller's WRITE scope (_visible_emails:
+    direct reports, the teams they schedule, everyone for an administrator)
+    plus themself; someone who cannot manage shifts gets only their own
+    cells. No pay figure is in this payload."""
+    import shift_attendance
+    try:
+        d0, d1 = date.fromisoformat(start), date.fromisoformat(end)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "Dates are YYYY-MM-DD.")
+    if d1 < d0:
+        raise HTTPException(400, "The end date is before the start date.")
+    if (d1 - d0).days + 1 > 92:
+        raise HTTPException(400, "Pick a range of 92 days or fewer.")
+    me = (user.get("email") or "").lower()
+    if not can_manage_shifts(user):
+        emails = {me}
+    else:
+        scope = _visible_emails(db, user)
+        if scope is None:
+            emails = {(e.work_email or "").lower() for e in db.query(NexusEmployee).all() if _is_active_emp(e)}
+        else:
+            emails = {(e or "").lower() for e in scope}
+        emails.add(me)
+    return shift_attendance.actuals(db, sorted(emails), d0.isoformat(), d1.isoformat())

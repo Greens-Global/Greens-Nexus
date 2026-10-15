@@ -84,9 +84,15 @@ _DEFAULTS = {"openShifts": False, "swaps": False, "offers": False, "teamSchedule
              "weekStart": "monday",
              # Grace window, in minutes, for a shift with no shift type
              # (shift_expect.py); a shift type carries its own grace_min.
-             "defaultGraceMin": 10}
+             "defaultGraceMin": 10,
+             # Shifts Phase 1 (Neil, Oct 14 2026, shift_attendance.py): minutes
+             # after start + grace before a missing person is a no-show alert
+             # (0 = no alerts for this company), and how many minutes before
+             # the end a clock-out counts as leaving early.
+             "noShowAlertMin": 10, "leftEarlyMin": 15}
 _TEXT_SETTINGS = ("timeZone", "weekStart")
-_INT_SETTINGS = {"defaultGraceMin": (0, 120)}   # key -> (min, max), clamped on read and save
+# key -> (min, max), clamped on read and save
+_INT_SETTINGS = {"defaultGraceMin": (0, 120), "noShowAlertMin": (0, 240), "leftEarlyMin": (0, 240)}
 _KIND_SETTING = {"open": "openShifts", "swap": "swaps", "offer": "offers"}
 _EMPLOYEE_ACTION = {"view": "shifts", "sub": "mine"}
 _APPROVER_ACTION = {"view": "shifts", "sub": "schedule"}   # the Shifts module (Sep 29)
@@ -239,6 +245,8 @@ class SettingsIn(BaseModel):
     timeZone: Optional[str] = None
     weekStart: Optional[str] = None             # monday | sunday
     defaultGraceMin: Optional[int] = None       # 0-120, clamped
+    noShowAlertMin: Optional[int] = None        # 0-240, clamped; 0 = off (Phase 1)
+    leftEarlyMin: Optional[int] = None          # 0-240, clamped (Phase 1)
 
 
 @router.get("/settings")

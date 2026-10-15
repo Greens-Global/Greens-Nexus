@@ -34,9 +34,11 @@ vi.mock('xlsx', () => ({ read: () => ({ SheetNames: ['S'], Sheets: { S: {} } }),
 vi.mock('../ui/dialog', () => ({ dialog: { confirm: (...a) => confirmAsk(...a), prompt: vi.fn() } }));
 vi.mock('../tasks/exporting', () => ({ exportExcel: (...a) => exportExcel(...a) }));
 const weatherCallScreen = vi.fn();
+const timeSchedActuals = vi.fn();
 vi.mock('../api', () => ({
   api: {
     timeSchedule: (...a) => timeSchedule(...a),
+    timeSchedActuals: (...a) => timeSchedActuals(...a),
     weatherCallScreen: (...a) => weatherCallScreen(...a),
     timeShiftAssign: (...a) => timeShiftAssign(...a),
     timeSchedDelete: (...a) => timeSchedDelete(...a),
@@ -143,6 +145,7 @@ beforeEach(() => {
   timeOffTypes.mockReset().mockResolvedValue({ builtIn: ['vacation', 'sick', 'personal', 'unpaid', 'other'], custom: ['Jury Duty'], requestsOn: true });
   timeOffOnBehalf.mockReset().mockResolvedValue({ id: 't9' });
   timeOffDecide.mockReset().mockResolvedValue({});
+  timeSchedActuals.mockReset().mockResolvedValue({ cells: {}, people: {}, totals: {} });
 });
 
 describe('Toolbar: one row, seven controls', () => {
@@ -1098,6 +1101,99 @@ describe('On a phone', () => {
       fireEvent.keyDown(window, { key: 'Escape' });
       fireEvent.click(blockOf('s2'));
       expect(screen.getByRole('dialog', { name: 'Edit Shift' })).toBeTruthy();
+    } finally { mm.mockRestore(); }
+  });
+});
+
+// Actuals (Shifts Phase 1, Oct 14): what the clock said rides on the blocks
+// as a bar and above the grid as the week's adherence line. Fetched beside
+// the schedule, never blocking it; a failed call is simply no actuals.
+describe('Actuals: the schedule meets the clock', () => {
+  const actuals = () => ({
+    cells: { [`amy@greensglobal.com|${monday}`]: { shiftId: 's1', status: 'late', firstIn: `${monday}T16:04:00`, lastOut: `${monday}T23:58:00`, workedMin: 474, lateMin: 4, earlyMin: 0, excuse: '' } },
+    people: { 'amy@greensglobal.com': { scheduledMin: 480, workedMin: 474, late: 1, noShow: 0, leftEarly: 0, onTime: 0 },
+      'bob@greensglobal.com': { scheduledMin: 480, workedMin: 0, late: 0, noShow: 1, leftEarly: 0, onTime: 0 } },
+    totals: { scheduledMin: 960, workedMin: 474, late: 1, noShow: 1, leftEarly: 0, onTime: 0 },
+  });
+  it('draws the bar on the block and the adherence line above the grid, after the schedule', async () => {
+    timeSchedule.mockResolvedValue(data([shift()]));
+    timeSchedActuals.mockResolvedValue(actuals());
+    render(<ShiftSchedule toastOk={toastOk} />);
+    await screen.findByText('Amy Adams');
+    await waitFor(() => expect(timeSchedActuals).toHaveBeenCalledWith(monday, plusDays(monday, 6)));
+    const line = await screen.findByRole('status', { name: 'Week adherence' });
+    expect(line.textContent).toBe('Scheduled 16h 00m · Worked 7h 54m · 1 Late · 1 No-Show');
+    const bar = blockOf('s1').querySelector('[data-actual]');
+    expect(bar.getAttribute('data-actual')).toBe('late');
+    expect(bar.style.background).toBe('hsl(var(--color-orange))');
+    expect(blockOf('s1').getAttribute('title')).toContain('(4 min late)');
+    expect(blockOf('s1').getAttribute('aria-label')).toBe('Shift 9:00 AM - 5:00 PM GST, Late');
+    expect(blockOf('s1').textContent).toBe('9:00a - 5:00pGST');   // the bar is the only addition
+    // The line follows the people on screen.
+    const dlg = viewOptions();
+    fireEvent.change(within(dlg).getByLabelText('Search people'), { target: { value: 'amy' } });
+    expect(screen.getByRole('status', { name: 'Week adherence' }).textContent).toBe('Scheduled 8h 00m · Worked 7h 54m · 1 Late');
+  });
+  it('hides it all when Show Actuals is off, and says nothing when nothing was worked', async () => {
+    timeSchedule.mockResolvedValue(data([shift()]));
+    timeSchedActuals.mockResolvedValue(actuals());
+    render(<ShiftSchedule toastOk={toastOk} />);
+    await screen.findByRole('status', { name: 'Week adherence' });
+    const dlg = viewOptions();
+    fireEvent.click(within(dlg).getByLabelText('Show Actuals'));
+    await waitFor(() => expect(screen.queryByRole('status', { name: 'Week adherence' })).toBeNull());
+    expect(blockOf('s1').querySelector('[data-actual]')).toBeNull();
+    expect(JSON.parse(localStorage.getItem('nexus.shifts.viewPrefs')).actuals).toBe(false);
+    fireEvent.click(within(dlg).getByLabelText('Show Actuals'));
+    await screen.findByRole('status', { name: 'Week adherence' });
+    // Everything still ahead: counts of zero and nothing worked say nothing.
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Done' }));
+    timeSchedActuals.mockResolvedValue({ cells: {}, people: { 'amy@greensglobal.com': { scheduledMin: 480, workedMin: 0, late: 0, noShow: 0, leftEarly: 0, onTime: 0 } }, totals: {} });
+    fireEvent.click(screen.getByRole('button', { name: 'Next week' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Previous week' }));
+    await screen.findByText('Amy Adams');
+    await waitFor(() => expect(timeSchedActuals).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(screen.queryByRole('status', { name: 'Week adherence' })).toBeNull());
+  });
+  it('shows a viewer their bar but no week line, and a failed call changes nothing', async () => {
+    timeSchedule.mockResolvedValue({ ...data([shift()]), canManage: false });
+    timeSchedActuals.mockResolvedValue(actuals());
+    const { unmount } = render(<ShiftSchedule toastOk={toastOk} />);
+    await screen.findByText('Amy Adams');
+    await waitFor(() => expect(blockOf('s1').querySelector('[data-actual]')).toBeTruthy());
+    expect(screen.queryByRole('status', { name: 'Week adherence' })).toBeNull();
+    unmount();
+    timeSchedule.mockResolvedValue(data([shift()]));
+    timeSchedActuals.mockRejectedValue(new Error('API error 500'));
+    render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
+    await screen.findByText('Amy Adams');
+    await waitFor(() => expect(timeSchedActuals).toHaveBeenCalled());
+    expect(blockOf('s1').querySelector('[data-actual]')).toBeNull();
+    expect(screen.queryByText(/could not be loaded/)).toBeNull();
+    expect(toastErr).not.toHaveBeenCalled();
+  });
+  it('never asks for actuals on a week that is all ahead, and lays the line over the phone list too', async () => {
+    timeSchedule.mockResolvedValue(data([shift({ date: plusDays(monday, 7) })]));
+    const { unmount } = render(<ShiftSchedule toastOk={toastOk} />);
+    await screen.findByText('Amy Adams');
+    await waitFor(() => expect(timeSchedActuals).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Next week' }));
+    await waitFor(() => expect(timeSchedule).toHaveBeenLastCalledWith(plusDays(monday, 7), plusDays(monday, 13)));
+    await screen.findByText('Amy Adams');
+    expect(timeSchedActuals).toHaveBeenCalledTimes(1);   // only this week asked; next week is all ahead
+    expect(timeSchedActuals.mock.calls.every(([s]) => s === monday)).toBe(true);
+    unmount();
+    const mm = asPhone();
+    try {
+      timeSchedule.mockResolvedValue(data([shift()]));
+      timeSchedActuals.mockResolvedValue(actuals());
+      render(<ShiftSchedule toastOk={toastOk} />);
+      const line = await screen.findByRole('status', { name: 'Week adherence' });
+      expect(line.textContent).toContain('1 Late');
+      fireEvent.click(screen.getByRole('tab', { name: new RegExp(`^${formatUs(monday)}`) }));   // the day the bar is on
+      const list = screen.getByRole('list', { name: /Schedule for/ });
+      expect(list.querySelector('[data-actual-word="late"]').textContent).toBe('Late');
+      expect(list.querySelector('[data-shift="s1"] [data-actual]').getAttribute('data-actual')).toBe('late');
     } finally { mm.mockRestore(); }
   });
 });

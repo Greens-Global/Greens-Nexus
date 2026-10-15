@@ -11,7 +11,7 @@ import TeamShiftGrid from './TeamShiftGrid';
 import ShiftRequestDialog, { PENDING } from './shifts/ShiftRequestDialog';
 import { ShiftBlock, TimeOffBlock } from './shifts/ShiftBlock';
 import DateBlock from './shifts/DateBlock';
-import { isoDate, parseIso, weekStartOf, paidMinutes, fmtHrs, dayFullyOff, todayIso, dayShort, shortTime, shiftShortText } from './shifts/shiftLib';
+import { isoDate, parseIso, weekStartOf, paidMinutes, fmtHrs, dayFullyOff, todayIso, dayShort, shortTime, shiftShortText, actualFor } from './shifts/shiftLib';
 import { useShiftRequests } from './useShiftRequests';
 import MyAvailability from './MyAvailability';
 
@@ -52,6 +52,19 @@ export default function MyShifts() {
     }).catch((e) => { if (live) setError(e?.message || 'Your shifts could not be loaded.'); });
     return () => { live = false; };
   }, [start, end, reload]);
+  // Actuals (Phase 1, Oct 14): what the clock said on my own past and
+  // running shifts - a bar on the block, the details on hover. Fetched
+  // beside the week, never blocking it; a failed call is no bars.
+  const [actuals, setActuals] = useState(null);
+  useEffect(() => {
+    if (!data || start > todayIso()) { setActuals(null); return undefined; }
+    let live = true;
+    Promise.resolve().then(() => api.timeSchedActuals(start, end))
+      .then((r) => { if (live) setActuals(r && typeof r === 'object' && r.cells ? r : null); })
+      .catch(() => { if (live) setActuals(null); });
+    return () => { live = false; };
+  }, [data, start, end]);
+  const actualOf = (s, sole) => actualFor(actuals?.cells?.[`${s.email}|${s.date}`], s, sole);
   const [reqs, reloadReqs] = useShiftRequests(start, end);
   const [ask, setAsk] = useState(null);          // { shift } while the request dialog is open
   const [flash, setFlash] = useState('');
@@ -134,8 +147,9 @@ export default function MyShifts() {
     const mins = worked.reduce((m, d) => m + d.shifts.reduce((a, s) => a + paidMinutes(s), 0), 0);
     const offDays = days.filter((d) => d.timeoff.length).length;
     const pending = days.some((d) => d.timeoff.some((t) => t.status === 'pending'));
-    return { on, next, mins, shiftCount: worked.reduce((n, d) => n + d.shifts.length, 0), offDays, pending };
-  }, [data, days, clockOf]);
+    const late = days.reduce((n, d) => n + d.shifts.filter((s) => actualOf(s, d.shifts.length === 1)?.status === 'late').length, 0);
+    return { on, next, mins, shiftCount: worked.reduce((n, d) => n + d.shifts.length, 0), offDays, pending, late };
+  }, [data, days, clockOf, actuals]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const teams = data?.teams || [];
   const team = teams.find((t) => t.id === teamId) || teams[0] || null;
@@ -208,6 +222,7 @@ export default function MyShifts() {
           {' · '}{glance.on ? <><b style={{ color: 'hsl(var(--color-green))' }}>on shift now</b> until {shortTime(glance.on.s.end)}</>
             : glance.next ? <>next shift <b style={{ color: 'var(--ink)' }}>{whenText(glance.next)} {shiftShortText(glance.next.s)}</b></>
               : 'next shift none'}
+          {glance.late > 0 && <> · <b style={{ color: 'hsl(var(--color-orange))' }}>{glance.late} late</b></>}
         </div>
       )}
 
@@ -233,7 +248,7 @@ export default function MyShifts() {
               {d.shifts.map((s) => {
                 const askable = canAsk && s.date >= todayKey && !pendingIds.has(s.id);
                 return (
-                  <ShiftBlock key={s.id} shift={s} teamZone={teamZone} style={{ marginBottom: 0 }}>
+                  <ShiftBlock key={s.id} shift={s} teamZone={teamZone} style={{ marginBottom: 0 }} actual={actualOf(s, d.shifts.length === 1)}>
                     {s.note && <div style={{ fontSize: 10.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.note}</div>}
                     {pendingIds.has(s.id) ? <div style={{ fontSize: 10.5, color: 'hsl(var(--color-orange))', fontWeight: 600, marginTop: 2 }}>Request Pending</div>
                       : askable && (

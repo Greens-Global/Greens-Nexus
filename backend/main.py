@@ -3030,6 +3030,15 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             print(f"[startup] weather watch loop skipped: {e}")
         try:
+            # Shifts Phase 1 (Oct 2026): the no-show scan - every minute, one
+            # bell per manager / scheduler per team-day for anyone not clocked
+            # in past start + grace + the company's noShowAlertMin, closed
+            # when everyone is in. See shift_attendance.py.
+            from shift_attendance import noshow_loop
+            _tasks.append(_a.create_task(noshow_loop()))
+        except Exception as e:
+            print(f"[startup] no-show loop skipped: {e}")
+        try:
             # ...and the follow-up on a weather call: a second text to anyone
             # silent after 30 minutes, the decider told after 60. weather_call.py.
             from weather_call import weather_call_loop
