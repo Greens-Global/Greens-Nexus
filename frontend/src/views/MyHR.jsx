@@ -699,7 +699,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, clock = null }) {
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
           onClick={() => { setAskPanel(false); setAskOpen(false); }}>
           <div role="dialog" aria-label="Ask HR" onClick={(e) => e.stopPropagation()}
-            style={{ background: 'var(--card)', borderRadius: 14, width: 640, maxWidth: '100%', maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+            style={{ background: 'var(--card)', borderRadius: 14, width: '60vw', minWidth: 'min(420px, 100%)', maxWidth: '100%', minHeight: '60vh', maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
             <div style={{ padding: '16px 18px 12px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid var(--line)' }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--ink)' }}>Ask HR</div>

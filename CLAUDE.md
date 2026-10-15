@@ -139,6 +139,13 @@ keep the diff minimal.
 - Cross-view navigation uses the `nexus:navigate` window event
   (`window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view, sub } }))`).
 - Tab strips use the `.scroll-tabs` class (hidden scrollbars, mobile swipe).
+- **Popups cover 60% of the screen** (Pranshu, Oct 15 2026): every modal /
+  dialog / popup panel is `width: 60vw` and `min-height: 60vh` (at least
+  ~420px wide, never wider than the viewport, `max-height: 85vh` with its
+  body scrolling). Never a small fixed-width box that floats mid-page with
+  empty space around it. Phones keep the full-screen sheet. The shared
+  `Modal` in `tasks/components.jsx` is already 60vw wide; match it in any
+  hand-rolled overlay.
 - Match the existing inline-style idiom and Inter font; reuse `TYPE_META` /
   status-badge patterns rather than inventing new chip styles.
 
