@@ -239,7 +239,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false }) 
       ) : !data ? (
         <SkeletonBlocks count={7} height={96} gridTemplateColumns="repeat(auto-fill, minmax(150px, 1fr))" />
       ) : !mine ? null : (
-        <div style={{ display: 'grid', gridTemplateColumns: phone ? '1fr' : 'repeat(auto-fill, minmax(150px, 1fr))', gap: phone ? 6 : 10 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: phone ? '1fr' : embedded ? 'repeat(7, minmax(0, 1fr))' : 'repeat(auto-fill, minmax(150px, 1fr))', gap: phone ? 6 : 10 }}>
           {days.map((d, i) => (
             <div key={d.key} style={{
               background: 'var(--card)', border: `1px solid ${d.isToday ? 'var(--wk-brand)' : 'var(--wk-line2)'}`, borderRadius: 12, padding: '10px 11px', minHeight: phone ? 0 : 96,

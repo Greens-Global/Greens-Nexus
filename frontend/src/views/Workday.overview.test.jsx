@@ -84,16 +84,15 @@ describe('Workday Overview with the Time Clock', () => {
     expect(await screen.findByText('Paystub 09-30-2026.pdf')).toBeTruthy();
   }, SLOW);
 
-  it('lists what is coming up under Time Off and its button opens the tab', async () => {
+  it('has no Time Off card (10/15); the Time Off This Year tile opens the tab', async () => {
     globalThis.__answers.timeOffMine = [
       { id: 't1', type: 'Medical Appointment', startDate: '2099-03-02', endDate: '2099-03-02', status: 'pending' },
-      { id: 't2', type: 'vacation', startDate: '2001-01-02', endDate: '2001-01-03', status: 'approved' },
     ];
     await renderWorkday('overview');
-    expect(await screen.findByText('Medical Appointment')).toBeTruthy();
-    expect(screen.getByText('03/02/2099')).toBeTruthy();
-    expect(screen.queryByText('01/02/2001 - 01/03/2001')).toBeNull();   // over - not coming up
-    fireEvent.click(screen.getByRole('button', { name: /Request Time Off/ }));
+    expect(await screen.findByText('My Schedule')).toBeTruthy();
+    expect(screen.queryByText('Medical Appointment')).toBeNull();
+    expect(screen.queryByRole('button', { name: /Request Time Off/ })).toBeNull();
+    fireEvent.click(screen.getByText('Time Off This Year'));
     expect(await screen.findByRole('button', { name: 'Reason: Personal' })).toBeTruthy();
   }, SLOW);
 

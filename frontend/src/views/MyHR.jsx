@@ -9,8 +9,6 @@ import { api } from '../api';
 import { SkeletonBlocks, Spinner, LoadingState } from '../components/AsyncState';
 import { formatDate, formatDateLong } from '../lib/datetime';
 import { approvedLeaveDays, fmtDays, tenureLabel, openShiftMinutes } from '../lib/workdayStats';
-import { reasonLook } from '../lib/timeOffReasons';
-import { timeOffLabel } from '../components/shiftScheduleLib';
 import EgnytePreview from '../egnyte/EgnytePreview';
 import { canPreview } from '../egnyte/lib';
 import { MyChecklistSteps } from '../components/HrChecklists';
@@ -356,7 +354,6 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, clock = null }) {
   const initials = profile ? `${(profile.firstName || ' ')[0]}${(profile.lastName || ' ')[0]}`.trim().toUpperCase() : '';
   const input = { width: '100%' };
   const lbl = { fontSize: 11.5, fontWeight: 700, color: 'var(--muted)', display: 'block', margin: '10px 0 4px' };
-  const chip = (s) => { const m = STATUS_META[s] || STATUS_META.pending; return <span style={{ padding: '2px 10px', borderRadius: 14, fontSize: 11, fontWeight: 700, background: m.bg, color: m.fg, flexShrink: 0 }}>{m.label}</span>; };
   const cardHead = (title, sub, action) => (
     <div className="dash-card-head">
       <div>
@@ -369,14 +366,8 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, clock = null }) {
 
   // What is coming up: pending or approved requests that have not ended yet,
   // soonest first - the Time Off card's list (the full history is the tab).
-  const upcoming = Array.isArray(leave)
-    ? leave.filter(r => (r.status === 'pending' || r.status === 'approved') && (r.endDate || '') >= todayKey)
-      .sort((a, b) => (a.startDate || '').localeCompare(b.startDate || ''))
-    : [];
+  const chip = (s) => { const m = STATUS_META[s] || STATUS_META.pending; return <span style={{ padding: '2px 10px', borderRadius: 14, fontSize: 11, fontWeight: 700, background: m.bg, color: m.fg, flexShrink: 0 }}>{m.label}</span>; };
   const pendingCount = Array.isArray(leave) ? leave.filter(r => r.status === 'pending').length : 0;
-  const toLabel = (t) => timeOffLabel(t) || 'Time Off';
-  const dayOf = (d) => formatDate(d + 'T12:00:00');
-  const spanLabel = (r) => r.startDate === r.endDate ? dayOf(r.startDate) : `${dayOf(r.startDate)} - ${dayOf(r.endDate)}`;
   const clockParts = typeof clock === 'function' ? clock() : null;
   // undefined = no clock handed in (no shift data at all); null = loading.
   const shiftInfo = clockParts ? clockParts.shift : undefined;
@@ -584,7 +575,10 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, clock = null }) {
                 <MyShifts embedded />
               </div>
 
-              <div className="dash-card">
+              {/* Full width since the Time Off card went (Pranshu, 10/15): what
+                  is coming up shows on the hero's Time Off This Year tile and
+                  the Time Off tab. */}
+              <div className="dash-card myhr-span2">
                 {cardHead('My Documents', 'Signed copies, files HR filed for you and your paystubs',
                   totalDocCount > 3 ? (
                     <input className="form-input" placeholder="Search…" aria-label="Search my documents" value={docQuery} onChange={e => setDocQuery(e.target.value)}
@@ -655,50 +649,6 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, clock = null }) {
                 <EgnytePreview file={previewFile} onClose={() => setPreviewFile(null)}
                   fetchPreview={myhrFetchPreview} downloadFile={myhrDownloadFile} />
               )}
-
-              {/* Time Off: what is coming up. Requesting and the full history
-                  live on the Time Off tab (one surface, not two). */}
-              <div className="dash-card" style={{ display: 'flex', flexDirection: 'column' }}>
-                {cardHead('Time Off', 'Coming up - pending and approved',
-                  pendingCount > 0
-                    ? <span style={{ padding: '2px 10px', borderRadius: 14, fontSize: 11, fontWeight: 700, background: STATUS_META.pending.bg, color: STATUS_META.pending.fg }}>{pendingCount} Pending</span>
-                    : <CalendarOff size={15} style={{ color: 'var(--muted)' }} />)}
-                {leave === null ? (
-                  <LoadingState compact />
-                ) : leave === false ? (
-                  <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0', textAlign: 'center' }}>Could not load your time off.</div>
-                ) : upcoming.length === 0 ? (
-                  <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '14px 0', textAlign: 'center' }}>Nothing coming up.</div>
-                ) : (
-                  <div>
-                    {upcoming.slice(0, 4).map(r => {
-                      const { Icon: TIcon, color } = reasonLook(r.type, toLabel(r.type));
-                      return (
-                        <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: '1px solid var(--line)' }}>
-                          <span style={{ width: 28, height: 28, borderRadius: 8, background: 'var(--mist)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                            <TIcon size={14} color={color} />
-                          </span>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{toLabel(r.type)}</div>
-                            <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{spanLabel(r)}</div>
-                          </div>
-                          {chip(r.status)}
-                        </div>
-                      );
-                    })}
-                    {upcoming.length > 4 && (
-                      <div style={{ fontSize: 11.5, color: 'var(--muted)', paddingTop: 8 }}>+{upcoming.length - 4} more on the Time Off tab</div>
-                    )}
-                  </div>
-                )}
-                <div style={{ flex: 1 }} />
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14, flexWrap: 'wrap' }}>
-                  <button className="primary-btn" onClick={onOpenTimeOff} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, padding: '6px 12px' }}>
-                    <CalendarDays size={13} /> Request Time Off
-                  </button>
-                  <span style={{ fontSize: 12, color: 'var(--muted)' }}><strong style={{ color: 'var(--ink)' }}>{leaveLabel}</strong> approved in {yr}</span>
-                </div>
-              </div>
 
               {/* ── Ask HR ── the requests already sent; New Request opens the
                   form in place (a full form on an overview read as heavy). */}
