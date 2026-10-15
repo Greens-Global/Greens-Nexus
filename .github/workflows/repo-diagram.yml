@@ -14,7 +14,7 @@ name: Repo Diagram
 
 on:
   push:
-    branches: ["dev", "chore/repo-diagram"]
+    branches: ["dev"]
   workflow_dispatch:
 
 permissions:
