@@ -402,19 +402,19 @@ export default function HelpWidget({ activeView, initialTab = 'home', onTabChang
   // person can reach.
   const live = useLiveTours();
   const liveTour = live[live.length - 1] || null;
-  const { canAccessModule, can } = useRole();
+  const { can } = useRole();
   // Every tour this person can reach, but the one for this screen: each
   // documented module they can open (its hand-built tour where it has one),
   // plus the hand-built tours that live inside a module (Timecard, Roles).
   const otherTours = useMemo(() => {
-    const reach = (t) => (t.need === 'administrator' ? !!can?.('administrator') : !t.need || (canAccessModule ? canAccessModule(t.need) : true));
+    const reach = (t) => (t.need === 'administrator' ? !!can?.('administrator') : !t.need || allow(t.need));
     const hands = TOURS.filter(reach);
     const byView = new Map(hands.filter((t) => !t.sub).map((t) => [t.view, t]));
     const mods = DOCS.filter((d) => d.view && d.view !== activeView && d.view !== 'dashboard' && allow(d.id))
       .map((d) => ({ key: d.view, label: d.name, view: d.view, hand: byView.get(d.view) || null }));
     const inner = hands.filter((t) => t.sub && t.key !== liveTour?.key).map((t) => ({ key: t.key, label: t.label, view: t.view, hand: t }));
     return [...mods, ...inner].sort((x, y) => x.label.localeCompare(y.label));
-  }, [canAccessModule, can, allow, activeView, liveTour]);
+  }, [can, allow, activeView, liveTour]);
 
   const openArticle = (a) => { setTabState('help'); onTabChange?.('help'); setTrail((t) => [...t, a]); };
   const pick = (r) => {

@@ -103,7 +103,9 @@ export function buildAutoTour(entry, root = document.querySelector('main') || do
   if (!entry) return [];
   clearAutoTourTags(root.ownerDocument || document);
   let n = 0;
-  const mark = (el) => { const key = `${PREFIX}${n += 1}`; el.setAttribute(TAG, key); return key; };
+  // An element a screen already marked for its own tour keeps its mark -
+  // the tour points at that; only unmarked ones get an auto- mark.
+  const mark = (el) => { const own = el.getAttribute(TAG); if (own) return own; const key = `${PREFIX}${n += 1}`; el.setAttribute(TAG, key); return key; };
   const steps = [{
     target: null,
     title: entry.name,

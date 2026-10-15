@@ -60,6 +60,14 @@ describe('auto tour', () => {
     expect(steps[1].body).toBe('- See every lead.\n- Answer reviews.');
   });
 
+  it("keeps a screen's own tour mark instead of overwriting it", () => {
+    page('<h2 data-tour="task-tabs">Leads</h2>');
+    const steps = buildAutoTour(ENTRY);
+    expect(steps.find((x) => x.title === 'Leads').target).toBe('task-tabs');
+    clearAutoTourTags();
+    expect(document.querySelector('h2').getAttribute('data-tour')).toBe('task-tabs');
+  });
+
   it('clears its marks, and a rebuild never doubles them', () => {
     page('<h2>Leads</h2><h2>Business Profile</h2>');
     buildAutoTour(ENTRY); buildAutoTour(ENTRY);

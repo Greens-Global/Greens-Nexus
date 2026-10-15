@@ -41,7 +41,7 @@ export default function GuidedTour({ steps, onClose }) {
   // against it, not against the layout viewport.
   const [vvTick, setVvTick] = useState(0);
 
-  const locate = useCallback(() => {
+  const locate = useCallback((scroll = true) => {
     if (!step?.target) { setRect(null); return; }
     const el = document.querySelector(`[data-tour="${step.target}"]`);
     if (!el) {
@@ -50,7 +50,7 @@ export default function GuidedTour({ steps, onClose }) {
       else setRect(null);
       return;
     }
-    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    if (scroll !== false) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
     // Normalize into the INNER coordinate space at measurement time, so the
     // spotlight ring and popover below - both plain CSS lengths - line up with
     // the element they're highlighting under <html>'s CSS zoom. See rootZoom.
@@ -69,7 +69,8 @@ export default function GuidedTour({ steps, onClose }) {
   // card's margin to the right of an Item Management card).
   useEffect(() => {
     if (!step?.target) return undefined;
-    const timers = [180, 420, 800].map((ms) => setTimeout(locate, ms));
+    // Measure only - scrolling again would snap back a person scrolling.
+    const timers = [180, 420, 800].map((ms) => setTimeout(() => locate(false), ms));
     return () => timers.forEach(clearTimeout);
   }, [i, step, locate]);
 
@@ -87,7 +88,7 @@ export default function GuidedTour({ steps, onClose }) {
       if (e.key === 'ArrowRight' && i < steps.length - 1) setI(i + 1);
       if (e.key === 'ArrowLeft' && i > 0) setI(i - 1);
     };
-    const reflow = () => locate();
+    const reflow = () => locate(false);   // measure only - never fight the person scrolling
     window.addEventListener('keydown', onKey);
     window.addEventListener('resize', reflow);
     window.addEventListener('scroll', reflow, true);
@@ -101,7 +102,7 @@ export default function GuidedTour({ steps, onClose }) {
   useEffect(() => {
     const vv = typeof window !== 'undefined' ? window.visualViewport : null;
     if (!compact || !vv) return undefined;
-    const bump = () => { setVvTick((n) => n + 1); locate(); };
+    const bump = () => { setVvTick((n) => n + 1); locate(false); };
     vv.addEventListener('resize', bump);
     vv.addEventListener('scroll', bump);
     return () => { vv.removeEventListener('resize', bump); vv.removeEventListener('scroll', bump); };

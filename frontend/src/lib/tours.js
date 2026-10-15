@@ -10,12 +10,13 @@
 import { useSyncExternalStore } from 'react';
 
 // Every tour, for the list. `view` / `sub` is where it lives; `need` is the
-// access it takes: a module id (canAccessModule) or 'administrator'.
+// access it takes: the Help doc id whose access opens that screen, or
+// 'administrator'.
 export const TOURS = [
   { key: 'tasks', label: 'Tasks', view: 'tasks', need: 'tasks' },
   { key: 'tickets', label: 'Tickets', view: 'tickets', need: 'tickets' },
   { key: 'documents', label: 'Documents', view: 'documents', need: 'documents' },
-  { key: 'timecard', label: 'Timecard', view: 'hr', sub: 'hr-time', need: 'hr' },
+  { key: 'timecard', label: 'Timecard', view: 'hr', sub: 'hr-time', need: 'people' },
   { key: 'roles', label: 'Roles & Access', view: 'admin-console', sub: 'access', need: 'administrator' },
   { key: 'support', label: 'Support', view: 'support', need: '' },
 ];
@@ -24,6 +25,11 @@ const live = new Map();          // key -> { label, open }
 const listeners = new Set();
 let snapshot = [];
 let pending = '';
+let pendingAt = 0;
+// A tour waits for its screen a few seconds at most: a move that was
+// cancelled (unsaved work, Cancel) must not start it on some later visit.
+const PENDING_MS = 8000;
+const fresh = (at) => Date.now() - at < PENDING_MS;
 const emit = () => { snapshot = [...live.entries()].map(([key, v]) => ({ key, ...v })); listeners.forEach((l) => l()); };
 
 /** A screen's tour, while it is on the page. Returns the unregister. If the
@@ -31,7 +37,7 @@ const emit = () => { snapshot = [...live.entries()].map(([key, v]) => ({ key, ..
 export function registerTour(key, label, open) {
   live.set(key, { label, open });
   emit();
-  if (pending === key) {
+  if (pending === key && fresh(pendingAt)) {
     pending = '';
     setTimeout(open, 0);   // after the screen's first paint, so its targets exist
   }
@@ -48,6 +54,7 @@ export function startTour(t) {
   const here = live.get(t.key);
   if (here) { here.open(); return; }
   pending = t.key;
+  pendingAt = Date.now();
   window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: t.view, sub: t.sub || null } }));
 }
 
@@ -56,12 +63,13 @@ export const AUTO_TOUR_EVENT = 'nexus:auto-tour';
 
 // A built-for-the-page tour (lib/autoTour.js) waiting for its screen.
 let pendingAuto = '';
-export function setPendingAutoTour(view) { pendingAuto = view || ''; }
+let pendingAutoAt = 0;
+export function setPendingAutoTour(view) { pendingAuto = view || ''; pendingAutoAt = Date.now(); }
 /** True once, for the screen the Help panel sent the person to. */
 export function takePendingAutoTour(view) {
   if (!pendingAuto || pendingAuto !== view) return false;
   pendingAuto = '';
-  return true;
+  return fresh(pendingAutoAt);
 }
 
 /** Tests only. */

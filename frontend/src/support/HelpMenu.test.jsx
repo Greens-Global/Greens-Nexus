@@ -130,6 +130,21 @@ describe('Help widget', () => {
     } finally { vi.useRealTimers(); window.removeEventListener(AUTO_TOUR_EVENT, heard); }
   });
 
+  it('a tour whose move was cancelled does not start on some later visit', async () => {
+    vi.useFakeTimers();
+    try {
+      setPendingAutoTour('marketing');
+      vi.advanceTimersByTime(9000);
+      vi.setSystemTime(Date.now() + 9000);
+      const heard = vi.fn();
+      window.addEventListener(AUTO_TOUR_EVENT, heard);
+      render(<HelpMenu activeView="marketing" />);
+      act(() => { vi.advanceTimersByTime(800); });
+      expect(heard).not.toHaveBeenCalled();
+      window.removeEventListener(AUTO_TOUR_EVENT, heard);
+    } finally { vi.useRealTimers(); }
+  });
+
   it('lists only the tours this person can reach', async () => {
     render(<HelpMenu activeView="dashboard" />);
     await openWidget();
