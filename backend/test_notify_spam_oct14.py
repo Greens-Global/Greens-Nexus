@@ -187,10 +187,11 @@ class TaskBellTests(Base):
             self._tn(k)
         self.assertEqual(self.bells(), [])
         self.assertEqual(self.db.query(models.TaskNotification).count(), 4)   # the module bell has them all
-        for k in ("task_assigned", "ticket_needs_approval"):
+        for k in ("task_assigned", "ticket_needs_approval", "team_approval_requested", "ticket_property"):
             self._tn(k)
         self._tn("task_activity", main_bell=True)                             # an @mention
-        self.assertEqual(sorted(b.type for b in self.bells()), ["task_task_activity", "task_task_assigned", "task_ticket_needs_approval"])
+        self.assertEqual(sorted(b.type for b in self.bells()), ["task_task_activity", "task_task_assigned", "task_team_approval_requested",
+                                                               "task_ticket_needs_approval", "task_ticket_property"])
 
     def test_the_person_who_raised_a_ticket_hears_every_update(self):
         self.db.add(models.TaskTicket(id="t1", code="27", subject="Printer", requester_email=OTHER))

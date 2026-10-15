@@ -11,7 +11,9 @@ count of the rest.
 Sessions run autoflush=False (CLAUDE.md), so a notice added earlier in the
 same request is not visible to a query yet - those are found in session.new.
 The lookup takes a row lock (with_for_update), as the batching rule asks, so
-two requests at once cannot both decide to insert.
+two requests GROWING the same notice serialize. Two requests that both find
+no notice yet can still both insert (there is no unique key); that rare race
+costs a duplicate notice, never a lost one.
 """
 import json
 import uuid

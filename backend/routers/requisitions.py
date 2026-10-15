@@ -208,7 +208,8 @@ def create_requisition(
     _req_notify(db,
         type="req_pending",
         # The chosen approver, else the requester's own manager (Neil, Oct 14
-        # 2026: no more "all managers" broadcast when none was picked).
+        # 2026: no more "all managers" broadcast when none was picked). With
+        # neither on file it still goes to all managers - someone must decide.
         recipient=((data.approver_email or "").lower().strip() or _manager_of(db, payload["employee_email"] or submitter_email)),
         title="New Purchase Requisition",
         body=f"{data.employee_name} ({data.employee_dept}) requested {data.quantity}× {data.item}."

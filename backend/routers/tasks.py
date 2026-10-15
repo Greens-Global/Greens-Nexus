@@ -2689,7 +2689,7 @@ def edit_comment(comment_id: str, upd: CommentUpdate, background_tasks: Backgrou
             # yet, and a cleared one is no longer anybody's to resolve.
             c.resolved_at, c.resolved_by = "", ""
             if who and who != me:
-                task_notify(db, kind="task_activity", for_email=who,
+                task_notify(db, kind="task_activity", for_email=who, main_bell=True,
                             title="A comment was assigned to you", body=f"{t.title}", task_id=t.id,
                             nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
                 # Same email the person gets when the comment is posted to them.
@@ -3139,7 +3139,7 @@ def add_checklist_items(task_id: str, body: ChecklistItemCreate, user: dict = De
         made.append(i)
     _recount_checklist(db, t)
     if who and who != user["email"].lower():
-        task_notify(db, kind="task_activity", for_email=who,
+        task_notify(db, kind="task_activity", for_email=who, main_bell=True,
                     title="You were given a checklist item",
                     body=f"{titles[0]} - {t.title}" if len(titles) == 1 else f"{len(titles)} items - {t.title}",
                     task_id=t.id, nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
@@ -3172,7 +3172,7 @@ def update_checklist_item(item_id: str, upd: ChecklistItemUpdate, user: dict = D
     if "assignee_email" in data:
         who = assert_person_on_task(db, t, data["assignee_email"] or "")
         if who and who != (i.assignee_email or "") and who != me:
-            task_notify(db, kind="task_activity", for_email=who,
+            task_notify(db, kind="task_activity", for_email=who, main_bell=True,
                         title="You were given a checklist item", body=f"{i.title} - {t.title}",
                         task_id=t.id, nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
         i.assignee_email = who

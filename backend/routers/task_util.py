@@ -70,10 +70,16 @@ def fire_task_event(task_id: str = "", kind: str = "") -> None:
 # the Tasks / Tickets module's own bell, so the main bell is not a second
 # copy of every task event.
 MAIN_BELL_KINDS = frozenset({
-    "task_assigned", "ticket_assigned",
+    # assigned to you / put on it
+    "task_assigned", "ticket_assigned", "ticket_collaborator",
+    # a decision or answer is needed, or one was made on your request
     "ticket_needs_approval", "ticket_approved", "ticket_rejected", "ticket_needs_assignment",
-    "task_due_extension_requested", "task_due_answered",
+    "ticket_escalated",
+    "task_due_extension_requested", "task_due_proposed", "task_due_answered",
     "member_request", "request_approved", "request_rejected",
+    "team_approval_requested", "team_approval_decided",
+    # a property manager: a ticket or a service due at their property
+    "ticket_property",
 })
 
 
@@ -641,7 +647,7 @@ def create_comment(db: Session, task, *, actor_email: str, author_email: str = "
                         title="New reply in your thread", body=f"{task.title}", task_id=task.id,
                         nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
         if assignee and assignee != actor:
-            task_notify(db, kind="task_activity", for_email=assignee,
+            task_notify(db, kind="task_activity", for_email=assignee, main_bell=True,
                         title="A comment was assigned to you", body=f"{task.title}", task_id=task.id,
                         nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
     db.commit()

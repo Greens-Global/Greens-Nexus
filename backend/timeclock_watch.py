@@ -2,8 +2,8 @@
 
 Every 15 minutes: find employees whose open session (last non-voided punch is
 in / break_start / break_end) started more than LONG_SESSION_HOURS ago and nudge
-them - a bell notification plus a best-effort email - repeating every
-RENOTIFY_HOURS while the session stays open. Dedupe is DB-backed (the bell row
+them - a bell notification plus a best-effort email - once per open session
+(Oct 14 2026; it used to repeat every 12 hours). Dedupe is DB-backed (the bell row
 itself, keyed on the session's in-punch id), so restarts never double-send.
 
 Note: there used to be an end-of-day auto clock-out sweep here (closed a
@@ -85,8 +85,8 @@ def _email(db, email: str, hours: int):
         html = (
             f"<p>Hi {first},</p>"
             f"<p>Your Nexus time clock shows you've been <b>clocked in for {hours}+ hours</b>.</p>"
-            "<p><b>Still working?</b> No action needed - you'll get one reminder like this "
-            f"every {RENOTIFY_HOURS} hours while the session stays open.</p>"
+            "<p><b>Still working?</b> No action needed - this is the only reminder for this "
+            "session.</p>"
             "<p><b>Forgot to punch out?</b> Open Time Clock in Nexus and use "
             "<b>\"I forgot - fix my punch-out\"</b> (or \"Add clock-out\" on the open session in "
             "your timesheet) to set the real end time. Your approver confirms the fix.</p>"
