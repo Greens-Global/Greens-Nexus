@@ -473,46 +473,40 @@ h1,h2,h3,h4,h5,h6,
 .sbtr-btn--pause:not(.is-dim) { background: rgba(180,83,9,.12); color: #b45309; box-shadow: none; }
 .sbtr-btn--stop:not(.is-dim) { background: rgba(185,28,28,.1); color: #b91c1c; box-shadow: none; }
 .sbtr-btn:focus-visible { outline: 2px solid var(--sb-tone, var(--wk-brand)); outline-offset: 2px; }
-/* the punch flourishes (ClockChip Flourish): a layer pinned over the
-   button they come from, travelling RIGHT, clear of the tooltip above */
+/* the punch flourishes (ClockChip Flourish): a layer pinned over the button
+   they come from. Only static look lives here - the motion is sampled
+   physics played by the animation engine (lib/flourishMotion.js), on
+   transform and opacity only. Everything starts hidden (opacity 0) so a
+   frame before the first sample never flashes. */
 .sbfx { position: fixed; left: 0; top: 0; width: 0; height: 0; z-index: 2000; pointer-events: none; }
-.sbfx-coffee { position: absolute; left: -11px; top: -11px; width: 22px; height: 22px; color: #b45309; filter: drop-shadow(0 2px 3px rgba(180,83,9,.3)); animation: sbfxDrift 1.8s cubic-bezier(.22,1,.36,1) forwards; }
-.sbfx-coffee svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2.4; }
-.sbfx-coffee i { position: absolute; left: 5px; bottom: 19px; width: 3px; height: 9px; border-radius: 3px; background: currentColor; opacity: 0; filter: blur(.35px); transform-origin: 50% 100%; animation: sbfxSteam 1.25s ease-out .2s forwards; }
-.sbfx-coffee i:nth-child(3) { left: 10px; height: 11px; animation-delay: .38s; }
-.sbfx-coffee i:nth-child(4) { left: 15px; animation-delay: .56s; }
-@keyframes sbfxDrift {
-  0%   { opacity: 0; transform: translate(0, 0) scale(.4) rotate(0); }
-  14%  { opacity: 1; transform: translate(4px, -14px) scale(1.25) rotate(-10deg); }
-  28%  { transform: translate(16px, -14px) scale(1) rotate(7deg); }
-  42%  { transform: translate(26px, -14px) scale(1.04) rotate(-4deg); }
-  56%  { transform: translate(34px, -14px) scale(1) rotate(2deg); }
-  78%  { opacity: 1; transform: translate(46px, -14px) scale(1) rotate(0); }
-  100% { opacity: 0; transform: translate(62px, -16px) scale(.85) rotate(0); }
-}
-@keyframes sbfxSteam {
-  0%   { opacity: 0; transform: translate(0, 5px) scale(.6, .4); }
-  18%  { opacity: .9; transform: translate(-1px, 0) scale(1, 1); }
-  42%  { transform: translate(3px, -7px) scale(1.2, 1.2) rotate(8deg); }
-  66%  { opacity: .55; transform: translate(-2px, -13px) scale(1.5, 1.1) rotate(-10deg); }
-  100% { opacity: 0; transform: translate(3px, -20px) scale(1.9, .8) rotate(6deg); }
-}
-.sbfx-check { position: absolute; left: -12px; top: -12px; width: 24px; height: 24px; color: hsl(var(--color-green)); filter: drop-shadow(0 2px 4px rgba(22,163,74,.35)); animation: sbfxDrift 1.6s cubic-bezier(.22,1,.36,1) forwards; }
-.sbfx-check svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
-.sbfx-check circle { stroke-width: 2; fill: color-mix(in srgb, currentColor 14%, var(--card, #fff)); }
-.sbfx-check path { stroke-width: 2.6; stroke-dasharray: 16; stroke-dashoffset: 16; animation: sbfxDraw .42s ease-out .16s forwards; }
-@keyframes sbfxDraw { to { stroke-dashoffset: 0; } }
-.sbfx-star { position: absolute; left: calc(var(--sz) / -2); top: calc(var(--sz) / -2); width: var(--sz); height: var(--sz); opacity: 0; filter: drop-shadow(0 1px 2px rgba(0,0,0,.18)); animation: sbfxStar 1.7s cubic-bezier(.2,.9,.3,1) forwards; }
+.sbfx [data-fx] { will-change: transform, opacity; transform-origin: 50% 50%; }
+.sbfx-coffee { position: absolute; left: -16px; top: -16px; width: 32px; height: 32px; color: #b45309; opacity: 0; transform-origin: 50% 70%; }
+/* the mug sits on a disc, like the End Break check, so it reads cleanly
+   over the buttons it passes - a static shadow (only the layer moves) */
+.sbfx-coffee::before { content: ''; position: absolute; inset: 0; border-radius: 50%; background: var(--card, #fff); box-shadow: 0 0 0 1.5px rgba(180,83,9,.35), 0 4px 12px rgba(120,53,15,.22); }
+.sbfx-coffee .sbfx-mug { position: absolute; left: 5px; top: 5px; width: 22px; height: 22px; }
+.sbfx-mug { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; overflow: visible; }
+.sbfx-mug-body { fill: #fff7ed; }
+.sbfx-mug-coffee { stroke: #92400e; stroke-width: 1.6; opacity: .55; }
+[data-theme="dark"] .sbfx-mug-body { fill: #3b2a1a; }
+/* steam rises from the rim (top of the mug is y=8.5 of 24) and stays on it */
+.sbfx-steam { position: absolute; left: 6px; top: -11px; width: 20px; height: 13px; }
+.sbfx-steam svg { position: absolute; bottom: 0; width: 5px; height: 13px; overflow: visible; opacity: 0; transform-origin: 50% 100%; }
+.sbfx-steam path { fill: none; stroke: rgba(180,83,9,.62); stroke-width: 1.7; stroke-linecap: round; stroke-dasharray: 1; stroke-dashoffset: 1; }
+[data-theme="dark"] .sbfx-steam path { stroke: rgba(253,186,116,.55); }
+.sbfx-check { position: absolute; left: -13px; top: -13px; width: 26px; height: 26px; color: hsl(var(--color-green)); opacity: 0; }
+.sbfx-check svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; overflow: visible; }
+.sbfx-check .sbfx-disc { stroke: none; fill: color-mix(in srgb, currentColor 16%, var(--card, #fff)); }
+.sbfx-check [data-fx=ring] { stroke-width: 2; stroke-dasharray: 1; stroke-dashoffset: 1; transform: rotate(-90deg); transform-origin: 12px 12px; }
+.sbfx-check [data-fx=tick] { stroke-width: 2.6; stroke-dasharray: 1; stroke-dashoffset: 1; }
+.sbfx-pulse { position: absolute; left: -14px; top: -14px; width: 28px; height: 28px; border-radius: 50%; border: 2px solid currentColor; opacity: 0; }
+.sbfx--check .sbfx-pulse, .sbfx--in .sbfx-pulse { color: hsl(var(--color-green)); }
+.sbfx--out .sbfx-pulse { color: #eab308; }
+.sbfx-star { position: absolute; opacity: 0; }
 .sbfx--in .sbfx-star { fill: hsl(var(--color-green)); }
-.sbfx--in .sbfx-star:nth-child(even) { fill: #eab308; }
+.sbfx--in .sbfx-star:nth-of-type(3n) { fill: #eab308; }
 .sbfx--out .sbfx-star { fill: #eab308; }
-.sbfx--out .sbfx-star:nth-child(even) { fill: #f59e0b; }
-@keyframes sbfxStar {
-  0%   { opacity: 0; transform: translate(0, 0) scale(0) rotate(0); }
-  22%  { opacity: 1; transform: translate(calc(var(--dx) * .45), calc(var(--dy) * .45)) scale(1.25) rotate(calc(var(--r) * .35)); }
-  70%  { opacity: 1; }
-  100% { opacity: 0; transform: translate(var(--dx), var(--dy)) scale(.35) rotate(var(--r)); }
-}
+.sbfx--out .sbfx-star:nth-of-type(even) { fill: #f59e0b; }
 /* our tooltip: a dark pill that rises in, a bold line and a quiet one */
 .sbtt-pop {
   position: absolute; left: 50%; bottom: calc(100% + 8px); transform: translate(-50%, 4px); z-index: 30; pointer-events: none;
