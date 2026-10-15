@@ -1263,6 +1263,30 @@ def retry_filing(eid: str, user: dict = Depends(require_hr_write), db: Session =
     return hle.ser_event(db, ev, show_pay=_has_comp(user, db))
 
 
+class FileByHandIn(BaseModel):
+    folder: str = ""
+
+
+@router.post("/life-events/{eid}/file-manually")
+def file_manually(eid: str, body: FileByHandIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+    """File Manually (Oct 15 2026): automatic filing failed, so HR names the
+    Egnyte folder; every signed, unfiled packet of the same person goes there
+    and their cards leave the profile."""
+    ev = db.query(HrLifeEvent).filter(HrLifeEvent.id == eid).first()
+    if not ev:
+        raise HTTPException(404, "Not found")
+    _event_in_scope(db, ev, hr_scope(user, db))
+    if ev.status != "completed":
+        raise HTTPException(409, "Only a fully signed packet can be filed.")
+    try:
+        events = hle.file_by_hand(db, ev, body.folder, user["email"])
+    except hle.PacketError as e:
+        db.rollback()
+        _raise(e)
+    show = _has_comp(user, db)
+    return {"events": [hle.ser_event(db, e, show_pay=show) for e in events]}
+
+
 @router.post("/life-events/{eid}/retry-apply")
 def retry_apply(eid: str, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     """The packet is fully signed but Nexus could not apply it (safe() flagged

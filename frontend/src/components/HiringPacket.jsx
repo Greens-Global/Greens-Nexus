@@ -730,6 +730,19 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hid
       if (kind === 'void') { await api.voidLifeEvent(ev.id); toastOk?.(`${what} voided.`); }
       else if (kind === 'cancel') { await api.cancelOffboarding(ev.id); toastOk?.('Offboarding canceled.'); }
       else if (kind === 'apply') { await api.retryLifeEventApply(ev.id); toastOk?.('Applied.'); }
+      else if (kind === 'manual') {
+        // File Manually (Pranshu, Oct 15 2026): automatic filing cannot find
+        // or make the folder - HR names one that exists in Egnyte. Every
+        // signed, unfiled document of this person goes there together.
+        const folder = await dialog.prompt(
+          `Paste the Egnyte folder to file ${ev.subjectName || 'their'} signed documents into - for example /Shared/#Entities/(company)/Human Resources/Employees/(their name). It must already exist in Egnyte. The offer letter and hiring packet are filed there together, and these cards leave the profile.`,
+          { title: 'File Manually In Egnyte', confirmText: 'File Here', required: true, placeholder: '/Shared/...' });
+        if (!folder) { setBusy(''); return; }
+        const out = await api.fileLifeEventManually(ev.id, folder.trim());
+        const filed = (out.events || []).filter(e => e.filingStatus === 'filed').length;
+        const left = (out.events || []).length - filed;
+        toastOk?.(left ? `Filed ${filed} - ${left} could not be filed, see the reason on it.` : `Filed in Egnyte: ${folder.trim()}`);
+      }
       else { const out = await api.retryLifeEventFiling(ev.id); toastOk?.(out.filingStatus === 'filed' ? 'Filed in Egnyte.' : 'Still not filed - see the reason below.'); }
       onChanged?.();
     } catch (e) { toastErr?.(e?.message || 'That did not work.'); }
@@ -844,6 +857,11 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hid
             {busy === 'retry' ? <Spinner size={12} /> : <RefreshCw size={12} />} Retry Filing
           </button>
         )}
+        {ev.status === 'completed' && ev.filingStatus !== 'filed' && ev.filingError && (
+          <button className="secondary-btn" onClick={() => act('manual')} disabled={!!busy} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            {busy === 'manual' ? <Spinner size={12} /> : <FolderOpen size={12} />} File Manually
+          </button>
+        )}
       </div>
       {reviewOpen && (
         <PacketReview eventId={ev.id} onClose={() => setReviewOpen(false)} onChanged={onChanged}
@@ -907,7 +925,9 @@ export function PersonLifeEvents({ employeeId, refreshKey, onSignNow, toastOk, t
   const recent = Date.now() - 14 * 86400000;
   const shown = events.filter(e => ['intake', 'review', 'awaiting_sender', 'sent'].includes(e.status) || e.applyStatus === 'scheduled'
     || (e.kind === 'offer' && (e.flags || []).some(f => f.code === 'packet_not_started'))
-    || (e.status === 'completed' && (e.filingStatus !== 'filed' || new Date(e.completedAt).getTime() > recent))
+    // Filed by hand (Oct 15 2026): HR has dealt with it - off the profile at once.
+    || (e.status === 'completed' && (e.filingStatus !== 'filed'
+      || (new Date(e.completedAt).getTime() > recent && !(e.flags || []).some(f => f.code === 'filed_by_hand'))))
     || (e.flags || []).some(f => f.code === 'apply_failed')
     || (['declined', 'expired'].includes(e.status) && new Date(e.createdAt).getTime() > recent));
   if (!shown.length) return null;
