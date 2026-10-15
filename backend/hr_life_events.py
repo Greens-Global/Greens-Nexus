@@ -1749,6 +1749,57 @@ def _apply_hire(db: Session, ev: HrLifeEvent, req: HrSignRequest) -> None:
         _notify(db, to, title, body, ev)
 
 
+# Details Form answers that have a home on the profile (Pranshu, Oct 15 2026:
+# "pull those values and store here in People"). Matched on the variable name,
+# first match wins; anything unmatched still shows under Hiring Details.
+_PROFILE_KEYS = {"dob": ("date_of_birth", "dob", "birth_date"), "gender": ("gender", "sex"),
+                 "nationalId": ("national_id", "aadhaar_number", "aadhar_number", "aadhaar", "ssn",
+                                "social_security_number")}
+_BANK_KEYS = {"number": ("bank_account_number", "account_number"),
+              "routingOrIfsc": ("ifsc_code", "ifsc", "routing_number", "bank_routing_number"),
+              "bankName": ("bank_name",), "holder": ("account_holder_name", "bank_account_holder"),
+              "type": ("account_type", "type_of_account", "bank_account_type")}
+_GENDERS = ("Male", "Female", "Other", "Prefer not to say")
+
+
+def _first(answers: dict, keys: tuple) -> tuple:
+    return next(((k, str(answers[k]).strip()) for k in keys if str(answers.get(k) or "").strip()), ("", ""))
+
+
+def _profile_from_answers(fields: list, answers: dict, personal: dict, bank: list, holder: str) -> set:
+    """Fill Personal Details and Bank Accounts from the person's own answers.
+    A Sensitive answer only goes where Pay & Benefits guards it (the bank
+    account), never onto Personal Details. Returns the keys used."""
+    sensitive = {f["key"] for f in fields if f.get("sensitive")}
+    used = set()
+    for field, keys in _PROFILE_KEYS.items():
+        k, v = _first({k: v for k, v in answers.items() if k not in sensitive}, keys)
+        if not k:
+            continue
+        if field == "dob" and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", v):
+            continue                                       # the profile keeps a real date or nothing
+        if field == "gender":
+            v = next((g for g in _GENDERS if g.lower() == v.lower()), v)
+        personal[field] = v[:120]
+        used.add(k)
+    acc = {}
+    for field, keys in _BANK_KEYS.items():
+        k, v = _first(answers, keys)
+        if k:
+            acc[field] = v[:120]
+            used.add(k)
+    if acc.get("number"):
+        t = (acc.get("type") or "").lower()
+        acc["type"] = next((x for x in ("savings", "current", "checking") if x in t), "checking")
+        acc.setdefault("holder", holder)
+        acc = {"holder": "", "bankName": "", "routingOrIfsc": "", **acc}
+        if not any(str(b.get("number") or "") == acc["number"] for b in bank if isinstance(b, dict)):
+            bank.append(acc)
+    else:
+        used -= {k for keys in _BANK_KEYS.values() for k in keys}    # no account number - nothing to file
+    return used
+
+
 def _apply_hire_details(db: Session, ev: HrLifeEvent, emp: NexusEmployee) -> None:
     """A packet built from Documents (Oct 14): the details collected for it land
     on People, its documents now belong to the employee, and anything that
@@ -1773,8 +1824,11 @@ def _apply_hire_details(db: Session, ev: HrLifeEvent, emp: NexusEmployee) -> Non
     import hr_packet_docs as hpd
     form = hpd.event_form(db, ev, hpd.event_setting(db, ev))
     plain = hpd.answer_values(form, hpd.event_answers(ev))[0]            # as printed: dates MM/DD/YYYY
+    bank = [dict(b) for b in (emp.bank or [])]
+    used = _profile_from_answers(hpd.form_fields(form), hpd.event_answers(ev), personal, bank, ev.subject_name or "")
+    emp.bank = bank
     rows = [{"label": f["label"], "value": plain[f["key"]]}
-            for f in hpd.form_fields(form) if not f.get("sensitive") and plain.get(f["key"])]
+            for f in hpd.form_fields(form) if not f.get("sensitive") and plain.get(f["key"]) and f["key"] not in used]
     if rows:
         personal["packetDetails"] = rows
     emp.personal = personal
