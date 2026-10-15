@@ -1061,6 +1061,11 @@ def _run_migrations():
             # Shifts Phase 0 (Oct 14): shift types and groups per company. models.Shift / ShiftGroup.
             "ALTER TABLE shifts ADD COLUMN company_id VARCHAR DEFAULT ''",
             "ALTER TABLE shift_groups ADD COLUMN company_id VARCHAR DEFAULT ''",
+            # Shifts Phase 3a (Oct 14): Outlook calendar opt-out and the subscribe-link salt. models.NexusPersonPref.
+            "ALTER TABLE nexus_person_prefs ADD COLUMN shift_calendar INTEGER DEFAULT 1",
+            "ALTER TABLE nexus_person_prefs ADD COLUMN ical_salt VARCHAR DEFAULT ''",
+            # Shifts Phase 3a review (Oct 15): failed sync tries per queued row. models.ShiftCalendarEvent.
+            "ALTER TABLE shift_calendar_events ADD COLUMN attempts INTEGER DEFAULT 0",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2367,6 +2372,11 @@ def _run_migrations():
         # shared with every company). models.Shift / ShiftGroup.company_id.
         "ALTER TABLE shifts ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
         "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
+        # Shifts Phase 3a (Oct 14): Outlook calendar opt-out and the subscribe-link salt. models.NexusPersonPref.
+        "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS shift_calendar INTEGER DEFAULT 1",
+        "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS ical_salt VARCHAR DEFAULT ''",
+        # Shifts Phase 3a review (Oct 15): failed sync tries per queued row. models.ShiftCalendarEvent.
+        "ALTER TABLE shift_calendar_events ADD COLUMN IF NOT EXISTS attempts INTEGER DEFAULT 0",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -3039,6 +3049,14 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             print(f"[startup] no-show loop skipped: {e}")
         try:
+            # Shifts Phase 3a (Oct 14 2026): shared shifts onto people's
+            # Outlook calendars - every minute, up to 50 queued rows, Graph
+            # app-only in a thread. See shift_calendar.py.
+            from shift_calendar import calendar_sync_loop
+            _tasks.append(_a.create_task(calendar_sync_loop()))
+        except Exception as e:
+            print(f"[startup] shift calendar sync loop skipped: {e}")
+        try:
             # ...and the follow-up on a weather call: a second text to anyone
             # silent after 30 minutes, the decider told after 60. weather_call.py.
             from weather_call import weather_call_loop
@@ -3680,3 +3698,5 @@ app.include_router(accounting_profitability.router)  # Accounting > Reporting > 
 app.include_router(accounting_compensation.router)   # Accounting > Reporting > Employee Compensation: wages and hours per employee, payroll on the ledger (Neil, 10/15)
 from routers import accounting_ask  # noqa: E402
 app.include_router(accounting_ask.router)            # Accounting > Reporting > AMA: Ask My Accountant - questions on ledger lines, the suspense account's lines (Neil, 10/15)
+from routers import shift_ical  # noqa: E402
+app.include_router(shift_ical.router)                # Shifts Phase 3a: the personal calendar subscribe feed (signed link, no login on the .ics) (Neil, 10/14)

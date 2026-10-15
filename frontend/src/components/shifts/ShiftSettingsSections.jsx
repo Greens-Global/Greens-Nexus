@@ -6,7 +6,7 @@
 // scheduled together, who schedules them, their Teams chat). Registered in
 // views/AdminConsole.jsx GLOBAL_CATEGORIES / GLOBAL_SECTIONS.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Trash2, X, Check, MessageSquare, Search, ChevronUp, ChevronDown, Pencil, Hash, CloudRain } from 'lucide-react';
+import { Plus, Trash2, X, Check, MessageSquare, Search, ChevronUp, ChevronDown, Pencil, Hash, CloudRain, CalendarDays } from 'lucide-react';
 import { api } from '../../api';
 import TeamsTargetPicker from '../TeamsTargetPicker';
 import { useUnsavedGuard } from '../../lib/useUnsavedGuard';
@@ -14,6 +14,7 @@ import UnsavedChangesPrompt from '../UnsavedChangesPrompt';
 import { dialog } from '../../ui/dialog';
 import { ZONE_GROUPS, zoneOptionLabel } from '../../lib/worldClockZones';
 import { useNameResolver } from '../../lib/useNameResolver';
+import { useRole } from '../../contexts/RoleContext';
 import { formatHHMM } from '../../lib/datetime';
 import { useListNav } from '../../lib/listNav';
 import AsyncSection, { Spinner, SkeletonBlocks } from '../AsyncState';
@@ -270,10 +271,60 @@ export function ShiftSettingsPanel({ toastOk, toastErr }) {
               <label style={{ ...CHECK, marginTop: 8 }}><input type="checkbox" checked={cfg.publishReasonRequired === true} onChange={(e) => save({ publishReasonRequired: e.target.checked })} /> Require a reason to share a schedule that has warnings</label>
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Rule warnings, approved time off and holidays ask for it; a pending request, availability or an overlap only shows. Managers see the reason in the history of the shifts it applies to. A company that does not want to be asked turns this off here{canPick ? ' - pick the company above first' : ''}.</div>
             </div>
+            <div>
+              <div style={LBL}>Sharing</div>
+              <label style={CHECK}><input type="checkbox" checked={cfg.outlookCalendar !== false} onChange={(e) => save({ ...cfg, outlookCalendar: e.target.checked })} /> Add shared shifts to people's Outlook calendars</label>
+              <label style={{ display: 'grid', gap: 4, maxWidth: 300, margin: '4px 0 6px' }}><span style={{ fontSize: 12.5, fontWeight: 600, color: cfg.outlookCalendar === false ? 'var(--muted)' : 'var(--ink)' }}>Show In Outlook As</span>
+                <select className="form-input" aria-label="Show in Outlook as" disabled={cfg.outlookCalendar === false} value={cfg.outlookShowAs === 'busy' ? 'busy' : 'free'} onChange={(e) => save({ ...cfg, outlookShowAs: e.target.value })} style={{ width: 'auto', fontSize: 12.5, padding: '4px 30px 4px 8px' }}>
+                  <option value="free">Free</option>
+                  <option value="busy">Busy</option>
+                </select>
+                <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Free keeps people bookable during a shift; Busy blocks the time. Each person can keep shifts out of their own calendar from My Shifts.</span>
+              </label>
+              <label style={CHECK}><input type="checkbox" checked={cfg.confirmRequests !== false} onChange={(e) => save({ ...cfg, confirmRequests: e.target.checked })} /> Ask people to confirm a shared schedule</label>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>A share then asks each person to confirm in My Shifts; the schedule shows who has, and a manager can nudge the rest.</div>
+              <CalendarSyncStatus />
+            </div>
             {!company && <TimeOffReasons toastOk={toastOk} toastErr={toastErr} />}
           </div>
         )}
       </AsyncSection>
+    </div>
+  );
+}
+
+// The Outlook calendar sync status, for administrators (Shifts Phase 3a).
+// `enabled: false` with a reason that names docs/Outlook-Calendar-Setup.md
+// means the Entra permission (Calendars.ReadWrite) is not granted yet - a
+// quiet amber note, never an error. A failed call shows nothing.
+export function CalendarSyncStatus() {
+  const role = useRole();
+  const isAdmin = !!role?.can?.('administrator');
+  const [st, setSt] = useState(null);
+  useEffect(() => {
+    if (!isAdmin) return undefined;
+    let live = true;
+    Promise.resolve().then(() => api.timeCalendarSyncStatus())
+      .then((r) => { if (live) setSt(r && typeof r === 'object' ? r : null); })
+      .catch(() => { if (live) setSt(null); });
+    return () => { live = false; };
+  }, [isAdmin]);
+  if (!isAdmin || !st) return null;
+  if (st.enabled === false) {
+    const setup = /Outlook-Calendar-Setup/i.test(String(st.reason || ''));
+    return setup ? (
+      <div role="note" data-calendar-sync="waiting" title={st.reason || undefined} style={{ fontSize: 12, color: 'hsl(var(--color-orange))', marginTop: 8, display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+        <CalendarDays size={13} style={{ flexShrink: 0, marginTop: 1 }} />
+        <span>Outlook calendar sync is waiting on an Entra permission (Calendars.ReadWrite). See docs/Outlook-Calendar-Setup.md.</span>
+      </div>
+    ) : (
+      <div data-calendar-sync="off" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>Outlook calendar: off{st.reason ? ` - ${st.reason}` : ''}</div>
+    );
+  }
+  const n = (k) => Number(st[k]) || 0;
+  return (
+    <div data-calendar-sync="on" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8 }}>
+      Outlook calendar: on - {n('ok')} synced, {n('pending')} pending{n('errors') ? `, ${n('errors')} failed` : ''}{n('skipped') ? `, ${n('skipped')} skipped` : ''}
     </div>
   );
 }

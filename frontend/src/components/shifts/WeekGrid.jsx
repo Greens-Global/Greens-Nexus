@@ -22,7 +22,7 @@
 // the My Shifts group grid (TeamShiftGrid.jsx). Everything it does goes
 // through `on`; without `on` the grid is read-only.
 import { Fragment } from 'react';
-import { Plus, AlertTriangle, Lock, ChevronDown, ChevronRight, ChevronLeft, CalendarRange, CalendarDays, StickyNote, MoreHorizontal } from 'lucide-react';
+import { Plus, AlertTriangle, Lock, ChevronDown, ChevronRight, ChevronLeft, CalendarRange, CalendarDays, StickyNote, MoreHorizontal, CircleCheck, Circle } from 'lucide-react';
 import WeatherChip from './WeatherChip';
 import { formatDate, formatMonthDay } from '../../lib/datetime';
 import { Avatar } from '../ShiftScheduleExtras';
@@ -79,7 +79,10 @@ export function gridKeys(e, on) {
 // signed-in person (and a 3px brand bar on the left - never a row tint),
 // "9 Hrs" muted ("48 Hrs · over 40" in amber), and their usual hours as one
 // muted line. Day view uses it too.
-export function PersonCell({ emp, isMe = false, hrs, over = [], viewOnly = false, photos = true, onNow = false, usual = null, tools, style, ...rest }) {
+// `confirm` (Phase 3a): 'all' = every schedule shared in view is confirmed
+// (a 12px green check after the name), 'some' = one is not yet (a hollow
+// mark), null = no share in view asked them - nothing.
+export function PersonCell({ emp, isMe = false, hrs, over = [], viewOnly = false, photos = true, onNow = false, usual = null, confirm = null, tools, style, ...rest }) {
   const limited = emp.availability?.length > 0;
   return (
     <div {...rest} className="sched-person"
@@ -94,6 +97,8 @@ export function PersonCell({ emp, isMe = false, hrs, over = [], viewOnly = false
       <span style={{ minWidth: 0, flex: 1, lineHeight: 1.35 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, minWidth: 0 }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', ...ELLIPSIS }}>{emp.name}</span>
+          {confirm === 'all' && <span data-confirm="all" title="Confirmed the shared schedule" aria-label="Confirmed the shared schedule" style={{ display: 'inline-flex', color: 'hsl(var(--color-green))', flexShrink: 0, alignSelf: 'center' }}><CircleCheck size={12} /></span>}
+          {confirm === 'some' && <span data-confirm="some" title="Has not confirmed the shared schedule yet" aria-label="Has not confirmed the shared schedule yet" style={{ display: 'inline-flex', color: 'var(--muted)', flexShrink: 0, alignSelf: 'center' }}><Circle size={12} /></span>}
           {isMe && <span style={{ fontWeight: 600, color: 'var(--wk-brand)', fontSize: 12, flexShrink: 0 }}>You</span>}
         </div>
         <div style={{ fontSize: 11.5, color: over.length ? 'hsl(var(--color-orange))' : 'var(--muted)', fontWeight: over.length ? 700 : 500, display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}
@@ -257,7 +262,7 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
   ariaRole = 'grid', ariaLabel = 'Schedule', notesRow = false, maxHeight = 'calc(100vh - 150px)',
   single = false, emptyNote = null, cornerTools = null, ghostOf = () => null, blockClass = () => '', motion = true, glowToday = false,
   personFill = null, usualCan = () => false, coverageOf = null, onCoverage = null, pulseCells = null, conflictCount = 0, onConflicts = null,
-  conflictWord = 'conflict', actualOf = null, adherence = null }) {
+  conflictWord = 'conflict', actualOf = null, adherence = null, confirmOf = null }) {
   const today = todayIso();
   const n = days.length;
   const coarse = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)')?.matches;
@@ -489,7 +494,7 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
         <Fragment key={`p-${key}-${emp.email}`}>
           <div role="row" data-member={emp.email} aria-current={isMe ? 'true' : undefined} data-ri={r} style={{ display: 'contents', '--ri': r }}>
             <PersonCell role="rowheader" emp={{ ...emp, availability: prefs.availability !== false ? emp.availability : [] }} isMe={isMe} hrs={empWeekMin(emp.email)} over={overWeeks(emp.email)}
-              data-person={emp.email} usual={usualOf(emp.email)} onNow={onNowOf(emp.email)}
+              data-person={emp.email} usual={usualOf(emp.email)} onNow={onNowOf(emp.email)} confirm={confirmOf ? confirmOf(emp.email) : null}
               viewOnly={!editable && canManage} photos={prefs.photos !== false}
               {...pdp}
               style={{ ...stickyLeft(row), boxShadow: isMe ? 'inset 3px 0 0 var(--wk-brand)' : 'none', ...(pdp.style || {}) }}

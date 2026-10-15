@@ -2341,6 +2341,20 @@ export const api = {
   // shares made with warnings for the Share dialog's Recent Shares.
   timeSchedCellHistory:       (email, date) => req(`/timeclock/schedule/history?email=${encodeURIComponent(email)}&date=${date}`),
   timeSchedShares:            (params = {}) => req(`/timeclock/schedule/shares${Object.keys(params).length ? `?${new URLSearchParams(params).toString()}` : ''}`),
+  // Shifts Phase 3a (Oct 14): the schedule comes to people. My own
+  // preferences (the Outlook calendar opt-out), the administrator's calendar
+  // sync status, my iCal subscription link (rotate = a new link, the old one
+  // stops working), the shared schedules I have not confirmed and the
+  // confirm, and for a manager who has confirmed in a range plus a nudge.
+  timeMyPrefsGet:             () => req('/timeclock/my-prefs'),
+  timeMyPrefsSet:             (data) => req('/timeclock/my-prefs', { method: 'PUT', body: JSON.stringify(data) }),
+  timeCalendarSyncStatus:     () => req('/timeclock/calendar-sync/status'),
+  timeMyIcalLink:             () => req('/timeclock/my-schedule/ical-link'),
+  timeMyIcalRotate:           () => req('/timeclock/my-schedule/ical-link/rotate', { method: 'POST' }),
+  timeMyConfirmations:        () => req('/timeclock/my-schedule/confirmations'),
+  timeSchedConfirm:           (publishId) => req(`/timeclock/schedule/confirm/${encodeURIComponent(publishId)}`, { method: 'POST' }),
+  timeSchedConfirmations:     (start, end) => req(`/timeclock/schedule/confirmations?start=${start}&end=${end}`),
+  timeSchedNudge:             (data) => req('/timeclock/schedule/nudge', { method: 'POST', body: JSON.stringify(data) }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

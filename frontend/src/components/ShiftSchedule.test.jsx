@@ -39,10 +39,14 @@ vi.mock('../ui/dialog', () => ({ dialog: { confirm: (...a) => confirmAsk(...a), 
 vi.mock('../tasks/exporting', () => ({ exportExcel: (...a) => exportExcel(...a) }));
 const weatherCallScreen = vi.fn();
 const timeSchedActuals = vi.fn();
+const timeSchedConfirmations = vi.fn();
+const timeSchedNudge = vi.fn();
 vi.mock('../api', () => ({
   api: {
     timeSchedule: (...a) => timeSchedule(...a),
     timeSchedActuals: (...a) => timeSchedActuals(...a),
+    timeSchedConfirmations: (...a) => timeSchedConfirmations(...a),
+    timeSchedNudge: (...a) => timeSchedNudge(...a),
     weatherCallScreen: (...a) => weatherCallScreen(...a),
     timeShiftAssign: (...a) => timeShiftAssign(...a),
     timeSchedDelete: (...a) => timeSchedDelete(...a),
@@ -158,6 +162,8 @@ beforeEach(() => {
   timeOffOnBehalf.mockReset().mockResolvedValue({ id: 't9' });
   timeOffDecide.mockReset().mockResolvedValue({});
   timeSchedActuals.mockReset().mockResolvedValue({ cells: {}, people: {}, totals: {} });
+  timeSchedConfirmations.mockReset().mockResolvedValue({ people: [], unconfirmed: 0 });
+  timeSchedNudge.mockReset().mockImplementation(async (b) => ({ nudged: b.emails.length }));
 });
 
 describe('Toolbar: one row, seven controls', () => {
@@ -1276,5 +1282,97 @@ describe('Actuals: the schedule meets the clock', () => {
       expect(list.querySelector('[data-actual-word="late"]').textContent).toBe('Late');
       expect(list.querySelector('[data-shift="s1"] [data-actual]').getAttribute('data-actual')).toBe('late');
     } finally { mm.mockRestore(); }
+  });
+});
+
+// Shifts Phase 3a (Oct 14): who has confirmed the schedules shared in view.
+// GET /timeclock/schedule/confirmations answers { people: [...], unconfirmed }.
+// The chip counts people, its list nudges the rest (one call per share),
+// and the person column wears a 12px mark - green when every share in view
+// is confirmed, hollow when one is not, nothing when no share asked them.
+describe('Confirmations: the schedule comes to people', () => {
+  const rows = () => [
+    { email: 'amy@greensglobal.com', name: 'Amy Adams', unconfirmed: 0, publishes: [{ publishId: 'pub1', at: '2026-10-13T18:00:00Z', by: 'ada@greensglobal.com', confirmedAt: '2026-10-13T19:00:00Z', nudgedAt: null }] },
+    { email: 'bob@greensglobal.com', name: 'Bob Brown', unconfirmed: 1, publishes: [
+      { publishId: 'pub1', at: '2026-10-13T18:00:00Z', by: 'ada@greensglobal.com', confirmedAt: '2026-10-13T19:00:00Z', nudgedAt: null },
+      { publishId: 'pub2', at: '2026-10-14T18:00:00Z', by: 'ada@greensglobal.com', confirmedAt: null, nudgedAt: null }] },
+  ];
+  const answer = (people) => ({ people, unconfirmed: people.reduce((n, p) => n + (p.unconfirmed || 0), 0) });
+  it('counts the people, marks the person column, and nudges from the list', async () => {
+    timeSchedule.mockResolvedValue(data([shift(), shift({ id: 's2', email: 'bob@greensglobal.com' })]));
+    timeSchedConfirmations.mockResolvedValue(answer(rows()));
+    render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
+    await screen.findByText('Amy Adams');
+    await waitFor(() => expect(timeSchedConfirmations).toHaveBeenCalledWith(monday, plusDays(monday, 6)));
+    const chip = await screen.findByRole('button', { name: '1 Of 2 Confirmed' });
+    expect(chip.textContent).toBe('1 Of 2 Confirmed');
+    const amy = document.querySelector('[data-person="amy@greensglobal.com"]');
+    const bob = document.querySelector('[data-person="bob@greensglobal.com"]');
+    expect(amy.querySelector('[data-confirm]').getAttribute('data-confirm')).toBe('all');
+    expect(amy.querySelector('[data-confirm]').getAttribute('title')).toBe('Confirmed the shared schedule');
+    expect(bob.querySelector('[data-confirm]').getAttribute('data-confirm')).toBe('some');
+    expect(bob.querySelector('[data-confirm]').getAttribute('title')).toBe('Has not confirmed the shared schedule yet');
+    expect(amy.querySelector('svg').getAttribute('width')).toBe('12');
+    fireEvent.click(chip);
+    const dlg = await screen.findByRole('dialog', { name: 'Schedule confirmations' });
+    expect(dlg.textContent).toContain('Not Confirmed Yet');
+    expect(within(dlg).queryByText('Amy Adams')).toBeNull();
+    expect(within(dlg).getByText('Bob Brown')).toBeTruthy();
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Nudge Everyone' }));
+    await waitFor(() => expect(timeSchedNudge).toHaveBeenCalledWith({ publish_id: 'pub2', emails: ['bob@greensglobal.com'] }));   // the LATEST share per person
+    expect(toastOk).toHaveBeenCalledWith('Nudged 1 person.');
+    // Nudged: the date in place of the button, and nothing left to nudge.
+    await waitFor(() => expect(within(dlg).queryByRole('button', { name: 'Nudge Bob Brown' })).toBeNull());
+    const today = new Date();
+    expect(within(dlg).getByText(`Nudged ${String(today.getMonth() + 1).padStart(2, '0')}/${String(today.getDate()).padStart(2, '0')}`)).toBeTruthy();
+    expect(within(dlg).getByRole('button', { name: 'Nudge Everyone' }).disabled).toBe(true);
+    expect(screen.getByRole('button', { name: '1 Of 2 Confirmed' })).toBeTruthy();   // a nudge is not a confirmation
+  });
+  it('nudges one person, shows who was already nudged, and reads all-confirmed in green', async () => {
+    const r = rows();
+    r.push({ email: 'cat@greensglobal.com', name: 'Cat Cole', unconfirmed: 1, publishes: [{ publishId: 'pub2', at: '2026-10-14T18:00:00Z', by: 'ada@greensglobal.com', confirmedAt: null, nudgedAt: '2026-10-14T20:00:00Z' }] });
+    timeSchedule.mockResolvedValue({ ...data([shift()]), employees: [...data([]).employees, { email: 'cat@greensglobal.com', name: 'Cat Cole' }] });
+    timeSchedConfirmations.mockResolvedValue(answer(r));
+    render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
+    fireEvent.click(await screen.findByRole('button', { name: '1 Of 3 Confirmed' }));
+    const dlg = await screen.findByRole('dialog', { name: 'Schedule confirmations' });
+    expect(within(dlg).getByText('Nudged 10/14')).toBeTruthy();
+    expect(within(dlg).queryByRole('button', { name: 'Nudge Cat Cole' })).toBeNull();
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Nudge Bob Brown' }));
+    await waitFor(() => expect(timeSchedNudge).toHaveBeenCalledWith({ publish_id: 'pub2', emails: ['bob@greensglobal.com'] }));
+    await waitFor(() => expect(within(dlg).queryByRole('button', { name: 'Nudge Bob Brown' })).toBeNull());
+    expect(timeSchedNudge).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Schedule confirmations' })).toBeNull());
+  });
+  it('is green when everyone has confirmed; failed calls, a viewer and a range with no share show nothing', async () => {
+    timeSchedule.mockResolvedValue(data([shift()]));
+    timeSchedConfirmations.mockResolvedValue(answer([rows()[0]]));
+    const { unmount } = render(<ShiftSchedule toastOk={toastOk} />);
+    const chip = await screen.findByRole('button', { name: '1 Of 1 Confirmed' });
+    expect(chip.style.color).toBe('hsl(var(--color-green))');
+    fireEvent.click(chip);
+    expect((await screen.findByRole('dialog', { name: 'Schedule confirmations' })).textContent).toContain('Everyone Has Confirmed');
+    unmount();
+    timeSchedConfirmations.mockResolvedValue(answer([]));
+    const r2 = render(<ShiftSchedule toastOk={toastOk} />);
+    await screen.findByText('Amy Adams');
+    await waitFor(() => expect(timeSchedConfirmations).toHaveBeenCalledTimes(2));
+    expect(document.querySelector('[data-confirm-chip]')).toBeNull();
+    expect(document.querySelector('[data-confirm]')).toBeNull();
+    r2.unmount();
+    timeSchedConfirmations.mockRejectedValue(new Error('API error 500'));
+    const r3 = render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
+    await screen.findByText('Amy Adams');
+    await waitFor(() => expect(timeSchedConfirmations).toHaveBeenCalledTimes(3));
+    expect(document.querySelector('[data-confirm-chip]')).toBeNull();
+    expect(toastErr).not.toHaveBeenCalled();
+    r3.unmount();
+    timeSchedule.mockResolvedValue({ ...data([shift()]), canManage: false });
+    timeSchedConfirmations.mockResolvedValue(answer(rows()));
+    render(<ShiftSchedule toastOk={toastOk} />);
+    await screen.findByText('Amy Adams');
+    expect(timeSchedConfirmations).toHaveBeenCalledTimes(3);                 // a viewer never asks
+    expect(document.querySelector('[data-confirm-chip]')).toBeNull();
   });
 });

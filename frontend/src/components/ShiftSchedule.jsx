@@ -157,6 +157,58 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
   }, [data, showActuals, reachesToday, start, end]);
   const actualOf = useCallback((email, ds) => actuals?.cells?.[`${email}|${ds}`] || null, [actuals]);
 
+  // Confirmations (Phase 3a, Oct 14): who has confirmed the schedules shared
+  // in this range - a manager only, fetched beside the schedule the same way
+  // as the actuals (after it, never blocking it, a failed call is nothing).
+  // The API answers { people: [{ email, name, publishes: [{ publishId, at, by,
+  // confirmedAt, nudgedAt }], unconfirmed }], unconfirmed }; the rows kept
+  // here are its people.
+  const [confirmRows, setConfirmRows] = useState(null);
+  useEffect(() => {
+    if (!data || data.canManage === false || loadedRange.current !== `${start}|${end}`) { setConfirmRows(null); return undefined; }
+    let live = true;
+    Promise.resolve().then(() => api.timeSchedConfirmations(start, end))
+      .then((r) => { if (live) setConfirmRows(Array.isArray(r?.people) ? r.people : null); })
+      .catch(() => { if (live) setConfirmRows(null); });
+    return () => { live = false; };
+  }, [data, start, end]);
+  const confirmations = useMemo(() => {
+    const rows = (confirmRows || []).filter((r) => r?.email && Array.isArray(r.publishes) && r.publishes.length);
+    if (!rows.length) return null;
+    const state = {};
+    const pending = [];
+    rows.forEach((r) => {
+      const email = String(r.email).toLowerCase();
+      const open = r.publishes.filter((p) => !p.confirmedAt);
+      state[email] = open.length ? 'some' : 'all';
+      if (!open.length) return;
+      // The latest unconfirmed publish is the one a nudge is about.
+      const latest = [...open].sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')))[0];
+      pending.push({ email: r.email, name: nameOf(r.email, r.name), publishId: latest.publishId, nudgedAt: latest.nudgedAt || '' });
+    });
+    return { total: rows.length, confirmed: rows.length - pending.length, pending, state };
+  }, [confirmRows, nameOf]);
+  const confirmOf = useCallback((email) => confirmations?.state?.[String(email || '').toLowerCase()] || null, [confirmations]);
+  // A nudge: one call per publish (the API takes one publish id and the
+  // people to remind about it); the rows then show "Nudged" at once.
+  async function nudge(people) {
+    const byPublish = new Map();
+    people.forEach((p) => { if (!byPublish.has(p.publishId)) byPublish.set(p.publishId, []); byPublish.get(p.publishId).push(p.email); });
+    let n = 0;
+    try {
+      for (const [publishId, emails] of byPublish) {
+        const r = await api.timeSchedNudge({ publish_id: publishId, emails });
+        n += Number(r?.nudged) || 0;
+      }
+      const now = new Date().toISOString();
+      const hit = new Set(people.map((p) => String(p.email).toLowerCase()));
+      setConfirmRows((rows) => (rows || []).map((r) => (hit.has(String(r.email).toLowerCase())
+        ? { ...r, publishes: r.publishes.map((p) => (p.confirmedAt ? p : { ...p, nudgedAt: now })) } : r)));
+      // The API skips anyone who confirmed or was nudged since the list loaded.
+      toastOk?.(n ? `Nudged ${n === 1 ? '1 person' : `${n} people`}.` : 'Nothing to nudge - everyone was already nudged or has confirmed.');
+    } catch (e) { toastErr?.(e?.message || 'Could not send the nudge.'); }
+  }
+
   const presets = data?.shifts || [];
   // Custom shifts the schedule already uses with a label (e.g. "All Properties"
   // from Teams) - offered beside the shift types so they can be added again.
@@ -989,6 +1041,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
         ) : null}
         canManage={toolbarManage} busy={busy} ready={ready}
         unsharedCount={managing ? unsharedCount : 0} phone={phone}
+        confirmations={managing ? confirmations : null} onNudge={nudge}
         onAdd={(kind) => {
           if (kind === 'note') { setNoteDate(view === 'day' ? start : isoDate(new Date()) >= start && isoDate(new Date()) <= end ? isoDate(new Date()) : start); setOpen('note'); return; }
           const date = view === 'day' ? start : (isoDate(new Date()) >= start && isoDate(new Date()) <= end ? isoDate(new Date()) : start);
@@ -1063,7 +1116,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
           single={single} emptyNote={emptyNote} cornerTools={cornerTools} ghostOf={ghostOf} blockClass={blockClass} motion={!reduce} glowToday={glowRef.current}
           personFill={managing ? personFill : null} usualCan={(email) => !!usualOf(email)}
           coverageOf={coverageOf} onCoverage={managing ? onCoverage : null} pulseCells={pulseCells} conflictCount={conflictCount} onConflicts={goToConflict} conflictWord={conflictWord}
-          actualOf={actuals ? actualOf : null} adherence={adherence} />
+          actualOf={actuals ? actualOf : null} adherence={adherence} confirmOf={managing && confirmations ? confirmOf : null} />
       )}
       </div>
       )}
