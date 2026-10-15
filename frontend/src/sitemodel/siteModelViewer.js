@@ -187,6 +187,10 @@ export function createSiteModelViewer(container, model, options = {}) {
     const m = new THREE.Mesh(cellGeo, mat.neutral);
     m.scale.set(Math.max(0.3, u.wu - 0.12), h, Math.max(0.3, u.dv - 0.12));
     m.position.copy(W(u.u + u.wu / 2, u.v + u.dv / 2, baseY + h / 2 + 0.03));
+    // An angled stall from the as-built plans turns about its center (rot:
+    // degrees counter-clockwise in u,v; W maps u,v to x,-z, so that is rotation.y).
+    const rot = u.rot ? (u.rot * Math.PI) / 180 : 0;
+    if (rot) m.rotation.y = rot;
     m.userData.unit = u; scene.add(m); unitMeshes.push(m); meshOf[u.n] = { mesh: m };
     if (u.k !== 'park' && b) {
       const d = new THREE.Mesh(cellGeo, mat.door);
@@ -196,6 +200,11 @@ export function createSiteModelViewer(container, model, options = {}) {
       } else {
         d.scale.set(Math.max(0.3, u.wu - 0.3), h + 0.02, 0.25);
         const vz = u.door === 'ne' ? u.v + u.dv - 0.12 : u.v + 0.12; d.position.copy(W(u.u + u.wu / 2, vz, baseY + h / 2 + 0.03));
+      }
+      if (rot) {   // keep the door on its face of the turned unit
+        const c = W(u.u + u.wu / 2, u.v + u.dv / 2, 0);
+        const off = d.position.clone().sub(c).applyAxisAngle(new THREE.Vector3(0, 1, 0), rot);
+        d.position.copy(c.add(off)).setY(baseY + h / 2 + 0.03); d.rotation.y = rot;
       }
       scene.add(d); meshOf[u.n].door = d;
     }
@@ -274,6 +283,9 @@ export function createSiteModelViewer(container, model, options = {}) {
   const bounds = diorama ? (() => { const t = diorama.tile; return { cu: (t.u0 + t.u1) / 2, cv: (t.v0 + t.v1) / 2, r: Math.max(140, Math.hypot(t.u1 - t.u0, t.v1 - t.v0) * 1.25) }; })() : (() => {
     const pts = []; (pads.length ? pads : parcels).forEach((p) => p.forEach((q) => pts.push(q)));
     (model.buildings || []).forEach((b) => { pts.push([b.u[0], b.v[0]]); pts.push([b.u[1], b.v[1]]); });
+    // And every unit (Oct 14 2026): a site whose paved-area outline covers
+    // only the office yard (Fairfield) framed its whole stall lot off-screen.
+    (model.units || []).forEach((x) => { pts.push([x.u, x.v]); pts.push([x.u + x.wu, x.v + x.dv]); });
     if (!pts.length) return { cu: 50, cv: 0, r: 320 };
     let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
     pts.forEach(([u, v]) => { u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v); });

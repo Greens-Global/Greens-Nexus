@@ -147,71 +147,57 @@ into lettered sections), from image pixels, or from meters. Stalls fill the
 zone in rows along `u` in unit-number order. A `canopy` zone is a roof drawn
 over the stalls with no units of its own.
 
-The script lays units out **schematically**: drive-up units along the
-exterior walls in number order, interior units along double-loaded hallways
-(`corridor` per building, 1.6 m default), parking stalls in rows across the
-lot. Buildings whose long side runs across the frame are laid out rotated
-(door sides `w` / `e`). When the unit area needs more than the configured
-floors it adds a level and says so in `layout.flags`, which the owner panel
-shows under Layout Notes. Replace the generated `u, v, wu, dv, f` of each unit
-from the as-built plan when it is scanned (As-Built Plans is item 3 of the
-Asset Management scope) and clear `layout.schematic`.
+The script lays units out **schematically** only where nothing better is
+known: drive-up units along the exterior walls in number order, interior units
+along double-loaded hallways (`corridor` per building, 1.6 m default), parking
+stalls in rows across the lot. When the unit area needs more than the
+configured floors it adds a level and says so in `layout.flags`.
 
-### Open questions per property (for the as-built plans)
+### Traced from the plans (Oct 14 2026)
 
-* **Austin** - 8023 W Parmer Ln, WCAD R569024 (2.818 ac, Greens Austin LLC).
-  Operated by CubeSmart, signage reads CubeSmart, and the store is not in
-  Cubby: units come from CubeSmart's rent roll (store 6992), which
-  lists rented units only. Refreshed to the 08/31/2026 Financials workbook
-  (966 rented); numbering gaps are vacant with sizes estimated from the Cube
-  Mix (see CubeSmart stores above).
-  The building (five stories, 200 ft 11 in x 155 ft 11 in) is from the WCAD
-  footprint and the Merriman Anderson plans A1.01-A1.05 (Egnyte: Greens
-  Austin, LLC > 8023 W Parmer Lane > Development > Plans & Maps > Building
-  Plans > Final Set). Units sit in number order on their floor (1xxx on
-  level 1 to 5xxx on level 5); positions within a floor are schematic until
-  the plans are traced. The paved area is drawn as the whole parcel.
+Every site is now traced from its plans with **runs** in the config (see the
+docstring at the top of `build_site_model.py`): an ordered line of units along a
+wall, hallway or painted row, with a start point (meters from a building's
+corner, or frame u,v for a lot), a direction, the side the units extend toward,
+gaps for stairs and doors, an optional fixed stall width, and an optional
+`angle` for angled parking (the stall keeps its size, sits centered in its
+painted parallelogram and carries `rot`). Runs are placed first; anything in no
+run falls back to the schematic layout.
 
-* **Sachse** - 7970 Woodbridge Pkwy, CCAD R-10561-00A-0040-1 (2.082 ac,
-  Greens Sachse LLC, DBA CubeSmart), store 4568. One three-story building,
-  74.9 x 50.0 m from the Microsoft footprint (CCAD living area 121,926 sq ft =
-  three floors of it). Units from the 08/31/2026 rent roll (741 rented) plus
-  145 numbering gaps as vacant. The office position (west corner, toward the
-  north parking court) is read from imagery - confirm. The as-built set is in
-  Egnyte (Greens Sachse, LLC > Properties > Development > Plans & Maps >
-  Building Plans & Unit Mix > As-Built Drawings - CSW Sachse - Combined set.pdf,
-  85 MB) for tracing unit positions. The Extra Space at 7900 Woodbridge and the
-  retail strip are neighbors and are not modeled.
-* **Georgetown** - 108 Boselli Way, WCAD R606431 (5.304 ac, Greens Georgetown
-  LLC, DBA CubeSmart), store 6093. Main three-story building (115.4 x 35.7 m)
-  and three 10x20 drive-up rows, all from WCAD building footprints. 4000-4035
-  on the north row and 6000-6035 on the south row is inferred (both rows hold
-  36 units) - confirm and swap the `units` regex if reversed. 5000-5014 are the
-  west row. 1500-1538 are climate-controlled drive-ups on the main building's
-  walls (which wall is schematic). Greens Georgetown LLC also owns Lot 1 next
-  door (R606430, 310 Westinghouse Rd, 1.603 ac); it is not part of the storage
-  site and is not modeled.
-* **Escondido** - Building C modeled as two levels (62,690 sq ft of C units
-  cannot fit one floor of its footprint); Building E/F needs a second level
-  for three 15x44 garages; the RV lot outline is approximate.
-* **Valley Center** - one parcel only, 188-250-45 (28407 Lizard Rocks Rd,
-  5.74 ac). The storage rows on the parcel to the south (189-013-17, 28365
-  Cole Grade Rd) belong to a neighbor and are not part of the model (Neil,
-  Oct 11). Building B is the two-story climate-controlled building from county
-  permit STP-03-026W1 (B2xx/B3xx on level 2, the schematic wants a third
-  level). C001-C044 are on the long row along the east property line, doors
-  facing B (measured from imagery). C045-C071 (mostly 12x35) are placed in
-  the southwest corner building as the only footprint deep enough; it is too
-  small for all of them, so the last ones sit on a schematic second level.
-  Confirm both against the plan.
-* **Temecula** - the lot (parcels 918-200-025 and -027) is split into
-  sections A-E in proportion to each section's stall area, containers (X) at
-  the south tip; the two canopies are drawn but not tied to stall numbers.
-* **Murrieta** - one lot, stalls in letter order; the office/shop building
-  holds X001, Z001 and the DL cells.
-* **Fairfield** - two parcels (0166-080-040 office yard and -030 striped
-  rows); the parcel layer still calls them vacant land; containers X in the
-  yard.
+Each placed unit says where it came from: `tr: 1` traced from a numbered plan,
+`tr: 2` position from the plans but the number matched by size because the
+plans carry no unit numbers (`"numbering": "inferred"` on the run), no `tr`
+schematic. `layout.traced`, `layout.numbersInferred` and `layout.schematic`
+summarize it, and the unit panel tells the reader which one they are looking at.
+
+`planSizes` in the config holds sizes the plans prove where the unit list says
+otherwise (mostly vacant CubeSmart units whose size was estimated). The build
+applies them over the unit list every time, so a `cubesmart_units.py` refresh
+cannot undo them.
+
+**Best sources, in order:** a numbered customer map under
+`/Shared/--Asset Management/<NN - GS Site>/Property Plans & Maps/` (vector
+PDFs: read labels with PyMuPDF `get_text("words")` and shapes with
+`get_drawings()`); unit-numbering floor plans in the entity's due-diligence or
+development folders; as-built / permit floor plans (positions only); the site
+plan. Fit lot maps to the parcel and check over the Esri imagery.
+
+### Per property (as traced Oct 14 2026)
+
+| Site | Traced | Source | Open |
+|---|---|---|---|
+| Sachse | 886 of 886 | CSW Sachse 1st/2nd/3rd Floor Unit Numbers (06/12/2020, due diligence) | Lockers 1001L-1011L are unnumbered on the plan (placed in the niche by the elevators, order assumed). Plan units missing from the roll: 1001, 2105, 2334, 2335, 3335. 1224, 2042 and 1180 differ in size from the plan. |
+| Austin | 1113 of 1113, numbers matched by size | As-Built Arch A1.01-A1.05 + Final Set A0.01 | No numbered plan exists: order within runs of same-size units (and the 5x5 columns' direction) follows the numbering snake - confirm on site. Gate not confirmed. |
+| Georgetown | 964 of 964, numbers matched by size | Westinghouse Storage Add 05 Architectural A1.00, A2.01-A2.03, A2.06 + 12-15-21 Unit Mix | No numbered plan exists. 4000 on the north row (B) and 6000 on the south row (D) still need an on-site check, as does the direction along each row. 1500-1504 on the west wall, 1505-1538 along the south wall. 3068 sits where the level 3 plan shows an MEP closet. |
+| Valley Center | 568 of 851 (the rest are 279 mailboxes + Z1001 in the office, and N37 / P001 / P002) | Customer Map GSVC PB v0.4 (06/24/2024) + Building B CAD maps (02/25/2023) | Building letters corrected (E1, E2, C2, F, A). F023 is 14x20 in Cubby but a 10x12 cell on the map (overlaps F041-F043) - a Cubby data question. Split B units' halves, C045-C052 door sides, parking position from imagery. |
+| Temecula | 467 of 527 | TEMECULA SITE MAP (3 sheets, 06/2022) + Cubby map snips (03/2025) | 60 units on no plan (E600-E639 and others) sit in an "Unmapped Stalls" zone off the lot - a current stall map would place them. 37 stalls run past the assessor line where the fence does. About 75 Cubby sizes differ from the painted stalls. |
+| Murrieta | 163 of 175 | 2024-06-20 Murrieta Customer Map PB v8 | X001, DL cells, TEST1 and zero-size records are on no plan. Containers C01-C07 are on the map but not in Cubby. |
+| Fairfield | 300 of 307 | Customer Map A-3.0 (06/09/2026) + storEDGE map + directional key | A032-A038 are inactive placeholders on no map ("Not On Site Plan" zone). X001-X004, A001A-D and H020 on weaker evidence. |
+| Escondido | 884 of 884 | Site Map 1"=20' (10/10/2023), Customer Map with RV Spots (10/18/2023), Customer Map (02/23/2024) | Building C is two stories (C300-C563 on level 2) - C300-C339 keep the drive-up rule, confirm. E and F are separate buildings; A is the bays at the office's east end. C048A is on no plan (placed in the C1-1 mechanical room); C046/C048 are drawn 5x7.5 but rented as 5x10 (one overlap). BC1/BC2, Z001, mailboxes M100-M176 and about 15 curved/corner stalls are placed on weaker evidence. Frame bearing corrected 141.5 to 140.4 degrees (saved pins may shift up to about 3 m). |
+
+The Valley Center ruling stands: only APN 188-250-45; the rows on 189-013-17
+belong to a neighbor. Georgetown's Lot 1 (R606430) and Sachse's neighbors
+(Extra Space at 7900 Woodbridge, the retail strip) are not modeled.
 
 ## Release checklist
 
