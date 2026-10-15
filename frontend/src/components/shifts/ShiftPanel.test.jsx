@@ -83,3 +83,22 @@ describe('ShiftPanel history', () => {
     expect(timeSchedHistory).not.toHaveBeenCalled();
   });
 });
+
+describe('ShiftPanel live check', () => {
+  it('sends the unpaid break with the check, so the daily and weekly rules count paid minutes', async () => {
+    // A 7:00 - 3:30 shift with a 30-minute lunch is 8h paid - without the
+    // break the check read 8h 30m and warned of daily overtime that the
+    // grid would never show once the shift was saved.
+    open({ email: 'amy@x.com', date: '2026-10-20', existing: { ...existing, breakMin: 30 } });
+    await waitFor(() => expect(timeSchedCheck).toHaveBeenCalled());
+    expect(timeSchedCheck).toHaveBeenLastCalledWith({ email: 'amy@x.com', date: '2026-10-20', start: '07:00', end: '15:30', exclude_id: 's1', break_min: 30 });
+  });
+
+  it('takes a new shift\'s break from its shift type', async () => {
+    const { unmount } = render(<ShiftPanel cell={{ email: 'amy@x.com', date: '2026-10-20' }} presets={[{ id: 'p1', name: 'Day', code: 'D', start: '07:00', end: '15:30', breakMin: 30, color: '#2563eb' }]} groups={[]} people={[]}
+      nameOf={(e) => e} onSave={noop} onAssign={noop} onDelete={noop} onDiscard={noop} onSaveTimeOff={noop} onClose={noop} />);
+    await waitFor(() => expect(timeSchedCheck).toHaveBeenCalled());
+    expect(timeSchedCheck).toHaveBeenLastCalledWith(expect.objectContaining({ start: '07:00', end: '15:30', break_min: 30 }));
+    unmount();
+  });
+});

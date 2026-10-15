@@ -268,8 +268,16 @@ class SettingsIn(BaseModel):
 @router.get("/settings")
 def read_settings(company: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """The tenant settings, or with `?company=<id>` the settings in force
-    for that company (its override layered on the tenant row)."""
-    return _settings_payload(db, user, _company_param(db, company))
+    for that company (its override layered on the tenant row). A company
+    outside the caller's reach (the walls, or a People grant limited to
+    other companies) is not theirs to read: 404, as across every wall."""
+    cid = _company_param(db, company)
+    if cid:
+        from routers.timeclock import _visible_companies
+        admit = _visible_companies(db, user)
+        if admit is not None and cid not in admit:
+            raise HTTPException(404, "Company not found.")
+    return _settings_payload(db, user, cid)
 
 
 @router.put("/settings")

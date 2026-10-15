@@ -5569,7 +5569,11 @@ def list_shift_groups(user: dict = Depends(require_team_read), db: Session = Dep
         if scope is None or (m.employee_email or "").lower() in scope:
             members.setdefault(m.group_id, []).append(m.employee_email)
     sites = _site_map(db)
-    companies, can_pick = _company_choices(db, user)
+    # Cut to the shared groups and the caller's companies, like the shift
+    # types (Phase 0): a company-limited caller never sees another
+    # company's team by name (QA, Oct 15).
+    admit = _visible_companies(db, user)
+    companies, can_pick = _company_choices(db, user, admit)
     return {"groups": [{"id": g.id, "name": g.name, "members": members.get(g.id, []),
                         "schedulers": _schedulers(g), "archived": bool(getattr(g, "archived", 0)),
                         "sortOrder": int(getattr(g, "sort_order", 0) or 0),
@@ -5579,7 +5583,7 @@ def list_shift_groups(user: dict = Depends(require_team_read), db: Session = Dep
                         "teamName": g.teams_team_name or "",
                         # '' = shared across companies (Shifts Phase 0).
                         "companyId": getattr(g, "company_id", "") or "", **_group_weather(g, sites)}
-                       for g in _ordered_groups(db)],
+                       for g in _ordered_groups(db) if _company_admitted(getattr(g, "company_id", "") or "", admit)],
             # Shared groups are changed company-wide only (_require_company_manage),
             # so the screen offers New / Edit / Delete to those who can use them.
             "canManageGroups": scope is None and can_manage_shifts(user),

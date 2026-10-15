@@ -19,6 +19,7 @@ and the publish review in routers/timeclock.py.
 Throwaway sqlite. Run with: python -m unittest test_shift_rules -v
 """
 import json
+from datetime import datetime, timezone
 import os
 import tempfile
 import unittest
@@ -412,6 +413,11 @@ class HistoryTests(_Case):
         self.assertEqual(entries[2]["before"], None)
         self.assertEqual(entries[2]["after"]["label"], "Front")
         self.assertTrue(all(e["at"] for e in entries))
+        # The stamp is UTC and SAYS so: a bare "2026-10-15T07:15:00" is read
+        # as local time by a browser (a 12:15 AM share showed as 7:15 AM).
+        self.assertTrue(all(e["at"].endswith("Z") for e in entries), entries[0]["at"])
+        self.assertEqual(datetime.strptime(entries[0]["at"][:19], "%Y-%m-%dT%H:%M:%S").date(),
+                         datetime.now(timezone.utc).date())
         # Shared again after the edit, with a reason this time.
         self._as(MGR)
         self._shift(AMY, MON, "19:00", "23:00", published=0)   # overlap-free, but only 1h rest -> warning

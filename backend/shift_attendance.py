@@ -389,15 +389,31 @@ def _line(p: dict) -> str:
 
 
 def _email_html(subject: str, work_date: str, lines: list, link: str) -> str:
-    items = "".join(f"<li>{escape(ln)}</li>" for ln in lines)
-    return (f"<div style=\"font-family:Inter,Segoe UI,Arial,sans-serif;font-size:14px;color:#0f172a\">"
-            f"<p style=\"font-size:16px;font-weight:600;margin:0 0 8px\">{escape(subject)}</p>"
-            f"<p style=\"margin:0 0 8px\">Not clocked in for {escape(_us(work_date))}:</p>"
-            f"<ul style=\"margin:0 0 12px 18px;padding:0\">{items}</ul>"
-            f"<p style=\"margin:0 0 12px\">You will not be emailed again for this team and day; the bell in "
-            f"Nexus keeps up as people come in.</p>"
-            f"<p style=\"margin:0\"><a href=\"{escape(link)}\" style=\"color:#2563eb\">Open the schedule</a></p>"
-            f"</div>")
+    """The no-show email, in the saved email theme (header band, logo,
+    footer) like shift_notify's publish email - every Nexus email wears it."""
+    import email_theme
+    theme = email_theme.current()
+    band = theme.color("#0f3d2e")
+    td = "padding:10px 12px;border-top:1px solid #e5e7eb;font-size:13.5px;color:#111827"
+    rows = "".join(f"<tr><td style='{td}'>{escape(ln)}</td></tr>" for ln in lines)
+    return f"""<div style="background:#f3f4f6;padding:28px 12px;font-family:'Segoe UI',Arial,Helvetica,sans-serif">
+  <table align="center" width="620" cellpadding="0" cellspacing="0" style="max-width:620px;width:100%;background:#ffffff;border:1px solid #e5e7eb;border-collapse:collapse">
+    <tr><td style="background:{band};padding:16px 28px">{theme.logo_block()}</td></tr>
+    <tr><td style="padding:24px 28px 0">
+      <div style="font-size:20px;font-weight:600;color:#111827">{escape(subject)}</div>
+      <div style="font-size:14px;line-height:1.55;color:#374151;margin-top:8px">Not clocked in for {escape(_us(work_date))}:</div>
+    </td></tr>
+    <tr><td style="padding:18px 28px 0">
+      <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e5e7eb;border-collapse:collapse">{rows}</table>
+    </td></tr>
+    <tr><td style="padding:24px 28px 28px">
+      <a href="{escape(link)}" style="display:inline-block;padding:10px 22px;border-radius:4px;background:{band};color:#ffffff;text-decoration:none;font-weight:600;font-size:13px">Open The Schedule</a>
+    </td></tr>
+    <tr><td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 28px;font-size:11.5px;line-height:1.6;color:#6b7280">
+      You will not be emailed again for this team and day; the bell in Nexus keeps up as people come in.{theme.footer_lines()}
+    </td></tr>
+  </table>
+</div>"""
 
 
 def _send_email(to: str, subject: str, html: str) -> bool:
@@ -565,7 +581,7 @@ def noshow_scan(db: Session, now_utc: datetime = None) -> dict:
             a.last_at = now_iso
         if not (a.emailed_at or ""):
             a.emailed_at = now_iso
-            to_email.append((rcpt, f"Not in yet: {subject} ({_us(work_date)})",
+            to_email.append((rcpt, f"Not In Yet: {subject} ({_us(work_date)})",
                              _email_html(title, work_date, [_line(p) for p in lines], _link(work_date, gkey))))
     # Resolve what emptied.
     for key, a in list(by_key.items()):

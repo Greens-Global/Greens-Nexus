@@ -120,7 +120,10 @@ export default function SchedulePhone({ days, sections, byCell, openCells, offOn
           <span style={{ flex: 1 }} />
           {(notes[ds] || canManage) && (
             <button type="button" onClick={() => on.noteEdit(ds)} disabled={!canManage} aria-label={notes[ds] ? `Edit the note for ${formatDate(ds)}` : `Add a note for ${formatDate(ds)}`} title={notes[ds] || 'Add a day note'}
-              style={{ border: 'none', background: 'none', cursor: canManage ? 'pointer' : 'default', padding: 0, display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0, maxWidth: '55%', fontFamily: 'inherit',
+              // Padding pulled back with a negative margin: a finger-sized
+              // target (the bare 11px icon was the only thing to tap) with
+              // the header row laid out exactly as before.
+              style={{ border: 'none', background: 'none', cursor: canManage ? 'pointer' : 'default', padding: '9px 8px', margin: '-9px -8px', display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0, maxWidth: '55%', fontFamily: 'inherit',
                 fontSize: 11, fontWeight: 600, color: notes[ds] ? 'hsl(var(--color-orange))' : 'var(--muted)' }}>
               <StickyNote size={11} style={{ flexShrink: 0 }} />
               {notes[ds] && <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{notes[ds]}</span>}

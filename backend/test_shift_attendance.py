@@ -152,7 +152,7 @@ class NoShowScanTests(_Case):
             self.assertEqual(json.loads(b.action), {"view": "shifts", "sub": f"schedule:{DAY}:{GROUP}"})
         self.assertEqual(self._bells(AMY), [], "never the person")
         self.assertEqual(self._emailed(), [MGR, SCHED])
-        self.assertEqual(sa._send_email.call_args_list[0].args[1], f"Not in yet: 1 On Austin Crew ({_us(DAY)})")
+        self.assertEqual(sa._send_email.call_args_list[0].args[1], f"Not In Yet: 1 On Austin Crew ({_us(DAY)})")
         rows = self._alerts()
         self.assertEqual([(r.recipient, r.group_id, r.work_date) for r in rows],
                          [(MGR, GROUP, DAY), (SCHED, GROUP, DAY)])
@@ -417,6 +417,22 @@ class NoShowScanTests(_Case):
         self.assertEqual((s["alerts"], s["emails"]), (2, 0), s)
         self.assertEqual(len(self._bells(MGR)), 1, "the bell is there whatever the mail did")
         self.assertTrue(self._alerts()[0].emailed_at, "not retried - one attempt per recipient per team-day")
+
+    def test_the_email_wears_the_shared_theme(self):
+        """The no-show email is built like shift_notify's publish email: the
+        saved theme's header band and logo, a themed button, the footer -
+        never a bare div (QA, Oct 15)."""
+        import email_theme
+        html = sa._email_html("Not In Yet: 1 On Austin Crew", DAY, ["Amy Lee - scheduled 7:00 AM, 15 min late"],
+                              "https://nexus.example/shifts/schedule:2026-10-15:grp")
+        theme = email_theme.current()
+        self.assertIn(theme.logo_block(), html)
+        self.assertIn(f"background:{theme.color('#0f3d2e')}", html)
+        self.assertIn("Not clocked in for 10/15/2026:", html)
+        self.assertIn("Amy Lee - scheduled 7:00 AM, 15 min late", html)
+        self.assertIn(">Open The Schedule</a>", html)
+        self.assertIn("bell in Nexus keeps up as people come in.", html)
+        self.assertNotIn("\u2014", html)
 
 
 def _us(iso: str) -> str:

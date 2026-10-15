@@ -107,6 +107,9 @@ DAY_REASONS = {
     "not_started": "Not started yet", "holiday": "Holiday", "holiday_half": "Half-day holiday",
     "time_off": "Time off", "time_off_half": "Half day off", "time_off_partial": "Partial day off",
     "not_scheduled": "Not scheduled", "no_schedule": "No schedule",
+    # Every placement that day was cancelled by a weather call (Oct 15): the
+    # company sent them home, so nothing was expected and nobody is absent.
+    "weather": "Called off for weather",
 }
 SCAN_EVERY_SEC = 15 * 60
 # No catch-up cut-off: a week's scorecard is still worth having at 3 PM if the
@@ -418,8 +421,15 @@ def expected_for_day(emp, dd: date, ctx: dict, cfg: dict) -> dict:
         out.update(start=exp["start"], grace=exp["grace"], tz=exp["tz"])
     if placed:
         out["source"] = "scheduled"
-        for r in placed:
+        # A placement a weather call cancelled expects nothing (the person was
+        # sent home); a day where every placement was cancelled is "weather",
+        # never absent. A half-cancelled day keeps its live placements' minutes.
+        live = [r for r in placed if (getattr(r, "weather_status", "") or "") != "cancelled"]
+        for r in live:
             base += max(0, _shift_minutes(r.start_hhmm, r.end_hhmm) - int(r.break_min or 0))
+        if not live:
+            out["reason"] = "weather"
+            return out
     else:
         preset = ctx["presets"].get(ctx["assigned"].get(em, ""))
         if preset:

@@ -220,8 +220,12 @@ export function ShareDialog({ defaultStart, defaultEnd, lastPublishedAt, localCo
   const [reason, setReason] = useState('');
   const [shareErr, setShareErr] = useState('');
   const [showChanges, setShowChanges] = useState(null);   // null = open when the list is short
+  // Mounted or not: the review and the share land on a dialog that may have
+  // closed. Set on mount as well as cleared on unmount - StrictMode runs the
+  // cleanup once on mount, and a flag only ever cleared left Review stuck on
+  // "…" with the answer thrown away.
   const liveRef = useRef(true);
-  useEffect(() => () => { liveRef.current = false; }, []);
+  useEffect(() => { liveRef.current = true; return () => { liveRef.current = false; }; }, []);
   async function loadReview() {
     setReviewing(true); setReviewErr(''); setShareErr('');
     try {

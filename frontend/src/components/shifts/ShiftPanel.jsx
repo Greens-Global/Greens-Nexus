@@ -138,18 +138,21 @@ function ShiftForm({ cell, ex, isOpen, presets, quickPicks = [], groups, people,
   // its times, label and color.
   const pickQuick = (q) => { setShiftId(''); setStart(q.start); setEnd(q.end); setLabel(q.label); setColor(q.color || ''); setBrk(''); setPickedQuick(quickKey(q)); };
 
-  // Live warnings as the day and times change (overlap, time off, holiday) -
-  // the same check the grid's warning icon comes from. Never blocks Save.
+  // Live warnings as the day and times change (overlap, time off, holiday,
+  // and since Phase 2 the schedule rules) - the same check the grid's
+  // warning icon comes from. Never blocks Save. The unpaid break travels
+  // with it: the daily and weekly rules count PAID minutes, so a 7:00 - 3:30
+  // shift with a 30-minute lunch is 8h, not "8h 30m ... overtime".
   useEffect(() => {
     if (!cell.email || !effStart || !effEnd) return undefined;
     let live = true;
     const t = setTimeout(() => {
-      api.timeSchedCheck({ email: cell.email, date: cell.date, start: effStart, end: effEnd, exclude_id: ex?.id || '' })
+      api.timeSchedCheck({ email: cell.email, date: cell.date, start: effStart, end: effEnd, exclude_id: ex?.id || '', break_min: effBreak })
         .then((r) => { if (live) setWarnings(r?.warnings || []); })
         .catch(() => { if (live) setWarnings([]); });
     }, 300);
     return () => { live = false; clearTimeout(t); };
-  }, [cell.email, cell.date, effStart, effEnd, ex?.id]);
+  }, [cell.email, cell.date, effStart, effEnd, effBreak, ex?.id]);
 
   const payload = () => ({
     id: ex?.id, employee_email: cell.email || '', work_date: cell.date, shift_id: shiftId,

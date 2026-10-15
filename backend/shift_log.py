@@ -105,10 +105,21 @@ def _loads(s: str):
     return v if isinstance(v, dict) else None
 
 
+def _utc_marked(at: str) -> str:
+    """The stored stamp is UTC with no zone marker (so the rows sort as
+    text); the API says so with a trailing Z - a browser reads a bare
+    "2026-10-15T07:15:00" as LOCAL time and showed a 12:15 AM share as
+    7:15 AM (QA, Oct 15)."""
+    s = at or ""
+    if not s or s.endswith("Z") or "+" in s[10:] or (len(s) > 10 and "-" in s[10:]):
+        return s
+    return s + "Z"
+
+
 def entry_dict(e: models.ShiftChangeLog, names: dict = None) -> dict:
     actor = (e.actor or "").lower()
     return {"id": e.id, "action": e.action, "actor": actor, "actorName": (names or {}).get(actor) or actor,
-            "at": e.at, "before": _loads(e.before_json), "after": _loads(e.after_json),
+            "at": _utc_marked(e.at), "before": _loads(e.before_json), "after": _loads(e.after_json),
             "reason": e.reason or "", "publishId": e.publish_id or ""}
 
 

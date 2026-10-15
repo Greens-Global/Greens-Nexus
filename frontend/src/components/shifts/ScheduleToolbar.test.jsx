@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { StrictMode } from 'react';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 // Share Schedule, two steps (Shifts Phase 2, Oct 14): step 1 picks the dates,
@@ -149,5 +150,18 @@ describe('ShareDialog', () => {
     await review();
     expect(within(dlg()).getByText('No changes in these dates.')).toBeTruthy();
     expect(within(dlg()).getByRole('button', { name: 'Share' }).disabled).toBe(true);
+  });
+});
+
+describe('ShareDialog under StrictMode', () => {
+  it('still reaches the review step (the mounted flag survives the double effect run)', async () => {
+    // StrictMode runs every effect's cleanup once right after mount. A
+    // "live" flag that was only ever cleared left Review stuck on "…" with
+    // the server's answer thrown away (QA, Oct 15).
+    render(<StrictMode><ShareDialog defaultStart="2026-10-19" defaultEnd="2026-10-25" lastPublishedAt="" localCount={3} groups={[]} busy={false}
+      onPublish={onPublish} onJump={onJump} onClose={onClose} /></StrictMode>);
+    fireEvent.click(within(dlg()).getByRole('button', { name: 'Review' }));
+    expect(await screen.findByText('Review And Share')).toBeTruthy();
+    expect(screen.getByText('4 changes for 2 people: 2 new, 1 changed, 1 removed')).toBeTruthy();
   });
 });
