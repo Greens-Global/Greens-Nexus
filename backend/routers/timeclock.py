@@ -6633,20 +6633,33 @@ def my_schedule(start: str, end: str, user: dict = Depends(get_current_user), db
                  .filter(ScheduleDayNote.work_date >= start, ScheduleDayNote.work_date <= end,
                          ScheduleDayNote.group_id.in_([""] + list(set(member_of) | set(group_ids)))).order_by(ScheduleDayNote.work_date).all()
                  if n.note]
-    # Published OPEN shifts of the teams I am ON, today or later in each
-    # shift's own zone (Oct 2, B1-1: any employee could see and ask for any
-    # open shift company-wide). Legacy slots with no team show to everyone.
+    # Published OPEN shifts I may ask for, today or later in each shift's own
+    # zone (Oct 2, B1-1: any employee could see and ask for any open shift
+    # company-wide): the teams I am ON, legacy slots with no team, and -
+    # with openShiftsAcrossTeams on (Phase 3b) - the other teams of my
+    # company, marked crossTeam. ONE rule, shared with /shift-requests/mine
+    # (shift_requests._open_visible), so My Shifts and the request dialog
+    # never disagree about what is in the pool.
     open_shifts = []
     if cfg.get("openShifts", True):
+        from auth import company_of
+        from routers.shift_requests import _open_visible
         lo = max(start[:10], (datetime.now(timezone.utc) - timedelta(hours=12)).date().isoformat())
+        all_groups = {g.id: g for g in db.query(ShiftGroup).all()}
+        mine_set = set(member_of)
+        my_company = company_of(email, db)
         for r in (db.query(ScheduledShift)
                   .filter(ScheduledShift.employee_email == "", ScheduledShift.published == 1,
                           ScheduledShift.pending_delete == 0, ScheduledShift.open_slots >= 1,
-                          ScheduledShift.group_id.in_([""] + list(member_of)),
                           ScheduledShift.work_date >= lo, ScheduledShift.work_date <= end[:10])
                   .order_by(ScheduledShift.work_date, ScheduledShift.start_hhmm).all()):
-            if _upcoming(r, presets, cfg):
-                open_shifts.append(_sched_dict(r, presets, team_tz=team_tz))
+            if _open_visible(r, mine_set, cfg, all_groups, my_company) and _upcoming(r, presets, cfg):
+                d = _sched_dict(r, presets, team_tz=team_tz)
+                gid = getattr(r, "group_id", "") or ""
+                g = all_groups.get(gid)
+                d["team"] = (g.name or "") if g is not None else ""
+                d["crossTeam"] = bool(gid) and gid not in mine_set
+                open_shifts.append(d)
     return {"shift": default_shift, "scheduled": [_sched_dict(r, presets, team_tz=team_tz) for r in rows],
             # A LIST of {date, name, type} - the helper returns {date: {...}},
             # which crashed My Shifts ("object is not iterable") on any week
@@ -7314,7 +7327,12 @@ def _my_availability_payload(db: Session, em: str) -> dict:
     rows = _availability(db, [em]).get(em, [])
     return {"days": [a for a in rows if "weekday" in a],
             "dates": [a for a in rows if a.get("date")],
-            "prefs": _availability_prefs(db, [em]).get(em) or {"preferredHoursWeek": 0, "maxHoursWeek": 0}}
+            "prefs": _availability_prefs(db, [em]).get(em) or {"preferredHoursWeek": 0, "maxHoursWeek": 0},
+            # The line between dated rows that can still change and the past
+            # ones kept as a record - today in the COMPANY's shift zone, the
+            # same one the save uses, so a browser ahead of (or behind) that
+            # zone never treats today's row as past and loses it on save.
+            "today": _avail_today(db, em)}
 
 
 def _avail_today(db: Session, em: str) -> str:

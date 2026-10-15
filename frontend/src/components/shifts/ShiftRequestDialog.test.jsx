@@ -45,7 +45,7 @@ describe('ShiftRequestDialog - Release (Phase 3b)', () => {
     expect(send.disabled).toBe(false);
     fireEvent.click(send);
     await waitFor(() => expect(shiftRequestCreate).toHaveBeenCalledWith({ kind: 'release', shift_id: 'mine1', note: 'Out of town' }));
-    expect(onDone).toHaveBeenCalledWith('Release requested.');
+    expect(onDone).toHaveBeenCalledWith('Release requested. A manager will approve it.');
   });
 
   it('says it goes to the pool right away when no approval is needed', async () => {

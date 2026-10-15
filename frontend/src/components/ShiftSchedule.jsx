@@ -321,7 +321,13 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
     Object.values(data?.holidays || {}).forEach((byDate) => Object.entries(byDate).forEach(([d, h]) => { m[d] = h?.name || 'Holiday'; }));
     return m;
   }, [data]);
-  const availOn = useCallback((email, d) => (data?.availability?.[email] || []).find((a) => a.weekday === (d.getDay() + 6) % 7) || null, [data]);
+  // The row that rules a cell: the one for THAT date (Phase 3b) wins over
+  // the weekday pattern, as in conflictMap and the server's check.
+  const availOn = useCallback((email, d) => {
+    const list = data?.availability?.[email] || [];
+    const ds = isoDate(d);
+    return list.find((a) => a?.date === ds) || list.find((a) => a?.weekday === (d.getDay() + 6) % 7) || null;
+  }, [data]);
   // A person's usual hours (their shift type) - one line under their name.
   const usualOf = useCallback((email) => presets.find((x) => x.id === data?.usual?.[email]) || null, [data, presets]);
 

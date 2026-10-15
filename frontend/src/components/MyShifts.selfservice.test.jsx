@@ -285,6 +285,22 @@ describe('MyShifts requests', () => {
     await waitFor(() => expect(shiftRequestCreate).toHaveBeenCalledWith({ kind: 'open', shift_id: 'open1' }));
     expect(await screen.findByText('Request sent. A manager will approve it.')).toBeTruthy();
   });
+
+  it('names the team on an open shift, and marks another team\'s with an Other Team chip (Phase 3b)', async () => {
+    shiftRequestsMine.mockResolvedValue(reqs({ openShifts: [
+      { id: 'open1', date: DAY, start: '06:00', end: '14:00', label: 'Early', openSlots: 1, team: 'Store', crossTeam: false },
+      { id: 'open2', date: DAY, start: '10:00', end: '18:00', label: 'Yard', openSlots: 1, team: 'Yard Crew', crossTeam: true },
+    ] }));
+    render(<MyShifts />);
+    await screen.findByText('Me Here');
+    const ours = await waitFor(() => { const el = document.querySelector('[data-shift="open1"]'); expect(el).toBeTruthy(); return el; });
+    expect(ours.textContent).toContain('Store');
+    expect(ours.querySelector('[data-cross-team]')).toBeNull();
+    const theirs = document.querySelector('[data-shift="open2"]');
+    expect(theirs.textContent).toContain('Yard Crew');
+    expect(theirs.querySelector('[data-cross-team]').textContent).toBe('Other Team');
+    expect(screen.getAllByRole('button', { name: `Request the open shift on ${DAY}` })).toHaveLength(2);
+  });
 });
 
 describe('MyShifts availability', () => {

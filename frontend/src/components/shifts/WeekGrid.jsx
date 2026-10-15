@@ -537,7 +537,7 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
               const inner = (
                 <>
                   {av?.kind === 'unavailable' && !offHere.length && !hol && (
-                    <div title={`${emp.name} is unavailable on ${DAY_LONG[(d.getDay() + 6) % 7]}s`} aria-label="Unavailable"
+                    <div title={`${emp.name} is unavailable on ${av.date ? formatDate(av.date) : `${DAY_LONG[(d.getDay() + 6) % 7]}s`}`} aria-label="Unavailable"
                       style={{ position: 'absolute', inset: 0, background: 'repeating-linear-gradient(135deg, hsla(var(--color-orange),0.10) 0 6px, transparent 6px 12px)', pointerEvents: 'none' }} />
                   )}
                   {hol && <HolidayBlock holiday={hol} compact={compact} style={{ marginBottom: 0 }} />}

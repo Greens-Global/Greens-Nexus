@@ -86,6 +86,30 @@ describe('My Availability - dates and hours', () => {
     expect(screen.getByRole('button', { name: 'Save Availability' }).disabled).toBe(true);
   });
 
+  it('files dates as past by the server\'s today (the company zone), not the browser\'s', async () => {
+    // The server is a day ahead of this browser: its "today" is tomorrow
+    // here, so a row dated today is already the server's past - read-only,
+    // kept by the server, and never sent back to be dropped.
+    const serverToday = day(1);
+    availabilityMine.mockResolvedValue({ days: [], today: serverToday,
+      dates: [{ id: 'd0', date: day(0), kind: 'unavailable', start: '', end: '', note: 'Server past' }, { id: 'd1', date: day(2), kind: 'unavailable', start: '', end: '', note: '' }] });
+    availabilitySave.mockImplementation(async (b) => ({ days: [], dates: b.dates, prefs: b.prefs, today: serverToday }));
+    render(<MyAvailability />);
+    fireEvent.click(await screen.findByText('Edit Availability'));
+    expect(document.querySelectorAll('[data-date-row]')).toHaveLength(1);
+    expect(screen.getByLabelText('Date 1').value).toBe(day(2));
+    expect(screen.getByLabelText('Date 1').getAttribute('min')).toBe(serverToday);
+    expect(screen.getByText(/Server past/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Add Date/ }));
+    fireEvent.change(screen.getByLabelText('Date 2'), { target: { value: day(0) } });   // the browser's today, the server's yesterday
+    expect(screen.getByText('A date has to be today or later.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Save Availability' }).disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText('Date 2'), { target: { value: serverToday } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Availability' }));
+    await waitFor(() => expect(availabilitySave).toHaveBeenCalledTimes(1));
+    expect(availabilitySave.mock.calls[0][0].dates.map((d) => d.date)).toEqual([day(2), serverToday]);
+  });
+
   it('still works against an API that sends only the week', async () => {
     availabilityMine.mockResolvedValue({ days: [] });
     availabilitySave.mockImplementation(async () => ({ days: [] }));

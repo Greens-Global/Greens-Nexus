@@ -48,13 +48,18 @@ export default function MyAvailability() {
   const [edit, setEdit] = useState(null);           // { days, dates, prefs } while editing
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
-  const today = todayIso();
+  // The line between dates that can still change and past ones: the
+  // server's today (the company's shift zone, the same one the save keys
+  // on), so a browser in another zone never files today's row as past and
+  // drops it. The browser's date is only the fallback for an older API.
+  const [serverToday, setServerToday] = useState('');
+  const today = serverToday || todayIso();
 
   useEffect(() => {
     let live = true;
     setError(null);
     api.availabilityMine()
-      .then((r) => { if (live) { setWeek(toWeek(r?.days)); setDates(toDates(r?.dates)); setPrefs(toPrefs(r?.prefs)); } })
+      .then((r) => { if (live) { setWeek(toWeek(r?.days)); setDates(toDates(r?.dates)); setPrefs(toPrefs(r?.prefs)); setServerToday(typeof r?.today === 'string' ? r.today : ''); } })
       .catch((e) => { if (live) setError(e?.message || 'Could not load your availability.'); });
     return () => { live = false; };
   }, [tick]);
@@ -86,6 +91,7 @@ export default function MyAvailability() {
       setWeek(toWeek(r?.days));
       setDates(r && 'dates' in r ? toDates(r.dates) : [...pastDates, ...edit.dates]);
       setPrefs(r && 'prefs' in r ? toPrefs(r.prefs) : { ...edit.prefs });
+      if (typeof r?.today === 'string') setServerToday(r.today);
       setEdit(null); setMsg('Availability saved. Your manager sees it when scheduling.');
     } catch (e) { setMsg(e?.message || 'Could not save your availability.'); }
     setBusy(false);

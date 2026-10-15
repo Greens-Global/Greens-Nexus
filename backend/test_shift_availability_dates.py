@@ -208,6 +208,16 @@ class AvailabilityRouteTests(_Case):
         self._save(prefs={"preferredHoursWeek": 0, "maxHoursWeek": 0})
         self.assertEqual(self._mine()["prefs"], {"preferredHoursWeek": 0, "maxHoursWeek": 0})
 
+    def test_the_payload_says_which_day_is_today(self):
+        """`today` is the server's line between dated rows that can still
+        change and the past - in the company's shift zone, the one the save
+        keys on - so the screen never files today's row as past."""
+        from routers.timeclock import _shift_local_now, _DEFAULT_TEAM_TZ
+        today = _shift_local_now(_DEFAULT_TEAM_TZ).date().isoformat()
+        self.assertEqual(self._mine()["today"], today)
+        saved = self._save(dates=[{"date": today, "kind": "unavailable", "note": "Today still counts"}])
+        self.assertEqual((saved["today"], [d["date"] for d in saved["dates"]]), (today, [today]))
+
     def test_past_dates_are_kept(self):
         self.db.add(models.ShiftAvailabilityDate(id="old", employee_email=A, date=_iso(PAST), kind="unavailable",
                                                  note="Was away", created_at="2026-01-01T00:00:00"))

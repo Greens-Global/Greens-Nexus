@@ -35,6 +35,7 @@ import database           # noqa: E402
 import main               # noqa: E402
 import models             # noqa: E402
 from routers import shift_requests   # noqa: E402
+from routers.timeclock import _shift_local_now, _DEFAULT_TEAM_TZ   # noqa: E402
 
 ENT, ENT2 = "ent-rel", "ent-rel-2"
 GROUP, OTHER, NOBODY, FAR = "grp-rel", "grp-rel-other", "grp-rel-nobody", "grp-rel-far"
@@ -214,7 +215,7 @@ class ReleaseTests(_Case):
         log = self._log(x)
         self.assertEqual([(e.action, e.employee_email, e.actor) for e in log], [("released", A, MGR)])
         self.assertEqual((json.loads(log[0].before_json)["email"], json.loads(log[0].after_json)["openSlots"]), (A, 1))
-        self.assertEqual(log[0].reason, f"Released by {A}")
+        self.assertEqual(log[0].reason, f"Released by {A} (an unshared edit was dropped)")   # the fixture's pending_json
         # The Outlook event is queued for removal; B's swap is cancelled with the reason.
         self.db.expire_all()
         self.assertEqual(self.db.query(models.ShiftCalendarEvent).filter(models.ShiftCalendarEvent.id == "cal-x").first().state,
@@ -258,6 +259,58 @@ class ReleaseTests(_Case):
         bells = dict(self._bells(A))
         self.assertIn("Shift request declined", bells)
         self.assertIn("We need you", bells["Shift request declined"])
+
+    def test_a_shift_that_has_started_cannot_be_released(self):
+        """Today's shift is released only until it starts, in the shift's own
+        zone (_started): at create, and at approval when the request waited
+        past the start - the row is left alone."""
+        self._settings(releaseShifts=True)
+        today = _shift_local_now(_DEFAULT_TEAM_TZ).date().isoformat()
+        under_way = self._shift(A, day=today, start="00:00", end="23:59")   # started at midnight today
+        r = self._ask(A, kind="release", shift_id=under_way)
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertIn("already started", r.json()["detail"])
+        self.assertEqual(self._row(under_way).employee_email, A)
+        # Asked in time, decided too late.
+        later = self._shift(A)
+        rel = self._ask(A, kind="release", shift_id=later).json()
+        self.db.query(models.ScheduledShift).filter(models.ScheduledShift.id == later).update(
+            {"work_date": today, "start_hhmm": "00:00", "end_hhmm": "23:59"})
+        self.db.commit()
+        d = self._decide(MGR, rel["id"])
+        self.assertEqual(d.status_code, 409, d.text)
+        self.assertIn("already started", d.json()["detail"])
+        row = self._row(later)
+        self.assertEqual((row.employee_email, row.open_slots), (A, 0))
+        self.assertEqual(self._log(later), [])
+        # Still pending: the manager declines it instead.
+        self.assertEqual(self._decide(MGR, rel["id"], approve=False).json()["status"], "declined")
+
+    def test_the_approving_manager_owns_the_slot_and_hears_of_a_dropped_edit(self):
+        """A scoped scheduler may edit or remove only the open shifts they
+        created (_open_row_mine): the manager who approved the release owns
+        the slot; an instant release keeps the original creator. An
+        unshared edit on the shift is dropped - the log says so, and with
+        approval off the FYI bell does too."""
+        self._settings(releaseShifts=True)
+        x = self._shift(A, pending_json=json.dumps({"shiftId": "", "start": "08:00", "end": "16:00", "label": "", "note": "",
+                                                    "openSlots": 0}))
+        rel = self._ask(A, kind="release", shift_id=x).json()
+        self.assertEqual(self._decide(ADMIN, rel["id"]).status_code, 200)
+        row = self._row(x)
+        self.assertEqual((row.created_by, row.employee_email, row.pending_json), (ADMIN, "", ""))
+        self.assertEqual(self._log(x)[0].reason, f"Released by {A} (an unshared edit was dropped)")
+        # Instant: the creator stays, the approvers' FYI names the dropped edit.
+        self._settings(releaseNeedsApproval=False)
+        y = self._shift(A, day=DAY2, pending_json=json.dumps({"start": "10:00", "end": "18:00"}))
+        self.assertEqual(self._ask(A, kind="release", shift_id=y).json()["status"], "approved")
+        self.assertEqual(self._row(y).created_by, MGR)
+        body = dict(self._bells(MGR))["Shift released to the open pool"]
+        self.assertIn("The unshared edit to this shift was dropped", body)
+        # A plain one says nothing about edits.
+        z = self._shift(B, day=DAY2, start="12:00")
+        self.assertEqual(self._ask(B, kind="release", shift_id=z).json()["status"], "approved")
+        self.assertNotIn("unshared edit", [b for t, b in self._bells(MGR)][-1])
 
     def test_the_schedule_moving_on_refuses_the_approval(self):
         self._settings(releaseShifts=True)
@@ -334,6 +387,26 @@ class CrossTeamTests(_Case):
         # Its own member still sees it (their company has the switch off,
         # and it is their team either way).
         self.assertEqual([(o["id"], o["crossTeam"]) for o in self._open_for(D)], [(far, False)])
+
+    def test_my_schedule_lists_the_same_open_shifts_as_the_request_dialog(self):
+        """GET /timeclock/my-schedule (My Shifts) and /shift-requests/mine
+        (the dialog) share one rule (_open_visible): off, only my teams'
+        slots; on, the other teams of my company too, with the team's name
+        and crossTeam - never another company's."""
+        ours = self._shift("", slots=1)
+        theirs = self._shift("", slots=1, group=OTHER, start="10:00")
+        self._shift("", slots=1, group=FAR, start="11:00")
+
+        def mine():
+            self._as(A)
+            r = self.client.get(f"/timeclock/my-schedule?start={DAY}&end={DAY2}")
+            self.assertEqual(r.status_code, 200, r.text)
+            return [(o["id"], o.get("team"), o.get("crossTeam")) for o in r.json()["openShifts"]]
+
+        self.assertEqual(mine(), [(ours, "Crew", False)])
+        self._settings(openShiftsAcrossTeams=True)
+        self.assertEqual(mine(), [(ours, "Crew", False), (theirs, "Other Crew", True)])
+        self.assertEqual(mine(), [(o["id"], o["team"], o["crossTeam"]) for o in self._open_for(A)])
 
     def test_an_administrator_decides_any_cross_team_claim(self):
         self._settings(openShiftsAcrossTeams=True)

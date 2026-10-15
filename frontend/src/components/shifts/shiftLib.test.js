@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { paidMinutes, unpaidMinutes, unpaidLabel, planMinutes, fmtHrs, hrsNumber, weekStartOf, viewDays, dayHeading, timeOffOn, timeOffWhen, isAllDayOff, dayFullyOff, shiftState, orderGroups, alpha, isoDate,
-  actualLabel, actualColor, actualWord, actualFor, adherenceLine, hmText, punchTime, actualLetter, isRuleWarning } from './shiftLib';
+  actualLabel, actualColor, actualWord, actualFor, adherenceLine, hmText, punchTime, actualLetter, isRuleWarning, conflictMap } from './shiftLib';
 import { formatHHMM, formatWeekday, formatMonthYear, formatMonthDay, formatTime } from '../../lib/datetime';
 
 // One rule for hours, time off and dates across every Shifts screen (Oct 2026).
@@ -54,6 +54,23 @@ describe('dates', () => {
     expect(formatHHMM('00:00')).toBe('12:00 AM');
     expect(formatHHMM('')).toBe('');
     expect(formatHHMM('nope', '-')).toBe('-');
+  });
+});
+
+describe('availability conflicts', () => {
+  // 11/02/2026 is a Monday.
+  const shift = { id: 's1', email: 'a@x.com', date: '2026-11-02', start: '09:00', end: '17:00' };
+  it('warns from the weekday pattern, and skips the dated and prefs rows that are not for that day', () => {
+    const avail = { 'a@x.com': [{ weekday: 0, kind: 'unavailable' }, { date: '2026-11-09', kind: 'unavailable' }, { kind: 'prefs', preferredHoursWeek: 20 }] };
+    expect(conflictMap([shift], [], avail)).toEqual({ s1: ['Outside availability: Mon unavailable'] });
+  });
+  it('lets a row for THAT date replace the weekday rule, as the server does', () => {
+    const free = { 'a@x.com': [{ weekday: 0, kind: 'unavailable' }, { date: '2026-11-02', kind: 'available', start: '08:00', end: '18:00' }] };
+    expect(conflictMap([shift], [], free)).toEqual({});                       // "available this Monday" - no Monday warning
+    const busy = { 'a@x.com': [{ date: '2026-11-02', kind: 'unavailable' }] };
+    expect(conflictMap([shift], [], busy)).toEqual({ s1: ['Outside availability: 11/02/2026 unavailable'] });
+    const part = { 'a@x.com': [{ date: '2026-11-02', kind: 'available', start: '13:00', end: '17:00' }] };
+    expect(conflictMap([shift], [], part).s1[0]).toMatch(/^Outside availability: 11\/02\/2026 /);
   });
 });
 

@@ -184,6 +184,30 @@ def _upcoming(row, presets: dict, cfg: dict) -> bool:
     return (row.work_date or "") >= _shift_local_now(shift_zone(row, presets, cfg)).date().isoformat()
 
 
+def _started(row, presets: dict, cfg: dict) -> bool:
+    """The shift's start has passed IN ITS OWN ZONE. A release (Phase 3b)
+    must come before the shift begins: a slot for a shift already under way
+    has nobody to turn up for it, and the person may be punched in on it -
+    so today's shift is released only until it starts, overnight or not
+    (_upcoming alone still allows the rest of the day)."""
+    try:
+        start = datetime.strptime(f"{(row.work_date or '')[:10]} {(row.start_hhmm or '')[:5]}", "%Y-%m-%d %H:%M")
+    except ValueError:
+        return False
+    return _shift_local_now(shift_zone(row, presets, cfg)) >= start
+
+
+def _release_blocked(db: Session, shift, cfg: dict) -> str:
+    """Why this shift cannot go to the open pool, or '' when it can: it is
+    on no team (the pool is per team), or it has already started."""
+    if not (getattr(shift, "group_id", "") or ""):
+        return "This shift is not on a team, so it cannot go to the open pool."
+    preset = db.query(models.Shift).filter(models.Shift.id == shift.shift_id).first() if shift.shift_id else None
+    if _started(shift, {preset.id: preset} if preset else {}, cfg):
+        return "This shift has already started, so it cannot go to the open pool."
+    return ""
+
+
 def _us(iso: str) -> str:
     try:
         return datetime.strptime(iso[:10], "%Y-%m-%d").strftime("%m/%d/%Y")
@@ -673,8 +697,9 @@ def create_request(body: CreateIn, user: dict = Depends(get_current_user), db: S
         # the open pool is per team.
         if (shift.employee_email or "").lower() != me:
             raise HTTPException(403, "You can only release your own shifts.")
-        if not (getattr(shift, "group_id", "") or ""):
-            raise HTTPException(409, "This shift is not on a team, so it cannot go to the open pool.")
+        why = _release_blocked(db, shift, cfg)
+        if why:
+            raise HTTPException(409, why)
         target_email = ""
     else:
         if (shift.employee_email or "").lower() != me:
@@ -706,13 +731,16 @@ def create_request(body: CreateIn, user: dict = Depends(get_current_user), db: S
         # No approval needed (releaseNeedsApproval off): the shift goes to
         # the pool now, decided by the requester, and the people who would
         # have approved it get one FYI bell each (named, never a broadcast).
+        had_edit = bool(shift.pending_json)
         _apply(db, r, me)
         r.status, r.decided_by, r.decided_at = "approved", me, _now()
         who = names.get(me, me)
         for rec in _approver_emails(db, r, me):
             _bell(db, rec, "Shift released to the open pool",
                   f"{who} released {_when(r.shift_date, r.shift_start, r.shift_end)} to the open pool"
-                  + (f": {r.note}" if r.note else ".") + " No approval was needed.", r.id, me, _APPROVER_ACTION)
+                  + (f": {r.note}" if r.note else ".") + " No approval was needed."
+                  + (" The unshared edit to this shift was dropped - the shared times went to the pool." if had_edit else ""),
+                  r.id, me, _APPROVER_ACTION)
     elif kind in ("open", "release"):
         _notify_approvers(db, r, names, me)
     else:
@@ -913,13 +941,24 @@ def _apply(db: Session, r: models.ShiftRequest, actor: str, force: bool = False)
         # The SAME row becomes an open slot of its team: still shared, one
         # slot, no owner, the owner's unshared edit dropped. The log row
         # stays on the person who released it; their Outlook event goes.
-        if not (getattr(shift, "group_id", "") or ""):
-            raise HTTPException(409, "This shift is not on a team, so it cannot go to the open pool.")
+        # Not once the shift has started (_started) - the request may have
+        # waited past it.
+        why = _release_blocked(db, shift, settings_for(db, r.requester_email))
+        if why:
+            raise HTTPException(409, why + " Decline it instead.")
         old = (shift.employee_email or "").lower()
+        had_edit = bool(shift.pending_json)
         before = shift_log.snapshot(shift)
         shift.employee_email, shift.open_slots, shift.pending_json = "", 1, ""
+        if actor != r.requester_email:
+            # The manager who sent it to the pool owns the slot: a scoped
+            # scheduler may edit or remove only the open shifts they
+            # created (_open_row_mine), and the original creator may be
+            # long gone. An instant release keeps the creator.
+            shift.created_by = actor
         shift_log.record(db, "released", {"id": shift.id, "email": old, "date": shift.work_date}, actor,
-                         before=before, after=shift_log.snapshot(shift), reason=f"Released by {r.requester_email}")
+                         before=before, after=shift_log.snapshot(shift),
+                         reason=f"Released by {r.requester_email}" + (" (an unshared edit was dropped)" if had_edit else ""))
         import shift_calendar
         shift_calendar.enqueue_delete(db, shift.id, old)
         # Every other pending request about this shift (an offer, a swap)

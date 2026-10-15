@@ -64,7 +64,9 @@ export default function ShiftRequestDialog({ reqs, myShifts = [], shift = null, 
       }
       if (kind === 'release') {
         const r = await api.shiftRequestCreate({ kind: 'release', shift_id: shiftId, note });
-        onDone(instantRelease || r?.status === 'approved' ? 'Shift released to the open pool.' : 'Release requested.');
+        // The server's answer, not the setting: it returns the request with
+        // `status` 'approved' (and decidedBy = me) when no approval was needed.
+        onDone(r?.status === 'approved' ? 'Shift released to the open pool.' : 'Release requested. A manager will approve it.');
         return;
       }
       await api.shiftRequestCreate({ kind, shift_id: shiftId, target_email: target, target_shift_id: kind === 'swap' ? targetShift : '', note });
