@@ -60,6 +60,7 @@ import { LatestCommentPreview, latestCommentText } from './LatestComment';
 import { TicketAssignSheet, MobileAssignField } from './TicketAssignSheet';
 import { useFrequentCollaborators } from '../tasks/frequentPeople';
 import { useTicketAccess } from './ticketAccess';
+import { registerTour } from '../lib/tours';
 
 // Tour id this module reports to the server (routers/user_tours.py) - see
 // the Task module's identical TASK_TOUR_ID in views/Tasks.jsx.
@@ -703,7 +704,8 @@ export default function TicketsView() {
   useEffect(() => {
     const openTour = () => setTour(true);
     window.addEventListener('nexus:tickets-tour', openTour);
-    return () => window.removeEventListener('nexus:tickets-tour', openTour);
+    const unTour = registerTour('tickets', 'Tickets', openTour);   // the Help panel's Take the Tour (lib/tours.js)
+    return () => { window.removeEventListener('nexus:tickets-tour', openTour); unTour(); };
   }, []);
 
   // Column order/widths - the same drag-to-reorder/resize kit the Task List

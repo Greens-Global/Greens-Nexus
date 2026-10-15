@@ -41,6 +41,8 @@ export const ACCESS_LEVELS = [
   { name: 'Owner', desc: 'Full access, plus decide who else gets access.' },
 ];
 
+// A feature may carry `tour`: the on-screen label(s) the page's guided tour
+// looks for when the screen words it differently from `name` (lib/autoTour.js).
 export const DOCS = [
   // ───────────────────────────── Start Here ─────────────────────────────
   {
@@ -161,7 +163,7 @@ export const DOCS = [
       { name: 'Home', desc: 'The designed default layout: greeting, clock status, hours, stat tiles, alerts queue and quick actions.' },
       { name: 'View Picker', desc: 'Switch between Home, your own saved views and department views.' },
       { name: 'Customize', desc: 'Edit mode: Add Widget, drag to arrange, resize, Auto-fit, Save and Done.' },
-      { name: '"..." View Menu', desc: 'Rename View, Set as My Default, Make Home My Default, Save as New View, Publish to Department, Delete View.' },
+      { name: '"..." View Menu', tour: 'View options', desc: 'Rename View, Set as My Default, Make Home My Default, Save as New View, Publish to Department, Delete View.' },
       { name: 'Widget Gallery', desc: 'Metrics (KPI Stat, KPI Bar Chart), Navigation (Shortcut Tile, Quick Links, Links Folder, Quick Actions), Live (Notifications, Calendar, Announcements), Utility (Clock, Notes), Workday (My Day, My Work, My Time), plus Team widgets.' },
       { name: 'Links Tab', desc: 'Every company and personal web link. Search, filter by category, department or company, pin, favorite, sort into folders, and switch between tile and list view.' },
       { name: 'Personal Links', desc: 'A link you add is visible only to you. Company-wide links are managed by admins through Manage Links.' },
@@ -919,9 +921,9 @@ export const DOCS = [
       },
     ],
     features: [
-      { name: 'Browse Catalog', desc: 'Everything available to check out, with photos, filters and search.' },
+      { name: 'Browse Catalog', tour: ['Browse Catalog', 'Check Out an Item'], desc: 'Everything available to check out, with photos, filters and search.' },
       { name: 'Cart', desc: 'Collect several items and request them in one go.' },
-      { name: 'My Checkouts', desc: 'Active, Past and Permanent tabs: what you have now, what you had, and what is assigned to you.' },
+      { name: 'My Checkouts', tour: ['My Checkouts', 'Return or Extend'], desc: 'Active, Past and Permanent tabs: what you have now, what you had, and what is assigned to you.' },
       { name: 'Checkout Stages', desc: 'Requested, Approved, Awaiting Handover, In Use, Returned. The due date counts from handover, not from the request.' },
       { name: 'Permanent Returns', desc: 'Return an assigned item normally, report it dead, report it lost, or return it for reassignment.' },
       { name: 'To Hand Over', desc: 'For allocators: items waiting for you to hand over with a photo.' },

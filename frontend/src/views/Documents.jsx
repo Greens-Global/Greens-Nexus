@@ -12,6 +12,7 @@ import ModuleTabs from '../components/ModuleTabs';
 import GuidedTour from '../components/GuidedTour';
 import { useIsMobile } from '../lib/useIsMobile';
 import { buildDocumentsTourSteps } from './documentsTourSteps';
+import { registerTour } from '../lib/tours';
 
 // ── Documents module ─────────────────────────────────────────────────────────
 // E-Sign was carved out of HR into its own top-level module (Jul 2026), then
@@ -104,7 +105,8 @@ export default function Documents({ activeSub, onSubChange }) {
       .then(({ seen }) => { if (!cancelled && !seen?.[DOCUMENTS_TOUR_ID]) openTour(); })
       .catch(() => { /* can't confirm "seen" - skip the auto-tour rather than risk nagging on every flaky load */ });
     window.addEventListener('nexus:documents-tour', openTour);
-    return () => { cancelled = true; window.removeEventListener('nexus:documents-tour', openTour); };
+    const unTour = registerTour('documents', 'Documents', openTour);   // the Help panel's Take the Tour (lib/tours.js)
+    return () => { cancelled = true; window.removeEventListener('nexus:documents-tour', openTour); unTour(); };
   }, []);
   const closeTour = () => {
     setTourSteps(null);
