@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup, within } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, within, act } from '@testing-library/react';
 import ClockChip from './ClockChip';
 
 // The time clock chip (Oct 14 2026): a dial and a transport - Play, Pause,
@@ -68,6 +68,17 @@ describe('ClockChip', () => {
     expect(fx()).toBe('coffee');
     expect(document.querySelectorAll('.sbfx-steam path')).toHaveLength(3);
     expect(container.querySelector('[data-flourish]')).toBeNull();          // not inside the chip
+  });
+
+  it('a flourish clears itself once it has played', () => {
+    vi.useFakeTimers();
+    try {
+      const { rerender } = render(<ClockChip vm={working()} />);
+      rerender(<ClockChip vm={working({ state: 'break', timer: '0:00' })} />);
+      expect(fx()).toBe('coffee');
+      act(() => { vi.advanceTimersByTime(2700); });
+      expect(fx()).toBe('');
+    } finally { vi.useRealTimers(); }
   });
 
   it('End Break draws a check and sweeps the dial', () => {

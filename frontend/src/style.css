@@ -479,7 +479,7 @@ h1,h2,h3,h4,h5,h6,
    transform and opacity only. Everything starts hidden (opacity 0) so a
    frame before the first sample never flashes. */
 .sbfx { position: fixed; left: 0; top: 0; width: 0; height: 0; z-index: 2000; pointer-events: none; }
-.sbfx [data-fx] { will-change: transform, opacity; transform-origin: 50% 50%; }
+.sbfx [data-fx] { will-change: transform, opacity; }
 .sbfx-coffee { position: absolute; left: -16px; top: -16px; width: 32px; height: 32px; color: #b45309; opacity: 0; transform-origin: 50% 70%; }
 /* the mug sits on a disc, like the End Break check, so it reads cleanly
    over the buttons it passes - a static shadow (only the layer moves) */

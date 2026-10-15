@@ -37,6 +37,12 @@ describe('flourish motion', () => {
     });
   }
 
+  it('each steam wisp draws itself on its own puff', () => {
+    const draws = planFor('coffee').filter((s) => s.draw);
+    expect(draws.map((d) => [d.sel, d.delay, d.iterations])).toEqual([
+      ['[data-fx=w0] path', 300, 2], ['[data-fx=w1] path', 520, 2], ['[data-fx=w2] path', 740, 2]]);
+  });
+
   it('the cup ends to the RIGHT of where it started (clear of the tooltip above)', () => {
     const cup = planFor('coffee')[0].frames.map(parse);
     expect(cup[cup.length - 1].x).toBeGreaterThan(55);
@@ -49,7 +55,8 @@ describe('flourish motion', () => {
     const root = { querySelectorAll: () => [el] };
     const stop = playPlan(root, [{ sel: 'x', frames: [{ opacity: 0 }, { opacity: 1 }], ms: 500 }, { sel: 'y', draw: true, ms: 300, delay: 100 }]);
     expect(animate.mock.calls[0][1]).toMatchObject({ duration: 500, easing: 'linear', fill: 'both' });
-    expect(animate.mock.calls[1][0]).toEqual([{ strokeDashoffset: 1 }, { strokeDashoffset: 0 }]);
+    expect(animate.mock.calls[1][0][0]).toEqual({ strokeDashoffset: 1, opacity: 0 });   // hidden until it draws
+    expect(animate.mock.calls[1][0].at(-1)).toEqual({ strokeDashoffset: 0, opacity: 1 });
     stop();
     expect(cancel).toHaveBeenCalledTimes(2);
   });

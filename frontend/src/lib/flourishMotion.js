@@ -71,7 +71,10 @@ export function coffeePlan() {
     { sel: '[data-fx=w0]', frames: wisp(0), ms: 900, delay: 300, iterations: 2 },
     { sel: '[data-fx=w1]', frames: wisp(0.33), ms: 900, delay: 520, iterations: 2 },
     { sel: '[data-fx=w2]', frames: wisp(0.66), ms: 900, delay: 740, iterations: 2 },
-    { sel: '[data-fx=w0] path, [data-fx=w1] path, [data-fx=w2] path', draw: true, ms: 420, delay: 300 },
+    // Each wisp draws itself as it appears, every puff.
+    { sel: '[data-fx=w0] path', draw: true, ms: 900, delay: 300, iterations: 2 },
+    { sel: '[data-fx=w1] path', draw: true, ms: 900, delay: 520, iterations: 2 },
+    { sel: '[data-fx=w2] path', draw: true, ms: 900, delay: 740, iterations: 2 },
   ];
 }
 
@@ -137,7 +140,11 @@ export function playPlan(root, plan) {
   for (const step of plan) {
     for (const el of root.querySelectorAll(step.sel)) {
       if (typeof el.animate !== 'function') continue;   // jsdom, very old browsers
-      const frames = step.draw ? [{ strokeDashoffset: 1 }, { strokeDashoffset: 0 }] : step.frames;
+      // A line drawing itself: hidden until it starts (a round cap on an
+      // undrawn stroke shows as a dot in Safari), drawn in the first part.
+      const frames = step.draw
+        ? [{ strokeDashoffset: 1, opacity: 0 }, { strokeDashoffset: 0.97, opacity: 1, offset: 0.04 }, { strokeDashoffset: 0, opacity: 1, offset: step.iterations ? 0.45 : 1 }, { strokeDashoffset: 0, opacity: 1 }]
+        : step.frames;
       running.push(el.animate(frames, {
         duration: step.ms, delay: step.delay || 0, iterations: step.iterations || 1,
         easing: step.draw ? 'cubic-bezier(.65,0,.35,1)' : 'linear', fill: 'both',

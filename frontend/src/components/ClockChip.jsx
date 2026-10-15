@@ -151,12 +151,14 @@ export default function ClockChip({ vm, variant = 'wide', onAfterAction, leaving
   const playRef = useRef(null), pauseRef = useRef(null), stopRef = useRef(null);
   useEffect(() => {
     const from = prev.current; prev.current = state;
-    if (from === 'in' && state === 'break') setFlourish('coffee');
-    else if (from === 'break' && state === 'in') setFlourish('check');
-    else if (from === 'out' && state === 'in') setFlourish('in');
-    else if ((from === 'in' || from === 'break') && state === 'out') setFlourish('out');
-    else return undefined;
-    const t = setTimeout(() => setFlourish(''), (FLOURISH_MS[from === 'in' && state === 'break' ? 'coffee' : from === 'break' && state === 'in' ? 'check' : state === 'in' ? 'in' : 'out'] || 1600) + 120);
+    const kind = from === 'in' && state === 'break' ? 'coffee'
+      : from === 'break' && state === 'in' ? 'check'
+        : from === 'out' && state === 'in' ? 'in'
+          : (from === 'in' || from === 'break') && state === 'out' ? 'out' : '';
+    if (!kind) return undefined;
+    setFlourish(kind);
+    // Cleared after its longest track (the steam's second puff, for the cup).
+    const t = setTimeout(() => setFlourish(''), FLOURISH_MS[kind] + (kind === 'coffee' ? 300 : 150));
     return () => clearTimeout(t);
   }, [state]);
   // The dial still sweeps on a return to work (Resume or Punch In).
