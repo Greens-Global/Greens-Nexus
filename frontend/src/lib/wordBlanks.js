@@ -33,11 +33,29 @@ export const NEXUS_FIELDS = [
   ['signer.company', 'Company Signer - Name'], ['signer.company.title', 'Company Signer - Title'],
   ['emergency_name', 'Emergency Contact - Name'], ['emergency_relationship', 'Emergency Contact - Relationship'],
   ['emergency_phone', 'Emergency Contact - Phone'],
+  // What HR answers once on the offer (Neil, Oct 14) - every letter can print them.
+  ['work_location', 'Work Location (From The Offer)'], ['work_schedule', 'Work Hours And Days'],
+  ['worker_type', 'Hired As (Employee / Contractor)'], ['employment_type', 'Employment Type'],
+  ['offer_expires', 'Offer Expires'],
 ];
 const NEXUS_KEYS = new Set(NEXUS_FIELDS.map(([k]) => k));
 
 // Filled by hand on the printed copy (a notary page), never by Nexus.
 const PAPER = /notar|witness|\bseal\b|stamp|franking|e-stamp|registration number|place of|purchased by|date of issue|state of issue|value\b|work e-?mail/;
+// Asked of HR when they make the offer - it changes per hire, and only HR knows
+// it (Neil, Oct 14: "you can't send an offer without answering these
+// questions. Who has to answer those? HR has to").
+const HR_ANSWERS = /probation|notice period|bonus|commission|incentive|allowance|benefit|leave entitlement|paid time off|\bpto\b|reimburse|equity|stock option|relocation/;
+// An answer only Pay & Benefits sees - an ID or account number.
+const PRIVATE = /account (number|no)|aadha+r|\bpan\b|\bssn\b|social security|passport|tax id|\btin\b|licen[cs]e (number|no)|\bupi\b/;
+// HR's answer that is pay.
+const PAYISH = /salary|wage|\bpay\b|payment|compensation|\bctc\b|stipend|\bfees?\b|bonus|commission|incentive|allowance|equity|stock|amount|\brate\b/;
+
+/** Whether a person's answer should be Private (Pay & Benefits only). */
+export const guessPrivate = (label) => PRIVATE.test(clean(label).toLowerCase());
+/** Whether an HR answer is pay - entered only by Pay & Benefits holders. */
+export const guessPay = (label) => PAYISH.test(clean(label).toLowerCase());
+
 // The person's own details - asked on the Details Form.
 const PERSONAL = /\bpan\b|aadha+r|\bssn\b|social security|passport|account (number|no)|ifsc|\bupi\b|\bbank\b|branch|licen[cs]e|date of birth|\bdob\b|birth|gender|nationality|marital|blood|whatsapp|middle name|\bcity\b|\bstate\b|pin ?code|zip|postal|account holder|type of account|account type|18 or older/;
 
@@ -54,6 +72,9 @@ export function guessFill(label, ctx = {}) {
   }
   if (PERSONAL.test(l)) return { fill: 'ask' };
   if (/client/.test(l)) return { fill: 'same' };
+  if (/work location|place of work|location of work|primary location|office location|work site/.test(l)) return { fill: 'nexus', token: 'work_location' };
+  if (/working hours|hours of work|work hours|work schedule|shift timing|timings/.test(l)) return { fill: 'nexus', token: 'work_schedule' };
+  if (HR_ANSWERS.test(l)) return { fill: 'hr' };
   if (/first name|given name/.test(l)) return { fill: 'nexus', token: 'first_name' };
   if (/last name|surname|family name/.test(l)) return { fill: 'nexus', token: 'last_name' };
   if (/company.*address|business address|registered address|office address/.test(l)) return { fill: 'nexus', token: 'company_address' };
@@ -245,7 +266,7 @@ export function tokensFor(blanks) {
   const used = new Set();
   return blanks.map(b => {
     if (b.fill === 'nexus') return b.token;
-    if (b.fill !== 'ask' && b.fill !== 'same') return '';
+    if (b.fill !== 'ask' && b.fill !== 'same' && b.fill !== 'hr') return '';
     const key = clean(b.label).toLowerCase();
     if (byLabel.has(key)) return byLabel.get(key);
     // "Driver's Licence No. (if applicable)" -> drivers_licence_no
@@ -276,13 +297,17 @@ export function applyBlanks(doc, blanks) {
       return;
     }
     if (!token) return;
-    if (b.fill === 'ask' || b.fill === 'same') {
+    if (b.fill === 'ask' || b.fill === 'same' || b.fill === 'hr') {
       const prev = defs.get(token);
       defs.set(token, {
         token, label: clean(b.label), required: false,
         type: b.options?.length ? 'dropdown' : /date|birth|\bdob\b/i.test(b.label) ? 'date' : 'text',
         ...(b.options?.length ? { options: b.options } : {}),
         default: b.fill === 'same' ? String(b.value || '') : (prev?.default || ''),
+        // Who fills it (Oct 14): the person on their intake form, or HR on the offer.
+        source: b.fill === 'ask' ? 'person' : b.fill === 'hr' ? 'hr' : '',
+        ...(b.fill === 'ask' ? { sensitive: b.private ?? guessPrivate(b.label) } : {}),
+        ...(b.fill === 'hr' ? { pay: b.pay ?? guessPay(b.label) } : {}),
       });
     }
     if (b.kind === 'text' || !b.at) return;          // placed below, wherever it appears

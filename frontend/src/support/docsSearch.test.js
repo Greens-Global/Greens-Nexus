@@ -122,7 +122,7 @@ describe('real questions land on the right answer', () => {
   it('finds walkthroughs and tips, not just modules', () => {
     expect(top('add a new employee')[0]).toBe('People > Add a New Employee');
     expect(top('how to approve leave')[0]).toBe('People > Approve Leave');
-    expect(top('report a bug')[0]).toBe('Support > Report a Bug in Nexus');
+    expect(top('report a bug')[0]).toBe('Help Center > Report a Bug in Nexus');
     expect(top('how do i change my photo')[0]).toBe('Getting Started > Set Up Your Profile');
     expect(top('my punch did not record')[0]).toBe('Workday > Good To Know');
     expect(top('cant see a module')[0]).toBe('Getting Started > Good To Know');

@@ -253,7 +253,11 @@ export function buildDiorama(scene, model, W) {
   // painted stall outlines on the lots
   const stall = [];
   (model.units || []).filter((u) => u.k === 'park').forEach((u) => {
-    const a = W(u.u, u.v, 0.05), b = W(u.u + u.wu, u.v, 0.05), c = W(u.u + u.wu, u.v + u.dv, 0.05), d = W(u.u, u.v + u.dv, 0.05);
+    // Corners turned about the center for an angled stall (rot, degrees CCW in u,v).
+    const r = ((u.rot || 0) * Math.PI) / 180, cu = u.u + u.wu / 2, cv = u.v + u.dv / 2;
+    const at = (du, dv) => W(cu + du * Math.cos(r) - dv * Math.sin(r), cv + du * Math.sin(r) + dv * Math.cos(r), 0.05);
+    const hw = u.wu / 2, hd = u.dv / 2;
+    const a = at(-hw, -hd), b = at(hw, -hd), c = at(hw, hd), d = at(-hw, hd);
     stall.push(a, b, b, c, c, d, d, a);
   });
   if (stall.length) root.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(stall), new THREE.LineBasicMaterial({ color: DIORAMA.stripe })));
@@ -280,7 +284,7 @@ export function buildDiorama(scene, model, W) {
       const long = Math.max(u.wu, u.dv); const kind = long >= 11 ? 'rv' : long >= 7 ? 'truck' : 'car';
       const m = makeCar(DIORAMA.cars[Math.floor(pr() * DIORAMA.cars.length)], kind);
       const s = Math.min(1, (long - 0.8) / (kind === 'rv' ? 9 : kind === 'truck' ? 6 : 4.4));
-      m.scale.setScalar(s); m.position.copy(W(u.u + u.wu / 2, u.v + u.dv / 2, 0.08)); m.rotation.y = u.wu >= u.dv ? 0 : Math.PI / 2;
+      m.scale.setScalar(s); m.position.copy(W(u.u + u.wu / 2, u.v + u.dv / 2, 0.08)); m.rotation.y = (u.wu >= u.dv ? 0 : Math.PI / 2) + ((u.rot || 0) * Math.PI) / 180;
       m.traverse((o) => { o.castShadow = false; }); parked.add(m);
     });
   }

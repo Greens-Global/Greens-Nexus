@@ -59,7 +59,7 @@ import {
   Plus, Pencil, Trash2, Upload, GripVertical, MapPinned,
   Globe, Package, Search, Wrench, CalendarClock, ShieldCheck, Palette, FileCheck,
   Tags,
-  Clock, Users, CloudRain,
+  Clock, Users, CloudRain, UserPlus, FileText, ClipboardList,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -80,6 +80,10 @@ import WorkforceScorecardSettings from '../components/WorkforceScorecardSettings
 const ManageTypesModal = lazy(() => import('./InventoryManagement').then(m => ({ default: m.ManageTypesModal })));
 const CustomFieldsAdminModal = lazy(() => import('./InventoryManagement').then(m => ({ default: m.CustomFieldsAdminModal })));
 const CompanySetupPage = lazy(() => import('./HR').then(m => ({ default: m.CompanySetupPage })));
+// Hiring setup (Neil, Oct 14): "these are all settings ... I don't want anyone
+// editing anything here" - moved off the Hiring board into Settings.
+const PacketsModal = lazy(() => import('../components/HiringPacket').then(m => ({ default: m.PacketsModal })));
+const QuestionnairesModal = lazy(() => import('../components/Interviews').then(m => ({ default: m.QuestionnairesModal })));
 const WorkSiteLibrary = lazy(() => import('./HR').then(m => ({ default: m.WorkSiteLibrary })));
 // Roles & Access moved here whole (Pranshu, Sep 9) - was a People tab
 // (HR.jsx's old 'hr-access' sub), now a top-level tab of Admin instead.
@@ -143,6 +147,8 @@ const GLOBAL_CATEGORIES = [
   // Time Clock pay rules (Charmi, Sep 30): moved off the timecard's Options popover.
   { key: 'timeclock',      label: 'Time Clock',     Icon: CalendarClock, adminOnly: true,
     desc: 'Punch rounding, the auto-lunch deduction and California paid rest breaks - the rules every timecard is computed with.' },
+  { key: 'hiring',         label: 'Hiring',         Icon: UserPlus,
+    desc: 'What goes out when someone is hired, promoted or leaves - built from Documents - and the interview questionnaires for each role. The Hiring board itself is only for moving candidates along.' },
   { key: 'shifts',         label: 'Shifts',         Icon: CalendarClock,
     desc: 'What staff may request and see on the schedule, the team time zone and week start, time-off reasons, the shift types managers place, the groups people are scheduled in, and the weather alerts for their work sites.' },
 ];
@@ -152,7 +158,7 @@ const LEGACY_CATEGORIES = { 'service-desk': 'notifications', tasks: 'notificatio
 
 const GLOBAL_SECTIONS = [
   { id: 'email-signature', category: 'organization', icon: Signature, title: 'Email Signature',
-    sub: 'Choose each company\'s signature template and set custom signatures for specific addresses. Names, titles and contact details come from each employee\'s directory record, and employees choose their own sign-off in My Profile.',
+    sub: 'Choose each company\'s signature template and set custom signatures for specific addresses. Names, titles and contact details come from each employee\'s directory record, and employees choose their own sign-off in Profile.',
     keywords: 'template sign-off logo sender override shared inbox branding' },
   { id: 'work-sites', category: 'organization', icon: MapPinned, title: 'Location Library',
     sub: 'Every location employees can punch in at, with its geofence. Pick the companies that use each one right here, or from the Locations tab of each company.',
@@ -200,6 +206,12 @@ const GLOBAL_SECTIONS = [
   // Time Clock (Charmi, Sep 30): rounding, auto-lunch and CA paid breaks used
   // to be switches in the timecard's Options popover. Per-company scoping is
   // deferred - one rule for the tenant today.
+  { id: 'hiring-documents', category: 'hiring', icon: FileText, title: 'Hiring Documents',
+    sub: 'Offer letters, hiring packets, promotion letters and separation packages: which documents each company sends, for which roles and kind of hire, who signs, and Ready To Send.',
+    keywords: 'packets offer letter hiring packet promotion separation nda confidentiality agreement documents signers' },
+  { id: 'interview-questionnaires', category: 'hiring', icon: ClipboardList, title: 'Interview Questionnaires',
+    sub: 'The questions asked in each role\'s interview - the Interview Room shows them to the interviewer.',
+    keywords: 'questions interview questionnaire role character competence availability' },
   { id: 'timeclock-policy', category: 'timeclock', icon: CalendarClock, title: 'Pay Rules',
     sub: 'Punch rounding (off by default), the auto-lunch deduction and California paid rest breaks. Applies to every timecard.',
     keywords: 'time clock punch rounding nearest minutes swipeclock auto lunch deduction meal break paid rest break california timecard payroll' },
@@ -397,6 +409,22 @@ function HrRemindersSection({ defaultOpen }) {
       <Suspense fallback={<SectionFallback />}>
         <HrReminderSettings />
       </Suspense>
+    </Section>
+  );
+}
+
+// ── Hiring setup (Oct 14) - the editors the Hiring board used to open,
+// reached from Settings now; they open full size, as before.
+function HiringSetupSection({ id, Modal, label, defaultOpen, toastOk, toastErr }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Section {...SECTION_META[id]} defaultOpen={defaultOpen}>
+      <button type="button" className="primary-btn" onClick={() => setOpen(true)} style={{ fontSize: 12.5 }}>{label}</button>
+      {open && (
+        <Suspense fallback={<ModalFallback />}>
+          <Modal onClose={() => setOpen(false)} toastOk={toastOk} toastErr={toastErr} />
+        </Suspense>
+      )}
     </Section>
   );
 }
@@ -1049,6 +1077,8 @@ function GlobalSettings({ category, onCategory, toast, toastOk, toastErr }) {
         );
       // Time Clock has exactly one section - rendered whole, like Security.
       case 'timeclock-policy':     return <TimeClockPolicyPanel key={key} toastOk={toastOk} toastErr={toastErr} />;
+      case 'hiring-documents':     return <HiringSetupSection key={key} id={id} Modal={PacketsModal} label="Open Hiring Documents" defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;
+      case 'interview-questionnaires': return <HiringSetupSection key={key} id={id} Modal={QuestionnairesModal} label="Open Questionnaires" defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;
       case 'shift-settings':       return <LazyPanelSection key={key} id={id} Panel={ShiftSettingsPanel} defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;
       case 'shift-types':          return <LazyPanelSection key={key} id={id} Panel={ShiftTypesPanel} defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;
       case 'shift-groups':         return <LazyPanelSection key={key} id={id} Panel={ShiftGroupsPanel} defaultOpen={single} toastOk={toastOk} toastErr={toastErr} />;

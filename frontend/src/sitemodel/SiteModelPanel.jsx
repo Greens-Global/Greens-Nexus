@@ -190,7 +190,12 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
               </div>
             ) : null)}
             {owner && <div style={{ marginTop: 10 }}><button type="button" style={btn} onClick={() => { const b = bldg(u.b); setPlacing(false); setPending({ u: u.u + u.wu / 2, v: u.v + u.dv / 2, y: b ? +((u.f - 1) * b.height / b.floors).toFixed(2) : 0, unit: u.n, building: u.b }); }}>Add Pin at This Unit</button></div>}
-            {model.layout?.schematic && <div style={{ fontSize: 12, color: 'var(--text-muted, #5f6358)', marginTop: 8 }}>Position is schematic until the as-built plan is loaded.</div>}
+            {/* Per unit (Oct 14 2026): traced units say where their position came from. */}
+            {u.tr === 2
+              ? <div style={{ fontSize: 12, color: 'var(--text-muted, #5f6358)', marginTop: 8 }}>Position from the plans; the plans carry no unit numbers, so this number was matched by size - confirm on site.</div>
+              : u.tr
+              ? <div style={{ fontSize: 12, color: 'var(--text-muted, #5f6358)', marginTop: 8 }}>Position from the as-built plan.</div>
+              : model.layout?.schematic && <div style={{ fontSize: 12, color: 'var(--text-muted, #5f6358)', marginTop: 8 }}>Position is schematic until the as-built plan is traced.</div>}
           </section>
         ) : building ? (
           <section style={card}>

@@ -13,6 +13,10 @@ const timeSchedDelete = vi.fn();
 const timeSchedDiscard = vi.fn();
 const timeSchedPublish = vi.fn();
 const timeSchedUnshared = vi.fn();
+const timeSchedPublishReview = vi.fn();
+const timeSchedHistory = vi.fn();
+const timeSchedCellHistory = vi.fn();
+const timeSchedShares = vi.fn();
 const timeSchedCheck = vi.fn();
 const timeSchedCopy = vi.fn();
 const timeSchedClear = vi.fn();
@@ -34,15 +38,25 @@ vi.mock('xlsx', () => ({ read: () => ({ SheetNames: ['S'], Sheets: { S: {} } }),
 vi.mock('../ui/dialog', () => ({ dialog: { confirm: (...a) => confirmAsk(...a), prompt: vi.fn() } }));
 vi.mock('../tasks/exporting', () => ({ exportExcel: (...a) => exportExcel(...a) }));
 const weatherCallScreen = vi.fn();
+const timeSchedActuals = vi.fn();
+const timeSchedConfirmations = vi.fn();
+const timeSchedNudge = vi.fn();
 vi.mock('../api', () => ({
   api: {
     timeSchedule: (...a) => timeSchedule(...a),
+    timeSchedActuals: (...a) => timeSchedActuals(...a),
+    timeSchedConfirmations: (...a) => timeSchedConfirmations(...a),
+    timeSchedNudge: (...a) => timeSchedNudge(...a),
     weatherCallScreen: (...a) => weatherCallScreen(...a),
     timeShiftAssign: (...a) => timeShiftAssign(...a),
     timeSchedDelete: (...a) => timeSchedDelete(...a),
     timeSchedDiscard: (...a) => timeSchedDiscard(...a),
     timeSchedPublish: (...a) => timeSchedPublish(...a),
     timeSchedUnshared: (...a) => timeSchedUnshared(...a),
+    timeSchedPublishReview: (...a) => timeSchedPublishReview(...a),
+    timeSchedHistory: (...a) => timeSchedHistory(...a),
+    timeSchedCellHistory: (...a) => timeSchedCellHistory(...a),
+    timeSchedShares: (...a) => timeSchedShares(...a),
     timeSchedCreate: (...a) => timeSchedCreate(...a),
     timeSchedUpdate: (...a) => timeSchedUpdate(...a),
     timeSchedMove: (...a) => timeSchedMove(...a),
@@ -129,6 +143,10 @@ beforeEach(() => {
   timeSchedDiscard.mockReset().mockResolvedValue({});
   timeSchedPublish.mockReset().mockResolvedValue({ published: 1, added: 1, notified: 1 });
   timeSchedUnshared.mockReset().mockResolvedValue({ count: 1 });
+  timeSchedPublishReview.mockReset().mockResolvedValue({ changes: [{ email: 'amy@greensglobal.com', name: 'Amy Adams', kind: 'added', date: monday, start: '09:00', end: '17:00', label: '', was: null }], people: 1, warnings: [], reasonRequired: false });
+  timeSchedHistory.mockReset().mockResolvedValue({ entries: [] });
+  timeSchedCellHistory.mockReset().mockResolvedValue({ entries: [] });
+  timeSchedShares.mockReset().mockResolvedValue({ shares: [] });
   timeSchedCheck.mockReset().mockResolvedValue({ warnings: [] });
   timeSchedCopy.mockReset().mockResolvedValue({ created: 4, replaced: 0, skipped: 1, timeoffSkipped: 0, targetStart: plusDays(monday, 7), targetEnd: plusDays(monday, 13) });
   timeSchedClear.mockReset().mockResolvedValue({ removed: 2, pending: 1 });
@@ -143,6 +161,9 @@ beforeEach(() => {
   timeOffTypes.mockReset().mockResolvedValue({ builtIn: ['vacation', 'sick', 'personal', 'unpaid', 'other'], custom: ['Jury Duty'], requestsOn: true });
   timeOffOnBehalf.mockReset().mockResolvedValue({ id: 't9' });
   timeOffDecide.mockReset().mockResolvedValue({});
+  timeSchedActuals.mockReset().mockResolvedValue({ cells: {}, people: {}, totals: {} });
+  timeSchedConfirmations.mockReset().mockResolvedValue({ people: [], unconfirmed: 0 });
+  timeSchedNudge.mockReset().mockImplementation(async (b) => ({ nudged: b.emails.length }));
 });
 
 describe('Toolbar: one row, seven controls', () => {
@@ -280,6 +301,13 @@ describe('Grid: blocks, time off beside shifts, open shifts per group', () => {
     fireEvent.change(within(dlg).getByLabelText('Group people by'), { target: { value: 'location' } });
     expect(screen.getByText('Escondido')).toBeTruthy();
     expect(screen.getByText('No Location Set')).toBeTruthy();
+  });
+
+  it('calls the corner count warnings once any of them is a schedule rule (Oct 15)', async () => {
+    timeSchedule.mockResolvedValue(data([shift({ conflicts: ['Only 8h 00m rest before this shift (10h minimum).'], ruleWarnings: ['Only 8h 00m rest before this shift (10h minimum).'] })]));
+    render(<ShiftSchedule toastOk={toastOk} />);
+    await screen.findByText('Amy Adams');
+    expect(screen.getByRole('button', { name: /^1 warning$/ })).toBeTruthy();
   });
 
   it('marks people with limited availability, and a conflict on a shift', async () => {
@@ -421,6 +449,31 @@ describe('Menus, clipboard, keyboard and touch', () => {
     fireEvent.click(within(menu).getByText(/NGT · 9:00 PM - 5:00 AM/));
     await waitFor(() => expect(timeSchedCreate).toHaveBeenCalledWith({ employee_email: 'bob@greensglobal.com', work_date: monday, shift_id: 'p2', group_id: '' }));
     expect(toastOk).toHaveBeenCalledWith('NGT placed as a draft.');
+  });
+
+  it('offers History on an empty day only once the API says a shift was there (Oct 15)', async () => {
+    timeSchedule.mockResolvedValue(data([]));
+    render(<ShiftSchedule toastOk={toastOk} />);
+    await screen.findByText('Amy Adams');
+    fireEvent.contextMenu(cellOf('bob@greensglobal.com'));
+    let menu = screen.getByRole('menu', { name: 'Day options' });
+    await waitFor(() => expect(timeSchedCellHistory).toHaveBeenCalledWith('bob@greensglobal.com', monday));
+    expect(within(menu).queryByText('History')).toBeNull();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    timeSchedCellHistory.mockResolvedValue({ email: 'bob@greensglobal.com', date: monday, entries: [
+      { action: 'removed', actor: 'mia@greensglobal.com', actorName: 'Mia Lee', at: '2026-10-14T22:12:00Z', before: { start: '09:00', end: '17:00', label: 'Yard' }, after: null, reason: 'offboarded' },
+      { action: 'created', actor: 'mia@greensglobal.com', actorName: 'Mia Lee', at: '2026-10-10T15:00:00Z', before: null, after: { start: '09:00', end: '17:00', label: 'Yard' }, reason: '' },
+    ] });
+    fireEvent.contextMenu(cellOf('bob@greensglobal.com'));
+    menu = screen.getByRole('menu', { name: 'Day options' });
+    const item = await within(menu).findByText('History');
+    fireEvent.click(item);
+    const dlg = screen.getByRole('dialog', { name: 'Cell History' });
+    expect(dlg.textContent).toContain('Bob · ');
+    expect(dlg.textContent).toContain('Removed by Mia Lee');
+    expect(dlg.textContent).toContain('9:00 AM - 5:00 PM · Yard');
+    expect(dlg.textContent).toContain('"offboarded"');
+    expect(dlg.textContent).toContain('Created by Mia Lee');
   });
 
   it('copies and pastes with Ctrl+C / Ctrl+V, the menu, and a click on an empty day', async () => {
@@ -911,9 +964,45 @@ describe('Share, copy, clear, discard', () => {
     fireEvent.change(within(dlg).getByLabelText('Share to'), { target: { value: plusDays(monday, 13) } });
     await waitFor(() => expect(timeSchedUnshared).toHaveBeenLastCalledWith(monday, plusDays(monday, 13)));
     fireEvent.click(within(dlg).getByText('The whole team'));
+    // Phase 2: Review first, then Share from the review.
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Review' }));
+    await within(dlg).findByText('Review And Share');
+    expect(timeSchedPublishReview).toHaveBeenCalledWith({ start: monday, end: plusDays(monday, 13) });
+    expect(within(dlg).getByText('No warnings.')).toBeTruthy();
     fireEvent.click(within(dlg).getByRole('button', { name: 'Share' }));
-    await waitFor(() => expect(timeSchedPublish).toHaveBeenCalledWith({ start_date: monday, end_date: plusDays(monday, 13), notify: 'team' }));
+    await waitFor(() => expect(timeSchedPublish).toHaveBeenCalledWith({ start_date: monday, end_date: plusDays(monday, 13), notify: 'team', reason: '' }));
     expect(toastOk).toHaveBeenCalledWith('Shared with the team: 2 new, 1 removed. 2 people notified.');
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Share Schedule' })).toBeNull());
+  });
+
+  it('shows the server refusal in the review and keeps it open', async () => {
+    timeSchedule.mockResolvedValue(data([shift({ published: false })]));
+    timeSchedPublish.mockRejectedValue(Object.assign(new Error('A reason is needed to share a schedule with warnings.'), { status: 400 }));
+    render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
+    await screen.findByText('Amy Adams');
+    fireEvent.click(screen.getByRole('button', { name: 'Share, 1 unshared' }));
+    const dlg = screen.getByRole('dialog', { name: 'Share Schedule' });
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Review' }));
+    await within(dlg).findByText('Review And Share');
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Share' }));
+    expect((await within(dlg).findByRole('alert')).textContent).toBe('A reason is needed to share a schedule with warnings.');
+    expect(toastErr).toHaveBeenCalledWith('A reason is needed to share a schedule with warnings.');
+    expect(screen.getByRole('dialog', { name: 'Share Schedule' })).toBeTruthy();
+  });
+
+  it('jumps from a review warning to the cell on the grid and pulses it', async () => {
+    timeSchedule.mockResolvedValue(data([shift({ published: false })]));
+    timeSchedPublishReview.mockResolvedValue({ changes: [{ email: 'amy@greensglobal.com', name: 'Amy Adams', kind: 'added', date: monday, start: '09:00', end: '17:00', label: '', was: null }], people: 1,
+      warnings: [{ email: 'amy@greensglobal.com', name: 'Amy Adams', date: monday, shiftId: 's1', text: 'Only 6 hours of rest.', kind: 'rule' }], reasonRequired: false });
+    render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
+    await screen.findByText('Amy Adams');
+    fireEvent.click(screen.getByRole('button', { name: 'Share, 1 unshared' }));
+    const dlg = screen.getByRole('dialog', { name: 'Share Schedule' });
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Review' }));
+    await within(dlg).findByText('Review And Share');
+    fireEvent.click(within(dlg).getByText('Only 6 hours of rest.'));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Share Schedule' })).toBeNull());
+    await waitFor(() => expect(cellOf('amy@greensglobal.com').className).toContain('m-pulse-cell'));
   });
 
   it('refuses more than 92 days, and still counts locally on an older API', async () => {
@@ -926,7 +1015,7 @@ describe('Share, copy, clear, discard', () => {
     expect(within(dlg).getByText('1 change to share in these dates.')).toBeTruthy();
     fireEvent.change(within(dlg).getByLabelText('Share to'), { target: { value: plusDays(monday, 100) } });
     expect(within(dlg).getByText('Share at most 92 days at a time.')).toBeTruthy();
-    expect(within(dlg).getByRole('button', { name: 'Share' }).disabled).toBe(true);
+    expect(within(dlg).getByRole('button', { name: 'Review' }).disabled).toBe(true);
   });
 
   it('copies the week on screen to the next week as drafts', async () => {
@@ -1099,5 +1188,191 @@ describe('On a phone', () => {
       fireEvent.click(blockOf('s2'));
       expect(screen.getByRole('dialog', { name: 'Edit Shift' })).toBeTruthy();
     } finally { mm.mockRestore(); }
+  });
+});
+
+// Actuals (Shifts Phase 1, Oct 14): what the clock said rides on the blocks
+// as a bar and above the grid as the week's adherence line. Fetched beside
+// the schedule, never blocking it; a failed call is simply no actuals.
+describe('Actuals: the schedule meets the clock', () => {
+  const actuals = () => ({
+    // A Dubai shift (9:00 AM GST = 05:00 UTC): the hover reads its own clock wherever the manager is.
+    cells: { [`amy@greensglobal.com|${monday}`]: { shiftId: 's1', status: 'late', firstIn: `${monday}T05:04:00`, lastOut: `${monday}T12:58:00`, workedMin: 474, lateMin: 4, earlyMin: 0, excuse: '', tz: 'Asia/Dubai' } },
+    people: { 'amy@greensglobal.com': { scheduledMin: 480, workedMin: 474, late: 1, noShow: 0, leftEarly: 0, onTime: 0 },
+      'bob@greensglobal.com': { scheduledMin: 480, workedMin: 0, late: 0, noShow: 1, leftEarly: 0, onTime: 0 } },
+    totals: { scheduledMin: 960, workedMin: 474, late: 1, noShow: 1, leftEarly: 0, onTime: 0 },
+  });
+  it('draws the bar on the block and the adherence line above the grid, after the schedule', async () => {
+    timeSchedule.mockResolvedValue(data([shift()]));
+    timeSchedActuals.mockResolvedValue(actuals());
+    render(<ShiftSchedule toastOk={toastOk} />);
+    await screen.findByText('Amy Adams');
+    await waitFor(() => expect(timeSchedActuals).toHaveBeenCalledWith(monday, plusDays(monday, 6)));
+    const line = await screen.findByRole('status', { name: 'Week adherence' });
+    expect(line.textContent).toBe('Scheduled 16h 00m · Worked 7h 54m · 1 Late · 1 No-Show');
+    const bar = blockOf('s1').querySelector('[data-actual]');
+    expect(bar.getAttribute('data-actual')).toBe('late');
+    expect(bar.style.background).toBe('hsl(var(--color-orange))');
+    expect(blockOf('s1').getAttribute('title')).toContain('Clocked in 9:04 AM (4 min late)\nClocked out 4:58 PM');
+    expect(blockOf('s1').getAttribute('aria-label')).toBe('Shift 9:00 AM - 5:00 PM GST, Late');
+    expect(blockOf('s1').textContent).toBe('9:00a - 5:00pGSTL');   // the bar and the letter badge are the only additions
+    // The line follows the people on screen.
+    const dlg = viewOptions();
+    fireEvent.change(within(dlg).getByLabelText('Search people'), { target: { value: 'amy' } });
+    expect(screen.getByRole('status', { name: 'Week adherence' }).textContent).toBe('Scheduled 8h 00m · Worked 7h 54m · 1 Late');
+  });
+  it('hides it all when Show Actuals is off, and says nothing when nothing was worked', async () => {
+    timeSchedule.mockResolvedValue(data([shift()]));
+    timeSchedActuals.mockResolvedValue(actuals());
+    render(<ShiftSchedule toastOk={toastOk} />);
+    await screen.findByRole('status', { name: 'Week adherence' });
+    const dlg = viewOptions();
+    fireEvent.click(within(dlg).getByLabelText('Show Actuals'));
+    await waitFor(() => expect(screen.queryByRole('status', { name: 'Week adherence' })).toBeNull());
+    expect(blockOf('s1').querySelector('[data-actual]')).toBeNull();
+    expect(JSON.parse(localStorage.getItem('nexus.shifts.viewPrefs')).actuals).toBe(false);
+    fireEvent.click(within(dlg).getByLabelText('Show Actuals'));
+    await screen.findByRole('status', { name: 'Week adherence' });
+    // Everything still ahead: counts of zero and nothing worked say nothing.
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Done' }));
+    timeSchedActuals.mockResolvedValue({ cells: {}, people: { 'amy@greensglobal.com': { scheduledMin: 480, workedMin: 0, late: 0, noShow: 0, leftEarly: 0, onTime: 0 } }, totals: {} });
+    fireEvent.click(screen.getByRole('button', { name: 'Next week' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Previous week' }));
+    await screen.findByText('Amy Adams');
+    await waitFor(() => expect(timeSchedActuals).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(screen.queryByRole('status', { name: 'Week adherence' })).toBeNull());
+  });
+  it('shows a viewer their bar but no week line, and a failed call changes nothing', async () => {
+    timeSchedule.mockResolvedValue({ ...data([shift()]), canManage: false });
+    timeSchedActuals.mockResolvedValue(actuals());
+    const { unmount } = render(<ShiftSchedule toastOk={toastOk} />);
+    await screen.findByText('Amy Adams');
+    await waitFor(() => expect(blockOf('s1').querySelector('[data-actual]')).toBeTruthy());
+    expect(screen.queryByRole('status', { name: 'Week adherence' })).toBeNull();
+    unmount();
+    timeSchedule.mockResolvedValue(data([shift()]));
+    timeSchedActuals.mockRejectedValue(new Error('API error 500'));
+    render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
+    await screen.findByText('Amy Adams');
+    await waitFor(() => expect(timeSchedActuals).toHaveBeenCalled());
+    expect(blockOf('s1').querySelector('[data-actual]')).toBeNull();
+    expect(screen.queryByText(/could not be loaded/)).toBeNull();
+    expect(toastErr).not.toHaveBeenCalled();
+  });
+  it('never asks for actuals on a week that is all ahead, and lays the line over the phone list too', async () => {
+    timeSchedule.mockResolvedValue(data([shift({ date: plusDays(monday, 7) })]));
+    const { unmount } = render(<ShiftSchedule toastOk={toastOk} />);
+    await screen.findByText('Amy Adams');
+    await waitFor(() => expect(timeSchedActuals).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: 'Next week' }));
+    await waitFor(() => expect(timeSchedule).toHaveBeenLastCalledWith(plusDays(monday, 7), plusDays(monday, 13)));
+    await screen.findByText('Amy Adams');
+    expect(timeSchedActuals).toHaveBeenCalledTimes(1);   // only this week asked; next week is all ahead
+    expect(timeSchedActuals.mock.calls.every(([s]) => s === monday)).toBe(true);
+    unmount();
+    const mm = asPhone();
+    try {
+      timeSchedule.mockResolvedValue(data([shift()]));
+      timeSchedActuals.mockResolvedValue(actuals());
+      render(<ShiftSchedule toastOk={toastOk} />);
+      const line = await screen.findByRole('status', { name: 'Week adherence' });
+      expect(line.textContent).toContain('1 Late');
+      fireEvent.click(screen.getByRole('tab', { name: new RegExp(`^${formatUs(monday)}`) }));   // the day the bar is on
+      const list = screen.getByRole('list', { name: /Schedule for/ });
+      expect(list.querySelector('[data-actual-word="late"]').textContent).toBe('Late');
+      expect(list.querySelector('[data-shift="s1"] [data-actual]').getAttribute('data-actual')).toBe('late');
+    } finally { mm.mockRestore(); }
+  });
+});
+
+// Shifts Phase 3a (Oct 14): who has confirmed the schedules shared in view.
+// GET /timeclock/schedule/confirmations answers { people: [...], unconfirmed }.
+// The chip counts people, its list nudges the rest (one call per share),
+// and the person column wears a 12px mark - green when every share in view
+// is confirmed, hollow when one is not, nothing when no share asked them.
+describe('Confirmations: the schedule comes to people', () => {
+  const rows = () => [
+    { email: 'amy@greensglobal.com', name: 'Amy Adams', unconfirmed: 0, publishes: [{ publishId: 'pub1', at: '2026-10-13T18:00:00Z', by: 'ada@greensglobal.com', confirmedAt: '2026-10-13T19:00:00Z', nudgedAt: null }] },
+    { email: 'bob@greensglobal.com', name: 'Bob Brown', unconfirmed: 1, publishes: [
+      { publishId: 'pub1', at: '2026-10-13T18:00:00Z', by: 'ada@greensglobal.com', confirmedAt: '2026-10-13T19:00:00Z', nudgedAt: null },
+      { publishId: 'pub2', at: '2026-10-14T18:00:00Z', by: 'ada@greensglobal.com', confirmedAt: null, nudgedAt: null }] },
+  ];
+  const answer = (people) => ({ people, unconfirmed: people.reduce((n, p) => n + (p.unconfirmed || 0), 0) });
+  it('counts the people, marks the person column, and nudges from the list', async () => {
+    timeSchedule.mockResolvedValue(data([shift(), shift({ id: 's2', email: 'bob@greensglobal.com' })]));
+    timeSchedConfirmations.mockResolvedValue(answer(rows()));
+    render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
+    await screen.findByText('Amy Adams');
+    await waitFor(() => expect(timeSchedConfirmations).toHaveBeenCalledWith(monday, plusDays(monday, 6)));
+    const chip = await screen.findByRole('button', { name: '1 Of 2 Confirmed' });
+    expect(chip.textContent).toBe('1 Of 2 Confirmed');
+    const amy = document.querySelector('[data-person="amy@greensglobal.com"]');
+    const bob = document.querySelector('[data-person="bob@greensglobal.com"]');
+    expect(amy.querySelector('[data-confirm]').getAttribute('data-confirm')).toBe('all');
+    expect(amy.querySelector('[data-confirm]').getAttribute('title')).toBe('Confirmed the shared schedule');
+    expect(bob.querySelector('[data-confirm]').getAttribute('data-confirm')).toBe('some');
+    expect(bob.querySelector('[data-confirm]').getAttribute('title')).toBe('Has not confirmed the shared schedule yet');
+    expect(amy.querySelector('svg').getAttribute('width')).toBe('12');
+    fireEvent.click(chip);
+    const dlg = await screen.findByRole('dialog', { name: 'Schedule confirmations' });
+    expect(dlg.textContent).toContain('Not Confirmed Yet');
+    expect(within(dlg).queryByText('Amy Adams')).toBeNull();
+    expect(within(dlg).getByText('Bob Brown')).toBeTruthy();
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Nudge Everyone' }));
+    await waitFor(() => expect(timeSchedNudge).toHaveBeenCalledWith({ publish_id: 'pub2', emails: ['bob@greensglobal.com'] }));   // the LATEST share per person
+    expect(toastOk).toHaveBeenCalledWith('Nudged 1 person.');
+    // Nudged: the date in place of the button, and nothing left to nudge.
+    await waitFor(() => expect(within(dlg).queryByRole('button', { name: 'Nudge Bob Brown' })).toBeNull());
+    const today = new Date();
+    expect(within(dlg).getByText(`Nudged ${String(today.getMonth() + 1).padStart(2, '0')}/${String(today.getDate()).padStart(2, '0')}`)).toBeTruthy();
+    expect(within(dlg).getByRole('button', { name: 'Nudge Everyone' }).disabled).toBe(true);
+    expect(screen.getByRole('button', { name: '1 Of 2 Confirmed' })).toBeTruthy();   // a nudge is not a confirmation
+  });
+  it('nudges one person, shows who was already nudged, and reads all-confirmed in green', async () => {
+    const r = rows();
+    r.push({ email: 'cat@greensglobal.com', name: 'Cat Cole', unconfirmed: 1, publishes: [{ publishId: 'pub2', at: '2026-10-14T18:00:00Z', by: 'ada@greensglobal.com', confirmedAt: null, nudgedAt: '2026-10-14T20:00:00Z' }] });
+    timeSchedule.mockResolvedValue({ ...data([shift()]), employees: [...data([]).employees, { email: 'cat@greensglobal.com', name: 'Cat Cole' }] });
+    timeSchedConfirmations.mockResolvedValue(answer(r));
+    render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
+    fireEvent.click(await screen.findByRole('button', { name: '1 Of 3 Confirmed' }));
+    const dlg = await screen.findByRole('dialog', { name: 'Schedule confirmations' });
+    expect(within(dlg).getByText('Nudged 10/14')).toBeTruthy();
+    expect(within(dlg).queryByRole('button', { name: 'Nudge Cat Cole' })).toBeNull();
+    fireEvent.click(within(dlg).getByRole('button', { name: 'Nudge Bob Brown' }));
+    await waitFor(() => expect(timeSchedNudge).toHaveBeenCalledWith({ publish_id: 'pub2', emails: ['bob@greensglobal.com'] }));
+    await waitFor(() => expect(within(dlg).queryByRole('button', { name: 'Nudge Bob Brown' })).toBeNull());
+    expect(timeSchedNudge).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Schedule confirmations' })).toBeNull());
+  });
+  it('is green when everyone has confirmed; failed calls, a viewer and a range with no share show nothing', async () => {
+    timeSchedule.mockResolvedValue(data([shift()]));
+    timeSchedConfirmations.mockResolvedValue(answer([rows()[0]]));
+    const { unmount } = render(<ShiftSchedule toastOk={toastOk} />);
+    const chip = await screen.findByRole('button', { name: '1 Of 1 Confirmed' });
+    expect(chip.style.color).toBe('hsl(var(--color-green))');
+    fireEvent.click(chip);
+    expect((await screen.findByRole('dialog', { name: 'Schedule confirmations' })).textContent).toContain('Everyone Has Confirmed');
+    unmount();
+    timeSchedConfirmations.mockResolvedValue(answer([]));
+    const r2 = render(<ShiftSchedule toastOk={toastOk} />);
+    await screen.findByText('Amy Adams');
+    await waitFor(() => expect(timeSchedConfirmations).toHaveBeenCalledTimes(2));
+    expect(document.querySelector('[data-confirm-chip]')).toBeNull();
+    expect(document.querySelector('[data-confirm]')).toBeNull();
+    r2.unmount();
+    timeSchedConfirmations.mockRejectedValue(new Error('API error 500'));
+    const r3 = render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
+    await screen.findByText('Amy Adams');
+    await waitFor(() => expect(timeSchedConfirmations).toHaveBeenCalledTimes(3));
+    expect(document.querySelector('[data-confirm-chip]')).toBeNull();
+    expect(toastErr).not.toHaveBeenCalled();
+    r3.unmount();
+    timeSchedule.mockResolvedValue({ ...data([shift()]), canManage: false });
+    timeSchedConfirmations.mockResolvedValue(answer(rows()));
+    render(<ShiftSchedule toastOk={toastOk} />);
+    await screen.findByText('Amy Adams');
+    expect(timeSchedConfirmations).toHaveBeenCalledTimes(3);                 // a viewer never asks
+    expect(document.querySelector('[data-confirm-chip]')).toBeNull();
   });
 });

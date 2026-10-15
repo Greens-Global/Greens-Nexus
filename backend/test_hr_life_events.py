@@ -423,6 +423,39 @@ class HiringPacketTests(LifeEventCase):
         hle.run_filing(self.db, ev)
         self.assertEqual(self._ev(ev.id).filing_status, "filed")
 
+    def test_file_manually_when_the_wired_folder_cannot_be_made(self):
+        # Oct 15 2026: the entity's HR folders are missing, so automatic filing
+        # fails; HR names a folder that exists and the packet is filed there.
+        real_prov, real_match = egnyte_wiring.provision_person_folder, egnyte_wiring._match_path
+        def no_parent(emp, db):
+            raise ValueError("The parent folder for this person (/Shared/#Entities/X/Human Resources/Employees) "
+                             "does not exist in Egnyte yet - create the entity's HR folders there first.")
+        egnyte_wiring.provision_person_folder = no_parent
+        egnyte_wiring._match_path = lambda path: "/Shared/HR Manual/Dana Diaz" if "hr manual" in path.lower() else None
+        try:
+            ev = self._send()
+            self._sign(self._party(ev.sign_request_id, HR))
+            self._sign(self._party(ev.sign_request_id, CAND_EMAIL))
+            self._run_filing_now()
+            ev = self._ev(ev.id)
+            self.assertEqual(ev.filing_status, "pending")
+            self.assertIn("does not exist in Egnyte yet", ev.filing_error)
+            with self.assertRaises(hle.PacketError) as cm:          # a folder that is not there
+                hle.file_by_hand(self.db, ev, "/Shared/Typo", HR)
+            self.assertIn("There is no folder", str(cm.exception))
+            with self.assertRaises(hle.PacketError):                 # no folder at all
+                hle.file_by_hand(self.db, ev, "  ", HR)
+            hle.file_by_hand(self.db, self._ev(ev.id), "/shared/hr manual/dana diaz", HR)
+            ev = self._ev(ev.id)
+            self.assertEqual(ev.filing_status, "filed")
+            self.assertTrue(ev.filing_path.startswith("/Shared/HR Manual/Dana Diaz/"))
+            self.assertTrue(any(f.get("code") == hle.FILED_BY_HAND for f in ev.flags))
+            self.assertTrue(any(path.startswith("/Shared/HR Manual/Dana Diaz/") for path, _ in self.uploads))
+            with self.assertRaises(hle.PacketError):                 # nothing left to file
+                hle.file_by_hand(self.db, ev, "/shared/hr manual/dana diaz", HR)
+        finally:
+            egnyte_wiring.provision_person_folder, egnyte_wiring._match_path = real_prov, real_match
+
     def test_a_hook_bug_never_costs_the_signer_their_signature(self):
         ev = self._send()
         self._sign(self._party(ev.sign_request_id, HR))
@@ -535,7 +568,7 @@ class HiringPacketTests(LifeEventCase):
         with self.assertRaises(hle.PacketError) as e:
             self._send()
         self.assertIn("already in People as active", str(e.exception))
-        r = self.client.patch("/hr/candidates/cand-1", json={"stage": "hired"})     # Mark Hired By Hand
+        r = self.client.patch("/hr/candidates/cand-1", json={"stage": "hired", "stage_note": "Signed on paper"})     # Mark Hired By Hand
         self.assertEqual(r.status_code, 409, r.text)
 
     def test_old_pay_is_only_shown_to_pay_holders(self):
@@ -1113,7 +1146,7 @@ class EmailAndRoleTests(LifeEventCase):
 
 class SharedHireAndPayTests(LifeEventCase):
     def test_mark_hired_still_builds_the_employee(self):
-        out = hr_router.update_candidate("cand-1", hr_router.CandidateUpdate(stage="hired"),
+        out = hr_router.update_candidate("cand-1", hr_router.CandidateUpdate(stage="hired", stage_note="Signed on paper"),
                                          user=HR_USER, db=self.db)
         emp = self.db.query(models.NexusEmployee).filter_by(id=out["employeeId"]).first()
         self.assertEqual((emp.job_title, emp.status, emp.employment_type), ("Analyst", "onboarding", "full_time"))

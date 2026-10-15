@@ -250,6 +250,29 @@ class ExpectationTests(_Case):
         self.assertEqual((wed["expectedMin"], wed["source"]), (480, "preset"))
         self.assertEqual((thu["expectedMin"], thu["source"]), (480, "preset"))
 
+    def test_a_weather_cancelled_placement_expects_nothing(self):
+        """A day the company called off for weather is not an absence: the
+        cancelled placement contributes 0 expected minutes and the day reads
+        'weather'. A half-cancelled day (one of two placements) keeps the
+        live one's minutes and no weather reason (QA, Oct 15)."""
+        sid = self._preset(AMY)
+        self.db.add(models.ScheduledShift(id=gen_id(), employee_email=AMY, work_date="2026-10-06", shift_id=sid,
+                                          start_hhmm="08:00", end_hhmm="16:30", break_min=30, published=1,
+                                          weather_status="cancelled", weather_decision_id="wd-1"))
+        self.db.add(models.ScheduledShift(id=gen_id(), employee_email=AMY, work_date="2026-10-07",
+                                          start_hhmm="08:00", end_hhmm="12:00", published=1,
+                                          weather_status="cancelled", weather_decision_id="wd-2"))
+        self.db.add(models.ScheduledShift(id=gen_id(), employee_email=AMY, work_date="2026-10-07",
+                                          start_hhmm="14:00", end_hhmm="16:00", published=1))
+        self.db.commit()
+        amy = self._row(AMY)
+        tue, wed = amy["days"][1], amy["days"][2]
+        self.assertEqual((tue["expectedMin"], tue["source"], tue["reason"], tue["reasonLabel"], tue["shiftStart"]),
+                         (0, "scheduled", "weather", "Called off for weather", ""))
+        self.assertNotEqual(self._day(amy, 1).get("band", ""), "absent")
+        self.assertEqual((wed["expectedMin"], wed["source"], wed["reason"], wed["shiftStart"]), (120, "scheduled", "", "14:00"))
+        self.assertEqual(amy["expectedMin"], 120 + 480 * 3, "the cancelled Tuesday never counts against the week")
+
     def test_holidays_by_company_and_country(self):
         self.db.add(models.HrCompanyHoliday(id=gen_id(), company_id="gg-in", date="2026-10-06", name="Dussehra",
                                             source="public", country_code="IN", type="mandatory"))
@@ -334,6 +357,37 @@ class ScoringTests(_Case):
         # No shift time (country standard) = never late.
         self._work(RAJ, "2026-10-05", "13:00", "22:00", off=IN_OFF)
         self.assertFalse(self._row(RAJ)["days"][0]["late"])
+
+    def test_late_reads_the_persons_own_companys_default_grace_and_zone(self):
+        # A placement with no shift type takes its grace and zone from the
+        # Shifts settings - the PERSON'S company's (Phase 0 review): Greens
+        # India runs on IST with a 30-minute grace, the tenant on Pacific / 10.
+        import json
+        self.db.add(models.NexusSetting(key="shift_requests_config",
+                                        value=json.dumps({"timeZone": "America/Los_Angeles", "defaultGraceMin": 10})))
+        self.db.add(models.NexusSetting(key="shift_requests_config:gg-in",
+                                        value=json.dumps({"timeZone": "Asia/Kolkata", "defaultGraceMin": 30})))
+        for em in (AMY, RAJ):
+            self.db.add(models.ScheduledShift(id=gen_id(), employee_email=em, work_date="2026-10-05",
+                                              start_hhmm="09:00", end_hhmm="18:00", published=1))
+            self.db.add(models.ScheduledShift(id=gen_id(), employee_email=em, work_date="2026-10-06",
+                                              start_hhmm="09:00", end_hhmm="18:00", published=1))
+        self.db.commit()
+        self._work(RAJ, "2026-10-05", "09:25", "18:00", off=IN_OFF)   # 25 min on IST: inside India's 30
+        self._work(RAJ, "2026-10-06", "09:35", "18:00", off=IN_OFF)   # 35: late
+        self._work(AMY, "2026-10-05", "09:25", "18:00")               # 25 min on Pacific: past the tenant's 10
+        raj, amy = self._row(RAJ), self._row(AMY)
+        self.assertEqual([d["late"] for d in raj["days"][:2]], [False, True])
+        self.assertTrue(amy["days"][0]["late"])
+        # The defaults each one was judged against.
+        people = {e.work_email: e for e in self.db.query(models.NexusEmployee).all()}
+        ctx = sc._context(self.db, list(people.values()), WS, sc.get_settings(self.db))
+        self.assertEqual(ctx["company_defaults"], {"": ("America/Los_Angeles", 10), "gg-us": ("America/Los_Angeles", 10),
+                                                   "gg-in": ("Asia/Kolkata", 30)})
+        exp_raj = sc.expected_for_day(people[RAJ], WS, ctx, sc.get_settings(self.db))
+        exp_amy = sc.expected_for_day(people[AMY], WS, ctx, sc.get_settings(self.db))
+        self.assertEqual((exp_raj["tz"], exp_raj["grace"]), ("Asia/Kolkata", 30))
+        self.assertEqual((exp_amy["tz"], exp_amy["grace"]), ("America/Los_Angeles", 10))
 
     def test_overnight_india_shift_lands_on_its_start_day(self):
         self._punch(RAJ, "in", "2026-10-09 18:30", IN_OFF)

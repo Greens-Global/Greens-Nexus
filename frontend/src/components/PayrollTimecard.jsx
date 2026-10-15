@@ -23,6 +23,7 @@ import { downloadBlob } from './accounting/reportModel';
 import { formatDistance } from '../lib/distance';
 import { usePhotoMap } from '../lib/peoplePhotos';
 import { moneyPrefix } from '../asset/lib/currency';
+import { registerTour } from '../lib/tours';
 
 // ── Payroll timecard (SwipeClock 1:1, manager-editable) ───────────────────────
 // One employee, one pay period (biweekly, SUNDAY-anchored on SwipeClock's real
@@ -140,6 +141,10 @@ const segReasons = (s) => {
 // Snap any instant onto the pay-period series: the boundary Sunday at-or-before
 // it, computed ENTIRELY in UTC. pStart is always one of these UTC instants.
 const snapPeriodUTC = (t) => new Date(ANCHOR + Math.floor((t - ANCHOR) / (14 * DAY)) * 14 * DAY);
+
+// One reason on the fixed-salary Missed days line: "Sick ×2", "Sick ×2 + 1 half", "Sick ×1 half".
+export const missedText = (m) => (m.full && m.half ? `${m.label} ×${m.full} + ${m.half} half`
+  : m.full ? `${m.label} ×${m.full}` : `${m.label} ×${m.half} half`);
 
 function periodStartFor(date) {
   // The viewer's local CALENDAR date, re-expressed as a UTC midnight, then a
@@ -361,6 +366,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // table scrolled sideways and hid Hours, OT, Notes and the Work Log.
   const phone = useIsMobile(PHONE_QUERY);
   const [tour, setTour] = useState(false);               // Simulate walkthrough
+  // The Help panel's Take the Tour (lib/tours.js) - a manager's timecard only.
+  useEffect(() => (self ? undefined : registerTour('timecard', 'Timecard', () => setTour(true))), [self]);
   const { can, myEmail } = useRole();
   const isAdmin = can('administrator');
   const [workLogDay, setWorkLogDay] = useState(null);   // date string - opens the Work Log drawer for this day
@@ -775,7 +782,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                     )}
                     {!fin && (self || r.breaks.length > 0) && (
                       <button onClick={() => setBreakFix({ date: r.ds, breaks: r.breaks })}
-                        title={self ? "Ask your approver to add a break punch that didn't record" : 'Add the missing start or end of a break'}
+                        title={self ? "Ask your approver to add a break punch that didn't record, or to remove a break" : 'Add the missing start or end of a break, or delete a break'}
                         style={{ background: 'none', border: 'none', padding: 0, marginLeft: 2, cursor: 'pointer', font: 'inherit', fontSize: 11.5, fontWeight: 700, color: 'var(--wk-brand)' }}>
                         Fix a Break Punch
                       </button>
@@ -1794,7 +1801,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                     {offClockGaps > 0 && <span style={{ color: 'var(--muted)', fontStyle: 'italic', marginLeft: 4 }}>· {offClockGaps} longer gap{offClockGaps === 1 ? '' : 's'} off the clock (not counted as break)</span>}
                     {!fin && (
                       <button onClick={() => setBreakFix({ date: fd.date, breaks: formal })}
-                        title={self ? "Ask your approver to add a break punch that didn't record" : 'Add the missing start or end of a break'}
+                        title={self ? "Ask your approver to add a break punch that didn't record, or to remove a break" : 'Add the missing start or end of a break, or delete a break'}
                         style={{ background: 'none', border: 'none', padding: 0, marginLeft: 6, cursor: 'pointer', font: 'inherit', fontSize: 11.5, fontWeight: 700, color: unendedBreak ? '#b91c1c' : 'var(--wk-brand)' }}>
                         {unendedBreak ? 'Fix the Break End' : 'Fix a Break Punch'}
                       </button>
@@ -1866,7 +1873,21 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
           {(() => {
             const rows = [
               [fixedSplit ? 'Salary this month (pro-rated by day)' : 'Monthly salary', fmtM(T.salaryForPeriod ?? T.monthlySalary)],
-              [`Missed days (${T.missedFullDays} full${T.missedHalfDays ? `, ${T.missedHalfDays} half` : ''})`, T.deduction ? `−${fmtM(T.deduction)}` : fmtM(0)],
+              // Why the days were missed (Charmi, Oct 15 2026): "Sick ×2 · Personal ×8"
+              // instead of only a count - the server sends missedReasons.
+              [<span key="missed">
+                {`Missed days (${T.missedFullDays} full${T.missedHalfDays ? `, ${T.missedHalfDays} half` : ''})`}
+                {(T.missedReasons || []).length > 0 && (
+                  <span data-missed-reasons style={{ display: 'block', marginTop: 4, fontSize: 12, color: 'var(--ink)', fontWeight: 600 }}>
+                    {T.missedReasons.map((m, i) => (
+                      <span key={m.reason}>
+                        {i > 0 && <span style={{ color: 'var(--muted)', fontWeight: 400 }}> · </span>}
+                        {missedText(m)}
+                      </span>
+                    ))}
+                  </span>
+                )}
+              </span>, T.deduction ? `−${fmtM(T.deduction)}` : fmtM(0)],
               [`Weekend pay (${T.weekendDaysWorked} day${T.weekendDaysWorked === 1 ? '' : 's'}, ${data.weekendMultiplier || 1.35} × daily by hours)`, T.weekendBonus ? `+${fmtM(T.weekendBonus)}` : fmtM(0)],
               ['Net pay this month', fmtM(T.totalPay)],
             ];
@@ -2033,9 +2054,36 @@ export function BreakFixModal({ day, email = '', self = true, busy, setBusy, onD
   });
   const [reason, setReason] = useState('');
   const label = kind === 'break_end' ? 'End Break' : 'Start Break';
+  // Delete a break (Charmi, Oct 15 2026): a break punched by mistake, or one
+  // that should never have counted. A manager voids its punches on the spot
+  // (kept on record with the reason, like any punch edit); an employee asks
+  // their approver to remove them. Only breaks the server named punches for.
+  const deletable = (day.breaks || []).filter(b => b.startId);
+  const [delIdx, setDelIdx] = useState(() => Math.max(0, deletable.findIndex(b => b.implicit)));
+  const isDelete = kind === 'delete';
+  const brLabel = (b) => `${t12(b.start)} - ${t12(b.end)} (${hhmm(b.min)})${b.implicit ? ' - never ended' : ''}`;
+
+  async function removeBreak() {
+    const b = deletable[delIdx];
+    if (!b) return;
+    // End first, then start: never leave a lone break_end behind.
+    const ids = [b.endId, b.startId].filter(Boolean);
+    setBusy(true);
+    try {
+      for (const id of ids) {
+        if (self) await api.timePunchRequestCreate({ action: 'remove', target_punch_id: id, reason: reason.trim() });
+        else await api.timeAdjustPunch(id, { void: true, adjust_note: reason.trim() });
+      }
+      toastOk?.(self ? 'Request sent - your approver decides whether the break comes off.' : 'Break deleted - the timecard is updated.');
+      window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));
+      onDone();
+    } catch (e) { toastErr?.(e?.message || 'Could not delete the break.'); }
+    setBusy(false);
+  }
 
   async function save() {
     if (!reason.trim()) { toastErr?.(self ? 'Add a reason so your approver can confirm it.' : 'Add a reason - it is kept on record.'); return; }
+    if (isDelete) { await removeBreak(); return; }
     if (kind === 'both') {
       if (new Date(endAt) <= new Date(at)) { toastErr?.('The break end has to be after the break started.'); return; }
       setBusy(true);
@@ -2075,29 +2123,43 @@ export function BreakFixModal({ day, email = '', self = true, busy, setBusy, onD
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1400, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16, fontFamily: 'var(--wk-font)' }}
       onClick={e => e.target === e.currentTarget && guard.requestClose()}>
-      <div role="dialog" aria-modal="true" aria-label={self ? 'Request a missing break punch' : kind === 'both' ? 'Add a break' : 'Fix a break punch'}
+      <div role="dialog" aria-modal="true" aria-label={isDelete ? (self ? 'Ask to remove a break' : 'Delete a break') : self ? 'Request a missing break punch' : kind === 'both' ? 'Add a break' : 'Fix a break punch'}
         style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, width: '100%', maxWidth: 'clamp(400px, 50vw, 560px)', padding: 20, boxShadow: '0 24px 70px rgba(17,24,39,0.30)' }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 4 }}>
-          <span style={{ fontSize: 15, fontWeight: 700, flex: 1 }}>{self ? 'Request a Missing Break Punch' : kind === 'both' ? 'Add a Break' : 'Fix a Break Punch'}</span>
+          <span style={{ fontSize: 15, fontWeight: 700, flex: 1 }}>{isDelete ? (self ? 'Ask to Remove a Break' : 'Delete a Break') : self ? 'Request a Missing Break Punch' : kind === 'both' ? 'Add a Break' : 'Fix a Break Punch'}</span>
           <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
         </div>
         <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>{new Date(day.date + 'T00:00').toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}</div>
-        {unended && (
+        {unended && !isDelete && (
           <div style={{ fontSize: 12, lineHeight: 1.55, color: '#b45309', background: 'rgba(180,83,9,0.09)', border: '1px solid rgba(180,83,9,0.25)', borderRadius: 10, padding: '9px 12px', marginBottom: 12 }}>
             {self ? 'Your' : 'The'} break started at {t12(unended.start)} and was never ended, so the clock-out closed it
             and all {hhmm(unended.min)} of it counts as unpaid break. Set the time {self ? 'you' : 'they'} actually came back.
           </div>
         )}
         <div style={{ display: 'grid', gap: 12 }}>
-          <label style={{ fontSize: 11, color: 'var(--muted)' }}>Which punch is missing
+          <label style={{ fontSize: 11, color: 'var(--muted)' }}>What needs fixing
             <select className="form-input" value={kind} onChange={e => setKind(e.target.value)} style={{ width: '100%', fontSize: 13 }}>
               <option value="break_end">{self ? 'End Break - I came back and it didn\'t record' : 'End Break - the break end is missing'}</option>
               <option value="break_start">{self ? 'Start Break - my break start didn\'t record' : 'Start Break - the break start is missing'}</option>
+              {deletable.length > 0 && (
+                <option value="delete">{self ? 'Remove a break - it should not be there' : 'Delete a break - it should not be there'}</option>
+              )}
             </select>
           </label>
+          {isDelete ? (
+            <label style={{ fontSize: 11, color: 'var(--muted)' }}>Which break
+              <select className="form-input" value={delIdx} onChange={e => setDelIdx(Number(e.target.value))} style={{ width: '100%', fontSize: 13 }}>
+                {deletable.map((b, i) => <option key={b.startId} value={i}>{brLabel(b)}</option>)}
+              </select>
+              <span style={{ display: 'block', marginTop: 5, fontSize: 11.5, color: 'var(--muted)' }}>
+                {self ? 'Your approver decides; nothing changes until they approve.' : 'Its start and end punches come off the timecard. The audit record keeps them, with who deleted them and why.'}
+              </span>
+            </label>
+          ) : (
           <label style={{ fontSize: 11, color: 'var(--muted)' }}>{kind === 'both' ? 'Break start' : label} time
             <input autoFocus type="datetime-local" className="form-input" value={at} onChange={e => setAt(e.target.value)} style={{ width: '100%', fontSize: 13 }} />
           </label>
+          )}
           {kind === 'both' && (
             <label style={{ fontSize: 11, color: 'var(--muted)' }}>Break end time
               <input type="datetime-local" className="form-input" value={endAt} onChange={e => setEndAt(e.target.value)} style={{ width: '100%', fontSize: 13 }} />
@@ -2110,7 +2172,10 @@ export function BreakFixModal({ day, email = '', self = true, busy, setBusy, onD
         </div>
         <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
           <button className="secondary-btn" onClick={onClose}>Cancel</button>
-          <button className="primary-btn" onClick={save} disabled={busy}>{busy ? '…' : self ? 'Send Request' : kind === 'both' ? 'Add Break' : 'Save Break'}</button>
+          <button className="primary-btn" onClick={save} disabled={busy}
+            style={isDelete && !self ? { background: '#b91c1c', borderColor: '#b91c1c' } : undefined}>
+            {busy ? '…' : self ? 'Send Request' : isDelete ? 'Delete Break' : kind === 'both' ? 'Add Break' : 'Save Break'}
+          </button>
         </div>
       </div>
       {guard.confirming && (

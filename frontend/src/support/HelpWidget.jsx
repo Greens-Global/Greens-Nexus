@@ -27,6 +27,8 @@ import { useKbCorpus } from './kbCorpus';
 import { openDoc } from './openDoc';
 import { openKb } from './openKb';
 import { setPendingOpen } from '../lib/pendingOpen';
+import { TOURS, useLiveTours, startTour, setPendingAutoTour, AUTO_TOUR_EVENT } from '../lib/tours';
+import { useRole } from '../contexts/RoleContext';
 import { formatDate } from '../lib/datetime';
 import { TICKET_STATUS_META, ticketNoShort } from '../tickets/ticketMeta';
 
@@ -49,20 +51,21 @@ const nav = (view, sub) => window.dispatchEvent(
 // A guide page as an article the widget can show (same shape as a search result).
 const moduleArticle = (d) => ({ source: 'guide', kind: 'module', docId: d.id, docName: d.name, title: d.name, anchor: null, body: [] });
 
-// Screens with a guided tour, and the event their module listens for to
-// start it (each module owns its tour's state). The Tour used to be a row in
-// the profile dropdown; it lives here under Help with This Page (Neil, Oct
-// 13 2026) - help with the screen you are on, in one place.
-export const PAGE_TOURS = {
-  tasks: 'nexus:tasks-tour',
-  tickets: 'nexus:tickets-tour',
-  support: 'nexus:support-tour',
-  documents: 'nexus:documents-tour',
-};
 
 // ── Home ────────────────────────────────────────────────────────────────────
-function HomeTab({ firstName, pageDoc, tourEvent, onSearch, onAsk, onWhatsNew, onOpenArticle, onClose }) {
-  const startTour = () => { onClose(); window.dispatchEvent(new CustomEvent(tourEvent)); };
+function HomeTab({ firstName, pageDoc, liveTour, otherTours, onSearch, onAsk, onWhatsNew, onOpenArticle, onClose }) {
+  // Take the Tour is always here (Neil, Oct 14): this screen's tour when it
+  // has one, else the list of every tour you can reach - one tap goes there
+  // and starts it (lib/tours.js).
+  const [pickTour, setPickTour] = useState(false);
+  // A hand-built tour starts itself on arrival (lib/tours.js); any other
+  // module's built-for-the-page tour starts once its screen has drawn.
+  const go = (t) => {
+    onClose();
+    if (t.hand) { startTour(t.hand); return; }
+    setPendingAutoTour(t.view);
+    window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: t.view, sub: null } }));
+  };
   return (
     <div className="hw-scroll">
       <div className="hw-hero">
@@ -101,15 +104,38 @@ function HomeTab({ firstName, pageDoc, tourEvent, onSearch, onAsk, onWhatsNew, o
             <ChevronRight size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />
           </button>
         )}
-        {tourEvent && (
-          <button type="button" className="hw-card hw-card-quiet" onClick={startTour}>
+        {(liveTour || pageDoc) && (
+          <button type="button" className="hw-card hw-card-quiet" onClick={() => { onClose(); if (liveTour) liveTour.open(); else window.dispatchEvent(new CustomEvent(AUTO_TOUR_EVENT)); }}>
             <PlayCircle size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />
             <span className="hw-card-text">
               <span className="hw-card-title" style={{ fontSize: 13 }}>Take the Tour</span>
-              <span className="hw-card-sub">A guided walk through {pageDoc ? pageDoc.name : 'this page'}</span>
+              <span className="hw-card-sub">A guided walk through {liveTour ? liveTour.label : pageDoc.name}</span>
             </span>
             <ChevronRight size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />
           </button>
+        )}
+        {otherTours.length > 0 && (
+          <div className="hw-card hw-card-quiet" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 0, cursor: 'default' }}>
+            <button type="button" onClick={() => setPickTour((o) => !o)} aria-expanded={pickTour}
+              style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'inherit', textAlign: 'left' }}>
+              <Compass size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+              <span className="hw-card-text">
+                <span className="hw-card-title" style={{ fontSize: 13 }}>{liveTour || pageDoc ? 'Other Tours' : 'Take the Tour'}</span>
+                <span className="hw-card-sub">Guided walks through {otherTours.length} parts of Nexus</span>
+              </span>
+              <ChevronRight size={16} style={{ color: 'var(--muted)', flexShrink: 0, transform: pickTour ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }} />
+            </button>
+            {pickTour && (
+              <div aria-label="Tours" style={{ display: 'flex', flexDirection: 'column', marginTop: 8, borderTop: '1px solid var(--line)', maxHeight: 220, overflowY: 'auto' }}>
+                {otherTours.map((t) => (
+                  <button key={t.key} type="button" onClick={() => go(t)} data-tour-pick={t.key}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '8px 2px', background: 'none', border: 'none', borderBottom: '1px solid var(--line)', cursor: 'pointer', font: 'inherit', fontSize: 13, color: 'var(--ink)', textAlign: 'left' }}>
+                    {t.label} Tour <ArrowUpRight size={14} style={{ color: 'var(--muted)' }} />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>
@@ -372,6 +398,24 @@ export default function HelpWidget({ activeView, initialTab = 'home', onTabChang
     return d && allow(d.id) ? d : null;
   }, [activeView, allow]);
 
+  // This screen's tour (the newest one registered), else every tour this
+  // person can reach.
+  const live = useLiveTours();
+  const liveTour = live[live.length - 1] || null;
+  const { can } = useRole();
+  // Every tour this person can reach, but the one for this screen: each
+  // documented module they can open (its hand-built tour where it has one),
+  // plus the hand-built tours that live inside a module (Timecard, Roles).
+  const otherTours = useMemo(() => {
+    const reach = (t) => (t.need === 'administrator' ? !!can?.('administrator') : !t.need || allow(t.need));
+    const hands = TOURS.filter(reach);
+    const byView = new Map(hands.filter((t) => !t.sub).map((t) => [t.view, t]));
+    const mods = DOCS.filter((d) => d.view && d.view !== activeView && d.view !== 'dashboard' && allow(d.id))
+      .map((d) => ({ key: d.view, label: d.name, view: d.view, hand: byView.get(d.view) || null }));
+    const inner = hands.filter((t) => t.sub && t.key !== liveTour?.key).map((t) => ({ key: t.key, label: t.label, view: t.view, hand: t }));
+    return [...mods, ...inner].sort((x, y) => x.label.localeCompare(y.label));
+  }, [can, allow, activeView, liveTour]);
+
   const openArticle = (a) => { setTabState('help'); onTabChange?.('help'); setTrail((t) => [...t, a]); };
   const pick = (r) => {
     if (r.source === 'kb') { onClose(false); openKb('doc', r.kbId); return; }
@@ -410,7 +454,7 @@ export default function HelpWidget({ activeView, initialTab = 'home', onTabChang
       )}
 
       {tab === 'home' && (
-        <HomeTab firstName={firstName} pageDoc={pageDoc} tourEvent={PAGE_TOURS[activeView] || null}
+        <HomeTab firstName={firstName} pageDoc={pageDoc} liveTour={liveTour} otherTours={otherTours}
           onSearch={() => setTab('help', { search: true })}
           onAsk={() => onAsk?.()}
           onWhatsNew={onWhatsNew ? () => { onClose(false); onWhatsNew(); } : null}

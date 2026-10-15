@@ -39,7 +39,7 @@ const _SLUG_LABELS = {
   accounting: 'Accounting', 'investor-relations': 'Investor Relations',
   marketing: 'Marketing', testing: 'Testing', purchase: 'Purchase', admin: 'Access Manager',
   it: 'IT', ops: 'Construction', operations: 'Operations', development: 'Development',
-  'external-links': 'External Links', support: 'Support',
+  'external-links': 'External Links', support: 'Help Center', 'help-center': 'Help Center', shifts: 'Team', team: 'Team',
 };
 
 function _pathNow() { return window.location.pathname.split('/').filter(Boolean)[0] || 'dashboard'; }

@@ -42,10 +42,12 @@ vi.mock('../api', () => {
 
 const { default: HelpMenu, HELP_OPEN_EVENT, __resetHelpTab } = await import('./HelpMenu');
 const { __resetKbCorpus } = await import('./kbCorpus');
+const { registerTour, __resetTours, setPendingAutoTour, AUTO_TOUR_EVENT } = await import('../lib/tours');
 // Warm the lazy widget chunk so the first test is not timed on the transform.
 await import('./HelpWidget');
 
-beforeEach(() => { apiState.kbFail = false; apiState.tickets = TICKETS; __resetKbCorpus(); __resetHelpTab(); });
+beforeEach(() => { apiState.kbFail = false; apiState.tickets = TICKETS; __resetKbCorpus(); __resetHelpTab(); __resetTours(); });
+const ROLE_CAN_ADMIN = false;   // the RoleContext mock above: can() is false
 afterEach(() => { cleanup(); });
 
 const LOAD = { timeout: 8000 };
@@ -70,20 +72,86 @@ describe('Help widget', () => {
     expect(btn.getAttribute('aria-expanded')).toBe('false');
   });
 
-  it('offers Take the Tour under Help with This Page only where a tour exists, and starts it', async () => {
-    // The Tour moved here from the profile dropdown (Neil, Oct 13 2026).
-    const heard = vi.fn();
-    window.addEventListener('nexus:tasks-tour', heard);
-    const { unmount } = render(<HelpMenu activeView="tasks" />);
+  it("Take the Tour starts the tour of the screen you are on", async () => {
+    // The Tour moved here from the profile dropdown (Neil, Oct 13 2026); a
+    // screen registers its tour while it is on the page (lib/tours.js).
+    const open = vi.fn();
+    const off = registerTour('tasks', 'Tasks', open);
+    render(<HelpMenu activeView="tasks" />);
     await openWidget();
-    fireEvent.click(screen.getByRole('button', { name: /Take the Tour.*A guided walk through/ }));
-    expect(heard).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: /Take the Tour.*A guided walk through Tasks/ }));
+    expect(open).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('button', { name: 'Help' }).getAttribute('aria-expanded')).toBe('false');   // the panel closed
-    window.removeEventListener('nexus:tasks-tour', heard);
-    unmount();
+    off();
+  });
+
+  it('every documented screen has a tour: Take the Tour builds one for this page from its Help entry', async () => {
+    // Neil, Oct 14 2026: "build tours for the other pages that are missing them".
+    const heard = vi.fn();
+    window.addEventListener(AUTO_TOUR_EVENT, heard);
     render(<HelpMenu activeView="dashboard" />);
     await openWidget();
-    expect(screen.queryByRole('button', { name: /Take the Tour/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Take the Tour.*A guided walk through Dashboard/ }));
+    expect(heard).toHaveBeenCalledTimes(1);
+    window.removeEventListener(AUTO_TOUR_EVENT, heard);
+  });
+
+  it('Other Tours lists the rest; a hand-built one starts on arrival, any other once the screen draws', async () => {
+    const nav = vi.fn();
+    window.addEventListener('nexus:navigate', nav);
+    render(<HelpMenu activeView="dashboard" />);
+    await openWidget();
+    const more = screen.getByRole('button', { name: /Other Tours.*Guided walks through/ });
+    fireEvent.click(more);
+    expect(more.getAttribute('aria-expanded')).toBe('true');
+    expect(screen.queryByRole('button', { name: /^Dashboard Tour/ })).toBeNull();     // not the screen you are on
+    fireEvent.click(screen.getByRole('button', { name: /Help Center Tour/ }));   // open to everyone
+    expect(nav.mock.calls.at(-1)[0].detail).toEqual({ view: 'support', sub: null });
+    window.removeEventListener('nexus:navigate', nav);
+    const open = vi.fn();
+    vi.useFakeTimers();
+    try {
+      const off = registerTour('support', 'Help Center', open);   // the Help Center screen mounts
+      act(() => { vi.runAllTimers(); });
+      expect(open).toHaveBeenCalledTimes(1);
+      off();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('a generated tour picked from the list starts when its screen is shown', async () => {
+    setPendingAutoTour('marketing');
+    const heard = vi.fn();
+    window.addEventListener(AUTO_TOUR_EVENT, heard);
+    vi.useFakeTimers();
+    try {
+      render(<HelpMenu activeView="marketing" />);
+      act(() => { vi.advanceTimersByTime(800); });
+      expect(heard).toHaveBeenCalledTimes(1);
+    } finally { vi.useRealTimers(); window.removeEventListener(AUTO_TOUR_EVENT, heard); }
+  });
+
+  it('a tour whose move was cancelled does not start on some later visit', async () => {
+    vi.useFakeTimers();
+    try {
+      setPendingAutoTour('marketing');
+      vi.advanceTimersByTime(9000);
+      vi.setSystemTime(Date.now() + 9000);
+      const heard = vi.fn();
+      window.addEventListener(AUTO_TOUR_EVENT, heard);
+      render(<HelpMenu activeView="marketing" />);
+      act(() => { vi.advanceTimersByTime(800); });
+      expect(heard).not.toHaveBeenCalled();
+      window.removeEventListener(AUTO_TOUR_EVENT, heard);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('lists only the tours this person can reach', async () => {
+    render(<HelpMenu activeView="dashboard" />);
+    await openWidget();
+    fireEvent.click(screen.getByRole('button', { name: /Other Tours/ }));
+    const names = [...document.querySelectorAll('[data-tour-pick]')].map((b) => b.textContent);
+    expect(names.length).toBeGreaterThan(3);
+    expect(names.some((n) => /Roles & Access/.test(n))).toBe(ROLE_CAN_ADMIN);
   });
 
   it('opens on Home with the greeting and the three cards', async () => {

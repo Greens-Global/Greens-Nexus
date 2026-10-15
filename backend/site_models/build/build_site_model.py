@@ -31,6 +31,40 @@ Config reference (see the *.config.json files beside this script):
                as px / ll / uv polygon or `parcels: [apn...]` (the parcel rings).
   gates        id, name, px or ll.
   pad          developed-area outline (px / ll); defaults to the parcels.
+  planSizes    {"<unit>": [w, d]} in feet: sizes the as-built plans prove,
+               applied over the unit list on every build - so a CubeSmart
+               rent-roll refresh (which re-estimates vacant sizes) cannot undo
+               them. Only for units whose listed size the plan disproves.
+  runs         units TRACED from the as-built plans (Oct 14 2026): each run is an
+               ordered line of units along a wall or corridor, placed exactly and
+               ahead of the schematic layout (units in no run fall back to it).
+                 building  building id (start is measured from its min-u/min-v
+                           corner) - or zone id, or neither (start is frame u,v)
+                 f         level (default 1)
+                 at        [x, y] meters: the run's start point
+                 dir       +u | -u | +v | -v: the direction the run advances
+                 depth     +u | -u | +v | -v: the side the units extend toward
+                           (their doors face the other way, onto the corridor)
+                 units     ordered list: unit names, "1001-1040" ranges (same
+                           prefix and digit count), or {"gap": meters} for a
+                           stair, door or wall between units
+                 width     optional fixed width (m) for every unit in the run
+                           (stalls painted at a set pitch); default = the unit's
+                           own width from its size
+                 door      optional door side override (ne | sw | e | w)
+                 numbering optional "inferred": the POSITIONS are from the plans
+                           but the plan carries no unit numbers, so the numbers
+                           were matched (e.g. by size order). Those units carry
+                           tr: 2 instead of 1, and the screen says to confirm.
+                 angle     optional angle in degrees (5-175) between the run line
+                           and each unit's long axis (default 90 = square on;
+                           60 or 45 for angled parking or a skewed wall, above
+                           90 leans the other way). The stall keeps its real width and depth,
+                           is centered in its painted parallelogram, and carries
+                           rot (degrees, counter-clockwise in u,v) in the output;
+                           the pitch along the run is width / sin(angle).
+               A traced unit carries tr: 1 in the output; layout.schematic is
+               false once every unit is traced.
 """
 import json
 import math
@@ -155,6 +189,10 @@ class Builder:
 
     # ---- units ------------------------------------------------------------
     def classify(self):
+        for u in self.units:
+            ps = self.cfg.get('planSizes', {}).get(u['n'])
+            if ps:
+                u['w'], u['d'] = ps[0], ps[1]
         rules = [(re.compile(r['match']), r) for r in self.cfg.get('classify', [])]
         for u in self.units:
             n = u['n']; k = None; veh = None; floor = None
@@ -186,6 +224,81 @@ class Builder:
                             'why': u.get('why') or '', 'note': u.get('note') or '', 'dvac': int(u.get('dv') or 0),
                             'b': bid, 'f': floor, 'u': round(u0, 2), 'v': round(v0, 2),
                             'wu': round(w, 2), 'dv': round(d, 2), 'door': door})
+
+    # ---- traced runs (as-built plans) ---------------------------------------
+    VEC = {'+u': (1, 0), '-u': (-1, 0), '+v': (0, 1), '-v': (0, -1)}
+    DOOR = {'+v': 'ne', '-v': 'sw', '+u': 'e', '-u': 'w'}   # the way a door FACES
+    OPP = {'+u': '-u', '-u': '+u', '+v': '-v', '-v': '+v'}
+
+    def expand(self, names):
+        """Run entries -> unit names and gaps, ranges spelled out."""
+        out = []
+        for e in names:
+            if isinstance(e, dict):
+                out.append(e); continue
+            # A real unit name wins over a range: combined units are named
+            # "1003-1004" at some sites.
+            if str(e) in self.by_name:
+                out.append(str(e)); continue
+            m = re.fullmatch(r'([A-Z]*)(\d+)([A-Z]*)-(?:[A-Z]*)(\d+)([A-Z]*)', str(e))
+            if m:
+                pre, a, suf, b = m.group(1), m.group(2), m.group(3), m.group(4)
+                step = 1 if int(b) >= int(a) else -1
+                for k in range(int(a), int(b) + step, step):
+                    out.append(f"{pre}{str(k).zfill(len(a))}{suf}")
+            else:
+                out.append(str(e))
+        return out
+
+    def place_run(self, r, index, traced):
+        bid = r.get('building') or r.get('zone') or ''
+        bd = next((b for b in self.cfg['buildings'] if b['id'] == bid), None)
+        x0, y0 = r.get('at', [0, 0])
+        ou, ov = (bd['u'][0] + x0, bd['v'][0] + y0) if bd else (x0, y0)
+        try:
+            du_, dv_ = self.VEC[r['dir']]; pu, pv = self.VEC[r['depth']]
+        except KeyError:
+            self.flags.append(f"run {index + 1} ({bid}): dir/depth must be +u, -u, +v or -v"); return
+        if du_ * pu + dv_ * pv != 0:
+            self.flags.append(f"run {index + 1} ({bid}): dir and depth must be at right angles"); return
+        door = r.get('door') or self.DOOR[self.OPP[r['depth']]]
+        floor = int(r.get('f', 1)); s = 0.0
+        ang = float(r['angle']) if r.get('angle') is not None else 90.0
+        if not 5 <= ang <= 175:
+            self.flags.append(f"run {index + 1} ({bid}): angle {ang:g} is outside 5-175 degrees"); return
+        th = math.radians(ang)
+        ax, ay = math.cos(th) * du_ + math.sin(th) * pu, math.cos(th) * dv_ + math.sin(th) * pv   # stall axis
+        rot = round(math.degrees(math.atan2(pu * ay - pv * ax, pu * ax + pv * ay)), 1)
+        trv = 2 if r.get('numbering') == 'inferred' else 1
+        for e in self.expand(r.get('units', [])):
+            if isinstance(e, dict):
+                s += float(e.get('gap', 0)); continue
+            x = self.by_name.get(e)
+            if x is None:
+                self.flags.append(f"run {index + 1} ({bid}): {e} is on the plan but not in the unit list")
+                gap = float(r.get('width') or 0)
+                s += gap / max(0.2, math.sin(th)) if abs(ang - 90) > 0.01 else gap
+                continue
+            if e in traced:
+                self.flags.append(f"run {index + 1} ({bid}): {e} is in two runs"); continue
+            w = float(r.get('width') or x['wm'] or 0.35); d = x['dm'] or 0.35
+            if abs(ang - 90) > 0.01:
+                # Angled: the stall's own w x d, centered in its parallelogram
+                # (pitch along the run, depth along the stall axis), turned by rot.
+                pitch = w / max(0.2, math.sin(th))
+                cx = ou + du_ * (s + pitch / 2) + ax * d / 2
+                cy = ov + dv_ * (s + pitch / 2) + ay * d / 2
+                wu, dv = (w, d) if du_ else (d, w)
+                self.place(x, bid, floor, cx - wu / 2, cy - dv / 2, wu, dv, door)
+                self.placed[-1]['tr'] = trv; self.placed[-1]['rot'] = rot
+                traced.add(e); s += pitch
+                continue
+            a = (ou + du_ * s, ov + dv_ * s)
+            b = (ou + du_ * (s + w) + pu * d, ov + dv_ * (s + w) + pv * d)
+            wu, dv = abs(b[0] - a[0]), abs(b[1] - a[1])
+            self.place(x, bid, floor, min(a[0], b[0]), min(a[1], b[1]), wu, dv, door)
+            self.placed[-1]['tr'] = trv
+            traced.add(e); s += w
 
     def select(self, spec):
         if 'units' in spec:
@@ -383,7 +496,11 @@ class Builder:
             w0, s0, e0, n0 = wide['bbox']
             wide['uv'] = [self.ll_to_uv(w0, n0), self.ll_to_uv(e0, n0), self.ll_to_uv(e0, s0), self.ll_to_uv(w0, s0)]
 
+        # Traced runs first: the plan wins; the rest is laid out schematically.
+        self.by_name = {u['n']: u for u in self.units}
         taken = set()
+        for i, r in enumerate(cfg.get('runs', [])):
+            self.place_run(r, i, taken)
         for bd in cfg['buildings']:
             items = [x for x in self.select(bd) if x['n'] not in taken]
             taken.update(x['n'] for x in items)
@@ -410,7 +527,10 @@ class Builder:
             'buildings': [{k: bd.get(k) for k in ('id', 'letters', 'name', 'kind', 'u', 'v', 'height', 'floors', 'roof', 'inferred', 'note', 'll')} for bd in cfg['buildings']],
             'zones': [{'id': z['id'], 'name': z['name'], 'kind': z.get('kind', 'lot'), 'uv': z['uv'], 'polys': z['polys']} for z in cfg.get('zones', [])],
             'units': self.placed,
-            'layout': {'schematic': True, 'flags': self.flags, 'generated': date.today().strftime('%b %d, %Y')},
+            'layout': {'schematic': any(not p.get('tr') for p in self.placed),
+                       'traced': sum(1 for p in self.placed if p.get('tr') == 1),
+                       'numbersInferred': sum(1 for p in self.placed if p.get('tr') == 2),
+                       'flags': self.flags, 'generated': date.today().strftime('%b %d, %Y')},
             'sources': cfg.get('sources', []),
         }
         return site

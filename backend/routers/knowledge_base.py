@@ -2244,15 +2244,20 @@ def submit_quiz(cid: str, payload: QuizSubmitIn, user: dict = Depends(get_curren
         user_email=user["email"], user_name=who, score=score, passed=passed,
         missed=json.dumps(missed), created_at=_now(),
     ))
-    # let managers know when someone completes the module (NULL recipient = all managers)
+    # The learner's OWN manager hears when they complete a course (Neil, Oct
+    # 14 2026: this used to go to every manager in the company). No manager
+    # on file, no notice.
+    _mgr = ""
     if newly_completed:
+        _e = db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == (user["email"] or "").lower()).first()
+        _mgr = ((_e.manager_email if _e else "") or "").strip().lower()
+    if newly_completed and _mgr:
         db.add(models.NexusNotification(
-            id=str(uuid.uuid4()), type="kb_course_complete", recipient="",
+            id=str(uuid.uuid4()), type="kb_course_complete", recipient=_mgr,
             title="Course completed",
             body=f"{who} completed “{c.title}” ({c.course_code or 'course'}) with a score of {score}%.",
             ref_id=c.id, item_name=c.title, requested_by=user["email"], action="",
             actioned=False, read_by="", created_at=_now(),
-            # Company wall: a broadcast is shown to the managers of the completer's company.
             company=notification_company(db, user["email"]),
         ))
     db.commit()

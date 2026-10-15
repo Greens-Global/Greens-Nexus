@@ -38,16 +38,22 @@ from currency import is_currency, money_prefix
 from models import (HrCandidate, HrEntity, HrLifeEvent, HrPacketSetting, HrSignParty,
                     HrSignRequest, HrSignTemplate, HrStageEvent, NexusEmployee)
 
-EVENTS = ("hire", "promotion", "separation")
+# The offer comes first (Neil, Oct 14): "there is a document to sign, but it's
+# a single document called an offer letter" - both sides sign it and the
+# candidate is hired. Only then the hiring packet ("right to work
+# compliance"): "if they don't accept the offer letter, you don't send them a
+# hiring packet".
+EVENTS = ("offer", "hire", "promotion", "separation")
+CANDIDATE_KINDS = ("offer", "hire")         # events about a candidate, run from Hiring
 WORKER_TYPES = ("any", "employee", "contractor")
 ACTIVE = ("awaiting_sender", "sent")
 # A packet built from Documents (Oct 14) exists before it is sent: waiting on
 # the person's details (intake) or on HR's check (review). Busy all the same -
 # nobody starts a second packet, nobody rejects the candidate under it.
 OPEN = ("intake", "review") + ACTIVE
-EVENT_TITLES = {"hire": "Hiring Packet", "promotion": "Promotion Letter",
+EVENT_TITLES = {"offer": "Offer Letter", "hire": "Hiring Packet", "promotion": "Promotion Letter",
                 "separation": "Separation Package"}
-DEFAULT_SUBFOLDERS = {"hire": "Hiring Documents", "promotion": "Promotion Documents",
+DEFAULT_SUBFOLDERS = {"offer": "Hiring Documents", "hire": "Hiring Documents", "promotion": "Promotion Documents",
                       "separation": "Separation Documents"}
 PAY_BASES = ("hourly", "salary")
 PAY_FREQUENCIES = ("weekly", "biweekly", "semimonthly", "monthly", "annual")
@@ -216,32 +222,60 @@ def is_documents(s: Optional[HrPacketSetting]) -> bool:
 
 
 def resolve_setting(db: Session, entity_id: str, event: str, worker_type: str,
-                    role_id: str = "") -> Optional[HrPacketSetting]:
+                    role_id: str = "", country: str = "", documents_only: bool = False) -> Optional[HrPacketSetting]:
     """The packet a company sends for an event. A packet made for the
     person's job role wins outright - the company's, else the one for every
     company - because a role packet is the more deliberate choice (Pranshu,
     Oct 8: "when I interviewed for Project Manager, the packet should take
-    automatically"). Only then the every-role packets: the company's (this
-    worker type, then any), then every company's. A row without a template
-    does not count."""
+    automatically"). Only then the every-role packets: the company's, then
+    every company's - this worker type before any, and within that, the
+    person's country before any country (Neil, Oct 14: "if it's an employee,
+    it needs a different document. If it's a contractor, it needs a different
+    document. If it's an Indian contractor, it needs a different document").
+    A packet for another country never matches. A row without a template does
+    not count. documents_only: the packet that follows a signed offer starts
+    by itself, which an uploaded-PDF packet cannot - those are skipped."""
     role_id = (role_id or "").strip()
+    country = (country or "").strip().upper()
     levels = []
     for ent in ((entity_id or ""), ""):
-        levels.append((db.query(HrPacketSetting)
-                       .filter(HrPacketSetting.entity_id == ent, HrPacketSetting.event == event,
-                               _sendable()).all()))
+        levels.append([r for r in (db.query(HrPacketSetting)
+                                   .filter(HrPacketSetting.entity_id == ent, HrPacketSetting.event == event,
+                                           _sendable()).all())
+                       if (r.country or "").upper() in ("", country) and (not documents_only or is_documents(r))])
     if role_id:
+        # A role's own letter or packet - still for the right kind of hire
+        # (Neil: "we could have an accounting associate who is an employee. We
+        # could have an accounting associate who is a contractor").
         for rows in levels:
-            for r in rows:
-                if role_id in (r.role_ids or []):
-                    return r
+            mine = [r for r in rows if role_id in (r.role_ids or [])]
+            for wt in (worker_type, "any"):
+                for r in mine:
+                    if (r.worker_type or "any") == wt:
+                        return r
     for rows in levels:
         general = [r for r in rows if not (r.role_ids or [])]
         for wt in (worker_type, "any"):
-            for r in general:
-                if r.worker_type == wt:
-                    return r
+            for c in ((country, "") if country else ("",)):
+                for r in general:
+                    if r.worker_type == wt and (r.country or "").upper() == c:
+                        return r
     return None
+
+
+def country_of(db: Session, entity_id: str) -> str:
+    """Where a company's people work by default - its own country (US, IN...)."""
+    e = db.query(HrEntity).filter(HrEntity.id == entity_id).first() if entity_id else None
+    return ((e.country if e else "") or "").strip().upper()[:2]
+
+
+WORKER_LABELS = {"employee": "Employee", "contractor": "Contractor"}
+
+
+def kind_of_hire(worker_type: str, country: str) -> str:
+    """'a Contractor in IN' - how HR reads which letter a hire needs."""
+    who = WORKER_LABELS.get(worker_type, "hire")
+    return f"{'an' if who[0] in 'AEIOU' else 'a'} {who}" + (f" in {country}" if country else "")
 
 
 def packet_choices(db: Session, entity_id: str, event: str) -> list:
@@ -301,6 +335,12 @@ def setting_problems(db: Session, s: HrPacketSetting) -> list:
     return out
 
 
+def _tname(db: Session, tid: str) -> str:
+    from models import DocTemplate
+    t = db.query(DocTemplate).filter(DocTemplate.id == tid).first()
+    return t.name if t else "A template that no longer exists"
+
+
 def ser_setting(db: Session, s: HrPacketSetting) -> dict:
     from models import NexusGroup
     role_ids = [r for r in (s.role_ids or []) if r]
@@ -312,8 +352,12 @@ def ser_setting(db: Session, s: HrPacketSetting) -> dict:
         import hr_packet_docs as hpd
         docs = hpd.ser_documents(db, s)
         flow = hpd.ser_flow(db, s)
+        snaps = hpd.load_snaps(db, list(s.doc_template_ids or []) + [t for t in hpd.all_block_ids(s)
+                                                                       if t not in (s.doc_template_ids or [])])[0]
         return {"id": s.id, "engine": "documents", "entityId": s.entity_id or "", "event": s.event,
-                "workerType": s.worker_type, "name": s.name or "", "templateId": "",
+                "workerType": s.worker_type, "country": s.country or "", "name": s.name or "", "templateId": "",
+                "extraDocs": [{**r, "templateNames": [_tname(db, t) for t in r.get("templateIds") or []]}
+                              for r in (s.extra_docs or []) if isinstance(r, dict)],
                 "templateName": s.name or "Unnamed packet",
                 "roleIds": role_ids, "roleNames": [names.get(r, "a role that no longer exists") for r in role_ids],
                 "docTemplateIds": list(s.doc_template_ids or []), "docTemplates": docs,
@@ -326,6 +370,10 @@ def ser_setting(db: Session, s: HrPacketSetting) -> dict:
                 # The Details Form and, for a company's packet, who signs once
                 # and whether they have (Oct 14).
                 "detailsForm": list(s.details_form or []),
+                # What the documents themselves ask (Oct 14): the person's
+                # questions go on their form by themselves; HR's are asked
+                # when the offer is made or the packet starts.
+                "templateForm": hpd.template_form(snaps), "hrQuestions": hpd.hr_questions(snaps),
                 "signOnce": hpd.company_once_status(db, s, db.query(HrEntity).filter(HrEntity.id == s.entity_id).first())
                 if s.entity_id else [],
                 # Ready To Send (Oct 14): every check a hire needs, with its fix.
@@ -551,15 +599,25 @@ def _load_candidate(db: Session, cid: str, scope, lock: bool = False) -> HrCandi
 
 
 def active_hire_event(db: Session, cid: str) -> Optional[HrLifeEvent]:
-    """The hiring packet still out for this candidate, if any. The pipeline
-    checks it before moving the candidate away from Offer: a packet that is
-    signable while the candidate is Rejected (or back in Interview) would
-    hire someone HR had decided against."""
+    """The offer letter or hiring packet still out for this candidate, if
+    any. The pipeline checks it before moving the candidate away from Offer: a
+    letter that is signable while the candidate is Rejected (or back in
+    Interview) would hire someone HR had decided against."""
     if not cid:
         return None
     return (db.query(HrLifeEvent)
-            .filter(HrLifeEvent.candidate_id == cid, HrLifeEvent.kind == "hire",
+            .filter(HrLifeEvent.candidate_id == cid, HrLifeEvent.kind.in_(CANDIDATE_KINDS),
                     HrLifeEvent.status.in_(OPEN)).first())
+
+
+def signed_offer(db: Session, cid: str) -> Optional[HrLifeEvent]:
+    """The candidate's signed offer letter, if they have one."""
+    if not cid:
+        return None
+    return (db.query(HrLifeEvent)
+            .filter(HrLifeEvent.candidate_id == cid, HrLifeEvent.kind == "offer",
+                    HrLifeEvent.status == "completed")
+            .order_by(HrLifeEvent.completed_at.desc()).first())
 
 
 def reroute_hire_packet(db: Session, cand: HrCandidate, new_email: str, by: str) -> bool:
@@ -570,7 +628,11 @@ def reroute_hire_packet(db: Session, cand: HrCandidate, new_email: str, by: str)
     if ev is not None and ev.status in ("intake", "review"):
         # Not sent yet (Oct 14): the packet simply goes to the corrected address.
         ev.subject_email, ev.updated_at = new_email.strip().lower(), _now()
-        _stage_note(db, ev, f"Hiring packet will go to {ev.subject_email}", by=by)
+        _stage_note(db, ev, f"{EVENT_TITLES.get(ev.kind, 'Packet')} will go to {ev.subject_email}", by=by)
+        if ev.status == "intake" and ev.intake_token_hash:
+            # The details link went to the typo - a fresh one, the old one dead.
+            refresh_due(ev)
+            mail_intake_after_commit(db, ev, new_intake_token(ev))
         return True
     if not ev or not ev.sign_request_id:
         return False
@@ -644,7 +706,11 @@ def plan_hire(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[dic
         setting = resolve_setting(db, cand.company, "hire", wt, details["role_id"])
     if not setting:
         raise PacketError(f"No hiring packet is set up for {company} yet - add one under "
-                          f"People > Hiring > Packets.", 409)
+                          f"Settings > Hiring > Hiring Documents.", 409)
+    # The offer comes first (Neil, Oct 14): where an offer letter is set up
+    # for this hire, the packet goes out by itself once the offer is signed.
+    if resolve_setting(db, cand.company, "offer", wt, details["role_id"], country_of(db, cand.company)) is not None:
+        raise PacketError("Send the offer letter first - the hiring packet goes out by itself once they sign it.", 409)
     name = f"{cand.first_name} {cand.last_name}".strip()
     if is_documents(setting):
         # Built from Documents (Oct 14): previewed here; it goes out through
@@ -825,11 +891,12 @@ def _check_jd(db: Session, jd_id: str) -> None:
         raise PacketError("Pick a Job Description from Documents > Templates (category Job Description).")
 
 
-def clean_pay_values(db: Session, setting: HrPacketSetting, values: Optional[dict], jd_id: str = "") -> dict:
+def clean_pay_values(db: Session, setting: HrPacketSetting, values: Optional[dict], jd_id: str = "",
+                     inputs: Optional[dict] = None) -> dict:
     """Pay typed per pay variable of THIS packet - "$22.00 per hour plus
     commission". Only pay variables, at most 200 characters each."""
     import hr_packet_docs as hpd
-    ids = list(setting.doc_template_ids or []) + ([jd_id] if jd_id else [])
+    ids = hpd.template_ids_for(setting, {**(inputs or {}), "jd_template_id": jd_id}, "hire")
     snaps, _ = hpd.load_snaps(db, ids)
     allowed = hpd.pay_tokens(snaps) | {"salary"}
     out = {}
@@ -851,7 +918,7 @@ def reserve_code(db: Session) -> str:
     from routers.hr import _next_code
     best = _next_code(db)
     taken = {(e.inputs or {}).get("employee_code") for e in db.query(HrLifeEvent)
-             .filter(HrLifeEvent.kind == "hire", HrLifeEvent.status.in_(OPEN)).all()}
+             .filter(HrLifeEvent.kind.in_(CANDIDATE_KINDS), HrLifeEvent.status.in_(OPEN)).all()}
     m = re.fullmatch(r"GG-(\d+)", best)
     n = int(m.group(1)) if m else 1
     while f"GG-{n:03d}" in taken:
@@ -882,7 +949,8 @@ def start_hire(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[di
         # The packet's own Details Form, filled by HR. What is still empty
         # shows on the review and blocks sending if the form requires it.
         try:
-            answers = hpd.clean_answers(setting, (details or {}).get("answers"))
+            answers = hpd.clean_answers(hpd.form_view(db, setting, hpd.template_ids_for(setting, {**d, **opts}, "hire")),
+                                        (details or {}).get("answers"))
         except hpd.PacketProblem as e:
             raise PacketError(str(e))
         if answers:
@@ -894,7 +962,7 @@ def start_hire(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[di
         d["role_id"] = role.id
     extra = d.pop("merge", {}) or {}
     stored = {**d, **opts, "extra": extra, "verifier_role": setting.verify_role or "hr", "engine": "documents"}
-    snaps, _ = hpd.load_snaps(db, list(setting.doc_template_ids or []) + ([opts["jd_template_id"]] if opts["jd_template_id"] else []))
+    snaps, _ = hpd.load_snaps(db, hpd.template_ids_for(setting, {**d, **opts}, "hire"))
     if any("employee_code" in s.tokens for s in snaps):
         stored["employee_code"] = (plan["former"].employee_code if plan.get("former") is not None
                                    else reserve_code(db)) or ""
@@ -904,7 +972,7 @@ def start_hire(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[di
                      entity_id=cand.company, candidate_id=cand.id, subject_name=name,
                      subject_email=cand.email.strip().lower(), setting_id=setting.id, template_id="",
                      inputs=stored, pay=plan["pay"],
-                     pay_values=clean_pay_values(db, setting, pay_values, opts["jd_template_id"]),
+                     pay_values=clean_pay_values(db, setting, pay_values, opts["jd_template_id"], d),
                      intake=person, effective_date=d["start_date"], documents=[],
                      created_by=user["email"].lower(), created_at=now, updated_at=now)
     db.add(ev)
@@ -927,6 +995,332 @@ def start_hire(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[di
     return ev, ""
 
 
+# ── the offer letter (Neil, Oct 14) ─────────────────────────────────────────
+# Move To Offer -> HR answers the questions (who they are hired as and where,
+# the role, start, pay, and whatever the letter itself asks of HR) -> Nexus
+# picks the ONE offer letter for that kind of hire and fills it ("the
+# document will make itself") -> the verifier checks it -> Nexus Sign: the
+# company, then the candidate - from their email, no Nexus login -> signed
+# by both = hired, and the hiring packet starts by itself.
+
+OFFER_STAGES = ("applied", "screening", "interview", "offer")
+# What an offer letter can print from the offer form beyond the role, start
+# and pay - the form asks for one only when the letter prints it.
+OFFER_PRINTS = ("address", "permanent_address", "preferred_name", "phone", "work_location", "work_schedule",
+                "work_hours", "work_days", "manager", "supervisor", "offer_expires", "employee_code")
+
+
+def offer_details(db: Session, cand: HrCandidate, inputs: dict) -> dict:
+    """The offer HR entered, validated. Employee or contractor is HR's answer,
+    never a guess (Neil: "we could have an accounting associate who is an
+    employee. We could have an accounting associate who is a contractor")."""
+    wt = str(inputs.get("worker_type") or "").strip().lower()
+    if wt not in WORKER_LABELS:
+        raise PacketError("Choose whether they are hired as an Employee or a Contractor - it decides which "
+                          "offer letter goes.")
+    et = str(inputs.get("employment_type") or "").strip()
+    if wt == "contractor":
+        et = "contractor"
+    elif et in ("", "contractor"):
+        et = "full_time"
+    d = _hire_details(db, cand, {**inputs, "employment_type": et})
+    country = re.sub(r"[^A-Za-z]", "", str(inputs.get("country") or "")).upper()[:2] or country_of(db, cand.company)
+    d.update({"worker_type": wt, "country": country,
+              "work_location": re.sub(r"[\x00-\x1f\x7f]", "", str(inputs.get("work_location") or "")).strip()[:200]})
+    return d
+
+
+def _describe(db: Session, s: Optional[HrPacketSetting], department: str = "", role_id: str = "") -> Optional[dict]:
+    """What a letter or packet needs from HR, for the offer form - with the
+    documents it adds for this person's team and role."""
+    if s is None:
+        return None
+    import hr_packet_docs as hpd
+    ids = hpd.template_ids_for(s, {"department": department, "role_id": role_id}, "offer")
+    snaps, problems = hpd.load_snaps(db, ids)
+    tokens = {t for snap in snaps for t in snap.tokens}
+    return {"id": s.id, "name": s.name or "", "workerType": s.worker_type or "any", "country": s.country or "",
+            "documents": [snap.name for snap in snaps], "problems": problems,
+            "hrQuestions": hpd.hr_questions(snaps), "prints": sorted(tokens & set(OFFER_PRINTS)),
+            "personQuestions": [f["label"] for f in hpd.template_form(snaps)],
+            "printsPay": hpd.packet_prints_pay(s, snaps)}
+
+
+def offer_options(db: Session, cand: HrCandidate, worker_type: str, country: str, role_id: str,
+                  chosen: str = "", new_role: bool = False, department: str = "") -> dict:
+    """The Move To Offer form: which offer letter this kind of hire gets, the
+    hiring packet that follows it, and everything either asks of HR - so HR
+    answers once, at the offer (Neil: "the time to do it is right at sending
+    an offer")."""
+    wt = (worker_type or "").strip().lower()
+    company_country = country_of(db, cand.company)
+    country = re.sub(r"[^A-Za-z]", "", country or "").upper()[:2] or company_country
+    # A new role ("Other") has no role of its own yet - never the card's.
+    role_id = "" if new_role else (role_id or cand.role_id or "").strip()
+    entity = db.query(HrEntity).filter(HrEntity.id == cand.company).first()
+    company = entity.name if entity else "this company"
+    choices = [{"id": r.id, "name": r.name or "Unnamed", "workerType": r.worker_type or "any", "country": r.country or ""}
+               for r in packet_choices(db, cand.company, "offer")]
+    out = {"country": country, "companyCountry": company_country, "choices": choices,
+           "offerLetter": None, "hiringPacket": None, "missing": ""}
+    if wt not in WORKER_LABELS:
+        return out
+    letter = packet_choice(db, cand.company, "offer", chosen) if chosen else None
+    letter = letter or resolve_setting(db, cand.company, "offer", wt, role_id, country)
+    packet = resolve_setting(db, cand.company, "hire", wt, role_id, country, documents_only=True)
+    from models import NexusGroup
+    role = db.query(NexusGroup).filter(NexusGroup.id == role_id).first() if role_id else None
+    department = (role.department if role is not None else "") or department or cand.department or ""
+    out["offerLetter"] = _describe(db, letter, department, role_id)
+    out["hiringPacket"] = _describe(db, packet, department, role_id)
+    if letter is None:
+        out["missing"] = (f"No offer letter is set up for {kind_of_hire(wt, country)} at {company} yet - add one "
+                          f"under Settings > Hiring > Hiring Documents > Offer Letter.")
+    return out
+
+
+def plan_offer(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[dict], scope,
+               lock: bool = False) -> dict:
+    """Everything an offer would do, without doing it."""
+    import hr_packet_docs as hpd
+    cand = _load_candidate(db, cid, scope, lock=lock)
+    if cand.stage not in OFFER_STAGES:
+        raise PacketError(f"{cand.first_name} is {cand.stage.title()} - only a candidate still in the pipeline "
+                          f"gets an offer.", 409)
+    if cand.employee_id:
+        raise PacketError("This candidate is already an employee.", 409)
+    if not (cand.email or "").strip():
+        raise PacketError("Add the candidate's personal email first - the offer goes there.")
+    if not (cand.company or "").strip():
+        raise PacketError("Pick the hiring company on the candidate first.")
+    d = offer_details(db, cand, inputs or {})
+    try:
+        clean = clean_pay(pay)
+    except ValueError as e:
+        raise PacketError(str(e))
+    former = rehire_record(db, cand)
+    if former is not None:
+        if former.status in ("active", "onboarding", "staged"):
+            raise PacketError(f"{former.first_name} {former.last_name} ({former.employee_code}) is already in People "
+                              f"as {former.status} with this email - this is not a new hire. Edit their record instead.", 409)
+        d["rehire_employee_id"] = former.id
+    entity = db.query(HrEntity).filter(HrEntity.id == cand.company).first()
+    company = entity.name if entity else "this company"
+    if d["packet_id"]:
+        setting = packet_choice(db, cand.company, "offer", d["packet_id"])
+        if setting is None:
+            raise PacketError("That offer letter is not one this company can send - pick another.", 409)
+    else:
+        setting = resolve_setting(db, cand.company, "offer", d["worker_type"], d["role_id"], d["country"])
+    if setting is None:
+        raise PacketError(f"No offer letter is set up for {kind_of_hire(d['worker_type'], d['country'])} at {company} "
+                          f"yet - add one under Settings > Hiring > Hiring Documents > Offer Letter.", 409)
+    if not is_documents(setting):
+        raise PacketError("Offer letters are built from Documents - set this one up again there.", 409)
+    packet = resolve_setting(db, cand.company, "hire", d["worker_type"], d["role_id"], d["country"], documents_only=True)
+    dp = hpd.plan(db, setting, ctx=hire_ctx(db, cand, d, entity, user["email"]),
+                  overrides=hpd.event_values(db, "offer", d), pay=clean, can_see_pay=bool(clean),
+                  candidate_id=cand.id, entity_id=cand.company or "")
+    return {"candidate": cand, "details": d, "pay": clean, "setting": setting, "packet": packet, "docplan": dp,
+            "former": former, "company": company, "subjectName": f"{cand.first_name} {cand.last_name}".strip()}
+
+
+def offer_pay_snaps(db: Session, setting: HrPacketSetting, inputs: dict) -> list:
+    """The documents an offer's pay can be printed in: the letter, and the
+    hiring packet that follows it (HR answers both at the offer)."""
+    import hr_packet_docs as hpd
+    ids = hpd.template_ids_for(setting, inputs, "offer")
+    packet = (db.query(HrPacketSetting).filter(HrPacketSetting.id == inputs.get("hire_packet_id")).first()
+              if inputs.get("hire_packet_id") else None)
+    if packet is not None:
+        ids += [t for t in hpd.template_ids_for(packet, inputs, "hire") if t not in ids]
+    return hpd.load_snaps(db, ids)[0]
+
+
+def _no_pay_in(snaps: list, extra: dict) -> None:
+    """HR's plain answers never carry pay - a pay question is entered as pay
+    (Pay & Benefits only, never on a document row)."""
+    import hr_packet_docs as hpd
+    defs = {}
+    for snap in snaps:
+        defs.update(snap.defs)
+    for k in extra or {}:
+        if hpd.is_pay_token(k, defs):
+            raise PacketError(f'"{k.replace("_", " ")}" is pay - enter it with the pay (Pay & Benefits access needed).')
+
+
+def _pay_for(snaps: list, values: Optional[dict]) -> dict:
+    """Pay typed per pay variable - only the pay variables these documents
+    print (and {{salary}}), at most 200 characters each."""
+    import hr_packet_docs as hpd
+    allowed = hpd.pay_tokens(snaps) | {"salary"}
+    out = {}
+    for k, v in (values or {}).items():
+        k = str(k).strip()
+        v = re.sub(r"[\x00-\x1f\x7f]", "", str(v or "")).strip()[:200]
+        if not v:
+            continue
+        if k not in allowed:
+            raise PacketError(f'"{k}" is not a pay detail of this offer or its hiring packet.')
+        out[k] = v
+    return out
+
+
+def start_offer(db: Session, user: dict, cid: str, inputs: dict, pay: Optional[dict], pay_values: Optional[dict],
+                details: Optional[dict], scope) -> HrLifeEvent:
+    """Move To Offer: the letter is generated at once from HR's answers and
+    the verifier is asked to check it. The candidate is at Offer from here.
+    HR's answers for the hiring packet that follows are kept with it, so
+    nobody is asked twice. Commits."""
+    import hr_packet_docs as hpd
+    plan = plan_offer(db, user, cid, inputs, pay, scope, lock=True)
+    cand, setting, d, packet = plan["candidate"], plan["setting"], plan["details"], plan["packet"]
+    if active_hire_event(db, cand.id):
+        raise PacketError("An offer letter or hiring packet is already open for this candidate - void it first.", 409)
+    opts = four_options(inputs or {})
+    _check_jd(db, opts["jd_template_id"])
+    person = clean_intake({"first_name": cand.first_name, "last_name": cand.last_name, "phone": cand.phone,
+                           **{k: v for k, v in (details or {}).items() if str(v or "").strip()}})
+    if not person.get("first_name") or not person.get("last_name"):
+        raise PacketError("Enter their legal first and last name.")
+    now = _now()
+    if d["new_role_name"]:
+        role = create_company_role(db, cand.company, d["new_role_name"], d["department"], user["email"],
+                                   plan["subjectName"])
+        d["role_id"] = role.id
+    extra = d.pop("merge", {}) or {}
+    stored = {**d, **opts, "extra": extra, "verifier_role": setting.verify_role or "hr", "engine": "documents",
+              "hire_packet_id": packet.id if packet is not None else ""}
+    _no_pay_in(offer_pay_snaps(db, setting, stored), extra)
+    letter_snaps, _ = hpd.load_snaps(db, hpd.template_ids_for(setting, d, "offer"))
+    packet_ids = hpd.template_ids_for(packet, {**d, **opts}, "hire") if packet is not None else []
+    packet_snaps = hpd.load_snaps(db, packet_ids)[0] if packet_ids else []
+    if any("employee_code" in snap.tokens for snap in letter_snaps):
+        stored["employee_code"] = (plan["former"].employee_code if plan.get("former") is not None
+                                   else reserve_code(db)) or ""
+    ev = HrLifeEvent(id=str(uuid.uuid4()), kind="offer", status="review", entity_id=cand.company,
+                     candidate_id=cand.id, subject_name=f"{person['first_name']} {person['last_name']}".strip(),
+                     subject_email=cand.email.strip().lower(), setting_id=setting.id, template_id="",
+                     inputs=stored, pay=plan["pay"], pay_values=_pay_for(letter_snaps + packet_snaps, pay_values),
+                     intake=person, effective_date=d["start_date"], documents=[],
+                     created_by=user["email"].lower(), created_at=now, updated_at=now)
+    db.add(ev)
+    if cand.stage != "offer":
+        db.add(HrStageEvent(id=str(uuid.uuid4()), candidate_id=cand.id, from_stage=cand.stage, to_stage="offer",
+                            note=f"Offer started - {setting.name or 'offer letter'}", by_email=user["email"],
+                            created_at=now))
+        cand.stage = "offer"
+    card_from_intake(db, ev)
+    db.flush()
+    p = hpd.event_plan(db, ev, setting, sender=user["email"], can_see_pay=True)
+    hpd.sync_documents(db, ev, setting, p, user["email"].lower())
+    _stage_note(db, ev, f"Offer letter prepared - waiting for {p['verifier']['name'] or 'HR'} to verify",
+                by=user["email"])
+    _ask_verifier(db, ev, p)
+    db.commit()
+    return ev
+
+
+def start_packet_after_offer(db: Session, offer: HrLifeEvent, by: str) -> tuple:
+    """The offer is signed: the hiring packet (right to work compliance)
+    starts by itself - the person is emailed a link to their details form,
+    no login, and the documents are generated when they send it. Everything
+    HR answered at the offer is carried over. Returns (event, intake token);
+    an already started packet is returned as it is, with no token. The
+    caller commits."""
+    import hr_packet_docs as hpd
+    cand = db.query(HrCandidate).filter(HrCandidate.id == offer.candidate_id).first()
+    if cand is None or not offer.employee_id:
+        raise PacketError("They are not hired yet - the hiring packet starts once the offer letter is signed.", 409)
+    # One at a time; a voided, declined or expired one can be started again.
+    existing = (db.query(HrLifeEvent)
+                .filter(HrLifeEvent.candidate_id == cand.id, HrLifeEvent.kind == "hire",
+                        HrLifeEvent.status.in_(OPEN + ("completed",))).first())
+    if existing is not None:
+        return existing, ""
+    d = dict(offer.inputs or {})
+    wt = d.get("worker_type") or worker_type_of(d.get("employment_type", ""))
+    setting = (packet_choice(db, offer.entity_id or "", "hire", d["hire_packet_id"])
+               if d.get("hire_packet_id") else None)
+    setting = setting or resolve_setting(db, offer.entity_id or "", "hire", wt, d.get("role_id", ""), d.get("country", ""),
+                                         documents_only=True)
+    entity = db.query(HrEntity).filter(HrEntity.id == offer.entity_id).first() if offer.entity_id else None
+    company = entity.name if entity else "this company"
+    if setting is None:
+        raise PacketError(f"No hiring packet is set up for {kind_of_hire(wt, d.get('country', ''))} at {company} - "
+                          f"add one in Settings > Hiring > Hiring Documents.", 409)
+    if not is_documents(setting):
+        raise PacketError(f'"{setting.name or "The hiring packet"}" is an uploaded-PDF packet, which cannot start by '
+                          f'itself - rebuild it from Documents.', 409)
+    emp = db.query(NexusEmployee).filter(NexusEmployee.id == offer.employee_id).first()
+    today = datetime.strptime(_today(), "%Y-%m-%d")
+    due = d.get("start_date") or ""
+    if not due or due < (today + timedelta(days=3)).strftime("%Y-%m-%d"):
+        due = (today + timedelta(days=14)).strftime("%Y-%m-%d")
+    stored = {k: v for k, v in d.items() if k not in ("hire_packet_id", "verifier_role", "engine")}
+    stored.update({"after_offer": True, "offer_event_id": offer.id, "packet_id": setting.id, "due_on": due,
+                   "verifier_role": setting.verify_role or "hr", "engine": "documents",
+                   "employee_code": (emp.employee_code if emp is not None else "") or d.get("employee_code", "")})
+    snaps, _ = hpd.load_snaps(db, hpd.template_ids_for(setting, d, "hire"))
+    allowed = hpd.pay_tokens(snaps) | {"salary"}
+    now = _now()
+    ev = HrLifeEvent(id=str(uuid.uuid4()), kind="hire", status="intake", entity_id=offer.entity_id,
+                     candidate_id=cand.id, employee_id=offer.employee_id, subject_name=offer.subject_name,
+                     subject_email=(cand.email or offer.subject_email or "").strip().lower(), setting_id=setting.id,
+                     template_id="", inputs=stored, pay=dict(offer.pay or {}),
+                     pay_values={k: v for k, v in (offer.pay_values or {}).items() if k in allowed},
+                     intake={k: v for k, v in (offer.intake or {}).items() if k != "answers"},
+                     effective_date=d.get("start_date", ""), documents=[], created_by=offer.created_by or by,
+                     created_at=now, updated_at=now)
+    db.add(ev)
+    token = new_intake_token(ev)
+    _stage_note(db, ev, f"Hiring packet started - {cand.first_name} was emailed a link for their details", by=by)
+    return ev, token
+
+
+def intake_link(token: str) -> str:
+    from app_url import app_url
+    return f"{app_url()}/intake/{token}"
+
+
+def mail_intake_after_commit(db: Session, ev: HrLifeEvent, token: str) -> str:
+    """Email the person their details link once this transaction commits -
+    from inside a signing request there is no response to send it after. The
+    mail goes from a thread, and only if the link is still on the record (a
+    rolled-back start never mails a dead link). Returns the link."""
+    import threading
+
+    from sqlalchemy import event as sa_event
+
+    import hr_life_email
+    import role_change as rc
+    link = intake_link(token)
+    subject, html = hr_life_email.intake_email(db, ev, link)
+    to, want = ev.subject_email, _token_hash(token)
+
+    def send():
+        # after_commit also fires when a SAVEPOINT inside the signing request
+        # commits - before the request itself has. Wait (briefly) until the
+        # link is really on the record; a start that was rolled back never
+        # shows up, and nothing is sent.
+        import time
+        from database import SessionLocal
+        # Up to ten minutes: the sealed copies are emailed inside the same
+        # signing request, before it commits.
+        for _ in range(300):
+            s2 = SessionLocal()
+            try:
+                found = s2.query(HrLifeEvent.id).filter(HrLifeEvent.intake_token_hash == want).first() is not None
+            finally:
+                s2.close()
+            if found:
+                rc.send_emails([(to, subject, html)])
+                return
+            time.sleep(2)
+
+    sa_event.listen(db, "after_commit", lambda _s: threading.Thread(target=send, daemon=True).start(), once=True)
+    return link
+
 # ── the candidate's details link (Oct 14) ────────────────────────────────────
 # "Hey, tell me your name, your address, your blah, blah ... You fill it all
 # in. Then it generates that hiring paperwork instantly." The link is a
@@ -942,7 +1336,8 @@ def new_intake_token(ev: HrLifeEvent) -> str:
     import secrets
     token = secrets.token_urlsafe(32)
     ev.intake_token_hash = _token_hash(token)
-    ev.intake_expires_on = (ev.inputs or {}).get("offer_expires", "") or ""
+    # The offer's expiry - or, for a packet that follows a signed offer, its own due date.
+    ev.intake_expires_on = (ev.inputs or {}).get("due_on") or (ev.inputs or {}).get("offer_expires", "") or ""
     ev.intake_sent_at, ev.intake_submitted_at = _now(), ""
     return token
 
@@ -963,12 +1358,20 @@ def intake_public(db: Session, ev: HrLifeEvent) -> dict:
              else "expired" if expired else "open")
     import hr_packet_docs as hpd
     setting = hpd.event_setting(db, ev)
-    form = [{k: f.get(k) for k in ("key", "label", "type", "required", "options", "last4", "help")}
-            for f in ((setting.details_form or []) if setting is not None else []) if isinstance(f, dict)]
+    # The packet's Details Form plus every Ask The Person variable of its
+    # documents (Oct 14) - one form, each question once.
+    form = [{k: f.get(k) for k in ("key", "label", "type", "required", "options", "last4", "help", "sensitive",
+                                   "fromTemplate")}
+            for f in hpd.event_form(db, ev, setting).details_form if isinstance(f, dict)]
+    # What is already known - from the offer, or an earlier round of this
+    # form - so the person confirms instead of typing it again. Never an
+    # answer to the packet's own questions (some are private).
+    known = {k: str((ev.intake or {}).get(k) or "") for k in INTAKE_FIELDS if str((ev.intake or {}).get(k) or "").strip()}
     return {"state": state, "company": (entity.legal_name or entity.name) if entity else "",
             "firstName": (cand.first_name if cand else "") or "", "lastName": (cand.last_name if cand else "") or "",
             "phone": (cand.phone if cand else "") or "", "role": (ev.inputs or {}).get("job_title", ""),
-            "expiresOn": ev.intake_expires_on or "",
+            "expiresOn": ev.intake_expires_on or "", "prefill": known,
+            "afterOffer": bool((ev.inputs or {}).get("after_offer")),
             "fields": [{"key": k, "required": k in ("first_name", "last_name", "phone", "address")} for k in INTAKE_FIELDS],
             # The packet's own Details Form (Oct 14) - any country, any field.
             "form": form}
@@ -988,7 +1391,8 @@ def submit_intake(db: Session, ev: HrLifeEvent, values: dict) -> None:
     if missing:
         raise PacketError("Please fill in: " + ", ".join(missing) + ".")
     try:
-        answers = hpd.clean_answers(hpd.event_setting(db, ev), (values or {}).get("answers"), require=True)
+        answers = hpd.clean_answers(hpd.event_form(db, ev, hpd.event_setting(db, ev)),
+                                    (values or {}).get("answers"), require=True)
     except hpd.PacketProblem as e:
         raise PacketError(str(e))
     if answers:
@@ -1013,14 +1417,28 @@ def submit_intake(db: Session, ev: HrLifeEvent, values: dict) -> None:
     db.commit()
 
 
+def refresh_due(ev: HrLifeEvent) -> None:
+    """The packet that follows a signed offer is paperwork, not an offer: its
+    date never strands it. Asking again or sending it with less than three
+    days left gives it two more weeks."""
+    d = dict(ev.inputs or {})
+    if not d.get("after_offer"):
+        return
+    today = datetime.strptime(_today(), "%Y-%m-%d")
+    if (d.get("due_on") or "") < (today + timedelta(days=3)).strftime("%Y-%m-%d"):
+        d["due_on"] = (today + timedelta(days=14)).strftime("%Y-%m-%d")
+        ev.inputs = d                       # reassigned, never mutated in place (JSON column)
+
+
 def reopen_intake(db: Session, ev: HrLifeEvent, by: str) -> str:
     """Ask the candidate again (a typo, an expired link): a fresh link, the
     old one dead. The packet goes back to waiting on details. Commits."""
     if ev.kind != "hire" or ev.status not in ("intake", "review"):
         raise PacketError("Only a hiring packet that has not been sent can ask for details again.", 409)
-    exp = (ev.inputs or {}).get("offer_expires") or ""
+    refresh_due(ev)
+    exp = (ev.inputs or {}).get("due_on") or (ev.inputs or {}).get("offer_expires") or ""
     if exp and exp < _today():
-        raise PacketError("The offer has expired - change Offer Expires first.", 409)
+        raise PacketError("The link's date has passed - change Offer Expires first.", 409)
     token = new_intake_token(ev)
     ev.status, ev.updated_at = "intake", _now()
     _stage_note(db, ev, f"Details link sent again to {ev.subject_email}", by=by)
@@ -1031,7 +1449,7 @@ def reopen_intake(db: Session, ev: HrLifeEvent, by: str) -> str:
 def card_from_intake(db: Session, ev: HrLifeEvent) -> None:
     """The legal name and phone given for the packet become the candidate
     card's, so the hire is created with what the person signs as."""
-    if ev.kind != "hire" or not ev.candidate_id:
+    if ev.kind not in CANDIDATE_KINDS or not ev.candidate_id:
         return
     cand = db.query(HrCandidate).filter(HrCandidate.id == ev.candidate_id).first()
     i = ev.intake or {}
@@ -1074,7 +1492,7 @@ def patch_values(db: Session, ev: HrLifeEvent, user: dict, body: dict, *, can_se
     if "role_id" in new and (new.get("role_id") or "") != (inputs.get("role_id") or ""):
         raise PacketError("The role decides which packet goes - void this packet and start again for another role.")
     for k in ("start_date", "offer_expires", "manager_email", "employment_type", "effective_date", "last_day",
-              "responsibilities", "job_title"):
+              "responsibilities", "job_title", "work_location"):
         if k in new:
             inputs[k] = str(new.get(k) or "").strip()[:4000 if k == "responsibilities" else 200]
     if any(k in new for k in ("work_start", "work_end", "work_days", "timings_text", "jd_template_id")):
@@ -1086,7 +1504,7 @@ def patch_values(db: Session, ev: HrLifeEvent, user: dict, body: dict, *, can_se
     if "extra" in (body or {}):
         inputs["extra"] = {str(k): str(v).strip()[:2000] for k, v in (body.get("extra") or {}).items()
                            if re.fullmatch(r"[a-z0-9_]+(\.[a-z0-9_]+)*", str(k)) and str(v or "").strip()}
-    if ev.kind == "hire":
+    if ev.kind in CANDIDATE_KINDS:
         if inputs.get("manager_email") and not db.query(NexusEmployee).filter(
                 NexusEmployee.work_email == inputs["manager_email"].lower()).first():
             raise PacketError("The supervisor must be someone in Nexus People.")
@@ -1100,20 +1518,21 @@ def patch_values(db: Session, ev: HrLifeEvent, user: dict, body: dict, *, can_se
         ev.effective_date = inputs["start_date"]
     if "details" in (body or {}):
         person = clean_intake(body.get("details"))
-        if ev.kind == "hire" and (not person.get("first_name") or not person.get("last_name")):
+        if ev.kind in CANDIDATE_KINDS and (not person.get("first_name") or not person.get("last_name")):
             raise PacketError("Enter their legal first and last name.")
         # The Details Form answers: someone without Pay & Benefits never saw
         # the Sensitive ones, so theirs are kept exactly as they were.
         old = hpd.event_answers(ev)
+        form = hpd.form_view(db, setting, hpd.template_ids_for(setting, inputs, ev.kind))
         try:
-            answers = hpd.clean_answers(setting, (body.get("details") or {}).get("answers"), old,
-                                        keep=() if can_see_pay else tuple(hpd.sensitive_keys(setting)))
+            answers = hpd.clean_answers(form, (body.get("details") or {}).get("answers"), old,
+                                        keep=() if can_see_pay else tuple(hpd.sensitive_keys(form)))
         except hpd.PacketProblem as e:
             raise PacketError(str(e))
         if answers:
             person["answers"] = answers
         ev.intake = person
-        if ev.kind == "hire":
+        if ev.kind in CANDIDATE_KINDS:
             ev.subject_name = f"{person['first_name']} {person['last_name']}".strip()
             card_from_intake(db, ev)
     if "pay" in (body or {}) or "pay_values" in (body or {}):
@@ -1125,7 +1544,8 @@ def patch_values(db: Session, ev: HrLifeEvent, user: dict, body: dict, *, can_se
             except ValueError as e:
                 raise PacketError(str(e))
         if "pay_values" in body:
-            ev.pay_values = clean_pay_values(db, setting, body.get("pay_values"), inputs.get("jd_template_id", ""))
+            ev.pay_values = (_pay_for(offer_pay_snaps(db, setting, inputs), body.get("pay_values")) if ev.kind == "offer"
+                             else clean_pay_values(db, setting, body.get("pay_values"), inputs.get("jd_template_id", ""), inputs))
     ev.inputs = inputs
     ev.updated_at = _now()
     db.flush()
@@ -1145,7 +1565,7 @@ def void_open(db: Session, ev: HrLifeEvent, actor: str) -> None:
         db.query(Document).filter(Document.id.in_(ids)).update(
             {"status": "archived", "archived_at": _now()}, synchronize_session=False)
     ev.status, ev.updated_at = "voided", _now()
-    _stage_note(db, ev, f"Hiring packet voided by {actor} before it was sent", by=actor)
+    _stage_note(db, ev, f"{EVENT_TITLES.get(ev.kind, 'Packet')} voided by {actor} before it was sent", by=actor)
     db.commit()
 
 
@@ -1183,7 +1603,7 @@ def _for(db: Session, req: HrSignRequest) -> Optional[HrLifeEvent]:
 
 
 def _stage_note(db: Session, ev: HrLifeEvent, note: str, by: str = "") -> None:
-    if ev.kind != "hire" or not ev.candidate_id:
+    if ev.kind not in CANDIDATE_KINDS or not ev.candidate_id:
         return
     cand = db.query(HrCandidate).filter(HrCandidate.id == ev.candidate_id).first()
     if cand:
@@ -1194,7 +1614,7 @@ def _stage_note(db: Session, ev: HrLifeEvent, note: str, by: str = "") -> None:
 
 def _notify(db: Session, to: str, title: str, body: str, ev: HrLifeEvent, priority: int = 0) -> None:
     from routers.hr import _hr_notify
-    sub = "hr-hiring" if ev.kind == "hire" and not ev.employee_id else "hr-people"
+    sub = "hr-hiring" if ev.kind in CANDIDATE_KINDS and not ev.employee_id else "hr-people"
     _hr_notify(db, to, title, body, ref_id=ev.id, requested_by="nexus-sign",
                action={"view": "hr", "sub": sub}, priority=priority)
 
@@ -1229,7 +1649,7 @@ def on_declined(db: Session, req: HrSignRequest, party, reason: str = "") -> Non
     ev.decline_reason = (reason or "")[:500]
     ev.updated_at = _now()
     who = getattr(party, "name", "") or "A signer"
-    _stage_note(db, ev, f"Hiring packet declined by {who}" + (f": {reason}" if reason else ""))
+    _stage_note(db, ev, f"{EVENT_TITLES[ev.kind]} declined by {who}" + (f": {reason}" if reason else ""))
     _notify(db, ev.created_by, f"{EVENT_TITLES[ev.kind]} declined - {ev.subject_name}",
             f"{who} declined \"{req.title}\"." + (f" Reason: {reason}" if reason else "")
             + " Fix what is needed and send it again.", ev)
@@ -1241,7 +1661,7 @@ def on_voided(db: Session, req: HrSignRequest, actor: str = "") -> None:
         return
     ev.status = "voided"
     ev.updated_at = _now()
-    _stage_note(db, ev, f"Hiring packet voided by {actor or 'HR'}", by=actor)
+    _stage_note(db, ev, f"{EVENT_TITLES[ev.kind]} voided by {actor or 'HR'}", by=actor)
     if ev.kind == "separation" and ev.apply_status == "scheduled":
         # Voiding the paperwork in Nexus Sign is not canceling the offboarding
         # - the person is still leaving on the day. Say so, in case it was.
@@ -1260,7 +1680,7 @@ def on_expired(db: Session, req: HrSignRequest) -> None:
         return
     ev.status = "expired"
     ev.updated_at = _now()
-    _stage_note(db, ev, "Hiring packet expired unsigned")
+    _stage_note(db, ev, f"{EVENT_TITLES[ev.kind]} expired unsigned")
     _notify(db, ev.created_by, f"{EVENT_TITLES[ev.kind]} expired - {ev.subject_name}",
             f"\"{req.title}\" passed its signing date without every signature. Send it again if it still stands.", ev)
 
@@ -1286,12 +1706,15 @@ def _apply_hire(db: Session, ev: HrLifeEvent, req: HrSignRequest) -> None:
     emp = (db.query(NexusEmployee).filter(NexusEmployee.id == cand.employee_id).first()
            if cand.employee_id else None)
     details = ev.inputs or {}
+    what = EVENT_TITLES.get(ev.kind, "Packet")
     if emp is None:
         emp = create_employee_from_candidate(db, cand, ev.created_by, details=details)
-        note = ("Hiring packet signed - rehired on their existing record" if details.get("rehire_employee_id")
-                else "Hiring packet signed - hired automatically")
+        note = (f"{what} signed - rehired on their existing record" if details.get("rehire_employee_id")
+                else f"{what} signed - hired automatically")
+    elif details.get("after_offer"):
+        note = f"{what} signed - their paperwork is complete"
     else:
-        note = "Hiring packet signed (already hired)"
+        note = f"{what} signed (already hired)"
     if cand.stage != "hired":
         db.add(HrStageEvent(id=str(uuid.uuid4()), candidate_id=cand.id, from_stage=cand.stage,
                             to_stage="hired", note=note, by_email=ev.created_by, created_at=_now()))
@@ -1311,10 +1734,19 @@ def _apply_hire(db: Session, ev: HrLifeEvent, req: HrSignRequest) -> None:
     req.employee_id = emp.id
     ev.apply_note = note
     start = us_date(ev.effective_date)
+    if ev.kind == "offer":
+        title, body = (f"{ev.subject_name} accepted the offer",
+                       f"{ev.subject_name} signed the offer letter and is now in People as onboarding"
+                       + (f", starting {start}" if start else "") + ". Their hiring packet is on its way to them.")
+    elif details.get("after_offer"):
+        title, body = (f"{ev.subject_name} signed the hiring packet",
+                       f"{ev.subject_name} signed every onboarding document - their paperwork is complete.")
+    else:
+        title, body = (f"{ev.subject_name} signed the hiring packet",
+                       f"{ev.subject_name} signed every document and is now in People as onboarding"
+                       + (f", starting {start}" if start else "") + ".")
     for to in {ev.created_by, (cand.created_by or "").lower(), (emp.manager_email or "").lower()} - {""}:
-        _notify(db, to, f"{ev.subject_name} signed the hiring packet",
-                f"{ev.subject_name} signed every document and is now in People as onboarding"
-                + (f", starting {start}" if start else "") + ".", ev)
+        _notify(db, to, title, body, ev)
 
 
 def _apply_hire_details(db: Session, ev: HrLifeEvent, emp: NexusEmployee) -> None:
@@ -1339,10 +1771,10 @@ def _apply_hire_details(db: Session, ev: HrLifeEvent, emp: NexusEmployee) -> Non
     # lands on the profile under Hiring Details. Sensitive ones (a bank
     # account, an ID number) stay on the packet and in the signed documents.
     import hr_packet_docs as hpd
-    setting = hpd.event_setting(db, ev)
-    plain = hpd.answer_values(setting, hpd.event_answers(ev))[0]         # as printed: dates MM/DD/YYYY
+    form = hpd.event_form(db, ev, hpd.event_setting(db, ev))
+    plain = hpd.answer_values(form, hpd.event_answers(ev))[0]            # as printed: dates MM/DD/YYYY
     rows = [{"label": f["label"], "value": plain[f["key"]]}
-            for f in hpd.form_fields(setting) if not f.get("sensitive") and plain.get(f["key"])]
+            for f in hpd.form_fields(form) if not f.get("sensitive") and plain.get(f["key"])]
     if rows:
         personal["packetDetails"] = rows
     emp.personal = personal
@@ -1368,7 +1800,32 @@ def _apply_hire_details(db: Session, ev: HrLifeEvent, emp: NexusEmployee) -> Non
     ev.flags = flags
 
 
-_APPLY = {"hire": _apply_hire}
+def _apply_offer(db: Session, ev: HrLifeEvent, req: HrSignRequest) -> None:
+    """The offer letter is signed by both sides: they are hired (the same
+    path Mark Hired uses), and the hiring packet starts by itself. A packet
+    that cannot start never undoes the hire - HR is told what to fix."""
+    _apply_hire(db, ev, req)
+    if not ev.employee_id:
+        return                            # not hired (rejected meanwhile) - _apply_hire said why
+    sp = db.begin_nested()
+    try:
+        packet, token = start_packet_after_offer(db, ev, ev.created_by)
+        sp.commit()
+    except Exception as e:   # noqa: BLE001 - the hire stands; HR starts the packet by hand
+        sp.rollback()
+        msg = str(e) if isinstance(e, PacketError) else f"{type(e).__name__}: {str(e)[:200]}"
+        ev.flags = [f for f in (ev.flags or []) if f.get("code") != "packet_not_started"] + [
+            {"code": "packet_not_started", "message": msg}]
+        _stage_note(db, ev, f"Offer signed - the hiring packet did not start: {msg}")
+        _notify(db, ev.created_by, f"Start the hiring packet - {ev.subject_name}",
+                f"{ev.subject_name} signed the offer and is hired, but the hiring packet could not start: {msg} "
+                f"Fix it, then click Start Hiring Packet on their card.", ev, priority=1)
+        return
+    if token:
+        mail_intake_after_commit(db, packet, token)
+
+
+_APPLY = {"hire": _apply_hire, "offer": _apply_offer}
 
 
 def on_completed(db: Session, req: HrSignRequest) -> None:
@@ -1402,7 +1859,7 @@ def retry_apply(db: Session, ev: HrLifeEvent) -> None:
     if ev.status == "completed":
         raise PacketError("Already applied.", 409)
     on_completed(db, req)
-    if ev.kind == "hire" and ev.employee_id and req.final_pdf_path:
+    if ev.kind in CANDIDATE_KINDS and ev.employee_id and req.final_pdf_path:
         # What _finalize does for an envelope that already knows its employee:
         # the sealed packet on the profile's Documents tab. The first run
         # never got there, because the employee did not exist yet.
@@ -1521,7 +1978,7 @@ def plan_promotion(db: Session, user: dict, eid: str, inputs: dict, pay: Optiona
                               details["role_id"] or role_id_for_employee(db, emp))
     if not setting:
         raise PacketError(f"No promotion letter is set up for {company} yet - add one under "
-                          f"People > Hiring > Packets.", 409)
+                          f"Settings > Hiring > Hiring Documents.", 409)
     if is_documents(setting):
         # Built from Documents (Oct 14): previewed here, started, verified, sent.
         import hr_checklists as hc
@@ -1853,7 +2310,7 @@ def plan_separation(db: Session, user: dict, eid: str, inputs: dict, scope, lock
     elif d["send_package"]:
         if not setting:
             raise PacketError(f"No separation package is set up for {company} - add one under People > "
-                              f"Hiring > Packets, or offboard without documents.", 409)
+                              f"Settings > Hiring > Hiring Documents, or offboard without documents.", 409)
         if problems:
             raise PacketError(f"The {company} separation package needs fixing: {problems[0]}", 409)
         if not to:
@@ -2116,9 +2573,13 @@ _APPLY["separation"] = _apply_separation_signed
 
 # ── Egnyte filing ────────────────────────────────────────────────────────────
 
-def file_one(db: Session, ev: HrLifeEvent) -> tuple:
+def file_one(db: Session, ev: HrLifeEvent, folder: str = "") -> tuple:
     """Create the person's Egnyte folder (if needed) and file the sealed packet
-    and any signer attachments into its event subfolder. (ok, message)."""
+    and any signer attachments into its event subfolder. (ok, message).
+
+    `folder` (File Manually, Oct 15 2026): an Egnyte folder HR picked when the
+    wired one cannot be made - it must already exist; nothing above it is
+    created, so a typo can never invent a company's folder tree."""
     from routers import esign
     import egnyte_wiring
     import services.egnyte as svc
@@ -2130,10 +2591,16 @@ def file_one(db: Session, ev: HrLifeEvent) -> tuple:
         return False, "There is no employee record to file this under."
     if not svc.configured():
         return False, "Egnyte is not connected."
-    try:
-        folder = egnyte_wiring.provision_person_folder(emp, db)
-    except ValueError as e:
-        return False, str(e)
+    if folder:
+        found = egnyte_wiring._match_path(folder)
+        if not found:
+            return False, f"There is no folder {svc.norm(folder)} in Egnyte - check the path, or create it there first."
+        folder = found
+    else:
+        try:
+            folder = egnyte_wiring.provision_person_folder(emp, db)
+        except ValueError as e:
+            return False, str(e)
     setting = db.query(HrPacketSetting).filter(HrPacketSetting.id == ev.setting_id).first() if ev.setting_id else None
     sub = _safe_name((setting.egnyte_subfolder if setting else "") or DEFAULT_SUBFOLDERS.get(ev.kind, ""), 60)
     target = svc.norm(f"{folder}/{sub}")
@@ -2149,6 +2616,47 @@ def file_one(db: Session, ev: HrLifeEvent) -> tuple:
     esign._log(db, req.id, "archived", f"filed in Egnyte {target}/{name}"
                + (f", with {n_att} attachment{'s' if n_att != 1 else ''}" if n_att else ""))
     return True, f"{target}/{name}"
+
+
+FILED_BY_HAND = "filed_by_hand"
+
+
+def file_by_hand(db: Session, ev: HrLifeEvent, folder: str, by: str) -> list:
+    """File Manually (Pranshu, Oct 15 2026): when automatic filing fails, HR
+    picks the Egnyte folder and every signed, unfiled packet for the same
+    person (the offer letter and the hiring packet together) is filed there.
+    Each one filed is marked filed by hand - the card leaves the profile at
+    once. Returns the events it tried; raises PacketError when none could be
+    filed. Commits."""
+    folder = (folder or "").strip()
+    if not folder:
+        raise PacketError("Paste the Egnyte folder to file into.")
+    q = db.query(HrLifeEvent).filter(HrLifeEvent.status == "completed", HrLifeEvent.filing_status != "filed")
+    if ev.employee_id:
+        q = q.filter(HrLifeEvent.employee_id == ev.employee_id)
+    else:
+        q = q.filter(HrLifeEvent.id == ev.id)
+    events = q.order_by(HrLifeEvent.completed_at).with_for_update().all()
+    if not events:
+        raise PacketError("Nothing left to file - it is already in Egnyte.", 409)
+    errors = []
+    for one in events:
+        try:
+            ok, msg = file_one(db, one, folder)
+        except Exception as e:      # Egnyte/network trouble
+            ok, msg = False, f"{type(e).__name__}: {str(e)[:200]}"
+        one.updated_at = _now()
+        if ok:
+            one.filing_status, one.filing_path, one.filing_error, one.filing_next_at = "filed", msg, "", ""
+            one.flags = [f for f in (one.flags or []) if f.get("code") != FILED_BY_HAND] + [
+                {"code": FILED_BY_HAND, "message": f"Filed by hand by {by} into {folder}"}]
+        else:
+            one.filing_error = msg[:500]
+            errors.append(msg)
+    db.commit()
+    if len(errors) == len(events):
+        raise PacketError(errors[0])
+    return events
 
 
 def run_filing(db: Session, ev: HrLifeEvent) -> None:

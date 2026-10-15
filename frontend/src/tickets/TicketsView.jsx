@@ -60,6 +60,8 @@ import { LatestCommentPreview, latestCommentText } from './LatestComment';
 import { TicketAssignSheet, MobileAssignField } from './TicketAssignSheet';
 import { useFrequentCollaborators } from '../tasks/frequentPeople';
 import { useTicketAccess } from './ticketAccess';
+import CreateModeTabs from './CreateModeTabs';
+import { registerTour } from '../lib/tours';
 
 // Tour id this module reports to the server (routers/user_tours.py) - see
 // the Task module's identical TASK_TOUR_ID in views/Tasks.jsx.
@@ -703,7 +705,8 @@ export default function TicketsView() {
   useEffect(() => {
     const openTour = () => setTour(true);
     window.addEventListener('nexus:tickets-tour', openTour);
-    return () => window.removeEventListener('nexus:tickets-tour', openTour);
+    const unTour = registerTour('tickets', 'Tickets', openTour);   // the Help panel's Take the Tour (lib/tours.js)
+    return () => { window.removeEventListener('nexus:tickets-tour', openTour); unTour(); };
   }, []);
 
   // Column order/widths - the same drag-to-reorder/resize kit the Task List
@@ -1881,7 +1884,10 @@ function collaboratorOptions(people, keep, requester) {
 // `forProperty` (Property Tickets, Neil 10/05): { id, name } - opened from a
 // property in Asset Management; the ticket is linked to it and the building
 // department is preselected, so a title and a category are all that is left.
-export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, forProperty = null }) {
+// `onBatch` (Neil, Oct 13 2026): given by a caller that can also open Batch
+// Create - the title becomes the Create a Ticket | Batch Create switch. What
+// was typed is stashed (recordingDraft) so switching back brings it back.
+export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, forProperty = null, onBatch = null }) {
   // Reachable standalone from Support.jsx without TicketsView ever mounting
   // (its own ticket composer) - needs its own call so intake-field/SLA
   // overrides are loaded before the type-dependent form renders there too.
@@ -2202,7 +2208,9 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
   const heading = (text) => (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 9 }}>
       <TicketToken size={18} style={{ color: NX.brand ?? 'var(--wk-brand)', flexShrink: 0 }} />
-      {text}
+      {onBatch && !fromTask
+        ? <CreateModeTabs active="single" onChange={() => { stashDraft({ form, tf, attachments }); onBatch(); }} />
+        : text}
     </span>
   );
   const shell = (text, { footer, extras, children }) => { const title = heading(text); return (isMobile ? (

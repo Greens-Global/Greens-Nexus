@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { planFor, playPlan, starSpec, FLOURISH_MS } from '../lib/flourishMotion';
 import { Play, Pause, Square, MonitorUp, MonitorX, MonitorPause, Plus } from 'lucide-react';
 import { Spinner } from './AsyncState';
+import NavTip from './NavTip';
 
 // The time clock as one object (Neil, Oct 14 2026): a dial that fills with
 // today's hours toward 8, a status light in its center, wearing the color
@@ -60,17 +61,13 @@ function captureTitle(capture) {
   return 'Share your screen to start capture (your browser shows a sharing indicator the whole time)';
 }
 
-// Our own tooltip: a dark pill that rises in, a bold line and a quiet one.
-// `native`: the browser's own tooltip instead (the folded rail sits in an
-// overflow-hidden sidebar that would clip ours).
-function Tip({ title, sub, edge = '', native = false, children }) {
-  if (native) return <span className="sbtt" title={sub ? `${title} - ${sub}` : title}>{children}</span>;
-  return (
-    <span className={`sbtt${edge ? ` sbtt--${edge}` : ''}`}>
-      {children}
-      <span className="sbtt-pop" role="tooltip"><b>{title}</b>{sub && <i>{sub}</i>}</span>
-    </span>
-  );
+// The sidebar's tooltip (components/NavTip.jsx): the control's name, large,
+// in a layer on the page - so the folded rail, which clips anything that
+// leaves it, shows the same tooltip as the open sidebar. `detail` is only for
+// a button that cannot be pressed right now (why not) and the status ring
+// (its numbers). The span keeps each button's slot in the transport grid.
+function Tip({ label, detail, tone, side, children }) {
+  return <span className="sbtt"><NavTip label={label} detail={detail} tone={tone} side={side}>{children}</NavTip></span>;
 }
 
 // The flourish for a punch the server accepted (Neil, Oct 14 2026). It is
@@ -181,27 +178,32 @@ export default function ClockChip({ vm, variant = 'wide', onAfterAction, leaving
     : capture?.missing ? 'Second screen not shared - share it too' : '');
   const shareAlert = !!capture && (capture.needed || capture.missing) && !vm.note && !vm.lost;
   const stateLabel = off ? 'Clocked Out' : onBreak ? 'On Break' : 'Clocked In';
-  const lit = off ? 0 : onBreak ? 1 : 0;   // which of Play / Pause / Stop is where you are
+  const lit = off ? 0 : onBreak ? 1 : 0;
+  const vertical = variant === 'rail';   // which of Play / Pause / Stop is where you are
   const busyAny = !!(vm.busy || vm.breakBusy);
 
-  // Play: Punch In when off the clock, Resume on a break, the lit (inert)
+  // Play: Punch In when off the clock, End Break on a break, the lit (inert)
   // state while clocked in. Pause: Start Break, or the lit state on a break.
   // Stop: Punch Out (Retry with a parked punch); off the clock it is dim.
+  // A button you can press is named by what it does, one line, nothing more
+  // (Neil, Oct 14 2026: the Punch In tip "should just say Punch In"); one you
+  // cannot press right now says why underneath (`sub`). "End Break" rather
+  // than "Resume": it says which thing ends.
   const play = off
-    ? { label: 'Punch In', sub: 'Start your shift', onClick: a.punchIn && after(a.punchIn), lit: true }
+    ? { label: 'Punch In', onClick: a.punchIn && after(a.punchIn), lit: true, tone: 'in' }
     : onBreak
-      ? { label: 'Resume', sub: 'Back on the clock', onClick: after(a.toggleBreak), lit: false, next: true }
+      ? { label: 'End Break', onClick: after(a.toggleBreak), lit: false, next: true, tone: 'in' }
       : { label: 'Clocked In', sub: 'You are on the clock', onClick: null, lit: true };
   const pause = off
     ? { label: 'Start Break', sub: 'Punch in first', onClick: null, dim: true }
     : onBreak
-      ? { label: 'On Break', sub: 'Press Play to Punch Back In', onClick: null, lit: true }
-      : { label: 'Start Break', sub: 'Your working time pauses', onClick: after(a.toggleBreak), lit: false };
+      ? { label: 'On Break', sub: 'Press End Break to get back to work', onClick: null, lit: true }
+      : { label: 'Start Break', onClick: after(a.toggleBreak), lit: false, tone: 'break' };
   const stop = off
-    ? { label: 'Punch Out', sub: 'You are off the clock', onClick: null, dim: true }
-    : { label: vm.lost ? 'Retry Punch Out' : 'Punch Out', sub: vm.lost ? 'The last punch has not recorded' : 'Ends your shift', onClick: after(a.punchOut), lit: false };
+    ? { label: 'Punch Out', sub: 'You are not punched in', onClick: null, dim: true }
+    : { label: vm.lost ? 'Retry Punch Out' : 'Punch Out', sub: vm.lost ? 'The last punch has not recorded' : undefined, onClick: after(a.punchOut), lit: false, tone: 'out' };
+  const side = vertical ? 'right' : 'top';
 
-  const vertical = variant === 'rail';
   const transport = (
     <div className={`sbtr sbtr--${tone}`} role="group" aria-label="Punch">
       {/* --sb-lit: which slot it sits on; the stylesheet moves it by a slot
@@ -210,19 +212,19 @@ export default function ClockChip({ vm, variant = 'wide', onAfterAction, leaving
           so the move is a transition - a re-keyed one mounted in place and
           never slid; only the landing pop inside it is re-keyed. */}
       <span className="sbtr-lit" style={{ '--sb-lit': lit }} aria-hidden="true"><i className="sbtr-land" key={`${tone}-${lit}`} /></span>
-      <Tip title={play.label} sub={play.sub} edge={vertical ? '' : 'start'} native={vertical}>
+      <Tip label={play.label} detail={play.sub} tone={play.tone} side={side}>
         <button ref={playRef} type="button" className={`sbtr-btn sbtr-btn--play${play.lit ? ' is-lit' : ''}${play.next ? ' is-next' : ''}${!play.onClick ? ' is-inert' : ''}`}
           onClick={play.onClick || undefined} disabled={busyAny} aria-disabled={!play.onClick || undefined} aria-pressed={play.lit && !off ? true : undefined} aria-label={play.label}>
           {vm.busy === 'in' ? <Spinner size={12} /> : <Play />}
         </button>
       </Tip>
-      <Tip title={pause.label} sub={pause.sub} native={vertical}>
+      <Tip label={pause.label} detail={pause.sub} tone={pause.tone} side={side}>
         <button ref={pauseRef} type="button" className={`sbtr-btn sbtr-btn--pause${pause.lit ? ' is-lit' : ''}${pause.dim ? ' is-dim' : ''}${!pause.onClick ? ' is-inert' : ''}`}
           onClick={pause.onClick || undefined} disabled={busyAny} aria-disabled={!pause.onClick || undefined} aria-pressed={pause.lit ? true : undefined} aria-label={pause.label}>
           {vm.breakBusy ? <Spinner size={12} /> : <Pause />}
         </button>
       </Tip>
-      <Tip title={stop.label} sub={stop.sub} edge={vertical ? '' : 'end'} native={vertical}>
+      <Tip label={stop.label} detail={stop.sub} tone={stop.tone} side={side}>
         <button ref={stopRef} type="button" className={`sbtr-btn sbtr-btn--stop${stop.dim ? ' is-dim' : ''}${!stop.onClick ? ' is-inert' : ''}`}
           onClick={stop.onClick || undefined} disabled={busyAny} aria-disabled={!stop.onClick || undefined} aria-label={stop.label}>
           {vm.busy === true || vm.busy === 'out' ? <Spinner size={12} /> : <Square />}
@@ -237,7 +239,7 @@ export default function ClockChip({ vm, variant = 'wide', onAfterAction, leaving
     return (
       <div className={`sbclock-rail sbclock-rail--${tone}${leaving ? ' is-leaving' : ''}`} role="group" aria-label="Time clock">
         {alert && <span role="status" className="dk-sr-only">{alert}</span>}
-        <Tip title={stateLabel} sub={`${live ? `${vm.timer} today · ` : ''}${vm.sinceLabel}${alert ? ` · ${alert}` : ''}`} native>
+        <Tip label={stateLabel} tone={tone} side="right" detail={`${live ? `${vm.timer} today · ` : ''}${vm.sinceLabel}${alert ? ` · ${alert}` : ''}`}>
           <button type="button" className="sbclock-ringbtn" onClick={a.openClock} aria-label={ringLabel}>
             <ClockRing pct={pct} tone={tone} alert={!!alert} sweep={sweep} size={36} stroke={3} ticks={tickCount} />
           </button>
@@ -246,7 +248,7 @@ export default function ClockChip({ vm, variant = 'wide', onAfterAction, leaving
         {/* A share the policy needs (dropped, or a second screen): a fifth
             circle, red, only while it is needed - the fix without unfolding. */}
         {shareAlert && (
-          <Tip title={capture.missing ? 'Share your second screen' : 'Share your screen again'} sub="Pick it when your browser asks" native>
+          <Tip label={capture.missing ? 'Share Your Second Screen' : 'Share Your Screen Again'} detail="Pick it when your browser asks" tone="out" side="right">
             <button type="button" className="sbtr-btn sbtr-btn--share" onClick={a.startCapture} aria-label={capture.missing ? 'Share your second screen' : 'Share your screen again'}><MonitorX /></button>
           </Tip>
         )}
@@ -256,7 +258,8 @@ export default function ClockChip({ vm, variant = 'wide', onAfterAction, leaving
 
   return (
     <section className={`sbclock sbclock--${tone}${leaving ? ' is-leaving' : ''}`} aria-label="Time clock">
-      <button type="button" className="sbclock-head" onClick={a.openClock} title="Open Time Clock">
+      <NavTip label="Open Time Clock" side="top">
+      <button type="button" className="sbclock-head" onClick={a.openClock}>
         <ClockRing pct={pct} tone={tone} alert={!!alert} sweep={sweep} size={38} ticks={tickCount} />
         <span className="sbclock-text">
           <span className="sbclock-line">
@@ -266,9 +269,14 @@ export default function ClockChip({ vm, variant = 'wide', onAfterAction, leaving
           <span className="sbclock-sub">{vm.sinceLabel}</span>
         </span>
       </button>
+      </NavTip>
       {alert && (
         shareAlert
-          ? <button type="button" className="sbclock-alert sbclock-alert--btn" role="status" onClick={a.startCapture} title={capture.missing ? 'Share your second screen - pick it when your browser asks' : 'Share your screen again to keep capturing'}>{alert}</button>
+          ? (
+            <NavTip label={capture.missing ? 'Share Your Second Screen' : 'Share Your Screen Again'} detail="Pick it when your browser asks" tone="out" side="top">
+              <button type="button" className="sbclock-alert sbclock-alert--btn" role="status" onClick={a.startCapture}>{alert}</button>
+            </NavTip>
+          )
           : <span className="sbclock-alert" role="status">{alert}</span>
       )}
       {transport}
@@ -279,13 +287,17 @@ export default function ClockChip({ vm, variant = 'wide', onAfterAction, leaving
             {capture.paused ? 'Paused for Break' : capture.screens ? 'Recording' : 'Not Recording'}
             {capture.screens > 0 && !capture.paused && <em>{capture.expected > capture.screens ? `${capture.screens} of ${capture.expected}` : `${capture.screens} screen${capture.screens === 1 ? '' : 's'}`}</em>}
           </span>
+          <NavTip label={capture.screens ? 'Stop Capture' : 'Share Your Screen'} detail={captureTitle(capture)} side="top">
           <button type="button" className={`sbclock-mon-ico${capture.paused ? ' is-paused' : capture.screens ? ' is-on' : capture.needed ? ' is-needed' : ''}`}
-            onClick={capture.screens ? a.stopCapture : a.startCapture} title={captureTitle(capture)}
+            onClick={capture.screens ? a.stopCapture : a.startCapture}
             aria-label={capture.paused ? 'Capture paused for your break - stop capture' : capture.screens ? 'Recording - stop capture' : capture.needed ? 'Screen sharing stopped - share your screen again' : 'Share your screen'}>
             {capture.paused ? <MonitorPause /> : capture.screens ? <MonitorUp /> : <MonitorX />}
           </button>
+          </NavTip>
           {capture.screens > 0 && (
-            <button type="button" className={`sbclock-mon-ico sbclock-mon-add${capture.missing ? ' is-needed' : ''}`} onClick={a.startCapture} aria-label="Capture another screen" title="Also capture another screen - pick your second monitor"><Plus /></button>
+            <NavTip label="Capture Another Screen" detail="Pick your second monitor when your browser asks" side="top">
+              <button type="button" className={`sbclock-mon-ico sbclock-mon-add${capture.missing ? ' is-needed' : ''}`} onClick={a.startCapture} aria-label="Capture another screen"><Plus /></button>
+            </NavTip>
           )}
         </div>
         </div>

@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, act, cleanup } from '@testing-library/react';
 
-// The weekly "New in Nexus" bar and the new-version popup (Neil, Oct 12 2026):
-// categories only ("2 new features and 3 bug fixes"), the details in What's New.
+// The announcement bar (Neil, Oct 12 2026): the weekly "New in Nexus" news,
+// and - since Oct 14, when the bottom popup folded into it - "a new version is
+// ready, Reload". Categories only ("2 New Features and 3 Bug Fixes"), the
+// details in What's New.
 
 const api = {
   getFeatureBanner: vi.fn(),
@@ -11,11 +13,9 @@ const api = {
 };
 vi.mock('../api', () => ({ api }));
 const build = { stale: false };
-vi.mock('../lib/useBuildVersion', () => ({ useBuildVersion: () => build.stale }));
+vi.mock('../lib/useBuildVersion', () => ({ useBuildVersion: () => build.stale, RUNNING_SINCE: '2026-10-14T00:00:00Z' }));
 
 const { default: FeatureBanner } = await import('./FeatureBanner');
-const { default: UpdateBanner } = await import('./UpdateBanner');
-const { __resetUpdateSignal } = await import('../lib/updateSignal');
 
 const SHOW = { show: true, counts: { 'New Feature': 2, 'Bug Fix': 3 }, total: 5 };
 const bar = () => screen.queryByRole('region', { name: 'New in Nexus' });
@@ -25,7 +25,6 @@ beforeEach(() => {
   build.stale = false;
   api.getFeatureBanner.mockResolvedValue(SHOW);
   api.getReleasedSince.mockResolvedValue({ counts: {}, total: 0 });
-  __resetUpdateSignal();
 });
 afterEach(() => { cleanup(); document.documentElement.style.removeProperty('--nx-announce-h'); });
 
@@ -89,64 +88,100 @@ describe('the weekly New in Nexus bar', () => {
   });
 });
 
-describe('the new-version popup', () => {
-  const both = () => render(<><UpdateBanner /><FeatureBanner activeView="tasks" onNavigate={() => {}} /></>);
+describe('a new version, in the same bar', () => {
+  const update = () => screen.queryByRole('region', { name: 'New version of Nexus' });
+  const mount = (activeView = 'tasks') => render(<FeatureBanner activeView={activeView} onNavigate={() => {}} />);
   beforeEach(() => { api.getFeatureBanner.mockResolvedValue({ show: false }); });
 
-  it('says what the new version brings, by category, with See What\'s New', async () => {
+  it("says what the new version brings, by category, with Reload and See What's New", async () => {
     build.stale = true;
     api.getReleasedSince.mockResolvedValue({ counts: { 'New Feature': 1, 'Bug Fix': 2 }, total: 3 });
-    both();
-    expect(await screen.findByText('Including 1 New Feature and 2 Bug Fixes.')).toBeTruthy();
-    expect(screen.getByText('A New Version of Nexus Is Available')).toBeTruthy();
-    expect(screen.getByRole('button', { name: /See What's New/ })).toBeTruthy();
+    mount();
+    expect(await screen.findByText('1 New Feature')).toBeTruthy();
+    const text = update().querySelector('.feature-banner-text');
+    expect(text.title).toBe('Reload to get the latest Nexus, including 1 New Feature and 2 Bug Fixes');
+    expect(update().querySelector('.feature-banner-lead-short').textContent).toBe('New version: ');
+    expect(screen.getByRole('button', { name: "See What's New" })).toBeTruthy();
     expect(screen.getByRole('button', { name: /Reload/ })).toBeTruthy();
-  });
-
-  it('says bug fixes too, when that is all it brings', async () => {
-    build.stale = true;
-    api.getReleasedSince.mockResolvedValue({ counts: { 'Bug Fix': 3 }, total: 3 });
-    both();
-    expect(await screen.findByText('Including 3 Bug Fixes.')).toBeTruthy();
-    expect(screen.getByRole('button', { name: /See What's New/ })).toBeTruthy();
+    expect(api.getReleasedSince).toHaveBeenCalledWith('2026-10-14T00:00:00Z');
   });
 
   it('just offers Reload until it knows', async () => {
     build.stale = true;
-    both();
+    mount();
     await waitFor(() => expect(api.getReleasedSince).toHaveBeenCalled());
-    expect(screen.getByText('Reload when it suits you.')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /See What's New/ })).toBeNull();
+    expect(update().querySelector('.feature-banner-lead').textContent).toBe('Reload to get the latest Nexus whenever it suits you.');
+    expect(screen.queryByRole('button', { name: "See What's New" })).toBeNull();
+    expect(screen.getByRole('button', { name: /Reload/ })).toBeTruthy();
+  });
+
+  it('takes the bar over from the weekly news, which it brings with it', async () => {
+    api.getFeatureBanner.mockResolvedValue(SHOW);
+    const { rerender } = mount();
+    await screen.findByRole('region', { name: 'New in Nexus' });
+    build.stale = true;
+    rerender(<FeatureBanner activeView="tasks" onNavigate={() => {}} />);
+    expect(update()).not.toBeNull();
+    expect(bar()).toBeNull();
+    expect(screen.getAllByRole('region')).toHaveLength(1);   // one bar, never two
+  });
+
+  it("stays up on What's New - that page is just as stale", async () => {
+    build.stale = true;
+    mount('whats-new');
+    await waitFor(() => expect(api.getReleasedSince).toHaveBeenCalled());
+    expect(update()).not.toBeNull();
   });
 
   it('never asks while the build is current', async () => {
-    both();
+    mount();
     await act(async () => {});
     expect(api.getReleasedSince).not.toHaveBeenCalled();
+    expect(update()).toBeNull();
   });
 
-  it('slides away on dismiss, then is gone for this session', async () => {
+  it('dismissing it hides it for this tab only - nothing is dismissed for the week', async () => {
+    api.getFeatureBanner.mockResolvedValue(SHOW);
     build.stale = true;
-    render(<UpdateBanner />);
-    const popup = screen.getByRole('status');
+    mount();
+    await waitFor(() => expect(api.getFeatureBanner).toHaveBeenCalled());
+    const region = update();
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));   // a double click is one dismissal
-    expect(popup.className).toMatch(/is-leaving/);
-    fireEvent.animationEnd(popup);
-    expect(screen.queryByRole('status')).toBeNull();
+    expect(region.className).toMatch(/is-closing/);
+    fireEvent.animationEnd(region);
+    expect(update()).toBeNull();
+    expect(bar()).toBeNull();                                           // the weekly news does not pop up in its place
+    expect(api.dismissFeatureBanner).not.toHaveBeenCalled();
+  });
+
+  it("See What's New loads the new version straight onto What's New", async () => {
+    build.stale = true;
+    api.getReleasedSince.mockResolvedValue({ counts: { Improvement: 2 }, total: 2 });
+    const assign = vi.fn();
+    const original = window.location;
+    Object.defineProperty(window, 'location', { configurable: true, value: { ...original, assign } });
+    try {
+      mount();
+      fireEvent.click(await screen.findByRole('button', { name: "See What's New" }));
+      expect(assign).toHaveBeenCalledWith('/whats-new');
+    } finally {
+      Object.defineProperty(window, 'location', { configurable: true, value: original });
+    }
   });
 });
 
-describe('the popup after Reload', () => {
+describe('Reload', () => {
   it('gives the buttons back if the reload never happens (a cancelled "Leave site?")', async () => {
     vi.useFakeTimers();
     try {
       build.stale = true;
+      api.getFeatureBanner.mockResolvedValue({ show: false });
       const reload = vi.fn();
       const original = window.location;
       Object.defineProperty(window, 'location', { configurable: true, value: { ...original, reload } });
       try {
-        render(<UpdateBanner />);
+        render(<FeatureBanner activeView="tasks" onNavigate={() => {}} />);
         fireEvent.click(screen.getByRole('button', { name: /Reload/ }));
         expect(reload).toHaveBeenCalled();
         expect(screen.getByRole('button', { name: /Reloading/ }).disabled).toBe(true);

@@ -118,6 +118,11 @@ BUILTIN_VARIABLES = [
     ("responsibilities", "Responsibilities", "HR Packet"),
     ("last_day", "Last day", "HR Packet"),
     ("separation_type", "Separation type", "HR Packet"),
+    # The offer (Neil, Oct 14): what HR answers when they make it - whether
+    # the person is hired as an employee or a contractor, where they work.
+    ("worker_type", "Hired as (Employee / Contractor)", "HR Packet"),
+    ("work_location", "Primary work location", "HR Packet"),
+    ("work_country", "Country of work", "HR Packet"),
     # The emergency contact every hiring packet asks for (Oct 14).
     ("emergency_name", "Emergency contact name", "HR Packet"),
     ("emergency_relationship", "Emergency contact relationship", "HR Packet"),

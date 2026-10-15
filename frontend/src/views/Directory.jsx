@@ -1,4 +1,4 @@
-// Contact Directory (Support > Contact Directory, Oct 2026).
+// Contact Directory (Oct 2026; Team > Contact since Neil, Oct 13 2026).
 //
 // Before this, the Support tile pointed at a view id that no longer routed
 // and everyone landed on the "Sub-Application" placeholder; the only people
@@ -16,6 +16,7 @@
 // holiday, clocked in / on break / out, scheduled shift) recomputed on every
 // call. Availability is refreshed here every minute while the tab is visible.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Search, Users, Network, ListTree, Building2, MapPin, ChevronDown, ChevronRight, MessageSquare, Phone, Mail,
   Download, FileText, AlertTriangle, Star, X, Settings2,
@@ -49,7 +50,9 @@ function readLens() {
   try { const v = localStorage.getItem(LENS_KEY); return LENSES.some(([k]) => k === v) ? v : 'dept'; } catch { return 'dept'; }
 }
 
-export default function Directory() {
+// `embedded`: shown as Team's Contact tab, under Team's own title - the
+// page title row is dropped there, the tool buttons stay.
+export default function Directory({ embedded = false, toolsTarget = null }) {
   const { can, myGrantedModules, myEmail } = useRole();
   const mobile = useIsMobile('(max-width: 820px)');
   const [data, setData] = useState(null);
@@ -292,6 +295,46 @@ export default function Directory() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18, fontFamily: FONT }}>
+      {/* Embedded in Team (Oct 15 2026): the tool buttons sit on Team's tab
+          row (toolsTarget, a portal) and there is no header row of its own -
+          an empty band between the tabs and the list was wasted space. */}
+      {embedded ? (toolsTarget ? createPortal(
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            {gaps && (
+              <button type="button" onClick={() => { setManaging((v) => !v); setGapsOpen(!managing); }} aria-pressed={managing} className="dir-tool" style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 9, cursor: 'pointer', fontFamily: FONT,
+                border: `1px solid ${managing ? 'transparent' : NX.border}`, background: managing ? 'rgba(37,99,235,0.12)' : NX.surface,
+                color: managing ? NX.blue : NX.ink, fontSize: 12.5, fontWeight: 600,
+              }} title={managing ? 'Hide the directory completeness tools' : 'Directory completeness: who is missing a manager, title, photo or phone'}>
+                <Settings2 size={14} /> {managing ? 'Done' : 'Manage'}
+              </button>
+            )}
+            {managing && gaps && gapCount > 0 && (
+              <button type="button" onClick={() => setGapsOpen((v) => !v)} aria-expanded={gapsOpen} className="dir-tool" style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 9, cursor: 'pointer', fontFamily: FONT,
+                border: '1px solid rgba(217,119,6,0.35)', background: 'rgba(217,119,6,0.10)', color: '#b45309', fontSize: 12.5, fontWeight: 700,
+              }}>
+                <AlertTriangle size={14} /> {gapCount} to complete
+              </button>
+            )}
+            {data && filtered.length > 0 && (
+              <button type="button" onClick={exportPdf} disabled={pdfBusy} className="dir-tool" style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 9, cursor: 'pointer', fontFamily: FONT,
+                border: `1px solid ${NX.border}`, background: NX.surface, color: NX.ink, fontSize: 12.5, fontWeight: 600, opacity: pdfBusy ? 0.6 : 1,
+              }} title={`A printable contact sheet of the ${filtered.length} people shown, with the reporting line`}>
+                <FileText size={14} /> {pdfBusy ? 'Building PDF…' : 'Export PDF'}
+              </button>
+            )}
+            {canExportCsv && data && filtered.length > 0 && (
+              <button type="button" onClick={() => downloadText(`contact-directory-${new Date().toISOString().slice(0, 10)}.csv`, csvOf(filtered), 'text/csv')} className="dir-tool" style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 9, cursor: 'pointer', fontFamily: FONT,
+                border: `1px solid ${NX.border}`, background: NX.surface, color: NX.ink, fontSize: 12.5, fontWeight: 600,
+              }} title={`Export the ${filtered.length} people shown as CSV`}>
+                <Download size={14} /> Export CSV
+              </button>
+            )}
+          </div>
+      , toolsTarget) : null) : (
       <div className="view-header" style={{ flexWrap: 'wrap', gap: 10 }}>
         <div className="view-title-group">
           <h2>Contact Directory</h2>
@@ -333,6 +376,7 @@ export default function Directory() {
           )}
         </div>
       </div>
+      )}
 
       {managing && gapsOpen && gaps && <GapsPanel gaps={gaps} byEmail={byEmail} presenceOff={presenceOff} onClose={() => setGapsOpen(false)} onOpen={canOpenPeople ? (em) => openPersonProfile(em) : select} />}
 

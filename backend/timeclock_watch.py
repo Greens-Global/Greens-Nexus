@@ -2,8 +2,8 @@
 
 Every 15 minutes: find employees whose open session (last non-voided punch is
 in / break_start / break_end) started more than LONG_SESSION_HOURS ago and nudge
-them - a bell notification plus a best-effort email - repeating every
-RENOTIFY_HOURS while the session stays open. Dedupe is DB-backed (the bell row
+them - a bell notification plus a best-effort email - once per open session
+(Oct 14 2026; it used to repeat every 12 hours). Dedupe is DB-backed (the bell row
 itself, keyed on the session's in-punch id), so restarts never double-send.
 
 Note: there used to be an end-of-day auto clock-out sweep here (closed a
@@ -27,13 +27,11 @@ from database import SessionLocal
 from models import NexusEmployee, NexusNotification, TimePunch
 
 LONG_SESSION_HOURS = 12   # the cap agreed Jul 27 - nudge past this
-RENOTIFY_HOURS = 12       # re-nudge cadence while the session stays open
+# Once per open session (Oct 14 2026; it used to repeat every 12 hours) -
+# the dedupe window is longer than any session can stay open (16h cap).
+RENOTIFY_HOURS = 24 * 30
 CHECK_EVERY_SEC = 15 * 60  # 30 -> 15 min (Aug 25): the 23:30 warn + 23:59 close need the resolution
 NOTIF_TYPE = "timeclock_long_session"
-MGR_NOTIF_TYPE = "timeclock_long_session_mgr"   # the SAME event, sent to the manager
-# Loop the manager in only once the session is clearly a forgotten punch, not just
-# a long shift - matches the payroll guard (a shift past this is dropped from pay).
-MGR_ALERT_HOURS = 16
 
 
 def _now() -> datetime:
@@ -76,26 +74,6 @@ def _already_nudged(db, punch_id: str, ntype: str = NOTIF_TYPE) -> bool:
             .first()) is not None
 
 
-def _notify_manager(db, emp, hours: int, punch_id: str):
-    """Loop the employee's manager in once a session crosses MGR_ALERT_HOURS - the
-    SwipeClock model surfaces a missing punch to the supervisor, not just the
-    employee. Deduped on its own type so it re-sends at the same cadence."""
-    mgr = ((emp.manager_email if emp else "") or "").strip().lower()
-    if not mgr or _already_nudged(db, punch_id, MGR_NOTIF_TYPE):
-        return
-    who = (f"{(emp.first_name or '').strip()} {(emp.last_name or '').strip()}".strip()
-           or (emp.work_email if emp else "An employee"))
-    db.add(NexusNotification(
-        id=str(uuid.uuid4()), type=MGR_NOTIF_TYPE, recipient=mgr,
-        title=f"{who} has been clocked in {hours} hours - likely a missed punch-out",
-        body=(f"{who}'s time clock has run {hours}+ hours with no clock-out. Hours past "
-              f"{LONG_SESSION_HOURS}h are held off the timesheet until fixed. Open their "
-              "timesheet and add the real clock-out, or ask them to."),
-        ref_id=punch_id, action=json.dumps({"view": "timeclock", "sub": "timesheet"}),
-        company=emp.company or "", created_at=_iso(_now())))
-    db.commit()
-
-
 def _email(db, email: str, hours: int):
     """Best-effort - a mail failure must never stop the bell notification."""
     try:
@@ -107,8 +85,8 @@ def _email(db, email: str, hours: int):
         html = (
             f"<p>Hi {first},</p>"
             f"<p>Your Nexus time clock shows you've been <b>clocked in for {hours}+ hours</b>.</p>"
-            "<p><b>Still working?</b> No action needed - you'll get one reminder like this "
-            f"every {RENOTIFY_HOURS} hours while the session stays open.</p>"
+            "<p><b>Still working?</b> No action needed - this is the only reminder for this "
+            "session.</p>"
             "<p><b>Forgot to punch out?</b> Open Time Clock in Nexus and use "
             "<b>\"I forgot - fix my punch-out\"</b> (or \"Add clock-out\" on the open session in "
             "your timesheet) to set the real end time. Your approver confirms the fix.</p>"
@@ -134,10 +112,9 @@ def _scan_once():
                 continue
             h = int(hours)
             emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
-            # Manager alert fires on its own (later) threshold + dedupe, independent
-            # of the employee nudge below.
-            if hours >= MGR_ALERT_HOURS:
-                _notify_manager(db, emp, h, start.id)
+            # No manager alert from here any more (Neil, Oct 14 2026: one
+            # forgotten clock-out was three alerts). The manager hears once,
+            # the next morning, from reminders.py's "Missing clock-out".
             if _already_nudged(db, start.id):
                 continue
             db.add(NexusNotification(

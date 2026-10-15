@@ -17,7 +17,7 @@ const CACHE_NS = 'nx2';
 //   - Cloudflare Pages' own Git builds (how dev deploys) set CF_PAGES_COMMIT_SHA,
 //   - a laptop gets 'dev'.
 // Two consumers depend on this being real rather than the literal 'dev' it used
-// to always be: the update prompt (useBuildVersion) compares it against
+// to always be: the new-version bar (useBuildVersion) compares it against
 // /version.json to tell a user their tab is running superseded code, and the
 // post-deploy gate waits for this exact id before asserting the site is healthy
 // (without it the gate cannot tell "new build is fine" from "old build still
@@ -25,8 +25,9 @@ const CACHE_NS = 'nx2';
 const BUILD_ID = process.env.VITE_BUILD_ID
   || process.env.CF_PAGES_COMMIT_SHA
   || 'dev';
-// When this build was cut. The update popup asks the API what came after it,
-// to say what the waiting version brings (lib/updateSignal.js).
+// When this build was cut. The announcement bar's new-version mode asks the
+// API what came after it, to say what the waiting version brings
+// (components/FeatureBanner.jsx, RUNNING_SINCE in lib/useBuildVersion.js).
 const BUILD_TIME = new Date().toISOString();
 
 // Emitted as a real file rather than only baked into the bundle, so it can be

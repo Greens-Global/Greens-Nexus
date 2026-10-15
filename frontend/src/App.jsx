@@ -19,7 +19,6 @@ import TimeclockWidget from "./components/TimeclockWidget";
 import { StepUpOverlay } from "./stepup/StepUp";
 import GlobalSearch from "./components/GlobalSearch";
 import PullToRefresh from "./components/PullToRefresh";
-import UpdateBanner from "./components/UpdateBanner";
 import FeatureBanner from "./components/FeatureBanner";
 import AssistantWidget from "./components/AssistantWidget";
 import ViewErrorBoundary from "./components/ViewErrorBoundary";
@@ -66,7 +65,6 @@ const AdminConsole         = lazy(() => import("./views/AdminConsole"));
 // imports views/ExternalLinks itself now; no separate top-level route.
 const Support             = lazy(() => import("./views/Support"));
 const Placeholder         = lazy(() => import("./views/Placeholder"));
-const Directory           = lazy(() => import("./views/Directory"));   // Contact Directory (Support, Oct 2026)
 const PublicSign          = lazy(() => import("./views/PublicSign"));
 const PublicIntake        = lazy(() => import("./views/PublicIntake"));
 const PublicVerify        = lazy(() => import("./views/PublicVerify"));
@@ -93,7 +91,7 @@ const VIEW_LABELS = Object.fromEntries(MODULES.map(m => [m.id, m.label]));
 // title-cased version of their id so breadcrumbs never show raw lowercase ids.
 // Acronyms the title-caser would mangle ("pdf-editor" -> "Pdf Editor"). These
 // views live in Sidebar's NAV but not in MODULES, so they hit the fallback.
-const LABEL_OVERRIDES = { 'pdf-editor': 'PDF Tools', 'terms-conditions': 'Terms & Conditions', briefing: 'My Briefing', legal: 'Legal', 'whats-new': "What's New" };
+const LABEL_OVERRIDES = { shifts: 'Team', 'pdf-editor': 'PDF Tools', 'terms-conditions': 'Terms & Conditions', briefing: 'My Briefing', legal: 'Legal', 'whats-new': "What's New" };
 const viewLabel = (view) => VIEW_LABELS[view] || LABEL_OVERRIDES[view]
   || (view || '').split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
@@ -383,9 +381,6 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "inventory":          return <InventoryManagement activeSub={activeSub} onSubChange={onSubChange} onNavigate={onNavigate} />;
     case "admin-console":      return <AdminConsole activeSub={activeSub} onSubChange={onSubChange} />;
     case "support":            return <Support activeSub={activeSub} onSubChange={onSubChange} />;
-    // Open to every internal user (no VIEW_MIN_ROLES entry); externals get
-    // Access Restricted here and 403 from the API.
-    case "directory":          return <Directory />;
     case "whats-new":          return <WhatsNew />;
     case "timeclock":          return <TimeClock initialTab="overview" activeSub={activeSub} onSubChange={onSubChange} />;
     case "myhr":               return <TimeClock initialTab="overview" activeSub={activeSub} onSubChange={onSubChange} />;
@@ -443,7 +438,19 @@ function parsePath() {
   // The old Nexus Access Manager (/admin) was retired Sep 26 - Settings >
   // Global Settings > Access does the same job; old links land there.
   if (raw === 'admin') return { view: 'admin-console', sub: 'access' };
-  return { view: PATH_TO_VIEW[raw] || raw, sub: segs[1] || null };
+  // Team / Workday split (Neil, Oct 13 2026): the Contact Directory is Team's
+  // Contact tab, and your own shifts are Workday > My Shifts - old /directory
+  // and /shifts/mine links (bells, emails, bookmarks) land there.
+  if (raw === 'directory') return { view: 'shifts', sub: 'contact' };
+  const view = PATH_TO_VIEW[raw] || raw;
+  // ...and a "confirm your schedule" link (Shifts Phase 3a: the email's
+  // ?confirm=<id>, the bell's mine:confirm:<id>) opens My Schedule on it.
+  if (view === 'shifts' && /^mine(:|$)/.test(segs[1] || '')) {
+    const confirm = new URLSearchParams(window.location.search).get('confirm')
+      || ((segs[1] || '').match(/^mine:confirm:(.+)$/) || [])[1] || '';
+    return { view: 'myhr', sub: confirm ? `shifts:confirm:${confirm}` : 'shifts' };
+  }
+  return { view, sub: segs[1] || null };
 }
 
 const DEFAULT_SUBS = {
@@ -460,7 +467,7 @@ const DEFAULT_SUBS = {
   accounting:        "overview",
   egnyte:            "browse",
   "employee-tracking": "coverage",
-  shifts:            "mine",   // everyone's week; managers pick Manage
+  shifts:            "shifts",    // Team opens on the group's Shifts; Contact is last (Oct 15 2026)
   // Workday (TimeClock.jsx, merged My HR + Time Clock, Sep 3) - each view
   // id lands on its own natural tab so the URL is meaningful from the first
   // click, not just after switching tabs once (see TimeClock.jsx's own
@@ -677,6 +684,12 @@ function MainApp() {
     if (view === 'dashboard' && sub === 'external-links') sub = 'links';
     // Retired Nexus Access Manager -> Settings > Access (see parsePath).
     if (view === 'admin') { view = 'admin-console'; sub = 'access'; }
+    // Contact Directory -> Team > Contact, My Shifts -> Workday (see parsePath).
+    if (view === 'directory') { view = 'shifts'; sub = 'contact'; }
+    if (view === 'shifts' && /^mine(:|$)/.test(sub || '')) {
+      const confirm = ((sub || '').match(/^mine:confirm:(.+)$/) || [])[1] || '';
+      view = 'myhr'; sub = confirm ? `shifts:confirm:${confirm}` : 'shifts';
+    }
     setActiveView(view);
     setActiveSub(sub ?? getDefaultSub(view));
     setSidebarOpen(false);
@@ -803,8 +816,9 @@ function MainApp() {
               center via <ModuleTabs> (Work OS shell - Stella-style layout) */}
           <HeaderTabsProvider>
           <main className={`main-content${sidebarCollapsed ? " main-collapsed" : ""}`}>
-            {/* The weekly "New in Nexus" bar - across the top of the page,
-                above the header (components/FeatureBanner.jsx). */}
+            {/* The announcement bar - across the top of the page, above the
+                header: the weekly "New in Nexus" news, or "a new version is
+                ready, Reload" (components/FeatureBanner.jsx). */}
             <WidgetBoundary name="feature-banner" resetKey={widgetKey}><FeatureBanner activeView={activeView} onNavigate={navigate} /></WidgetBoundary>
             {/* PDF Editor is a full-bleed workspace with its own toolbar — hide
                 the Nexus top header so it gets the whole viewport height. */}
@@ -867,9 +881,6 @@ function MainApp() {
           progress - the exact window a user would otherwise see a white screen.
           Skipped under the dev/E2E bypass, which has no real MSAL interaction. */}
       {!_SKIP_MSAL_GATE && <AuthBusyFallback />}
-      {/* Outside both gates on purpose: a tab running superseded code should be
-          told so whether or not it is signed in. */}
-      <UpdateBanner />
     </>
   );
 }
