@@ -293,7 +293,7 @@ class ConfirmTests(unittest.TestCase):
         r = self.client.get("/timeclock/my-prefs")
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual((r.json()["shiftCalendar"], r.json()["companyOutlookCalendar"], r.json()["hasMailbox"]),
-                         (True, True, False))
+                         (True, False, False))   # the company switch is off by default (Oct 15)
         # Opting out queues EVERY row that carries an event, a past shift's too
         # (review, Oct 15); one with no event yet is simply skipped.
         gone = (datetime.now(timezone.utc).date() - timedelta(days=20)).isoformat()

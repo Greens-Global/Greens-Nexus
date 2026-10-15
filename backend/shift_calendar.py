@@ -18,7 +18,7 @@ a request approved, a weather call, a discard) only QUEUE work:
 
 and the sync loop (calendar_sync_loop, every minute, in a thread) works the
 queue in sync_once: up to 50 rows per tick. A row is skipped - and any event
-it had is removed - when the company's outlookCalendar switch is off, the
+it had is removed - when the company's outlookCalendarOn switch is off, the
 person opted out (nexus_person_prefs.shift_calendar), the person has no
 Microsoft 365 account (nexus_employees.m365_id), or the shift is no longer a
 shared, assigned, live shift. The event body is hashed (synced_hash) so an
@@ -26,6 +26,13 @@ unchanged shift is never sent again. The first tick with an empty table
 backfills every shared assigned shift from today onward (enqueue_all_upcoming).
 A shift already in the past with no event yet is skipped too, so a queue that
 waited weeks for the permission never writes old history.
+
+Off by default (Neil, Oct 15 2026): a company turns outlookCalendarOn on in
+Global Settings > Shifts. Every tick first runs queue_switched_off, which
+queues each event already on a calendar whose company has the switch off or
+whose person opted out, so the tick takes it off Outlook. That is what undid
+the events written while the switch was on by default, and it is why turning
+the switch off later clears calendars too, not only shifts that change.
 
 Failures (review, Oct 15): a row that errors is retried after 15 minutes, up
 to MAX_ATTEMPTS times, then left as `error` with its reason until the shift
@@ -398,7 +405,7 @@ def _skip_reason(shift, email: str, emp, ctx: _Ctx, has_event: bool = True, now:
         if (shift.work_date or "")[:10] < cutoff:
             return "already in the past"
     company = (emp.company or "") if emp is not None else ""
-    if not ctx.settings(company).get("outlookCalendar", True):
+    if not ctx.settings(company).get("outlookCalendarOn", False):
         return "the Outlook calendar is off for this company"
     if not ctx.opted_in(email):
         return "opted out of the Outlook calendar"
@@ -464,6 +471,27 @@ def _sync_row(db: Session, e, ctx: _Ctx, graph, now: datetime, out: dict) -> Non
     e.state, e.last_error, e.updated_at = "ok", "", stamp
 
 
+def queue_switched_off(db: Session, ctx: "_Ctx", now: datetime = None) -> int:
+    """Events already on someone's Outlook calendar that should not be
+    there any more - the company has the switch off, or the person opted
+    out - go back in the queue, and _sync_row's skip takes each one off.
+    Without this a switch turned off only reached shifts that changed
+    afterwards. No commit. Returns how many were queued."""
+    E = models.ShiftCalendarEvent
+    rows = (db.query(E).filter(E.state == "ok", E.event_id.isnot(None), E.event_id != "").all())
+    stamp = _now_iso(now)
+    n = 0
+    for e in rows:
+        email = (e.employee_email or "").lower()
+        emp = ctx.employee(email)
+        company = (emp.company or "") if emp is not None else ""
+        if ctx.settings(company).get("outlookCalendarOn", False) and ctx.opted_in(email):
+            continue
+        e.state, e.last_error, e.updated_at = "pending", "", stamp
+        n += 1
+    return n
+
+
 def sync_once(db: Session, now: datetime = None, graph=None) -> dict:
     """One tick: up to BATCH queued rows (pending, delete, and errors older
     than ERROR_RETRY_SEC). Commits after every row, so a failure in the
@@ -487,6 +515,11 @@ def sync_once(db: Session, now: datetime = None, graph=None) -> dict:
             out["disabled"] = "Microsoft Graph is not configured (AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET)."
             return out
         graph = _graph_call
+    ctx = _Ctx(db)
+    swept = queue_switched_off(db, ctx, now)
+    if swept:
+        db.commit()
+        out["unqueued"] = swept
     retry_before = _now_iso(now - timedelta(seconds=ERROR_RETRY_SEC))
     E = models.ShiftCalendarEvent
     from sqlalchemy import func
@@ -496,7 +529,6 @@ def sync_once(db: Session, now: datetime = None, graph=None) -> dict:
             .order_by(E.updated_at, E.id).limit(BATCH).all())
     if not rows:
         return out
-    ctx = _Ctx(db)
     for e in rows:
         try:
             _sync_row(db, e, ctx, graph, now, out)
@@ -559,6 +591,6 @@ async def calendar_sync_loop():
     await asyncio.sleep(150)
     while True:
         s = await asyncio.to_thread(_tick)
-        if s and (s.get("created") or s.get("updated") or s.get("deleted") or s.get("errors") or s.get("backfilled")):
+        if s and (s.get("created") or s.get("updated") or s.get("deleted") or s.get("errors") or s.get("backfilled") or s.get("unqueued")):
             print(f"[shift-calendar] {s}")
         await asyncio.sleep(SYNC_SEC)
