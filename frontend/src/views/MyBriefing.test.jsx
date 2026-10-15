@@ -111,6 +111,9 @@ describe('MyBriefing', () => {
     fireEvent.change(screen.getByPlaceholderText('Write a comment'), { target: { value: 'On it' } });
     fireEvent.click(screen.getByText('Post Comment'));
     await waitFor(() => expect(actOnMyBriefing).toHaveBeenCalledWith({ kind: 'task', id: 't2', action: 'comment', text: 'On it' }));
+    // The buttons stay disabled until the comment request settles; clicking
+    // before then is ignored by design (it made this test flaky on CI).
+    await waitFor(() => expect(screen.getByText('Toggle Completion')).not.toBeDisabled());
     fireEvent.click(screen.getByText('Toggle Completion'));
     // The state the reader saw goes along, so a repeat click never flips it back.
     await waitFor(() => expect(actOnMyBriefing).toHaveBeenCalledWith({ kind: 'task', id: 't2', action: 'toggle', text: 'done' }));
