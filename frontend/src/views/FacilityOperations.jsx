@@ -1,23 +1,29 @@
 // Operations - the storage facilities, read from Cubby (Oct 2026).
 //
 // Replaces the mock FMS / Reputation / Site Staff tabs. Nothing here is typed
-// in: every figure comes from GET /facility-ops/summary, which reads Cubby.
+// in: every figure comes from GET /facility-ops/summary, which reads the copy
+// of Cubby the server syncs into the database every 15 minutes (Oct 15).
 // One fetch feeds all four tabs and the facility picker, so switching either
 // is instant. Nexus only reads - payments, leases and tenant edits stay in
 // Cubby, and each tenant row links there.
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { LayoutDashboard, HandCoins, Warehouse, ListChecks, Scale, FileSpreadsheet, RefreshCw } from 'lucide-react';
 import ModuleTabs from '../components/ModuleTabs';
 import { ErrorBanner, LoadingState } from '../components/AsyncState';
 import { api } from '../api';
-import { formatDate, formatDateTime } from '../lib/datetime';
+import { formatDate } from '../lib/datetime';
 import { combine, PERIODS, periodRange } from '../operations/model';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { Overview, Collections, Units, Worklist } from '../operations/OpsTabs';
 import Market from '../operations/Market';
 import Reports from '../operations/Reports';
 import Lookup from '../operations/Lookup';
+import SyncStatus from '../operations/SyncStatus';
+import { useRole } from '../contexts/RoleContext';
 import '../operations/ops.css';
+
+const SYNC_POLL_MS = 3000;
+const NOT_CONNECTED = "Cubby is not connected on this server yet. An administrator needs to set CUBBY_API_KEY in the API's app settings.";
 
 const TABS = [
   { key: 'overview',    label: 'Overview',        Icon: LayoutDashboard },
@@ -59,6 +65,43 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Refresh asks the server for a Cubby sync (it runs in the background), polls
+  // until it is done, then re-reads the figures. A sync someone else started
+  // counts too: wait for it instead of starting another.
+  const [notice, setNotice] = useState('');
+  // Only managers and above are told about the missing key; everyone sees the delayed chip.
+  const role = useRole();
+  const canSeeKeyHint = role?.can?.('manager') ?? false;
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;   // StrictMode mounts twice; the second mount must turn it back on
+    return () => { alive.current = false; };
+  }, []);
+  const refresh = useCallback(async () => {
+    setRefreshing(true);
+    setNotice('');
+    try {
+      await api.startCubbySync();
+    } catch (err) {
+      if (err?.status !== 409) {
+        if (alive.current) { setNotice(err?.message || "Couldn't start a Cubby sync."); setRefreshing(false); }
+        return;
+      }
+    }
+    const until = Date.now() + 5 * 60 * 1000;
+    while (alive.current && Date.now() < until) {
+      await new Promise((r) => setTimeout(r, SYNC_POLL_MS));
+      try {
+        const s = await api.getCubbySync();
+        if (!s?.running) {
+          if (s?.last?.status === 'failed' && alive.current) setNotice('The Cubby sync did not finish. The figures below are from the last good one.');
+          break;
+        }
+      } catch { /* keep waiting; the read below still runs */ }
+    }
+    if (alive.current) await load(true);
+  }, [load]);
   // Stay current without Refresh: re-read every 5 minutes while the tab is in
   // view (the server re-reads Cubby on its own every 15). Quiet - the figures
   // on screen stay put until the new ones arrive.
@@ -92,17 +135,18 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
           <h2>Operations</h2>
           <p>
             {state.data
-              ? `${state.data.organization || 'Storage facilities'} - ${facilities.length} facilities - from Cubby as of ${formatDateTime(state.data.fetchedAt)}, updates automatically`
+              ? <>{`${state.data.organization || 'Storage facilities'} - ${facilities.length} facilities from Cubby, updates automatically - `}<SyncStatus data={state.data} syncing={refreshing} /></>
               : 'Storage facility figures from Cubby'}
           </p>
         </div>
         {state.data && (
-          <button type="button" className="secondary-btn" onClick={() => load(true)} disabled={refreshing}
+          <button type="button" className="secondary-btn" onClick={refresh} disabled={refreshing}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <RefreshCw size={14} aria-hidden="true" /> {refreshing ? 'Refreshing…' : 'Refresh'}
+            <RefreshCw size={14} aria-hidden="true" /> {refreshing ? 'Syncing…' : 'Refresh'}
           </button>
         )}
       </div>
+      {notice && <p className="ops-note" role="status" style={{ margin: '0 0 12px' }}>{notice}</p>}
 
       {state.status === 'loading' && <LoadingState size="view" label="Reading the facilities from Cubby" minHeight={320} onRetry={() => load()} />}
 
@@ -115,7 +159,15 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
       )}
 
       {state.status === 'ready' && !facilities.length && (
-        <div className="dash-card"><div className="ops-empty">Cubby returned no facilities for this account.</div></div>
+        <div className="dash-card"><div className="ops-empty">
+          {state.data?.syncStatus === 'not_configured' ? NOT_CONNECTED : 'Cubby returned no facilities for this account.'}
+        </div></div>
+      )}
+
+      {state.status === 'ready' && facilities.length > 0 && state.data?.cubbyConfigured === false && canSeeKeyHint && (
+        <p className="ops-note" role="status" style={{ margin: '0 0 12px' }}>
+          Cubby is not connected on this server, so these figures are from the last sync and will not update. An administrator needs to set CUBBY_API_KEY in the API's app settings.
+        </p>
       )}
 
       {state.status === 'ready' && facilities.length > 0 && (

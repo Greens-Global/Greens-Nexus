@@ -2296,6 +2296,9 @@ export const api = {
   timeAddTimeDays:     (email, start, end) => req(`/timeclock/add-time/days?email=${encodeURIComponent(email)}&start=${start}&end=${end}`),
   timeAddTime:         (data) => req('/timeclock/add-time', { method: 'POST', body: JSON.stringify(data) }),
   timeAddTimeUndo:     (batchId) => req(`/timeclock/add-time/${encodeURIComponent(batchId)}/undo`, { method: 'POST' }),
+  // Operations: the Cubby -> database sync (10/15). Refresh starts one; the screen polls the status.
+  getCubbySync: () => req('/facility-ops/sync'),
+  startCubbySync: () => req('/facility-ops/sync', { method: 'POST' }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
