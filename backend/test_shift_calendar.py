@@ -75,6 +75,7 @@ class _Case(unittest.TestCase):
         self.db.commit()
         shift_calendar._disabled_until, shift_calendar._disabled_reason = 0.0, ""
         shift_calendar._backfill_checked = True   # the backfill test turns it back on
+        self._settings(outlookCalendarOn=True)    # off by default; these tests are about the sync
 
     def tearDown(self):
         self.db.rollback()
@@ -95,7 +96,16 @@ class _Case(unittest.TestCase):
         return q.order_by(models.ShiftCalendarEvent.employee_email).all()
 
     def _settings(self, **kw):
-        self.db.add(models.NexusSetting(key=f"shift_requests_config:{ENT}", value=json.dumps(kw)))
+        # Merges into the company's saved settings: setUp turns the calendar
+        # on (it is off by default since Oct 15) and a test adds to that.
+        key = f"shift_requests_config:{ENT}"
+        row = self.db.query(models.NexusSetting).filter(models.NexusSetting.key == key).first()
+        cur = json.loads(row.value) if row is not None and row.value else {}
+        cur.update(kw)
+        if row is None:
+            self.db.add(models.NexusSetting(key=key, value=json.dumps(cur)))
+        else:
+            row.value = json.dumps(cur)
         self.db.commit()
 
 
@@ -301,7 +311,7 @@ class SkipTests(_Case):
 
     def test_company_switch_off_skips_and_removes_an_existing_event(self):
         g = self._synced()
-        self._settings(outlookCalendar=False)
+        self._settings(outlookCalendarOn=False)
         shift_calendar.enqueue(self.db, ["s1"])
         self.db.commit()
         out = shift_calendar.sync_once(self.db, now=NOW, graph=g)
@@ -484,3 +494,74 @@ class BatchTests(_Case):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# Off by default (Neil, Oct 15 2026): a shift event filled the working day
+# on everyone's calendar. Nothing is written unless the company turns
+# outlookCalendarOn on, the old outlookCalendar key (stored as true by every
+# settings save since the merge) is ignored, and events already written are
+# taken off on the next tick without the shift having to change.
+class DefaultOffTests(_Case):
+    def _off(self, **kw):
+        row = self.db.query(models.NexusSetting).filter(models.NexusSetting.key == f"shift_requests_config:{ENT}").first()
+        row.value = json.dumps(kw)
+        self.db.commit()
+
+    def test_off_by_default_writes_nothing(self):
+        self._off()
+        self._shift("s1")
+        shift_calendar.enqueue(self.db, ["s1"])
+        self.db.commit()
+        g = FakeGraph()
+        out = shift_calendar.sync_once(self.db, now=NOW, graph=g)
+        self.assertEqual(g.by("POST"), [])
+        self.assertEqual(out["skipped"], 1)
+        self.assertIn("off for this company", self._rows("s1")[0].last_error)
+
+    def test_the_old_key_stored_true_does_not_turn_it_on(self):
+        self._off(outlookCalendar=True)
+        self._shift("s1")
+        shift_calendar.enqueue(self.db, ["s1"])
+        self.db.commit()
+        g = FakeGraph()
+        shift_calendar.sync_once(self.db, now=NOW, graph=g)
+        self.assertEqual(g.by("POST"), [])
+
+    def test_events_already_written_are_removed_without_the_shift_changing(self):
+        self._shift("s1")
+        self._shift("s2", email=BOB)
+        shift_calendar.enqueue(self.db, ["s1", "s2"])
+        self.db.commit()
+        g = FakeGraph()
+        shift_calendar.sync_once(self.db, now=NOW, graph=g)
+        self.assertEqual([r.state for r in self._rows()], ["ok", "ok"])
+        self._off()                        # the switch goes off - no enqueue, no shift change
+        out = shift_calendar.sync_once(self.db, now=NOW, graph=g)
+        self.assertEqual(out.get("unqueued"), 2)
+        self.assertEqual(sorted(c[1].rsplit("/", 1)[0] for c in g.by("DELETE")),
+                         ["/users/m365-amy/events", "/users/m365-bob/events"])
+        self.assertEqual([(r.state, r.event_id) for r in self._rows()], [("skipped", ""), ("skipped", "")])
+        again = shift_calendar.sync_once(self.db, now=NOW, graph=g)   # nothing left to take off
+        self.assertNotIn("unqueued", again)
+        self.assertEqual(len(g.by("DELETE")), 2)
+
+    def test_a_person_who_opted_out_has_their_event_removed_too(self):
+        self._shift("s1")
+        shift_calendar.enqueue(self.db, ["s1"])
+        self.db.commit()
+        g = FakeGraph()
+        shift_calendar.sync_once(self.db, now=NOW, graph=g)
+        self.db.add(models.NexusPersonPref(email=AMY, shift_calendar=0))
+        self.db.commit()
+        shift_calendar.sync_once(self.db, now=NOW, graph=g)
+        self.assertEqual([c[1] for c in g.by("DELETE")], ["/users/m365-amy/events/evt-1"])
+
+    def test_a_company_that_is_on_keeps_its_events(self):
+        self._shift("s1")
+        shift_calendar.enqueue(self.db, ["s1"])
+        self.db.commit()
+        g = FakeGraph()
+        shift_calendar.sync_once(self.db, now=NOW, graph=g)
+        out = shift_calendar.sync_once(self.db, now=NOW, graph=g)
+        self.assertNotIn("unqueued", out)
+        self.assertEqual(g.by("DELETE"), [])

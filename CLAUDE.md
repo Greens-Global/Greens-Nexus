@@ -263,7 +263,11 @@ keep the diff minimal.
   write records to `shift_change_log` through `shift_log.record`.
   `shift_calendar.py` writes shared shifts to Outlook (Graph app-only
   Calendars.ReadWrite, `docs/Outlook-Calendar-Setup.md`; waits quietly until
-  consent is granted), `routers/shift_ical.py` is the signed personal feed,
+  consent is granted) - OFF by default (Neil, Oct 15: an event filled the
+  whole working day): a company turns `outlookCalendarOn` on, and every tick
+  `queue_switched_off` takes events off calendars whose company or person
+  has it off. Never rename the key back to `outlookCalendar` (every settings
+  save stored that one as true), `routers/shift_ical.py` is the signed personal feed,
   `shift_confirm.py` the confirm-my-schedule ask and nudge,
   `shift_offboard.py` clears a leaver's future shifts. New shift tables rely
   on `_enable_rls_everywhere`; run `get_advisors` after each release.

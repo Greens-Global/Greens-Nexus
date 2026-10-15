@@ -545,15 +545,15 @@ describe('ShiftSettingsPanel sharing', () => {
   it('saves the three sharing settings, and Show In Outlook As follows the calendar switch', async () => {
     render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} />);
     const cal = await screen.findByLabelText("Add shared shifts to people's Outlook calendars");
-    expect(cal.checked).toBe(true);                                             // on by default
+    expect(cal.checked).toBe(false);                                            // off by default (Neil, Oct 15)
+    expect(screen.getByLabelText('Show in Outlook as').disabled).toBe(true);
+    fireEvent.click(cal);
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith(expect.objectContaining({ outlookCalendarOn: true }), ''));
     const showAs = screen.getByLabelText('Show in Outlook as');
-    expect(showAs.disabled).toBe(false);
+    await waitFor(() => expect(showAs.disabled).toBe(false));
     expect(showAs.value).toBe('free');
     fireEvent.change(showAs, { target: { value: 'busy' } });
-    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith(expect.objectContaining({ outlookShowAs: 'busy' }), ''));
-    fireEvent.click(cal);
-    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith(expect.objectContaining({ outlookCalendar: false, outlookShowAs: 'busy' }), ''));
-    expect(screen.getByLabelText('Show in Outlook as').disabled).toBe(true);
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith(expect.objectContaining({ outlookCalendarOn: true, outlookShowAs: 'busy' }), ''));
     const ask = screen.getByLabelText('Ask people to confirm a shared schedule');
     expect(ask.checked).toBe(true);
     fireEvent.click(ask);

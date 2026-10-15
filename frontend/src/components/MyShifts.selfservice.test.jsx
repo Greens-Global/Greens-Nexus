@@ -472,12 +472,12 @@ describe('MyShifts confirmations and calendar', () => {
     expect(screen.getByText('Could not save that.')).toBeTruthy();
   });
 
-  it('says the company switch is off instead of offering mine, or that I have no mailbox', async () => {
+  it('shows no Outlook line when the company switch is off (the default), or says I have no mailbox', async () => {
     timeMyPrefsGet.mockResolvedValue({ shiftCalendar: true, companyOutlookCalendar: false, hasMailbox: true, showAs: 'free' });
     const { unmount } = render(<MyShifts />);
-    expect(await screen.findByText('Outlook calendar is off for your company')).toBeTruthy();
+    expect(await screen.findByText('Subscribe in another calendar')).toBeTruthy();   // the iCal link still works
     expect(screen.queryByRole('switch', { name: 'In your Outlook calendar' })).toBeNull();
-    expect(screen.getByText('Subscribe in another calendar')).toBeTruthy();   // the iCal link still works
+    expect(screen.queryByText(/Outlook calendar/)).toBeNull();
     unmount();
     timeMyPrefsGet.mockResolvedValue({ shiftCalendar: true, companyOutlookCalendar: true, hasMailbox: false, showAs: 'free' });
     render(<MyShifts />);
