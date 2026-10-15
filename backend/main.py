@@ -2347,6 +2347,12 @@ def _run_migrations():
         "ALTER TABLE cubby_receivables ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE cubby_tasks ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE cubby_sync_runs ENABLE ROW LEVEL SECURITY",
+        # Accounting > AMA, Ask My Accountant (Neil, 10/15). Three new tables -
+        # RLS per CLAUDE.md. models.AccountingAmaThread / AccountingAmaMessage /
+        # AccountingAmaSetting, routers/accounting_ask.py.
+        "ALTER TABLE accounting_ama_threads ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE accounting_ama_messages ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE accounting_ama_settings ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -3649,3 +3655,5 @@ app.include_router(implementation.router)          # Support > Implementation Gu
 from routers import accounting_profitability, accounting_compensation  # noqa: E402
 app.include_router(accounting_profitability.router)  # Accounting > Reporting > Profitability: per-entity NOI, net income, debt service vs prior year (Charmi + Neil, 10/15)
 app.include_router(accounting_compensation.router)   # Accounting > Reporting > Employee Compensation: wages and hours per employee, payroll on the ledger (Neil, 10/15)
+from routers import accounting_ask  # noqa: E402
+app.include_router(accounting_ask.router)            # Accounting > Reporting > AMA: Ask My Accountant - questions on ledger lines, the suspense account's lines (Neil, 10/15)

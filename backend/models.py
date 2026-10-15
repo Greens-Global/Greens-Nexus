@@ -6332,3 +6332,72 @@ class CubbySyncRun(Base):
         Index("ux_cubby_sync_running", "status", unique=True,
               sqlite_where=(status == "running"), postgresql_where=(status == "running")),
     )
+
+
+class AccountingAmaThread(Base):
+    """One "Ask My Accountant" question on one ledger line (Neil, 10/15: AMA
+    means Ask My Accountant). Keyed by the line, with a snapshot of it (entity,
+    entry, line, account, date, amount, memo) so the thread still reads after
+    Intacct changes or reclasses the line. `status` runs Open -> Answered (the
+    assigned accountant replied) -> Resolved (asker, accountant or an editor;
+    `moved_to_account` says where it went). `reclassed_at` is stamped when a
+    line on an Ask My Accountant account no longer sits on it in the ledger.
+    routers/accounting_ask.py. New table - create_all builds it; RLS by
+    main.py and the startup sweep."""
+    __tablename__ = "accounting_ama_threads"
+    id               = Column(String, primary_key=True)            # uuid
+    entity_code      = Column(String, default="", index=True)      # Intacct location of the line
+    entry_id         = Column(String, default="")                  # ledger entry uuid (EntryDetail)
+    entry_no         = Column(String, default="")
+    line_id          = Column(String, default="", index=True)      # ledger line id ('' = unknown)
+    line_no          = Column(String, default="")
+    account_no       = Column(String, default="", index=True)
+    account_title    = Column(String, default="")
+    entry_date       = Column(String, default="")                  # YYYY-MM-DD
+    debit            = Column(Float, default=0.0)
+    credit           = Column(Float, default=0.0)
+    description      = Column(String, default="")
+    memo             = Column(String, default="")
+    party            = Column(String, default="")                  # vendor / customer / employee, as shown
+    journal          = Column(String, default="")
+    source           = Column(String, default="question")          # question | ama (asked on an AMA-account line)
+    question         = Column(Text, default="")
+    asked_by         = Column(String, default="", index=True)
+    asked_at         = Column(String, default="")
+    accountant_email = Column(String, default="", index=True)
+    status           = Column(String, default="Open", index=True)  # Open | Answered | Resolved
+    moved_to_account = Column(String, default="")
+    resolved_by      = Column(String, default="")
+    resolved_at      = Column(String, default="")
+    reclassed_at     = Column(String, default="")
+    last_reply_at    = Column(String, default="")
+    last_reply_by    = Column(String, default="")
+    updated_at       = Column(String, default="")
+
+
+class AccountingAmaMessage(Base):
+    """One message on an Ask My Accountant thread: the question, a reply, or
+    an event line (resolved, reopened, reassigned). New table - create_all
+    builds it; RLS by main.py and the startup sweep."""
+    __tablename__ = "accounting_ama_messages"
+    id           = Column(String, primary_key=True)                # uuid
+    thread_id    = Column(String, default="", index=True)
+    author_email = Column(String, default="")
+    kind         = Column(String, default="reply")                 # question | reply | event
+    body         = Column(Text, default="")
+    created_at   = Column(String, default="")
+
+
+class AccountingAmaSetting(Base):
+    """Ask My Accountant settings, one row per entity. The '' row holds the
+    GL accounts that ARE the Ask My Accountant (suspense) accounts - the chart
+    of accounts is shared by every entity, so they are set once; an empty list
+    means "find them by title" - and the default accountants; an entity row
+    holds that entity's own accountants. New table - create_all builds it;
+    RLS by main.py and the startup sweep."""
+    __tablename__ = "accounting_ama_settings"
+    entity_code = Column(String, primary_key=True)                 # '' = every entity
+    accounts    = Column(JSON, default=list)                       # ['99999', ...] (the '' row only)
+    accountants = Column(JSON, default=list)                       # ['person@greensglobal.com', ...]
+    updated_by  = Column(String, default="")
+    updated_at  = Column(String, default="")
