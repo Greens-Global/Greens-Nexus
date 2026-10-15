@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Play, Pause, Square, Coffee, MonitorUp, MonitorX, MonitorPause, Plus } from 'lucide-react';
+import { planFor, playPlan, starSpec, FLOURISH_MS } from '../lib/flourishMotion';
+import { Play, Pause, Square, MonitorUp, MonitorX, MonitorPause, Plus } from 'lucide-react';
 import { Spinner } from './AsyncState';
 
 // The time clock as one object (Neil, Oct 14 2026): a dial that fills with
@@ -81,35 +82,59 @@ function Tip({ title, sub, edge = '', native = false, children }) {
 //   check  - End Break: a check draws itself in green, then the same drift
 //   in     - Punch In: green and gold stars burst up and to the right
 //   out    - Punch Out: gold stars fan right and settle down, the day done
-const STARS_IN = [[28, -40, 160, 0], [54, -22, 220, 60], [22, -12, 120, 110], [44, -52, 260, 160], [64, -6, 200, 220]];
-const STARS_OUT = [[30, 14, -160, 0], [56, 28, -220, 70], [24, 40, -120, 130], [48, 6, -260, 190], [68, 22, -200, 250]];
-const STAR = 'M12 2l2.6 6.3 6.8.6-5.2 4.5 1.6 6.6L12 16.6 6.2 20l1.6-6.6L2.6 8.9l6.8-.6z';
+const STAR = 'M12 2.5l2.7 6 6.5.7-4.9 4.4 1.4 6.4L12 16.8 6.3 20l1.4-6.4L2.8 9.2l6.5-.7z';
+const STEAM = ['M3 15c-2-3 2-5 0-8s2-5 0-7', 'M3 15c2-3-2-5 0-8s-2-5 0-7', 'M3 15c-1.5-3 1.5-5 0-8s1.5-5 0-7'];
 export function Flourish({ kind, anchor: a }) {
   const box = useRef(null);
-  // Pinned to the button's centre on the screen; written straight to the
-  // node so placing it costs no render.
+  // Pinned to the button's centre on the screen (written straight to the
+  // node, no render), then the motion plan runs (lib/flourishMotion.js).
   useLayoutEffect(() => {
     const el = box.current, at = a?.current;
-    if (!el || !at) return;
+    if (!el || !at) return undefined;
     const r = at.getBoundingClientRect();
     el.style.left = `${r.left + r.width / 2}px`;
     el.style.top = `${r.top + r.height / 2}px`;
-  }, [a]);
-  const stars = kind === 'in' ? STARS_IN : kind === 'out' ? STARS_OUT : null;
+    const reduce = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    return reduce ? undefined : playPlan(el, planFor(kind));
+  }, [a, kind]);
   return createPortal(
     <div ref={box} className={`sbfx sbfx--${kind}`} aria-hidden="true" data-flourish={kind}>
-      {kind === 'coffee' && <span className="sbfx-coffee"><Coffee /><i /><i /><i /></span>}
-      {kind === 'check' && (
-        <span className="sbfx-check">
-          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10.5" /><path d="M7 12.5l3.3 3.3L17.2 8.8" /></svg>
+      {kind === 'coffee' && (
+        <span className="sbfx-coffee" data-fx="body">
+          <span className="sbfx-steam">
+            {STEAM.map((d, i) => (
+              <svg key={i} data-fx={`w${i}`} viewBox="0 0 6 16" style={{ left: 3 + i * 5 }}><path d={d} pathLength="1" /></svg>
+            ))}
+          </span>
+          {/* Drawn here, not the Coffee icon: that icon carries three fixed
+              steam ticks of its own, which sat under the moving steam. */}
+          <svg className="sbfx-mug" viewBox="0 0 24 24">
+            <path className="sbfx-mug-body" d="M4.5 8.5h12v5.2a5.3 5.3 0 0 1-5.3 5.3h-1.4a5.3 5.3 0 0 1-5.3-5.3z" />
+            <path className="sbfx-mug-coffee" d="M5.6 10.4h9.8" />
+            <path d="M16.5 10h1.3a2.6 2.6 0 0 1 0 5.2h-1.6" />
+            <path d="M3 21.2h15" />
+          </svg>
         </span>
       )}
-      {stars && stars.map(([dx, dy, r, delay], i) => (
-        <svg key={i} className="sbfx-star" viewBox="0 0 24 24"
-          style={{ '--dx': `${dx}px`, '--dy': `${dy}px`, '--r': `${r}deg`, animationDelay: `${delay}ms`, '--sz': `${i % 2 ? 12 : 17}px` }}>
-          <path d={STAR} />
-        </svg>
-      ))}
+      {kind === 'check' && (
+        <>
+          <span className="sbfx-pulse" data-fx="pulse" />
+          <span className="sbfx-check" data-fx="body">
+            <svg viewBox="0 0 24 24"><circle className="sbfx-disc" cx="12" cy="12" r="10.5" /><circle data-fx="ring" cx="12" cy="12" r="10.5" pathLength="1" /><path data-fx="tick" d="M7 12.5l3.3 3.3L17.2 8.8" pathLength="1" /></svg>
+          </span>
+        </>
+      )}
+      {(kind === 'in' || kind === 'out') && (
+        <>
+          <span className="sbfx-pulse" data-fx="pulse" />
+          {starSpec(kind).map(([, , size], i) => (
+            <svg key={i} data-fx={`s${i}`} className="sbfx-star" viewBox="0 0 24 24"
+              style={{ width: size, height: size, left: -size / 2, top: -size / 2 }}>
+              <path d={STAR} />
+            </svg>
+          ))}
+        </>
+      )}
     </div>,
     document.body,
   );
@@ -126,12 +151,14 @@ export default function ClockChip({ vm, variant = 'wide', onAfterAction, leaving
   const playRef = useRef(null), pauseRef = useRef(null), stopRef = useRef(null);
   useEffect(() => {
     const from = prev.current; prev.current = state;
-    if (from === 'in' && state === 'break') setFlourish('coffee');
-    else if (from === 'break' && state === 'in') setFlourish('check');
-    else if (from === 'out' && state === 'in') setFlourish('in');
-    else if ((from === 'in' || from === 'break') && state === 'out') setFlourish('out');
-    else return undefined;
-    const t = setTimeout(() => setFlourish(''), 1900);
+    const kind = from === 'in' && state === 'break' ? 'coffee'
+      : from === 'break' && state === 'in' ? 'check'
+        : from === 'out' && state === 'in' ? 'in'
+          : (from === 'in' || from === 'break') && state === 'out' ? 'out' : '';
+    if (!kind) return undefined;
+    setFlourish(kind);
+    // Cleared after its longest track (the steam's second puff, for the cup).
+    const t = setTimeout(() => setFlourish(''), FLOURISH_MS[kind] + (kind === 'coffee' ? 300 : 150));
     return () => clearTimeout(t);
   }, [state]);
   // The dial still sweeps on a return to work (Resume or Punch In).
