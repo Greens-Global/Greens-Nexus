@@ -304,6 +304,96 @@ class NoShowScanTests(_Case):
         self.assertEqual(sa.noshow_scan(self.db, LINE + timedelta(minutes=19))["noShows"], 0)
         self.assertEqual(sa.noshow_scan(self.db, LINE + timedelta(minutes=20))["noShows"], 1)
 
+    def test_two_shifts_in_a_day_are_judged_once_on_the_earliest_start(self):
+        # Amy: 7:00 on Austin Crew and 1:00 PM on a second group, both missed.
+        self.db.add(models.ShiftGroup(id="grp-2", name="Night Crew", scheduler_emails="[]", company_id=ENT, created_by=MGR))
+        self.db.commit()
+        self._shift(AMY)
+        self._shift(AMY, start="13:00", end="17:00", group="grp-2")
+        s = sa.noshow_scan(self.db, LINE)
+        self.assertEqual((s["noShows"], s["alerts"]), (1, 2), s)
+        self.assertEqual(len(self._bells(MGR)), 1)
+        self.assertEqual(self._bells(MGR, f"noshow:grp-2:{DAY}"), [], "one judgment per person and day: the earliest start, its group")
+        # 1:15 PM, still never in: the morning's watch has passed its window
+        # and the afternoon shift is not a second alert - one person, one day.
+        s = sa.noshow_scan(self.db, datetime(2026, 10, 15, 18, 15, tzinfo=timezone.utc))
+        self.assertEqual((s["noShows"], s["alerts"], s["resolved"]), (0, 0, 2), s)
+        self.assertEqual(self._bells(MGR)[0].title, "Missed Shift: 1 On Austin Crew")
+        self.assertEqual(self._bells(MGR, f"noshow:grp-2:{DAY}"), [])
+        self.assertEqual(len(self._alerts()), 2)
+
+    def test_a_group_day_that_fills_again_reopens_its_record_and_is_not_emailed_twice(self):
+        self._shift(AMY)                          # 7:00
+        self._shift(BOB, start="13:00", end="17:00")   # 1:00 PM, same crew
+        sa.noshow_scan(self.db, LINE)
+        self._punch(AMY, "in", datetime(2026, 10, 15, 12, 20, tzinfo=timezone.utc))
+        s = sa.noshow_scan(self.db, LINE + timedelta(minutes=6))
+        self.assertEqual(s["resolved"], 2, s)
+        self.assertTrue(self._bells(MGR)[0].actioned)
+        self.assertEqual(self._bells(MGR)[0].title, "All In: Austin Crew")
+        # 1:15 PM: Bob is out. The same row reopens, a new bell is raised, no second email.
+        s = sa.noshow_scan(self.db, datetime(2026, 10, 15, 18, 15, tzinfo=timezone.utc))
+        self.assertEqual((s["noShows"], s["alerts"], s["reopened"], s["emails"]), (1, 0, 2, 0), s)
+        rows = self._alerts()
+        self.assertEqual(len(rows), 2, "one record per recipient per group-day, reopened")
+        self.assertTrue(all(not r.resolved_at and r.emailed_at for r in rows))
+        self.assertEqual([p["email"] for p in json.loads(rows[0].people_json)], [AMY, BOB], "the day's whole story")
+        bells = self._bells(MGR)
+        self.assertEqual(len(bells), 2)
+        live = [b for b in bells if not b.actioned]
+        self.assertEqual(len(live), 1)
+        self.assertEqual(live[0].title, "Not In Yet: 1 On Austin Crew")
+        self.assertEqual(live[0].body, "Bob X - scheduled 1:00 PM, 15 min late")
+        self.assertEqual(sa._send_email.call_count, 2)
+        # Bob comes in: closed again, with both names in the story.
+        self._punch(BOB, "in", datetime(2026, 10, 15, 18, 20, tzinfo=timezone.utc))
+        s = sa.noshow_scan(self.db, datetime(2026, 10, 15, 18, 21, tzinfo=timezone.utc))
+        self.assertEqual(s["resolved"], 2, s)
+        live = [b for b in self._bells(MGR) if not b.actioned]
+        self.assertEqual(live, [])
+        self.assertTrue(all(r.resolved_at for r in self._alerts()))
+        self.assertEqual(sa._send_email.call_count, 2)
+
+    def test_the_bell_stays_read_while_only_the_minutes_move(self):
+        self._shift(AMY)
+        self._shift(BOB, start="07:30")
+        sa.noshow_scan(self.db, LINE)
+        b = self._bells(MGR)[0]
+        b.read_by, b.closed_by = MGR, MGR
+        self.db.commit()
+        sa.noshow_scan(self.db, LINE + timedelta(minutes=1))
+        b = self._bells(MGR)[0]
+        self.assertEqual((b.read_by, b.closed_by), (MGR, MGR), "a minute more late is not news")
+        self.assertEqual(b.body, "Amy Lee - scheduled 7:00 AM, 16 min late")
+        sa.noshow_scan(self.db, LINE + timedelta(minutes=30))   # Bob joins
+        b = self._bells(MGR)[0]
+        self.assertEqual((b.read_by, b.closed_by), ("", ""), "a new name is")
+        self.assertEqual(b.title, "Not In Yet: 2 On Austin Crew")
+
+    def test_every_load_is_bound_to_the_days_people(self):
+        self._shift(AMY)
+        self.db.add(models.NexusEmployee(id="emp-stranger", first_name="Sam", last_name="Far", work_email="sa.far@greensglobal.com",
+                                         manager_email="", status="active", deleted_at="", company="ent-other", country="US"))
+        self.db.commit()
+        with mock.patch.object(sa, "_people", wraps=sa._people) as people:
+            sa.noshow_scan(self.db, LINE)
+        self.assertTrue(people.call_count >= 1)
+        for c in people.call_args_list:
+            self.assertIsNotNone(c.args[1] if len(c.args) > 1 else c.kwargs.get("emails"), "never the whole People table")
+        loaded = set()
+        for c in people.call_args_list:
+            loaded |= set(c.args[1] if len(c.args) > 1 else c.kwargs.get("emails"))
+        self.assertIn(AMY, loaded)
+        self.assertIn(MGR, loaded, "the recipients are loaded, bounded")
+        self.assertNotIn("sa.far@greensglobal.com", loaded)
+        # An idle tick (nothing scheduled, nothing open) reads no people at all.
+        self.db.query(models.ScheduledShift).delete()
+        self.db.query(models.ShiftNoShowAlert).delete()
+        self.db.commit()
+        with mock.patch.object(sa, "_people", wraps=sa._people) as people:
+            self.assertEqual(sa.noshow_scan(self.db, LINE)["candidates"], 0)
+        self.assertEqual(people.call_count, 0)
+
     def test_the_settings_keys_are_clamped_and_saved(self):
         self.assertEqual((shift_requests._DEFAULTS["noShowAlertMin"], shift_requests._DEFAULTS["leftEarlyMin"]), (10, 15))
         self.assertEqual(shift_requests._clean_value("noShowAlertMin", 999), 240)
@@ -436,6 +526,58 @@ class ActualsTests(_Case):
         self.assertEqual((c["shifts"], c["shiftId"], c["scheduledMin"], c["status"], c["lateMin"], c["earlyMin"]),
                          (2, f"s-{AMY}-{TUE}-07:00", 480, "late", 30, 0))
 
+    def test_each_cell_carries_the_shifts_zone(self):
+        self._shift(AMY, day=TUE)                                    # the placement's own zone
+        self._shift(BOB, day=TUE, tz="", shift_id="")                # no zone, no preset: the company's
+        self._shift(CARA, day=TUE, tz="", shift_id=PRESET)           # the preset's
+        self._company_setting(timeZone="Asia/Kolkata")
+        cells = sa.actuals(self.db, [AMY, BOB, CARA], TUE, TUE, NOW)["cells"]
+        self.assertEqual(cells[f"{AMY}|{TUE}"]["tz"], TZ)
+        self.assertEqual(cells[f"{BOB}|{TUE}"]["tz"], "Asia/Kolkata")
+        self.assertEqual(cells[f"{CARA}|{TUE}"]["tz"], TZ, "an exempt cell still says its zone")
+
+    def test_a_shift_across_midnight_is_judged_by_its_own_end(self):
+        # 10:00 PM Tuesday - 6:00 AM Wednesday CDT = 03:00 - 11:00 UTC Wednesday.
+        self._shift(AMY, day=TUE, start="22:00", end="06:00")
+        key = f"{AMY}|{TUE}"
+        self._punch(AMY, "in", _utc(WED, 3, 2))
+        # 3:00 AM Wednesday: the calendar date turned, the shift has not ended.
+        c = sa.actuals(self.db, [AMY], TUE, TUE, _utc(WED, 8, 0))["cells"][key]
+        self.assertEqual(c["status"], "in_progress")
+        # Out at 5:30 AM, read at 7:00 AM: left 30 minutes early, not on time.
+        self._punch(AMY, "out", _utc(WED, 10, 30))
+        c = sa.actuals(self.db, [AMY], TUE, TUE, _utc(WED, 12, 0))["cells"][key]
+        self.assertEqual((c["status"], c["earlyMin"], c["workedMin"]), ("left_early", 30, 448))
+        # Amy's Wednesday day shift is its own day: last night's clock-out at
+        # 5:30 AM is not a Wednesday clock-in, nor a Wednesday clock-out.
+        self._shift(AMY, day=WED)
+        c = sa.actuals(self.db, [AMY], WED, WED, _utc(WED, 12, 20))["cells"][f"{AMY}|{WED}"]
+        self.assertEqual((c["status"], c["firstIn"], c["lastOut"], c["earlyMin"]), ("no_show", "", "", 0))
+        # Nobody in by a few minutes past midnight for an 11:50 PM start: still
+        # before the line, so in progress - never a no-show because the date turned.
+        self._shift(BOB, day=TUE, start="23:50", end="04:00")
+        c = sa.actuals(self.db, [BOB], TUE, TUE, _utc(WED, 5, 0))["cells"][f"{BOB}|{TUE}"]   # 12:00 AM CDT Wednesday
+        self.assertEqual(c["status"], "in_progress")
+        c = sa.actuals(self.db, [BOB], TUE, TUE, _utc(WED, 5, 6))["cells"][f"{BOB}|{TUE}"]   # 12:06 AM: grace 5 + alert 10 passed? no - 15 min line is 12:05
+        self.assertEqual(c["status"], "no_show")
+
+    def test_a_split_shifts_second_half_still_reads_running(self):
+        self._shift(AMY, day=THU, start="07:00", end="11:00")
+        self._shift(AMY, day=THU, start="13:00", end="17:00")
+        self._punch(AMY, "in", _utc(THU, 12, 0))
+        self._punch(AMY, "out", _utc(THU, 16, 0))
+        self._punch(AMY, "in", _utc(THU, 18, 5))
+        c = sa.actuals(self.db, [AMY], THU, THU, _utc(THU, 19, 0))["cells"][f"{AMY}|{THU}"]
+        self.assertEqual(c["status"], "in_progress")
+        # Yesterday's forgotten clock-out does not keep yesterday running once today is open.
+        self._shift(BOB, day=WED)
+        self._shift(BOB, day=THU)
+        self._punch(BOB, "in", _utc(WED, 12, 0))
+        self._punch(BOB, "in", _utc(THU, 12, 0))
+        out = sa.actuals(self.db, [BOB], WED, THU, _utc(THU, 13, 0))["cells"]
+        self.assertEqual(out[f"{BOB}|{WED}"]["status"], "on_time")
+        self.assertEqual(out[f"{BOB}|{THU}"]["status"], "in_progress")
+
     def test_the_route_scopes_and_limits(self):
         self._week()
         self._shift(STAFF, day=TUE)
@@ -462,17 +604,20 @@ class ActualsTests(_Case):
             self.assertEqual(r.status_code, 400)
             r = client.get("/timeclock/schedule/actuals", params={"start": "10/12/2026", "end": FRI})
             self.assertEqual(r.status_code, 400)
-            # A group scheduler below manager reads the schedule but gets only their own cells.
+            # A group scheduler below manager gets their group's cells (what the
+            # schedule read shows them) plus their own.
             os.environ["NEXUS_DEV_EMAIL"] = STAFF
             auth.invalidate_role_cache()
             r = client.get("/timeclock/schedule/actuals", params={"start": MON, "end": FRI})
             self.assertEqual(r.status_code, 200, r.text)
-            self.assertEqual(list(r.json()["cells"]), [f"{STAFF}|{TUE}"])
-            # Someone with no schedule access at all is refused.
+            self.assertEqual({k.split("|")[0] for k in r.json()["cells"]}, {AMY, BOB, CARA, STAFF})
+            # An employee with no schedule access at all gets their own cells (My Shifts).
             os.environ["NEXUS_DEV_EMAIL"] = AMY
             auth.invalidate_role_cache()
             r = client.get("/timeclock/schedule/actuals", params={"start": MON, "end": FRI})
-            self.assertEqual(r.status_code, 401, r.text)
+            self.assertEqual(r.status_code, 200, r.text)
+            self.assertEqual({k.split("|")[0] for k in r.json()["cells"]}, {AMY})
+            self.assertEqual(r.json()["cells"][f"{AMY}|{TUE}"]["tz"], TZ, "the shift's zone rides on the cell")
         finally:
             auth.SKIP_AUTH = skip
             os.environ.pop("NEXUS_DEV_EMAIL", None)

@@ -1110,7 +1110,8 @@ describe('On a phone', () => {
 // the schedule, never blocking it; a failed call is simply no actuals.
 describe('Actuals: the schedule meets the clock', () => {
   const actuals = () => ({
-    cells: { [`amy@greensglobal.com|${monday}`]: { shiftId: 's1', status: 'late', firstIn: `${monday}T16:04:00`, lastOut: `${monday}T23:58:00`, workedMin: 474, lateMin: 4, earlyMin: 0, excuse: '' } },
+    // A Dubai shift (9:00 AM GST = 05:00 UTC): the hover reads its own clock wherever the manager is.
+    cells: { [`amy@greensglobal.com|${monday}`]: { shiftId: 's1', status: 'late', firstIn: `${monday}T05:04:00`, lastOut: `${monday}T12:58:00`, workedMin: 474, lateMin: 4, earlyMin: 0, excuse: '', tz: 'Asia/Dubai' } },
     people: { 'amy@greensglobal.com': { scheduledMin: 480, workedMin: 474, late: 1, noShow: 0, leftEarly: 0, onTime: 0 },
       'bob@greensglobal.com': { scheduledMin: 480, workedMin: 0, late: 0, noShow: 1, leftEarly: 0, onTime: 0 } },
     totals: { scheduledMin: 960, workedMin: 474, late: 1, noShow: 1, leftEarly: 0, onTime: 0 },
@@ -1126,7 +1127,7 @@ describe('Actuals: the schedule meets the clock', () => {
     const bar = blockOf('s1').querySelector('[data-actual]');
     expect(bar.getAttribute('data-actual')).toBe('late');
     expect(bar.style.background).toBe('hsl(var(--color-orange))');
-    expect(blockOf('s1').getAttribute('title')).toContain('(4 min late)');
+    expect(blockOf('s1').getAttribute('title')).toContain('Clocked in 9:04 AM (4 min late)\nClocked out 4:58 PM');
     expect(blockOf('s1').getAttribute('aria-label')).toBe('Shift 9:00 AM - 5:00 PM GST, Late');
     expect(blockOf('s1').textContent).toBe('9:00a - 5:00pGST');   // the bar is the only addition
     // The line follows the people on screen.

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, CalendarDays, Info, StickyNote, ArrowLeftRight, CloudRain, Check } from 'lucide-react';
 import { api } from '../api';
 import { zoneClock, formatHHMM, formatMonthDay } from '../lib/datetime';
@@ -55,16 +55,20 @@ export default function MyShifts() {
   // Actuals (Phase 1, Oct 14): what the clock said on my own past and
   // running shifts - a bar on the block, the details on hover. Fetched
   // beside the week, never blocking it; a failed call is no bars.
-  const [actuals, setActuals] = useState(null);
+  // Kept with the range it was fetched for, so another week shows nothing
+  // until its own answer lands (no state reset inside the effect).
+  const [fetched, setFetched] = useState(null);   // { key: 'start|end', data }
   useEffect(() => {
-    if (!data || start > todayIso()) { setActuals(null); return undefined; }
+    if (!data || start > todayIso()) return undefined;
     let live = true;
+    const key = `${start}|${end}`;
     Promise.resolve().then(() => api.timeSchedActuals(start, end))
-      .then((r) => { if (live) setActuals(r && typeof r === 'object' && r.cells ? r : null); })
-      .catch(() => { if (live) setActuals(null); });
+      .then((r) => { if (live) setFetched({ key, data: r && typeof r === 'object' && r.cells ? r : null }); })
+      .catch(() => { if (live) setFetched({ key, data: null }); });
     return () => { live = false; };
   }, [data, start, end]);
-  const actualOf = (s, sole) => actualFor(actuals?.cells?.[`${s.email}|${s.date}`], s, sole);
+  const actuals = fetched && fetched.key === `${start}|${end}` ? fetched.data : null;
+  const actualOf = useCallback((s, sole) => actualFor(actuals?.cells?.[`${s.email}|${s.date}`], s, sole), [actuals]);
   const [reqs, reloadReqs] = useShiftRequests(start, end);
   const [ask, setAsk] = useState(null);          // { shift } while the request dialog is open
   const [flash, setFlash] = useState('');
@@ -149,7 +153,7 @@ export default function MyShifts() {
     const pending = days.some((d) => d.timeoff.some((t) => t.status === 'pending'));
     const late = days.reduce((n, d) => n + d.shifts.filter((s) => actualOf(s, d.shifts.length === 1)?.status === 'late').length, 0);
     return { on, next, mins, shiftCount: worked.reduce((n, d) => n + d.shifts.length, 0), offDays, pending, late };
-  }, [data, days, clockOf, actuals]);   // eslint-disable-line react-hooks/exhaustive-deps
+  }, [data, days, clockOf, actualOf]);
 
   const teams = data?.teams || [];
   const team = teams.find((t) => t.id === teamId) || teams[0] || null;

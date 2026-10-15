@@ -108,6 +108,15 @@ describe('actuals', () => {
     expect(punchTime('2026-10-12T15:04:00')).toBe(at('2026-10-12T15:04:00'));
     expect(punchTime('')).toBe('');
   });
+  it('reads the punches on the SHIFT\'s clock when the cell says its zone, the viewer\'s only without one', () => {
+    // 3:34 UTC = 9:04 AM in Kolkata, whoever is looking - a Los Angeles manager sees the India crew's own hour.
+    const india = { status: 'late', firstIn: '2026-10-12T03:34:00', lastOut: '2026-10-12T12:02:00', lateMin: 4, earlyMin: 0, tz: 'Asia/Kolkata' };
+    expect(actualLabel(india)).toBe('Clocked in 9:04 AM (4 min late)\nClocked out 5:32 PM');
+    expect(actualLabel({ status: 'in_progress', firstIn: '2026-10-12T03:34:00', tz: 'Asia/Kolkata' })).toBe('In progress since 9:04 AM');
+    expect(punchTime('2026-10-12T03:34:00', 'America/Los_Angeles')).toBe('8:34 PM');   // the night before, there
+    expect(punchTime('2026-10-12T03:34:00', 'Not/AZone')).toBe(at('2026-10-12T03:34:00'));   // an unknown zone: the viewer's clock
+    expect(punchTime('2026-10-12T03:34:00', '')).toBe(at('2026-10-12T03:34:00'));
+  });
   it('colors the bar by status, the block\'s own color while in progress, nothing before', () => {
     expect(actualColor('on_time')).toBe('hsl(var(--color-green))');
     expect(actualColor('late')).toBe('hsl(var(--color-orange))');

@@ -2,7 +2,7 @@
 // grid, My Shifts, the team grid, the request cards and the settings. One
 // rule for hours, one for time off, one set of date helpers - the three
 // grids used to disagree on all of them (Shifts QA, 10/02).
-import { formatHHMM, formatTime, formatWeekday, formatMonthDay, formatMonthYear, formatRangeShort, formatDate, weekOfYear } from '../../lib/datetime';
+import { formatHHMM, formatTime, formatTimeIn, formatWeekday, formatMonthDay, formatMonthYear, formatRangeShort, formatDate, weekOfYear } from '../../lib/datetime';
 
 // ── Dates ────────────────────────────────────────────────────────────────
 // The LOCAL calendar date as YYYY-MM-DD. toISOString() is UTC, so east of UTC
@@ -341,20 +341,28 @@ export function actualColor(status, own = DEFAULT_SHIFT_COLOR) {
 }
 export const actualWord = (status) => ACTUAL_WORDS[status] || '';
 // A punch stamp is naive UTC ("2026-10-12T15:04:00", no Z) like every punch
-// the API sends; read as UTC, shown on the viewer's clock.
+// the API sends; read as UTC, shown on the SHIFT'S clock (the cell's `tz`,
+// the zone the scan judged it in - a Los Angeles manager reading an India
+// crew's 9:04 AM clock-in sees 9:04 AM), the viewer's own clock only when
+// the cell carries no zone.
 export function punchDate(iso) {
   if (!iso) return null;
   const t = Date.parse(`${String(iso).slice(0, 19)}Z`);
   return Number.isNaN(t) ? null : new Date(t);
 }
-export const punchTime = (iso) => formatTime(punchDate(iso));
+export function punchTime(iso, tz = '') {
+  const d = punchDate(iso);
+  if (!d) return '';
+  if (tz) { try { return formatTimeIn(d, tz); } catch { /* an unknown zone: the viewer's clock */ } }
+  return formatTime(d);
+}
 // The hover lines, one per fact, joined with newlines (the block's title):
 //   "Clocked in 8:04 AM (4 min late)" / "Clocked out 5:02 PM (23 min early)"
 //   "No clock-in (no-show)" / "Excused: approved time off" / "In progress since 8:04 AM"
 export function actualLabel(a) {
   const status = a?.status;
   if (!status || status === 'upcoming') return '';
-  const inAt = punchTime(a.firstIn), outAt = punchTime(a.lastOut);
+  const inAt = punchTime(a.firstIn, a.tz), outAt = punchTime(a.lastOut, a.tz);
   if (status === 'in_progress') return inAt ? `In progress since ${inAt}` : 'In progress';
   if (status === 'no_show') return 'No clock-in (no-show)';
   if (status === 'excused' || status === 'exempt') return `${ACTUAL_WORDS[status]}${a.excuse ? `: ${a.excuse}` : ''}`;

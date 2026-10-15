@@ -46,6 +46,9 @@ describe('ShiftBlock actuals', () => {
     const { rerender } = render(<ShiftBlock shift={shift} onOpen={() => {}} actual={{ shiftId: 's1', status: 'late', firstIn: '2026-10-12T15:04:00', lastOut: '2026-10-12T23:37:00', lateMin: 4, earlyMin: 23 }} />);
     expect(block().getAttribute('title')).toContain(`Clocked in ${at('2026-10-12T15:04:00')} (4 min late)`);
     expect(block().getAttribute('title')).toContain(`Clocked out ${at('2026-10-12T23:37:00')} (23 min early)`);
+    // With the cell's zone, the hour is the shift's own, not the viewer's.
+    rerender(<ShiftBlock shift={shift} onOpen={() => {}} actual={{ shiftId: 's1', status: 'late', firstIn: '2026-10-12T03:34:00', lateMin: 4, tz: 'Asia/Kolkata' }} />);
+    expect(block().getAttribute('title')).toContain('Clocked in 9:04 AM (4 min late)');
     rerender(<ShiftBlock shift={shift} onOpen={() => {}} actual={{ status: 'no_show' }} />);
     expect(block().getAttribute('title')).toContain('No clock-in (no-show)');
     rerender(<ShiftBlock shift={shift} onOpen={() => {}} actual={{ status: 'excused', excuse: 'approved time off' }} />);
