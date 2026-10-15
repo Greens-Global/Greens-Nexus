@@ -616,18 +616,45 @@ def _red_rows(db: Session, email: str, my_reports: dict) -> list:
 _PUNCH_KIND = {"in": "clock-in", "out": "clock-out", "break_start": "break start", "break_end": "break end"}
 
 
+PUNCH_FIX_GRACE_DAYS = 7   # after its pay period ends, a fix has been paid out
+
+
 def _punch_fix_rows(db: Session, my_reports: dict) -> list:
     """A direct report's timesheet fixes waiting on their manager (Neil, 10/01:
     every module's pending actions, not just tasks): requests to add or remove
     a punch, and proposed new times for a punch. One row per person, like
-    their time off. Decided in Nexus - each one may need a look at the card."""
+    their time off. Decided in Nexus - each one may need a look at the card.
+
+    Not a fix that can no longer matter (Oct 15 2026 - August fixes from
+    the SwipeClock overlap kept showing up in October): one whose pay
+    period ended more than PUNCH_FIX_GRACE_DAYS ago - payroll runs the week
+    after a period closes, so by then it has been paid - or whose period is
+    finalized and locked, where approving it is refused. The fix itself is
+    left exactly as it is; only the reminder stops."""
     if not my_reports:
         return []
+    import timesheet_review
+    from routers.timeclock import _finalized_row
+    cutoff = (datetime.now(timezone.utc).date() - timedelta(days=PUNCH_FIX_GRACE_DAYS)).isoformat()
+    locked_cache: dict = {}
+
+    def locked(email: str, day: str) -> bool:
+        key = ((email or "").lower(), day or "")
+        if key not in locked_cache:
+            if not day:
+                locked_cache[key] = False
+            else:
+                _, end, _ = timesheet_review.period_for(db, key[0], day)
+                locked_cache[key] = end < cutoff or _finalized_row(db, key[0], day) is not None
+        return locked_cache[key]
+
     reports = list(my_reports)
     by_person: dict = {}
     for r in (db.query(models.PunchRequest)
               .filter(models.PunchRequest.status == "pending",
                       func.lower(models.PunchRequest.employee_email).in_(reports)).all()):
+        if locked(r.employee_email, r.local_date):
+            continue
         what = (f"add a {_PUNCH_KIND.get(r.punch_kind, r.punch_kind)}" if r.action == "add" else "remove a punch")
         got = by_person.setdefault((r.employee_email or "").lower(), {"req": [], "edit": [], "since": []})
         got["req"].append((r.local_date or "", f"{what} on {_fmt_date(r.local_date)}"))
@@ -635,7 +662,7 @@ def _punch_fix_rows(db: Session, my_reports: dict) -> list:
     for p in (db.query(models.TimePunch)
               .filter(models.TimePunch.edit_status == "pending",
                       func.lower(models.TimePunch.employee_email).in_(reports)).all()):
-        if p.voided:
+        if p.voided or not p.pending_at or locked(p.employee_email, p.local_date):
             continue
         got = by_person.setdefault((p.employee_email or "").lower(), {"req": [], "edit": [], "since": []})
         got["edit"].append((p.local_date or "", f"a new {_PUNCH_KIND.get(p.kind, p.kind)} time on {_fmt_date(p.local_date)}"))
