@@ -36,13 +36,13 @@ describe('ClockChip', () => {
     expect(container.querySelector('.sbtr-lit').style.getPropertyValue('--sb-lit')).toBe('0');
   });
 
-  it('on break: Pause is lit, Play resumes and the outline has slid to Pause; amber dial', () => {
+  it('on break: Pause is lit, Play is End Break and the outline has slid to Pause; amber dial', () => {
     const vm = working({ state: 'break', timer: '0:14' });
     const { container } = render(<ClockChip vm={vm} />);
     expect(container.querySelector('.sbclock--break .sbring--break')).toBeTruthy();
     expect(btn('On Break').getAttribute('aria-pressed')).toBe('true');
     expect(container.querySelector('.sbtr-lit').style.getPropertyValue('--sb-lit')).toBe('1');
-    fireEvent.click(btn('Resume'));
+    fireEvent.click(btn('End Break'));
     expect(vm.actions.toggleBreak).toHaveBeenCalledTimes(1);
   });
 
@@ -103,10 +103,25 @@ describe('ClockChip', () => {
     expect(fx()).toBe('out');
   });
 
-  it('tooltips name the action and what it does', () => {
-    render(<ClockChip vm={working()} />);
-    const tips = screen.getAllByRole('tooltip').map((t) => t.textContent);
-    expect(tips).toEqual(['Clocked InYou are on the clock', 'Start BreakYour working time pauses', 'Punch OutEnds your shift']);
+  it('tooltips name the action; only a button you cannot press says why (Neil, Oct 14 2026)', () => {
+    vi.useFakeTimers();
+    try {
+      render(<ClockChip vm={working()} />);
+      const tipFor = (name) => {
+        fireEvent.pointerEnter(btn(name));
+        act(() => { vi.advanceTimersByTime(300); });
+        const t = screen.getByRole('tooltip');
+        const out = [t.querySelector('.navtip-label').textContent, t.querySelector('.navtip-detail')?.textContent || ''];
+        fireEvent.pointerLeave(btn(name));
+        act(() => { vi.advanceTimersByTime(5000); });
+        return out;
+      };
+      expect(tipFor('Clocked In')).toEqual(['Clocked In', 'You are on the clock']);   // inert: says why
+      expect(tipFor('Start Break')).toEqual(['Start Break', '']);
+      expect(tipFor('Punch Out')).toEqual(['Punch Out', '']);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('shows the engine\'s note (a declined screen share) as its own line under the head', () => {
@@ -145,7 +160,9 @@ describe('ClockChip', () => {
     expect(vm.actions.startCapture).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole('button', { name: /Screen sharing stopped/ }));
     expect(vm.actions.openClock).toHaveBeenCalledTimes(1);
-    expect(container.querySelector('.sbclock-rail .sbtt[title]')).toBeTruthy();   // the rail uses native titles (ours would clip)
+    // The rail uses the same tooltip as the open sidebar now - drawn on the
+    // page, so the folded sidebar cannot clip it - never the browser's own.
+    expect(container.querySelector('[title]')).toBeNull();
   });
 
   it('onAfterAction fires once the punch resolved, and not when the engine blocked it', async () => {

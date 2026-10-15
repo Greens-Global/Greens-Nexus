@@ -68,12 +68,12 @@ describe('TimeclockWidget break prompts', () => {
     expect(await screen.findByTestId('bod-modal')).toHaveTextContent('break');
   });
 
-  it('Resume from a break gets the resuming-work prompt', async () => {
+  it('End Break gets the resuming-work prompt', async () => {
     timeStatus.status = onBreak();
     punchMock.punchDurable.mockResolvedValue({ ok: true, punch: { kind: 'break_end', at: stamp(new Date()) }, result: {} });
     render(<TimeclockWidget />);
     openChip();
-    fireEvent.click(screen.getByRole('button', { name: 'Resume' }));
+    fireEvent.click(screen.getByRole('button', { name: 'End Break' }));
     expect(await screen.findByTestId('bod-modal')).toHaveTextContent('break_end');
     expect(punchMock.punchDurable).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
