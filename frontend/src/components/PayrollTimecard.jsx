@@ -23,6 +23,7 @@ import { downloadBlob } from './accounting/reportModel';
 import { formatDistance } from '../lib/distance';
 import { usePhotoMap } from '../lib/peoplePhotos';
 import { moneyPrefix } from '../asset/lib/currency';
+import { registerTour } from '../lib/tours';
 
 // ── Payroll timecard (SwipeClock 1:1, manager-editable) ───────────────────────
 // One employee, one pay period (biweekly, SUNDAY-anchored on SwipeClock's real
@@ -361,6 +362,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // table scrolled sideways and hid Hours, OT, Notes and the Work Log.
   const phone = useIsMobile(PHONE_QUERY);
   const [tour, setTour] = useState(false);               // Simulate walkthrough
+  // The Help panel's Take the Tour (lib/tours.js) - a manager's timecard only.
+  useEffect(() => (self ? undefined : registerTour('timecard', 'Timecard', () => setTour(true))), [self]);
   const { can, myEmail } = useRole();
   const isAdmin = can('administrator');
   const [workLogDay, setWorkLogDay] = useState(null);   // date string - opens the Work Log drawer for this day

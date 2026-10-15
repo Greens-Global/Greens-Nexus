@@ -56,8 +56,22 @@ export default function GuidedTour({ steps, onClose }) {
     // the element they're highlighting under <html>'s CSS zoom. See rootZoom.
     const z = rootZoom();
     const r = el.getBoundingClientRect();
-    setRect({ top: r.top / z, left: r.left / z, width: r.width / z, height: r.height / z });
+    const next = { top: r.top / z, left: r.left / z, width: r.width / z, height: r.height / z };
+    // Only a real move re-renders (keeps the settle checks below cheap).
+    setRect((cur) => (cur && Math.abs(cur.top - next.top) < 0.5 && Math.abs(cur.left - next.left) < 0.5
+      && Math.abs(cur.width - next.width) < 0.5 && Math.abs(cur.height - next.height) < 0.5 ? cur : next));
   }, [step]);
+
+  // The page can still be moving when a step lands - the smooth scroll
+  // above, a panel closing, the sidebar sliding shut - and none of that is a
+  // resize or a scroll of the window. Look again as it settles, so the
+  // spotlight sits on the thing, not where it was (Oct 14 2026: it sat a
+  // card's margin to the right of an Item Management card).
+  useEffect(() => {
+    if (!step?.target) return undefined;
+    const timers = [180, 420, 800].map((ms) => setTimeout(locate, ms));
+    return () => timers.forEach(clearTimeout);
+  }, [i, step, locate]);
 
   useLayoutEffect(() => {
     findTries.current = 0;

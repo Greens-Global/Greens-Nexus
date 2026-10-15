@@ -33,6 +33,7 @@ import PersonView from '../tasks/PersonView';
 import { EMPTY_FILTER, taskIdFromUrl } from '../tasks/lib';
 import { buildTaskTourSteps } from '../tasks/taskTourSteps';
 import { api } from '../api';
+import { registerTour } from '../lib/tours';
 
 // Tour id this module reports to the server (routers/user_tours.py). "Seen"
 // is per person, not per browser or machine - see GET/POST /tours.
@@ -171,11 +172,13 @@ export default function Tasks({ activeSub, onSubChange, onNavigate }) {
     window.addEventListener('nexus:tasks-person', openPerson);
     window.addEventListener('nexus:tasks-search', openSearch);
     window.addEventListener('nexus:tasks-tour', openTour);
+    const unTour = registerTour('tasks', 'Tasks', openTour);   // the Help panel's Take the Tour (lib/tours.js)
     return () => {
       window.removeEventListener('nexus:open-task', openTask);
       window.removeEventListener('nexus:tasks-person', openPerson);
       window.removeEventListener('nexus:tasks-search', openSearch);
       window.removeEventListener('nexus:tasks-tour', openTour);
+      unTour();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
