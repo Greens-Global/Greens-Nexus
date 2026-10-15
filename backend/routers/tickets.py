@@ -1126,8 +1126,15 @@ def _ticket_privileged(db: Session, t: models.TaskTicket, user: dict) -> bool:
     department it is ABOUT, so that handed silent full edit rights over other
     people's requests to whoever happened to lead the named department - who is
     no longer notified about them and never owned them. The IT Admin desk owns
-    tickets, and administrators clear the manager+ bar already."""
-    return user.get("level", 1) >= 3
+    tickets, and administrators clear the manager+ bar already.
+
+    Global Admins count too, whatever their role (Pranshu, Oct 15 2026)."""
+    if user.get("level", 1) >= 3:
+        return True
+    if "_ticket_global_admin" not in user:   # once per request - list paths call this per row
+        import auth
+        user["_ticket_global_admin"] = auth.is_global_admin(user, db)
+    return user["_ticket_global_admin"]
 
 
 # ── Tasks from tickets (Oct 14 2026) ────────────────────────────────────────
@@ -2672,6 +2679,7 @@ def my_ticket_access(user: dict = Depends(get_current_user), db: Session = Depen
     `canDelete`, `canManageDesk` - so the screens show exactly what the server
     will allow instead of re-deriving it from the module grants."""
     return {"onDesk": _on_desk(db, user), "canAct": _is_agent(db, user),
+            "privileged": _ticket_privileged(db, None, user),
             **ticket_roles.capabilities(user, db)}
 
 

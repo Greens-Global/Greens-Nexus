@@ -15,6 +15,7 @@ import { api } from '../api';
 export const NO_DESK_ACCESS = Object.freeze({
   role: 'requester', deskAccess: 'legacy', onDesk: false, canAct: false,
   canWorkQueue: false, canReadInternal: false, canAssign: false, canDelete: false, canManageDesk: false,
+  privileged: false,   // manager+ or Global Admin - full ticket edit rights
 });
 
 export function useTicketAccess() {

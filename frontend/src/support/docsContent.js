@@ -571,7 +571,7 @@ export const DOCS = [
         steps: [
           'Open Tickets and click the Unassigned tile (or the Assigned to Me tab).',
           'Click a row to open the full thread, attachments and history.',
-          'Set yourself as the assignee. The status moves to In Progress on its own.',
+          'Set yourself as the assignee. The status moves to In Progress on its own. From then on only the assignee, managers and Global Admins can change the ticket - everyone else can still reply.',
           'Click Done. Nothing on an open ticket is saved or sent until you do.',
         ],
       },
