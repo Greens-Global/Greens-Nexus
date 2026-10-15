@@ -238,6 +238,21 @@ describe('MyShifts parts (Workday vs Team, Oct 13 2026)', () => {
   });
 });
 
+describe('MyShifts compact (Workday > My Schedule, Oct 15 2026)', () => {
+  it('shows the week as seven chips, a shift chip asks for a swap, and availability is behind a toggle', async () => {
+    render(<MyShifts compact />);
+    await screen.findByRole('status', { name: 'Week summary' });
+    expect(document.querySelectorAll('[data-day]')).toHaveLength(7);
+    expect(screen.queryByRole('table', { name: 'Store schedule' })).toBeNull();
+    expect(screen.queryByText('Usual Hours')).toBeNull();                  // no day cards
+    expect(screen.queryByText('Edit Availability')).toBeNull();            // folded until opened
+    fireEvent.click(screen.getByRole('button', { name: 'My Availability' }));
+    expect(await screen.findByText('Edit Availability')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /request a swap or offer/ }));
+    expect(screen.getByRole('dialog', { name: 'New Request' })).toBeTruthy();
+  });
+});
+
 describe('MyShifts requests', () => {
   it('opens the request dialog from a shift with it filled in, and sends a swap', async () => {
     render(<MyShifts />);

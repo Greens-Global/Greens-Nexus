@@ -14,6 +14,7 @@ import { timeOffLabel } from '../components/shiftScheduleLib';
 import EgnytePreview from '../egnyte/EgnytePreview';
 import { canPreview } from '../egnyte/lib';
 import { MyChecklistSteps } from '../components/HrChecklists';
+import MyShifts from '../components/MyShifts';
 
 // My HR - employee self-service. Shows ONLY the signed-in person's own record:
 // profile (with self-service contact edits), hours graph, equipment, sealed
@@ -327,7 +328,8 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, clock = null }) {
     finally { setAskBusy(false); }
   };
 
-  const goMyShifts = () => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'myhr', sub: 'shifts' } }));
+  // Today's Shift on the hero: the My Schedule card further down this page.
+  const goMyShifts = () => document.getElementById('myhr-schedule')?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
   const goInventory = () => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'inventory', sub: 'checkouts' } }));
 
   // ── Derived stats ──
@@ -404,7 +406,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, clock = null }) {
                 tile, so their shift gets a tile of its own. */}
             {!hoursExempt ? (
               /* Two targets in one tile (Oct 2): the hours open the Time
-                 Sheet, today's shift opens Workday > My Shifts. */
+                 Sheet, today's shift scrolls to My Schedule below. */
               <div className="dk-stat dk-stat--hero wd-stat wd-hero" style={{ cursor: 'default' }}>
                 <button type="button" className="wd-hero-part" onClick={onOpenTimeSheet} disabled={!onOpenTimeSheet}
                   title={`Your punched hours from ${formatDate(rStart)} to ${formatDate(rEnd)}, after breaks${openMin ? ', including the shift you are on now' : ''}. Opens your Time Sheet.`}>
@@ -642,13 +644,19 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, clock = null }) {
                   fetchPreview={myhrFetchPreview} downloadFile={myhrDownloadFile} />
               )}
 
-              {/* Time Off: what is coming up. Requesting and the full history
+              {/* My Schedule (Pranshu, Oct 15 2026): your week of shifts (the
+                  compact MyShifts, with swap/offer requests and availability)
+                  over the time off coming up - one card, both halves of your
+                  schedule, in the slot the Time Off card had so nothing else on
+                  the Overview moves. Requesting time off and the full history
                   live on the Time Off tab (one surface, not two). */}
-              <div className="dash-card" style={{ display: 'flex', flexDirection: 'column' }}>
-                {cardHead('Time Off', 'Coming up - pending and approved',
+              <div className="dash-card" id="myhr-schedule" style={{ display: 'flex', flexDirection: 'column', scrollMarginTop: 80 }}>
+                {cardHead('My Schedule', 'Your shifts, and time off coming up',
                   pendingCount > 0
                     ? <span style={{ padding: '2px 10px', borderRadius: 14, fontSize: 11, fontWeight: 700, background: STATUS_META.pending.bg, color: STATUS_META.pending.fg }}>{pendingCount} Pending</span>
                     : <CalendarOff size={15} style={{ color: 'var(--muted)' }} />)}
+                <MyShifts part="mine" compact />
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.04em', color: 'var(--muted)', textTransform: 'uppercase', margin: '14px 0 2px' }}>Time Off Coming Up</div>
                 {leave === null ? (
                   <LoadingState compact />
                 ) : leave === false ? (

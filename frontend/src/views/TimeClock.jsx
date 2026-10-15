@@ -24,7 +24,6 @@ import { MyHROverview } from './MyHR';
 import { leaveRequestDays, openShiftMinutes } from '../lib/workdayStats';
 import { timeOffLabel } from '../components/shiftScheduleLib';
 import WorkdayShiftRequests from '../components/shifts/WorkdayShiftRequests';
-import MyShifts from '../components/MyShifts';
 import { formatDistance, formatAccuracy } from '../lib/distance';
 import { recallTimeExempt, rememberTimeExempt } from '../lib/timeTracking';
 import { pairLocalAgent } from '../lib/agentPair';
@@ -60,15 +59,14 @@ const KIND_DONE = { in: 'Punched in', out: 'Punched out', break_start: 'Break st
 // breadcrumb via <ModuleTabs syncTitle> below.
 const TAB_META = {
   overview:  { title: 'Workday',    label: 'Overview' },
-  // Your own shifts live here again (Neil, Oct 13 2026: "the personal shift
-  // data should move into your Workday"); the group's week is Team > Shifts.
-  shifts:    { title: 'My Shifts',  label: 'My Shifts' },
   timesheet: { title: 'Time Sheet', label: 'Time Sheet' },
   timeoff:   { title: 'Time Off',   label: 'Time Off' },
 };
-// The Clock tab folded into Overview (Oct 2) - a bookmark, a bell or an
-// email that still says 'clock' lands there.
-const tabFor = (sub) => (sub === 'clock' ? 'overview' : sub);
+// The Clock tab folded into Overview (Oct 2), and so did your own shifts
+// (Neil, Oct 13 2026: "the personal shift data should move into your
+// Workday" - the My Schedule card on Overview, MyHR.jsx) - a bookmark, a
+// bell or an email that still says 'clock' or 'shifts' lands there.
+const tabFor = (sub) => (sub === 'clock' || sub === 'shifts' ? 'overview' : sub);
 // Work OS card-header title (sentence case, no uppercase tracking).
 const HD = { fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' };
 
@@ -453,8 +451,8 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   useEffect(() => {   // overview | clock | shifts | timesheet | timeoff
     const t = tabFor(activeSub);
     if (TAB_META[t] && t !== tab) setTab(t);
-    // An old 'clock' address already shows Overview - rewrite it to say so.
-    else if (activeSub === 'clock' && onSubChange) onSubChange(tab);
+    // An old 'clock' or 'shifts' address already shows Overview - rewrite it to say so.
+    else if ((activeSub === 'clock' || activeSub === 'shifts') && onSubChange) onSubChange(tab);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSub]);
   useEffect(() => {
@@ -1224,8 +1222,8 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
         tabs={(exempt
           /* Salaried/exempt (Charmi, Aug 21): no punch card, no timesheet -
              time off is the only surface that applies. */
-          ? ['overview', 'shifts', ...(toReview > 0 || tab === 'timesheet' ? ['timesheet'] : []), 'timeoff']
-          : ['overview', 'shifts', 'timesheet', 'timeoff']
+          ? ['overview', ...(toReview > 0 || tab === 'timesheet' ? ['timesheet'] : []), 'timeoff']
+          : ['overview', 'timesheet', 'timeoff']
         ).map((key) => ({ key, label: TAB_META[key].label, title: TAB_META[key].title }))}
         active={tab} onChange={setTab} syncTitle />
 
@@ -1242,8 +1240,6 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       {tab === 'overview' && (
         <MyHROverview clock={clockWidget} onOpenTimeOff={() => setTab('timeoff')} onOpenTimeSheet={exemptKnown ? undefined : () => setTab('timesheet')} />
       )}
-
-      {tab === 'shifts' && <MyShifts part="mine" />}
 
       {/* Timesheets submitted to me, not decided yet - above my own timesheet,
           for exempt reviewers too. Renders nothing when nothing is waiting. */}

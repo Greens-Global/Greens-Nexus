@@ -184,7 +184,7 @@ export const DOCS = [
     tagline: 'Clock in and out, check your hours and request time off.',
     where: 'Left menu > Workday',
     access: 'Everyone (employees)',
-    purpose: 'Workday is everything about your own time and HR record in one place. Overview opens with the Time Clock, so you punch in and out (with breaks) from the page you land on; below it are your hours, documents, upcoming time off and profile. My Shifts shows your own week of shifts, time off and holidays. Check your time sheet for the pay period, request time off, and keep your contact and emergency details up to date. Only you see your own Workday.',
+    purpose: 'Workday is everything about your own time and HR record in one place. Overview opens with the Time Clock, so you punch in and out (with breaks) from the page you land on; below it are your hours, documents, upcoming time off and profile. My Schedule on the Overview shows your week of shifts and the time off coming up. Check your time sheet for the pay period, request time off, and keep your contact and emergency details up to date. Only you see your own Workday.',
     gains: [
       'Get paid correctly. Every punch is timestamped and tagged with where it happened.',
       'See your hours for this pay period, day by day, before payroll does.',
@@ -229,7 +229,7 @@ export const DOCS = [
     features: [
       { name: 'Overview', desc: 'Opens with a greeting and three tiles: Hours This Week with your shift for today beside it (from Shifts - or No Shift Today), Time Off This Year (approved working days, Monday to Friday, a partial day counted as its share of 8 hours) and Time With Us (from the start date on your HR record - ask HR if it is wrong). Then the Time Clock, then your profile, contact and emergency details, assigned equipment and checkouts, My Documents (signed documents, the files HR keeps for you and your paystubs, by folder), upcoming time off, and Ask HR (New Request opens the form; your requests and the answers from HR are listed). Only you see this page.' },
       { name: 'Time Clock', desc: 'On Overview: Punch In, Start Break, End Break and Punch Out with a live dial for the shift you are on and where the punch was recorded. Beside it, your hours with a Today / This Week / Pay Period switch - the total, days worked, daily average and breaks, then the punches of the day on a timeline or daily bars against an 8-hour line. Time Sheet opens every punch, day by day.' },
-      { name: 'My Shifts', desc: 'Your own week (moved here from the Shifts module on 10/13/2026): a line that sums it up - shifts, paid hours, time off and your next shift - then your days one by one. Request under a shift asks to swap or offer it; weather calls on your days wait here for you to acknowledge, and your availability is at the bottom. Your group\'s week is in Team > Shifts.' },
+      { name: 'My Schedule', desc: 'On the Overview (your own shifts moved here from the Shifts module on 10/13/2026): your week as seven day chips with a line that sums it up - shifts, paid hours, time off and your next shift - then the time off coming up and Request Time Off. Click a shift chip to ask for a swap or offer; weather calls on your days wait here for you to acknowledge; My Availability opens under the week. Your group\'s week is in Team > Shifts.' },
       { name: 'Time Sheet', desc: 'Your hours this pay period, day by day. Sick, vacation and personal hours show on their own lines. To ask for missing time, click + add on the day, pick its Type - Regular, Break, Sick, Vacation or Personal - set the start and end, and give a reason. Times are in your own timezone. The request shows on its day as Not Yet Approved, with your reason, until your approver decides - it is not in your hours until then. The Notes column is yours: click a day to leave a note for your manager (they see it on your timecard; their own notes on your days are never shown to you).' },
       { name: 'Time Off', desc: 'Request time off: a Reason (Personal, Sick, Vacation or Medical Appointment), the dates, and an optional Note. Keep this confidential shows your team only that you are out and the reason, never the note. Every request you have made is listed under My Requests as Pending, Approved, Rejected or Cancelled, and you can cancel one that is pending or approved.' },
       { name: 'Location Tag', desc: 'Each punch shows the location you were at when you punched, judged by where the punch was made, even if you move between several locations in a day. A punch inside any of your company locations shows that site; a punch away from all of them shows Out of Location, and that time is never billed to the nearest site. A punch from a device with no GPS (a desktop) often gets only a rough location and shows Approx. Location, because it is too rough to tell which site you were at - punch from your phone for a precise one. A rough location that is nowhere near any site still shows Out of Location. Remote staff can punch from anywhere, and their location is still recorded. Click a location on the timecard to see the punches of that shift on the map; a manager can also change the location of the punch from there.' },
@@ -313,7 +313,7 @@ export const DOCS = [
     id: 'shifts', name: 'Team', group: 'My Desk', icon: 'Users', view: 'shifts',
     tagline: 'Reach anyone in the company and see your group\'s shifts; managers build and share the schedule.',
     where: 'Left menu > Team (managers: Schedule and Requests tabs)',
-    access: 'Everyone sees Contact and Shifts. Managers and above also get Schedule (the grid) and Requests (the inbox). Your own shifts are in Workday > My Shifts. Shift types and groups are in Settings > Global Settings > Shifts; staff ask for swaps, offers and open shifts in Workday > Time Off.',
+    access: 'Everyone sees Contact and Shifts. Managers and above also get Schedule (the grid) and Requests (the inbox). Your own shifts are in Workday > My Schedule. Shift types and groups are in Settings > Global Settings > Shifts; staff ask for swaps, offers and open shifts in Workday > Time Off.',
     purpose: 'Team is everything about the people you work with. Contact is the company directory: find anyone, see who is on shift or off today, and reach them on Teams, by phone or by email. Shifts is your group\'s week, with you pinned at the top. Managers open Schedule to place shifts on a weekly grid, fill a whole group from a shift type in one go, post open shifts and Share when it is ready. Nothing reaches the team until it is shared.',
     gains: [
       'Find and reach anyone in the company, with who is in and who is off today.',
@@ -328,7 +328,7 @@ export const DOCS = [
       {
         title: 'Check When You Work',
         steps: [
-          'Open Workday from the left menu and click My Shifts.',
+          'Open Workday from the left menu and find My Schedule on the Overview.',
           'Read your next shift and this week\'s hours at the top, then your week day by day.',
           'To see who else is on, open Team and click Shifts. You are pinned at the top, and a green dot marks who is on shift now.',
         ],
@@ -344,7 +344,7 @@ export const DOCS = [
       {
         title: 'Swap or Offer a Shift',
         steps: [
-          'In Workday > My Shifts, click Request under one of your shifts and pick Swap or Offer.',
+          'In Workday > My Schedule, click one of your shift chips and pick Swap or Offer.',
           'Pick the teammate (and, for a swap, one of their shifts).',
           'Send it. Once your teammate accepts, it goes to a manager to approve.',
         ],
@@ -379,7 +379,7 @@ export const DOCS = [
         steps: [
           'Click Publish. The button counts the changes waiting.',
           'Choose who hears about it: only people whose shifts changed, or the whole team.',
-          'Click Publish. Staff see the shifts in Workday > My Shifts.',
+          'Click Publish. Staff see the shifts in Workday > My Schedule.',
         ],
       },
       {
@@ -393,8 +393,8 @@ export const DOCS = [
     ],
     features: [
       { name: 'Contact', desc: 'Reach anyone in the company (moved here from Support on 10/13/2026): Teams chat, call or video, email (opens Outlook in a new tab), phone numbers and who they report to. Every person shows whether they are on shift (On Shift, On Break, Off Shift, Off Today) and their Teams status (Available, Busy, On a Call, Away, Out of Office, Offline). Three lenses on the same people - Departments (A-Z, across every company), Reporting Line, and Org Chart (the company as a tree of cards you pan and zoom). Export PDF prints the people shown as a contact sheet with the reporting line. HR and administrators get a Manage button that shows what is still missing (managers, titles, photos, phones).' },
-      { name: 'Shifts', desc: 'Everyone: your group\'s week, with you pinned at the top and open shifts you can ask to take. Your own week is Workday > My Shifts.' },
-      { name: 'Requests From Staff', desc: 'In Workday > Time Off > Shift Requests: ask for an open shift, swap or offer a shift to a teammate. My Availability is on Workday > My Shifts. Every request goes to a manager.' },
+      { name: 'Shifts', desc: 'Everyone: your group\'s week, with you pinned at the top and open shifts you can ask to take. Your own week is Workday > My Schedule.' },
+      { name: 'Requests From Staff', desc: 'In Workday > Time Off > Shift Requests: ask for an open shift, swap or offer a shift to a teammate. My Availability is on Workday > My Schedule. Every request goes to a manager.' },
       { name: 'Add', desc: 'Managers and above: one button on the Schedule for a shift, an open shift, time off or a day note. Editing opens a panel on the right so the grid stays in view.' },
       { name: 'Schedule', desc: 'The grid: one row per person, grouped by shift group, with Day, Week and Month views, Today and the arrows to move around.' },
       { name: 'Open Shifts', desc: 'A row of shifts nobody holds yet, with how many spots each needs. Staff can ask to take one.' },
@@ -413,7 +413,7 @@ export const DOCS = [
     manager: {
       title: 'Who Can Do What',
       points: [
-        'Everyone sees their own shifts (Workday > My Shifts) and their group\'s (Team > Shifts). The schedule itself is read-only for them.',
+        'Everyone sees their own shifts (Workday > My Schedule) and their group\'s (Team > Shifts). The schedule itself is read-only for them.',
         'Managers and above see Schedule and Requests, and build and share schedules there.',
         'Request settings (under Requests) decide whether staff can request open shifts, swap, offer shifts, see teammates\' shifts and request time off.',
       ],
@@ -422,7 +422,7 @@ export const DOCS = [
       'A star on a shift means it is a draft the team cannot see yet.',
       'Scheduled hours leave out the unpaid break, so a 9:00 AM to 5:00 PM shift with a 30-minute lunch counts as 7.5 hours.',
       'Ctrl+C over a shift and Ctrl+V over a day copies it, like in Teams.',
-      'Shifts became its own module on 09/29/2026 and part of Team on 10/13/2026, when your own shifts moved to Workday > My Shifts. Old Shifts and Contact Directory links still land in the right place.',
+      'Shifts became its own module on 09/29/2026 and part of Team on 10/13/2026, when your own shifts moved to Workday > My Schedule. Old Shifts and Contact Directory links still land in the right place.',
     ],
   },
 
