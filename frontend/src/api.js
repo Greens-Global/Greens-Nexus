@@ -2201,6 +2201,27 @@ export const api = {
   createAmaAgreement:  (body)     => req('/accounting/ama/agreements', { method: 'POST', body: JSON.stringify(body) }),
   updateAmaAgreement:  (id, body) => req(`/accounting/ama/agreements/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
   deleteAmaAgreement:  (id)       => req(`/accounting/ama/agreements/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  // Accounting > Reporting > AMA, Ask My Accountant (Neil, 10/15,
+  // routers/accounting_ask.py): questions on ledger lines + the lines on the
+  // Ask My Accountant (suspense) accounts. The agreements above are now
+  // "Management Fees" on screen; their API did not move.
+  getAskItems:         ({ entity, from, to } = {}) => {
+    const qs = new URLSearchParams();
+    if (entity) qs.set('entity', entity);
+    if (from) qs.set('from', from);
+    if (to) qs.set('to', to);
+    const s = qs.toString();
+    return req(`/accounting/ask/items${s ? `?${s}` : ''}`);
+  },
+  getAskThread:        (id)       => req(`/accounting/ask/threads/${encodeURIComponent(id)}`),
+  askAccountant:       (body)     => req('/accounting/ask/threads', { method: 'POST', body: JSON.stringify(body) }),
+  replyAskThread:      (id, text) => req(`/accounting/ask/threads/${encodeURIComponent(id)}/messages`, { method: 'POST', body: JSON.stringify({ body: text }) }),
+  resolveAskThread:    (id, body = {}) => req(`/accounting/ask/threads/${encodeURIComponent(id)}/resolve`, { method: 'POST', body: JSON.stringify(body) }),
+  reopenAskThread:     (id)       => req(`/accounting/ask/threads/${encodeURIComponent(id)}/reopen`, { method: 'POST', body: '{}' }),
+  assignAskThread:     (id, accountant) => req(`/accounting/ask/threads/${encodeURIComponent(id)}/accountant`, { method: 'PUT', body: JSON.stringify({ accountant }) }),
+  getAskSettings:      ()         => req('/accounting/ask/settings'),
+  saveAskSettings:     (body)     => req('/accounting/ask/settings', { method: 'PUT', body: JSON.stringify(body) }),
+  getAskChart:         ()         => req('/accounting/ask/chart'),
   // ── Dashboard Essentials tiles (Oct 7): My Work, My Team, Announcements.
   //    routers/my_work.py, my_team.py (supervisor+), announcements.py.
   //    My Day reads getMyBriefing / actOnMyBriefing; My Time reads
