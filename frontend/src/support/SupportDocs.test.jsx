@@ -123,7 +123,8 @@ describe('Support documentation', () => {
     render(<SupportDocs canImplement />);
     expect(screen.getByRole('tab', { name: /Module Guides/ }).getAttribute('aria-selected')).toBe('true');
     fireEvent.click(screen.getByRole('tab', { name: /Implementation Guide/ }));
-    expect(screen.getByRole('heading', { name: 'Set Nexus Up for an Organization' })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: /Implementation Guide/ }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.queryByRole('navigation', { name: 'On this page' })).toBeNull();      // the module layout gives way to the guide
     expect(screen.queryByLabelText('Search the documentation')).toBeNull();   // the module search is for module guides
     fireEvent.click(screen.getByRole('tab', { name: /Module Guides/ }));
     expect(screen.getByLabelText('Search the documentation')).toBeTruthy();

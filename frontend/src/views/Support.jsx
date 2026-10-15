@@ -449,7 +449,8 @@ export default function Support({ activeSub, onSubChange }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       <ModuleTabs tabs={SUPPORT_TABS} active="help" onChange={setTab} />
 
-      {tab !== 'help' && (
+      {/* Documentation has its own back arrow in its toolbar (Oct 15 2026). */}
+      {tab !== 'help' && tab !== 'documentation' && (
         <button type="button" onClick={() => setTab('help')}
           style={{ alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px 6px 8px', borderRadius: 8,
             border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', marginBottom: -8 }}>
@@ -459,7 +460,7 @@ export default function Support({ activeSub, onSubChange }) {
 
       {tab === 'documentation' ? (
         <Suspense fallback={<SkeletonBlocks count={4} height={120} />}>
-          <SupportDocs canImplement={canImplement} startOnGuide={onGuide} />
+          <SupportDocs canImplement={canImplement} startOnGuide={onGuide} onBack={() => setTab('help')} />
         </Suspense>
       ) : (<>
       <div className="view-header">
