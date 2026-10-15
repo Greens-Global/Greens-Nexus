@@ -27,6 +27,7 @@ import { stackRows } from './DashboardGrid.jsx';
 import { firstFreeSpot } from './useDashboards.js';
 import { nextPunch, deriveMyTime } from './essentials/usePunchClock.jsx';
 import { configValid } from './WidgetGallery.jsx';
+import { queryClient } from '../lib/queryClient';
 
 const NOW = new Date(2026, 9, 11, 10, 30);
 const localKey = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
@@ -38,6 +39,7 @@ beforeEach(() => {
   vi.useFakeTimers({ shouldAdvanceTime: true });
   vi.setSystemTime(NOW);
   vi.clearAllMocks();   // call counts start at zero in every test
+  queryClient.clear();  // the punch tiles read the shared /timeclock/status query
   roleMock.timeTrackingExempt = false;
   punchMock.readPending.mockReturnValue(null);
   apiMock.timeStatus.mockResolvedValue({ lastPunch: { kind: 'out', at: stamp(new Date(NOW.getTime() - 60 * 60000)), localDate: TODAY }, allowed: ['in'], days: {} });
@@ -138,6 +140,16 @@ describe('Action Tile render', () => {
     render(<Action config={{ action: 'punch' }} size={{ w: 2, h: 2 }} />);
     fireEvent.click(await screen.findByRole('button', { name: /Punch In/ }));
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Punch failed.'));
+  });
+
+  it('a known failure reads in a few words on the tile (no tooltip on a phone)', async () => {
+    window.__nexusCapture = { start: async () => false, stop: vi.fn() };
+    try {
+      render(<Action config={{ action: 'punch' }} size={{ w: 2, h: 1 }} />);
+      fireEvent.click(await screen.findByRole('button', { name: /Punch In/ }));
+      await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Share a screen to clock in.'));
+      expect(punchMock.punchDurable).not.toHaveBeenCalled();
+    } finally { delete window.__nexusCapture; }
   });
 
   it('on a break the one punch is End Break; clocked in it is Punch Out with hours so far', () => {

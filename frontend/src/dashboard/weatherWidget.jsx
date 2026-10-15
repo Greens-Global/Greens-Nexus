@@ -5,6 +5,7 @@ import {
 import { api } from '../api';
 import { SkeletonBlocks } from '../components/AsyncState';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
+import { formatHHMM, formatTime, formatWeekday } from '../lib/datetime';
 import { WEATHER_DEFAULT, sky, TONE } from './weatherLib';
 
 // ── Weather widget (Neil, Sep 29: "a weather widget for the main screen ...
@@ -19,16 +20,27 @@ import { WEATHER_DEFAULT, sky, TONE } from './weatherLib';
 
 const HERE_KEY = 'nexus.weather.here';   // last known coords, so a revisit paints at once
 const REFRESH_MS = 15 * 60 * 1000;
+// A location prompt nobody answers never times out (the browser's own timeout
+// only starts once permission is given), so after this long with no answer and
+// nothing cached the tile offers the city picker instead of spinning forever.
+const LOCATE_WAIT_MS = 10000;
+
+// Content heights the layers need (desktop tile, inside the card padding):
+// header ~19, now ~61, detail chips ~49, the 12-hour strip ~87, the sunrise /
+// "Updated" footer ~17, 10px between each. Each tier shows only what fits -
+// the shell clips, so a layer that does not fit is left out, never cut.
+const MID_MIN_H = 160;      // header + now + details (~148)
+const FOOTER_MIN_H = 185;   // ... + footer (~175)
+const FULL_MIN_H = 285;     // ... + the hourly strip (~272)
+const DAY_ROW_H = 27;
 
 const deg = (v) => (v == null ? '-' : `${Math.round(v)}°`);
 // "2026-09-28T20:00" (the place's own wall clock) -> "8 PM"
 const hourLabel = (iso) => { const h = Number(iso.slice(11, 13)); return `${h % 12 || 12} ${h >= 12 ? 'PM' : 'AM'}`; };
-const clock12 = (iso) => {
-  if (!iso) return '';
-  const [h, m] = iso.slice(11, 16).split(':').map(Number);
-  return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
-};
-const dayLabel = (ymd, i) => (i === 0 ? 'Today' : new Date(`${ymd}T12:00`).toLocaleDateString('en-US', { weekday: 'short' }));
+// The place's own wall clock ("2026-09-28T06:40") -> "6:40 AM", never moved
+// into the viewer's zone.
+const clock12 = (iso) => (iso ? formatHHMM(iso.slice(11, 16)) : '');
+const dayLabel = (ymd, i) => (i === 0 ? 'Today' : formatWeekday(ymd, 'short'));
 const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 const compass = (d) => (d == null ? '' : COMPASS[Math.round(d / 45) % 8]);
 
@@ -68,7 +80,7 @@ function useBox() {
   return [ref, box];
 }
 
-export default function WeatherWidget({ config = {}, updateConfig }) {
+export default function WeatherWidget({ config = {}, updateConfig, phone = false }) {
   const cfg = { ...WEATHER_DEFAULT, ...config };
   const units = cfg.units === 'metric' ? 'metric' : 'imperial';
   const [ref, box] = useBox();
@@ -83,12 +95,16 @@ export default function WeatherWidget({ config = {}, updateConfig }) {
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const [placeName, setPlaceName] = useState('');
+  const [searching, setSearching] = useState(false);   // the picker has a query: give it the room
 
   // Resolve WHERE: a picked city is fixed; "my location" asks the browser.
   useEffect(() => {
     if (cfg.mode === 'place') return undefined;
-    let live = true;
+    let live = true, answered = false;
+    const wait = setTimeout(() => { if (live && !answered && !readHere()) setLocErr('pending'); }, LOCATE_WAIT_MS);
     locate().then((p) => {
+      answered = true;
+      clearTimeout(wait);
       if (!live) return;
       if (p.error) { if (!readHere()) setLocErr(p.error); return; }
       const next = { lat: p.lat, lon: p.lon };
@@ -97,7 +113,7 @@ export default function WeatherWidget({ config = {}, updateConfig }) {
       // Same ~1 km cell as the cached spot: keep it (no second fetch).
       setHere(w => (w && w.lat.toFixed(2) === next.lat.toFixed(2) && w.lon.toFixed(2) === next.lon.toFixed(2) ? w : next));
     });
-    return () => { live = false; };
+    return () => { live = false; clearTimeout(wait); };
   }, [cfg.mode]);
 
   const load = useCallback(async () => {
@@ -131,11 +147,12 @@ export default function WeatherWidget({ config = {}, updateConfig }) {
     updateConfig?.({ mode: 'place', place });
   };
 
-  const tier = box.h < 190 || box.w < 250 ? 'compact' : 'full';
-  // The outlook fills whatever height is left under now / details / hours
-  // (about 290px) - as many days as fit, up to seven - so a tile never
-  // shows a blank band and never needs its own scrollbar.
-  const dayRows = Math.min(7, Math.floor((box.h - 290) / 27));
+  const tier = box.h < MID_MIN_H || box.w < 250 ? 'compact' : box.h < FULL_MIN_H ? 'mid' : 'full';
+  const showFooter = box.h >= FOOTER_MIN_H;
+  // The outlook fills whatever height is left under now / details / hours /
+  // footer - as many days as fit, up to seven - so a tile never shows a
+  // blank band and never needs its own scrollbar.
+  const dayRows = tier === 'full' ? Math.min(7, Math.floor((box.h - FULL_MIN_H - 10) / DAY_ROW_H)) : 0;
   const s = data ? sky(data.current.code, data.current.isDay) : null;
   const rgb = TONE[s?.tone || 'cloud'];
   const title = where?.fixed
@@ -150,20 +167,29 @@ export default function WeatherWidget({ config = {}, updateConfig }) {
     </div>
   );
 
-  // ── No location yet: the browser refused / cannot, and nothing cached ──
+  // ── No location yet: the browser refused / cannot / never answered, and
+  // nothing cached. At 2x2 there are ~88px inside the card, so a small tile
+  // drops the heading, says it in a few words, and hides even that while a
+  // search is typed so the results have the room. ──
   if (!where && (locErr || cfg.mode === 'place')) {
+    const small = box.h < MID_MIN_H || box.w < 250;
+    const msg = locErr === 'denied'
+      ? (small ? 'Location is off. Pick a city.' : 'Location is turned off for Nexus in this browser. Pick a city instead, or allow location and reload.')
+      : locErr === 'pending'
+        ? (small ? 'No location yet. Pick a city.' : 'Your browser has not shared your location yet. Pick a city instead, or answer its location prompt.')
+        : 'Pick a city to see its weather.';
     return shell(
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <MapPin size={16} style={{ color: 'var(--muted)' }} />
-          <div style={{ fontSize: 13.5, fontWeight: 700 }}>Weather</div>
-        </div>
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', lineHeight: 1.45 }}>
-          {locErr === 'denied'
-            ? 'Location is turned off for Nexus in this browser. Pick a city instead, or allow location and reload.'
-            : 'Pick a city to see its weather.'}
-        </div>
-        <CityPicker onPick={pickCity} autoFocus={false} />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: small ? 6 : 10, flex: 1, minHeight: 0 }}>
+        {!small && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+            <MapPin size={16} style={{ color: 'var(--muted)' }} />
+            <div style={{ fontSize: 13.5, fontWeight: 700 }}>Weather</div>
+          </div>
+        )}
+        {!(small && searching) && (
+          <div title={msg} style={{ fontSize: small ? 12 : 12.5, color: 'var(--muted)', lineHeight: 1.45, flexShrink: 0 }}>{msg}</div>
+        )}
+        <CityPicker onPick={pickCity} autoFocus={false} fill phone={phone} onSearching={setSearching} />
       </div>,
     );
   }
@@ -181,8 +207,11 @@ export default function WeatherWidget({ config = {}, updateConfig }) {
       {where.fixed ? <MapPin size={13} style={{ color: `rgb(${rgb})`, flexShrink: 0 }} /> : <Navigation size={12} style={{ color: `rgb(${rgb})`, flexShrink: 0 }} />}
       <span title={where.fixed ? title : `${title} - from your location`}
         style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</span>
+      {/* A 36px target on a phone; the negative margin keeps the header line
+          its desktop height so the size tiers still hold. */}
       <button type="button" onClick={load} disabled={busy} title="Refresh" aria-label="Refresh weather"
-        style={{ marginLeft: 'auto', border: 'none', background: 'none', padding: 2, cursor: busy ? 'default' : 'pointer', color: 'var(--muted)', display: 'flex', flexShrink: 0 }}>
+        style={{ border: 'none', background: 'none', cursor: busy ? 'default' : 'pointer', color: 'var(--muted)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+          ...(phone ? { width: 36, height: 36, padding: 0, margin: '-9px -10px -9px auto' } : { marginLeft: 'auto', padding: 2 }) }}>
         <RefreshCw size={12} style={busy ? { animation: 'spin 1s linear infinite' } : undefined} />
       </button>
     </div>
@@ -218,7 +247,10 @@ export default function WeatherWidget({ config = {}, updateConfig }) {
   ];
 
   return shell(
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0, height: '100%' }}>
+    // The tiers above keep this inside the tile; overflow:auto is only the
+    // backstop for a font or zoom that runs taller than measured. (Not
+    // .dash-scroll: its card-colored edge covers would band the sky tint.)
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0, height: '100%', overflowY: 'auto', scrollbarWidth: 'thin' }}>
       {header}
 
       {/* Now */}
@@ -249,7 +281,7 @@ export default function WeatherWidget({ config = {}, updateConfig }) {
       </div>
 
       {/* Next 12 hours */}
-      {hours.length > 0 && (
+      {tier === 'full' && hours.length > 0 && (
         // Its own quiet scroller - .scroll-tabs paints a paper band on phones.
         <div style={{ display: 'flex', gap: 4, overflowX: 'auto', paddingBottom: 2, flexShrink: 0, scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }} aria-label="Next 12 hours">
           {hours.map((h, i) => {
@@ -290,11 +322,13 @@ export default function WeatherWidget({ config = {}, updateConfig }) {
       )}
 
       {/* Sun + freshness */}
-      <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', gap: 10, fontSize: 11, color: 'var(--muted)', flexWrap: 'wrap' }}>
-        {t.sunrise && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Sunrise size={12} /> {clock12(t.sunrise)}</span>}
-        {t.sunset && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Sunset size={12} /> {clock12(t.sunset)}</span>}
-        <span style={{ marginLeft: 'auto' }}>Updated {new Date(data.fetchedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>
-      </div>
+      {showFooter && (
+        <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'center', gap: 10, fontSize: 11, color: 'var(--muted)', flexWrap: 'wrap', flexShrink: 0 }}>
+          {t.sunrise && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Sunrise size={12} /> {clock12(t.sunrise)}</span>}
+          {t.sunset && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Sunset size={12} /> {clock12(t.sunset)}</span>}
+          {data.fetchedAt && <span style={{ marginLeft: 'auto' }}>Updated {formatTime(data.fetchedAt)}</span>}
+        </div>
+      )}
     </div>,
   );
 }
@@ -311,12 +345,16 @@ function ErrorState({ text, onRetry, busy }) {
 
 // City search - used in the widget's own "pick a city" state and in its
 // Configure / Add dialog.
-export function CityPicker({ onPick, autoFocus = true }) {
+// `fill` (the tile's own picker): take the height that is left and scroll
+// the results inside it, so they are never cut off by the tile's edge.
+export function CityPicker({ onPick, autoFocus = true, fill = false, phone = false, onSearching }) {
   const [q, setQ] = useState('');
   const [rows, setRows] = useState([]);
   const [busy, setBusy] = useState(false);
   const term = q.trim();
-  const shown = term.length >= 2 ? rows : [];
+  const active = term.length >= 2;
+  const shown = active ? rows : [];
+  useEffect(() => { onSearching?.(active); }, [active, onSearching]);
   useEffect(() => {
     if (term.length < 2) return undefined;
     let live = true;
@@ -329,18 +367,20 @@ export function CityPicker({ onPick, autoFocus = true }) {
     return () => { live = false; clearTimeout(t); };
   }, [term]);
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minHeight: 0 }}>
-      <div style={{ position: 'relative' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minHeight: 0, ...(fill ? { flex: 1 } : null) }}>
+      <div style={{ position: 'relative', flexShrink: 0 }}>
         <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />
+        {/* 16px on a phone so iOS does not zoom the page on focus. */}
         <input className="form-input" value={q} onChange={(e) => setQ(e.target.value)} autoFocus={autoFocus}
-          placeholder="Search for a city" aria-label="Search for a city" style={{ paddingLeft: 32, width: '100%' }} />
+          placeholder="Search for a city" aria-label="Search for a city" style={{ paddingLeft: 32, width: '100%', ...(phone ? { fontSize: 16 } : null) }} />
       </div>
-      {(shown.length > 0 || (busy && term.length >= 2)) && (
-        <div role="listbox" aria-label="Cities" style={{ border: '1px solid var(--wk-line2)', borderRadius: 10, overflowY: 'auto', maxHeight: 180, background: 'var(--card)' }}>
+      {(shown.length > 0 || (busy && active)) && (
+        <div role="listbox" aria-label="Cities" className="dash-scroll"
+          style={{ border: '1px solid var(--wk-line2)', borderRadius: 10, maxHeight: 180, background: 'var(--card)', flex: '0 1 auto', minHeight: 0 }}>
           {busy && shown.length === 0 && <div style={{ padding: '8px 10px', fontSize: 12.5, color: 'var(--muted)' }}>Searching…</div>}
           {shown.map((r) => (
             <button key={`${r.lat},${r.lon}`} type="button" role="option" aria-selected="false" onClick={() => { onPick(r); setQ(''); setRows([]); }}
-              style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 10px', border: 'none', borderTop: '1px solid var(--line)', background: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}
+              style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', padding: '8px 10px', minHeight: phone ? 40 : undefined, boxSizing: 'border-box', border: 'none', borderTop: '1px solid var(--line)', background: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}
               onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--mist)'; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'none'; }}>
               <MapPin size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />

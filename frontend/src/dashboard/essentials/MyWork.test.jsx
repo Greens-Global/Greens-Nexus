@@ -156,4 +156,32 @@ describe('My Work tile', () => {
     fireEvent.click(screen.getByText('Submit a Ticket'));
     expect(await screen.findByText('composer:ticket')).toBeTruthy();
   });
+
+  it('Complete takes off the task only - a ticket with the same id stays', async () => {
+    apiMock.getMyWork
+      .mockResolvedValueOnce(shape({ today: [task('7', '2026-10-08'), ticket('7', '2026-10-08')] }))
+      .mockReturnValue(new Promise(() => {}));   // the confirming refetch never lands
+    render(<MyWork />);
+    fireEvent.click(await screen.findByLabelText('Complete Task 7'));
+    expect(screen.queryByText('Task 7')).toBeNull();
+    expect(screen.getByText('Ticket 7')).toBeTruthy();
+  });
+
+  it('a failed Complete puts back only its own row, not one completed alongside it', async () => {
+    apiMock.getMyWork
+      .mockResolvedValueOnce(shape({ today: [task('a', '2026-10-08'), task('b', '2026-10-08')] }))
+      .mockReturnValue(new Promise(() => {}));
+    let failA;
+    apiMock.updateTask.mockImplementation((id) => (id === 'a'
+      ? new Promise((_, rej) => { failA = () => rej(new Error('Dependency not finished')); })
+      : Promise.resolve({})));
+    render(<MyWork />);
+    fireEvent.click(await screen.findByLabelText('Complete Task a'));
+    fireEvent.click(screen.getByLabelText('Complete Task b'));
+    await waitFor(() => expect(apiMock.updateTask).toHaveBeenCalledWith('b', { completed: true }));
+    failA();
+    expect(await screen.findByText('Dependency not finished')).toBeTruthy();
+    expect(screen.getByText('Task a')).toBeTruthy();
+    expect(screen.queryByText('Task b')).toBeNull();
+  });
 });

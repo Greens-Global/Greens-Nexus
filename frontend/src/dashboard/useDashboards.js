@@ -103,6 +103,34 @@ export function firstFreeSpot(items, it, fromY = 0) {
   return { ...it, x: 0, y: items.reduce((m, p) => Math.max(m, p.y + p.h), 0), w, h };   // unreachable backstop
 }
 
+// Collisions (Oct 14). The board used to save whatever a drop or a resize
+// left behind, so a tile dropped on another sat on top of it - and on a phone
+// the two overlapping tiles then stacked in an arbitrary order. This settles
+// the board the way a drag should feel: the tiles named in `first` (the one
+// being dragged / resized / reconfigured) keep their spot, and everything
+// else, in reading order, slides straight down only as far as it must to
+// clear what is already settled. Tiles nothing touched never move, so a
+// board without overlaps comes back unchanged (same objects).
+export function resolveCollisions(items, first = []) {
+  const firstSet = new Set(Array.isArray(first) ? first : [first]);
+  const order = [
+    ...readingOrder(items.filter(it => firstSet.has(it.i))),
+    ...readingOrder(items.filter(it => !firstSet.has(it.i))),
+  ];
+  const settled = [];
+  const moved = new Map();
+  for (const it of order) {
+    let y = Math.max(0, it.y);
+    if (!firstSet.has(it.i)) {
+      while (settled.some(p => collides({ ...it, y }, p))) y++;
+    }
+    const placed = y === it.y ? it : { ...it, y };
+    if (placed !== it) moved.set(it.i, placed);
+    settled.push(placed);
+  }
+  return moved.size ? items.map(it => moved.get(it.i) || it) : items;
+}
+
 // Reading order: the order a phone stacks widgets in (DashboardGrid's
 // single column) - top to bottom, then left to right.
 export const readingOrder = (items) => [...items].sort((a, b) => (a.y - b.y) || (a.x - b.x));
@@ -181,7 +209,9 @@ export function useDashboards(widgetTier) {
     const items = (view && Array.isArray(view.layout) && view.layout.length)
       ? view.layout : defaultLayoutFor(widgetTier);
     setActiveId(view?.id ?? null);
-    setLayoutState(items.map(clampToLimits));
+    // Clamping can grow a tile into its neighbor, and boards saved before
+    // collisions were settled may already overlap - settle on load.
+    setLayoutState(resolveCollisions(items.map(clampToLimits)));
     setDirty(false);
   }, [widgetTier]);
 
@@ -233,11 +263,56 @@ export function useDashboards(widgetTier) {
     setLayout([...cur, firstFreeSpot(cur, copy, src.y)]);
   };
   const autoFit = () => setLayout(compactLayout(layoutRef.current));
-  const moveWidget = (i, dir) => setLayout(moveInOrder(layoutRef.current, i, dir));
+  // `hidden`: tiles not shown to this person (a punch tile for a salaried
+  // person). The arrows reorder what they can SEE - a swap with an invisible
+  // tile used to look like the button did nothing - and the hidden tiles are
+  // then settled around the result.
+  const moveWidget = (i, dir, hidden = []) => {
+    const hiddenIds = new Set(hidden.map(h => h.i));
+    const cur = layoutRef.current;
+    const shown = cur.filter(w => !hiddenIds.has(w.i));
+    const next = moveInOrder(shown, i, dir);
+    if (!hiddenIds.size) { setLayout(next); return; }
+    setLayout(resolveCollisions([...next, ...cur.filter(w => hiddenIds.has(w.i))], next.map(w => w.i)));
+  };
   // The merged config may change the tile's bounds (a Quick Actions style
   // does), so the tile is clamped to them right away rather than on the
   // next drag.
-  const updateWidgetConfig = (i, patch) => setLayout(layout.map(w => w.i === i ? clampToLimits({ ...w, config: { ...(w.config || {}), ...patch } }) : w));
+  // ...and then the board is settled around it, since a bigger style can
+  // grow it into the tile below.
+  const updateWidgetConfig = (i, patch) => setLayout(resolveCollisions(
+    layoutRef.current.map(w => w.i === i ? clampToLimits({ ...w, config: { ...(w.config || {}), ...patch } }) : w), [i]));
+
+  // A widget's own content (the Notes text) - saved straight to the view,
+  // never through the layout's unsaved-changes flag (Oct 14: a note typed
+  // outside Customize had no Save button and was lost on reload). Only when
+  // this person may change the view; while Customize has unsaved layout
+  // changes, the note rides along with them instead of saving half a board.
+  const canSaveInPlace = !!activeView && (activeView.scope === 'personal' || (activeView.scope === 'department' && canPublish));
+  const saveWidgetConfig = async (i, patch) => {
+    const next = layoutRef.current.map(w => w.i === i ? { ...w, config: { ...(w.config || {}), ...patch } } : w);
+    if (dirty) { setLayout(next); return; }
+    setLayoutState(next);
+    layoutRef.current = next;
+    if (!canSaveInPlace) return;
+    // Write the SAVED layout with only this tile's config changed, so a
+    // board normalized on load (clamped, settled) is not saved behind the
+    // person's back by typing a note.
+    const savedLayout = Array.isArray(activeView.layout) && activeView.layout.length ? activeView.layout : next;
+    const body = savedLayout.some(w => w.i === i)
+      ? savedLayout.map(w => w.i === i ? { ...w, config: { ...(w.config || {}), ...patch } } : w)
+      : next;
+    const updated = await api.dashUpdateView(activeId, { layout: body });
+    setViews(vs => vs.map(v => v.id === updated.id ? updated : v));
+  };
+
+  // Done (leaving Customize without saving): put back the view being edited.
+  // It used to reload everything, which re-picked the DEFAULT view - editing
+  // "Ops" and pressing Done (even with no changes) jumped to another board.
+  const cancelEdit = () => {
+    applyView(views.find(v => v.id === activeId) || null);
+    setEditing(false);
+  };
 
   const switchView = (id) => {
     const v = views.find(x => x.id === id);
@@ -318,7 +393,7 @@ export function useDashboards(widgetTier) {
 
   return {
     views, activeId, activeView, layout, kpis, department, canPublish, dirty, loading, editing,
-    setEditing, setLayout, addWidget, removeWidget, duplicateWidget, autoFit, moveWidget, updateWidgetConfig,
+    setEditing, setLayout, addWidget, removeWidget, duplicateWidget, autoFit, moveWidget, updateWidgetConfig, saveWidgetConfig, canSaveInPlace, cancelEdit,
     switchView, save, saveAsNew, createNewView, publishDepartment, setDefaultView, clearDefaultView, removeView, renameView, reload: load,
   };
 }

@@ -748,9 +748,16 @@ def _day_summaries(punches: list, round_min: int = 0, break_cfg: dict = None, ge
                 if bm > long_min and open_in_date:
                     flag(open_in_date, "long_break")
                 open_break = None
+    # The still-open shift's breaks are reported in breakMin but NOT taken off
+    # the day's worked time (Oct 14): that shift has no worked minutes yet
+    # (it counts once it closes), so subtracting its breaks shrank the day's
+    # CLOSED segments - a 1h morning shift plus an open one with a 30m break
+    # read 30m. _compute_timecard records the open segment as 0 worked with
+    # its own break and never touches the others; this now matches it.
+    open_brk_by_day = {}
     if open_in is not None:
         flag(open_in_date, "missing_out")
-        brk[open_in_date] = brk.get(open_in_date, 0.0) + open_brk
+        open_brk_by_day[open_in_date] = open_brk
 
     out = {}
     for d, plist in by_day.items():
@@ -761,7 +768,7 @@ def _day_summaries(punches: list, round_min: int = 0, break_cfg: dict = None, ge
         paid = _paid_break_credit(brkwins.get(d, []), int(round(max(0.0, w - b))), cfg)
         out[d] = {
             "workedMin": int(round(max(0.0, w - b))) + paid,
-            "breakMin": int(round(b)),
+            "breakMin": int(round(b + open_brk_by_day.get(d, 0.0))),
             "paidBreakMin": paid,
             "firstIn": first_in.get(d, ""), "lastOut": last_out.get(d, ""),
             "flags": sorted(flags.get(d, set())),

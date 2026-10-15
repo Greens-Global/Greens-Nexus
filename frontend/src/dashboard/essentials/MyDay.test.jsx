@@ -3,7 +3,7 @@
 // /daily-briefing/me row shape (mocked). A crash here would blank a saved
 // dashboard view, so the tile is mounted, not just the pure function.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react';
 
 const apiMock = vi.hoisted(() => ({ getMyBriefing: vi.fn(), actOnMyBriefing: vi.fn() }));
 vi.mock('../../api', () => ({ api: apiMock }));
@@ -149,6 +149,26 @@ describe('My Day tile', () => {
     await waitFor(() => expect(screen.queryByText('Approve: Budget sign-off')).toBeNull());
     await waitFor(() => expect(apiMock.getMyBriefing).toHaveBeenCalledTimes(2));
     expect(await screen.findByText('1 thing needs you')).toBeInTheDocument();
+  });
+
+  it('a poll already in flight at Approve neither brings the row back nor swallows the refetch', async () => {
+    let releaseStale;
+    apiMock.getMyBriefing
+      .mockResolvedValueOnce(briefing([approval, signature]))
+      // The poll that left BEFORE the decision - it still lists the approval.
+      .mockImplementationOnce(() => new Promise((r) => { releaseStale = () => r(briefing([approval, signature])); }))
+      .mockResolvedValue(briefing([signature]));
+    render(<MyDay />);
+    expect(await screen.findByText('2 things need you')).toBeInTheDocument();
+    act(() => { document.dispatchEvent(new Event('visibilitychange')); });   // the poll goes out
+    await waitFor(() => expect(apiMock.getMyBriefing).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    await waitFor(() => expect(screen.queryByText('Approve: Budget sign-off')).toBeNull());
+    await act(async () => { releaseStale(); });
+    expect(screen.queryByText('Approve: Budget sign-off')).toBeNull();     // the stale answer keeps it hidden
+    await waitFor(() => expect(apiMock.getMyBriefing).toHaveBeenCalledTimes(3));   // the queued reload ran
+    expect(await screen.findByText('1 thing needs you')).toBeInTheDocument();
+    expect(screen.queryByText('Approve: Budget sign-off')).toBeNull();
   });
 
   it('Reject asks for a reason inline and only then posts it', async () => {

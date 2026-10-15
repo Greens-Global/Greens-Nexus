@@ -13,13 +13,13 @@ export function SessionChip({ mine, onOpen }) {
     <button
       className={`dk-session-chip${on ? ' dk-session-chip--on' : ''}`}
       onClick={onOpen}
-      title="Open time clock"
+      title="Open Time Clock"
       style={{ flexShrink: 0, whiteSpace: 'nowrap' }}
     >
       <span className={`dk-dot ${on ? 'dk-dot--up' : 'dk-dot--off'}`} />
       {mine.state === 'break' ? <>On Break · <b>{fmtHM(mine.todayMin)}</b></>
         : on ? <>Clocked In · <b>{fmtHM(mine.todayMin)}</b></>
-          : <>Clocked Out<span className="dk-session-long"> · Open time clock</span></>}
+          : <>Clocked Out<span className="dk-session-long"> · Open Time Clock</span></>}
     </button>
   );
 }

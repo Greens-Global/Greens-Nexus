@@ -26,6 +26,7 @@ vi.mock('@azure/msal-react', () => ({ useMsal: () => ({ accounts: [{ name: 'Neil
 vi.mock('../../contexts/NotificationContext.jsx', () => ({ useNotifications: () => ({ openPanel: vi.fn() }) }));
 
 import MyTime, { deriveMyTime } from './MyTime.jsx';
+import { queryClient } from '../../lib/queryClient';
 
 // Fixed "now": Thursday 10/08/2026 10:30 local.
 const NOW = new Date(2026, 9, 8, 10, 30);
@@ -113,6 +114,8 @@ describe('<MyTime /> render', () => {
     apiMock.timeBodRecord.mockResolvedValue({});
     pairMock.pairLocalAgent.mockResolvedValue('');
     delete window.__nexusCapture;
+    // The tile reads the shared /timeclock/status query - start each test cold.
+    queryClient.clear();
   });
   afterEach(() => { vi.useRealTimers(); delete window.__nexusCapture; });
 
@@ -318,5 +321,42 @@ describe('<MyTime /> render', () => {
     apiMock.timeStatus.mockResolvedValue(clockedInStatus());
     fireEvent.click(screen.getByRole('button', { name: /Try Again/ }));
     expect(await screen.findByText('Clocked In')).toBeTruthy();
+  });
+
+  it('the monitoring notice is checked before the screen picker opens', async () => {
+    const start = vi.fn(async () => true);
+    window.__nexusCapture = { start, stop: vi.fn() };
+    apiMock.timeStatus.mockResolvedValue(clockedOutStatus({ monitoring: { consentRequired: true } }));
+    render(<MyTime />);
+    fireEvent.click(await screen.findByRole('button', { name: /Punch In/ }));
+    expect(await screen.findByText(/monitoring notice needs your acknowledgment/)).toBeTruthy();
+    expect(start).not.toHaveBeenCalled();
+    expect(punchMock.punchDurable).not.toHaveBeenCalled();
+  });
+
+  it('closing the beginning-of-day prompt stops the screen share started for the clock-in', async () => {
+    const stopCap = vi.fn();
+    window.__nexusCapture = { start: async () => true, stop: stopCap };
+    apiMock.timeStatus.mockResolvedValue(clockedOutStatus({ bodRequired: true }));
+    render(<MyTime />);
+    fireEvent.click(await screen.findByRole('button', { name: /Punch In/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Close' }));
+    expect(stopCap).toHaveBeenCalledTimes(1);
+    expect(punchMock.punchDurable).not.toHaveBeenCalled();
+  });
+
+  it('a refused clock-in stops the share; a parked one keeps it', async () => {
+    const stopCap = vi.fn();
+    window.__nexusCapture = { start: async () => true, stop: stopCap };
+    apiMock.timeStatus.mockResolvedValue(clockedOutStatus());
+    punchMock.punchDurable.mockResolvedValueOnce({ ok: false, error: { status: 409, message: 'Duplicate punch.' } });
+    render(<MyTime />);
+    fireEvent.click(await screen.findByRole('button', { name: /Punch In/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Duplicate punch.');
+    expect(stopCap).toHaveBeenCalledTimes(1);
+    punchMock.punchDurable.mockResolvedValueOnce({ ok: false, unreachable: true, queued: true, error: {} });
+    fireEvent.click(screen.getByRole('button', { name: /Punch In/ }));
+    expect(await screen.findByText(/saved on this device/)).toBeTruthy();
+    expect(stopCap).toHaveBeenCalledTimes(1);
   });
 });

@@ -27,8 +27,10 @@ import { useTimeStatus } from '../lib/useTimeStatus';
 import { SessionChip } from './SessionChip';
 import { deriveMyTime } from './essentials/usePunchClock.jsx';
 import { useWorldClockPicks, headerClocks } from '../lib/worldClockZones';
-import { formatTimeIn, greetingFor } from '../lib/datetime';
+import { formatDate, formatMonthDay, formatTimeIn, formatWeekday, greetingFor } from '../lib/datetime';
 import { ModalLoading } from '../components/AsyncState';
+import { useNotifications } from '../contexts/NotificationContext.jsx';
+import { MoreRow } from './listParts.jsx';
 // The same composer the customizable dashboard's Quick Actions widget uses -
 // it brings its own TasksProvider, so the modal works outside the Tasks view.
 const QuickActionModal = lazy(() => import('./QuickActionModals.jsx'));
@@ -126,7 +128,8 @@ export function DeskGreeting({ summary = null, right = null, menu = null }) {
   const mine = deriveMyTime({ status, now });
 
   const greeting = greetingFor(now);
-  const dateLine = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric' }).format(now);
+  // "Wednesday, Oct 14" - through the shared date helpers (lib/datetime.js).
+  const dateLine = `${formatWeekday(now)}, ${formatMonthDay(now)}`;
 
   return (
     <div className="dk-head dk-rise" style={{ '--i': 0 }}>
@@ -188,6 +191,8 @@ export function DeskGreeting({ summary = null, right = null, menu = null }) {
 export default function DeskHome({ kpis = {}, notifications = [], markRead, headerRight = null, headerMenu = null }) {
   const { can } = useRole();
   const now = useNow();
+  // `|| {}`: null outside NotificationProvider (render tests).
+  const { openPanel } = useNotifications() || {};
 
   // Live extras: session state (the My-hours strip), pending signatures, team
   // KPIs (managers). All read-only, all existing endpoints, all safe to fail
@@ -212,8 +217,12 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
     : 0;
 
   const unread = notifications.filter(n => !n.read && !n.closed);
-  const actionable = unread.filter(n => n.action && !n.actioned).slice(0, 6);
+  const allActionable = unread.filter(n => n.action && !n.actioned);
+  const actionable = allActionable.slice(0, 6);
   const pendingSigs = sigs.length;
+  // Everything that needs you, not just the rows that fit: the count, the
+  // summary sentence and the "+N more" row all say the real number.
+  const attentionTotal = pendingSigs + allActionable.length;
 
   // "Needs your attention": signatures first (hard blockers), then actionable
   // unread notifications.
@@ -243,15 +252,21 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
     return rows.slice(0, 7);
   }, [sigs, actionable, markRead]);
 
-  const summary = queue.length > 0
-    ? <>You have <b>{queue.length} item{queue.length === 1 ? '' : 's'}</b> that need your attention today.</>
+  const hiddenCount = Math.max(0, attentionTotal - queue.length);
+  // Where the rest live: the bell holds every notification; signatures are
+  // on My HR. Notifications left out first, since there are usually more.
+  const hiddenNotifs = allActionable.length - queue.filter(r => r.key.startsWith('ntf-')).length;
+  const viewAll = () => { if (hiddenNotifs > 0 && openPanel) openPanel(); else navTo('myhr'); };
+
+  const summary = attentionTotal > 0
+    ? <>You have <b>{attentionTotal} item{attentionTotal === 1 ? '' : 's'}</b> that need your attention today.</>
     : <>You're all caught up.</>;
 
   const stats = [
-    { label: 'Open tasks', value: kpis.my_open_tasks, sub: 'Assigned to you', chip: 'blue', Icon: CheckSquare, go: () => navTo('tasks'), hero: true },
-    { label: 'Checked-out items', value: kpis.my_checkouts, sub: 'With you right now', chip: 'orange', Icon: Package, go: () => navTo('inventory', 'checkouts') },
-    { label: 'My equipment', value: kpis.my_assignments, sub: 'Permanently assigned', chip: 'brand', Icon: Users, go: () => navTo('inventory') },
-    { label: 'Signatures needed', value: pendingSigs, sub: 'Waiting on you', chip: 'green', Icon: PenLine, go: () => navTo('myhr') },
+    { label: 'Open Tasks', value: kpis.my_open_tasks, sub: 'Assigned to you', chip: 'blue', Icon: CheckSquare, go: () => navTo('tasks'), hero: true },
+    { label: 'Checked-Out Items', value: kpis.my_checkouts, sub: 'With you right now', chip: 'orange', Icon: Package, go: () => navTo('inventory', 'checkouts') },
+    { label: 'My Equipment', value: kpis.my_assignments, sub: 'Permanently assigned', chip: 'brand', Icon: Users, go: () => navTo('inventory') },
+    { label: 'Signatures Needed', value: pendingSigs, sub: 'Waiting on you', chip: 'green', Icon: PenLine, go: () => navTo('myhr') },
   ];
 
   return (
@@ -270,18 +285,18 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
       <div className="dk-main">
         <div className="dk-card dk-queue dk-rise" style={{ '--i': 5 }}>
           <div className="dk-pane-head">
-            Needs your attention
-            {queue.length > 0 && <span className="dk-count">{queue.length}</span>}
+            Needs Your Attention
+            {attentionTotal > 0 && <span className="dk-count">{attentionTotal}</span>}
             <span className="dk-meta">newest first</span>
           </div>
           {queue.length === 0 ? (
             <div className="dk-clear">
               <span className="dk-clear-icon"><CheckCircle2 size={22} /></span>
-              <h3>You're all caught up</h3>
+              <h3>You're All Caught Up</h3>
               <p>New approvals, signatures, and alerts will land here as they come in.</p>
             </div>
-          ) : (
-            queue.map(row => (
+          ) : (<>
+            {queue.map(row => (
               <button key={row.key} className="dk-queue-row" onClick={row.go}>
                 <span className={`dk-pill dk-pill--${row.tone}`}>{row.pill}</span>
                 <span className="dk-queue-body">
@@ -291,24 +306,25 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
                 {row.time && <span className="dk-queue-time">{row.time}</span>}
                 <ChevronRight size={15} />
               </button>
-            ))
-          )}
+            ))}
+            <MoreRow count={hiddenCount} onClick={viewAll} label={`View All (${attentionTotal})`} />
+          </>)}
         </div>
 
         <div className="dk-rail">
           {can('supervisor') && teamKpis && (
             <div className="dk-card dk-rise" style={{ '--i': 6 }}>
-              <div className="dk-pane-head">Team pulse</div>
+              <div className="dk-pane-head">Team Pulse</div>
               <button className="dk-team-row" onClick={() => navTo('timeclock')}>
-                <span className="dk-dot dk-dot--up" /> Clocked in now
+                <span className="dk-dot dk-dot--up" /> Clocked In Now
                 <b>{teamKpis.clocked_in_now ?? 0}</b>
               </button>
               <button className="dk-team-row" onClick={() => navTo('manager-dashboard')}>
-                Requisitions to approve
+                Requisitions to Approve
                 <b className={teamKpis.pending_requisitions > 0 ? 'dk-hot' : ''}>{teamKpis.pending_requisitions ?? 0}</b>
               </button>
               <button className="dk-team-row" onClick={() => navTo('timeclock')}>
-                Time off to review
+                Time Off to Review
                 <b className={teamKpis.time_off_pending > 0 ? 'dk-hot' : ''}>{teamKpis.time_off_pending ?? 0}</b>
               </button>
             </div>
@@ -323,7 +339,8 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
             for (let i = 6; i >= 0; i--) {
               const d = new Date(now.getTime() - off - i * 86400000);
               const key = d.toISOString().slice(0, 10);
-              series.push({ key, min: days[key]?.workedMin || 0, wd: new Date(d.getTime() + off).toLocaleDateString([], { weekday: 'short' }).slice(0, 2), today: i === 0 });
+              const local = new Date(d.getTime() + off);
+              series.push({ key, date: local, min: days[key]?.workedMin || 0, wd: formatWeekday(local, 'short').slice(0, 2), today: i === 0 });
             }
             // Today's closed segments exclude the live session - add it so the
             // card agrees with the running timer (paused while on break).
@@ -334,10 +351,10 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
             const fmtH = (m) => `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
             return (
               <div className="dk-card dk-rise" style={{ '--i': 7 }}>
-                <div className="dk-pane-head">My hours <span className="dk-meta">last 7 days · {fmtH(total)}</span></div>
+                <div className="dk-pane-head">My Hours <span className="dk-meta">last 7 days · {fmtH(total)}</span></div>
                 <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: 88, padding: '14px 16px 10px' }}>
                   {series.map(s => (
-                    <div key={s.key} title={`${s.key} - ${fmtH(s.min)}`}
+                    <div key={s.key} title={`${formatDate(s.date)} - ${fmtH(s.min)}`}
                       style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', gap: 5, minWidth: 0, height: '100%' }}>
                       <div style={{ width: '62%', maxWidth: 22, height: Math.max(s.min ? 6 : 3, (s.min / max) * 56), borderRadius: 99,
                         background: !s.min ? 'var(--mist)' : s.today ? 'var(--wk-brand)' : '#b9c4f4' }} />
@@ -350,22 +367,22 @@ export default function DeskHome({ kpis = {}, notifications = [], markRead, head
           })()}
 
           <div className="dk-card dk-rise" style={{ '--i': 8 }}>
-            <div className="dk-pane-head">Quick actions</div>
+            <div className="dk-pane-head">Quick Actions</div>
             <button className="dk-key" onClick={() => navTo('inventory', 'catalog')}>
-              <span className="dk-chip dk-chip--orange"><Package /></span> Request an item
+              <span className="dk-chip dk-chip--orange"><Package /></span> Request an Item
               <ChevronRight size={14} className="dk-key-arrow" />
             </button>
             {/* Opens the composer here rather than navigating to the Tasks
                 module: a quick action that dumps you on another screen to find
                 the button yourself is not quick. */}
             <button className="dk-key" onClick={() => setComposing('task')}>
-              <span className="dk-chip dk-chip--blue"><CheckSquare /></span> New task
+              <span className="dk-chip dk-chip--blue"><CheckSquare /></span> New Task
               <ChevronRight size={14} className="dk-key-arrow" />
             </button>
             {/* New ticket replaced Time clock and Knowledge base here (Neil,
                 10/08) - the Ticket module's own form, opened in place. */}
             <button className="dk-key" onClick={() => setComposing('ticket')}>
-              <span className="dk-chip dk-chip--red"><Ticket /></span> New ticket
+              <span className="dk-chip dk-chip--red"><Ticket /></span> New Ticket
               <ChevronRight size={14} className="dk-key-arrow" />
             </button>
             <div className="dk-hint">Press <kbd>Ctrl</kbd>+<kbd>K</kbd> to search everything</div>

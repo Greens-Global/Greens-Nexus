@@ -56,7 +56,7 @@ function LineRow({ row, onClick }) {
   );
 }
 
-export function FindTransactionWidget() {
+export function FindTransactionWidget({ phone = false }) {
   const [q, setQ] = useState('');
   const [data, setData] = useState(null);     // { rows, total, debit, credit } for `shownFor`
   const [shownFor, setShownFor] = useState('');
@@ -67,7 +67,9 @@ export function FindTransactionWidget() {
   const ready = term.length >= 2;
 
   useEffect(() => {
-    if (!ready) { setData(null); setShownFor(''); setError(''); setBusy(false); return undefined; }
+    // Clearing the box retires any search still in flight (bumping the seq),
+    // so a late answer cannot paint rows under "Type at least two characters".
+    if (!ready) { seq.current += 1; setData(null); setShownFor(''); setError(''); setBusy(false); return undefined; }
     // Two or three characters match a large part of the ledger ("in" is on
     // 619,000 lines), so a short word waits longer for the rest of it - the
     // same rule as the Reports search box (Sep 29).
@@ -87,7 +89,7 @@ export function FindTransactionWidget() {
     if (!ready) return;
     requestLedgerSearch(row ? { q: term, entryId: row.entryId, entryNo: row.entryNo } : { q: term });
   };
-  const rows = data ? transactionRows(data.rows) : [];
+  const rows = ready && data ? transactionRows(data.rows) : [];
   const total = Number(data?.total) || 0;
   const net = (Number(data?.debit) || 0) - (Number(data?.credit) || 0);
   // Lines on screen that belong to an older search are stale: say so.
@@ -100,7 +102,7 @@ export function FindTransactionWidget() {
           ? <Loader2 size={14} className="spin" aria-label="Searching" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--wk-brand, #2b45e1)' }} />
           : <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }} />}
         <input className="form-input" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Find a transaction"
-          placeholder="Vendor, invoice #, amount, memo..." style={{ paddingLeft: 32, width: '100%' }} />
+          placeholder="Vendor, invoice #, amount, memo..." style={{ paddingLeft: 32, width: '100%', ...(phone ? { fontSize: 16, minHeight: 40 } : null) }} />
       </form>
 
       {!ready && <div style={noteStyle}>Type at least two characters. Enter opens the ledger with your search.</div>}
