@@ -1,6 +1,6 @@
 # Teams Presence in the Contact Directory - Setup
 
-The Contact Directory (Support > Contact Directory) shows the same green / red /
+The Contact Directory (Team > Contact) shows the same green / red /
 amber dot Teams itself shows next to each person, read from Microsoft Graph.
 Nothing shows until the Entra app is allowed to read presence. This is a
 one-time admin step in the Azure portal; no code or deploy is involved.
