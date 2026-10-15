@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 
 // Weather widget (Sep 29): my location or a picked city, a forecast that
 // renders, and a graceful path when the browser refuses location.
@@ -63,6 +63,18 @@ describe('Weather widget', () => {
     fireEvent.change(screen.getByLabelText('Search for a city'), { target: { value: 'Pune' } });
     fireEvent.click(await screen.findByText('Pune', {}, { timeout: 2000 }));
     expect(updateConfig).toHaveBeenCalledWith({ mode: 'place', place: expect.objectContaining({ name: 'Pune', lat: 18.52 }) });
+  });
+
+  it('offers a city when the location prompt is never answered', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    Object.defineProperty(global.navigator, 'geolocation', { configurable: true, value: { getCurrentPosition: () => {} } });
+    try {
+      render(<WeatherWidget config={{ mode: 'here' }} />);
+      expect(screen.queryByLabelText('Search for a city')).toBeNull();
+      await act(async () => { await vi.advanceTimersByTimeAsync(10500); });
+      expect(screen.getByText(/has not shared your location yet/)).toBeTruthy();
+      expect(screen.getByLabelText('Search for a city')).toBeTruthy();
+    } finally { vi.useRealTimers(); }
   });
 
   it('uses a picked city and its units', async () => {

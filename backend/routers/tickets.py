@@ -1126,8 +1126,15 @@ def _ticket_privileged(db: Session, t: models.TaskTicket, user: dict) -> bool:
     department it is ABOUT, so that handed silent full edit rights over other
     people's requests to whoever happened to lead the named department - who is
     no longer notified about them and never owned them. The IT Admin desk owns
-    tickets, and administrators clear the manager+ bar already."""
-    return user.get("level", 1) >= 3
+    tickets, and administrators clear the manager+ bar already.
+
+    Global Admins count too, whatever their role (Pranshu, Oct 15 2026)."""
+    if user.get("level", 1) >= 3:
+        return True
+    if "_ticket_global_admin" not in user:   # once per request - list paths call this per row
+        import auth
+        user["_ticket_global_admin"] = auth.is_global_admin(user, db)
+    return user["_ticket_global_admin"]
 
 
 # ── Tasks from tickets (Oct 14 2026) ────────────────────────────────────────
@@ -2171,6 +2178,29 @@ def _unify_legacy_departments(db: Session) -> None:
         db.rollback()
 
 
+_HEADS_KEY = "department_heads_global_v1"
+
+
+def adopt_ticket_heads(db: Session) -> int:
+    """One department head (Pranshu, Oct 15 2026): the head set on the ticket
+    desk since the Sep 13 split is the newest one anyone kept, so it becomes
+    the department's own. Runs once per database (NexusSetting marker); after
+    that the department's head is the only one. Returns how many it moved."""
+    if db.query(models.NexusSetting).filter(models.NexusSetting.key == _HEADS_KEY).first():
+        return 0
+    live = {d.id: d for d in db.query(models.HrDepartment).all()}
+    moved = 0
+    for s in db.query(models.TicketDepartment).all():
+        g = live.get(s.id)
+        head = (s.lead_email or "").strip().lower()
+        if g is not None and head and head != (g.lead_email or "").strip().lower():
+            g.lead_email, moved = head, moved + 1
+    db.add(models.NexusSetting(key=_HEADS_KEY, updated_by="system", updated_at=now_iso(),
+                               value=json.dumps({"moved": moved})))
+    db.commit()
+    return moved
+
+
 def _sync_ticket_departments(db: Session, company_id: Optional[str] = None) -> None:
     """Give every global department a ticket settings row, and mirror its
     current name/company onto it. Idempotent; commits only when something
@@ -2212,7 +2242,8 @@ def _sync_ticket_departments(db: Session, company_id: Optional[str] = None) -> N
 
 def _dept_dict(s: models.TicketDepartment, live: Optional[models.HrDepartment]) -> dict:
     return {"id": s.id, "name": live.name if live else s.name, "companyId": s.company_id,
-            "leadEmail": s.lead_email or "", "backupEmail": s.backup_email or "",
+            # The head is the department's own (global since Oct 15 2026); s.lead_email is history.
+            "leadEmail": (live.lead_email if live else s.lead_email) or "", "backupEmail": s.backup_email or "",
             "enabled": s.enabled is not False,
             # Deleted from the company's department list: kept in the full
             # list only so tickets filed against it still show its name.
@@ -2319,7 +2350,7 @@ def update_ticket_department(dept_id: str, body: TicketDepartmentUpdate,
     if not row:
         raise HTTPException(404, "Department not found")
     if body.lead_email is not None:
-        row.lead_email = (body.lead_email or "").strip().lower()
+        g.lead_email = (body.lead_email or "").strip().lower()     # the one global head
     if body.backup_email is not None:
         row.backup_email = (body.backup_email or "").strip().lower()
     if body.enabled is not None:
@@ -2588,8 +2619,8 @@ def escalate_ticket(ticket_id: str, background_tasks: BackgroundTasks,
     overdue" - so for them it's gated on the SLA actually being breached
     (Pranshu, Sep 10 2026, reinstating that carve-out). It no longer touches
     priority; it mails the department the ticket is ABOUT
-    (TicketDepartment.lead_email/backup_email, set from Manage -> Service Desk ->
-    Departments) that the ticket needs urgent attention. A department with no
+    (the department's head, HrDepartment.lead_email, and the desk's backup,
+    TicketDepartment.backup_email) that the ticket needs urgent attention. A department with no
     head on file falls back to the company's ticket agents via
     notify_ticket_event's own recipient resolution, so it's never emailed to
     nobody."""
@@ -2648,6 +2679,7 @@ def my_ticket_access(user: dict = Depends(get_current_user), db: Session = Depen
     `canDelete`, `canManageDesk` - so the screens show exactly what the server
     will allow instead of re-deriving it from the module grants."""
     return {"onDesk": _on_desk(db, user), "canAct": _is_agent(db, user),
+            "privileged": _ticket_privileged(db, None, user),
             **ticket_roles.capabilities(user, db)}
 
 

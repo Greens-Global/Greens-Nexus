@@ -158,11 +158,25 @@ export function nextDueOf(data) {
 }
 
 const URGENCY_STATUS = { [OVERDUE]: ['overdue', 'Overdue'], [DUE_TODAY]: ['pending', 'Due Today'] };
+// The phone row has no room for the status word on the right, so the cue
+// leads the meta line instead: a tinted word, short enough to never crowd it.
+const URGENCY_CUE = { [OVERDUE]: ['red', 'Overdue'], [DUE_TODAY]: ['orange', 'Due Today'] };
+function withCue(urgency, meta) {
+  const cue = URGENCY_CUE[urgency];
+  if (!cue) return meta;
+  const color = `hsl(var(--color-${cue[0]}))`;
+  return (
+    <>
+      <span style={{ color, fontWeight: 700 }}>{cue[1]}</span>
+      {meta ? ` · ${meta}` : ''}
+    </>
+  );
+}
 const btn = { fontFamily: 'var(--wk-font)', fontSize: 12, fontWeight: 600, padding: '5px 11px', borderRadius: 7, cursor: 'pointer', lineHeight: 1.2, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink)', flexShrink: 0, whiteSpace: 'nowrap' };
 const solid = (tone) => ({ ...btn, background: `hsl(var(--color-${tone}))`, borderColor: `hsl(var(--color-${tone}))`, color: '#fff' });
 const textInput = { fontFamily: 'var(--wk-font)', fontSize: 13, width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: 7, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink)' };
 
-export default function MyDay() {
+export default function MyDay({ phone }) {
   const [data, setData] = useState(null);
   const [failed, setFailed] = useState(false);
   const [hidden, setHidden] = useState(() => new Set());
@@ -171,23 +185,48 @@ export default function MyDay() {
   const [reason, setReason] = useState('');
   const [error, setError] = useState(null);           // { id, message }
   const inFlight = useRef(false);
-  const isMobile = useIsMobile();
+  // A load asked for while one is out runs once that one lands, instead of
+  // being dropped: after Approve, the poll already on its way out started
+  // BEFORE the decision and still carries the row.
+  const queued = useRef(false);
+  // Bumped by every decision / Complete. A response whose request left before
+  // the latest one may still list the row just decided, so it must not clear
+  // `hidden` (the row came back with a live Approve for up to a minute).
+  const actGen = useRef(0);
+  const alive = useRef(true);
+  const isMobileViewport = useIsMobile();
+  // The grid says when the board is a phone stack; outside it, the viewport.
+  const isMobile = phone ?? isMobileViewport;
 
   const load = useCallback(() => {
-    if (inFlight.current) return;
-    inFlight.current = true;
-    api.getMyBriefing()
-      .then((d) => { setData(d || { sections: [] }); setHidden(new Set()); setFailed(false); })
-      .catch(() => setFailed(true))
-      .finally(() => { inFlight.current = false; });
+    const run = () => {
+      if (inFlight.current) { queued.current = true; return; }
+      inFlight.current = true;
+      queued.current = false;
+      const gen = actGen.current;
+      api.getMyBriefing()
+        .then((d) => {
+          if (!alive.current) return;
+          setData(d || { sections: [] });
+          if (gen === actGen.current) setHidden(new Set());
+          setFailed(false);
+        })
+        .catch(() => { if (alive.current) setFailed(true); })
+        .finally(() => {
+          inFlight.current = false;
+          if (queued.current && alive.current) run();
+        });
+    };
+    run();
   }, []);
 
   useEffect(() => {
+    alive.current = true;
     load();
     const onVisible = () => { if (document.visibilityState === 'visible') load(); };
     document.addEventListener('visibilitychange', onVisible);
     const stop = pollWhileVisible(load, POLL_MS);
-    return () => { stop(); document.removeEventListener('visibilitychange', onVisible); };
+    return () => { alive.current = false; stop(); document.removeEventListener('visibilitychange', onVisible); };
   }, [load]);
 
   const rows = buildMyDayRows(data).filter((r) => !hidden.has(r.id));
@@ -205,6 +244,7 @@ export default function MyDay() {
     setBusyId(row.id); setError(null);
     try {
       await api.actOnMyBriefing(payload);
+      actGen.current += 1;
       setHidden((h) => new Set(h).add(row.id));
       setRejecting(''); setReason('');
       load();
@@ -240,7 +280,7 @@ export default function MyDay() {
               <div key={row.id} data-testid="my-day-row">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <Row Icon={row.Icon} title={row.title} meta={row.meta} status={status} statusLabel={isMobile ? undefined : statusLabel} onClick={() => go(row)} />
+                    <Row Icon={row.Icon} title={row.title} meta={isMobile ? withCue(row.urgency, row.meta) : row.meta} status={status} statusLabel={isMobile ? undefined : statusLabel} onClick={() => go(row)} />
                   </div>
                   {row.action.type === 'decision' ? (
                     <span style={{ display: 'inline-flex', gap: 6, flexShrink: 0 }}>

@@ -343,7 +343,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
         </div>
       )}
       {mine && glance && !error && calPrefs && (
-        <CalendarRow prefs={calPrefs} companyOn={calPrefs.companyOutlookCalendar !== false} hasMailbox={calPrefs.hasMailbox !== false}
+        <CalendarRow prefs={calPrefs} companyOn={calPrefs.companyOutlookCalendar === true} hasMailbox={calPrefs.hasMailbox !== false}
           onToggle={setShiftCalendar} onFlash={setFlash} />
       )}
 
@@ -383,7 +383,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
                 );
               })}
               {!d.shifts.length && !d.holiday && !d.timeoff.length && d.usual && (
-                <div title="Your regular hours. No shift is shared for this day yet." style={{ marginTop: 'auto', borderLeft: '3px dotted var(--wk-line2)', paddingLeft: 8 }}>
+                <div title="Your regular hours. No shift is shared for this day yet." style={{ marginTop: 'auto', border: '1px dashed var(--wk-line2, var(--line))', borderRadius: 6, padding: '4px 8px' }}>
                   <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--muted)' }}>Usual Hours</div>
                   <div style={{ fontSize: 12, color: 'var(--muted)' }}>{formatHHMM(d.usual.start)} - {formatHHMM(d.usual.end)}</div>
                 </div>
@@ -480,9 +480,9 @@ export function CalendarRow({ prefs, companyOn, hasMailbox = true, onToggle, onF
     <div data-calendar-row="" style={{ marginBottom: 12, fontSize: 12.5 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <CalendarDays size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-        {!companyOn ? (
-          <span style={{ color: 'var(--muted)' }}>Outlook calendar is off for your company</span>
-        ) : !hasMailbox ? (
+        {/* Off by default (Oct 15 2026): with the company switch off there
+            is no Outlook line at all, only the subscribe link. */}
+        {!companyOn ? null : !hasMailbox ? (
           <span style={{ color: 'var(--muted)' }} title="Your shifts cannot be added to an Outlook calendar until your Nexus profile is linked to a Microsoft 365 account.">Outlook calendar: no Microsoft 365 mailbox on file</span>
         ) : (
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: prefs ? 'pointer' : 'default', color: 'var(--ink)' }}>
@@ -496,7 +496,7 @@ export function CalendarRow({ prefs, companyOn, hasMailbox = true, onToggle, onF
             </button>
           </label>
         )}
-        <span aria-hidden="true" style={{ color: 'var(--muted)' }}>·</span>
+        {companyOn && <span aria-hidden="true" style={{ color: 'var(--muted)' }}>·</span>}
         <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open}
           style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 700, color: 'var(--wk-brand)' }}>
           Subscribe in another calendar

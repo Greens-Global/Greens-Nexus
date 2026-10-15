@@ -1,7 +1,7 @@
 // Heavy dashboard widgets ported from the old Overview / Team Analytics screens
 // (Dashboard.jsx portfolio + ManagerDashboard tabs). Lazy-loaded by widgets.jsx
 // so TimeAdmin & co. stay out of the main bundle.
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useMsal } from '@azure/msal-react';
 import { CheckCircle, XCircle, ChevronDown, Package, Mail, Filter, AlertCircle, CakeSlice, PartyPopper } from 'lucide-react';
 import { useRequisitions }  from '../contexts/RequisitionContext';
@@ -11,7 +11,7 @@ import { useRole }          from '../contexts/RoleContext';
 import { api }              from '../api';
 import TimeAdmin            from '../components/TimeAdmin';
 import { navigate }         from './widgets.jsx';
-import { formatDateTime }   from '../lib/datetime';
+import { formatDateTime, formatDate, formatMonthDay } from '../lib/datetime';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { useIsMobile }      from '../lib/useIsMobile';
 import { Spinner, LoadingState } from '../components/AsyncState';
@@ -27,14 +27,14 @@ const Card = ({ title, sub, action, children }) => (
         {action}
       </div>
     )}
-    <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>{children}</div>
+    <div className="dash-scroll" style={{ flex: 1, minHeight: 0 }}>{children}</div>
   </div>
 );
 
 const fmtDate = (iso) => formatDateTime(iso, '-');
 
 // ── Pending approvals (REAL - ported from ManagerDashboard "Pending Actions") ──
-export function ApprovalsPanel() {
+export function ApprovalsPanel({ phone = false }) {
   const { accounts } = useMsal();
   const myName = accounts[0]?.name ?? 'Manager';
   const { can } = useRole();
@@ -50,11 +50,16 @@ export function ApprovalsPanel() {
   const [pickedAllocator, setPickedAllocator] = useState('');
   const [approvingBusy,   setApprovingBusy]   = useState(false);
   const [allocators,      setAllocators]      = useState([]);
+  const [allocatorsState, setAllocatorsState] = useState('loading');   // 'loading' | 'ok' | 'error'
 
   useEffect(() => {
     if (!can('manager')) return;
-    api.getInventoryAllocators().then(setAllocators).catch(() => {});
+    api.getInventoryAllocators()
+      .then(list => { setAllocators(list || []); setAllocatorsState('ok'); })
+      .catch(() => setAllocatorsState('error'));
   }, [can]);
+  // Phone: 36px buttons (the desktop 5px/12px pill was ~28px tall).
+  const actBtn = { padding: phone ? '8px 14px' : '5px 12px', fontSize: '0.8rem', ...(phone ? { minHeight: 36 } : null) };
 
   const pendingReqs    = requisitions.filter(r => r.status === 'pending_manager');
   const pendingInvReqs = invRequests.filter(r => r.status === 'pending');
@@ -78,7 +83,7 @@ export function ApprovalsPanel() {
 
   return (
     <Card title="Pending Approvals" sub="Purchase requisitions and inventory requests awaiting you"
-      action={total > 0 && <span className="status-badge status-pending" style={{ fontSize: '0.78rem' }}>{total} pending</span>}>
+      action={total > 0 && <span className="status-badge status-pending" style={{ fontSize: '0.78rem' }}>{total} Pending</span>}>
 
       {/* Purchase requisitions */}
       <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em', margin: '2px 0 8px' }}>Purchase requisitions</div>
@@ -109,11 +114,11 @@ export function ApprovalsPanel() {
                 </button>
                 {rejectingId !== req.id && (
                   <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                    <button className="primary-btn" style={{ padding: '5px 12px', fontSize: '0.8rem', background: 'hsl(var(--color-green))' }}
+                    <button className="primary-btn" style={{ ...actBtn, background: 'hsl(var(--color-green))' }}
                       onClick={() => approveRequisition(req.id, myName)}>
                       <CheckCircle size={13} /> Approve
                     </button>
-                    <button className="secondary-btn" style={{ padding: '5px 12px', fontSize: '0.8rem', color: 'hsl(var(--color-red))', borderColor: 'hsl(var(--color-red))' }}
+                    <button className="secondary-btn" style={{ ...actBtn, color: 'hsl(var(--color-red))', borderColor: 'hsl(var(--color-red))' }}
                       onClick={() => { setRejectingId(req.id); setRejectReason(''); }}>
                       <XCircle size={13} /> Reject
                     </button>
@@ -132,9 +137,9 @@ export function ApprovalsPanel() {
                     placeholder="Explain why this request is being rejected..."
                     value={rejectReason} onChange={e => setRejectReason(e.target.value)} autoFocus />
                   <div style={{ display: 'flex', gap: 8, marginTop: 8, justifyContent: 'flex-end' }}>
-                    <button className="secondary-btn" style={{ padding: '5px 12px', fontSize: '0.8rem' }}
+                    <button className="secondary-btn" style={actBtn}
                       onClick={() => { setRejectingId(null); setRejectReason(''); }}>Cancel</button>
-                    <button className="primary-btn" style={{ padding: '5px 12px', fontSize: '0.8rem', background: 'hsl(var(--color-red))' }}
+                    <button className="primary-btn" style={{ ...actBtn, background: 'hsl(var(--color-red))' }}
                       onClick={() => { if (rejectReason.trim()) { rejectRequisition(req.id, myName, rejectReason.trim()); setRejectingId(null); setRejectReason(''); } }}
                       disabled={!rejectReason.trim()}>Confirm Reject</button>
                   </div>
@@ -173,11 +178,11 @@ export function ApprovalsPanel() {
                 </div>
                 {rejectingInvId !== req.id && approvingInvId !== req.id && (
                   <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                    <button className="primary-btn" style={{ padding: '5px 12px', fontSize: '0.8rem', background: 'hsl(var(--color-green))' }}
+                    <button className="primary-btn" style={{ ...actBtn, background: 'hsl(var(--color-green))' }}
                       onClick={() => { setApprovingInvId(req.id); setPickedAllocator(''); }}>
                       <CheckCircle size={13} /> Approve
                     </button>
-                    <button className="secondary-btn" style={{ padding: '5px 12px', fontSize: '0.8rem', color: 'hsl(var(--color-red))', borderColor: 'hsl(var(--color-red))' }}
+                    <button className="secondary-btn" style={{ ...actBtn, color: 'hsl(var(--color-red))', borderColor: 'hsl(var(--color-red))' }}
                       onClick={() => { setRejectingInvId(req.id); setRejectInvReason(''); }}>
                       <XCircle size={13} /> Reject
                     </button>
@@ -192,10 +197,20 @@ export function ApprovalsPanel() {
                     <option value="">Select a person…</option>
                     {allocators.map(a => <option key={a.email} value={a.email}>{a.name}</option>)}
                   </select>
+                  {/* An empty list used to leave Confirm Approval disabled
+                      with nothing saying why. */}
+                  {allocatorsState !== 'loading' && allocators.length === 0 && (
+                    <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: 'hsl(var(--color-red))' }}>
+                      <AlertCircle size={12} style={{ flexShrink: 0 }} />
+                      {allocatorsState === 'error'
+                        ? "Couldn't load the people who can hand items over - reload and try again."
+                        : 'Nobody holds the allocator role yet - give it to someone in Roles & Access first.'}
+                    </div>
+                  )}
                   <div style={{ display: 'flex', gap: 8, marginTop: 8, justifyContent: 'flex-end' }}>
-                    <button className="secondary-btn" style={{ padding: '5px 12px', fontSize: '0.8rem' }}
+                    <button className="secondary-btn" style={actBtn}
                       onClick={() => { setApprovingInvId(null); setPickedAllocator(''); }} disabled={approvingBusy}>Cancel</button>
-                    <button className="primary-btn" style={{ padding: '5px 12px', fontSize: '0.8rem', background: 'hsl(var(--color-green))' }}
+                    <button className="primary-btn" style={{ ...actBtn, background: 'hsl(var(--color-green))' }}
                       onClick={() => handleApproveInv(req)} disabled={!pickedAllocator || approvingBusy}>
                       {approvingBusy ? <><Spinner size={13} /> Approving…</> : 'Confirm Approval'}
                     </button>
@@ -209,8 +224,8 @@ export function ApprovalsPanel() {
                     placeholder="Explain why this request is being rejected..."
                     value={rejectInvReason} onChange={e => setRejectInvReason(e.target.value)} autoFocus />
                   <div style={{ display: 'flex', gap: 8, marginTop: 8, justifyContent: 'flex-end' }}>
-                    <button className="secondary-btn" style={{ padding: '5px 12px', fontSize: '0.8rem' }} onClick={() => setRejectingInvId(null)}>Cancel</button>
-                    <button className="primary-btn" style={{ padding: '5px 12px', fontSize: '0.8rem', background: 'hsl(var(--color-red))' }}
+                    <button className="secondary-btn" style={actBtn} onClick={() => setRejectingInvId(null)}>Cancel</button>
+                    <button className="primary-btn" style={{ ...actBtn, background: 'hsl(var(--color-red))' }}
                       onClick={() => { rejectInvReq(req.id, myName, rejectInvReason); setRejectingInvId(null); setRejectInvReason(''); }}
                       disabled={!rejectInvReason.trim()}>Confirm Reject</button>
                   </div>
@@ -225,7 +240,7 @@ export function ApprovalsPanel() {
 }
 
 // ── Who has what (REAL - ported from ManagerDashboard) ────────────────────────
-export function WhoHasWhatPanel() {
+export function WhoHasWhatPanel({ phone = false }) {
   const { accounts } = useMsal();
   const myEmail = (accounts[0]?.username ?? '').toLowerCase();
   const myName  = accounts[0]?.name ?? '';
@@ -239,7 +254,11 @@ export function WhoHasWhatPanel() {
   const [allocating,  setAllocating]  = useState({});
   const [allocErrors, setAllocErrors] = useState({});
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  // The LOCAL day (Oct 14): toISOString() is UTC, so after ~5 PM Pacific
+  // "today" was already tomorrow and an item due today showed as overdue.
+  // Overdue means the due DAY has passed - the same rule the employee's own
+  // Due Back Soon tile uses ("Due today" until the day is over).
+  const todayStr = agendaDay(new Date());
 
   const pendingAlloc = invRequests
     .filter(r => r.status === 'approved' &&
@@ -260,7 +279,7 @@ export function WhoHasWhatPanel() {
       return {
         key: r.id, employee: r.requestedBy, raisedBy: r.raisedBy, item: r.itemName,
         dept: r.department, type: 'Temporary', since: r.allocatedAt ?? r.createdAt,
-        dueDate: dueDate.toISOString().split('T')[0], isOverdue: dueDate < new Date(), reqId: r.id,
+        dueDate: agendaDay(dueDate), isOverdue: agendaDay(dueDate) < todayStr, reqId: r.id,
       };
     });
 
@@ -294,13 +313,13 @@ export function WhoHasWhatPanel() {
   }
 
   return (
-    <Card title={`Who has what${overdueCount ? ` - ⚠ ${overdueCount} overdue` : ''}`}
+    <Card title={`Who Has What${overdueCount ? ` - ⚠ ${overdueCount} Overdue` : ''}`}
       sub="Everything currently checked out, permanent and temporary"
       action={
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <Filter size={13} style={{ color: 'var(--muted)' }} />
           <select value={dept} onChange={e => setDept(e.target.value)} className="form-input"
-            style={{ padding: '5px 8px', fontSize: 12.5, height: 'auto' }}>
+            style={{ padding: phone ? '7px 8px' : '5px 8px', fontSize: phone ? 16 : 12.5, height: 'auto', minHeight: phone ? 36 : undefined }}>
             {DEPTS.map(d => <option key={d}>{d}</option>)}
           </select>
         </span>
@@ -309,7 +328,7 @@ export function WhoHasWhatPanel() {
       {pendingAlloc.length > 0 && (
         <div style={{ marginBottom: 14, border: '1px solid hsla(var(--color-blue),0.25)', borderRadius: 10, background: 'hsla(var(--color-blue),0.03)', padding: 10 }}>
           <div style={{ fontSize: 11.5, fontWeight: 700, color: 'hsl(var(--color-blue))', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8 }}>
-            Pending allocation - {pendingAlloc.length}
+            Pending Allocation - {pendingAlloc.length}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {pendingAlloc.map(row => (
@@ -320,12 +339,12 @@ export function WhoHasWhatPanel() {
                   <span style={{ fontSize: 12.5, color: 'var(--muted)' }}> - {row.item}</span>
                   <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
                     {row.assignedTo ? <>Assigned to {row.assignedToEmail === myEmail ? 'you' : row.assignedTo}</> : 'Unassigned'}
-                    {row.approvedAt && <> · approved {new Date(row.approvedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</>}
+                    {row.approvedAt && <> · approved {formatMonthDay(row.approvedAt)}</>}
                   </div>
                 </div>
                 <div>
                   <button onClick={(e) => { e.stopPropagation(); handleAllocate(row); }} disabled={!!allocating[row.key]}
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 11px', borderRadius: 7, border: 'none', background: 'hsl(var(--color-green))', color: '#fff', fontSize: 12, fontWeight: 600, cursor: allocating[row.key] ? 'default' : 'pointer', opacity: allocating[row.key] ? 0.6 : 1, fontFamily: 'Inter,sans-serif' }}>
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: phone ? '9px 13px' : '5px 11px', minHeight: phone ? 36 : undefined, borderRadius: 7, border: 'none', background: 'hsl(var(--color-green))', color: '#fff', fontSize: 12, fontWeight: 600, cursor: allocating[row.key] ? 'default' : 'pointer', opacity: allocating[row.key] ? 0.6 : 1, fontFamily: 'Inter,sans-serif' }}>
                     {allocating[row.key]
                       ? <><Spinner size={12} /> Allocating…</>
                       : <><CheckCircle size={12} /> Mark Allocated</>}
@@ -361,9 +380,9 @@ export function WhoHasWhatPanel() {
                   <span style={{ fontSize: 11, color: 'var(--muted)' }}> (via {row.raisedBy})</span>
                 )}
                 <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>
-                  {row.dept} · since {row.since ? new Date(row.since).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '-'} ·{' '}
+                  {row.dept} · since {formatMonthDay(row.since, '-')} ·{' '}
                   <span style={{ fontWeight: row.isOverdue ? 700 : 500, color: row.isOverdue ? 'hsl(var(--color-red))' : 'var(--muted)' }}>
-                    {row.isOverdue && '⚠ '}due {row.dueDate}
+                    {row.isOverdue && '⚠ '}due {formatDate(row.dueDate, '-')}
                   </span>
                 </div>
               </div>
@@ -373,11 +392,11 @@ export function WhoHasWhatPanel() {
               {row.isOverdue ? (
                 alertSent[row.key] ? (
                   <span style={{ fontSize: 11.5, color: 'hsl(var(--color-green))', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                    <CheckCircle size={12} /> Alert sent
+                    <CheckCircle size={12} /> Alert Sent
                   </span>
                 ) : (
                   <button onClick={(e) => { e.stopPropagation(); sendOverdueAlert(row.reqId, row.employee, row.item); setAlertSent(p => ({ ...p, [row.key]: true })); }}
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 7, border: '1px solid hsla(var(--color-orange),0.3)', background: 'hsla(var(--color-orange),0.08)', color: 'hsl(var(--color-orange))', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: phone ? '9px 13px' : '4px 10px', minHeight: phone ? 36 : undefined, borderRadius: 7, border: '1px solid hsla(var(--color-orange),0.3)', background: 'hsla(var(--color-orange),0.08)', color: 'hsl(var(--color-orange))', fontSize: 11.5, fontWeight: 600, cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
                     <Mail size={11} /> Send Alert
                   </button>
                 )
@@ -395,6 +414,11 @@ export function WhoHasWhatPanel() {
 // ── Team time (REAL - TimeAdmin, scoped server-side to direct reports) ────────
 export function TeamTimePanel() {
   const [tmsg, setTmsg] = useState(null);
+  // One timer at a time: a second toast within 5s used to be wiped early by
+  // the first one's timer.
+  const tTimer = useRef(null);
+  useEffect(() => () => clearTimeout(tTimer.current), []);
+  const toast = (ok, t, ms) => { clearTimeout(tTimer.current); setTmsg({ ok, t }); tTimer.current = setTimeout(() => setTmsg(null), ms); };
   return (
     <Card title="Team Time" sub="Your direct reports' punches, approvals and time off - HR sees the whole company under HR → Time">
       {tmsg && (
@@ -403,8 +427,8 @@ export function TeamTimePanel() {
           color: tmsg.ok ? 'hsl(var(--color-green))' : '#b91c1c' }}>{tmsg.t}</div>
       )}
       <TimeAdmin
-        toastOk={(t) => { setTmsg({ ok: true, t }); setTimeout(() => setTmsg(null), 5000); }}
-        toastErr={(t) => { setTmsg({ ok: false, t }); setTimeout(() => setTmsg(null), 6000); }} />
+        toastOk={(t) => toast(true, t, 5000)}
+        toastErr={(t) => toast(false, t, 6000)} />
     </Card>
   );
 }
@@ -452,18 +476,38 @@ const monthDay = (m, d) => `${String(m).padStart(2, '0')}-${String(d).padStart(2
 // they'd need to request.
 const HOLIDAY_TYPE_LABEL = { mandatory: 'Mandatory', optional: 'Optional', half_day: 'Half-day' };
 
-export function CalendarPanel() {
+export function CalendarPanel({ phone = false }) {
   const [cursor, setCursor] = useState(startOfMonth(new Date()));
   const [selected, setSelected] = useState(agendaDay(new Date()));
   const [state, setState] = useState({ loading: true, available: true, events: [] });
   const [birthdays, setBirthdays] = useState([]);   // [{name, month, day}] - whole roster, fetched once
   const [holidays, setHolidays] = useState([]);      // [{date, name, type}] - caller's own company, fetched once
   // Side-by-side (month grid | My Agenda) only makes sense with room for
-  // both - on a phone the grid should run full width, agenda stacked below
+  // both - on a phone the grid runs full width, agenda stacked below
   // (Pranshu, Sep 22: "this calendar should be full and the agenda below
-  // it"), not the flex-wrap fallback that left a stray divider line hanging
-  // off the now-wrapped agenda pane with nothing to its left anymore.
+  // it"). Oct 14: the panes used to sit in a flex-WRAP row, and a wrapping
+  // row grows to its tallest child - so the agenda's own scroller never got
+  // a height, the list spilled into the card body, and on a Mac (scrollbars
+  // hidden) a long day just looked cut off; on a phone the month grid filled
+  // the tile and the agenda never showed. Now the panes never wrap: the
+  // board measures its own box and picks side-by-side or stacked, the month
+  // grid tightens when the tile is short, and the agenda is the one thing
+  // that scrolls (with a visible edge shadow and a count in its header).
   const isMobile = useIsMobile();
+  const stackedLayout = phone || isMobile;
+  const [box, setBox] = useState({ w: 0, h: 0 });
+  // A callback ref, not a mount-time effect: the measured box only exists
+  // while the calendar is connected, so it can appear after mount (someone
+  // connects Outlook) and must be observed then too.
+  const roRef = useRef(null);
+  const boxRef = useCallback((el) => {
+    roRef.current?.disconnect();
+    roRef.current = null;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(([e]) => setBox({ w: Math.floor(e.contentRect.width), h: Math.floor(e.contentRect.height) }));
+    ro.observe(el);
+    roRef.current = ro;
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -560,28 +604,42 @@ export function CalendarPanel() {
   const yearNow = new Date().getFullYear();
   const yearOptions = Array.from({ length: 11 }, (_, i) => yearNow - 5 + i);
   const selectStyle = {
-    border: 'none', background: 'transparent', color: 'var(--muted)', fontSize: 12, fontWeight: 600,
+    border: 'none', background: 'transparent', color: 'var(--muted)', fontSize: stackedLayout ? 16 : 12, fontWeight: 600,
     fontFamily: 'var(--wk-font)', cursor: 'pointer', padding: '2px 0',
   };
+  // ‹ Today ›: 36px targets on a phone (they were ~20px glyph buttons).
+  const navBtn = { marginTop: 0, padding: '2px 6px', ...(stackedLayout ? { minWidth: 36, minHeight: 36, justifyContent: 'center' } : null) };
+
+  // Side by side when there is room for a 210px month grid plus a readable
+  // agenda; stacked otherwise (a phone, or a narrow tile). Before the first
+  // measurement (w 0) the tile's own phone flag decides.
+  const side = !stackedLayout && (box.w === 0 || box.w >= 400);
+  // A short tile (minimum height) tightens the month grid's rows so the grid
+  // never pushes past the card.
+  const dense = side && box.h > 0 && box.h < 220;
+  // A narrow agenda puts the times above the title instead of beside it.
+  const agendaW = side ? box.w - 210 - 17 : box.w;
+  const narrowAgenda = agendaW > 0 && agendaW < 260;
+  const cellPad = dense ? '2px 0 3px' : '5px 0 7px';
 
   return (
     <Card
       title="Calendar"
       sub={
         <span style={{ display: 'inline-flex', gap: 4 }}>
-          <select value={cursor.getMonth()} onChange={e => setCursor(new Date(cursor.getFullYear(), +e.target.value, 1))} style={selectStyle}>
+          <select value={cursor.getMonth()} onChange={e => setCursor(new Date(cursor.getFullYear(), +e.target.value, 1))} style={selectStyle} aria-label="Month">
             {MONTH_NAMES.map((m, i) => <option key={m} value={i}>{m}</option>)}
           </select>
-          <select value={cursor.getFullYear()} onChange={e => setCursor(new Date(+e.target.value, cursor.getMonth(), 1))} style={selectStyle}>
+          <select value={cursor.getFullYear()} onChange={e => setCursor(new Date(+e.target.value, cursor.getMonth(), 1))} style={selectStyle} aria-label="Year">
             {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
         </span>
       }
       action={
         <span style={{ display: 'inline-flex', gap: 2 }}>
-          <button onClick={() => dayNav(-1)} className="link-btn" style={{ marginTop: 0, padding: '2px 6px' }}>‹</button>
-          <button onClick={() => { pickedRef.current = false; setCursor(startOfMonth(new Date())); setSelected(agendaDay(new Date())); }} className="link-btn" style={{ marginTop: 0, padding: '2px 6px', fontSize: 11 }}>Today</button>
-          <button onClick={() => dayNav(1)} className="link-btn" style={{ marginTop: 0, padding: '2px 6px' }}>›</button>
+          <button onClick={() => dayNav(-1)} className="link-btn" aria-label="Previous Day" title="Previous Day" style={navBtn}>‹</button>
+          <button onClick={() => { pickedRef.current = false; setCursor(startOfMonth(new Date())); setSelected(agendaDay(new Date())); }} className="link-btn" style={{ ...navBtn, fontSize: 11 }}>Today</button>
+          <button onClick={() => dayNav(1)} className="link-btn" aria-label="Next Day" title="Next Day" style={navBtn}>›</button>
         </span>
       }
     >
@@ -590,16 +648,15 @@ export function CalendarPanel() {
           Your calendar isn't connected - this widget shows the Outlook calendar of Microsoft 365 accounts.
         </div>
       ) : (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18, height: '100%' }}>
-          {/* Left pane: the month grid. Fixed width - only the agenda pane
-              should grow when the widget is resized wider. */}
-          <div style={isMobile ? { flex: '1 1 100%', width: '100%' } : { flex: '0 0 220px', minWidth: 210 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, textAlign: 'center', marginBottom: 4 }}>
+        <div ref={boxRef} style={{ display: 'flex', flexDirection: side ? 'row' : 'column', gap: side ? 17 : 10, height: '100%', minHeight: 0, boxSizing: 'border-box' }}>
+          {/* Month grid: fixed width beside the agenda; full width stacked. */}
+          <div style={side ? { flex: '0 0 210px', width: 210, minHeight: 0 } : { flex: '0 0 auto', width: '100%' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, textAlign: 'center', marginBottom: dense ? 2 : 4 }}>
               {MONTH_WEEKDAYS.map((w, i) => (
-                <div key={i} style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', padding: '2px 0' }}>{w}</div>
+                <div key={i} style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', padding: dense ? '1px 0' : '2px 0' }}>{w}</div>
               ))}
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: dense ? 1 : 2 }}>
               {gridDays.map((d) => {
                 const key = agendaDay(d);
                 const inMonth = d.getMonth() === cursor.getMonth();
@@ -609,10 +666,11 @@ export function CalendarPanel() {
                 const hasBirthday = !!birthdaysByMD[monthDay(d.getMonth() + 1, d.getDate())];
                 const hasHoliday = !!holidaysByDate[key];
                 return (
-                  <button key={key} onClick={() => pick(key)}
+                  <button key={key} onClick={() => pick(key)} aria-label={formatDate(d)} aria-pressed={isSelected}
                     style={{
                       display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2,
-                      padding: '5px 0 7px', border: 'none', borderRadius: 8, cursor: 'pointer',
+                      padding: cellPad, minHeight: stackedLayout ? 36 : undefined, justifyContent: 'center',
+                      border: 'none', borderRadius: 8, cursor: 'pointer',
                       background: isSelected ? 'hsl(var(--color-blue))' : 'transparent',
                       fontFamily: 'var(--wk-font)',
                     }}>
@@ -636,48 +694,61 @@ export function CalendarPanel() {
               })}
             </div>
           </div>
-          {/* Right pane: My Agenda, for whichever day is selected in the grid -
-              same `state.events` fetch, just filtered to `selected`, so it can
-              never disagree with the dots on the left. */}
-          <div style={isMobile
-            ? { flex: '1 1 100%', width: '100%', marginTop: 10, display: 'flex', flexDirection: 'column', minHeight: 0 }
-            : { flex: '1 1 240px', minWidth: 220, borderLeft: '1px solid var(--line)', paddingLeft: 18, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-            <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--muted)', padding: '0 2px 8px' }}>
-              My Agenda
+          {/* My Agenda, for whichever day is selected in the grid - the same
+              `state.events` fetch filtered to `selected`, so it can never
+              disagree with the dots on the left. The ONLY scroller here. */}
+          <div style={side
+            ? { flex: '1 1 0', minWidth: 0, minHeight: 0, borderLeft: '1px solid var(--line)', paddingLeft: 17, display: 'flex', flexDirection: 'column' }
+            : { flex: '1 1 0', minHeight: 140, display: 'flex', flexDirection: 'column', borderTop: '1px solid var(--line)', paddingTop: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, padding: '0 2px 8px' }}>
+              <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                My Agenda{selected !== today ? ` · ${formatMonthDay(selDate)}` : ''}
+              </span>
+              {!state.loading && dayEvents.length > 0 && (
+                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                  {dayEvents.length} {dayEvents.length === 1 ? 'item' : 'items'}
+                </span>
+              )}
             </div>
-            <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+            <div className="dash-scroll" style={{ flex: 1, minHeight: 0 }} tabIndex={0} aria-label="My Agenda">
               {state.loading ? (
                 <LoadingState compact />
               ) : dayEvents.length === 0 ? (
                 <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '12px 4px', textAlign: 'center' }}>Nothing scheduled.</div>
               ) : (
-                dayEvents.map((ev, i) => (
-                  <div key={ev.isHoliday ? `hol-${i}` : ev.isBirthday ? `bday-${i}` : `${ev.start}-${i}`} className="task-row" style={{ alignItems: 'flex-start', gap: 10, cursor: ev.webLink ? 'pointer' : 'default' }}
-                    onClick={() => { if (ev.webLink) window.open(ev.webLink, '_blank', 'noopener,noreferrer'); }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: ev.isHoliday ? 'hsl(var(--color-red))' : ev.isBirthday ? 'hsl(var(--color-gold))' : 'var(--muted)', fontVariantNumeric: 'tabular-nums', flexShrink: 0, minWidth: 62, paddingTop: 1, display: 'flex', alignItems: 'center', gap: 4 }}>
-                      {ev.isHoliday ? <><PartyPopper size={12} /> All day</> : ev.isBirthday ? <><CakeSlice size={12} /> All day</> : ev.isAllDay ? 'All day' : agendaTime(ev.start)}
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div className="task-title" style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', textOverflow: 'ellipsis' }}>{ev.subject}</div>
-                      {ev.isHoliday && (
-                        <div className="task-dept">Company Holiday ({HOLIDAY_TYPE_LABEL[ev.holidayType] || 'Mandatory'})</div>
+                dayEvents.map((ev, i) => {
+                  const when = ev.isHoliday ? <><PartyPopper size={12} /> All day</> : ev.isBirthday ? <><CakeSlice size={12} /> All day</> : ev.isAllDay ? 'All day' : agendaTime(ev.start);
+                  const until = !ev.isAllDay && ev.end ? `until ${agendaTime(ev.end)}` : '';
+                  const whenColor = ev.isHoliday ? 'hsl(var(--color-red))' : ev.isBirthday ? 'hsl(var(--color-gold))' : 'var(--muted)';
+                  return (
+                    <div key={ev.isHoliday ? `hol-${i}` : ev.isBirthday ? `bday-${i}` : `${ev.start}-${i}`} className="task-row"
+                      style={{ alignItems: 'flex-start', gap: 10, cursor: ev.webLink ? 'pointer' : 'default', ...(narrowAgenda ? { flexDirection: 'column', gap: 2 } : null) }}
+                      onClick={() => { if (ev.webLink) window.open(ev.webLink, '_blank', 'noopener,noreferrer'); }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: whenColor, fontVariantNumeric: 'tabular-nums', flexShrink: 0, minWidth: narrowAgenda ? 0 : 62, paddingTop: 1, display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}>
+                        {when}{narrowAgenda && until && <span style={{ fontWeight: 500 }}>&nbsp;{until}</span>}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0, width: narrowAgenda ? '100%' : undefined }}>
+                        <div className="task-title" title={ev.subject} style={{ display: '-webkit-box', WebkitLineClamp: stackedLayout ? 3 : 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', textOverflow: 'ellipsis', overflowWrap: 'anywhere' }}>{ev.subject}</div>
+                        {ev.isHoliday && (
+                          <div className="task-dept">Company Holiday ({HOLIDAY_TYPE_LABEL[ev.holidayType] || 'Mandatory'})</div>
+                        )}
+                        {(ev.location || ev.joinUrl) && (
+                          <div className="task-dept" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {ev.joinUrl ? (
+                              <a href={ev.joinUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
+                                style={{ color: 'hsl(var(--color-blue))', fontWeight: 600, textDecoration: 'none', display: 'inline-block', padding: stackedLayout ? '6px 0' : 0 }}>
+                                Join Teams Meeting
+                              </a>
+                            ) : ev.location}
+                          </div>
+                        )}
+                      </div>
+                      {!narrowAgenda && until && (
+                        <div style={{ fontSize: 11.5, color: 'var(--muted)', flexShrink: 0, paddingTop: 2, whiteSpace: 'nowrap' }}>{until}</div>
                       )}
-                      {(ev.location || ev.joinUrl) && (
-                        <div className="task-dept" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {ev.joinUrl ? (
-                            <a href={ev.joinUrl} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}
-                              style={{ color: 'hsl(var(--color-blue))', fontWeight: 600, textDecoration: 'none' }}>
-                              Join Teams Meeting
-                            </a>
-                          ) : ev.location}
-                        </div>
-                      )}
                     </div>
-                    {!ev.isAllDay && ev.end && (
-                      <div style={{ fontSize: 11.5, color: 'var(--muted)', flexShrink: 0, paddingTop: 2 }}>until {agendaTime(ev.end)}</div>
-                    )}
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>

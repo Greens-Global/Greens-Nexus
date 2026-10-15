@@ -54,6 +54,9 @@ _DEFAULT_SETTINGS = {
         "created": True, "assigned": True, "updated": True,
         "resolved": True, "reopened": True, "approval_required": True,
         "escalated": True,
+        # Due-date / overdue reminders to the assignee (ticket_overdue.py).
+        # Off by default: they go out from managers' Teams accounts.
+        "overdue_reminder": False,
     },
 }
 
@@ -257,7 +260,10 @@ def _recipients_for(db: Session, t: models.TaskTicket, event_type: str, cfg: dic
         # department at all) falls back to the desk so it's never silent.
         dept = (db.query(models.TicketDepartment).filter(models.TicketDepartment.id == t.hr_department_id).first()
                 if t.hr_department_id else None)
-        heads = [e for e in [(dept.lead_email if dept else ""), (dept.backup_email if dept else "")] if e]
+        # The head is the department's own (one head everywhere, Oct 15 2026); the backup is the desk's.
+        live = (db.query(models.HrDepartment).filter(models.HrDepartment.id == t.hr_department_id).first()
+                if t.hr_department_id else None)
+        heads = [e for e in [(live.lead_email if live else ""), (dept.backup_email if dept else "")] if e]
         if heads:
             for h in heads:
                 add(h, "dept_head")
@@ -687,6 +693,12 @@ def _ticket_scan_once() -> None:
     try:
         _retry_failed_once(db)
         _auto_close_once(db)
+        try:
+            import ticket_overdue
+            ticket_overdue.run(db)
+        except Exception as e:   # reminders must never stop the retries above
+            db.rollback()
+            print(f"[ticket-overdue] pass failed: {e}")
     finally:
         db.close()
 

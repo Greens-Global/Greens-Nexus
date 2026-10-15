@@ -38,7 +38,7 @@ describe('SessionChip', () => {
     render(<SessionChip mine={mine('out')} onOpen={() => {}} />);
     const chip = screen.getByRole('button');
     expect(chip.textContent).toContain('Clocked Out');
-    expect(chip.textContent).toContain('Open time clock');
+    expect(chip.textContent).toContain('Open Time Clock');
     expect(chip.className).not.toContain('--on');
   });
 });

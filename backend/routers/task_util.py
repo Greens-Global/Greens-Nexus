@@ -168,7 +168,9 @@ def admin_emails(db: Session) -> list[str]:
 # ── Visibility (Jul 2026) ─────────────────────────────────────────────────────
 def is_manager(user: dict) -> bool:
     """Managers/admins bypass Task-module visibility restrictions entirely -
-    same level cutoff as require_manager elsewhere in this app (auth.py)."""
+    same level cutoff as require_manager elsewhere in this app (auth.py).
+    A Tasks Owner grant reaches level 3 here too (auth.module_owner_acts_as
+    on the Task routers)."""
     return (user or {}).get("level", 0) >= 3
 
 
@@ -456,7 +458,7 @@ def assert_person_on_task(db: Session, task, email: str) -> str:
     task_co = task_company(task, _emp_company_map(db))
     if task_co and (emp.company or "") and emp.company != task_co:
         raise HTTPException(422, "That person is in another company.")
-    if auth.level_for(who, db) >= 3:   # managers open every task
+    if auth.level_in_module(who, "tasks", 3, db) >= 3:   # managers (and Tasks Owners) open every task
         return who
     if not task_is_visible(task, who, visible_project_ids(db, who)):
         raise HTTPException(422, "That person cannot see this task. Add them to the task or its project first.")
@@ -512,8 +514,8 @@ def can_comment(db: Session, email: str, project) -> bool:
     email = (email or "").lower()
     if not email:
         return False
-    from auth import level_for      # local: auth imports models, not this module
-    if level_for(email, db) >= 3:   # is_manager's cutoff
+    from auth import level_in_module   # local: auth imports models, not this module
+    if level_in_module(email, "tasks", 3, db) >= 3:   # is_manager's cutoff, Tasks Owners included
         return True
     return PROJECT_ROLE_RANK.get(project_role_for(db, email, project), 0) >= PROJECT_ROLE_RANK["commenter"]
 

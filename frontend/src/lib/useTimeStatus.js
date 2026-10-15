@@ -39,6 +39,14 @@ export function reloadTimeStatus() {
   return queryClient.invalidateQueries({ queryKey: TIME_STATUS_KEY }, { cancelRefetch: false });
 }
 
+// After a punch: a FRESH read, cancelling one already on its way (Oct 14).
+// Joining a poll that left before the punch landed would hand back the
+// pre-punch answer, overwrite the punch just applied, and offer the same
+// punch again (a second tap got "Duplicate punch").
+export function refetchTimeStatusFresh() {
+  return queryClient.refetchQueries({ queryKey: TIME_STATUS_KEY }, { cancelRefetch: true });
+}
+
 // Optimistic touch-up of the shared answer (the next read replaces it).
 export function patchTimeStatus(updater) {
   queryClient.setQueryData(TIME_STATUS_KEY, updater);

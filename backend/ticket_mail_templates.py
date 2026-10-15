@@ -547,3 +547,45 @@ def walkthrough_email(*, property_name: str, property_id: str, actor_name: str, 
   </table>
 </div>"""
     return f"{n} new ticket{s}{at} - Batch Create", html
+
+
+# ── Overdue reminders (Oct 15 2026, ticket_overdue.py) ──────────────────────
+# One message per person listing every ticket that is due today or past due.
+# Each row: {id, code, subject, due (MM/DD/YYYY), late (business days past
+# due, 0 = due today), status, assignee (name; the lead's copy only)}.
+
+def _late_text(late: int) -> str:
+    if late <= 0:
+        return "due today"
+    return f"{late} business day{'s' if late != 1 else ''} overdue"
+
+
+def _overdue_heading(rows: list, audience: str, dept_name: str = "") -> tuple[str, str]:
+    n = len(rows)
+    s = "s" if n != 1 else ""
+    if audience == "lead":
+        where = f" in {dept_name}" if dept_name else ""
+        return (f"{n} ticket{s}{where} past due",
+                f"These ticket{s} are past due and earlier reminders to the assignee went unanswered.")
+    if all(r["late"] <= 0 for r in rows):
+        return (f"{n} ticket{s} due today", f"These ticket{s} assigned to you are due today and not closed yet.")
+    return (f"{n} ticket{s} not closed", f"These ticket{s} assigned to you are due or past due and not closed yet.")
+
+
+def overdue_teams_html(*, rows: list, audience: str, base_url: str, first_name: str = "",
+                       dept_name: str = "") -> str:
+    """The Teams chat message: a short greeting, one line per ticket with a
+    masked link, and a note that Nexus sent it - it goes out from the
+    assignee's manager's account, so it must not read as typed by them."""
+    heading, intro = _overdue_heading(rows, audience, dept_name)
+    lead_in = f"Hi {escape(first_name)}, {escape(intro[0].lower() + intro[1:])}" if first_name else escape(intro)
+    items = []
+    for r in rows:
+        link = _ticket_url(base_url, r["id"])
+        who = f" - assigned to {escape(r['assignee'])}" if audience == "lead" and r.get("assignee") else ""
+        items.append(f'<li><a href="{escape(link, quote=True)}">{escape(ticket_no(r["code"]))}</a> '
+                     f'"{escape(r["subject"])}" - due {escape(r["due"])}, {_late_text(r["late"])}{who}</li>')
+    return (f"<p>{lead_in}</p>"
+            f"<ul>{''.join(items)}</ul>"
+            f"<p>Please update or close {'them' if len(rows) != 1 else 'it'} in Nexus.</p>"
+            f"<p><i>Automatic reminder from Nexus ({escape(heading)})</i></p>")

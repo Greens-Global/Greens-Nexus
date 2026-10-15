@@ -18,7 +18,7 @@ import { fmtDate as fmtDateRaw, fmtDateTime, filesFromPaste, fmtHours, teamInPro
 // Drawer shows an em-dash for an unset date rather than an empty cell.
 const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '-');
 import { NX, FONT, btn, input as inputStyle, STATUS_META, STATUS_ORDER, PRIORITY_META, PRIORITY_ORDER, isMissed, MISSED_TITLE } from './theme';
-import { Avatar, Modal, PersonMultiSelect, usePeople, useIsMobile, DateField, AttachmentViewer, ExternalTag, MenuCaption, PersonDot } from './components';
+import { Avatar, Modal, PersonMultiSelect, ChipMultiSelect, usePeople, useIsMobile, DateField, AttachmentViewer, ExternalTag, MenuCaption, PersonDot } from './components';
 import { matchPeople } from '../lib/peopleSearch';
 import { useListNav } from '../lib/listNav';
 import { useFrequentCollaborators, frequentRows } from './frequentPeople';
@@ -2130,26 +2130,15 @@ export function CustomFieldInput({ field, value, onChange }) {
     );
   }
   if (field.type === 'multiselect' && Array.isArray(field.options)) {
-    const opts = field.options.map((o) => (typeof o === 'string' ? { id: o, label: o, color: '' } : o));
-    const picked = Array.isArray(value) ? value : [];
-    const toggle = (id) => onChange(picked.includes(id) ? picked.filter((x) => x !== id) : [...picked, id]);
+    // One dropdown, not a palette of every option as a chip (Neil, Oct 15
+    // 2026: a long Trade list filled the task card). The chosen options sit
+    // inside the trigger and the menu is a searchable checkbox list, the
+    // same control the project pickers use.
+    const opts = field.options.map((o) => (typeof o === 'string' ? { id: o, label: o } : { id: o.id, label: o.label }));
     return (
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-        {opts.map((o) => {
-          const on = picked.includes(o.id);
-          return (
-            <button key={o.id} type="button" onClick={() => toggle(o.id)}
-              style={{
-                border: `1px solid ${on ? (o.color || NX.primary) : NX.border}`, borderRadius: 20,
-                padding: '3px 10px', fontSize: 12, fontFamily: FONT, cursor: 'pointer', fontWeight: on ? 600 : 500,
-                background: on ? `${o.color || NX.primary}1a` : 'transparent',
-                color: on ? (o.color || NX.primary) : NX.dim,
-              }}>
-              {o.label}
-            </button>
-          );
-        })}
-        {opts.length === 0 && <span style={{ fontSize: 12.5, color: NX.faint }}>No options</span>}
+      <div style={{ minWidth: 220, maxWidth: 420, flex: 1 }}>
+        <ChipMultiSelect value={Array.isArray(value) ? value : []} onChange={onChange} options={opts}
+          placeholder="-" emptyText="No options" />
       </div>
     );
   }

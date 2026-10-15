@@ -1232,7 +1232,7 @@ export const api = {
   deleteEntity:   (id)       => req(`/hr/entities/${id}`, { method: 'DELETE' }),
   // per-company departments (managed list, not free text)
   getCompanyDepartments:    (entityId)       => req(`/hr/entities/${entityId}/departments`),
-  addCompanyDepartment:     (entityId, name) => req(`/hr/entities/${entityId}/departments`, { method: 'POST', body: JSON.stringify({ name }) }),
+  addCompanyDepartment:     (entityId, name, leadEmail = '') => req(`/hr/entities/${entityId}/departments`, { method: 'POST', body: JSON.stringify({ name, lead_email: leadEmail }) }),
   deleteCompanyDepartment:  (entityId, deptId) => req(`/hr/entities/${entityId}/departments/${deptId}`, { method: 'DELETE' }),
   updateCompanyDepartment:  (entityId, deptId, data) => req(`/hr/entities/${entityId}/departments/${deptId}`, { method: 'PATCH', body: JSON.stringify(data) }),
   getWorkSites:   ()         => cachedGet('/hr/work-sites', 120_000),

@@ -22,7 +22,7 @@ vi.mock('@azure/msal-react', () => ({ useMsal: () => ({ accounts: [{ name: 'Neil
 vi.mock('../contexts/NotificationContext.jsx', () => ({ useNotifications: () => ({ openPanel: vi.fn() }) }));
 
 import { WIDGETS } from './widgets.jsx';
-import { TicketQueueWidget, TimeExceptionsWidget, OutTodayWidget, PendingPurchasesWidget, ticketQueueRows, ticketViewFor, exceptionRows, outRows, purchaseRows } from './teamWidgets.jsx';
+import { TicketQueueWidget, TimeExceptionsWidget, OutTodayWidget, PendingPurchasesWidget, ticketQueueRows, ticketViewFor, exceptionRows, outRows, purchaseRows, nextWorkday } from './teamWidgets.jsx';
 import { takePendingOpen, __clearPendingOpen } from '../lib/pendingOpen';
 
 // Fixed "now": Friday 09/25/2026 10:00 local.
@@ -55,7 +55,7 @@ describe('My Ticket Queue', () => {
   it('lists open tickets assigned to me, SLA breaches first, and unassigned only for desk members', () => {
     const off = ticketQueueRows(tickets, 'neil@greensglobal.com', false);
     expect(off.mine.map(r => r.title)).toEqual(['#102 · VPN down', '#101 · Printer jam']);
-    expect(off.mine[0].statusLabel).toBe('SLA breached');
+    expect(off.mine[0].statusLabel).toBe('SLA Breached');
     expect(off.unassigned).toEqual([]);
     const desk = ticketQueueRows(tickets, 'neil@greensglobal.com', true);
     expect(desk.unassigned.map(r => r.title)).toEqual(['#104 · New laptop']);
@@ -71,7 +71,7 @@ describe('My Ticket Queue', () => {
     window.addEventListener('nexus:open-ticket', onOpen);
     render(<TicketQueueWidget />);
     expect(await screen.findByText('#104 · New laptop')).toBeTruthy();
-    expect(screen.getByText('Assigned to me')).toBeTruthy();
+    expect(screen.getByText('Assigned to Me')).toBeTruthy();
     expect(screen.getByText('Unassigned')).toBeTruthy();
     expect(screen.getByText('2 assigned to you, 1 unassigned')).toBeTruthy();
     fireEvent.click(screen.getByText('#102 · VPN down'));
@@ -148,6 +148,8 @@ describe('Out Today', () => {
     expect(today.map(r => r.title)).toEqual(['Ava', 'Ben']);
     expect(today[0].meta).toBe('Vacation · back 09/29/2026');
     expect(today[1].statusLabel).toBe('Partial');
+    // Partial days read 12-hour, and time off ending Friday is back Monday.
+    expect(today[1].meta).toBe('Sick · 1:00 PM - 5:00 PM · back 09/28/2026');
     expect(upcoming.map(u => [u.date, u.names.join(',')])).toEqual([
       ['2026-09-26', 'Ava'], ['2026-09-27', 'Ava'], ['2026-09-28', 'Ava'], ['2026-09-29', 'Dee'], ['2026-09-30', 'Dee'],
     ]);
@@ -195,5 +197,69 @@ describe('registry', () => {
   it('registers the four tiles under Team with the server-side role levels', () => {
     expect(WIDGETS['ticket-queue']).toMatchObject({ cat: 'Team', minRole: 'supervisor' });
     for (const k of ['time-exceptions', 'out-today', 'pending-purchases']) expect(WIDGETS[k]).toMatchObject({ cat: 'Team', minRole: 'manager' });
+  });
+});
+
+// Oct 14 widget pass: a failed fetch is an error with a retry, never the
+// empty state; a capped list says how many it left out and opens the rest.
+describe('errors and hidden rows', () => {
+  const navs = () => {
+    const seen = [];
+    const on = (e) => seen.push([e.detail.view, e.detail.sub]);
+    window.addEventListener('nexus:navigate', on);
+    return { seen, off: () => window.removeEventListener('nexus:navigate', on) };
+  };
+
+  it('Out Today: a failed fetch shows Try Again, not "Everyone is in", and the retry reloads', async () => {
+    apiMock.timeOffList.mockRejectedValueOnce(new Error('boom'));
+    render(<OutTodayWidget />);
+    expect(await screen.findByText("Couldn't load time off.")).toBeTruthy();
+    expect(screen.queryByText('Everyone is in')).toBeNull();
+    expect(screen.queryByText('Nobody on your team is out today.')).toBeNull();
+    apiMock.timeOffList.mockResolvedValue([]);
+    const before = apiMock.timeOffList.mock.calls.length;
+    fireEvent.click(screen.getByText('Try Again'));
+    expect(await screen.findByText('Nobody on your team is out today.')).toBeTruthy();
+    expect(apiMock.timeOffList.mock.calls.length).toBe(before + 1);
+  });
+
+  it('Time Exceptions: a non-403 failure is an error, not the access hint or "no exceptions"', async () => {
+    apiMock.timeExceptions.mockRejectedValue({ status: 500 });
+    render(<TimeExceptionsWidget />);
+    expect(await screen.findByText("Couldn't load time exceptions.")).toBeTruthy();
+    expect(screen.queryByText(/needs Time editor access/)).toBeNull();
+    expect(screen.queryByText(/No punch exceptions/)).toBeNull();
+  });
+
+  it('Ticket Queue: a failed ticket list is an error', async () => {
+    apiMock.getTaskTickets.mockRejectedValue(new Error('down'));
+    render(<TicketQueueWidget />);
+    expect(await screen.findByText("Couldn't load your tickets.")).toBeTruthy();
+    expect(screen.queryByText('No open tickets assigned to you.')).toBeNull();
+  });
+
+  it('Pending Purchases: shows ten, then "+2 more pending" that opens Purchase Requests', async () => {
+    apiMock.getPurchaseRequests.mockResolvedValue(Array.from({ length: 12 }, (_, i) => ({ id: i + 1, item: `Item ${i + 1}`, cost: 100 - i, qty: 1, dept: 'IT', status: 'pending' })));
+    const n = navs();
+    render(<PendingPurchasesWidget />);
+    expect(await screen.findByText('Item 10')).toBeTruthy();
+    expect(screen.queryByText('Item 11')).toBeNull();
+    fireEvent.click(screen.getByText('+2 more pending'));
+    n.off();
+    expect(n.seen).toEqual([['purchase', null]]);
+  });
+
+  it('Out Today: more than eight out today ends in a "+N more" that opens time off', async () => {
+    apiMock.timeOffList.mockResolvedValue(Array.from({ length: 9 }, (_, i) => ({ id: i, name: `Person ${i}`, type: 'vacation', status: 'approved', startDate: '2026-09-25', endDate: '2026-09-25' })));
+    const n = navs();
+    render(<OutTodayWidget />);
+    fireEvent.click(await screen.findByText('+1 more out today'));
+    n.off();
+    expect(n.seen).toEqual([['hr', 'hr-time-off']]);
+  });
+
+  it('back-to-work skips the weekend', () => {
+    expect(nextWorkday('2026-09-25').getDay()).toBe(1);     // Friday -> Monday
+    expect(nextWorkday('2026-09-23').getDate()).toBe(24);   // Wednesday -> Thursday
   });
 });

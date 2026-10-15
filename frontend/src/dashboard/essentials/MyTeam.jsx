@@ -27,6 +27,7 @@ import { openPersonProfile } from '../../lib/personNav';
 import { setPendingOpen } from '../../lib/pendingOpen';
 import { DashCard, navigate } from '../widgets.jsx';
 import { Row, noteStyle } from '../workdayWidgets.jsx';
+import { WidgetError } from '../listParts.jsx';
 import { openTicket, ticketViewFor } from '../teamWidgets.jsx';
 
 export const REFRESH_MS = 60_000;
@@ -99,12 +100,17 @@ function Tile({ tile, count, open, onClick, mobile }) {
   );
 }
 
-export default function MyTeam() {
+export default function MyTeam({ phone }) {
   const { can, myGrantedModules } = useRole();
-  const isMobile = useIsMobile();
+  const isMobileViewport = useIsMobile();
+  // The grid says when the board is a phone stack; outside it, the viewport.
+  const isMobile = phone ?? isMobileViewport;
   const [today, setToday] = useState(null);
   const [overdue, setOverdue] = useState(null);
   const [error, setError] = useState('');
+  // The today read failed with nothing on screen: its counts would read as
+  // "In 0 / Out 0" and the empty line as "No one reports to you" - both false.
+  const [todayFailed, setTodayFailed] = useState(false);
   const [openBucket, setOpenBucket] = useState(null);
   const alive = useRef(true);
 
@@ -112,6 +118,7 @@ export default function MyTeam() {
     const [t, o] = await Promise.allSettled([api.getMyTeamToday(), api.getMyTeamOverdue()]);
     if (!alive.current) return;
     if (t.status === 'fulfilled' && t.value) setToday(t.value);
+    setTodayFailed(t.status === 'rejected');
     if (o.status === 'fulfilled' && o.value) setOverdue(o.value);
     const failed = [t, o].filter(r => r.status === 'rejected');
     setError(failed.length ? (failed[0].reason?.message || 'Could not load your team') : '');
@@ -130,7 +137,9 @@ export default function MyTeam() {
     return () => { alive.current = false; stop(); document.removeEventListener('visibilitychange', onVis); };
   }, [load]);
 
-  const data = today || (overdue ? EMPTY_TODAY : null);
+  // A today answer that failed is NOT an empty team: no stand-in counts then.
+  const todayMissing = !today && todayFailed;
+  const data = today || (overdue && !todayMissing ? EMPTY_TODAY : null);
   const people = overdue?.people || [];
   const loading = !data && !overdue && !error;
   const tiles = TILES.filter(t => t.key !== 'late' || data?.scheduleAvailable);
@@ -149,15 +158,38 @@ export default function MyTeam() {
     else navigate(ticketViewFor(can, myGrantedModules));
   }
 
+  // Shared by the full card and the today-failed card.
+  const pushSection = (
+    <>
+      <div style={sectionHead}>Needs a Push</div>
+      {error && !overdue && <div style={{ ...noteStyle, padding: '8px' }}>Could not load overdue work. <button type="button" style={{ ...linkBtn, minHeight: 0, padding: 0 }} onClick={load}>Retry</button></div>}
+      {overdue && people.length === 0 && <div style={{ ...noteStyle, padding: '12px 8px' }}>Everyone is on track.</div>}
+      {people.slice(0, PUSH_CAP).map(p => (
+        <div key={p.email} style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <Row Icon={p.worst?.kind === 'ticket' ? TicketIcon : ListTodo} title={p.name || p.email} meta={pushMeta(p)}
+              status="overdue" statusLabel={isMobile ? '' : 'Overdue'} onClick={() => openWorst(p)} />
+          </div>
+          <a href={teamsChatUrl(p.email)} target="_blank" rel="noreferrer" aria-label={`Message ${p.name || p.email} on Teams`} title="Message on Teams"
+            style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 44, height: 44, borderRadius: 8, color: 'var(--muted)', flexShrink: 0 }}>
+            <MessageSquare size={16} />
+          </a>
+        </div>
+      ))}
+      {people.length > PUSH_CAP && (
+        <button type="button" style={linkBtn} onClick={viewAll}>View All ({overdue?.total || people.length}) <ArrowRight size={13} /></button>
+      )}
+    </>
+  );
+
   return (
     <DashCard title="My Team" sub={data?.date ? `Today, ${formatDate(data.date)}` : undefined}>
       {loading && <LoadingState compact minHeight={120} label="Loading your team" />}
       {!loading && !data && (
-        <div style={noteStyle}>
-          {error || 'Could not load your team.'}
-          <div><button type="button" style={linkBtn} onClick={load}>Retry</button></div>
-        </div>
+        <WidgetError message={todayMissing ? "Couldn't load who is in today." : "Couldn't load your team."} onRetry={load} />
       )}
+      {/* Today failed but the overdue read landed: still show who needs a push. */}
+      {!data && people.length > 0 && pushSection}
       {data && (
         <>
           <div data-testid="team-tiles" style={{ display: 'grid', gridTemplateColumns: `repeat(${isMobile ? 2 : tiles.length}, minmax(0, 1fr))`, gap: 8 }}>
@@ -179,28 +211,7 @@ export default function MyTeam() {
           {teamSize === 0 && people.length === 0 && (
             <div style={noteStyle}>No one reports to you in People yet.</div>
           )}
-          {(teamSize > 0 || people.length > 0) && (
-            <>
-              <div style={sectionHead}>Needs a Push</div>
-              {error && !overdue && <div style={{ ...noteStyle, padding: '8px' }}>Could not load overdue work. <button type="button" style={{ ...linkBtn, minHeight: 0, padding: 0 }} onClick={load}>Retry</button></div>}
-              {overdue && people.length === 0 && <div style={{ ...noteStyle, padding: '12px 8px' }}>Everyone is on track.</div>}
-              {people.slice(0, PUSH_CAP).map(p => (
-                <div key={p.email} style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <Row Icon={p.worst?.kind === 'ticket' ? TicketIcon : ListTodo} title={p.name || p.email} meta={pushMeta(p)}
-                      status="overdue" statusLabel={isMobile ? '' : 'Overdue'} onClick={() => openWorst(p)} />
-                  </div>
-                  <a href={teamsChatUrl(p.email)} target="_blank" rel="noreferrer" aria-label={`Message ${p.name || p.email} on Teams`} title="Message on Teams"
-                    style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 44, height: 44, borderRadius: 8, color: 'var(--muted)', flexShrink: 0 }}>
-                    <MessageSquare size={16} />
-                  </a>
-                </div>
-              ))}
-              {people.length > PUSH_CAP && (
-                <button type="button" style={linkBtn} onClick={viewAll}>View All ({overdue?.total || people.length}) <ArrowRight size={13} /></button>
-              )}
-            </>
-          )}
+          {(teamSize > 0 || people.length > 0) && pushSection}
         </>
       )}
     </DashCard>

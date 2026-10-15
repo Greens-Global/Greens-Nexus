@@ -3101,6 +3101,7 @@ def list_departments(entity_id: str, user: dict = Depends(require_hr_read), db: 
 
 class DepartmentIn(BaseModel):
     name: str
+    lead_email: str = ""     # the department head (Oct 15 2026) - optional when adding
 
 
 @router.post("/entities/{entity_id}/departments", status_code=201)
@@ -3123,7 +3124,9 @@ def add_department(entity_id: str, body: DepartmentIn, user: dict = Depends(requ
     if any(_dept_key(r.name) == _dept_key(name) for r in rows):
         return [_serialize_dept(d) for d in sorted(rows, key=lambda d: (d.sort_order, d.name))]
     nxt = max([r.sort_order for r in rows], default=-1) + 1
-    db.add(HrDepartment(id=str(uuid.uuid4()), company_id=entity_id, name=name, sort_order=nxt, created_by=user["email"], created_at=datetime.now(timezone.utc).isoformat()))
+    db.add(HrDepartment(id=str(uuid.uuid4()), company_id=entity_id, name=name, sort_order=nxt,
+                        lead_email=(body.lead_email or "").strip().lower(),
+                        created_by=user["email"], created_at=datetime.now(timezone.utc).isoformat()))
     db.commit()
     rows = db.query(HrDepartment).filter(HrDepartment.company_id == entity_id).order_by(HrDepartment.sort_order, HrDepartment.name).all()
     return [_serialize_dept(d) for d in rows]
@@ -3138,9 +3141,10 @@ class DepartmentUpdate(BaseModel):
 @router.patch("/entities/{entity_id}/departments/{dept_id}")
 def update_department(entity_id: str, dept_id: str, body: DepartmentUpdate,
                       user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
-    """Rename a department and/or set its triage lead / backup. Tickets raised
-    against it are left unassigned and these two are notified to assign an
-    employee."""
+    """Rename a department and/or set its head / backup. The head is THE
+    department head everywhere (Pranshu, Oct 15 2026): ticket escalations,
+    hiring screening, equipment reminders and the Contact Directory all read
+    hr_departments.lead_email - never keep a second one."""
     row = db.query(HrDepartment).filter(HrDepartment.id == dept_id, HrDepartment.company_id == entity_id).first()
     if not row:
         raise HTTPException(404, "Department not found")

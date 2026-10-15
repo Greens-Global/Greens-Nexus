@@ -16,6 +16,7 @@
 // The rows are drawn here rather than with workdayWidgets' Row: that one is a
 // single button, and a Complete button cannot sit inside another button.
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
+import { createPortal } from 'react-dom';
 import { CheckSquare, Ticket as TicketIcon, Check, ArrowRight, Plus } from 'lucide-react';
 
 import { api } from '../../api';
@@ -76,6 +77,12 @@ export function pickRows(data, cap = ROW_CAP) {
   return out;
 }
 
+// A task and a ticket can share a numeric id: every row is keyed by both.
+const rowKey = (it) => `${it.kind || 'task'}:${it.id}`;
+// The fallback spinner goes to <body> like the composers it stands in for -
+// rendered inside the card, a fixed overlay is boxed in by the tile.
+const PortalLoading = () => createPortal(<ModalLoading />, document.body);
+
 const fire = (name, detail) => setTimeout(() => window.dispatchEvent(new CustomEvent(name, { detail })), 0);
 
 /** Open a row where it lives: Tasks (My Tasks) or the ticket's own screen,
@@ -102,7 +109,8 @@ function WorkRow({ it, overdue, mobile, busy, onOpen, onComplete }) {
   const where = it.kind === 'ticket' ? (ticketNoShort(it.code) || it.project) : it.project;
   const meta = [where, it.dueOn ? `Due ${formatDate(it.dueOn)}` : ''].filter(Boolean).join(' · ');
   const label = it.statusLabel || titleCase(it.status);
-  const target = mobile ? 44 : 30;
+  // 44px on a phone; 36px on a desktop - still a comfortable pointer target.
+  const target = mobile ? 44 : 36;
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 4, borderRadius: 8, opacity: busy ? 0.5 : 1 }}>
       <button type="button" className="dash-link-row" onClick={() => onOpen(it)} aria-label={`Open ${it.title}`}
@@ -133,8 +141,10 @@ function WorkRow({ it, overdue, mobile, busy, onOpen, onComplete }) {
   );
 }
 
-export default function MyWork() {
-  const mobile = useIsMobile();
+export default function MyWork({ phone }) {
+  // The grid says when the board is a phone stack; outside it, the viewport.
+  const isMobileViewport = useIsMobile();
+  const mobile = phone ?? isMobileViewport;
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(() => new Set());
@@ -158,17 +168,24 @@ export default function MyWork() {
   }, [load]);
 
   const complete = async (it) => {
-    if (busy.has(it.id)) return;
-    setBusy((s) => new Set(s).add(it.id));
-    // Optimistic: the row goes now, the refetch confirms.
-    const before = data;
+    const key = rowKey(it);
+    if (busy.has(key)) return;
+    setBusy((s) => new Set(s).add(key));
+    // Optimistic: the row goes now, the refetch confirms. Matched on kind AND
+    // id - a ticket with the task's number must stay put. Where it sat is
+    // remembered so a failure puts back THIS row only, into whatever the list
+    // is by then (a snapshot of the whole list would bring back rows another
+    // Complete finished in the meantime).
+    const removed = [];
     setData((d) => {
       if (!d) return d;
       const next = { ...d, counts: { ...(d.counts || {}) } };
       for (const g of GROUPS) {
         const items = Array.isArray(d[g.key]) ? d[g.key] : [];
-        if (items.some((x) => x.id === it.id)) {
-          next[g.key] = items.filter((x) => x.id !== it.id);
+        const at = items.findIndex((x) => rowKey(x) === key);
+        if (at >= 0) {
+          removed.push({ group: g.key, at, row: items[at] });
+          next[g.key] = items.filter((_, i) => i !== at);
           if (typeof next.counts[g.key] === 'number') next.counts[g.key] -= 1;
           if (typeof next.counts.total === 'number') next.counts.total -= 1;
         }
@@ -179,9 +196,23 @@ export default function MyWork() {
       await api.updateTask(it.id, { completed: true });
       await load();
     } catch (e) {
-      if (alive.current) { setData(before); setError(e?.message || 'Could not complete the task.'); }
+      if (alive.current) {
+        setData((d) => {
+          if (!d) return d;
+          const next = { ...d, counts: { ...(d.counts || {}) } };
+          for (const r of removed) {
+            const items = Array.isArray(next[r.group]) ? next[r.group] : [];
+            if (items.some((x) => rowKey(x) === key)) continue;   // a refetch already has it
+            next[r.group] = [...items.slice(0, r.at), r.row, ...items.slice(r.at)];
+            if (typeof next.counts[r.group] === 'number') next.counts[r.group] += 1;
+            if (typeof next.counts.total === 'number') next.counts.total += 1;
+          }
+          return next;
+        });
+        setError(e?.message || 'Could not complete the task.');
+      }
     } finally {
-      if (alive.current) setBusy((s) => { const n = new Set(s); n.delete(it.id); return n; });
+      if (alive.current) setBusy((s) => { const n = new Set(s); n.delete(key); return n; });
     }
   };
 
@@ -208,7 +239,7 @@ export default function MyWork() {
           <div style={sectionStyle}><span>{s.label}</span><span>{s.count}</span></div>
           {s.items.map((it) => (
             <WorkRow key={`${it.kind}-${it.id}`} it={it} overdue={s.key === 'overdue'} mobile={mobile}
-              busy={busy.has(it.id)} onOpen={openItem} onComplete={complete} />
+              busy={busy.has(rowKey(it))} onOpen={openItem} onComplete={complete} />
           ))}
         </div>
       ))}
@@ -222,8 +253,8 @@ export default function MyWork() {
   return (
     <DashCard title="My Work" sub={total ? `${total} open` : undefined} action={actions}>
       {body}
-      {composer === 'task' && <Suspense fallback={<ModalLoading />}><QuickActionModal kind="task" onClose={closeComposer} /></Suspense>}
-      {composer === 'ticket' && <Suspense fallback={<ModalLoading />}><TicketComposer onClose={closeComposer} /></Suspense>}
+      {composer === 'task' && <Suspense fallback={<PortalLoading />}><QuickActionModal kind="task" onClose={closeComposer} /></Suspense>}
+      {composer === 'ticket' && <Suspense fallback={<PortalLoading />}><TicketComposer onClose={closeComposer} /></Suspense>}
     </DashCard>
   );
 }

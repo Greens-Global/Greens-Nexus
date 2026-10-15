@@ -228,13 +228,13 @@ const TEAMS_DEFAULT_SORT = { key: 'team', dir: 'asc' };
 // cannot describe it differently.
 export function TeamApprovalAction({ team }) {
   const { requestTeamApproval, decideTeamApproval, myEmail } = useTasks();
-  const { can } = useRole();
+  const { canAccessModule } = useRole();
   const [busy, setBusy] = useState('');
   const st = team?.approvalStatus || 'approved';
   if (st === 'approved') return null;
 
   const isMine = (team.createdById || '').toLowerCase() === (myEmail || '').toLowerCase();
-  const isManager = !!can?.('manager');
+  const isManager = !!canAccessModule?.('tasks', 'manager', 'owner');   // a Tasks Owner too
 
   const run = async (fn, key) => {
     setBusy(key);

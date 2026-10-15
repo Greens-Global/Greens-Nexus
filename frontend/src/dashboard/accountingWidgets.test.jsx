@@ -100,6 +100,18 @@ describe('Find a Transaction', () => {
     expect(screen.queryByText('Open in Ledger')).toBeNull();
   });
 
+  it('clearing the box while a search is in flight never paints its late answer', async () => {
+    let answer;
+    apiMock.searchAccountingLedger.mockImplementation(() => new Promise((res) => { answer = res; }));
+    render(<FindTransactionWidget />);
+    await type('sunbelt');
+    expect(apiMock.searchAccountingLedger).toHaveBeenCalledTimes(1);
+    fireEvent.change(screen.getByLabelText('Find a transaction'), { target: { value: '' } });
+    await act(async () => { answer({ rows: [line], total: 1, debit: 2840, credit: 0, facets: {} }); await vi.advanceTimersByTimeAsync(10); });
+    expect(screen.getByText('Type at least two characters. Enter opens the ledger with your search.')).toBeTruthy();
+    expect(screen.queryByText('Sunbelt Rentals - scissor lift, Hwy 50 site')).toBeNull();
+  });
+
   it('is registered under Accounting and gated on the Accounting grant', () => {
     const def = WIDGETS['find-transaction'];
     expect(def).toMatchObject({ title: 'Find a Transaction', cat: 'Accounting', module: 'accounting' });

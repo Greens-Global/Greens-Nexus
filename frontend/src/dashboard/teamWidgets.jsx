@@ -12,14 +12,20 @@ import { LoadingState } from '../components/AsyncState';
 import { Ticket as TicketIcon, Timer, UserMinus, ShoppingCart } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
-import { formatDate } from '../lib/datetime';
+import { formatDate, formatHHMM, formatWeekday } from '../lib/datetime';
 import { setPendingOpen } from '../lib/pendingOpen';
 import { TICKET_STATUS_META, CLOSED_STATES, slaState, ticketNoShort } from '../tickets/ticketMeta';
 import { DashCard, navigate } from './widgets.jsx';
 import { Row, noteStyle } from './workdayWidgets.jsx';
+import { MoreRow, WidgetError } from './listParts.jsx';
 
 const DAY_MS = 86400000;
 const localKey = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+// How many rows each list tile shows before a "+N more" footer takes over.
+const QUEUE_SHOWN = 8;
+const EXCEPTIONS_SHOWN = 10;
+const OUT_SHOWN = 8;
+const PURCHASES_SHOWN = 10;
 const sectionStyle = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', margin: '10px 8px 4px' };
 
 // ── My Ticket Queue ──────────────────────────────────────────────────────────
@@ -40,7 +46,7 @@ export function ticketQueueRows(tickets = [], myEmail = '', onDesk = false) {
       id: t.id, title: `${ticketNoShort(t.code) ? `${ticketNoShort(t.code)} · ` : ''}${t.subject || 'Untitled ticket'}`,
       meta: `${PRIORITY_LABEL[t.priority] || t.priority || 'Medium'} · ${TICKET_STATUS_META[t.status]?.label || t.status || 'Open'}`,
       status: sla === 'breached' ? 'overdue' : sla === 'at_risk' ? 'pending' : 'info',
-      statusLabel: sla === 'breached' ? 'SLA breached' : sla === 'at_risk' ? 'At risk' : (PRIORITY_LABEL[t.priority] || ''),
+      statusLabel: sla === 'breached' ? 'SLA Breached' : sla === 'at_risk' ? 'At Risk' : (PRIORITY_LABEL[t.priority] || ''),
       sort: [sla === 'breached' ? 0 : sla === 'at_risk' ? 1 : 2, PRIORITY_RANK[t.priority] ?? 2, t.createdAt || ''],
     };
   };
@@ -69,34 +75,46 @@ export function openTicket(id, view = 'tickets') {
 export function TicketQueueWidget() {
   const { myEmail, can, myGrantedModules } = useRole();
   const ticketView = ticketViewFor(can, myGrantedModules);
-  const [state, setState] = useState({ loading: true, mine: [], unassigned: [], onDesk: false });
+  const [state, setState] = useState({ loading: true, error: false, mine: [], unassigned: [], onDesk: false });
+  const [attempt, setAttempt] = useState(0);
+  const retry = () => { setState(s => ({ ...s, loading: true, error: false })); setAttempt(n => n + 1); };
   useEffect(() => {
     let alive = true;
-    Promise.all([api.getTaskTickets().catch(() => []), api.getMyTicketAccess().catch(() => ({}))])
+    // The ticket list failing is an error, not an empty queue. The desk check
+    // failing only means "not on the desk" (no unassigned section).
+    Promise.all([api.getTaskTickets(), api.getMyTicketAccess().catch(() => ({}))])
       .then(([tickets, access]) => {
         if (!alive) return;
         const onDesk = !!access?.onDesk;
-        setState({ loading: false, onDesk, ...ticketQueueRows(tickets || [], myEmail, onDesk) });
-      });
+        setState({ loading: false, error: false, onDesk, ...ticketQueueRows(tickets || [], myEmail, onDesk) });
+      })
+      .catch(() => { if (alive) setState({ loading: false, error: true, mine: [], unassigned: [], onDesk: false }); });
     return () => { alive = false; };
-  }, [myEmail]);
-  const sub = state.loading ? undefined
+  }, [myEmail, attempt]);
+  const sub = state.loading || state.error ? undefined
     : `${state.mine.length} assigned to you${state.onDesk ? `, ${state.unassigned.length} unassigned` : ''}`;
-  const list = (rows) => rows.slice(0, 8).map(r => (
-    <Row key={r.id} Icon={TicketIcon} title={r.title} meta={r.meta} status={r.status} statusLabel={r.statusLabel} onClick={() => openTicket(r.id, ticketView)} />
-  ));
+  const list = (rows, noun) => (
+    <>
+      {rows.slice(0, QUEUE_SHOWN).map(r => (
+        <Row key={r.id} Icon={TicketIcon} title={r.title} meta={r.meta} status={r.status} statusLabel={r.statusLabel} onClick={() => openTicket(r.id, ticketView)} />
+      ))}
+      <MoreRow count={rows.length - QUEUE_SHOWN} noun={noun} onClick={() => navigate(ticketView)} />
+    </>
+  );
   return (
     <DashCard title="My Ticket Queue" sub={sub} action={<TicketIcon size={15} style={{ color: 'var(--muted)' }} />}>
       {state.loading ? (
         <LoadingState compact />
+      ) : state.error ? (
+        <WidgetError message="Couldn't load your tickets." onRetry={retry} />
       ) : state.mine.length === 0 && state.unassigned.length === 0 ? (
         <div style={noteStyle}>{state.onDesk ? 'No open tickets assigned to you, and nothing unassigned.' : 'No open tickets assigned to you.'}</div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-          {state.onDesk && state.mine.length > 0 && <div style={sectionStyle}>Assigned to me</div>}
-          {list(state.mine)}
+          {state.onDesk && state.mine.length > 0 && <div style={sectionStyle}>Assigned to Me</div>}
+          {list(state.mine, state.onDesk ? 'more assigned to you' : 'more')}
           {state.onDesk && state.unassigned.length > 0 && <div style={sectionStyle}>Unassigned</div>}
-          {list(state.unassigned)}
+          {list(state.unassigned, 'more unassigned')}
         </div>
       )}
     </DashCard>
@@ -131,33 +149,39 @@ export function exceptionRows(perEmployee = [], people = []) {
 }
 
 export function TimeExceptionsWidget() {
-  const [state, setState] = useState({ loading: true, rows: [], denied: false });
+  const [state, setState] = useState({ loading: true, rows: [], denied: false, error: false });
+  const [attempt, setAttempt] = useState(0);
+  const retry = () => { setState(s => ({ ...s, loading: true, error: false })); setAttempt(n => n + 1); };
   useEffect(() => {
     let alive = true;
     const now = new Date();
     const start = localKey(new Date(now.getTime() - EXCEPTION_WINDOW_DAYS * DAY_MS));
     const end = localKey(now);
+    // 403 is a real answer (no Time editor access); anything else failed.
     Promise.all([
-      api.timeExceptions(start, end).then(r => ({ rows: r || [] })).catch(e => ({ denied: e?.status === 403, rows: [] })),
+      api.timeExceptions(start, end).then(r => ({ rows: r || [] })).catch(e => (e?.status === 403 ? { denied: true, rows: [] } : { error: true, rows: [] })),
       api.getPeopleDirectory().catch(() => []),
-    ]).then(([res, people]) => { if (alive) setState({ loading: false, denied: !!res.denied, rows: exceptionRows(res.rows, people || []) }); });
+    ]).then(([res, people]) => { if (alive) setState({ loading: false, denied: !!res.denied, error: !!res.error, rows: exceptionRows(res.rows, people || []) }); });
     return () => { alive = false; };
-  }, []);
+  }, [attempt]);
   const blocking = state.rows.filter(r => r.status === 'overdue').length;
   return (
-    <DashCard title="Time Exceptions" sub={state.loading || state.denied ? undefined : blocking ? `${blocking} blocking sign-off` : `Last ${EXCEPTION_WINDOW_DAYS} days`}
+    <DashCard title="Time Exceptions" sub={state.loading || state.denied || state.error ? undefined : blocking ? `${blocking} blocking sign-off` : `Last ${EXCEPTION_WINDOW_DAYS} days`}
       action={<Timer size={15} style={{ color: 'var(--muted)' }} />}>
       {state.loading ? (
         <LoadingState compact />
       ) : state.denied ? (
         <div style={noteStyle}>This tile needs Time editor access in People.</div>
+      ) : state.error ? (
+        <WidgetError message="Couldn't load time exceptions." onRetry={retry} />
       ) : state.rows.length === 0 ? (
         <div style={noteStyle}>No punch exceptions on your team in the last {EXCEPTION_WINDOW_DAYS} days.</div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-          {state.rows.slice(0, 10).map(r => (
+          {state.rows.slice(0, EXCEPTIONS_SHOWN).map(r => (
             <Row key={r.id} Icon={Timer} title={r.title} meta={r.meta} status={r.status} statusLabel={r.statusLabel} onClick={() => navigate('hr', 'hr-time')} />
           ))}
+          <MoreRow count={state.rows.length - EXCEPTIONS_SHOWN} noun={state.rows.length - EXCEPTIONS_SHOWN === 1 ? 'more person' : 'more people'} onClick={() => navigate('hr', 'hr-time')} />
         </div>
       )}
     </DashCard>
@@ -171,6 +195,14 @@ export function TimeExceptionsWidget() {
 const TIMEOFF_TYPES = { vacation: 'Vacation', sick: 'Sick', personal: 'Personal', unpaid: 'Unpaid', other: 'Other' };
 const UPCOMING_DAYS = 7;
 
+// The first weekday (Mon-Fri) after a time-off request's last day - time off
+// ending Friday is back Monday, not Saturday.
+export function nextWorkday(endYmd) {
+  let d = new Date(new Date(`${endYmd}T12:00:00`).getTime() + DAY_MS);
+  while (d.getDay() === 0 || d.getDay() === 6) d = new Date(d.getTime() + DAY_MS);
+  return d;
+}
+
 export function outRows(approved = [], now = new Date()) {
   const today = localKey(now);
   const horizon = localKey(new Date(now.getTime() + UPCOMING_DAYS * DAY_MS));
@@ -182,8 +214,8 @@ export function outRows(approved = [], now = new Date()) {
     if (!s) continue;
     const who = r.name || r.email || 'Someone';
     if (s <= today && today <= e) {
-      const back = new Date(new Date(`${e}T12:00:00`).getTime() + DAY_MS);
-      const partial = r.startTime && r.endTime ? `${r.startTime} - ${r.endTime}` : '';
+      const back = nextWorkday(e);
+      const partial = r.startTime && r.endTime ? `${formatHHMM(r.startTime, r.startTime)} - ${formatHHMM(r.endTime, r.endTime)}` : '';
       todayRows.push({ id: `to-${r.id}`, title: who, meta: `${TIMEOFF_TYPES[r.type] || r.type || 'Time off'}${partial ? ` · ${partial}` : ''} · back ${formatDate(back)}`, statusLabel: partial ? 'Partial' : 'Out', status: partial ? 'pending' : 'overdue', end: e });
     }
     // Every remaining day of the request inside the window counts - including
@@ -204,40 +236,50 @@ export function outRows(approved = [], now = new Date()) {
 const dayLabel = (k, now = new Date()) => {
   const d = new Date(`${k}T12:00:00`);
   const diff = Math.round((new Date(d.getFullYear(), d.getMonth(), d.getDate()) - new Date(now.getFullYear(), now.getMonth(), now.getDate())) / DAY_MS);
-  return diff === 1 ? 'Tomorrow' : `${d.toLocaleDateString('en-US', { weekday: 'short' })} ${formatDate(d).slice(0, 5)}`;
+  return diff === 1 ? 'Tomorrow' : `${formatWeekday(d, 'short')} ${formatDate(d).slice(0, 5)}`;
 };
 
 export function OutTodayWidget() {
-  const [state, setState] = useState({ loading: true, today: [], upcoming: [] });
+  const [state, setState] = useState({ loading: true, error: false, today: [], upcoming: [] });
+  const [attempt, setAttempt] = useState(0);
+  const retry = () => { setState(s => ({ ...s, loading: true, error: false })); setAttempt(n => n + 1); };
   useEffect(() => {
     let alive = true;
-    api.timeOffList('approved').then(rows => { if (alive) setState({ loading: false, ...outRows(rows || []) }); })
-      .catch(() => { if (alive) setState({ loading: false, today: [], upcoming: [] }); });
+    api.timeOffList('approved').then(rows => { if (alive) setState({ loading: false, error: false, ...outRows(rows || []) }); })
+      .catch(() => { if (alive) setState({ loading: false, error: true, today: [], upcoming: [] }); });
     return () => { alive = false; };
-  }, []);
+  }, [attempt]);
+  // 'hr-time-off' opens People > Time on the time-off list for every manager
+  // tier ('hr-leave' is not a tab the team-scoped manager tier has).
+  const open = () => navigate('hr', 'hr-time-off');
   return (
-    <DashCard title="Out Today" sub={state.loading ? undefined : state.today.length ? `${state.today.length} out` : 'Everyone is in'}
+    <DashCard title="Out Today" sub={state.loading || state.error ? undefined : state.today.length ? `${state.today.length} out` : 'Everyone is in'}
       action={<UserMinus size={15} style={{ color: 'var(--muted)' }} />}>
       {state.loading ? (
         <LoadingState compact />
+      ) : state.error ? (
+        <WidgetError message="Couldn't load time off." onRetry={retry} />
       ) : (
         <>
           {state.today.length === 0 ? (
             <div style={{ ...noteStyle, padding: '14px 8px' }}>Nobody on your team is out today.</div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-              {state.today.slice(0, 8).map(r => (
-                <Row key={r.id} Icon={UserMinus} title={r.title} meta={r.meta} status={r.status} statusLabel={r.statusLabel} onClick={() => navigate('hr', 'hr-leave')} />
+              {state.today.slice(0, OUT_SHOWN).map(r => (
+                <Row key={r.id} Icon={UserMinus} title={r.title} meta={r.meta} status={r.status} statusLabel={r.statusLabel} onClick={open} />
               ))}
+              <MoreRow count={state.today.length - OUT_SHOWN} noun="more out today" onClick={open} />
             </div>
           )}
           {state.upcoming.length > 0 && (
             <>
-              <div style={sectionStyle}>Next {UPCOMING_DAYS} days</div>
+              <div style={sectionStyle}>Next {UPCOMING_DAYS} Days</div>
+              {/* Names wrap rather than ellipsize: a busy day used to hide
+                  everyone past the tile's width with no way to see them. */}
               {state.upcoming.map(u => (
-                <div key={u.date} style={{ display: 'flex', gap: 10, padding: '4px 8px', fontSize: 12.5 }}>
+                <div key={u.date} title={`${dayLabel(u.date)}: ${u.names.join(', ')}`} style={{ display: 'flex', gap: 10, padding: '4px 8px', fontSize: 12.5, lineHeight: 1.4 }}>
                   <span style={{ color: 'var(--muted)', flexShrink: 0, width: 92 }}>{dayLabel(u.date)}</span>
-                  <span style={{ color: 'var(--ink)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.names.join(', ')}</span>
+                  <span style={{ color: 'var(--ink)', minWidth: 0, overflowWrap: 'anywhere' }}>{u.names.join(', ')}</span>
                 </div>
               ))}
             </>
@@ -267,26 +309,31 @@ export function purchaseRows(requests = []) {
 }
 
 export function PendingPurchasesWidget() {
-  const [state, setState] = useState({ loading: true, rows: [] });
+  const [state, setState] = useState({ loading: true, error: false, rows: [] });
+  const [attempt, setAttempt] = useState(0);
+  const retry = () => { setState(s => ({ ...s, loading: true, error: false })); setAttempt(n => n + 1); };
   useEffect(() => {
     let alive = true;
-    api.getPurchaseRequests().then(r => { if (alive) setState({ loading: false, rows: purchaseRows(r || []) }); })
-      .catch(() => { if (alive) setState({ loading: false, rows: [] }); });
+    api.getPurchaseRequests().then(r => { if (alive) setState({ loading: false, error: false, rows: purchaseRows(r || []) }); })
+      .catch(() => { if (alive) setState({ loading: false, error: true, rows: [] }); });
     return () => { alive = false; };
-  }, []);
+  }, [attempt]);
   const total = state.rows.reduce((a, r) => a + r.total, 0);
   return (
-    <DashCard title="Pending Purchases" sub={state.loading ? undefined : state.rows.length ? `${state.rows.length} pending · ${usd.format(total)}` : undefined}
+    <DashCard title="Pending Purchases" sub={state.loading || state.error ? undefined : state.rows.length ? `${state.rows.length} pending · ${usd.format(total)}` : undefined}
       action={<ShoppingCart size={15} style={{ color: 'var(--muted)' }} />}>
       {state.loading ? (
         <LoadingState compact />
+      ) : state.error ? (
+        <WidgetError message="Couldn't load purchase requests." onRetry={retry} />
       ) : state.rows.length === 0 ? (
         <div style={noteStyle}>No pending purchase requests.</div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-          {state.rows.slice(0, 10).map(r => (
+          {state.rows.slice(0, PURCHASES_SHOWN).map(r => (
             <Row key={r.id} Icon={ShoppingCart} title={r.title} meta={r.meta} status={r.status} statusLabel={r.statusLabel} onClick={() => navigate('purchase')} />
           ))}
+          <MoreRow count={state.rows.length - PURCHASES_SHOWN} noun="more pending" onClick={() => navigate('purchase')} />
         </div>
       )}
     </DashCard>

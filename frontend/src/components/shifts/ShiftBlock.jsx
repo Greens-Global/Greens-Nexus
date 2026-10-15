@@ -77,7 +77,7 @@ export function ShiftBlock({ shift: s, open = false, compact = false, teamZone =
       onContextMenu={onContextMenu}
       {...dragProps} {...rest}
       style={{ position: 'relative', containerType: 'inline-size', background: alpha(color, open ? 0.08 : 0.12), borderRadius: 6,
-        border: `1px ${draft ? 'dashed' : 'solid'} ${draft ? color : 'transparent'}`, borderLeft: `3px ${open ? 'double' : 'solid'} ${color}`,
+        border: `1px ${draft ? 'dashed' : 'solid'} ${draft ? color : open ? alpha(color, 0.45) : 'transparent'}`,
         padding: compact ? '2px 4px' : '4px 8px', marginBottom: 3, minWidth: 0, overflow: 'hidden',
         cursor: interactive ? 'pointer' : 'default', userSelect: 'none', color: 'var(--ink)', fontFamily: 'inherit', textAlign: 'left',
         opacity: dragging ? 0.4 : s.pendingDelete || cancelled ? 0.55 : 1, textDecoration: s.pendingDelete ? 'line-through' : 'none', ...style }}>

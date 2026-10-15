@@ -523,6 +523,36 @@ def require_level_or_module(min_level: int, module_id: str, min_module_level: st
     return _check
 
 
+def module_owner_acts_as(module_id: str, as_level: int):
+    """Router dependency: inside `module_id`'s routers, an Access Group grant
+    of Owner for that module counts as role level `as_level` (Tasks, Oct 15
+    2026: a Tasks Owner is a manager in the Task module - Manage, every
+    task - without a Manager role anywhere else).
+
+    Raises the request's own `user` dict, which FastAPI shares with every
+    other get_current_user in the request, so require_manager and the
+    module's level checks all see it. List it AFTER get_current_user in the
+    router's `dependencies` so it runs before any endpoint check. Externals
+    stay hard-capped at employee level."""
+    def _lift(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+        if (user["level"] < as_level and not user.get("external")
+                and _module_level(user["email"], module_id, db) >= _MODULE_LEVEL_RANK["owner"]):
+            user["level"] = as_level
+        return user
+    return _lift
+
+
+def level_in_module(email: str, module_id: str, as_level: int, db: Session) -> int:
+    """level_for(email) with module_owner_acts_as applied - for code that asks
+    about someone other than the caller (no request `user` to read)."""
+    level = level_for(email, db)
+    if level < as_level and _module_level(email, module_id, db) >= _MODULE_LEVEL_RANK["owner"]:
+        rec = _external_record(email)
+        if not (rec and rec["external"]):
+            return as_level
+    return level
+
+
 def require_level_or_modules(min_level: int, module_grants):
     """Admit users at/above `min_level` globally, OR anyone whose Access Group
     grants at least the given level for ANY entry in `module_grants` (a list of

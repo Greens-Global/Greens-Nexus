@@ -106,4 +106,47 @@ describe('TimeclockWidget break prompts', () => {
       await waitFor(() => expect(punchMock.punchDurable).toHaveBeenCalledTimes(1));
     } finally { release(); }
   });
+
+  it('a punch-out the server refuses says why instead of doing nothing', async () => {
+    punchMock.punchDurable.mockResolvedValue({ ok: false, error: { status: 409, message: 'Your shift is already closed.' } });
+    render(<TimeclockWidget />);
+    openChip();
+    fireEvent.click(screen.getByRole('button', { name: 'Punch Out' }));
+    expect(await screen.findByText(/Your shift is already closed\./)).toBeTruthy();
+    expect(timeStatus.applyPunch).not.toHaveBeenCalled();
+  });
+
+  it('a refused break punch says why (no server words: a plain fallback)', async () => {
+    timeStatus.status = clockedIn({ bodExempt: true });
+    punchMock.punchDurable.mockResolvedValue({ ok: false, error: {} });
+    render(<TimeclockWidget />);
+    openChip();
+    fireEvent.click(screen.getByRole('button', { name: 'Start Break' }));
+    expect(await screen.findByText(/Punch failed\./)).toBeTruthy();
+  });
+
+  it('a double tap on Punch Out records one punch, not two', async () => {
+    let resolve;
+    punchMock.punchDurable.mockImplementation(() => new Promise((r) => { resolve = r; }));
+    render(<TimeclockWidget />);
+    openChip();
+    const btn = screen.getByRole('button', { name: 'Punch Out' });
+    // Both taps land before React re-renders the button busy.
+    act(() => { btn.click(); btn.click(); });
+    await waitFor(() => expect(punchMock.punchDurable).toHaveBeenCalledTimes(1));
+    await act(async () => { resolve({ ok: true, punch: { kind: 'out', at: stamp(new Date()) }, result: {} }); });
+    expect(punchMock.punchDurable).toHaveBeenCalledTimes(1);
+  });
+
+  it('a double tap on Start Break opens one prompt and records one punch', async () => {
+    timeStatus.status = clockedIn({ bodExempt: true });
+    punchMock.punchDurable.mockResolvedValue({ ok: true, punch: { kind: 'break_start', at: stamp(new Date()) }, result: {} });
+    render(<TimeclockWidget />);
+    openChip();
+    const btn = screen.getByRole('button', { name: 'Start Break' });
+    await act(async () => { btn.click(); btn.click(); });
+    await waitFor(() => expect(punchMock.punchDurable).toHaveBeenCalledTimes(1));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(punchMock.punchDurable).toHaveBeenCalledTimes(1);
+  });
 });

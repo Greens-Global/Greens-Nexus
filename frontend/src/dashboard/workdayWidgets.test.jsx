@@ -4,7 +4,7 @@
 // would blank a saved dashboard view, so each tile is mounted against the
 // real endpoint shapes (mocked) and the visible words are pinned.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 
 const apiMock = vi.hoisted(() => ({
   timeStatus: vi.fn(), timeOffMine: vi.fn(), timeMyPunchRequests: vi.fn(), myHrRequests: vi.fn(),
@@ -61,6 +61,19 @@ describe('Time Clock tile', () => {
     render(<TimeClockWidget />);
     expect(await screen.findByText('On Break')).toBeTruthy();
     expect(screen.getAllByText('1h 00m')).toHaveLength(2); // live session paused: today stays 1h 00m
+  });
+
+  it('counts the whole open shift after a break, the same number My Time shows (Oct 14)', async () => {
+    // In at 6:00, break 7:00-7:30, now 10:30: 4h worked. The tile used to add
+    // only the minutes since the break ended (3h) and drop the first hour.
+    const at = (h, m) => new Date(2026, 8, 22, h, m).toISOString().slice(0, 19);
+    const punches = [
+      { kind: 'in', at: at(6, 0) }, { kind: 'break_start', at: at(7, 0) }, { kind: 'break_end', at: at(7, 30) },
+    ];
+    apiMock.timeStatus.mockResolvedValue({ lastPunch: punches[2], staleOpenShift: false, days: { [localKey(NOW)]: { workedMin: 0, punches } } });
+    render(<TimeClockWidget />);
+    expect(await screen.findByText('Clocked In')).toBeTruthy();
+    expect(screen.getAllByText('4h 00m')).toHaveLength(2);
   });
 
   it('flags a shift the server closed as stale instead of calling it clocked in', async () => {
@@ -127,9 +140,9 @@ describe('Due Back Soon', () => {
     ], 'neil@greensglobal.com', NOW);
     expect(rows.map(r => r.title)).toEqual(['Laptop', 'Drill', 'Ladder', 'Awaiting']);
     expect(rows[0].statusLabel).toBe('Accept');
-    expect(rows[1].statusLabel).toBe('Overdue 2 days');
-    expect(rows[2].statusLabel).toBe('Due in 6 days');
-    expect(rows[3].statusLabel).toBe('Awaiting handover');
+    expect(rows[1].statusLabel).toBe('Overdue 2 Days');
+    expect(rows[2].statusLabel).toBe('Due in 6 Days');
+    expect(rows[3].statusLabel).toBe('Awaiting Handover');
   });
 
   it('renders the overdue count and the empty state', async () => {
@@ -188,5 +201,57 @@ describe('registry, KPI catalog and quick actions', () => {
     // New Ticket replaced Time Clock and Knowledge Base in the defaults (Neil, 10/08).
     expect(DEFAULT_QUICK_ACTIONS).toEqual(['task', 'event', 'email', 'request-item', 'ticket']);
     expect(QUICK_ACTIONS.find(a => a.key === 'time-off')).toMatchObject({ view: 'timeclock', sub: 'timeoff' });
+  });
+});
+
+// Oct 14 widget pass: a failed fetch is an error with a retry, never the
+// empty state; a capped list says how many it left out.
+describe('errors and hidden rows', () => {
+  it('Due Back Soon: a failed checkout list shows Try Again, and the retry reloads', async () => {
+    apiMock.getItemCheckouts.mockRejectedValueOnce(new Error('boom'));
+    render(<DueBackWidget />);
+    expect(await screen.findByText("Couldn't load your checkouts.")).toBeTruthy();
+    expect(screen.queryByText(/Nothing due back/)).toBeNull();
+    fireEvent.click(screen.getByText('Try Again'));
+    expect(await screen.findByText(/Nothing due back/)).toBeTruthy();
+  });
+
+  it('Due Back Soon: twelve checkouts show ten and a "+2 more items" that opens Checkouts', async () => {
+    const handed = iso(new Date(NOW.getTime() - 86400000));
+    apiMock.getItemCheckouts.mockResolvedValue(Array.from({ length: 12 }, (_, i) => ({ id: `c${i}`, item_name: `Tool ${i}`, status: 'allocated', requested_by_email: 'neil@greensglobal.com', handed_over_at: handed, days: i + 2 })));
+    const seen = [];
+    const on = (e) => seen.push([e.detail.view, e.detail.sub]);
+    window.addEventListener('nexus:navigate', on);
+    render(<DueBackWidget />);
+    expect(await screen.findByText('Tool 9')).toBeTruthy();
+    expect(screen.queryByText('Tool 10')).toBeNull();
+    fireEvent.click(screen.getByText('+2 more items'));
+    window.removeEventListener('nexus:navigate', on);
+    expect(seen).toEqual([['inventory', 'checkouts']]);
+  });
+
+  it('My Requests: all three sources failing is an error; one failing still lists the rest', async () => {
+    apiMock.timeOffMine.mockRejectedValue(new Error('x'));
+    apiMock.timeMyPunchRequests.mockRejectedValue(new Error('x'));
+    apiMock.myHrRequests.mockRejectedValue(new Error('x'));
+    const { unmount } = render(<MyRequestsWidget />);
+    expect(await screen.findByText("Couldn't load your requests.")).toBeTruthy();
+    expect(screen.queryByText(/No open requests/)).toBeNull();
+    unmount();
+    apiMock.myHrRequests.mockResolvedValue([]);
+    render(<MyRequestsWidget />);
+    expect(await screen.findByText(/No open requests/)).toBeTruthy();
+  });
+
+  it('Coming Up: past eight rows, "+N more" opens the rest in the tile', async () => {
+    apiMock.dashBirthdays.mockResolvedValue({ birthdays: Array.from({ length: 10 }, (_, i) => ({ name: `Person ${i}`, month: 9, day: 23 + i })) });
+    render(<ComingUpWidget />);
+    expect(await screen.findByText('Person 7')).toBeTruthy();
+    expect(screen.queryByText('Person 8')).toBeNull();
+    fireEvent.click(screen.getByText('+2 more'));
+    expect(screen.getByText('Person 9')).toBeTruthy();
+    expect(screen.queryByText('+2 more')).toBeNull();
+    // Dates past tomorrow are compact ("Sep 24"), not "Sep 24, 2026".
+    expect(screen.getByText('Sep 24')).toBeTruthy();
   });
 });

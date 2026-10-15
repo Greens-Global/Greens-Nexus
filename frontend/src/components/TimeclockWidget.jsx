@@ -362,12 +362,17 @@ export default function TimeclockWidget() {
   const [breakGate, setBreakGate] = useState(null);
   const breakClickRef = useRef('');
   const breakPosRef = useRef(null);   // the location fix, started as the prompt opens
+  // Set for a tap's whole flow (share, prompt, punch). busy / breakBusy are
+  // React state, so a second tap landing before the re-render read them
+  // false and punched twice - the same guard usePunchClock keeps (inFlight).
+  const punchFlight = useRef(false);
   // The shift closed under an open prompt (punched out on another device, a
   // stale shift): drop it right here in the render, or the chip stays
   // disabled and the prompt comes back on the next shift.
-  if (!clockedIn && (breakGate || breakBusy)) { setBreakGate(null); setBreakBusy(false); breakClickRef.current = ''; }
+  if (!clockedIn && (breakGate || breakBusy)) { setBreakGate(null); setBreakBusy(false); breakClickRef.current = ''; punchFlight.current = false; }
   async function quickBreak(kind) {
-    if (busy || breakBusy) return false;   // a sheet must not close on a tap that did nothing
+    if (busy || breakBusy || punchFlight.current) return false;   // a sheet must not close on a tap that did nothing
+    punchFlight.current = true;
     setBreakBusy(true);
     // Coming back from a break needs the screen shared where the policy
     // requires it (same rule as the Workday page and the Punch tile): the
@@ -379,6 +384,7 @@ export default function TimeclockWidget() {
       if (!ok) {
         say('Share your screen to end your break - choose a screen when your browser asks, then tap again.');
         setBreakBusy(false);
+        punchFlight.current = false;
         return false;
       }
     }
@@ -399,24 +405,41 @@ export default function TimeclockWidget() {
   async function finishBreak(kind) {
     // With a position, like the Time Clock page - without one every break
     // from here read "Location off" on the timecard (Charmi, Sep 29).
-    const pos = (await (breakPosRef.current || punchPosition(kind))) ?? await punchPosition(kind);   // a miss asks once more, as before
-    breakPosRef.current = null;
-    const res = await punchDurable({ kind, tzOffsetMin: new Date().getTimezoneOffset(), pos, clickedAt: breakClickRef.current || undefined });
-    if (res.ok) {
+    let res;
+    try {
+      const pos = (await (breakPosRef.current || punchPosition(kind))) ?? await punchPosition(kind);   // a miss asks once more, as before
+      breakPosRef.current = null;
+      res = await punchDurable({ kind, tzOffsetMin: new Date().getTimezoneOffset(), pos, clickedAt: breakClickRef.current || undefined });
+      if (res.ok) {
+        setLostOut(false);
+        applyPunch(res.punch);   // the chip flips now; the re-read confirms
+        window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));
+      } else if (res.unreachable) {
+        setLostOut(true);
+        setExpanded(true);
+      } else {
+        // Refused by the server (already on a break, a stale shift): say why,
+        // or the tap looks like it did nothing at all.
+        say(res.error?.message || 'Punch failed.');
+      }
+    } finally {
+      // One stamp per tap: a refused punch must not hand its moment to the next.
       breakClickRef.current = '';
-      setLostOut(false);
-      applyPunch(res.punch);   // the chip flips now; the re-read confirms
-      window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));
-    } else if (res.unreachable) {
-      setLostOut(true);
-      setExpanded(true);
+      setBreakBusy(false);
+      punchFlight.current = false;
     }
-    setBreakBusy(false);
-    return !!res.ok;
+    return !!res?.ok;
   }
 
   async function quickPunchOut() {
-    if (busy) return false;
+    if (busy || punchFlight.current) return false;
+    punchFlight.current = true;
+    // busy is released here too: a throw inside runPunchOut (replay, the
+    // position read, the durable punch) used to leave Punch Out dead until
+    // a reload.
+    try { return await runPunchOut(); } finally { punchFlight.current = false; setBusy(false); }
+  }
+  async function runPunchOut() {
     setBusy(true);
     // An earlier punch is still owed (a break end that never landed). Send THAT
     // first: punching out moves the state past it, after which it can never be
@@ -445,6 +468,8 @@ export default function TimeclockWidget() {
     } else if (res.unreachable) {
       setLostOut(true);
       setExpanded(true);   // never leave this hiding inside a collapsed capsule
+    } else {
+      say(res.error?.message || 'Punch failed.');
     }
     setBusy(false);
     return !!res.ok;
@@ -521,7 +546,7 @@ export default function TimeclockWidget() {
   const breakModal = breakGate ? (
     <BodModal mode={breakGate} required
       onSent={() => { const kind = breakGate === 'break' ? 'break_start' : 'break_end'; setBreakGate(null); finishBreak(kind); }}
-      onClose={() => { breakClickRef.current = ''; breakPosRef.current = null; setBreakGate(null); setBreakBusy(false); }}
+      onClose={() => { breakClickRef.current = ''; breakPosRef.current = null; setBreakGate(null); setBreakBusy(false); punchFlight.current = false; }}
       toastOk={() => {}} toastErr={say} />
   ) : null;
 

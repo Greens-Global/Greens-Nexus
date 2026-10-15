@@ -32,6 +32,8 @@ from routers import tickets as T
 REQUESTER = {"email": "requester@greensglobal.com", "level": 1}
 ASSIGNEE  = {"email": "assignee@greensglobal.com", "level": 1}
 MANAGER   = {"email": "manager@greensglobal.com", "level": 3}
+AGENT     = {"email": "agent@greensglobal.com", "level": 1}
+GLOBAL_ADMIN = {"email": "ga@greensglobal.com", "level": 1}
 
 
 class RequesterStatusLockTests(unittest.TestCase):
@@ -50,7 +52,9 @@ class RequesterStatusLockTests(unittest.TestCase):
         # their own ticket).
         import auth
         self._grants = auth._grants_for
-        auth._grants_for = lambda email, db: ({"tickets": 99} if email in (ASSIGNEE["email"], MANAGER["email"]) else {})
+        auth._grants_for = lambda email, db: ({"tickets": 99} if email in (ASSIGNEE["email"], MANAGER["email"], AGENT["email"], GLOBAL_ADMIN["email"]) else {})
+        self._is_ga = auth.is_global_admin
+        auth.is_global_admin = lambda user, db: user["email"] == GLOBAL_ADMIN["email"]
         self.db = database.SessionLocal()
         for m in (models.TaskTicket,):
             self.db.query(m).delete()
@@ -59,6 +63,7 @@ class RequesterStatusLockTests(unittest.TestCase):
     def tearDown(self):
         import auth
         auth._grants_for = self._grants
+        auth.is_global_admin = self._is_ga
         self.db.close()
 
     def _ticket(self, status, assignee=""):
@@ -199,6 +204,15 @@ class RequesterStatusLockTests(unittest.TestCase):
     def test_a_manager_is_never_narrowed(self):
         self._ticket("open")
         out = self._update(MANAGER, status="resolved", resolution="fixed", resolution_note="done")
+        self.assertEqual(out["status"], "resolved")
+
+    def test_a_global_admin_is_privileged_whatever_their_role(self):
+        """Oct 15 2026: a Global Admin works someone else's in-progress ticket
+        like a manager does - an ordinary desk member is locked out of it."""
+        self._ticket("in_progress", assignee=ASSIGNEE["email"])
+        with self.assertRaises(HTTPException):
+            self._update(dict(AGENT), status="resolved", resolution="fixed", resolution_note="done")
+        out = self._update(dict(GLOBAL_ADMIN), status="resolved", resolution="fixed", resolution_note="done")
         self.assertEqual(out["status"], "resolved")
 
 
