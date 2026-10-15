@@ -271,11 +271,11 @@ export function CustomChartsPanel({ scopeKey, tasks, store }) {
   const charts = all[scopeKey] ?? [];
   const [editing, setEditing] = useState(null);     // { cfg, shared }
   const [adding, setAdding] = useState(false);
-  const { can } = useRole();
+  const { canAccessModule } = useRole();
   // A project dashboard also shows what the project shares; editors curate it.
   const project = scopeKey !== 'workspace' ? store.projectById?.(scopeKey) : null;
   const shared = project?.sharedCharts || [];
-  const canShare = !!project && roleAtLeast(projectRoleOf(project, store.myEmail, !!can?.('manager')), 'editor');
+  const canShare = !!project && roleAtLeast(projectRoleOf(project, store.myEmail, !!canAccessModule?.('tasks', 'manager', 'owner')), 'editor');
   const [err, setErr] = useState('');
 
   const persistMine = (next) => setAll({ ...all, [scopeKey]: next });

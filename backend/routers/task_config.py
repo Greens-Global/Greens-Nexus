@@ -18,13 +18,14 @@ from zoneinfo import ZoneInfo
 import models
 from database import get_db
 from notify_company import notification_company
-from auth import get_current_user, require_level, require_manager, require_any_module_grant
+from auth import get_current_user, require_level, require_manager, require_any_module_grant, module_owner_acts_as
 from routers.task_util import now_iso, gen_id, is_manager, require_project_role
 from changelog_prs import known_developer
 import task_automation
 
 router = APIRouter(tags=["Tasks"],
-                   dependencies=[Depends(get_current_user), Depends(require_any_module_grant("tasks", "tickets"))])
+                   dependencies=[Depends(get_current_user), Depends(require_any_module_grant("tasks", "tickets")),
+                                 Depends(module_owner_acts_as("tasks", 3))])
 
 # Reading What's New is every Nexus user's default (Neil, Oct 12 2026): the
 # changelog, its comments, the unseen dot, the weekly bar and the update

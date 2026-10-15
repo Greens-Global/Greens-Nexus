@@ -94,11 +94,12 @@ function SubView({ sub, projectId, returnTo, onNavigate, onExitManage }) {
 }
 
 export default function Tasks({ activeSub, onSubChange, onNavigate }) {
-  const { can, myEmail } = useRole();
+  const { canAccessModule, myEmail } = useRole();
   // The Manage tab is an admin surface - restricted to manage access
-  // (Manager / IT Admin / Global Admin). Others can neither open it nor land on
-  // it via a stale URL/sub.
-  const canManage = !!can?.('manager');
+  // (Manager / IT Admin / Global Admin, or an Owner grant on Tasks - Oct 15
+  // 2026, the server's auth.module_owner_acts_as). Others can neither open it
+  // nor land on it via a stale URL/sub.
+  const canManage = !!canAccessModule?.('tasks', 'manager', 'owner');
   const requested = ALL_SUBS.includes(activeSub) ? activeSub : DEFAULT_SUB;
   const sub = (requested === 'manage' && !canManage) ? DEFAULT_SUB : requested;
   const isMobile = useIsMobile();
