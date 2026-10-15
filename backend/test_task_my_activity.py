@@ -2,7 +2,9 @@
 
 Other people's recent changes to the tasks I am assigned to or follow, newest
 first; my own actions, the Asana sync markers, tasks I am not on and tasks in
-the Trash stay out.
+the Trash stay out. Since Oct 15 2026 the feed is UPDATES: machine rows
+(mailer, scheduler, sync, rules) stay out, one person's burst of edits on one
+task is one update with `parts`, and what is aimed at me sets `forYou`.
 
 Run with: python -m pytest test_task_my_activity.py
 """
@@ -57,7 +59,7 @@ class MyActivityTests(unittest.TestCase):
 
     def setUp(self):
         self.db = database.SessionLocal()
-        for m in (models.TaskActivity, models.Task):
+        for m in (models.TaskActivity, models.TaskComment, models.TaskNotification, models.Task):
             self.db.query(m).execution_options(include_deleted=True).delete()
         self.db.commit()
 
@@ -102,8 +104,8 @@ class MyActivityTests(unittest.TestCase):
 
     def test_limit_and_window_are_honored_and_capped(self):
         t = self._task("TASK-A", assignee_emails=[ME["email"]])
-        for i in range(5):
-            self._act(t, OTHER, at=_ago(i + 1))
+        for i in range(5):   # two hours apart: five separate updates, not one burst
+            self._act(t, OTHER, at=_ago(i * 120 + 1))
         self.db.commit()
         self.assertEqual(len(T.my_task_activity(limit=2, days=14, user=ME, db=self.db)), 2)
         self.assertEqual(len(T.my_task_activity(limit=1, days=14, user=ME, db=self.db)), 1)
@@ -117,6 +119,83 @@ class MyActivityTests(unittest.TestCase):
         self.db.commit()
         self.assertEqual(T.my_task_activity(user={"email": "dean@greensglobal.com", "level": 1}, db=self.db), [])
         self.assertEqual(T.my_task_activity(user={"email": "", "level": 1}, db=self.db), [])
+
+
+    # ── Relevance and grouping (Oct 15 2026) ──
+    def _kinds(self, row):
+        return [(p["kind"], p["count"]) for p in row["parts"]]
+
+    def test_machine_rows_and_bookkeeping_stay_out(self):
+        t = self._task("TASK-A", assignee_emails=[ME["email"]])
+        self._act(t, "system", type="notify_sent", at=_ago(1), detail=f"Recurring email sent to {OTHER} (assignee)")
+        self._act(t, "system", type="recurrence_scheduled", at=_ago(2))
+        self._act(t, "system", type="closed_missed", at=_ago(3))
+        self._act(t, "asana-sync", type="created", at=_ago(4))
+        self._act(t, "automation@nexus", type="automation", at=_ago(5))
+        self._act(t, OTHER, type="time_logged", at=_ago(6), detail="logged 1h")
+        self._act(t, OTHER, type="attachment_removed", at=_ago(7))
+        self.db.commit()
+        self.assertEqual(T.my_task_activity(user=ME, db=self.db), [])
+
+    def test_one_persons_burst_on_one_task_is_one_update(self):
+        t = self._task("TASK-A", assignee_emails=[ME["email"]])
+        self._act(t, OTHER, type="attached", at=_ago(2), detail='attached "image.png"')
+        self._act(t, OTHER, type="attached", at=_ago(3), detail='attached "image.png"')
+        self._act(t, OTHER, type="status_changed", at=_ago(20), detail="changed status to in_progress")
+        self._act(t, OTHER, type="due_changed", at=_ago(200), detail="changed the due date from 10/20/2026 to 10/22/2026")
+        self.db.commit()
+        rows = T.my_task_activity(user=ME, db=self.db)
+        self.assertEqual(len(rows), 2)   # the due change is three hours earlier: its own update
+        self.assertEqual(self._kinds(rows[0]), [("status", 1), ("attached", 2)])
+        self.assertEqual(rows[0]["parts"][0]["detail"], "changed status to in_progress")
+        self.assertEqual(self._kinds(rows[1]), [("due", 1)])
+        self.assertFalse(rows[0]["forYou"])
+
+    def test_completing_says_completed_not_also_the_status(self):
+        t = self._task("TASK-A", assignee_emails=[ME["email"]])
+        self._act(t, OTHER, type="completed", at=_ago(1))
+        self._act(t, OTHER, type="status_changed", at=_ago(1), detail="changed status to done")
+        self.db.commit()
+        rows = T.my_task_activity(user=ME, db=self.db)
+        self.assertEqual(self._kinds(rows[0]), [("completed", 1)])
+
+    def test_a_followed_task_reports_only_its_headline_changes(self):
+        t = self._task("TASK-F", assignee_emails=[OTHER], follower_emails=[ME["email"]])
+        self._act(t, OTHER, type="attached", at=_ago(1))
+        self._act(t, OTHER, type="checklist_done", at=_ago(2))
+        self._act(t, OTHER, type="assignee_changed", at=_ago(3))
+        self.db.commit()
+        self.assertEqual(T.my_task_activity(user=ME, db=self.db), [])
+        self._act(t, OTHER, type="completed", at=_ago(4))
+        self.db.commit()
+        rows = T.my_task_activity(user=ME, db=self.db)
+        self.assertEqual((rows[0]["relation"], self._kinds(rows[0])), ("collaborator", [("completed", 1)]))
+
+    def test_a_comment_carries_its_text_and_a_mention_is_for_me(self):
+        t = self._task("TASK-A", assignee_emails=[ME["email"]])
+        at = _ago(5)
+        self.db.add(models.TaskComment(id=gen_id(), task_id=t.id, author_email=OTHER, created_at=at,
+                                       body=f'<p>Can you check this, <a href="mailto:{ME["email"]}">@Neil</a>?</p>'))
+        self._act(t, OTHER, type="commented", at=at, detail="added a comment")
+        self.db.commit()
+        row = T.my_task_activity(user=ME, db=self.db)[0]
+        self.assertEqual(self._kinds(row), [("mentioned_you", 1), ("commented", 1)])
+        self.assertTrue(row["forYou"])
+        self.assertEqual(row["preview"], "Can you check this, @Neil?")
+
+    def test_being_assigned_is_said_as_assigned_you(self):
+        mine = self._task("TASK-A", assignee_emails=[ME["email"]])
+        other = self._task("TASK-B", assignee_emails=[ME["email"], "dean@greensglobal.com"])
+        at = _ago(10)
+        self._act(mine, OTHER, type="created", at=at)
+        self.db.add(models.TaskNotification(id=gen_id(), kind="task_assigned", for_email=ME["email"],
+                                            task_id=mine.id, created_at=at, title="You were assigned a task"))
+        # Somebody else was added to a task I already hold: no "assigned you".
+        self._act(other, OTHER, type="assignee_changed", at=_ago(20))
+        self.db.commit()
+        rows = T.my_task_activity(user=ME, db=self.db)
+        self.assertEqual([(r["entityCode"], self._kinds(r), r["forYou"]) for r in rows],
+                         [("TASK-A", [("assigned_you", 1)], True), ("TASK-B", [("assignees", 1)], False)])
 
 
 if __name__ == "__main__":
