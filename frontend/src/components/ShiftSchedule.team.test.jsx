@@ -11,7 +11,7 @@ vi.mock('../contexts/RoleContext', () => ({ useRole: () => role.current }));
 const api = {
   timeSchedule: vi.fn(), timeSchedCreate: vi.fn(), timeSchedDelete: vi.fn(), timeSchedDiscard: vi.fn(), timeSchedBulk: vi.fn(),
   timeSchedCopy: vi.fn(), timeSchedUnshared: vi.fn(), timeSchedMove: vi.fn(), timeSchedCheck: vi.fn(), timeOffTypes: vi.fn(),
-  timeShiftGroupMembers: vi.fn(), timeShiftGroupMeta: vi.fn(),
+  timeShiftGroupMembers: vi.fn(), timeShiftGroupMeta: vi.fn(), timeSchedPublishReview: vi.fn(), timeSchedHistory: vi.fn(),
 };
 vi.mock('../api', () => ({ api: new Proxy({}, { get: (_, k) => api[k] || vi.fn().mockResolvedValue({}) }) }));
 vi.mock('../ui/dialog', () => ({ dialog: { confirm: vi.fn().mockResolvedValue(true), prompt: vi.fn() } }));

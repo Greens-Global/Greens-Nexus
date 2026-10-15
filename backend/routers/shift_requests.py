@@ -89,10 +89,20 @@ _DEFAULTS = {"openShifts": False, "swaps": False, "offers": False, "teamSchedule
              # after start + grace before a missing person is a no-show alert
              # (0 = no alerts for this company), and how many minutes before
              # the end a clock-out counts as leaving early.
-             "noShowAlertMin": 10, "leftEarlyMin": 15}
+             "noShowAlertMin": 10, "leftEarlyMin": 15,
+             # Shifts Phase 2 (Neil, Oct 14 2026, shift_rules.py): the schedule
+             # rules, in hours; 0 turns one off. They warn, never block - and
+             # sharing a schedule over a warning needs a reason when
+             # publishReasonRequired is on. Daily overtime applies only to
+             # people whose overtime rule is 'ca'; weekly to 'ca' and
+             # 'federal'; the week cap to everyone.
+             "ruleMinRestHours": 10, "ruleMaxDaysInRow": 6, "ruleDailyOtHours": 8,
+             "ruleWeeklyOtHours": 40, "ruleMaxWeekHours": 0, "publishReasonRequired": True}
 _TEXT_SETTINGS = ("timeZone", "weekStart")
 # key -> (min, max), clamped on read and save
-_INT_SETTINGS = {"defaultGraceMin": (0, 120), "noShowAlertMin": (0, 240), "leftEarlyMin": (0, 240)}
+_INT_SETTINGS = {"defaultGraceMin": (0, 120), "noShowAlertMin": (0, 240), "leftEarlyMin": (0, 240),
+                 "ruleMinRestHours": (0, 24), "ruleMaxDaysInRow": (0, 14), "ruleDailyOtHours": (0, 24),
+                 "ruleWeeklyOtHours": (0, 80), "ruleMaxWeekHours": (0, 100)}
 _KIND_SETTING = {"open": "openShifts", "swap": "swaps", "offer": "offers"}
 _EMPLOYEE_ACTION = {"view": "shifts", "sub": "mine"}
 _APPROVER_ACTION = {"view": "shifts", "sub": "schedule"}   # the Shifts module (Sep 29)
@@ -247,6 +257,12 @@ class SettingsIn(BaseModel):
     defaultGraceMin: Optional[int] = None       # 0-120, clamped
     noShowAlertMin: Optional[int] = None        # 0-240, clamped; 0 = off (Phase 1)
     leftEarlyMin: Optional[int] = None          # 0-240, clamped (Phase 1)
+    ruleMinRestHours: Optional[int] = None      # 0-24; 0 = off (Phase 2)
+    ruleMaxDaysInRow: Optional[int] = None      # 0-14; 0 = off
+    ruleDailyOtHours: Optional[int] = None      # 0-24; 0 = off; 'ca' overtime rule only
+    ruleWeeklyOtHours: Optional[int] = None     # 0-80; 0 = off; 'ca' and 'federal'
+    ruleMaxWeekHours: Optional[int] = None      # 0-100; 0 = off; everyone
+    publishReasonRequired: Optional[bool] = None   # sharing over a warning needs a reason
 
 
 @router.get("/settings")
@@ -683,19 +699,26 @@ def _apply(db: Session, r: models.ShiftRequest, actor: str, force: bool = False)
     shift = _live_shift(db, r.shift_id, lock=True)
     stale = HTTPException(409, "The schedule changed since this was asked - the shift is gone, "
                                "was reassigned or has passed. Decline it instead.")
+    import shift_log
     if r.kind == "open":
         if not shift or shift.employee_email or int(shift.open_slots or 0) < 1:
             raise stale
         _check_new_owner(db, r.requester_email, shift, {shift.id}, force)
-        db.add(models.ScheduledShift(
+        claimed = models.ScheduledShift(
             id=str(uuid.uuid4()), employee_email=r.requester_email, work_date=shift.work_date,
             shift_id=shift.shift_id, start_hhmm=shift.start_hhmm, end_hhmm=shift.end_hhmm, label=shift.label,
             note=shift.note, open_slots=0, break_min=int(shift.break_min or 0),
             activities_json=shift.activities_json or "", color=shift.color or "",
             group_id=getattr(shift, "group_id", "") or "", timezone=getattr(shift, "timezone", "") or "",
             published=1,   # the manager just approved it - it is shared as of now
-            created_by=actor, created_at=_now()))
+            created_by=actor, created_at=_now())
+        db.add(claimed)
+        was_open = shift_log.snapshot(shift)
         shift.open_slots = int(shift.open_slots or 1) - 1
+        shift_log.record(db, "claimed", claimed, actor, before=was_open, after=shift_log.snapshot(claimed),
+                         reason=f"Open shift request by {r.requester_email}")
+        shift_log.record(db, "claimed", shift, actor, before=was_open, after=shift_log.snapshot(shift),
+                         reason=f"Open shift request by {r.requester_email}")
         if shift.open_slots <= 0:
             db.delete(shift)
             return [shift.id]    # filled: other asks for it can no longer be met
@@ -708,14 +731,21 @@ def _apply(db: Session, r: models.ShiftRequest, actor: str, force: bool = False)
             raise stale
         _check_new_owner(db, r.target_email, shift, {shift.id, other.id}, force)
         _check_new_owner(db, r.requester_email, other, {shift.id, other.id}, force)
+        b1, b2 = shift_log.snapshot(shift), shift_log.snapshot(other)
         shift.employee_email, other.employee_email = r.target_email, r.requester_email
         # An unshared edit was the OLD owner's; it must not publish onto the
         # new one (Oct 2, B2-9).
         shift.pending_json = other.pending_json = ""
+        why = f"Swap between {r.requester_email} and {r.target_email}"
+        shift_log.record(db, "swapped", shift, actor, before=b1, after=shift_log.snapshot(shift), reason=why)
+        shift_log.record(db, "swapped", other, actor, before=b2, after=shift_log.snapshot(other), reason=why)
         return [shift.id, other.id]
     _check_new_owner(db, r.target_email, shift, {shift.id}, force)
+    before = shift_log.snapshot(shift)
     shift.employee_email = r.target_email   # offer
     shift.pending_json = ""
+    shift_log.record(db, "offered", shift, actor, before=before, after=shift_log.snapshot(shift),
+                     reason=f"Offered by {r.requester_email} to {r.target_email}")
     return [shift.id]
 
 

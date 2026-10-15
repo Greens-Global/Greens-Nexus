@@ -250,6 +250,23 @@ export function ShiftSettingsPanel({ toastOk, toastErr }) {
                   hint="Clocking out this many minutes before the shift's end counts as leaving early on the schedule." />
               </div>
             </div>
+            <div>
+              <div style={LBL}>Rules</div>
+              <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
+                <MinutesField label="Minimum Rest Between Shifts" aria="Minimum rest between shifts" unit="hours" max={24} value={cfg.ruleMinRestHours} fallback={0} onSave={(n) => save({ ...cfg, ruleMinRestHours: n })}
+                  hint="Warns when someone's next shift starts sooner than this after their last one ends." />
+                <MinutesField label="Most Days In A Row" aria="Most days in a row" unit="days" max={14} value={cfg.ruleMaxDaysInRow} fallback={0} onSave={(n) => save({ ...cfg, ruleMaxDaysInRow: n })}
+                  hint="Warns when someone is scheduled more days in a row than this." />
+                <MinutesField label="Daily Overtime After" aria="Daily overtime after" unit="hours" max={24} value={cfg.ruleDailyOtHours} fallback={0} onSave={(n) => save({ ...cfg, ruleDailyOtHours: n })}
+                  hint="California daily overtime; applies to people on the California overtime rule." />
+                <MinutesField label="Weekly Overtime After" aria="Weekly overtime after" unit="hours" max={80} value={cfg.ruleWeeklyOtHours} fallback={0} onSave={(n) => save({ ...cfg, ruleWeeklyOtHours: n })}
+                  hint="Warns when a week's scheduled hours pass this." />
+                <MinutesField label="Most Hours Per Week" aria="Most hours per week" unit="hours" max={100} value={cfg.ruleMaxWeekHours} fallback={0} onSave={(n) => save({ ...cfg, ruleMaxWeekHours: n })}
+                  hint="0 turns a rule off. Rules warn on the schedule; they never block." />
+              </div>
+              <label style={{ ...CHECK, marginTop: 8 }}><input type="checkbox" checked={cfg.publishReasonRequired === true} onChange={(e) => save({ ...cfg, publishReasonRequired: e.target.checked })} /> Require a reason to share a schedule that has warnings</label>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>The reason is kept in the history of every shift that share covers.</div>
+            </div>
             {!company && <TimeOffReasons toastOk={toastOk} toastErr={toastErr} />}
           </div>
         )}
@@ -259,8 +276,9 @@ export function ShiftSettingsPanel({ toastOk, toastErr }) {
 }
 
 // A minutes field that saves on blur or Enter, clamped to 0-`max` - the
-// Default Grace idiom (Shifts Phase 1: the attendance thresholds).
-function MinutesField({ label, aria, value, fallback, max = 240, hint, onSave }) {
+// Default Grace idiom (Shifts Phase 1: the attendance thresholds; Phase 2:
+// the rules, in hours or days).
+function MinutesField({ label, aria, value, fallback, max = 240, unit = 'minutes', hint, onSave }) {
   const [draft, setDraft] = useState(null);   // null = not being typed
   const current = value ?? fallback;
   function commit() {
@@ -277,7 +295,7 @@ function MinutesField({ label, aria, value, fallback, max = 240, hint, onSave })
         <input type="number" min="0" max={max} step="1" className="form-input" aria-label={aria} value={draft ?? String(current)}
           onChange={(e) => setDraft(e.target.value)} onBlur={commit} onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
           style={{ width: 80, fontSize: 12.5, padding: '4px 8px' }} />
-        <span style={{ fontSize: 12.5 }}>minutes</span>
+        <span style={{ fontSize: 12.5 }}>{unit}</span>
       </span>
       <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{hint}</span>
     </label>

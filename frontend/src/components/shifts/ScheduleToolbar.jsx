@@ -7,10 +7,10 @@
 // (Fill, Copy, Clear, Import, Export, Print, Discard, Requests, the View
 // menu, the filters) lives under + Add or ⋯. On a phone: [Team ▾] [+] [⋯]
 // over [‹ date ›] [Today] [Week ▾]; Share moves under ⋯.
-import { useEffect, useState } from 'react';
-import { ChevronLeft, ChevronRight, Plus, Send, MoreHorizontal, Clock, CalendarRange, CalendarOff, StickyNote, Copy, CalendarDays, Trash2, Upload, Download, Printer, RotateCcw, Inbox, SlidersHorizontal, X, Search, EyeOff, Keyboard, Gauge } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { ChevronLeft, ChevronRight, Plus, Send, MoreHorizontal, Clock, CalendarRange, CalendarOff, StickyNote, Copy, CalendarDays, Trash2, Upload, Download, Printer, RotateCcw, Inbox, SlidersHorizontal, X, Search, EyeOff, Keyboard, Gauge, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react';
 import { api } from '../../api';
-import { formatDate, formatDateTime, formatWeekday } from '../../lib/datetime';
+import { formatDate, formatDateTime, formatWeekday, formatHHMM } from '../../lib/datetime';
 import { MenuButton } from './Menu';
 import DateBlock from './DateBlock';
 import { RollingNumber } from './motion';
@@ -141,8 +141,50 @@ export function ScheduleToolbar({ view, onView, onPrev, onNext, onToday, range, 
 // Over 50 waiting changes (10/02): the dialog leads with where they are -
 // "This week: 4 · Next week: 8 · Other weeks: 230" - and picks this week and
 // next rather than everything.
+// Shifts Phase 2 (Oct 14): two steps. Step 1 is the pick above and ends in
+// Review; step 2 (Review And Share) lists every change per person and the
+// rule / conflict warnings per person, each a jump to its cell on the grid,
+// and asks for a reason when the company requires one to share with
+// warnings. The reason travels with the publish and lands in the history of
+// every shift it shares. A server refusal shows in the dialog itself.
 export const SHARE_SUMMARY_OVER = 50;
-export function ShareDialog({ defaultStart, defaultEnd, lastPublishedAt, localCount = 0, totalCount = 0, thisWeek = null, groups = [], busy, onPublish, onClose }) {
+const KIND_WORD = { added: 'new', changed: 'changed', removed: 'removed' };
+// "Tue 10/20"
+const dayText = (iso) => `${formatWeekday(iso, 'short')} ${formatDate(iso).slice(0, 5)}`;
+const spanText = (start, end) => `${formatHHMM(start, '?')} - ${formatHHMM(end, '?')}`;
+export function changeLine(c) {
+  const bits = [dayText(c.date), spanText(c.start, c.end)];
+  if (c.label) bits.push(c.label);
+  let tail = '';
+  if (c.kind === 'removed') tail = ' (removed)';
+  else if (c.kind === 'added') tail = ' (new)';
+  else if (c.was) {
+    const [ws, we, wl] = c.was;
+    tail = ` (was ${spanText(ws, we)}${wl && wl !== c.label ? ` · ${wl}` : ''})`;
+  }
+  return `${bits.join(' · ')}${tail}`;
+}
+export function reviewSummary(changes = [], people = 0) {
+  const n = changes.length;
+  if (!n) return 'No changes in these dates.';
+  const counts = ['added', 'changed', 'removed'].map((k) => [k, changes.filter((c) => c.kind === k).length]).filter(([, v]) => v > 0);
+  return `${n} change${n === 1 ? '' : 's'} for ${people} ${people === 1 ? 'person' : 'people'}: ${counts.map(([k, v]) => `${v} ${KIND_WORD[k]}`).join(', ')}`;
+}
+// Rows grouped by person, in the order they first appear.
+function byPerson(rows) {
+  const out = [];
+  const idx = new Map();
+  for (const r of rows) {
+    const key = (r.email || '').toLowerCase();
+    if (!idx.has(key)) { idx.set(key, out.length); out.push({ email: r.email, name: r.name || r.email, rows: [] }); }
+    out[idx.get(key)].rows.push(r);
+  }
+  return out;
+}
+const WARN_CHIP = (rule) => ({ fontSize: 10, fontWeight: 800, letterSpacing: 0.3, textTransform: 'uppercase', padding: '1px 6px', borderRadius: 999, flexShrink: 0,
+  background: rule ? 'hsla(var(--color-orange),0.14)' : 'hsla(var(--color-red),0.12)', color: rule ? 'hsl(var(--color-orange))' : 'hsl(var(--color-red))' });
+
+export function ShareDialog({ defaultStart, defaultEnd, lastPublishedAt, localCount = 0, totalCount = 0, thisWeek = null, groups = [], busy, onPublish, onJump, onClose }) {
   const big = totalCount > SHARE_SUMMARY_OVER && !!thisWeek;
   const [from, setFrom] = useState(big ? thisWeek.start : defaultStart);
   const [to, setTo] = useState(big ? addDaysIso(thisWeek.start, 13) : defaultEnd);
@@ -170,6 +212,31 @@ export function ShareDialog({ defaultStart, defaultEnd, lastPublishedAt, localCo
     return () => { live = false; };
   }, [from, to]);
   const n = count ?? localCount;
+  // Step 2: the review of exactly what step 1 picked.
+  const [review, setReview] = useState(null);     // { changes, people, warnings, reasonRequired }
+  const [reviewing, setReviewing] = useState(false);
+  const [reviewErr, setReviewErr] = useState('');
+  const [reason, setReason] = useState('');
+  const [shareErr, setShareErr] = useState('');
+  const [showChanges, setShowChanges] = useState(null);   // null = open when the list is short
+  const liveRef = useRef(true);
+  useEffect(() => () => { liveRef.current = false; }, []);
+  async function loadReview() {
+    setReviewing(true); setReviewErr(''); setShareErr('');
+    try {
+      const r = await Promise.resolve().then(() => api.timeSchedPublishReview({ start: from, end: to, ...(groupId ? { group_id: groupId } : {}) }));
+      if (!liveRef.current) return;
+      setReview({ changes: Array.isArray(r?.changes) ? r.changes : [], people: Number(r?.people) || 0, warnings: Array.isArray(r?.warnings) ? r.warnings : [], reasonRequired: r?.reasonRequired === true });
+      setShowChanges(null);
+    } catch (e) {
+      if (liveRef.current) setReviewErr(e?.message || 'Could not review these dates.');
+    } finally { if (liveRef.current) setReviewing(false); }
+  }
+  async function share() {
+    setShareErr('');
+    const r = await onPublish({ start_date: from, end_date: to, notify, ...(groupId ? { group_id: groupId } : {}), reason: reason.trim() });
+    if (liveRef.current && r?.error) setShareErr(r.error);
+  }
   const opt = (value, title, hint) => (
     <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 12px', borderRadius: 8, cursor: 'pointer',
       border: `1px solid ${notify === value ? 'var(--wk-brand)' : 'var(--line)'}`, background: notify === value ? 'var(--wk-brand-tint)' : 'transparent' }}>
@@ -177,50 +244,136 @@ export function ShareDialog({ defaultStart, defaultEnd, lastPublishedAt, localCo
       <span><div style={{ fontSize: 13, fontWeight: 700 }}>{title}</div><div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{hint}</div></span>
     </label>
   );
+  const step2 = !!review;
   return (
     <div style={MODAL_BACK} onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div role="dialog" aria-label="Share Schedule" style={{ ...MODAL_CARD, maxWidth: 440 }}>
-        <DialogHead title="Share Schedule" onClose={onClose} />
-        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
-          The team sees drafts, edits and removals in these dates once you share.
-          {lastPublishedAt ? ` Last shared ${formatDateTime(lastPublishedAt)}.` : ' Not shared yet.'}
-        </div>
-        {big && (
-          <div data-share-summary="" style={{ border: '1px solid var(--line)', background: 'var(--bg)', borderRadius: 10, padding: '10px 12px', marginBottom: 12 }}>
-            <div style={{ fontSize: 13, fontWeight: 700 }}>{totalCount} changes are waiting</div>
-            <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 3 }}>
-              {byWeek ? `This week: ${byWeek.tw} · Next week: ${byWeek.nw} · Other weeks: ${byWeek.other}` : 'Counting by week...'}
+      <div role="dialog" aria-label="Share Schedule" style={{ ...MODAL_CARD, maxWidth: step2 ? 520 : 440 }}>
+        <DialogHead title={step2 ? 'Review And Share' : 'Share Schedule'} onClose={onClose} />
+        {step2 ? (
+          <ReviewStep review={review} from={from} to={to} reason={reason} onReason={setReason} showChanges={showChanges} onShowChanges={setShowChanges}
+            shareErr={shareErr} onJump={onJump} />
+        ) : (
+          <>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
+              The team sees drafts, edits and removals in these dates once you share.
+              {lastPublishedAt ? ` Last shared ${formatDateTime(lastPublishedAt)}.` : ' Not shared yet.'}
             </div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>This week and next are picked. Widen the dates to share the rest.</div>
-          </div>
+            {big && (
+              <div data-share-summary="" style={{ border: '1px solid var(--line)', background: 'var(--bg)', borderRadius: 10, padding: '10px 12px', marginBottom: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>{totalCount} changes are waiting</div>
+                <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 3 }}>
+                  {byWeek ? `This week: ${byWeek.tw} · Next week: ${byWeek.nw} · Other weeks: ${byWeek.other}` : 'Counting by week...'}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>This week and next are picked. Widen the dates to share the rest.</div>
+              </div>
+            )}
+            <div style={{ display: 'grid', gap: 12 }}>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <label style={{ flex: 1 }}><div style={LBL}>From</div><input type="date" className="form-input" aria-label="Share from" value={from} onChange={(e) => setFrom(e.target.value)} style={{ width: '100%', fontSize: 13 }} /></label>
+                <label style={{ flex: 1 }}><div style={LBL}>To</div><input type="date" className="form-input" aria-label="Share to" value={to} onChange={(e) => setTo(e.target.value)} style={{ width: '100%', fontSize: 13 }} /></label>
+              </div>
+              {groups.length > 0 && (
+                <label><div style={LBL}>Group</div>
+                  <select className="form-input" aria-label="Share group" value={groupId} onChange={(e) => setGroupId(e.target.value)} style={{ width: '100%', fontSize: 13 }}>
+                    <option value="">Every group</option>
+                    {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                  </select>
+                </label>
+              )}
+              <div style={{ fontSize: 12.5, fontWeight: 700, color: tooLong ? 'hsl(var(--color-red))' : 'var(--ink)' }}>
+                {tooLong ? 'Share at most 92 days at a time.' : to < from ? 'The end is before the start.' : `${n} change${n === 1 ? '' : 's'} to share in these dates.`}
+              </div>
+              <div style={{ display: 'grid', gap: 8 }}>
+                {opt('changed', 'Only people whose shifts changed', 'Each gets a notification and an email listing their own changes.')}
+                {opt('team', 'The whole team', 'The same, plus a short notification to everyone else on the schedule for these dates.')}
+              </div>
+              {reviewErr && <div role="alert" style={{ fontSize: 12.5, color: 'hsl(var(--color-red))' }}>{reviewErr}</div>}
+            </div>
+          </>
         )}
-        <div style={{ display: 'grid', gap: 12 }}>
-          <div style={{ display: 'flex', gap: 10 }}>
-            <label style={{ flex: 1 }}><div style={LBL}>From</div><input type="date" className="form-input" aria-label="Share from" value={from} onChange={(e) => setFrom(e.target.value)} style={{ width: '100%', fontSize: 13 }} /></label>
-            <label style={{ flex: 1 }}><div style={LBL}>To</div><input type="date" className="form-input" aria-label="Share to" value={to} onChange={(e) => setTo(e.target.value)} style={{ width: '100%', fontSize: 13 }} /></label>
-          </div>
-          {groups.length > 0 && (
-            <label><div style={LBL}>Group</div>
-              <select className="form-input" aria-label="Share group" value={groupId} onChange={(e) => setGroupId(e.target.value)} style={{ width: '100%', fontSize: 13 }}>
-                <option value="">Every group</option>
-                {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
-              </select>
-            </label>
-          )}
-          <div style={{ fontSize: 12.5, fontWeight: 700, color: tooLong ? 'hsl(var(--color-red))' : 'var(--ink)' }}>
-            {tooLong ? 'Share at most 92 days at a time.' : to < from ? 'The end is before the start.' : `${n} change${n === 1 ? '' : 's'} to share in these dates.`}
-          </div>
-          <div style={{ display: 'grid', gap: 8 }}>
-            {opt('changed', 'Only people whose shifts changed', 'Each gets a notification and an email listing their own changes.')}
-            {opt('team', 'The whole team', 'The same, plus a short notification to everyone else on the schedule for these dates.')}
-          </div>
-        </div>
         <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
+          {step2 && <button type="button" className="secondary-btn" onClick={() => { setReview(null); setShareErr(''); }} disabled={busy}>Back</button>}
           <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
-          <button type="button" className="primary-btn" disabled={busy || tooLong || !from || !to || to < from || n === 0}
-            onClick={() => onPublish({ start_date: from, end_date: to, notify, ...(groupId ? { group_id: groupId } : {}) })}>{busy ? '…' : 'Share'}</button>
+          {step2 ? (
+            <button type="button" className="primary-btn" onClick={share}
+              disabled={busy || review.changes.length === 0 || (review.reasonRequired && review.warnings.length > 0 && !reason.trim())}>{busy ? '…' : 'Share'}</button>
+          ) : (
+            <button type="button" className="primary-btn" disabled={busy || reviewing || tooLong || !from || !to || to < from || n === 0} onClick={loadReview}>{reviewing ? '…' : 'Review'}</button>
+          )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function ReviewStep({ review, from, to, reason, onReason, showChanges, onShowChanges, shareErr, onJump }) {
+  const { changes, people, warnings, reasonRequired } = review;
+  const changesOpen = showChanges ?? changes.length <= 12;
+  const changePeople = byPerson(changes);
+  const warnPeople = byPerson(warnings);
+  const needReason = reasonRequired && warnings.length > 0;
+  return (
+    <div style={{ display: 'grid', gap: 12 }}>
+      <div style={{ fontSize: 12, color: 'var(--muted)' }}>{formatDate(from)} - {formatDate(to)}. Nothing is shared until you press Share.</div>
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span data-review-summary="" style={{ fontSize: 13, fontWeight: 700, flex: 1 }}>{reviewSummary(changes, people)}</span>
+          {changes.length > 0 && (
+            <button type="button" onClick={() => onShowChanges(!changesOpen)} aria-expanded={changesOpen}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 700, color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', gap: 3, padding: 0 }}>
+              {changesOpen ? 'Hide Changes' : 'Show Changes'} {changesOpen ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+            </button>
+          )}
+        </div>
+        {changesOpen && changes.length > 0 && (
+          <div data-review-changes="" style={{ marginTop: 8, display: 'grid', gap: 8, maxHeight: 260, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 10, padding: '8px 12px' }}>
+            {changePeople.map((p) => (
+              <div key={p.email}>
+                <div style={{ fontSize: 12.5, fontWeight: 700 }}>{p.name}</div>
+                {p.rows.map((c, i) => (
+                  <div key={`${c.date}|${c.start}|${c.kind}|${i}`} style={{ fontSize: 12, color: c.kind === 'removed' ? 'var(--muted)' : 'var(--ink)', textDecoration: c.kind === 'removed' ? 'line-through' : 'none', padding: '1px 0' }}>{changeLine(c)}</div>
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      <div>
+        <div style={{ ...LBL, display: 'flex', alignItems: 'center', gap: 6 }}>
+          {warnings.length > 0 && <AlertTriangle size={12} color="hsl(var(--color-orange))" />}
+          Warnings{warnings.length ? ` (${warnings.length})` : ''}
+        </div>
+        {warnings.length === 0 ? (
+          <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No warnings.</div>
+        ) : (
+          <div data-review-warnings="" style={{ display: 'grid', gap: 8, maxHeight: 220, overflowY: 'auto', border: '1px solid hsla(var(--color-orange),0.4)', background: 'hsla(var(--color-orange),0.06)', borderRadius: 10, padding: '8px 12px' }}>
+            {warnPeople.map((p) => (
+              <div key={p.email}>
+                <div style={{ fontSize: 12.5, fontWeight: 700 }}>{p.name}</div>
+                {p.rows.map((w, i) => {
+                  const rule = w.kind !== 'conflict';
+                  return (
+                    <button key={`${w.date}|${w.shiftId || ''}|${i}`} type="button" onClick={() => onJump?.(w.email, w.date, w.shiftId)} title="Show this shift on the schedule"
+                      style={{ display: 'flex', alignItems: 'flex-start', gap: 6, width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: onJump ? 'pointer' : 'default', padding: '2px 0', fontFamily: 'inherit', color: 'var(--ink)', fontSize: 12 }}>
+                      <span style={{ ...WARN_CHIP(rule), marginTop: 1 }}>{rule ? 'Rule' : 'Conflict'}</span>
+                      <span><span style={{ color: 'var(--muted)' }}>{dayText(w.date)} · </span>{w.text}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        )}
+        {warnings.length > 0 && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Click a warning to see that shift on the schedule. Warnings never block sharing.</div>}
+      </div>
+      {needReason && (
+        <label><div style={LBL}>Reason For Sharing With Warnings</div>
+          <textarea className="form-input" rows={2} maxLength={400} value={reason} onChange={(e) => onReason(e.target.value)} required aria-label="Reason for sharing with warnings"
+            placeholder="e.g. Short-staffed this week; overtime approved" style={{ width: '100%', fontSize: 13, resize: 'vertical', fontFamily: 'inherit' }} />
+          <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3 }}>Everyone who sees the history of these shifts sees this reason.</div>
+        </label>
+      )}
+      {shareErr && <div role="alert" style={{ fontSize: 12.5, color: 'hsl(var(--color-red))' }}>{shareErr}</div>}
     </div>
   );
 }

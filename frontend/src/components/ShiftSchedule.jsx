@@ -436,7 +436,11 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
     clearTimeout(undoTimer.current); setUndo(null);
     run(u.fn, { ok: 'Undone.', fail: 'Could not undo that.' });
   };
-  const publish = (payload) => run(() => api.timeSchedPublish(payload), {
+  // Phase 2 (Oct 14): the Share dialog shows a refusal (e.g. "A reason is
+  // needed...") in place, so the error comes back to it as well as toasting.
+  const publish = async (payload) => {
+    let failed = null;
+    const r = await run(() => api.timeSchedPublish(payload).catch((e) => { failed = e; throw e; }), {
     ok: (r) => {
       const bits = [];
       if (r.added) bits.push(`${r.added} new`);
@@ -445,6 +449,8 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
       const told = r.notified ? ` ${r.notified} ${r.notified === 1 ? 'person' : 'people'} notified.` : '';
       return r.published ? `Shared with the team: ${bits.length ? bits.join(', ') : `${r.published} shift${r.published !== 1 ? 's' : ''}`}.${told}` : 'Nothing new to share.';
     }, fail: 'Could not share the schedule.', after: () => setOpen('') });
+    return r ?? (failed ? { error: failed?.message || 'Could not share the schedule.' } : null);
+  };
   const pasteInto = (email, date, groupId = '') => copied && run(() => api.timeSchedCreate({ employee_email: email, work_date: date, shift_id: copied.shiftId,
     start_hhmm: copied.start, end_hhmm: copied.end, label: copied.label, note: copied.note, break_min: copied.breakMin ?? 0, color: copied.ownColor || '',
     activities: copied.activities || [], group_id: email ? (copied.groupId || '') : (groupId || copied.groupId || ''), ...(email ? {} : { open_slots: 1 }) }),
@@ -916,6 +922,27 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
     pulseTimer.current = setTimeout(() => setPulseCells(null), 1500);
   };
   useEffect(() => () => clearTimeout(pulseTimer.current), []);
+  // Jump to one person's cell (Phase 2: a warning in the Share review): move
+  // the grid to that week when it is out of view, then scroll to the cell
+  // and pulse it once the rows are there.
+  const [pendingJump, setPendingJump] = useState(null);
+  const jumpToShift = (email, date) => {
+    if (!email || !date) return;
+    setOpen('');
+    setPendingJump({ email: String(email).toLowerCase(), date });
+    if (date < start || date > end) jumpTo(date);
+  };
+  useEffect(() => {
+    if (!pendingJump) return;
+    const key = `${pendingJump.email}|${pendingJump.date}`;
+    const el = rootRef.current?.querySelector(`[data-cell="${key}"]`);
+    if (!el) return;
+    setPendingJump(null);
+    clearTimeout(pulseTimer.current);
+    setPulseCells(new Set([key]));
+    reveal(el);
+    pulseTimer.current = setTimeout(() => setPulseCells(null), 1500);
+  }, [pendingJump, data, start]);   // the cell appears once the week's rows do  // eslint-disable-line react-hooks/exhaustive-deps
   const conflictCount = prefs.conflicts === false ? 0 : shown.filter((x) => x.email && !x.pendingDelete && conflicts[x.id]?.length).length;
   const goToConflict = () => {
     const el = rootRef.current?.querySelector('.week-grid [data-conflict]');
@@ -1043,7 +1070,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
       {open === 'share' && (
         <ShareDialog defaultStart={start} defaultEnd={end} lastPublishedAt={data?.lastPublishedAt || ''} localCount={localUnshared} groups={groups.filter((g) => !g.archived)}
           totalCount={unsharedCount} thisWeek={{ start: isoDate(weekStartOf(new Date(), weekStart)) }}
-          busy={busy} onPublish={publish} onClose={() => setOpen('')} />
+          busy={busy} onPublish={publish} onJump={jumpToShift} onClose={() => setOpen('')} />
       )}
       {open === 'note' && (
         <DayNoteDialog date={noteDate} onDateChange={setNoteDate} groups={groups.filter((g) => !g.archived)} notes={data?.dayNotes || []} busy={busy}

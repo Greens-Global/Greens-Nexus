@@ -2332,6 +2332,11 @@ export const api = {
   // cell per person and day (status, punches, late / early minutes), per-
   // person and overall totals. Someone who cannot manage shifts gets their own.
   timeSchedActuals:           (start, end) => req(`/timeclock/schedule/actuals?start=${start}&end=${end}`),
+  // Shifts Phase 2 (Oct 2026): rules before publish. The review takes the
+  // same params the publish does (start, end, group_id, emails); a shift's
+  // history is newest first.
+  timeSchedPublishReview:     (params) => req(`/timeclock/schedule/publish/review?${new URLSearchParams(params).toString()}`),
+  timeSchedHistory:           (id) => req(`/timeclock/schedule/${id}/history`),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

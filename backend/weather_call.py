@@ -46,6 +46,7 @@ from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
 import models
+import shift_log
 import weather_watch
 from app_url import app_url
 from database import SessionLocal
@@ -366,6 +367,14 @@ def _apply_to_shift(r, kind: str, new_start: str, new_end: str, move_to: str, de
     return "shortened"
 
 
+def _log_call(db: Session, r, actor: str, kind: str, reason: str, before: dict) -> None:
+    """One change-log row per shift a call touched (shift_log, Phase 2):
+    the call's kind and this shift's outcome, with the reason given."""
+    shift_log.record(db, "weather", r, actor, before=before,
+                     after=shift_log.snapshot(r, weather=r.weather_status or ""),
+                     reason=f"{kind}: {reason}" if reason else kind)
+
+
 def headline(kind: str, new_start: str = "", new_end: str = "", move_to: str = "") -> str:
     return {"cancel": "Day cancelled for weather (unpaid)",
             "delay": f"Start delayed to {_t12(new_start)} for weather",
@@ -417,7 +426,7 @@ def decide(db: Session, user: dict, g, day: str, body: dict, defer=None) -> dict
                 .filter(models.WeatherDecision.group_id == g.id, models.WeatherDecision.work_date == day,
                         models.WeatherDecision.status == "active").all()):
         old.status = "superseded"
-        _restore_rows(db, old.id)
+        _restore_rows(db, old.id, actor, "superseded: a later weather call replaced this one")
     d = models.WeatherDecision(id=str(uuid.uuid4()), group_id=g.id, work_date=day, company=cid, kind=kind,
                                new_start=new_start, new_end=new_end, move_to=move_to, reason=reason, sms=1 if sms else 0,
                                status="active", decided_by=actor, decided_at=now,
@@ -433,7 +442,9 @@ def decide(db: Session, user: dict, g, day: str, body: dict, defer=None) -> dict
         if selected:
             for r in mine:
                 before = (r.work_date, (r.start_hhmm or "")[:5], (r.end_hhmm or "")[:5], r.label or "")
+                snap = shift_log.snapshot(r)
                 outcomes.append(_apply_to_shift(r, kind, new_start, new_end, move_to, d.id))
+                _log_call(db, r, actor, kind, reason, snap)
                 if (r.work_date, r.start_hhmm[:5], r.end_hhmm[:5], r.label or "") != before or r.weather_status == "cancelled":
                     touched.append(r.id)
         changed = [o for o in outcomes if o != "kept"]
@@ -446,7 +457,9 @@ def decide(db: Session, user: dict, g, day: str, body: dict, defer=None) -> dict
     # Open slots follow the call (nobody to tell).
     for r in rows:
         if not r.employee_email and kind != "proceed" and picked:
+            snap = shift_log.snapshot(r)
             _apply_to_shift(r, kind, new_start, new_end, move_to, d.id)
+            _log_call(db, r, actor, kind, reason, snap)
     d.people_json = json.dumps(ppl)
     if touched:
         from routers.shift_requests import cancel_requests_for_shifts
@@ -888,13 +901,15 @@ def follow_up_once(db: Session, now_utc: datetime = None) -> dict:
     return out
 
 
-def _restore_rows(db: Session, decision_id: str) -> list:
+def _restore_rows(db: Session, decision_id: str, actor: str = "", why: str = "reinstate") -> list:
     """Every shift a call touched, back to how it was before it: original
     times and label, no weather status. Used by Reinstate and when a later
-    call supersedes an earlier one. The caller commits."""
+    call supersedes an earlier one. Each shift gets a 'weather' log row
+    saying so (shift_log). The caller commits."""
     rows = (db.query(models.ScheduledShift).filter(models.ScheduledShift.weather_decision_id == decision_id)
             .with_for_update().all())
     for r in rows:
+        before = shift_log.snapshot(r)
         if getattr(r, "original_start_hhmm", ""):
             r.start_hhmm, r.end_hhmm = r.original_start_hhmm, r.original_end_hhmm
             r.label = r.original_label or ""
@@ -902,6 +917,7 @@ def _restore_rows(db: Session, decision_id: str) -> list:
             r.work_date = r.original_work_date
         r.weather_status, r.weather_decision_id = "", ""
         r.original_start_hhmm = r.original_end_hhmm = r.original_label = r.original_work_date = ""
+        shift_log.record(db, "weather", r, actor, before=before, after=shift_log.snapshot(r, weather=""), reason=why)
     return rows
 
 
@@ -914,7 +930,7 @@ def reinstate(db: Session, user: dict, d, defer=None) -> dict:
     actor = (user.get("email") or "").lower()
     people = weather_watch._people(db)
     g = _group(db, d.group_id)
-    _restore_rows(db, d.id)
+    _restore_rows(db, d.id, actor, "reinstate: weather call reversed")
     d.status, d.reinstated_by, d.reinstated_at = "reinstated", actor, _iso()
     note = (db.query(models.ScheduleDayNote)
             .filter(models.ScheduleDayNote.work_date == d.work_date, models.ScheduleDayNote.group_id == d.group_id).first())

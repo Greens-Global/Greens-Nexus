@@ -445,3 +445,52 @@ describe('Companies', () => {
     expect(timeShiftGroupCreate.mock.calls[0][0]).toMatchObject({ name: 'Yard', company_id: 'c1' });
   });
 });
+
+// Shifts Phase 2 (Oct 14): the Rules - five numbers (0 = off) that warn on
+// the schedule and never block, and whether sharing with warnings needs a
+// reason.
+describe('ShiftSettingsPanel rules', () => {
+  const commit = (el, value) => { fireEvent.change(el, { target: { value } }); fireEvent.blur(el); };
+  it('saves each rule, clamped to its range, and the reason switch', async () => {
+    shiftRequestSettingsSaveFor.mockImplementation(async (b) => b);
+    render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} />);
+    const rest = await screen.findByLabelText('Minimum rest between shifts');
+    expect(rest.value).toBe('0');
+    expect(screen.getByText('California daily overtime; applies to people on the California overtime rule.')).toBeTruthy();
+    expect(screen.getByText('0 turns a rule off. Rules warn on the schedule; they never block.')).toBeTruthy();
+    commit(rest, '10');
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith(expect.objectContaining({ ruleMinRestHours: 10 }), ''));
+    commit(screen.getByLabelText('Minimum rest between shifts'), '99');
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith(expect.objectContaining({ ruleMinRestHours: 24 }), ''));
+    commit(screen.getByLabelText('Most days in a row'), '20');
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith(expect.objectContaining({ ruleMaxDaysInRow: 14, ruleMinRestHours: 24 }), ''));
+    commit(screen.getByLabelText('Daily overtime after'), '8');
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith(expect.objectContaining({ ruleDailyOtHours: 8 }), ''));
+    commit(screen.getByLabelText('Weekly overtime after'), '100');
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith(expect.objectContaining({ ruleWeeklyOtHours: 80 }), ''));
+    commit(screen.getByLabelText('Most hours per week'), '150');
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith(expect.objectContaining({ ruleMaxWeekHours: 100 }), ''));
+    commit(screen.getByLabelText('Most hours per week'), '-3');
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith(expect.objectContaining({ ruleMaxWeekHours: 0 }), ''));
+    const box = screen.getByLabelText('Require a reason to share a schedule that has warnings');
+    expect(box.checked).toBe(false);
+    fireEvent.click(box);
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith(expect.objectContaining({ publishReasonRequired: true, ruleMaxWeekHours: 0 }), ''));
+    expect(screen.getByLabelText('Require a reason to share a schedule that has warnings').checked).toBe(true);
+  });
+
+  it('shows what the API sends and saves nothing for an unchanged value', async () => {
+    shiftRequestSettingsGetFor.mockResolvedValue({ ...SETTINGS, ruleMinRestHours: 8, ruleMaxDaysInRow: 6, ruleDailyOtHours: 8, ruleWeeklyOtHours: 40, ruleMaxWeekHours: 60, publishReasonRequired: true });
+    render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} />);
+    const rest = await screen.findByLabelText('Minimum rest between shifts');
+    expect(rest.value).toBe('8');
+    expect(screen.getByLabelText('Most days in a row').value).toBe('6');
+    expect(screen.getByLabelText('Weekly overtime after').value).toBe('40');
+    expect(screen.getByLabelText('Most hours per week').value).toBe('60');
+    expect(screen.getByLabelText('Require a reason to share a schedule that has warnings').checked).toBe(true);
+    commit(rest, '8');
+    commit(rest, '');
+    expect(shiftRequestSettingsSaveFor).not.toHaveBeenCalled();
+    expect(rest.value).toBe('8');
+  });
+});

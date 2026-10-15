@@ -56,6 +56,7 @@ from routers.esign import _client_meta
 from routers.stepup import require_stepup
 from currency import is_currency
 from shift_day import shift_day as _shift_day, shift_bounds_by_day as _shift_bounds_by_day
+import shift_log
 
 router = APIRouter(prefix="/timeclock", tags=["timeclock"])
 
@@ -6321,6 +6322,16 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
             if s["email"] and not s["pendingDelete"]:
                 s["conflicts"] = _shift_conflicts(s, by_person[s["email"]], off_by.get(s["email"], []),
                                                   holidays.get(s["email"], {}), avail.get(s["email"]))
+        # Schedule rules (Phase 2, shift_rules.py): rest, days in a row,
+        # daily / weekly overtime, the week cap - AFTER the conflict
+        # sentences, so the dot shows both and a reader can tell them apart.
+        import shift_rules
+        rules = shift_rules.rule_warnings(db, list(by_person.keys()), start, end) if by_person else {}
+        for s in scheduled:
+            if s["email"] and not s["pendingDelete"]:
+                s["ruleWarnings"] = rules.get(s["id"], [])
+                if s["ruleWarnings"]:
+                    s["conflicts"] = list(s.get("conflicts") or []) + s["ruleWarnings"]
 
     # Day notes: company-wide ones and the teams on screen (Oct 2, B2-15).
     day_notes = [{"date": n.work_date, "groupId": n.group_id or "", "note": n.note}
@@ -6411,11 +6422,15 @@ def unshared_changes(start: str = "", end: str = "", user: dict = Depends(requir
 
 
 @router.get("/schedule/check")
-def check_scheduled(email: str, date: str, start: str, end: str, exclude_id: str = "",
+def check_scheduled(email: str, date: str, start: str, end: str, exclude_id: str = "", break_min: int = None,
                     user: dict = Depends(require_schedule_write), db: Session = Depends(get_db)):
     """The warnings a shift WOULD have - what the Add/Edit Shift dialog shows
     live as the manager picks a day and times. Looks a day either side, so an
-    overnight shift running into the next morning is caught too."""
+    overnight shift running into the next morning is caught too. Since Phase
+    2 the schedule rules (shift_rules.py) are checked for the hypothetical
+    shift as well and come after the conflicts in `warnings` (and alone in
+    `ruleWarnings`); `break_min` is its unpaid break - the shift being
+    edited keeps its own when none is sent."""
     em = (email or "").strip().lower()
     scope = _visible_emails(db, user)
     if not em or (scope is not None and em not in scope):
@@ -6434,8 +6449,18 @@ def check_scheduled(email: str, date: str, start: str, end: str, exclude_id: str
            .filter(TimeOffRequest.employee_email == em, TimeOffRequest.status.in_(["approved", "pending"]),
                    TimeOffRequest.start_date <= date[:10], TimeOffRequest.end_date >= date[:10]).all()]
     item = {"id": exclude_id or "", "date": date[:10], "start": start[:5], "end": end[:5]}
-    return {"warnings": _shift_conflicts(item, others, off, _company_holidays_for_employee(db, em, date[:10], date[:10]) or {},
-                                         _availability(db, [em]).get(em))}
+    conflicts = _shift_conflicts(item, others, off, _company_holidays_for_employee(db, em, date[:10], date[:10]) or {},
+                                 _availability(db, [em]).get(em))
+    import shift_rules
+    brk = break_min
+    if brk is None and exclude_id:
+        cur = db.query(ScheduledShift).filter(ScheduledShift.id == exclude_id).first()
+        brk = int(getattr(cur, "break_min", 0) or 0) if cur is not None else 0
+    hypo = {"id": exclude_id or "new", "email": em, "date": date[:10], "start": start[:5], "end": end[:5],
+            "paidMin": max(0, _shift_minutes(start[:5], end[:5]) - _clamp_break(brk or 0))}
+    rules = shift_rules.rule_warnings(db, [em], date[:10], date[:10], extra=[hypo],
+                                      exclude_ids=[exclude_id] if exclude_id else None).get(hypo["id"], [])
+    return {"warnings": conflicts + rules, "conflicts": conflicts, "ruleWarnings": rules}
 
 
 @router.get("/my-schedule")
@@ -6659,6 +6684,7 @@ def create_scheduled(body: ScheduledShiftIn, user: dict = Depends(require_schedu
         published=0,   # new shifts start as a DRAFT until the manager publishes
         created_by=user["email"], created_at=_now_iso())
     db.add(row)
+    shift_log.record(db, "created", row, user["email"], after=shift_log.snapshot(row))
     db.commit()
     return _sched_dict(row, {preset.id: preset} if preset else {}, team_tz=team_tz)
 
@@ -6699,7 +6725,10 @@ def assign_open_shift(sched_id: str, body: AssignOpenIn,
         published=0,   # a newly assigned shift is a draft until published
         created_by=user["email"], created_at=_now_iso())
     db.add(assigned)
+    was_open = shift_log.snapshot(row)
     row.open_slots = int(row.open_slots or 1) - 1
+    shift_log.record(db, "assigned", assigned, user["email"], before=was_open, after=shift_log.snapshot(assigned))
+    shift_log.record(db, "assigned", row, user["email"], before=was_open, after=shift_log.snapshot(row))
     if row.open_slots <= 0:
         db.delete(row)
     db.commit()
@@ -6813,17 +6842,22 @@ def bulk_schedule(body: BulkScheduleIn, user: dict = Depends(require_schedule_wr
                     skipped += 1
                     continue
                 for r in have:
+                    shift_log.record(db, "removed", r, user["email"], before=shift_log.snapshot(r),
+                                     reason="Replaced by a bulk fill")
                     if r.published:
                         # Staff keep seeing it until the replacement is published.
                         r.pending_delete = 1
                     else:
                         db.delete(r)
                 replaced += 1
-            db.add(ScheduledShift(id=str(uuid.uuid4()), employee_email=em, work_date=ds,
-                                  shift_id=shift_id, start_hhmm=shhmm, end_hhmm=ehhmm,
-                                  label=label, note=note, break_min=brk, published=0,
-                                  group_id=gid or first_group.get(em, ""), timezone=tz,
-                                  created_by=user["email"], created_at=now))
+            new_row = ScheduledShift(id=str(uuid.uuid4()), employee_email=em, work_date=ds,
+                                     shift_id=shift_id, start_hhmm=shhmm, end_hhmm=ehhmm,
+                                     label=label, note=note, break_min=brk, published=0,
+                                     group_id=gid or first_group.get(em, ""), timezone=tz,
+                                     created_by=user["email"], created_at=now)
+            db.add(new_row)
+            shift_log.record(db, "created", new_row, user["email"], after=shift_log.snapshot(new_row),
+                             reason="Bulk fill")
             created += 1
     db.commit()
     return {"created": created, "replaced": replaced, "skipped": skipped,
@@ -7009,13 +7043,15 @@ def copy_schedule(body: CopyScheduleIn, user: dict = Depends(require_schedule_wr
                     skipped += 1       # an identical open slot is never doubled either
                     continue
                 for r in have:
+                    shift_log.record(db, "removed", r, user["email"], before=shift_log.snapshot(r),
+                                     reason="Replaced by a schedule copy")
                     if r.published:
                         r.pending_delete = 1
                     else:
                         db.delete(r)
                 cleared.add(key)
                 replaced += 1
-            db.add(ScheduledShift(
+            new_row = ScheduledShift(
                 id=str(uuid.uuid4()), employee_email=em, work_date=day, shift_id=src["shiftId"],
                 start_hhmm=src["start"], end_hhmm=src["end"], label=src["label"],
                 note=src["note"] if body.include_notes else "",
@@ -7024,7 +7060,10 @@ def copy_schedule(body: CopyScheduleIn, user: dict = Depends(require_schedule_wr
                                  if src.get("activities") and body.include_activities else ""),
                 color=src.get("ownColor") or "",
                 group_id=src.get("groupId") or "", timezone=getattr(row, "timezone", "") or "",
-                published=0, created_by=user["email"], created_at=now))
+                published=0, created_by=user["email"], created_at=now)
+            db.add(new_row)
+            shift_log.record(db, "copied", new_row, user["email"], before=shift_log.snapshot(src),
+                             after=shift_log.snapshot(new_row), reason=f"Copied from {src['date']}")
             created += 1
     timeoff_copied = _copy_timeoff(db, user, body, s0, s1, span, repeats) if body.include_timeoff else 0
     db.commit()
@@ -7054,6 +7093,7 @@ def clear_schedule(body: ClearScheduleIn, user: dict = Depends(require_schedule_
         raise HTTPException(400, f"Clear at most {_CLEAR_MAX_DAYS} days at a time.")
     removed = pending = 0
     for r in _range_rows(db, user, d0.isoformat(), d1.isoformat(), body.emails, body.group_id, body.include_open):
+        shift_log.record(db, "cleared", r, user["email"], before=shift_log.snapshot(r))
         if r.published:
             r.pending_delete = 1
             pending += 1
@@ -7120,11 +7160,17 @@ def move_scheduled(sched_id: str, body: MoveIn, user: dict = Depends(require_sch
         published=0, created_by=user["email"], created_at=_now_iso())
     db.add(new)
     pending_removal = False
+    src_snap, new_snap = shift_log.snapshot(eff), shift_log.snapshot(new)
     if not body.duplicate:
+        shift_log.record(db, "moved", new, user["email"], before=src_snap, after=new_snap)
+        shift_log.record(db, "moved", row, user["email"], before=src_snap, after=new_snap)
         if row.published:
             row.pending_delete, pending_removal = 1, True
         else:
             db.delete(row)
+    else:
+        shift_log.record(db, "copied", new, user["email"], before=src_snap, after=new_snap,
+                         reason=f"Duplicated from {eff['date']}")
     db.commit()
     return {"shift": _sched_dict(new, presets, effective=True, team_tz=team_tz), "moved": not body.duplicate,
             "sourcePending": pending_removal}
@@ -7163,6 +7209,10 @@ def discard_all_changes(body: DiscardAllIn, user: dict = Depends(require_schedul
             continue
         if not em and (narrow or not _open_row_mine(r, scope, user)):
             continue
+        shift_log.record(db, "discarded", r, user["email"],
+                         before=shift_log.snapshot({**_pending(r), "date": r.work_date, "email": r.employee_email}
+                                                   if not r.pending_delete else r, pendingDelete=bool(r.pending_delete)),
+                         after=shift_log.snapshot(r))
         r.pending_json, r.pending_delete = "", 0
         n += 1
     db.commit()
@@ -7403,6 +7453,7 @@ def update_scheduled(sched_id: str, body: ScheduledShiftIn,
         row.group_id = _resolve_group(db, body.group_id, row.employee_email, open_shift=not row.employee_email)
     if body.timezone is not None and (body.timezone or "").strip():
         row.timezone = _placement_tz(body.timezone, None, "")
+    was_removing = bool(row.pending_delete)
     if row.published:
         # Staff can already see this shift: keep the published version live
         # and hold the edit until Publish (Teams "unshared changes") instead of
@@ -7416,6 +7467,11 @@ def update_scheduled(sched_id: str, body: ScheduledShiftIn,
         row.break_min = new["breakMin"]
         row.activities_json = json.dumps(new["activities"]) if new["activities"] else ""
         row.color = new["color"]
+    if new != base or was_removing:
+        shift_log.record(db, "edited", row, user["email"],
+                         before=shift_log.snapshot({**base, "date": row.work_date, "email": row.employee_email}),
+                         after=shift_log.snapshot({**new, "date": row.work_date, "email": row.employee_email}),
+                         reason="Kept after all" if was_removing else "")
     db.commit()
     presets = {s.id: s for s in db.query(Shift).filter(Shift.id.in_({row.shift_id, new["shiftId"]} - {""})).all()}
     return _sched_dict(row, presets, effective=True, team_tz=_team_tz(db))
@@ -7434,6 +7490,8 @@ def delete_scheduled(sched_id: str, user: dict = Depends(require_schedule_write)
     scope = _visible_emails(db, user)
     if not _row_in_scope(row, scope, user):
         raise HTTPException(403, "Outside your team")
+    if not row.pending_delete:
+        shift_log.record(db, "removed", row, user["email"], before=shift_log.snapshot(row))
     if row.published:
         row.pending_delete = 1
         db.commit()
@@ -7456,6 +7514,11 @@ def discard_scheduled_changes(sched_id: str, user: dict = Depends(require_schedu
         raise HTTPException(403, "Outside your team")
     if not row.published:
         raise HTTPException(400, "This shift has never been published - edit or remove it instead.")
+    if row.pending_delete or _pending(row):
+        shift_log.record(db, "discarded", row, user["email"],
+                         before=shift_log.snapshot({**_pending(row), "date": row.work_date, "email": row.employee_email}
+                                                   if not row.pending_delete else row, pendingDelete=bool(row.pending_delete)),
+                         after=shift_log.snapshot(row))
     row.pending_json, row.pending_delete = "", 0
     db.commit()
     preset = db.query(Shift).filter(Shift.id == row.shift_id).first() if row.shift_id else None
@@ -7468,6 +7531,7 @@ class PublishScheduleIn(BaseModel):
     group_id: Optional[str] = ""           # optional: publish just one group's shifts
     emails: List[str] = []                 # optional: publish just these people's shifts
     notify: str = "changed"                # changed = only people whose shifts changed | team = everyone
+    reason: Optional[str] = ""             # why share over warnings (Phase 2; required when the review says so)
 
 
 @router.post("/schedule/publish")
@@ -7493,6 +7557,13 @@ def publish_schedule(body: PublishScheduleIn, bt: BackgroundTasks, user: dict = 
         narrow |= {(m.employee_email or "").lower() for m in
                    db.query(ShiftGroupMember).filter(ShiftGroupMember.group_id == body.group_id.strip()).all()
                    if m.employee_email}
+    # Rules before publish (Phase 2): the same review the Share dialog
+    # showed. Sharing over a warning needs a reason when the company says so.
+    reason = (body.reason or "").strip()[:300]
+    review = _publish_review(db, user, d0, d1, body.group_id, body.emails)
+    if review["reasonRequired"] and not reason:
+        raise HTTPException(400, "A reason is needed to share a schedule with warnings.")
+    publish_id = str(uuid.uuid4())
     # Row locks (Oct 2, B2-4): two publishes of the same week used to both
     # count and bell every change. SQLite ignores FOR UPDATE.
     q = _unshared_query(db, user, d0, d1, body.group_id, body.emails).with_for_update()
@@ -7505,10 +7576,13 @@ def publish_schedule(body: PublishScheduleIn, bt: BackgroundTasks, user: dict = 
         if r.pending_delete:
             changes.append(shift_notify.change("removed", r, start=r.start_hhmm, end=r.end_hhmm, label=r.label))
             touched.append(r.id)
+            shift_log.record(db, "shared", r, user["email"], before=shift_log.snapshot(r), reason=reason,
+                             publish_id=publish_id)
             db.delete(r)
             removed += 1
             continue
         pend = _pending(r)
+        before = shift_log.snapshot(r) if r.published else None
         if pend and r.published:
             was = (r.start_hhmm, r.end_hhmm, r.label)
             r.shift_id, r.start_hhmm, r.end_hhmm = pend["shiftId"], pend["start"], pend["end"]
@@ -7530,11 +7604,13 @@ def publish_schedule(body: PublishScheduleIn, bt: BackgroundTasks, user: dict = 
             changes.append(shift_notify.change("added", r, start=r.start_hhmm, end=r.end_hhmm, label=r.label))
             added += 1
         r.published, r.pending_json = 1, ""
+        shift_log.record(db, "shared", r, user["email"], before=before, after=shift_log.snapshot(r), reason=reason,
+                         publish_id=publish_id)
     # A swap / offer / open-shift request about a shift that just changed or
     # went away no longer describes the schedule (Oct 2, B2-5).
     cancelled = cancel_requests_for_shifts(db, touched, user["email"]) if touched else 0
     if added + updated + removed:
-        _remember_publish(db, user["email"], d0, d1)
+        _remember_publish(db, user["email"], d0, d1, reason=reason, publish_id=publish_id)
     db.commit()
     # Tell the people affected - one bell + one email each (Sep 28, QA item 2).
     notified = shift_notify.notify_published(db, changes, user["email"], d0, d1, bt)
@@ -7554,20 +7630,23 @@ def publish_schedule(body: PublishScheduleIn, bt: BackgroundTasks, user: dict = 
     # `published` stays the total so existing callers' "Shared N shifts" holds.
     return {"published": added + updated + removed, "added": added, "updated": updated, "edited": updated,
             "removed": removed, "notified": notified, "requestsCancelled": cancelled,
-            "lastPublishedAt": _last_publish(db).get("at") or ""}
+            "lastPublishedAt": _last_publish(db).get("at") or "", "publishId": publish_id,
+            "warnings": len(review["warnings"])}
 
 
 _PUBLISH_MAX_DAYS = 92
 
 
-def _remember_publish(db: Session, by: str, d0: str, d1: str) -> None:
-    """Teams "last shared": {at, start, end, by} in nexus_settings."""
+def _remember_publish(db: Session, by: str, d0: str, d1: str, reason: str = "", publish_id: str = "") -> None:
+    """Teams "last shared": {at, start, end, by, reason, publishId} in
+    nexus_settings (reason and publishId since Phase 2)."""
     row = db.query(NexusSetting).filter(NexusSetting.key == _LAST_PUBLISH_KEY).first()
     if not row:
         row = NexusSetting(key=_LAST_PUBLISH_KEY)
         db.add(row)
     now = datetime.now(timezone.utc).isoformat()
-    row.value = json.dumps({"at": now, "start": d0, "end": d1, "by": (by or "").lower()})
+    row.value = json.dumps({"at": now, "start": d0, "end": d1, "by": (by or "").lower(),
+                            "reason": reason or "", "publishId": publish_id or ""})
     row.updated_by, row.updated_at = by or "", now
 
 
@@ -10554,3 +10633,122 @@ def schedule_actuals(start: str, end: str, user: dict = Depends(get_current_user
             emails = {(e or "").lower() for e in scope}
         emails.add(me)
     return shift_attendance.actuals(db, sorted(emails), d0.isoformat(), d1.isoformat())
+
+
+# ── Shifts Phase 2: rules before publish (Neil, Oct 14 2026) ──────────────
+# The Share dialog reviews what a publish would do BEFORE it does it: every
+# change, the people affected, and the warnings (conflicts + schedule
+# rules, shift_rules.py) those shifts will carry once shared. When any
+# affected person's company has publishReasonRequired on and there is a
+# warning, the publish must carry a reason - stored on every 'shared'
+# change-log row (shift_log.py) and in the "last shared" record.
+
+def _publish_review(db: Session, user: dict, d0: str, d1: str, group_id: str = "", emails=None) -> dict:
+    """What a publish of [d0, d1] (narrowed like publish_schedule) would do,
+    computed without changing anything: the same rows _unshared_query would
+    share, each as a change line; the warnings those shifts will have after
+    the publish (pending edits applied, removals gone); and whether a reason
+    is needed."""
+    import shift_rules
+    from routers.shift_requests import get_settings as _sr_settings
+    from auth import company_of_email_map
+    presets = {p.id: p for p in db.query(Shift).all()}
+    team_tz = _team_tz(db)
+    rows = _unshared_query(db, user, d0, d1, group_id, emails).all()
+    names = {}
+    for e in db.query(NexusEmployee.work_email, NexusEmployee.display_name, NexusEmployee.first_name,
+                      NexusEmployee.last_name).all():
+        if e.work_email:
+            names[e.work_email.lower()] = (e.display_name or "").strip() or f"{e.first_name or ''} {e.last_name or ''}".strip()
+    changes, shared = [], []   # shared = (effective dict, row) of the shifts that will exist afterward
+    for r in rows:
+        em = (r.employee_email or "").lower()
+        eff = _sched_dict(r, presets, effective=True, team_tz=team_tz)
+        if r.pending_delete:
+            kind, was = "removed", None
+        elif _pending(r) and r.published:
+            kind, was = "changed", {"start": r.start_hhmm, "end": r.end_hhmm, "label": r.label or ""}
+        else:
+            kind, was = "added", None
+        changes.append({"email": em, "name": names.get(em, em) if em else "Open shift", "kind": kind,
+                        "date": r.work_date, "start": eff["start"], "end": eff["end"], "label": eff["label"] or "",
+                        "shiftId": r.id, "was": was})
+        if not r.pending_delete and em:
+            shared.append((eff, r))
+    people = {c["email"] for c in changes if c["email"]}
+    warnings = []
+    if shared:
+        emails_on = sorted({eff["email"] for eff, _ in shared})
+        try:
+            lo = (datetime.strptime(d0, "%Y-%m-%d").date() - timedelta(days=1)).isoformat()
+            hi = (datetime.strptime(d1, "%Y-%m-%d").date() + timedelta(days=1)).isoformat()
+        except ValueError:
+            lo, hi = d0, d1
+        others = {}
+        for o in (db.query(ScheduledShift)
+                  .filter(ScheduledShift.employee_email.in_(emails_on),
+                          ScheduledShift.work_date >= lo, ScheduledShift.work_date <= hi).all()):
+            if not o.pending_delete:
+                others.setdefault((o.employee_email or "").lower(), []).append(_sched_dict(o, presets, effective=True))
+        _priv = _TimeoffPrivacy(db, user.get("email"))
+        off = {}
+        for t in (db.query(TimeOffRequest)
+                  .filter(TimeOffRequest.employee_email.in_(emails_on),
+                          TimeOffRequest.status.in_(["approved", "pending"]),
+                          TimeOffRequest.start_date <= d1, TimeOffRequest.end_date >= d0).all()):
+            off.setdefault((t.employee_email or "").lower(), []).append(_timeoff_dict(t, _priv))
+        emp_rows = {(e.work_email or "").lower(): e for e in
+                    db.query(NexusEmployee).filter(func.lower(NexusEmployee.work_email).in_(emails_on)).all()}
+        holidays = _company_holidays_for_many(db, emp_rows, d0, d1)
+        avail = _availability(db, emails_on)
+        rules = shift_rules.rule_warnings(db, emails_on, d0, d1)
+        for eff, r in shared:
+            em = eff["email"]
+            base = {"email": em, "name": names.get(em, em), "date": eff["date"], "shiftId": r.id}
+            for text in _shift_conflicts(eff, others.get(em, []), off.get(em, []), holidays.get(em, {}), avail.get(em)):
+                warnings.append({**base, "text": text, "kind": "conflict"})
+            for text in rules.get(r.id, []):
+                warnings.append({**base, "text": text, "kind": "rule"})
+    companies = company_of_email_map(db) if people else {}
+    cids = {companies.get(em, "") or "" for em in people} or {""}
+    required = bool(warnings) and any(bool(_sr_settings(db, cid).get("publishReasonRequired")) for cid in cids)
+    return {"changes": changes, "people": len(people), "warnings": warnings, "reasonRequired": required}
+
+
+@router.get("/schedule/publish/review")
+def publish_review(start: str, end: str, group_id: str = "", emails: List[str] = Query([]),
+                   user: dict = Depends(require_schedule_write), db: Session = Depends(get_db)):
+    """The Share dialog's preview: what sharing [start, end] (optionally one
+    team / some people) would change, who it touches, the warnings those
+    shifts will carry, and whether a reason is needed. Changes nothing.
+    `emails` repeats (?emails=a&emails=b) or is comma-separated."""
+    d0, d1 = _parse_day(start, "start date").isoformat(), _parse_day(end, "end date").isoformat()
+    if d1 < d0:
+        raise HTTPException(400, "End date is before the start date.")
+    if (_parse_day(end, "end date") - _parse_day(start, "start date")).days + 1 > _PUBLISH_MAX_DAYS:
+        raise HTTPException(400, f"Share at most {_PUBLISH_MAX_DAYS} days at a time.")
+    picked = [e.strip() for chunk in (emails or []) for e in str(chunk).split(",") if e.strip()]
+    return _publish_review(db, user, d0, d1, group_id, picked)
+
+
+@router.get("/schedule/{sched_id}/history")
+def scheduled_history(sched_id: str, user: dict = Depends(require_schedule_read), db: Session = Depends(get_db)):
+    """Who did what to one placed shift, newest first (shift_log.py): the
+    row must be in the caller's scope or their own. Staff never see a draft."""
+    row = db.query(ScheduledShift).filter(ScheduledShift.id == sched_id).first()
+    if not row:
+        raise HTTPException(404, "Shift not found")
+    me = (user.get("email") or "").lower()
+    own = bool(row.employee_email) and (row.employee_email or "").lower() == me
+    can_write = _can_write_schedule(user, db)
+    if not own and not _row_in_scope(row, _visible_emails(db, user), user):
+        raise HTTPException(403, "Outside your team")
+    if not can_write and not row.published:
+        raise HTTPException(404, "Shift not found")
+    names = {}
+    for e in db.query(NexusEmployee.work_email, NexusEmployee.display_name, NexusEmployee.first_name,
+                      NexusEmployee.last_name).all():
+        if e.work_email:
+            names[e.work_email.lower()] = (e.display_name or "").strip() or f"{e.first_name or ''} {e.last_name or ''}".strip()
+    return {"shiftId": row.id, "email": (row.employee_email or "").lower(), "date": row.work_date,
+            "entries": shift_log.history(db, row.id, names)}
