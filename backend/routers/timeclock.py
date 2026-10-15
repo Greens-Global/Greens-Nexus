@@ -6326,7 +6326,7 @@ def read_schedule(start: str, end: str, user: dict = Depends(require_schedule_re
         # daily / weekly overtime, the week cap - AFTER the conflict
         # sentences, so the dot shows both and a reader can tell them apart.
         import shift_rules
-        rules = shift_rules.rule_warnings(db, list(by_person.keys()), start, end) if by_person else {}
+        rules = shift_rules.rule_warnings(db, list(by_person.keys()), start, end, presets=presets) if by_person else {}
         for s in scheduled:
             if s["email"] and not s["pendingDelete"]:
                 s["ruleWarnings"] = rules.get(s["id"], [])
@@ -7557,22 +7557,25 @@ def publish_schedule(body: PublishScheduleIn, bt: BackgroundTasks, user: dict = 
         narrow |= {(m.employee_email or "").lower() for m in
                    db.query(ShiftGroupMember).filter(ShiftGroupMember.group_id == body.group_id.strip()).all()
                    if m.employee_email}
-    # Rules before publish (Phase 2): the same review the Share dialog
-    # showed. Sharing over a warning needs a reason when the company says so.
-    reason = (body.reason or "").strip()[:300]
-    review = _publish_review(db, user, d0, d1, body.group_id, body.emails)
-    if review["reasonRequired"] and not reason:
-        raise HTTPException(400, "A reason is needed to share a schedule with warnings.")
-    publish_id = str(uuid.uuid4())
     # Row locks (Oct 2, B2-4): two publishes of the same week used to both
     # count and bell every change. SQLite ignores FOR UPDATE.
     q = _unshared_query(db, user, d0, d1, body.group_id, body.emails).with_for_update()
+    rows = q.all()
+    # Rules before publish (Phase 2): the same review the Share dialog
+    # showed, on the rows just locked - so what is judged is what is shared,
+    # whatever changed since the dialog loaded. Sharing over a warning needs
+    # a reason when the company says so; a refusal rolls the locks back.
+    reason = (body.reason or "").strip()[:300]
+    review = _publish_review(db, user, d0, d1, body.group_id, body.emails, rows=rows)
+    if review["reasonRequired"] and not reason:
+        raise HTTPException(400, "A reason is needed to share a schedule with warnings.")
+    publish_id = str(uuid.uuid4())
     import shift_notify
     from routers.shift_requests import cancel_requests_for_shifts
     added = updated = removed = 0
     changes = []   # what this publish does to each person's schedule, for shift_notify
     touched = []   # shifts edited or removed: pending requests on them are moot
-    for r in q.all():
+    for r in rows:
         if r.pending_delete:
             changes.append(shift_notify.change("removed", r, start=r.start_hhmm, end=r.end_hhmm, label=r.label))
             touched.append(r.id)
@@ -10638,32 +10641,45 @@ def schedule_actuals(start: str, end: str, user: dict = Depends(get_current_user
 # ── Shifts Phase 2: rules before publish (Neil, Oct 14 2026) ──────────────
 # The Share dialog reviews what a publish would do BEFORE it does it: every
 # change, the people affected, and the warnings (conflicts + schedule
-# rules, shift_rules.py) those shifts will carry once shared. When any
-# affected person's company has publishReasonRequired on and there is a
-# warning, the publish must carry a reason - stored on every 'shared'
-# change-log row (shift_log.py) and in the "last shared" record.
+# rules, shift_rules.py) those shifts will carry once shared - plus any
+# rule warning the publish puts on one of those people's OTHER shifts (a
+# Thursday added into a streak warns on Sunday). When a warned person's
+# company has publishReasonRequired on, the publish must carry a reason -
+# stored on every 'shared' change-log row (shift_log.py) and in the "last
+# shared" record. It is the AFFECTED person's company that decides, not the
+# publisher's: the rules are that company's rules for its people, and a
+# manager sharing for two companies answers to the one that asks.
 
-def _publish_review(db: Session, user: dict, d0: str, d1: str, group_id: str = "", emails=None) -> dict:
-    """What a publish of [d0, d1] (narrowed like publish_schedule) would do,
-    computed without changing anything: the same rows _unshared_query would
-    share, each as a change line; the warnings those shifts will have after
-    the publish (pending edits applied, removals gone); and whether a reason
-    is needed."""
-    import shift_rules
-    from routers.shift_requests import get_settings as _sr_settings
-    from auth import company_of_email_map
-    presets = {p.id: p for p in db.query(Shift).all()}
-    team_tz = _team_tz(db)
-    rows = _unshared_query(db, user, d0, d1, group_id, emails).all()
+def _employee_names(db: Session) -> dict:
+    """{work email (lower): display name} for everyone in People."""
     names = {}
     for e in db.query(NexusEmployee.work_email, NexusEmployee.display_name, NexusEmployee.first_name,
                       NexusEmployee.last_name).all():
         if e.work_email:
             names[e.work_email.lower()] = (e.display_name or "").strip() or f"{e.first_name or ''} {e.last_name or ''}".strip()
+    return names
+
+
+def _publish_review(db: Session, user: dict, d0: str, d1: str, group_id: str = "", emails=None, rows=None) -> dict:
+    """What a publish of [d0, d1] (narrowed like publish_schedule) would do,
+    computed without changing anything: the same rows _unshared_query would
+    share (or `rows`, when the publish has already locked them), each as a
+    change line; the warnings those shifts will have after the publish
+    (pending edits applied, removals gone) and the rule warnings it adds to
+    the people's other shifts; and whether a reason is needed."""
+    import shift_rules
+    from routers.shift_requests import get_settings as _sr_settings
+    from auth import company_of_email_map
+    presets = {p.id: p for p in db.query(Shift).all()}
+    team_tz = _team_tz(db)
+    if rows is None:
+        rows = _unshared_query(db, user, d0, d1, group_id, emails).all()
+    names = _employee_names(db)
     changes, shared = [], []   # shared = (effective dict, row) of the shifts that will exist afterward
     for r in rows:
         em = (r.employee_email or "").lower()
         eff = _sched_dict(r, presets, effective=True, team_tz=team_tz)
+        eff["email"] = em
         if r.pending_delete:
             kind, was = "removed", None
         elif _pending(r) and r.published:
@@ -10686,14 +10702,14 @@ def _publish_review(db: Session, user: dict, d0: str, d1: str, group_id: str = "
             lo, hi = d0, d1
         others = {}
         for o in (db.query(ScheduledShift)
-                  .filter(ScheduledShift.employee_email.in_(emails_on),
+                  .filter(func.lower(ScheduledShift.employee_email).in_(emails_on),
                           ScheduledShift.work_date >= lo, ScheduledShift.work_date <= hi).all()):
             if not o.pending_delete:
                 others.setdefault((o.employee_email or "").lower(), []).append(_sched_dict(o, presets, effective=True))
         _priv = _TimeoffPrivacy(db, user.get("email"))
         off = {}
         for t in (db.query(TimeOffRequest)
-                  .filter(TimeOffRequest.employee_email.in_(emails_on),
+                  .filter(func.lower(TimeOffRequest.employee_email).in_(emails_on),
                           TimeOffRequest.status.in_(["approved", "pending"]),
                           TimeOffRequest.start_date <= d1, TimeOffRequest.end_date >= d0).all()):
             off.setdefault((t.employee_email or "").lower(), []).append(_timeoff_dict(t, _priv))
@@ -10701,17 +10717,26 @@ def _publish_review(db: Session, user: dict, d0: str, d1: str, group_id: str = "
                     db.query(NexusEmployee).filter(func.lower(NexusEmployee.work_email).in_(emails_on)).all()}
         holidays = _company_holidays_for_many(db, emp_rows, d0, d1)
         avail = _availability(db, emails_on)
-        rules = shift_rules.rule_warnings(db, emails_on, d0, d1)
         for eff, r in shared:
             em = eff["email"]
             base = {"email": em, "name": names.get(em, em), "date": eff["date"], "shiftId": r.id}
             for text in _shift_conflicts(eff, others.get(em, []), off.get(em, []), holidays.get(em, {}), avail.get(em)):
                 warnings.append({**base, "text": text, "kind": "conflict"})
-            for text in rules.get(r.id, []):
+        for w in shift_rules.publish_warnings(db, emails_on, d0, d1, [r.id for _, r in shared], presets=presets):
+            base = {"email": w["email"], "name": names.get(w["email"], w["email"]), "date": w["date"], "shiftId": w["shiftId"]}
+            for text in w["texts"]:
                 warnings.append({**base, "text": text, "kind": "rule"})
-    companies = company_of_email_map(db) if people else {}
-    cids = {companies.get(em, "") or "" for em in people} or {""}
-    required = bool(warnings) and any(bool(_sr_settings(db, cid).get("publishReasonRequired")) for cid in cids)
+    required = False
+    if warnings:
+        companies = company_of_email_map(db)
+        asks = {}
+        for w in warnings:
+            cid = companies.get(w["email"], "") or ""
+            if cid not in asks:
+                asks[cid] = bool(_sr_settings(db, cid).get("publishReasonRequired"))
+            if asks[cid]:
+                required = True
+                break
     return {"changes": changes, "people": len(people), "warnings": warnings, "reasonRequired": required}
 
 
@@ -10734,7 +10759,9 @@ def publish_review(start: str, end: str, group_id: str = "", emails: List[str] =
 @router.get("/schedule/{sched_id}/history")
 def scheduled_history(sched_id: str, user: dict = Depends(require_schedule_read), db: Session = Depends(get_db)):
     """Who did what to one placed shift, newest first (shift_log.py): the
-    row must be in the caller's scope or their own. Staff never see a draft."""
+    row must be in the caller's scope or their own. Staff never see a draft,
+    nor an edit or removal that is still waiting to be shared - their list
+    stops at the last share (shift_log.shared_only)."""
     row = db.query(ScheduledShift).filter(ScheduledShift.id == sched_id).first()
     if not row:
         raise HTTPException(404, "Shift not found")
@@ -10745,10 +10772,8 @@ def scheduled_history(sched_id: str, user: dict = Depends(require_schedule_read)
         raise HTTPException(403, "Outside your team")
     if not can_write and not row.published:
         raise HTTPException(404, "Shift not found")
-    names = {}
-    for e in db.query(NexusEmployee.work_email, NexusEmployee.display_name, NexusEmployee.first_name,
-                      NexusEmployee.last_name).all():
-        if e.work_email:
-            names[e.work_email.lower()] = (e.display_name or "").strip() or f"{e.first_name or ''} {e.last_name or ''}".strip()
+    entries = shift_log.history(db, row.id, _employee_names(db))
+    if not can_write:
+        entries = shift_log.shared_only(entries)
     return {"shiftId": row.id, "email": (row.employee_email or "").lower(), "date": row.work_date,
-            "entries": shift_log.history(db, row.id, names)}
+            "entries": entries}

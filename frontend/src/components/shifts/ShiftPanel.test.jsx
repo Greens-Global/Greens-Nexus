@@ -32,7 +32,7 @@ const open = (cell) => render(<ShiftPanel cell={cell} presets={[]} groups={[]} p
 
 beforeEach(() => {
   timeSchedCheck.mockReset().mockResolvedValue({ warnings: [] });
-  timeSchedHistory.mockReset().mockResolvedValue(HISTORY);
+  timeSchedHistory.mockReset().mockResolvedValue({ shiftId: 's1', email: 'amy@x.com', date: '2026-10-20', entries: HISTORY });
 });
 
 describe('historyChangeText', () => {
@@ -63,7 +63,7 @@ describe('ShiftPanel history', () => {
   });
 
   it('says No history yet. for a shift with none', async () => {
-    timeSchedHistory.mockResolvedValue([]);
+    timeSchedHistory.mockResolvedValue({ shiftId: 's1', email: 'amy@x.com', date: '2026-10-20', entries: [] });
     open({ email: 'amy@x.com', date: '2026-10-20', existing });
     expect(await screen.findByText('No history yet.')).toBeTruthy();
   });

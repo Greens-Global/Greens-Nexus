@@ -8,10 +8,13 @@ and the publish review in routers/timeclock.py.
     counting no hours and breaking a streak, every rule off at 0.
   - rule_warnings() reads a pending edit; the grid shows a rule warning in
     `conflicts`; the Add/Edit check warns on the hypothetical shift.
-  - The publish review lists changes and warnings with reasonRequired; a
-    publish over warnings is refused without a reason and logs 'shared'
-    rows with it; the history route lists created -> edited -> shared and
-    refuses a shift outside the caller's scope.
+  - The publish review lists changes and warnings with reasonRequired - the
+    warnings the publish puts on a person's unchanged shifts included, the
+    ones the published schedule already had left out; whose company decides
+    the reason; a publish over warnings is refused without a reason and
+    logs 'shared' rows with it; the history route lists created -> edited
+    -> shared, refuses a shift outside the caller's scope, and shows staff
+    nothing that is still waiting to be shared.
 
 Throwaway sqlite. Run with: python -m unittest test_shift_rules -v
 """
@@ -153,7 +156,8 @@ class _Case(unittest.TestCase):
         self.db = database.SessionLocal()
         for m in (models.NexusRole, models.NexusEmployee, models.ShiftGroup, models.ShiftGroupMember, models.HrEntity,
                   models.Shift, models.ScheduledShift, models.NexusNotification, models.NexusSetting,
-                  models.TimeOffRequest, models.PayrollRate, models.ShiftChangeLog, models.ShiftRequest):
+                  models.TimeOffRequest, models.PayrollRate, models.ShiftChangeLog, models.ShiftRequest,
+                  models.NexusGroup, models.NexusGroupMember):
             self.db.query(m).delete()
         for em, first, mgr, role in ((ADMIN, "Ada", "", "administrator"), (MGR, "Mia", "", "manager"),
                                      (OTHER, "Oli", "", "manager"), (AMY, "Amy", MGR, ""), (BOB, "Bob", MGR, "")):
@@ -258,6 +262,19 @@ class RuleWarningsTests(_Case):
                                                                  "break_min": 60})
         self.assertEqual(r.json()["warnings"], [])
 
+    def test_the_check_judges_the_edited_shift_with_its_new_times(self):
+        # Review fix: the hypothetical reuses the edited shift's id, and the
+        # exclusion used to drop it with the original - an edit never warned.
+        sid = self._shift(AMY, MON)
+        r = self.client.get("/timeclock/schedule/check", params={"email": AMY, "date": MON, "start": "06:00", "end": "18:00",
+                                                                 "exclude_id": sid})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["ruleWarnings"], ["12h 00m scheduled this day (over 8h is overtime)."])
+        # The original is not counted alongside it: 9h in the day, not 9h + 8h.
+        self.assertEqual(self.client.get("/timeclock/schedule/check", params={
+            "email": AMY, "date": MON, "start": "08:00", "end": "17:00", "exclude_id": sid}).json()["ruleWarnings"],
+            ["9h 00m scheduled this day (over 8h is overtime)."])
+
 
 class PublishReviewTests(_Case):
     def test_review_lists_changes_and_warnings(self):
@@ -290,6 +307,49 @@ class PublishReviewTests(_Case):
         body = self.client.get("/timeclock/schedule/publish/review", params={"start": MON, "end": FRI, "emails": BOB}).json()
         self.assertEqual([c["email"] for c in body["changes"]], [BOB, BOB])
         self.assertEqual((body["warnings"], body["reasonRequired"]), ([], False))
+
+    def test_review_sees_a_warning_the_publish_puts_on_an_unchanged_shift(self):
+        # Mon-Wed and Fri-Sun are shared; a Thursday draft makes Sunday the 7th
+        # day in a row. The warning lands on Sunday's shift, which the publish
+        # does not touch - the review still shows it.
+        for d in (MON, TUE, WED, FRI, SAT, SUN):
+            self._shift(AMY, d, "09:00", "13:00")
+        thu = self._shift(AMY, THU, "09:00", "13:00", published=0)
+        body = self.client.get("/timeclock/schedule/publish/review", params={"start": THU, "end": THU}).json()
+        self.assertEqual([c["shiftId"] for c in body["changes"]], [thu])
+        self.assertEqual([(w["shiftId"], w["date"], w["text"], w["kind"]) for w in body["warnings"]],
+                         [("s-amy-2026-10-18-09:00", SUN, "7th day in a row (6 is the most).", "rule")])
+        self.assertTrue(body["reasonRequired"])
+        # A warning the published schedule already carries is not this
+        # publish's doing: Mon 2-10pm then Tue 6am is shared as it is.
+        self.db.query(models.ScheduledShift).delete()
+        self.db.commit()
+        self._shift(AMY, MON, "14:00", "22:00")
+        self._shift(AMY, TUE, "06:00", "14:00")
+        self._shift(AMY, FRI, "09:00", "13:00", published=0)
+        body = self.client.get("/timeclock/schedule/publish/review", params={"start": MON, "end": FRI}).json()
+        self.assertEqual((len(body["changes"]), body["warnings"], body["reasonRequired"]), (1, [], False))
+
+    def test_the_reason_follows_the_warned_persons_company_not_the_publishers(self):
+        # Bob's company does not ask for a reason; the manager's (Amy's) does.
+        self.db.add(models.HrEntity(id="ent-two", name="Two"))
+        self.db.add(models.NexusSetting(key="shift_requests_config:ent-two", value=json.dumps({"publishReasonRequired": False})))
+        self.db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == BOB).update({"company": "ent-two"})
+        self.db.commit()
+        self._shift(BOB, MON, "14:00", "22:00")
+        self._shift(BOB, TUE, "06:00", "14:00", published=0)   # 8h rest: a warning on Bob
+        body = self.client.get("/timeclock/schedule/publish/review", params={"start": MON, "end": FRI}).json()
+        self.assertEqual([w["email"] for w in body["warnings"]], [BOB])
+        self.assertFalse(body["reasonRequired"])
+        r = self.client.post("/timeclock/schedule/publish", json={"start_date": MON, "end_date": FRI})
+        self.assertEqual((r.status_code, r.json()["published"]), (200, 1), r.text)
+        # A warning on someone whose company asks: a reason it is.
+        self._shift(AMY, MON, "14:00", "22:00")
+        self._shift(AMY, TUE, "06:00", "14:00", published=0)
+        body = self.client.get("/timeclock/schedule/publish/review", params={"start": MON, "end": FRI}).json()
+        self.assertEqual([w["email"] for w in body["warnings"]], [AMY])
+        self.assertTrue(body["reasonRequired"])
+        self.assertEqual(self.client.post("/timeclock/schedule/publish", json={"start_date": MON, "end_date": FRI}).status_code, 400)
 
     def test_a_conflict_is_a_warning_too(self):
         sid = self._shift(AMY, MON, published=0)
@@ -369,6 +429,35 @@ class HistoryTests(_Case):
         self.assertEqual(self.client.get("/timeclock/schedule/nope/history").status_code, 404)
         own = self._shift(OTHER, MON)
         self.assertEqual(self.client.get(f"/timeclock/schedule/{own}/history").status_code, 200)
+
+    def test_staff_see_nothing_that_is_still_waiting_to_be_shared(self):
+        sid = self.client.post("/timeclock/schedule", json={"employee_email": AMY, "work_date": MON}).json()["id"]
+        self.assertEqual(self.client.post("/timeclock/schedule/publish", json={"start_date": MON, "end_date": MON}).status_code, 200)
+        self.client.patch(f"/timeclock/schedule/{sid}", json={"employee_email": AMY, "work_date": MON, "start_hhmm": "10:00"})
+        self.assertEqual([e["action"] for e in self.client.get(f"/timeclock/schedule/{sid}/history").json()["entries"]],
+                         ["edited", "shared", "created"])
+        # Amy reads the schedule as a People viewer (a plain employee has no
+        # schedule route at all): her own shift, but the edit is the
+        # manager's until it is shared.
+        self.db.add(models.NexusGroup(id="g-view", name="view", allowed_modules="hr:viewer"))
+        self.db.add(models.NexusGroupMember(group_id="g-view", email=AMY))
+        self.db.commit()
+        self._as(AMY)
+        r = self.client.get(f"/timeclock/schedule/{sid}/history")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual([e["action"] for e in r.json()["entries"]], ["shared", "created"])
+        self._as(MGR)
+        self.assertEqual(self.client.post("/timeclock/schedule/publish", json={"start_date": MON, "end_date": MON}).status_code, 200)
+        self._as(AMY)
+        self.assertEqual([e["action"] for e in self.client.get(f"/timeclock/schedule/{sid}/history").json()["entries"]],
+                         ["shared", "edited", "shared", "created"])
+        # A draft is not hers to see at all.
+        draft = self._shift(AMY, TUE, published=0)
+        self.assertEqual(self.client.get(f"/timeclock/schedule/{draft}/history").status_code, 404)
+        # shared_only on its own: a weather call after the last share stays.
+        rows = [{"action": "weather"}, {"action": "removed"}, {"action": "shared"}, {"action": "edited"}, {"action": "created"}]
+        self.assertEqual([e["action"] for e in shift_log.shared_only(rows)], ["weather", "shared", "edited", "created"])
+        self.assertEqual(shift_log.shared_only([{"action": "created"}]), [])
 
     def test_every_write_path_leaves_a_row(self):
         # create -> move -> delete (draft: gone, the log stays)

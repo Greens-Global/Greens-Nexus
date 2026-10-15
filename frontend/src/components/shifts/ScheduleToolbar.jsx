@@ -159,7 +159,8 @@ export function changeLine(c) {
   if (c.kind === 'removed') tail = ' (removed)';
   else if (c.kind === 'added') tail = ' (new)';
   else if (c.was) {
-    const [ws, we, wl] = c.was;
+    // The API's `was` is {start, end, label}: the published version.
+    const { start: ws, end: we, label: wl } = c.was;
     tail = ` (was ${spanText(ws, we)}${wl && wl !== c.label ? ` · ${wl}` : ''})`;
   }
   return `${bits.join(' · ')}${tail}`;

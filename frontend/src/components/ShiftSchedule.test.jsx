@@ -136,7 +136,7 @@ beforeEach(() => {
   timeSchedPublish.mockReset().mockResolvedValue({ published: 1, added: 1, notified: 1 });
   timeSchedUnshared.mockReset().mockResolvedValue({ count: 1 });
   timeSchedPublishReview.mockReset().mockResolvedValue({ changes: [{ email: 'amy@greensglobal.com', name: 'Amy Adams', kind: 'added', date: monday, start: '09:00', end: '17:00', label: '', was: null }], people: 1, warnings: [], reasonRequired: false });
-  timeSchedHistory.mockReset().mockResolvedValue([]);
+  timeSchedHistory.mockReset().mockResolvedValue({ entries: [] });
   timeSchedCheck.mockReset().mockResolvedValue({ warnings: [] });
   timeSchedCopy.mockReset().mockResolvedValue({ created: 4, replaced: 0, skipped: 1, timeoffSkipped: 0, targetStart: plusDays(monday, 7), targetEnd: plusDays(monday, 13) });
   timeSchedClear.mockReset().mockResolvedValue({ removed: 2, pending: 1 });

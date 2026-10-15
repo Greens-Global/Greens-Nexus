@@ -21,10 +21,10 @@ const { ShareDialog, changeLine, reviewSummary } = await import('./ScheduleToolb
 const REVIEW = {
   people: 2, reasonRequired: true,
   changes: [
-    { email: 'amy@x.com', name: 'Amy Adams', kind: 'changed', date: '2026-10-20', start: '07:00', end: '15:30', label: 'GSV', was: ['08:00', '16:30', 'GSV'] },
+    { email: 'amy@x.com', name: 'Amy Adams', kind: 'changed', date: '2026-10-20', start: '07:00', end: '15:30', label: 'GSV', was: { start: '08:00', end: '16:30', label: 'GSV' } },
     { email: 'amy@x.com', name: 'Amy Adams', kind: 'added', date: '2026-10-21', start: '08:00', end: '16:30', label: '', was: null },
     { email: 'bob@x.com', name: 'Bob Brown', kind: 'added', date: '2026-10-21', start: '08:00', end: '16:30', label: 'Yard', was: null },
-    { email: 'bob@x.com', name: 'Bob Brown', kind: 'removed', date: '2026-10-22', start: '08:00', end: '16:30', label: 'Yard', was: ['08:00', '16:30', 'Yard'] },
+    { email: 'bob@x.com', name: 'Bob Brown', kind: 'removed', date: '2026-10-22', start: '08:00', end: '16:30', label: 'Yard', was: { start: '08:00', end: '16:30', label: 'Yard' } },
   ],
   warnings: [
     { email: 'amy@x.com', name: 'Amy Adams', date: '2026-10-21', shiftId: 's2', text: 'Only 6 hours of rest after Tue 10/20.', kind: 'rule' },
@@ -54,7 +54,7 @@ describe('changeLine and reviewSummary', () => {
     expect(changeLine(REVIEW.changes[0])).toBe('Tue 10/20 · 7:00 AM - 3:30 PM · GSV (was 8:00 AM - 4:30 PM)');
     expect(changeLine(REVIEW.changes[1])).toBe('Wed 10/21 · 8:00 AM - 4:30 PM (new)');
     expect(changeLine(REVIEW.changes[3])).toBe('Thu 10/22 · 8:00 AM - 4:30 PM · Yard (removed)');
-    expect(changeLine({ ...REVIEW.changes[0], was: ['08:00', '16:30', 'Old'] })).toBe('Tue 10/20 · 7:00 AM - 3:30 PM · GSV (was 8:00 AM - 4:30 PM · Old)');
+    expect(changeLine({ ...REVIEW.changes[0], was: { start: '08:00', end: '16:30', label: 'Old' } })).toBe('Tue 10/20 · 7:00 AM - 3:30 PM · GSV (was 8:00 AM - 4:30 PM · Old)');
     expect(reviewSummary(REVIEW.changes, 2)).toBe('4 changes for 2 people: 2 new, 1 changed, 1 removed');
     expect(reviewSummary([{ kind: 'added' }], 1)).toBe('1 change for 1 person: 1 new');
     expect(reviewSummary([], 0)).toBe('No changes in these dates.');

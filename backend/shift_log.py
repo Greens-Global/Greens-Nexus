@@ -9,7 +9,8 @@ call - the reason given. `GET /timeclock/schedule/{id}/history`
     record(db, "edited", row, actor, before=snapshot(row), after=new)
 
 `record` never commits: the route that made the change commits, so the log
-row lands with the change or not at all.
+row lands with the change or not at all. `shared_only` trims a history for
+staff: nothing that is still waiting to be shared.
 
 Actions: created, edited, removed, assigned, copied, moved, cleared,
 discarded, shared, claimed, swapped, offered, weather.
@@ -116,3 +117,23 @@ def history(db, shift_id: str, names: dict = None) -> list:
     rows = (db.query(models.ShiftChangeLog).filter(models.ShiftChangeLog.shift_id == shift_id)
             .order_by(models.ShiftChangeLog.at.desc(), models.ShiftChangeLog.id.desc()).all())
     return [entry_dict(e, names) for e in rows]
+
+
+# Actions that change the schedule staff see the moment they happen - no
+# publish in between (a claim is shared as of approval; a swap, an offer and
+# a weather call act on published rows).
+LIVE_ACTIONS = ("shared", "claimed", "swapped", "offered", "weather")
+
+
+def shared_only(entries: list) -> list:
+    """The history a person who cannot build schedules may see, from the
+    newest-first list `history` gives: everything from the latest share
+    back, and after it only the live actions - never an edit, removal or
+    draft that is still waiting to be shared."""
+    out, past_share = [], False
+    for e in entries:
+        if e.get("action") == "shared":
+            past_share = True
+        if past_share or e.get("action") in LIVE_ACTIONS:
+            out.append(e)
+    return out

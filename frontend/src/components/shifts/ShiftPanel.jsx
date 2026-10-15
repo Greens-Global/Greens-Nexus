@@ -315,7 +315,7 @@ function ShiftHistory({ id, nameOf }) {
     if (!id) return undefined;
     let live = true;
     Promise.resolve().then(() => api.timeSchedHistory(id))
-      .then((r) => { if (live) setRows(Array.isArray(r) ? r : []); })
+      .then((r) => { if (live) setRows(Array.isArray(r?.entries) ? r.entries : []); })
       .catch(() => { if (live) setRows(false); });
     return () => { live = false; };
   }, [id]);
