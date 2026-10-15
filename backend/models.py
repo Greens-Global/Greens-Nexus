@@ -6415,3 +6415,24 @@ class AccountingAmaSetting(Base):
     accountants = Column(JSON, default=list)                       # ['person@greensglobal.com', ...]
     updated_by  = Column(String, default="")
     updated_at  = Column(String, default="")
+
+
+class ShiftNoShowAlert(Base):
+    """Shifts Phase 1 (Oct 14 2026, shift_attendance.py): the no-show scan's
+    own memory and the record of what it told whom. One row per recipient,
+    group ('-' when the shift has no group) and work date: people_json lists
+    the people that recipient was told were not in (email, name, scheduled
+    start, minutes late), first_at / last_at bracket the alert, emailed_at is
+    stamped once (one email per recipient per group-day), resolved_at when
+    the set emptied and the bell was closed. New table - create_all builds
+    it; RLS comes from main._enable_rls_everywhere's startup sweep."""
+    __tablename__ = "shift_noshow_alerts"
+    id          = Column(String, primary_key=True)                 # uuid
+    group_id    = Column(String, default="", index=True)           # ShiftGroup.id, or '-' for no group
+    work_date   = Column(String, default="", index=True)           # YYYY-MM-DD (the shift's own zone)
+    recipient   = Column(String, default="", index=True)           # who holds the bell
+    people_json = Column(String, default="")                       # [{email, name, start, lateMin}]
+    first_at    = Column(String, default="")                       # UTC ISO
+    last_at     = Column(String, default="")
+    emailed_at  = Column(String, default="")
+    resolved_at = Column(String, default="")

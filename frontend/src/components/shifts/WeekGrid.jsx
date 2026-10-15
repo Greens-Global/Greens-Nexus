@@ -29,7 +29,7 @@ import { Avatar } from '../ShiftScheduleExtras';
 import { TeamMenu } from '../ShiftTeams';
 import { timeOffLabel, availText } from '../shiftScheduleLib';
 import { ShiftBlock, TimeOffBlock, HolidayBlock } from './ShiftBlock';
-import { isoDate, dayShort, fmtHrs, todayIso, planMinutes, counts, isAllDayOff, isApprovedOff, shiftShortText, parseIso, sectionKey } from './shiftLib';
+import { isoDate, dayShort, fmtHrs, todayIso, planMinutes, counts, isAllDayOff, isApprovedOff, shiftShortText, parseIso, sectionKey, actualFor } from './shiftLib';
 
 export const PERSON_W = 200;
 const ROW_MIN = 52;
@@ -256,7 +256,8 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
   hoverCell = () => ({}), hoverShift = () => ({}), clickable = (fn) => fn, onNowOf = () => false, blockChildren = null,
   ariaRole = 'grid', ariaLabel = 'Schedule', notesRow = false, maxHeight = 'calc(100vh - 150px)',
   single = false, emptyNote = null, cornerTools = null, ghostOf = () => null, blockClass = () => '', motion = true, glowToday = false,
-  personFill = null, usualCan = () => false, coverageOf = null, onCoverage = null, pulseCells = null, conflictCount = 0, onConflicts = null }) {
+  personFill = null, usualCan = () => false, coverageOf = null, onCoverage = null, pulseCells = null, conflictCount = 0, onConflicts = null,
+  actualOf = null, adherence = null }) {
   const today = todayIso();
   const n = days.length;
   const coarse = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)')?.matches;
@@ -271,9 +272,11 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
     background: colBg(d, today), padding: compact ? 3 : PAD, display: 'flex', flexDirection: 'column', gap: 4, ...extra });
   const stickyLeft = (row, extra) => ({ gridRow: row, gridColumn: 1, position: 'sticky', left: 0, zIndex: 2, background: 'var(--card)', borderRight: LINE, borderBottom: LINE, minWidth: 0, ...extra });
 
-  const block = (s, email, ds, groupId) => (
+  // Actuals (Phase 1): the cell's clock result, for the shift it names (or
+  // the only shift in the cell).
+  const block = (s, email, ds, groupId, sole = false) => (
     <ShiftBlock key={s.id} shift={s} open={!email} compact={compact} teamZone={teamZone} tabIndex={-1} dragging={dragId === s.id} className={blockClass(s)}
-      showConflicts={prefs.conflicts !== false} style={{ marginBottom: 0 }}
+      showConflicts={prefs.conflicts !== false} style={{ marginBottom: 0 }} actual={actualOf && email ? actualFor(actualOf(email, ds), s, sole) : null}
       {...(on ? {
         onOpen: (e) => on.openShift(e, s, email, ds),
         dragProps: dragProps(s), ...hoverShift(s),
@@ -301,7 +304,7 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
         className={`sched-cell${pulseCells?.has(`${email}|${ds}`) ? ' m-pulse-cell' : ''}`} {...handlers}
         style={cellStyle(row, c, d, { cursor: on && !items.length && editable ? 'pointer' : 'default', paddingTop: (compact ? 3 : PAD) + top, ...(on ? dropStyle(email, ds) : {}) })}>
         {inner}
-        {items.map((s) => block(s, email, ds, groupId))}
+        {items.map((s) => block(s, email, ds, groupId, items.length === 1))}
         {!items.length && editable && on && (ghost ? (
           <div className="sched-add" data-ghost="" aria-hidden="true" style={{ position: 'absolute', left: compact ? 3 : PAD, right: compact ? 3 : PAD, top: (compact ? 3 : PAD) + top, opacity: 0, pointerEvents: 'none' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: compact ? '2px 4px' : '4px 8px', borderRadius: 6, border: `1px dashed ${ghost.color || 'var(--wk-line2, var(--line))'}`,
@@ -529,14 +532,29 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
   });
 
   return (
-    <div role={ariaRole} aria-label={ariaLabel} onKeyDown={on ? (e) => gridKeys(e, on) : undefined} onDragStart={(e) => e.preventDefault()}
-      className={`week-grid${motion ? ' m-stagger' : ''}${glowToday && motion ? ' m-today-glow' : ''}`}
-      style={{ overflow: 'auto', border: LINE, borderRadius: 12, maxHeight, userSelect: on ? 'none' : undefined, WebkitUserSelect: on ? 'none' : undefined, background: 'var(--card)', position: 'relative' }}>
-      <div data-week-grid="" style={{ display: 'grid', gridTemplateColumns: `${PERSON_W}px repeat(${n}, minmax(0, 1fr))`, gridTemplateRows: rows.join(' '),
-        minWidth: PERSON_W + n * (compact ? 62 : 120) }}>
-        {out}
+    <>
+      {adherence && <AdherenceLine text={adherence} />}
+      <div role={ariaRole} aria-label={ariaLabel} onKeyDown={on ? (e) => gridKeys(e, on) : undefined} onDragStart={(e) => e.preventDefault()}
+        className={`week-grid${motion ? ' m-stagger' : ''}${glowToday && motion ? ' m-today-glow' : ''}`}
+        style={{ overflow: 'auto', border: LINE, borderRadius: 12, maxHeight, userSelect: on ? 'none' : undefined, WebkitUserSelect: on ? 'none' : undefined, background: 'var(--card)', position: 'relative' }}>
+        <div data-week-grid="" style={{ display: 'grid', gridTemplateColumns: `${PERSON_W}px repeat(${n}, minmax(0, 1fr))`, gridTemplateRows: rows.join(' '),
+          minWidth: PERSON_W + n * (compact ? 62 : 120) }}>
+          {out}
+        </div>
+        {copied && <span aria-live="polite" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>A shift is copied. Press Enter on an empty day to place it.</span>}
       </div>
-      {copied && <span aria-live="polite" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>A shift is copied. Press Enter on an empty day to place it.</span>}
+    </>
+  );
+}
+
+// The week's adherence (Phase 1): "Scheduled 312h 30m · Worked 298h 05m ·
+// 4 Late · 1 No-Show · 2 Left Early" for the people on screen, past and
+// running days only. One muted line above the grid; shared with the phone.
+export function AdherenceLine({ text, style }) {
+  return (
+    <div role="status" aria-label="Week adherence" data-adherence="" title="Scheduled against what the clock recorded, for the people shown - past and running days only."
+      style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, marginBottom: 8, ...ELLIPSIS, ...style }}>
+      {text}
     </div>
   );
 }

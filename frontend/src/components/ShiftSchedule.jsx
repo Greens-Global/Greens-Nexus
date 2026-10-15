@@ -23,7 +23,7 @@ import ScheduleDay from './shifts/ScheduleDay';
 import ScheduleMonth from './shifts/ScheduleMonth';
 import SchedulePhone from './shifts/SchedulePhone';
 import ShiftPanel from './shifts/ShiftPanel';
-import { isoDate, viewDays, weekStartOf, paidMinutes, counts, fmtHrs, hrsNumber, timeOffOn, shiftState, isUnshared, orderGroups, shiftTimeText, shiftShortText, sectionKey, teamColor, dayFullyOff, addDaysIso, parseIso, conflictMap, coverageFor } from './shifts/shiftLib';
+import { isoDate, viewDays, weekStartOf, paidMinutes, counts, fmtHrs, hrsNumber, timeOffOn, shiftState, isUnshared, orderGroups, shiftTimeText, shiftShortText, sectionKey, teamColor, dayFullyOff, addDaysIso, parseIso, conflictMap, coverageFor, todayIso, adherenceLine } from './shifts/shiftLib';
 
 // ── The schedule (Microsoft Teams "Shifts" style, rebuilt Oct 2026) ────────
 // This file is the container: it owns the data, the API calls and the
@@ -122,15 +122,34 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
   // Refreshing after a save keeps the grid on screen; only a new range (or a
   // failed load) shows the skeleton. A failed load is an error with Retry,
   // never an empty-looking schedule with Share still offered.
+  const loadedRange = useRef('');   // the range `data` belongs to (the actuals fetch waits for it)
   const load = useCallback(() => {
     setError(null);
     api.timeSchedule(start, end).then((r) => {
+      loadedRange.current = `${start}|${end}`;
       setData(r);
       if (r?.weekStart && r.weekStart !== weekStart) setPrefsState((p) => { const n = { ...p, weekStart: r.weekStart }; try { localStorage.setItem(PREFS_KEY, JSON.stringify(n)); } catch { /* */ } return n; });
     }).catch((e) => { setError(e?.message || 'Could not load the schedule.'); });
   }, [start, end]);   // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { setData(null); }, [start, end]);
   useEffect(() => { load(); }, [load]);
+
+  // Actuals (Phase 1, Oct 14): what the clock said, fetched BESIDE the
+  // schedule once it is on screen and the range reaches today - never
+  // before it, never blocking it. A failed call is simply no actuals (no
+  // banner); each schedule reload refetches. View Options > Actuals hides it.
+  const [actuals, setActuals] = useState(null);
+  const showActuals = prefs.actuals !== false;
+  const reachesToday = start <= todayIso();
+  useEffect(() => {
+    if (!data || !showActuals || !reachesToday || loadedRange.current !== `${start}|${end}`) { setActuals(null); return undefined; }
+    let live = true;
+    Promise.resolve().then(() => api.timeSchedActuals(start, end))
+      .then((r) => { if (live) setActuals(r && typeof r === 'object' && r.cells ? r : null); })
+      .catch(() => { if (live) setActuals(null); });
+    return () => { live = false; };
+  }, [data, showActuals, reachesToday, start, end]);
+  const actualOf = useCallback((email, ds) => actuals?.cells?.[`${email}|${ds}`] || null, [actuals]);
 
   const presets = data?.shifts || [];
   // Custom shifts the schedule already uses with a label (e.g. "All Properties"
@@ -292,6 +311,13 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
   // One team on screen: no group header row (the switcher names it).
   const single = mode !== 'all' && groupBy !== 'location';
   const visibleEmails = useMemo(() => new Set(sections.flatMap((g) => g.members.map((m) => m.email))), [sections]);
+  // The week's adherence line for the rows on screen (a manager only; the
+  // team filter and search narrow it like the hours).
+  const adherence = useMemo(() => {
+    if (!managing || !actuals?.people) return null;
+    const line = adherenceLine(actuals.people, [...visibleEmails]);
+    return line.people && !line.empty ? line.text : null;
+  }, [managing, actuals, visibleEmails]);
   const visibleGroupIds = useMemo(() => new Set(sections.filter((g) => g.isGroup).map((g) => g.id)), [sections]);
   const showOpen = !prefs.mine && prefs.open !== false;
   // Open shifts by group: a shift with no groupId (older rows) sits on a
@@ -966,7 +992,8 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
       {phone && view !== 'month' && groupBy !== 'shift' ? (
         <SchedulePhone single={single} emptyNote={emptyNote} days={days} sections={sections} byCell={byCell} openCells={openCells} offOn={offOn} holOn={holOn} usualOf={usualOf}
           notes={notes} weather={weather} holidayDates={holidayDates} me={me} prefs={prefs} teamZone={teamZone} canManage={managing}
-          rowEditable={rowEditable} empWeekMin={empWeekMin} dayStats={dayStats} dragId={drag?.id} collapsed={collapsed} copied={copied} on={gridOn} />
+          rowEditable={rowEditable} empWeekMin={empWeekMin} dayStats={dayStats} dragId={drag?.id} collapsed={collapsed} copied={copied} on={gridOn}
+          actualOf={actuals ? actualOf : null} adherence={adherence} />
       ) : view === 'day' ? (
         <ScheduleDay single={single} date={start} sections={sections} shifts={shown} openCells={openCells} notes={notes} weather={weather} canManage={managing} offOn={offOn} holOn={holOn}
           copied={copied} prefs={prefs} rowEditable={rowEditable} shiftEditable={shiftEditable} dragId={drag?.id} on={gridOn}
@@ -985,7 +1012,8 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
           dragProps={dragProps} personDragProps={personDragProps} dropProps={dropProps} dropStyle={dropStyle} hoverCell={hoverCell} hoverShift={hoverShift} clickable={clickable}
           single={single} emptyNote={emptyNote} cornerTools={cornerTools} ghostOf={ghostOf} blockClass={blockClass} motion={!reduce} glowToday={glowRef.current}
           personFill={managing ? personFill : null} usualCan={(email) => !!usualOf(email)}
-          coverageOf={coverageOf} onCoverage={managing ? onCoverage : null} pulseCells={pulseCells} conflictCount={conflictCount} onConflicts={goToConflict} />
+          coverageOf={coverageOf} onCoverage={managing ? onCoverage : null} pulseCells={pulseCells} conflictCount={conflictCount} onConflicts={goToConflict}
+          actualOf={actuals ? actualOf : null} adherence={adherence} />
       )}
       </div>
       )}

@@ -10513,3 +10513,44 @@ def add_time_undo(batch_id: str, user: dict = Depends(require_team_write), db: S
                             ref_id=batch_id)
     db.commit()
     return {"voided": len(rows)}
+
+
+# ── Shifts Phase 1: scheduled vs. punched (Oct 14 2026) ──────────────────────
+
+@router.get("/schedule/actuals")
+def schedule_actuals(start: str, end: str, user: dict = Depends(get_current_user),
+                     db: Session = Depends(get_db)):
+    """Attendance against the published schedule for a date range - one cell
+    per person and day (shift_attendance.actuals: upcoming / in_progress /
+    on_time / late / left_early / no_show / excused / exempt, first in, last
+    out, worked minutes, the shift's zone) and totals. Scope = what the
+    schedule read lets the caller MANAGE (_visible_emails under
+    require_schedule_read: direct reports and the teams they schedule for a
+    manager, their groups' members for a group scheduler below manager, the
+    People grant's scope, everyone for an administrator) plus themself.
+    Someone with no schedule access at all (every employee, for My Shifts)
+    gets their own cells. No pay figure is in this payload."""
+    import shift_attendance
+    try:
+        d0, d1 = date.fromisoformat(start), date.fromisoformat(end)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "Dates are YYYY-MM-DD.")
+    if d1 < d0:
+        raise HTTPException(400, "The end date is before the start date.")
+    if (d1 - d0).days + 1 > 92:
+        raise HTTPException(400, "Pick a range of 92 days or fewer.")
+    me = (user.get("email") or "").lower()
+    try:
+        reader = require_schedule_read(user, db)   # carries _sched_extra for a group scheduler
+    except HTTPException:
+        reader = None
+    if reader is None:
+        emails = {me}
+    else:
+        scope = _visible_emails(db, reader)
+        if scope is None:
+            emails = {(e.work_email or "").lower() for e in db.query(NexusEmployee).all() if _is_active_emp(e)}
+        else:
+            emails = {(e or "").lower() for e in scope}
+        emails.add(me)
+    return shift_attendance.actuals(db, sorted(emails), d0.isoformat(), d1.isoformat())

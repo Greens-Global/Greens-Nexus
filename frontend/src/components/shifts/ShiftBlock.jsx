@@ -8,10 +8,15 @@
 // shrinks with the block (container units) before anything is cut.
 // Time off is ITS OWN soft rose block beside the shift, never in its place.
 // An open shift is the same block with a hollow (double) bar and a ×N.
+// Actuals (Phase 1, Oct 14): a past or running shift wears ONE thin bar
+// under the time line in the status color (on time green, late / left
+// early orange, no-show red, in progress its own color breathing, excused
+// grey); what the clock said is the hover title, never a text line.
 import { Lock } from 'lucide-react';
 import { formatDate } from '../../lib/datetime';
 import { timeOffLabel } from '../shiftScheduleLib';
-import { alpha, DEFAULT_SHIFT_COLOR, OPEN_SHIFT_COLOR, shiftState, shiftTimeText, shiftShortText, unpaidLabel, timeOffWhen, timeOffShort, isApprovedOff, isAllDayOff, zoneDiffers } from './shiftLib';
+import { alpha, DEFAULT_SHIFT_COLOR, OPEN_SHIFT_COLOR, shiftState, shiftTimeText, shiftShortText, unpaidLabel, timeOffWhen, timeOffShort, isApprovedOff, isAllDayOff, zoneDiffers, actualLabel, actualColor, actualWord } from './shiftLib';
+import { useReducedMotion } from './motion';
 import { zoneOptionLabel, tzAbbrev } from '../../lib/worldClockZones';
 
 // The time shrinks from 12px toward 9px as the block narrows (a share of
@@ -24,8 +29,11 @@ const fit = (share, max = 12) => `clamp(8.5px, ${share}cqi, ${max}px)`;
 const LINE = { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 };
 
 export function ShiftBlock({ shift: s, open = false, compact = false, teamZone = '', onOpen, onContextMenu, dragProps = {},
-  tabIndex, showConflicts = true, dragging = false, className = '', children, style, ...rest }) {
+  tabIndex, showConflicts = true, dragging = false, className = '', actual = null, children, style, ...rest }) {
+  const reduce = useReducedMotion();
   const color = s.color || (open ? OPEN_SHIFT_COLOR : DEFAULT_SHIFT_COLOR);
+  const act = actual && actual.status && actual.status !== 'upcoming' ? actual : null;
+  const actText = act ? actualLabel(act) : '';
   const st = shiftState(s);
   const zone = s.timeZone || s.timezone || '';
   const otherZone = zoneDiffers(zone, teamZone);
@@ -42,7 +50,7 @@ export function ShiftBlock({ shift: s, open = false, compact = false, teamZone =
   const weather = s.weatherStatus === 'cancelled' ? 'Cancelled for weather (unpaid)' : s.weatherStatus === 'delayed' ? 'Start delayed for weather'
     : s.weatherStatus === 'shortened' ? 'Ending early for weather' : s.weatherStatus === 'moved' ? 'Moved for weather' : s.weatherStatus === 'kept' ? 'Weather call: going ahead' : '';
   const cancelled = s.weatherStatus === 'cancelled';
-  const title = [`${shiftTimeText(s)}${code ? ` · ${code}` : ''}${label ? ` · ${label}` : ''}`, weather, st.title, unpaid, s.note,
+  const title = [`${shiftTimeText(s)}${code ? ` · ${code}` : ''}${label ? ` · ${label}` : ''}`, actText, weather, st.title, unpaid, s.note,
     ...(s.activities || []).map((a) => `${a.start && a.end ? `${shiftTimeText(a)} ` : ''}${a.label || 'Activity'}${a.paid === false ? ' (unpaid)' : ''}`),
     otherZone ? `Times in ${zoneOptionLabel(zone)}` : '', ...(s.conflicts || [])].filter(Boolean).join('\n');
   const interactive = !!onOpen;
@@ -51,7 +59,7 @@ export function ShiftBlock({ shift: s, open = false, compact = false, teamZone =
   const share = (compact ? 11 : 9.5) - (slots ? 1.3 : 0) - (otherZone ? 1.3 : 0);
   return (
     <div data-shift={s.id} data-conflict={warn ? '' : undefined} data-weather-status={s.weatherStatus || undefined} role={interactive ? 'button' : undefined} tabIndex={interactive ? (tabIndex ?? 0) : undefined}
-      aria-label={interactive ? `${open ? 'Open shift' : 'Shift'} ${shiftTimeText(s)}${code ? ` ${code}` : ''}${label ? ` ${label}` : ''}${st.tag ? `, ${st.tag}` : ''}${weather ? `, ${weather.toLowerCase()}` : ''}` : undefined}
+      aria-label={interactive ? `${open ? 'Open shift' : 'Shift'} ${shiftTimeText(s)}${code ? ` ${code}` : ''}${label ? ` ${label}` : ''}${st.tag ? `, ${st.tag}` : ''}${act ? `, ${actualWord(act.status)}` : ''}${weather ? `, ${weather.toLowerCase()}` : ''}` : undefined}
       title={title} className={`sched-chip${className ? ` ${className}` : ''}`}
       onClick={interactive ? (e) => { e.stopPropagation(); onOpen(e, s); } : undefined}
       onKeyDown={interactive ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onOpen(e, s); } } : undefined}
@@ -75,6 +83,11 @@ export function ShiftBlock({ shift: s, open = false, compact = false, teamZone =
         {slots > 0 && <span style={{ fontSize: '0.75em', fontWeight: 800, background: color, color: '#fff', borderRadius: 10, padding: '0 4px', flexShrink: 0, alignSelf: 'center' }}>×{slots}</span>}
         {otherZone && <span title={`Times in ${zoneOptionLabel(zone)}`} style={{ fontSize: '0.78em', fontWeight: 700, color: 'var(--muted)', border: '1px solid var(--line)', borderRadius: 4, padding: '0 3px', flexShrink: 0, alignSelf: 'center' }}>{tzAbbrev(zone)}</span>}
       </div>
+      {act && (
+        <span data-actual={act.status} aria-hidden="true"
+          style={{ display: 'block', height: 3, borderRadius: 2, marginTop: 3, marginLeft: compact ? -4 : -8, marginRight: compact ? -4 : -8, background: actualColor(act.status, color),
+            animation: act.status === 'in_progress' && !reduce ? 'pulse 2.4s ease-in-out infinite' : undefined }} />
+      )}
       {label && !compact && <div style={{ ...LINE, fontSize: 10.5, color: 'var(--muted)', lineHeight: 1.3, textDecoration: cancelled ? 'line-through' : undefined }}>{label}</div>}
       {cancelled && !compact && <div style={{ ...LINE, fontSize: 10, fontWeight: 700, color: 'hsl(var(--color-orange))', lineHeight: 1.3 }}>Weather - unpaid</div>}
       {children}

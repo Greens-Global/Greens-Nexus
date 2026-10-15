@@ -278,6 +278,44 @@ describe('Companies', () => {
     expect(screen.getByText(/open shift requests are off unless turned on here/)).toBeTruthy();
   });
 
+  // Shifts Phase 1 (Oct 14): the attendance thresholds - the no-show alert
+  // and what counts as leaving early - save on blur, clamped to 0-240.
+  it('saves the no-show alert and left-early minutes, clamped to 0-240, on blur or Enter', async () => {
+    shiftRequestSettingsGetFor.mockResolvedValue({ ...SETTINGS, noShowAlertMin: 10, leftEarlyMin: 15 });
+    render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} />);
+    const noShow = await screen.findByLabelText('No-show alert');
+    const early = screen.getByLabelText('Left early');
+    expect(screen.getByText('Attendance')).toBeTruthy();
+    expect(noShow.value).toBe('10');
+    expect(early.value).toBe('15');
+    fireEvent.change(noShow, { target: { value: '0' } });
+    expect(shiftRequestSettingsSaveFor).not.toHaveBeenCalled();   // typing alone saves nothing
+    fireEvent.blur(noShow);
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenCalledWith(expect.objectContaining({ noShowAlertMin: 0, leftEarlyMin: 15 }), ''));
+    fireEvent.change(noShow, { target: { value: '999' } });
+    fireEvent.keyDown(noShow, { key: 'Enter' });
+    fireEvent.blur(noShow);
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith(expect.objectContaining({ noShowAlertMin: 240 }), ''));
+    fireEvent.change(early, { target: { value: '-5' } });
+    fireEvent.blur(early);
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith(expect.objectContaining({ leftEarlyMin: 0, noShowAlertMin: 240 }), ''));
+    expect(screen.getByText(/0 turns it off\.$/)).toBeTruthy();
+    expect(screen.getByText(/counts as leaving early on the schedule/)).toBeTruthy();
+  });
+
+  it('shows the defaults (10 and 15) when the API sends none, and an unchanged value saves nothing', async () => {
+    render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} />);
+    const noShow = await screen.findByLabelText('No-show alert');
+    expect(noShow.value).toBe('10');
+    expect(screen.getByLabelText('Left early').value).toBe('15');
+    fireEvent.change(noShow, { target: { value: '10' } });
+    fireEvent.blur(noShow);
+    fireEvent.change(noShow, { target: { value: '' } });
+    fireEvent.blur(noShow);
+    expect(shiftRequestSettingsSaveFor).not.toHaveBeenCalled();
+    expect(noShow.value).toBe('10');
+  });
+
   it('forgets a remembered company the API no longer offers', async () => {
     localStorage.setItem('shifts.settings.company', 'gone');
     shiftRequestSettingsGetFor.mockImplementation(async (company) => withCompanies({ companyId: company }));

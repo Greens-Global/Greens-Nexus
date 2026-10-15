@@ -241,11 +241,46 @@ export function ShiftSettingsPanel({ toastOk, toastErr }) {
                 <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Late starts this many minutes after the shift start for a shift with no shift type. A shift type carries its own grace.</span>
               </label>
             </div>
+            <div>
+              <div style={LBL}>Attendance</div>
+              <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
+                <MinutesField label="No-Show Alert" aria="No-show alert" value={cfg.noShowAlertMin} fallback={10} onSave={(n) => save({ ...cfg, noShowAlertMin: n })}
+                  hint="Tells the person's manager and the team's schedulers when a shared shift has started, the grace has passed, and this many minutes have gone by with no clock-in. 0 turns it off." />
+                <MinutesField label="Left Early" aria="Left early" value={cfg.leftEarlyMin} fallback={15} onSave={(n) => save({ ...cfg, leftEarlyMin: n })}
+                  hint="Clocking out this many minutes before the shift's end counts as leaving early on the schedule." />
+              </div>
+            </div>
             {!company && <TimeOffReasons toastOk={toastOk} toastErr={toastErr} />}
           </div>
         )}
       </AsyncSection>
     </div>
+  );
+}
+
+// A minutes field that saves on blur or Enter, clamped to 0-`max` - the
+// Default Grace idiom (Shifts Phase 1: the attendance thresholds).
+function MinutesField({ label, aria, value, fallback, max = 240, hint, onSave }) {
+  const [draft, setDraft] = useState(null);   // null = not being typed
+  const current = value ?? fallback;
+  function commit() {
+    if (draft === null) return;
+    const typed = Number(draft);
+    setDraft(null);
+    if (draft.trim() === '' || !Number.isFinite(typed)) return;
+    const n = Math.max(0, Math.min(max, Math.round(typed)));
+    if (n !== current) onSave(n);
+  }
+  return (
+    <label style={{ display: 'grid', gap: 4, maxWidth: 300 }}><span style={{ fontSize: 12.5, fontWeight: 600 }}>{label}</span>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        <input type="number" min="0" max={max} step="1" className="form-input" aria-label={aria} value={draft ?? String(current)}
+          onChange={(e) => setDraft(e.target.value)} onBlur={commit} onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+          style={{ width: 80, fontSize: 12.5, padding: '4px 8px' }} />
+        <span style={{ fontSize: 12.5 }}>minutes</span>
+      </span>
+      <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{hint}</span>
+    </label>
   );
 }
 

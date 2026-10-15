@@ -18,9 +18,11 @@ const weatherCallMine = vi.fn();
 const weatherCallMyPrefs = vi.fn();
 const weatherCallAck = vi.fn();
 const weatherCallMyPrefsSave = vi.fn();
+const timeSchedActuals = vi.fn();
 vi.mock('../api', () => ({
   api: {
     timeMySchedule: (...a) => timeMySchedule(...a),
+    timeSchedActuals: (...a) => timeSchedActuals(...a),
     weatherCallMine: (...a) => weatherCallMine(...a),
     weatherCallMyPrefs: (...a) => weatherCallMyPrefs(...a),
     weatherCallAck: (...a) => weatherCallAck(...a),
@@ -64,6 +66,7 @@ beforeEach(() => {
   weatherCallMyPrefs.mockReset().mockResolvedValue(null);
   weatherCallAck.mockReset().mockResolvedValue({ ok: true });
   weatherCallMyPrefsSave.mockReset().mockResolvedValue({ weatherSms: false, phone: false });
+  timeSchedActuals.mockReset().mockResolvedValue({ cells: {}, people: {}, totals: {} });
   shiftRequestsMine.mockReset().mockResolvedValue(reqs());
   shiftRequestCreate.mockReset().mockResolvedValue({});
   availabilityMine.mockReset().mockResolvedValue({ days: [] });
@@ -286,5 +289,29 @@ describe('MyShifts availability', () => {
     expect(await screen.findByText('Unavailable')).toBeTruthy();
     expect(screen.getByText('Edit Availability')).toBeTruthy();
     expect(availabilitySave).not.toHaveBeenCalled();
+  });
+});
+
+// Actuals (Shifts Phase 1, Oct 14): my own clock results on my blocks, and
+// the week line counts my late days.
+describe('actuals on my shifts', () => {
+  it('draws the bar on my block from my own actuals, and counts late days on the week line', async () => {
+    timeSchedActuals.mockResolvedValue({ cells: { [`me@x.com|${DAY}`]: { shiftId: 'mine1', status: 'late', firstIn: `${DAY}T16:12:00`, lastOut: '', workedMin: 0, lateMin: 12, earlyMin: 0, excuse: '' } },
+      people: { 'me@x.com': { scheduledMin: 480, workedMin: 0, late: 1, noShow: 0, leftEarly: 0, onTime: 0 } }, totals: {} });
+    render(<MyShifts />);
+    await screen.findByRole('status', { name: 'Week summary' });
+    await waitFor(() => expect(timeSchedActuals).toHaveBeenCalledWith(monday, expect.any(String)));
+    const mine = await waitFor(() => { const b = document.querySelector('[data-shift="mine1"] [data-actual]'); expect(b).toBeTruthy(); return b; });
+    expect(mine.getAttribute('data-actual')).toBe('late');
+    expect(mine.closest('[data-shift]').getAttribute('title')).toContain('(12 min late)');
+    expect(screen.getByRole('status', { name: 'Week summary' }).textContent).toMatch(/ · 1 late$/);
+  });
+  it('shows no bar when the actuals cannot load', async () => {
+    timeSchedActuals.mockRejectedValue(new Error('API error 500'));
+    render(<MyShifts />);
+    const line = await screen.findByRole('status', { name: 'Week summary' });
+    await waitFor(() => expect(timeSchedActuals).toHaveBeenCalled());
+    expect(document.querySelector('[data-actual]')).toBeNull();
+    expect(line.textContent).not.toContain('late');
   });
 });
