@@ -15,6 +15,7 @@ import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import TimesheetReviewPanel from './TimesheetReviewPanel';
 import GeofencePunchModal from './GeofencePunchModal';
+import AddTimeModal from './AddTimeModal';
 import AnchoredMenu from './AnchoredMenu';
 import { Spinner } from './AsyncState';
 import EmployeeCombobox from './EmployeeCombobox';
@@ -22,6 +23,7 @@ import { downloadBlob } from './accounting/reportModel';
 import { formatDistance } from '../lib/distance';
 import { usePhotoMap } from '../lib/peoplePhotos';
 import { moneyPrefix } from '../asset/lib/currency';
+import { registerTour } from '../lib/tours';
 
 // ── Payroll timecard (SwipeClock 1:1, manager-editable) ───────────────────────
 // One employee, one pay period (biweekly, SUNDAY-anchored on SwipeClock's real
@@ -341,6 +343,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // No pay or OT controls on the timecard (Charmi, Sep 30): the rate and the
   // OT rule are READ here and written only on Pay & Benefits.
   const [editDay, setEditDay] = useState(null);   // { date, seg? }
+  const [addTime, setAddTime] = useState(false);   // Add Time (Oct 14): a run of shifts at once
   // A missing/wrong BREAK punch. PunchEditModal only ever deals in clock-in and
   // clock-out, so until now a break that never ended (or ended late, the phone
   // case) had no self-service path at all - the card said "never ended" and the
@@ -359,6 +362,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // table scrolled sideways and hid Hours, OT, Notes and the Work Log.
   const phone = useIsMobile(PHONE_QUERY);
   const [tour, setTour] = useState(false);               // Simulate walkthrough
+  // The Help panel's Take the Tour (lib/tours.js) - a manager's timecard only.
+  useEffect(() => (self ? undefined : registerTour('timecard', 'Timecard', () => setTour(true))), [self]);
   const { can, myEmail } = useRole();
   const isAdmin = can('administrator');
   const [workLogDay, setWorkLogDay] = useState(null);   // date string - opens the Work Log drawer for this day
@@ -1070,6 +1075,12 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           <PlayCircle size={14} /> Simulate
         </button>
         )}
+        {!self && email && (
+        <button data-tour="pr-add-time" onClick={() => setAddTime(true)} title="Add a shift, or several days of them, for someone who did not clock in right"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--wk-line2)', borderRadius: 999, padding: '5px 12px', fontFamily: 'var(--wk-font)', fontSize: 12, fontWeight: 700, color: 'var(--ink)', cursor: 'pointer' }}>
+          <Plus size={14} /> Add Time
+        </button>
+        )}
         <div style={{ flex: 1 }} />
         {/* Options holds only display choices now: the timezone and unrounded
             times. The pay rules that used to sit here (rounding, auto-lunch,
@@ -1367,6 +1378,10 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           nameFor={nameFor} onChanged={load} toastOk={toastOk} toastErr={toastErr} />
       )}
 
+      {addTime && !self && email && (
+        <AddTimeModal email={email} name={nameFor(email)} start={start} end={end} onClose={() => setAddTime(false)}
+          onDone={() => { _timecardCache.clear(); load(); }} toastOk={toastOk} toastErr={toastErr} />
+      )}
       {editDay && (
         <PunchEditModal day={editDay} email={email} busy={busy} setBusy={setBusy}
           categories={[...new Set(['Sick', 'Vacation', 'Personal', ...(data?.byCategory || []).map(c => c.category).filter(c => c && c !== 'Uncategorised')])]}

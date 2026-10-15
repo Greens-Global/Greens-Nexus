@@ -5,11 +5,12 @@ import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
 import { useIsMobile } from '../../lib/useIsMobile';
 import EntryDetail from './EntryDetail';
+import AskAccountantDialog, { AskButton, lineFromSearch } from './AskAccountantDialog';
 import Amount from './Amount';
 import { useAccountingPrefs } from './prefs';
-import { PopoverPanel, usePopover } from './reportControls';
+import { OpFilter, PopoverPanel, usePopover } from './reportControls';
 import { linesBaseName } from './linesExport';
-import { DIM_KINDS, NUM_OPS, glLineParams, lineMatchesDims, numberFilterHit, parseFigure } from './reportModel';
+import { DIM_KINDS, bookOptions, bookTitle, glLineParams, lineMatchesDims, numberFilterHit, parseFigure } from './reportModel';
 
 // Search results and report drill-downs for Accounting -> Reports.
 //
@@ -58,6 +59,10 @@ const signed = (n) => {
   return v < 0 ? `(${s})` : s;
 };
 const named = (name, id) => name || id || '';
+// Oct 14 (Charmi): a vendor's or customer's number before the
+// name - "V00412 Home Depot" - everywhere in the accounting module.
+const numbered = (name, id) => (id && name && name !== id ? `${id} ${name}` : name || id || '');
+const partyText = (p) => (p.kind === 'employee' ? named(p.name, p.code) : numbered(p.name, p.code));
 
 // Every column the grid can show. `filter`: the server can narrow by it.
 // `off`: hidden until the person turns it on.
@@ -70,8 +75,8 @@ export const LINE_COLUMNS = [
   { key: 'memo', label: 'Memo', width: 240, off: true, text: (r) => r.memo || '' },
   { key: 'entity', label: 'Entity', width: 190, filter: true, text: (r) => r.location_name || r.location || '' },
   { key: 'department', label: 'Department', width: 170, filter: true, off: true, text: (r) => named(r.department_name, r.department) },
-  { key: 'vendor', label: 'Vendor', width: 180, filter: true, text: (r) => named(r.vendor_name, r.vendor_id) },
-  { key: 'customer', label: 'Customer', width: 180, filter: true, text: (r) => named(r.customer_name, r.customer_id) },
+  { key: 'vendor', label: 'Vendor', width: 180, filter: true, text: (r) => numbered(r.vendor_name, r.vendor_id) },
+  { key: 'customer', label: 'Customer', width: 180, filter: true, text: (r) => numbered(r.customer_name, r.customer_id) },
   { key: 'employee', label: 'Employee', width: 170, filter: true, off: true, text: (r) => named(r.employee_name, r.employee_id) },
   { key: 'project', label: 'Project-Job', width: 180, off: true, text: (r) => named(r.project_name, r.project_id) },
   { key: 'item', label: 'Item', width: 160, off: true, text: (r) => named(r.item_name, r.item_id) },
@@ -80,6 +85,8 @@ export const LINE_COLUMNS = [
   { key: 'credit', label: 'Credit', width: 118, num: true, filter: true, text: (r) => money(r.credit) },
 ];
 const MIN_WIDTH = 60;
+// Oct 15 (Neil): the Ask My Accountant action at the end of every line.
+const ASK_WIDTH = 34;
 const DENSITY_PY = { comfortable: '9px', compact: '5px', condensed: '2px' };
 
 const chip = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 10px', borderRadius: 999, fontSize: '0.75rem', cursor: 'pointer', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-primary)', maxWidth: 260, fontFamily: 'inherit' };
@@ -100,7 +107,7 @@ function ActiveChip({ label, onClear }) {
 // card opens the journal entry. The desktop grid is untouched.
 function LineCard({ r, onOpen }) {
   const amount = Number(r.debit) > 0 ? money(r.debit) : Number(r.credit) > 0 ? `(${money(r.credit)})` : '0.00';
-  const party = named(r.vendor_name, r.vendor_id) || named(r.customer_name, r.customer_id) || named(r.employee_name, r.employee_id);
+  const party = numbered(r.vendor_name, r.vendor_id) || numbered(r.customer_name, r.customer_id) || named(r.employee_name, r.employee_id);
   const Tag = r.entry_id ? 'button' : 'div';
   return (
     <Tag type={r.entry_id ? 'button' : undefined} onClick={r.entry_id ? onOpen : undefined} className="acct-line-card"
@@ -131,7 +138,7 @@ function FacetSelect({ label, items, total, onPick, text }) {
       style={{ ...facetSelect }}>
       <option value="">{label} ({items.length})</option>
       {items.map((f) => {
-        const name = text ? text(f) : (f.name || f.code);
+        const name = text ? text(f) : numbered(f.name, f.code);
         return <option key={f.code} value={f.code}>{name} - {f.lines.toLocaleString('en-US')} lines, net {signed(f.net)}</option>;
       })}
     </select>
@@ -210,6 +217,8 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   const [error, setError] = useState('');
   const isPhone = useIsMobile('(max-width: 640px)');
   const [openEntry, setOpenEntry] = useState(null); // { id, no } - the entry number clicked
+  const [asking, setAsking] = useState(null);       // the line in the Ask My Accountant dialog
+  const [asked, setAsked] = useState(null);         // the question just sent
   useEffect(() => { if (initialEntry?.id) setOpenEntry({ id: initialEntry.id, no: initialEntry.no || '' }); }, [initialEntry?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const closeEntry = () => { setOpenEntry(null); onEntryClosed?.(); };
   const seq = useRef(0);
@@ -235,10 +244,10 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   }, [wrap]);
   const natural = shownColumns.reduce((s, c) => s + widthOf(c), 0);
   const fillers = shownColumns.filter((c) => !c.num && !layout.widths?.[c.key] && !['date', 'entry', 'journal'].includes(c.key));
-  const spare = fillers.length ? Math.max(0, room - natural - 2) : 0;
+  const spare = fillers.length ? Math.max(0, room - natural - ASK_WIDTH - 2) : 0;
   const columns = shownColumns;
   const colWidth = (c) => widthOf(c) + (fillers.includes(c) ? Math.floor(spare / fillers.length) : 0);
-  const tableWidth = natural + Math.floor(spare / Math.max(1, fillers.length)) * fillers.length;
+  const tableWidth = natural + Math.floor(spare / Math.max(1, fillers.length)) * fillers.length + ASK_WIDTH;
 
   // The filter boxes. What is typed waits a moment before the ledger is asked.
   // An amount column's box is { op, a, b } (the Reports tables' operators);
@@ -273,7 +282,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
     // A vendor, customer or employee column drills into that party; a
     // department column into that department (the Department filter box).
     setDropped([]);
-    setParty(drill.party || applied.party); setJournal(''); setBook(drill.book === 'cash' ? 'cash' : 'accrual'); setScope('period');
+    setParty(drill.party || applied.party); setJournal(''); setBook(drill.book && drill.book !== 'both' ? drill.book : 'accrual'); setScope('period');
     setTyped(drill.department ? { department: drill.department } : {});
   }, [drill]); // eslint-disable-line react-hooks/exhaustive-deps
   // A single vendor / customer / employee on the report follows into the search.
@@ -340,7 +349,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   const card = { backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 10, boxShadow: 'var(--shadow-sm)' };
   const select = { height: 30, padding: '0 8px', borderRadius: 8, border: '1px solid var(--border-color)', fontSize: '0.78rem', fontFamily: 'inherit', background: 'var(--bg-card)', color: 'var(--text-primary)' };
 
-  const heading = [term ? `"${term}"` : null, party?.name, account ? `${account.code} ${account.name || ''}`.trim() : drill && !drill.account && drill.accountName ? `${drill.accountName} - every line` : null].filter(Boolean).join(' - ') || 'Ledger lines';
+  const heading = [term ? `"${term}"` : null, party ? partyText(party) : null, account ? `${account.code} ${account.name || ''}`.trim() : drill && !drill.account && drill.accountName ? `${drill.accountName} - every line` : null].filter(Boolean).join(' - ') || 'Ledger lines';
   const periodText = usePeriod ? `${drill.from ? formatDate(drill.from) : 'Start'} - ${formatDate(drill.to)}` : 'All dates';
   const labelSpan = columns.filter((c) => !c.num).length;
 
@@ -362,7 +371,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
       return {
         title: `Ledger Lines - ${heading}`,
         period: periodText.replace(/\//g, '-'),
-        subtitle: [entityName, periodText, book === 'all' ? 'all books' : `${book} book`, `${all.length.toLocaleString('en-US')} lines`].filter(Boolean).join(' · '),
+        subtitle: [entityName, periodText, book === 'all' ? 'All Books' : bookTitle(book), `${all.length.toLocaleString('en-US')} lines`].filter(Boolean).join(' · '),
         columns: columns.map((c) => ({ label: c.label, num: !!c.num, width: colWidth(c) })),
         rows: all.map((r) => columns.map((c) => (c.num ? (Number(r[c.key]) || 0) : c.text(r)))),
         totals: firstNum > 0 ? columns.map((c, i) => (c.num ? Math.round(sums[c.key] * 100) / 100 : i === 0 ? `Totals - ${all.length.toLocaleString('en-US')} lines` : '')) : null,
@@ -383,7 +392,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
         <div style={{ minWidth: 0 }}>
           <h3 style={{ fontSize: '0.98rem', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{heading}</h3>
           <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
-            {entityName} · {periodText} · {book === 'all' ? 'all books' : `${book} book`}{loading ? (data ? ' · updating' : ' · searching') : ''}
+            {entityName} · {periodText} · {book === 'all' ? 'All Books' : bookTitle(book)}{loading ? (data ? ' · updating' : ' · searching') : ''}
           </div>
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
@@ -395,8 +404,9 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
           )}
           <select value={book} onChange={(e) => setBook(e.target.value)} style={select} aria-label="Book">
             <option value="all">All Books</option>
-            <option value="accrual">Accrual Book</option>
-            <option value="cash">Cash Book</option>
+            {/* Every single book a report reads (10/15), the drill's own book included. */}
+            {[...bookOptions({ report: 'general-ledger' }), ...(book !== 'all' && !bookOptions({ report: 'general-ledger' }).some((b) => b.key === book) ? [{ key: book }] : [])]
+              .map((b) => <option key={b.key} value={b.key}>{bookTitle(b.key)}</option>)}
           </select>
           {!isPhone && <ColumnChooser layout={layout} visible={visible} onChange={setLayout} />}
         </div>
@@ -409,7 +419,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
             <ActiveChip key={d.key} label={dimChipText(d, dimNames)} onClear={() => setDropped((x) => [...x, d.key])} />
           ))}
           {party && !(applied.party && party.kind === applied.party.kind && party.code === applied.party.code) && (
-            <ActiveChip label={`${party.kind === 'vendor' ? 'Vendor' : party.kind === 'employee' ? 'Employee' : 'Customer'}: ${party.name}`} onClear={() => setParty(null)} />
+            <ActiveChip label={`${party.kind === 'vendor' ? 'Vendor' : party.kind === 'employee' ? 'Employee' : 'Customer'}: ${partyText(party)}`} onClear={() => setParty(null)} />
           )}
           {account && <ActiveChip label={`Account: ${account.code} ${account.name || ''}`.trim()} onClear={() => { setAccount(null); if (drill) onClearDrill(); }} />}
           {journal && <ActiveChip label={`Journal: ${journal}`} onClear={() => setJournal('')} />}
@@ -422,6 +432,14 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
       )}
 
       {error && <div style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '10px 12px', fontSize: '0.85rem', marginBottom: 10 }}>{error}</div>}
+      {asked && (
+        <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 10, border: '1px solid var(--border-color)', borderRadius: 8, padding: '6px 10px', fontSize: '0.8rem', marginBottom: 8, color: 'var(--ok-fg, #15803d)' }}>
+          <span style={{ flex: 1 }}>{asked.merged ? 'Added to the open question on this line' : 'Question sent'} to {asked.accountantName || asked.accountant}.</span>
+          <button type="button" className="secondary-btn" style={{ fontSize: '0.74rem', padding: '2px 10px' }}
+            onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'accounting', sub: 'ama' } }))}>Open AMA</button>
+          <button type="button" onClick={() => setAsked(null)} aria-label="Dismiss" style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'inline-flex' }}><X size={14} /></button>
+        </div>
+      )}
 
       {!hasCriteria ? (
         <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', padding: '24px 0', textAlign: 'center', margin: 0 }}>
@@ -466,7 +484,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
           // No box of its own in a window: the page scrolls, and a tall monitor shows that many more lines (Charmi, 10/02).
           <div className="acct-lines-wrap" ref={setWrap} style={{ opacity: loading ? 0.6 : 1, ...(full ? {} : { maxHeight: 'none' }) }}>
             <table className="acct-lines" style={{ width: tableWidth, '--acct-row-py': DENSITY_PY[prefs.density] || DENSITY_PY.compact }}>
-              <colgroup>{columns.map((c) => <col key={c.key} style={{ width: colWidth(c) }} />)}</colgroup>
+              <colgroup>{columns.map((c) => <col key={c.key} style={{ width: colWidth(c) }} />)}<col style={{ width: ASK_WIDTH }} /></colgroup>
               <thead>
                 <tr>
                   {columns.map((c) => (
@@ -476,6 +494,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
                         className="acct-resize" onPointerDown={(e) => startResize(c, e)} onDoubleClick={() => resetWidth(c)} />
                     </th>
                   ))}
+                  <th scope="col" aria-label="Ask My Accountant" />
                 </tr>
                 <tr className="acct-filter-row">
                   {columns.map((c) => (
@@ -488,6 +507,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
                       ) : null}
                     </th>
                   ))}
+                  <th />
                 </tr>
               </thead>
               <tbody>
@@ -507,10 +527,11 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
                       }
                       return <td key={c.key} className={c.num ? 'acct-num' : undefined} title={c.num ? undefined : text}>{c.num ? <Amount value={r[c.key]} zero="blank" /> : text}</td>;
                     })}
+                    <td style={{ textAlign: 'center', padding: 0 }}><AskButton onClick={() => setAsking(lineFromSearch(r))} /></td>
                   </tr>
                 ))}
                 {!rows.length && (
-                  <tr><td colSpan={columns.length} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '22px 10px', whiteSpace: 'normal' }}>
+                  <tr><td colSpan={columns.length + 1} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '22px 10px', whiteSpace: 'normal' }}>
                     {loaded.length ? 'None of the lines loaded here pass' : 'Nothing in the ledger matches'}{filtering ? ' these filters' : ' all of that'}{entities.length ? ' for the entities picked' : ''}. {filtering ? 'Clear a column filter' : 'Remove a word or a filter'} to widen the search.
                   </td></tr>
                 )}
@@ -518,6 +539,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
                   <tr className="acct-grand">
                     {labelSpan > 0 && <td colSpan={labelSpan}>Totals - {total.toLocaleString('en-US')} lines</td>}
                     {columns.filter((c) => c.num).map((c) => <td key={c.key} className="acct-num"><Amount value={data[c.key]} /></td>)}
+                    <td />
                   </tr>
                 )}
               </tbody>
@@ -539,24 +561,8 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
         </>
       ) : null}
       {openEntry && <EntryDetail entryId={openEntry.id} entryNo={openEntry.no} onClose={closeEntry} />}
+      {asking && <AskAccountantDialog line={asking} onClose={() => setAsking(null)} onAsked={(t) => { setAsking(null); setAsked(t); }} />}
     </div>
-  );
-}
-
-// The operator box under an amount column - the same control as the Reports
-// tables' (ReportsTab, item 26d): =, >, <, >=, <=, Between and a value.
-function OpFilter({ label, value, onChange }) {
-  const v = value && typeof value === 'object' ? value : { op: '=', a: '', b: '' };
-  return (
-    <span className="acct-op-filter">
-      <select value={v.op || '='} onChange={(e) => onChange({ ...v, op: e.target.value })} aria-label={`Operator for ${label}`} title="Compare with">
-        {NUM_OPS.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
-      </select>
-      <input type="text" inputMode="decimal" value={v.a || ''} onChange={(e) => onChange({ ...v, a: e.target.value })} aria-label={`Filter ${label}`} placeholder="0.00" className="acct-num" />
-      {v.op === 'between' && (
-        <input type="text" inputMode="decimal" value={v.b || ''} onChange={(e) => onChange({ ...v, b: e.target.value })} aria-label={`Filter ${label} up to`} placeholder="and" className="acct-num" />
-      )}
-    </span>
   );
 }
 

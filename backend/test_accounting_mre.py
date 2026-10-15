@@ -137,6 +137,20 @@ class ArithmeticTests(unittest.TestCase):
         self.assertEqual(s(False, 0, 0, "2026-01", "2026-06"), "none")
         self.assertEqual(s(False, 0, 50, "2026-01", "2026-06"), "over")
 
+    def test_semi_annual_custom_and_variance(self):
+        # Oct 14 (Neil): Semi-Annual, and Custom every N months from the start month.
+        due = lambda line: [m for m in range(1, 13) if accounting_mre.due_in_month(line, 2026, m)]  # noqa: E731
+        self.assertEqual(due({"frequency": "semi_annual", "startDate": "2025-03-01", "endDate": "", "status": "active"}), [3, 9])
+        self.assertEqual(due({"frequency": "custom", "frequencyMonths": 2, "startDate": "2026-01-10", "endDate": "", "status": "active"}), [1, 3, 5, 7, 9, 11])
+        self.assertEqual(due({"frequency": "custom", "frequencyMonths": 4, "startDate": "2025-11-01", "endDate": "", "status": "active"}), [3, 7, 11])
+        self.assertEqual(due({"frequency": "custom", "frequencyMonths": 0, "startDate": "2026-01-01", "endDate": "", "status": "active"}), list(range(1, 13)))
+        # Variance %: paid within it of expected is Paid.
+        s = accounting_mre.month_status
+        self.assertEqual(s(True, 100, 92, "2026-01", "2026-06"), "short")
+        self.assertEqual(s(True, 100, 92, "2026-01", "2026-06", 10), "paid")
+        self.assertEqual(s(True, 100, 108, "2026-01", "2026-06", 10), "paid")
+        self.assertEqual(s(True, 100, 112, "2026-01", "2026-06", 10), "over")
+
     def test_grid(self):
         line = {"id": "x", "entityCode": "15000", "vendorId": "V1", "expenseAccounts": ["62100"], "frequency": "monthly", "expectedAmount": 100.0,
                 "startDate": "2026-01-01", "endDate": "", "status": "active"}
@@ -442,6 +456,25 @@ class EndpointTests(unittest.TestCase):
         self.assertEqual(self._pnl_calls(), [])       # no line reads at all
         agg = [c[1] for c in self.calls if c[0].endswith("/reports/party-months")]
         self.assertEqual((len(agg), agg[0]["kind"], agg[0]["sections"]), (1, "vendor", "cogs,expense,other_expense"))
+
+
+    def test_new_fields_round_trip_and_are_validated(self):
+        # Oct 14 (Charmi, Urmi, Neil): the new categories and frequencies, Variance %,
+        # the account number / details and the contact with the vendor.
+        _as(EDITOR)
+        r = self._line(category="property_tax", frequency="custom", frequencyMonths=2, variancePct=15, accountNumber="ACCT-0042",
+                       accountDetails="Meter 7, autopay", contactInfo="Jane Doe, 800-555-0100, jane@vendor.example")
+        self.assertEqual(r.status_code, 201, r.text)
+        line = r.json()
+        self.assertEqual((line["category"], line["frequency"], line["frequencyMonths"], line["variancePct"]), ("property_tax", "custom", 2, 15))
+        self.assertEqual((line["accountNumber"], line["accountDetails"], line["contactInfo"]), ("ACCT-0042", "Meter 7, autopay", "Jane Doe, 800-555-0100, jane@vendor.example"))
+        for cat in ("mortgage", "dues_subscriptions", "advertising", "auto_registration", "state_tax"):
+            self.assertEqual(self._line(category=cat, frequency="semi_annual").status_code, 201)
+        self.assertEqual(self._line(frequency="custom").status_code, 400)               # a custom frequency needs its period
+        self.assertEqual(self._line(variancePct=7).status_code, 400)                    # steps of 5
+        self.assertEqual(self._line(variancePct=55).status_code, 400)
+        row = next(r for r in self.client.get("/accounting/mre/grid").json()["rows"] if r["line"]["id"] == line["id"])
+        self.assertEqual(row["line"]["variancePct"], 15)
 
 
 if __name__ == "__main__":

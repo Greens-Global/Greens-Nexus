@@ -41,6 +41,8 @@ export const ACCESS_LEVELS = [
   { name: 'Owner', desc: 'Full access, plus decide who else gets access.' },
 ];
 
+// A feature may carry `tour`: the on-screen label(s) the page's guided tour
+// looks for when the screen words it differently from `name` (lib/autoTour.js).
 export const DOCS = [
   // ───────────────────────────── Start Here ─────────────────────────────
   {
@@ -161,7 +163,7 @@ export const DOCS = [
       { name: 'Home', desc: 'The designed default layout: greeting, clock status, hours, stat tiles, alerts queue and quick actions.' },
       { name: 'View Picker', desc: 'Switch between Home, your own saved views and department views.' },
       { name: 'Customize', desc: 'Edit mode: Add Widget, drag to arrange, resize, Auto-fit, Save and Done.' },
-      { name: '"..." View Menu', desc: 'Rename View, Set as My Default, Make Home My Default, Save as New View, Publish to Department, Delete View.' },
+      { name: '"..." View Menu', tour: 'View options', desc: 'Rename View, Set as My Default, Make Home My Default, Save as New View, Publish to Department, Delete View.' },
       { name: 'Widget Gallery', desc: 'Metrics (KPI Stat), Navigation (Shortcut Tile, Quick Links, Links Folder, Quick Actions), Live (Notifications, Calendar, Announcements), Utility (Clock, Notes), Workday (My Day, My Work, My Time), plus Team widgets.' },
       { name: 'Links Tab', desc: 'Every company and personal web link. Search, filter by category, department or company, pin, favorite, sort into folders, and switch between tile and list view.' },
       { name: 'Personal Links', desc: 'A link you add is visible only to you. Company-wide links are managed by admins through Manage Links.' },
@@ -930,9 +932,9 @@ export const DOCS = [
       },
     ],
     features: [
-      { name: 'Browse Catalog', desc: 'Everything available to check out, with photos, filters and search.' },
+      { name: 'Browse Catalog', tour: ['Browse Catalog', 'Check Out an Item'], desc: 'Everything available to check out, with photos, filters and search.' },
       { name: 'Cart', desc: 'Collect several items and request them in one go.' },
-      { name: 'My Checkouts', desc: 'Active, Past and Permanent tabs: what you have now, what you had, and what is assigned to you.' },
+      { name: 'My Checkouts', tour: ['My Checkouts', 'Return or Extend'], desc: 'Active, Past and Permanent tabs: what you have now, what you had, and what is assigned to you.' },
       { name: 'Checkout Stages', desc: 'Requested, Approved, Awaiting Handover, In Use, Returned. The due date counts from handover, not from the request.' },
       { name: 'Permanent Returns', desc: 'Return an assigned item normally, report it dead, report it lost, or return it for reassignment.' },
       { name: 'To Hand Over', desc: 'For allocators: items waiting for you to hand over with a photo.' },
@@ -1345,11 +1347,11 @@ export const DOCS = [
     tips: [],
   },
   {
-    id: 'business-intelligence', name: 'Business Intelligence', group: 'Modules', icon: 'Gauge', view: 'bi',
+    id: 'business-intelligence', name: 'Insights', group: 'Modules', icon: 'Gauge', view: 'bi',
     tagline: 'Company-wide numbers from every module, with what needs attention first.',
-    where: 'Left menu > Business Intelligence',
+    where: 'Left menu > Insights',
     access: 'Supervisors and above with the BI grant',
-    purpose: 'Business Intelligence pulls the key numbers from across Nexus onto one board, counted exactly as each module counts them. Anything past its alert level - overdue, breached, unassigned, expiring - is listed first under Needs Attention; every module then gets its own card of counts. Click a count to see who or what is behind it.',
+    purpose: 'Insights pulls the key numbers from across Nexus onto one board, counted exactly as each module counts them. Anything past its alert level - overdue, breached, unassigned, expiring - is listed first under Needs Attention; every module then gets its own card of counts. Click a count to see who or what is behind it.',
     gains: [
       'Cross-module numbers in one place, refreshed every 30 seconds.',
       'What needs attention is at the top, worst first.',
@@ -1360,7 +1362,7 @@ export const DOCS = [
       {
         title: 'Find Out Who Is Behind a Number',
         steps: [
-          'Open Business Intelligence.',
+          'Open Insights.',
           'Under Needs Attention, click a tile, or click any count on a module card.',
           'The breakdown opens: a bar per person, or the records themselves when there is no "who".',
           'Click Open to go to the module and act on it.',

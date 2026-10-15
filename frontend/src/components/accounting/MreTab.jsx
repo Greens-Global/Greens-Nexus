@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ChevronLeft, ChevronRight, Database, FolderUp, Mail, MapPin, Pencil, Phone, Search, X } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, FolderUp, Mail, MapPin, Pencil, Phone, Search, X } from 'lucide-react';
 import { api } from '../../api';
 import Amount, { AmountInput, formatAmount } from './Amount';
 import AsyncSection, { SkeletonBlocks } from '../AsyncState';
@@ -14,6 +14,7 @@ import { linesFile } from './linesExport';
 import SendReportDialog from './SendReportDialog';
 import { ScanOutcome, ScanProgress, entitiesScannedText, mergeScans, useLedgerScan, useScanRetry, POLL_MS } from './LedgerScan';
 import AddMenu from './AddMenu';
+import AnchoredMenu from '../AnchoredMenu';
 
 // Accounting -> Reporting -> MRE, Monthly Recurring Expenses (Oct 6: Neil
 // listed MRE as pending; Charmi wants it under Reporting next to MRI). The
@@ -29,10 +30,19 @@ import AddMenu from './AddMenu';
 //               expected (Paid / Short / Over / Missed / Upcoming), the year's
 //               total, the Balance (expected - paid, to date) and the Notes.
 //
-// "+ Add" offers From the Ledger (a scan of the active entities for vendors
-// who posted at a stable amount in at least N of the last twelve months - the
-// MRI rent heuristic) or Manual. The toolbar matches Reports: Entities,
-// the year, a vendor search, category, Customize, Export.
+// "+ Add" offers Manual. (Oct 14, Charmi: "Set up ledger option needs to be
+// taken out from MRE" - the From the Ledger scan is off the menu; its dialog
+// and the API stay.) The toolbar matches Reports: Entities, the year, a
+// vendor search, category, Customize, Export.
+//
+// Oct 14 (Charmi, Urmi, Priyanka, Neil): the vendor is a searchable dropdown
+// of the Intacct vendors (number on the LEFT of the name, free text still
+// allowed); Mortgage, Dues & Subscriptions, Property Tax, Advertising, Auto
+// Registration and State Tax categories; Semi-Annual and Custom (every N
+// months) frequencies; and per line a Variance % (0-50 in steps of 5: a month
+// paid within it of expected is Paid), the Account Number with the vendor,
+// Account Details and Contact Information - the last three also as columns
+// under Customize.
 //
 // Oct 7 (items 9, 12, 21, 32, 33): the standard Customize adds Rows per Page
 // (a Pager under the grid; the Total Paid row and the exports always cover
@@ -48,10 +58,85 @@ const CATEGORIES = [
   { key: 'payroll_services', label: 'Payroll Services' },
   { key: 'software', label: 'Software' },
   { key: 'rent_paid', label: 'Rent Paid' },
+  { key: 'mortgage', label: 'Mortgage' },
+  { key: 'dues_subscriptions', label: 'Dues & Subscriptions' },
+  { key: 'property_tax', label: 'Property Tax' },
+  { key: 'advertising', label: 'Advertising' },
+  { key: 'auto_registration', label: 'Auto Registration' },
+  { key: 'state_tax', label: 'State Tax' },
   { key: 'other', label: 'Other' },
 ];
 const CATEGORY = Object.fromEntries(CATEGORIES.map((c) => [c.key, c.label]));
-const FREQUENCY = { monthly: 'Monthly', quarterly: 'Quarterly', annual: 'Annual' };
+const FREQUENCY = { monthly: 'Monthly', quarterly: 'Quarterly', semi_annual: 'Semi-Annual', annual: 'Annual', custom: 'Custom' };
+const STEP = { monthly: 1, quarterly: 3, semi_annual: 6, annual: 12 };
+export const CUSTOM_MAX_MONTHS = 60;
+export const VARIANCES = Array.from({ length: 11 }, (_v, i) => i * 5);   // 0%, 5%, ... 50%
+
+/** How many months apart a line falls due (Custom: its period; none = monthly). The API's step_months. */
+export function stepMonths(line) {
+  if (line?.frequency === 'custom') {
+    const n = Math.floor(Number(line.frequencyMonths) || 0);
+    return n >= 1 && n <= CUSTOM_MAX_MONTHS ? n : 1;
+  }
+  return STEP[line?.frequency] || 1;
+}
+
+/** "Monthly", "Semi-Annual", "Every 2 Months" (Custom). */
+export function frequencyLabel(line) {
+  if (line?.frequency === 'custom') {
+    const n = stepMonths(line);
+    return n === 1 ? 'Every Month' : `Every ${n} Months`;
+  }
+  return FREQUENCY[line?.frequency] || 'Monthly';
+}
+
+/** Whether a line falls due in a month (1-12): inside its start / end, on its
+ *  frequency counted from the start month. The API's due_in_month, kept in step. */
+export function dueInMonth(line, year, month) {
+  const key = `${year}-${String(month).padStart(2, '0')}`;
+  const start = (line?.startDate || '').slice(0, 7);
+  const end = (line?.endDate || '').slice(0, 7);
+  if (start && key < start) return false;
+  if (end && key > end) return false;
+  if (line?.status === 'ended' && !end) return false;
+  const step = stepMonths(line);
+  if (step === 1 || !start) return true;
+  const idx = (m) => Number(m.slice(0, 4)) * 12 + Number(m.slice(5, 7)) - 1;
+  return (idx(key) - idx(start)) % step === 0;
+}
+
+/** Vendor number on the LEFT of the name (Oct 14, item 7): "V-SDGE - San Diego Gas & Electric". */
+export function vendorLabel(code, name) {
+  if (!code) return name || '';
+  return name && name !== code ? `${code} - ${name}` : code;
+}
+
+/** The vendors a search leaves: by number, name or "number - name". */
+export function matchVendors(vendors, query) {
+  const s = (query || '').trim().toLowerCase();
+  if (!s) return vendors || [];
+  return (vendors || []).filter((v) => (v.code || '').toLowerCase().includes(s) || (v.name || '').toLowerCase().includes(s)
+    || vendorLabel(v.code, v.name).toLowerCase().includes(s));
+}
+
+/** A scan's progress that never goes backward (Oct 14, Urmi: "the number
+ *  keeps reducing back"). Each API worker runs its own copy of a scan, so
+ *  consecutive polls can land on copies at different points; the dialog
+ *  keeps the furthest it has seen for the same run (same total). */
+export function steadyProgress(prev, next) {
+  if (!next || !next.scanning) return next;
+  if (!prev || !prev.scanning || (prev.total || 0) !== (next.total || 0)) return next;
+  return { ...next, done: Math.max(prev.done || 0, next.done || 0) };
+}
+
+// Optional columns under Customize (Oct 14, item 5): [key, label, pref].
+const OPTIONAL_COLUMNS = [
+  ['accountNumber', 'Account Number', 'mreShowAccountNumber'],
+  ['accountDetails', 'Account Details', 'mreShowAccountDetails'],
+  ['contactInfo', 'Contact Information', 'mreShowContactInfo'],
+  ['variancePct', 'Variance', 'mreShowVariance'],
+];
+const optionalValue = (line, key) => (key === 'variancePct' ? `${Number(line.variancePct) || 0}%` : (line[key] || ''));
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const STATUS = {
   paid: { label: 'Paid', fg: 'var(--ok-fg, #15803d)', bg: 'rgba(21,128,61,0.10)' },
@@ -82,19 +167,23 @@ export function visibleRows(rows, { q = '', category = '', showEnded = false, sh
   });
 }
 
-/** The grid as a table for linesExport (PDF / Excel / CSV / Email / Save to Files). */
-export function mreTable(rows, year, entityLabel) {
+/** The grid as a table for linesExport (PDF / Excel / CSV / Email / Save to Files).
+ *  `extra`: the optional columns shown under Customize (keys of OPTIONAL_COLUMNS). */
+export function mreTable(rows, year, entityLabel, extra = []) {
+  const opt = OPTIONAL_COLUMNS.filter(([k]) => extra.includes(k));
   const columns = [
-    { label: 'Vendor', width: 200 }, { label: 'Entity', width: 170 }, { label: 'Category', width: 100 }, { label: 'Frequency', width: 80 },
+    { label: 'Vendor No.', width: 80 }, { label: 'Vendor', width: 200 }, { label: 'Entity', width: 170 }, { label: 'Category', width: 100 }, { label: 'Frequency', width: 80 },
+    ...opt.map(([, l]) => ({ label: l, width: 120 })),
     { label: 'Expected', num: true, width: 80 },
     ...MONTHS.map((m) => ({ label: m, num: true, width: 70 })),
     { label: 'Total', num: true, width: 84 }, { label: 'Balance', num: true, width: 84 }, { label: 'Notes', width: 160 },
   ];
   const body = rows.map((r) => [
-    r.line.vendorName, `${r.line.entityName} (${r.line.entityCode})`, CATEGORY[r.line.category] || 'Other', FREQUENCY[r.line.frequency] || 'Monthly',
+    r.line.vendorId, r.line.vendorName, `${r.line.entityName} (${r.line.entityCode})`, CATEGORY[r.line.category] || 'Other', frequencyLabel(r.line),
+    ...opt.map(([k]) => optionalValue(r.line, k)),
     r.line.expectedAmount, ...r.months.map((c) => c.paid), r.paidTotal, r.balance, r.line.notes || '',
   ]);
-  const totals = ['Total Paid', '', '', '', null, ...MONTHS.map((_m, i) => rows.reduce((s, r) => s + (r.months[i]?.paid || 0), 0)),
+  const totals = ['Total Paid', '', '', '', '', ...opt.map(() => ''), null, ...MONTHS.map((_m, i) => rows.reduce((s, r) => s + (r.months[i]?.paid || 0), 0)),
     rows.reduce((s, r) => s + r.paidTotal, 0), rows.reduce((s, r) => s + r.balance, 0), ''];
   return {
     title: 'Monthly Recurring Expenses', period: String(year),
@@ -118,7 +207,6 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState(null);       // a line (new or existing)
-  const [fromLedger, setFromLedger] = useState(false);
   const [sending, setSending] = useState(null);       // 'email' | 'egnyte'
   const [sent, setSent] = useState(null);
   const [busy, setBusy] = useState('');
@@ -126,6 +214,7 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
   const seq = useRef(0);
   const showEnded = !!prefs.mreShowEnded;
   const showInactive = !!prefs.mreShowInactive;
+  const extra = OPTIONAL_COLUMNS.filter(([, , pref]) => prefs[pref]).map(([k]) => k);
 
   useEffect(() => {
     api.getAccountingLocations().then((d) => { setEntities(d?.entities || []); setLimited(!!d?.limited); }).catch(() => setEntities([]));
@@ -146,7 +235,7 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
   const sum = data?.summary || {};
   const entityLabel = !picked.length ? (limited ? 'All my entities' : 'All entities')
     : picked.length === 1 ? `${entities.find((e) => e.code === picked[0])?.name || picked[0]} (${picked[0]})` : `${picked.length} entities`;
-  const table = () => mreTable(rows, year, entityLabel);
+  const table = () => mreTable(rows, year, entityLabel, extra);
   const exportAs = async (format) => {
     if (busy) return;
     setBusy(format);
@@ -180,11 +269,15 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
             {CATEGORIES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
           </select>
           <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <CustomizeButton {...custom} showZero={showZero} onShowZero={setShowZero} active={showEnded || showInactive}>
+            <CustomizeButton {...custom} showZero={showZero} onShowZero={setShowZero} active={showEnded || showInactive || !!extra.length}>
               <Toggle checked={showEnded} onChange={(v) => setPrefs({ mreShowEnded: v })} title="Show Ended"
                 hint="Recurring expenses that have stopped. They keep their history; nothing is deleted." />
               <Toggle checked={showInactive} onChange={(v) => setPrefs({ mreShowInactive: v })} title="Show Inactive Vendors"
                 hint="Lines whose vendor Intacct marks inactive." />
+              {OPTIONAL_COLUMNS.map(([k, l, pref]) => (
+                <Toggle key={k} checked={!!prefs[pref]} onChange={(v) => setPrefs({ [pref]: v })} title={`Show ${l}`}
+                  hint={k === 'variancePct' ? 'How far a paid month may be from expected and still count as Paid.' : `The ${l.toLowerCase()} kept on each line, as a column.`} />
+              ))}
             </CustomizeButton>
             <ExportMenu disabled={!rows.length} items={[
               { key: 'excel', label: 'Excel', hint: 'Every line, months as columns, live totals', onPick: () => exportAs('excel'), busy: busy === 'excel' },
@@ -195,7 +288,6 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
             ]} />
             {canEdit && (
               <AddMenu ariaLabel="Add a recurring expense" items={[
-                { key: 'ledger', label: 'From the Ledger', hint: 'Vendors paid the same amount month after month', Icon: Database, onPick: () => setFromLedger(true) },
                 { key: 'manual', label: 'Manual', hint: 'One vendor, accounts and amount by hand', Icon: Pencil, onPick: () => setEditing(blankLine(picked[0], entities)) },
               ]} />
             )}
@@ -229,11 +321,11 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
             <span>
               {(data?.rows || []).length
                 ? `${hidden} ${hidden === 1 ? 'line is' : 'lines are'} hidden by the search, the category or Customize (ended lines, inactive vendors, lines with nothing this year).`
-                : canEdit ? 'Use + Add: From the Ledger proposes the vendors your entities pay the same amount month after month; Manual adds one by hand.' : 'Someone with edit access to Accounting adds them from the ledger or by hand.'}
+                : canEdit ? 'Use + Add > Manual to add one: the vendor, the expense accounts it posts to and the amount expected.' : 'Someone with edit access to Accounting adds them.'}
             </span>
           </div>
         ) : (
-          <Grid rows={rows} totals={data?.totals || []} year={year} density={density} loading={loading} canEdit={canEdit}
+          <Grid rows={rows} totals={data?.totals || []} year={year} density={density} loading={loading} canEdit={canEdit} extra={extra}
             pageSize={custom.pageSize} pageKey={[year, picked, q, category, showEnded, showInactive, showZero]} onLines={setLines}
             onEdit={(l) => setEditing(l)} onNotes={(id, notes) => api.setMreNotes(id, notes).then((line) => setData((d) => ({ ...d, rows: d.rows.map((r) => (r.line.id === id ? { ...r, line } : r)) })))} />
         )}
@@ -244,9 +336,6 @@ export default function MreTab({ canEdit = false, canDelete = false }) {
           onSaved={() => { setEditing(null); load(); }} />
       )}
       {lines && <LedgerLines {...lines} onClose={() => setLines(null)} />}
-      {fromLedger && (
-        <MreFromLedger entities={picked} entityLabel={entityLabel} onClose={() => setFromLedger(false)} onCreated={() => { setFromLedger(false); load(); }} />
-      )}
       {sending && (
         <SendReportDialog mode={sending} title={`Monthly Recurring Expenses ${year}`} baseName={`Monthly Recurring Expenses - ${year}`} what="lines"
           makeFile={async (format, name) => linesFile(table(), format, name)}
@@ -279,7 +368,8 @@ function Legend() {
 // entity, category, expected, each month (m0..m11), total, balance, notes.
 const MRE_COLUMNS = [['vendor', 'Vendor'], ['entity', 'Entity'], ['category', 'Category'], ['expected', 'Expected', true]];
 
-function Grid({ rows, totals, year, density, loading, canEdit, onEdit, onNotes, pageSize = 0, pageKey = '', onLines = null }) {
+function Grid({ rows, totals, year, density, loading, canEdit, onEdit, onNotes, pageSize = 0, pageKey = '', onLines = null, extra = [] }) {
+  const opt = OPTIONAL_COLUMNS.filter(([k]) => extra.includes(k));
   const py = DENSITIES.find((d) => d.key === density)?.py || '5px';
   const cw = useColumnWidths('mre');
   // Rows per Page: this page's lines; the Total Paid row adds up every line.
@@ -292,7 +382,7 @@ function Grid({ rows, totals, year, density, loading, canEdit, onEdit, onNotes, 
       <table className="acct-report" style={{ '--acct-row-py': py }} aria-label={`Recurring expenses ${year}`}>
         <thead>
           <tr>
-            {MRE_COLUMNS.map(([k, l, isNum]) => (
+            {[...MRE_COLUMNS.slice(0, 3), ...opt.map(([k, l]) => [k, l, k === 'variancePct']), ...MRE_COLUMNS.slice(3)].map(([k, l, isNum]) => (
               <th key={k} aria-label={l} className={k === 'vendor' ? 'acct-label acct-head' : isNum ? 'acct-num' : undefined} style={headStyle(cw.width(k))}>{l}<ColumnResizer {...cw.resizer(k, l)} /></th>
             ))}
             {MONTHS.map((m, i) => <th key={m} aria-label={m} className="acct-num" style={headStyle(cw.width(`m${i}`))}>{m}<ColumnResizer {...cw.resizer(`m${i}`, m)} /></th>)}
@@ -314,9 +404,13 @@ function Grid({ rows, totals, year, density, loading, canEdit, onEdit, onNotes, 
               </td>
               <td title={`${r.line.entityName} (${r.line.entityCode})`} style={cw.width('entity') ? cellStyle(cw.width('entity')) : { maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}><span className="acct-code">{r.line.entityCode}</span>{r.line.entityName}</td>
               <td style={cellStyle(cw.width('category'))}>{CATEGORY[r.line.category] || 'Other'}</td>
-              <td className="acct-num" style={cellStyle(cw.width('expected'))} title={`${FREQUENCY[r.line.frequency]} from ${formatDate(r.line.startDate) || 'the start'}${r.line.endDate ? ` to ${formatDate(r.line.endDate)}` : ''}`}>
+              {opt.map(([k]) => (
+                <td key={k} className={k === 'variancePct' ? 'acct-num' : undefined} title={optionalValue(r.line, k)}
+                  style={cw.width(k) ? cellStyle(cw.width(k)) : { maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis' }}>{optionalValue(r.line, k)}</td>
+              ))}
+              <td className="acct-num" style={cellStyle(cw.width('expected'))} title={`${frequencyLabel(r.line)} from ${formatDate(r.line.startDate) || 'the start'}${r.line.endDate ? ` to ${formatDate(r.line.endDate)}` : ''}${r.line.variancePct ? `; paid within ${r.line.variancePct}% counts as Paid` : ''}`}>
                 <Amount value={r.line.expectedAmount} />
-                <span style={{ display: 'block', fontSize: '0.68rem', color: 'var(--text-muted)' }}>{FREQUENCY[r.line.frequency] || 'Monthly'}</span>
+                <span style={{ display: 'block', fontSize: '0.68rem', color: 'var(--text-muted)' }}>{frequencyLabel(r.line)}</span>
               </td>
               {r.months.map((c, i) => <MonthCell key={c.month} cell={c} width={cw.width(`m${i}`)} onOpen={onLines && Math.abs(Number(c.paid) || 0) > 0.005 ? () => onLines({ line: r.line, ...monthRange(c.month), title: monthLabel(c.month) }) : null} />)}
               <td className="acct-num" style={cellStyle(cw.width('total'), { fontWeight: 700 })}>
@@ -330,7 +424,7 @@ function Grid({ rows, totals, year, density, loading, canEdit, onEdit, onNotes, 
           ))}
           <tr className="acct-grand">
             <td className="acct-label">Total Paid</td>
-            <td /><td /><td />
+            <td /><td />{opt.map(([k]) => <td key={k} />)}<td />
             {monthPaid.map((v, i) => <td key={i} className="acct-num" title={`Expected ${formatAmount(totals[i]?.expected || 0)}`}><Amount value={v} zero="dash" /></td>)}
             <td className="acct-num"><Amount value={totalPaid} zero="dash" /></td>
             <td className="acct-num"><Amount value={totalBalance} zero="dash" /></td>
@@ -509,6 +603,7 @@ function VendorName({ id, name }) {
   return (
     <span ref={ref} onMouseEnter={show} onMouseLeave={hide} onFocus={show} onBlur={hide} tabIndex={0}
       style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600, cursor: 'default', textDecoration: 'underline dotted var(--border-color)', textUnderlineOffset: 3 }}>
+      {id && id !== name && <span className="acct-code" style={{ display: 'inline-block' }}>{id}</span>}
       {name}
       <PopoverPanel anchor={ref} open={open} setOpen={setOpen} role="tooltip" aria-label={`${name} contact`} onMouseEnter={keep} onMouseLeave={hide}
         style={{ width: 280, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, boxShadow: 'var(--shadow-md, 0 8px 24px rgba(0,0,0,0.12))', padding: 12, display: 'grid', gap: 6, fontSize: '0.8rem', fontWeight: 400, whiteSpace: 'normal' }}>
@@ -533,7 +628,58 @@ function VendorName({ id, name }) {
 function blankLine(entityCode, entities) {
   const e = entities.find((x) => x.code === entityCode);
   return { id: '', entityCode: entityCode || '', entityName: e?.name || '', vendorId: '', vendorName: '', expenseAccounts: [], category: 'utilities', frequency: 'monthly',
+    frequencyMonths: 0, variancePct: 0, accountNumber: '', accountDetails: '', contactInfo: '',
     expectedAmount: 0, startDate: `${iso(new Date()).slice(0, 7)}-01`, endDate: '', status: 'active', notes: '' };
+}
+
+// The vendor on a line (Oct 14, Priyanka: "Vendor list should have a drop
+// down"): a searchable dropdown of the Intacct vendors, each with its number
+// on the LEFT of the name. Typing filters the list; a pick fills number and
+// name; anything typed that is not on the list is kept as it is (free text).
+function VendorCombobox({ id, vendors, text, onText, onPick }) {
+  const [open, setOpen] = useState(false);
+  const [hi, setHi] = useState(0);
+  const [width, setWidth] = useState(0);
+  const boxRef = useRef(null);
+  const listRef = useRef(null);
+  const shown = useMemo(() => matchVendors(vendors || [], text).slice(0, 200), [vendors, text]);
+  const show = () => { setWidth(boxRef.current?.offsetWidth || 0); setOpen(true); };
+  const pick = (v) => { onPick(v); setOpen(false); };
+  useEffect(() => {
+    if (!open) return;
+    listRef.current?.querySelector('[aria-selected="true"]')?.scrollIntoView?.({ block: 'nearest' });
+  }, [open, hi]);
+  return (
+    <div ref={boxRef} style={{ position: 'relative' }}>
+      <input id={id} type="text" role="combobox" aria-expanded={open} aria-autocomplete="list" aria-controls={`${id}-list`} autoComplete="off"
+        value={text} placeholder={vendors === null ? 'Loading vendors...' : 'Search a vendor by number or name'}
+        onFocus={show} onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onChange={(e) => { onText(e.target.value); setHi(0); if (!open) show(); }}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowDown') { e.preventDefault(); if (!open) show(); else setHi((h) => Math.min(h + 1, Math.max(shown.length - 1, 0))); }
+          else if (e.key === 'ArrowUp') { e.preventDefault(); setHi((h) => Math.max(h - 1, 0)); }
+          else if (e.key === 'Enter') { if (open && shown[hi]) { e.preventDefault(); pick(shown[hi]); } }
+          else if (e.key === 'Escape' && open) { e.preventDefault(); e.stopPropagation(); setOpen(false); }
+        }}
+        style={{ ...control, width: '100%', paddingRight: 26 }} />
+      <ChevronDown size={13} style={{ position: 'absolute', right: 9, top: 9, color: 'var(--text-muted)', pointerEvents: 'none' }} />
+      <AnchoredMenu anchorRef={boxRef} open={open} onClose={() => setOpen(false)} role="listbox" id={`${id}-list`} aria-label="Vendors"
+        style={{ width: Math.max(width, 300), maxHeight: 320, background: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 10, boxShadow: 'var(--shadow-md, 0 8px 24px rgba(0,0,0,0.12))', padding: 4 }}>
+        <div ref={listRef}>
+          {vendors === null ? <div style={{ padding: '7px 10px', fontSize: '0.78rem', color: 'var(--text-muted)' }}>Loading vendors...</div>
+            : !shown.length ? <div style={{ padding: '7px 10px', fontSize: '0.78rem', color: 'var(--text-muted)' }}>{text.trim() ? 'No vendor matches - what you typed is kept as the vendor.' : 'No vendors on the ledger yet.'}</div>
+              : shown.map((v, i) => (
+                <button key={v.code} type="button" role="option" aria-selected={i === hi}
+                  onMouseDown={(e) => { e.preventDefault(); pick(v); }} onMouseEnter={() => setHi(i)}
+                  style={{ display: 'flex', gap: 8, width: '100%', textAlign: 'left', border: 'none', borderRadius: 6, padding: '5px 8px', font: 'inherit', fontSize: '0.8rem', cursor: 'pointer', color: 'var(--text-primary)', background: i === hi ? 'var(--wk-brand-tint, #e8ecfd)' : 'none' }}>
+                  <span className="acct-code" style={{ minWidth: 72, flexShrink: 0, marginRight: 0 }}>{v.code}</span>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.name || v.code}</span>
+                </button>
+              ))}
+        </div>
+      </AnchoredMenu>
+    </div>
+  );
 }
 
 function LineEditor({ line, entities, canDelete, onClose, onSaved }) {
@@ -551,10 +697,13 @@ function LineEditor({ line, entities, canDelete, onClose, onSaved }) {
   }, [onClose]);
   const accounts =
  String(l.accountsText || '').split(',').map((x) => x.trim()).filter(Boolean);
-  const ready = l.entityCode && l.vendorId.trim() && accounts.length;
+  const customOk = l.frequency !== 'custom' || (Number(l.frequencyMonths) >= 1 && Number(l.frequencyMonths) <= CUSTOM_MAX_MONTHS);
+  const ready = l.entityCode && l.vendorId.trim() && accounts.length && customOk;
   const body = () => ({
     entityCode: l.entityCode, entityName: entities.find((e) => e.code === l.entityCode)?.name || l.entityName || '', vendorId: l.vendorId.trim(), vendorName: l.vendorName.trim(),
     expenseAccounts: accounts, category: l.category, frequency: l.frequency, expectedAmount: Number(l.expectedAmount) || 0,
+    frequencyMonths: l.frequency === 'custom' ? Math.floor(Number(l.frequencyMonths) || 0) : 0, variancePct: Number(l.variancePct) || 0,
+    accountNumber: l.accountNumber || '', accountDetails: l.accountDetails || '', contactInfo: l.contactInfo || '',
     startDate: l.startDate || '', endDate: l.endDate || '', status: l.status, notes: l.notes || '',
   });
   const run = (work) => {
@@ -563,12 +712,18 @@ function LineEditor({ line, entities, canDelete, onClose, onSaved }) {
     work.then(onSaved).catch((e) => { setError(e?.message || 'Could not save.'); setBusy(false); });
   };
   const save = () => { if (ready && !busy) run(l.id ? api.updateMreLine(l.id, body()) : api.createMreLine(body())); };
-  const pickVendor = (text) => {
-    const hit = (vendors || []).find((v) => v.code === text || `${v.name} (${v.code})` === text);
-    set(hit ? { vendorId: hit.code, vendorName: hit.name || hit.code, vendorText: `${hit.name || hit.code} (${hit.code})` } : { vendorText: text, vendorId: text, vendorName: l.vendorName || '' });
+  // Typed text: a vendor number or "number - name" on the list is that vendor; anything else is kept as typed.
+  const typeVendor = (text) => {
+    const t = text.trim().toLowerCase();
+    const hit = t ? (vendors || []).find((v) => (v.code || '').toLowerCase() === t || vendorLabel(v.code, v.name).toLowerCase() === t) : null;
+    set(hit ? { vendorText: text, vendorId: hit.code, vendorName: hit.name || hit.code } : { vendorText: text, vendorId: text.trim(), vendorName: '' });
   };
+  const pickVendor = (v) => set({ vendorId: v.code, vendorName: v.name || v.code, vendorText: vendorLabel(v.code, v.name) });
   const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 };
-  const vendorText = l.vendorText ?? (l.vendorId ? `${l.vendorName || l.vendorId} (${l.vendorId})` : '');
+  const hint = { fontSize: '0.68rem', color: 'var(--text-muted)' };
+  const vendorText = l.vendorText ?? vendorLabel(l.vendorId, l.vendorName);
+  const thisYear = Number((l.startDate || '').slice(0, 4)) > new Date().getFullYear() ? Number(l.startDate.slice(0, 4)) : new Date().getFullYear();
+  const dueMonths = MONTHS.filter((_m, i) => dueInMonth({ ...l, status: 'active' }, thisYear, i + 1));
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
       <div className="modal-content" role="dialog" aria-modal="true" aria-label={l.id ? 'Edit recurring expense' : 'Add recurring expense'} onClick={(e) => e.stopPropagation()} style={{ maxWidth: 720 }}>
@@ -585,10 +740,7 @@ function LineEditor({ line, entities, canDelete, onClose, onSaved }) {
             </div>
             <div>
               <label style={label} htmlFor="mre-vendor">Vendor</label>
-              <input id="mre-vendor" type="text" list="mre-vendor-list" value={vendorText} onChange={(e) => pickVendor(e.target.value)} placeholder={vendors === null ? 'Loading vendors...' : 'Search a vendor by name or code'} style={{ ...control, width: '100%' }} />
-              <datalist id="mre-vendor-list">
-                {(vendors || []).slice(0, 2000).map((v) => <option key={v.code} value={`${v.name || v.code} (${v.code})`} />)}
-              </datalist>
+              <VendorCombobox id="mre-vendor" vendors={vendors} text={vendorText} onText={typeVendor} onPick={pickVendor} />
             </div>
           </div>
           <div style={grid}>
@@ -601,7 +753,6 @@ function LineEditor({ line, entities, canDelete, onClose, onSaved }) {
               <select id="mre-category" value={l.category} onChange={(e) => set({ category: e.target.value })} style={{ ...control, width: '100%' }}>
                 {CATEGORIES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
               </select>
-              <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>Debt service is under Loans &amp; Financing.</span>
             </div>
           </div>
           <div style={grid}>
@@ -610,30 +761,64 @@ function LineEditor({ line, entities, canDelete, onClose, onSaved }) {
               <AmountInput id="mre-amount" value={l.expectedAmount} onChange={(v) => set({ expectedAmount: v ?? 0 })} style={{ ...control, width: '100%' }} />
             </div>
             <div>
+              <label style={label} htmlFor="mre-variance">Variance</label>
+              <select id="mre-variance" value={Number(l.variancePct) || 0} onChange={(e) => set({ variancePct: Number(e.target.value) })} style={{ ...control, width: '100%' }}>
+                {VARIANCES.map((v) => <option key={v} value={v}>{v}%</option>)}
+              </select>
+              <span style={hint}>A month paid within this much of expected counts as Paid.</span>
+            </div>
+          </div>
+          <div style={grid}>
+            <div>
               <label style={label} htmlFor="mre-frequency">Frequency</label>
-              <select id="mre-frequency" value={l.frequency} onChange={(e) => set({ frequency: e.target.value })} style={{ ...control, width: '100%' }}>
+              <select id="mre-frequency" value={l.frequency} onChange={(e) => set({ frequency: e.target.value, ...(e.target.value === 'custom' && !(Number(l.frequencyMonths) >= 1) ? { frequencyMonths: 2 } : {}) })} style={{ ...control, width: '100%' }}>
                 {Object.entries(FREQUENCY).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
               </select>
+              {l.startDate && dueMonths.length > 0 && dueMonths.length < 12 && <span style={hint}>Due in {thisYear}: {dueMonths.join(', ')}.</span>}
             </div>
+            {l.frequency === 'custom' && (
+              <div>
+                <label style={label} htmlFor="mre-every">Every (Months)</label>
+                <input id="mre-every" type="number" min={1} max={CUSTOM_MAX_MONTHS} step={1} value={l.frequencyMonths || ''} onChange={(e) => set({ frequencyMonths: e.target.value === '' ? '' : Math.floor(Number(e.target.value)) })}
+                  style={{ ...control, width: '100%' }} />
+                <span style={{ ...hint, color: customOk ? hint.color : 'var(--bad-fg, #dc2626)' }}>{customOk ? `Falls due every ${stepMonths(l)} ${stepMonths(l) === 1 ? 'month' : 'months'} from the start month.` : `Enter 1 to ${CUSTOM_MAX_MONTHS} months.`}</span>
+              </div>
+            )}
           </div>
           <div style={grid}>
             <div>
               <label style={label} htmlFor="mre-start">Start</label>
               <input id="mre-start" type="date" value={l.startDate} onChange={(e) => set({ startDate: e.target.value })} style={{ ...control, width: '100%' }} />
-              <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>A quarterly or annual bill falls due from this month.</span>
+              <span style={hint}>A bill that is not monthly falls due from this month.</span>
             </div>
             <div>
               <label style={label} htmlFor="mre-end">End</label>
               <input id="mre-end" type="date" value={l.endDate} onChange={(e) => set({ endDate: e.target.value })} style={{ ...control, width: '100%' }} />
-              <span style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>Leave empty while it continues.</span>
+              <span style={hint}>Leave empty while it continues.</span>
             </div>
           </div>
-          <div>
-            <label style={label} htmlFor="mre-status">Status</label>
-            <select id="mre-status" value={l.status} onChange={(e) => set({ status: e.target.value })} style={{ ...control, width: 200 }}>
-              <option value="active">Active</option>
-              <option value="ended">Ended</option>
-            </select>
+          <div style={grid}>
+            <div>
+              <label style={label} htmlFor="mre-account-number">Account Number</label>
+              <input id="mre-account-number" type="text" value={l.accountNumber || ''} maxLength={100} onChange={(e) => set({ accountNumber: e.target.value })} placeholder="Your account number with the vendor" style={{ ...control, width: '100%' }} />
+            </div>
+            <div>
+              <label style={label} htmlFor="mre-status">Status</label>
+              <select id="mre-status" value={l.status} onChange={(e) => set({ status: e.target.value })} style={{ ...control, width: '100%' }}>
+                <option value="active">Active</option>
+                <option value="ended">Ended</option>
+              </select>
+            </div>
+          </div>
+          <div style={grid}>
+            <div>
+              <label style={label} htmlFor="mre-account-details">Account Details</label>
+              <textarea id="mre-account-details" value={l.accountDetails || ''} onChange={(e) => set({ accountDetails: e.target.value })} rows={2} maxLength={1000} placeholder="Service address, meter, plan, how it is paid" style={{ ...control, width: '100%', height: 'auto', padding: 8 }} />
+            </div>
+            <div>
+              <label style={label} htmlFor="mre-contact">Contact Information</label>
+              <textarea id="mre-contact" value={l.contactInfo || ''} onChange={(e) => set({ contactInfo: e.target.value })} rows={2} maxLength={1000} placeholder="Name, phone, email" style={{ ...control, width: '100%', height: 'auto', padding: 8 }} />
+            </div>
           </div>
           <div>
             <label style={label} htmlFor="mre-notes">Notes</label>
@@ -661,13 +846,23 @@ function LineEditor({ line, entities, canDelete, onClose, onSaved }) {
 // (polled every three seconds with "Reading the ledger... 40 of 253
 // entities"), active leaf entities only - the picked ones, or every one the
 // person may read.
+//
+// Oct 14: no longer on the + Add menu (Charmi: "Set up ledger option needs to
+// be taken out from MRE"; Urmi: slow, and the count "keeps reducing back").
+// Kept for the API and tests; its progress now never goes backward
+// (steadyProgress) should it be reached again.
 export function MreFromLedger({ entities = [], entityLabel = 'All entities', onClose, onCreated, pollMs = POLL_MS }) {
   const [min, setMin] = useState(3);
-  const scan = useLedgerScan(() => api.getMreProposals(min, entities), [min, entities.join(',')], pollMs);
+  // The furthest progress seen per request; cleared by any final answer or error.
+  const seen = useRef({});
+  const steady = (key, work) => work
+    .then((d) => { seen.current[key] = steadyProgress(seen.current[key], d); return seen.current[key]; })
+    .catch((e) => { delete seen.current[key]; throw e; });
+  const scan = useLedgerScan(() => steady(`${min}|${entities.join(',')}`, api.getMreProposals(min, entities)), [min, entities.join(',')], pollMs);
   const { progress, retry } = scan;
   // Oct 7 (Charmi: stuck at "133 of 142 entities" for 5+ minutes): the scan
   // has a time limit; what it could not read is listed with Retry for just those.
-  const again = useScanRetry((codes) => api.getMreProposals(min, codes), pollMs);
+  const again = useScanRetry((codes) => steady(`retry|${min}|${codes.join(',')}`, api.getMreProposals(min, codes)), pollMs);
   const data = useMemo(() => mergeScans(scan.data, again.retries, (p) => `${p.entityCode}|${p.vendorId}`), [scan.data, again.retries]);
   const failed = data?.failed || [];
   const [error, setError] = useState(null);
@@ -729,7 +924,7 @@ export function MreFromLedger({ entities = [], entityLabel = 'All entities', onC
           {progress ? <ScanProgress progress={progress} /> : scan.error ? null : data === null ? <SkeletonBlocks count={2} /> : done ? (
             <div style={{ fontSize: '0.86rem', display: 'grid', gap: 6 }}>
               <strong>{done.created.length} recurring {done.created.length === 1 ? 'expense' : 'expenses'} added{done.skipped.length ? `, ${done.skipped.length} skipped` : ''}.</strong>
-              {done.created.map((p) => <div key={keyOf(p)}>{p.vendorName} at {p.entityName} - <Amount value={p.expectedAmount} /> {FREQUENCY[p.frequency]?.toLowerCase()}</div>)}
+              {done.created.map((p) => <div key={keyOf(p)}>{vendorLabel(p.vendorId, p.vendorName)} at {p.entityName} - <Amount value={p.expectedAmount} /> {FREQUENCY[p.frequency]?.toLowerCase()}</div>)}
               {done.skipped.map((p) => <div key={keyOf(p)} style={{ color: 'var(--text-muted)' }}>{p.vendorId} at {p.entityCode}: {p.why}</div>)}
             </div>
           ) : !rows.length ? (
@@ -750,7 +945,7 @@ export function MreFromLedger({ entities = [], entityLabel = 'All entities', onC
                     return (
                       <tr key={k} style={isNew ? undefined : { color: 'var(--text-muted)' }}>
                         <td>{isNew ? <input type="checkbox" checked={!unticked.has(k)} onChange={() => toggle(k)} aria-label={`Add ${p.vendorName} at ${p.entityName}`} /> : null}</td>
-                        <td><div>{p.vendorName}</div><div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{p.vendorId}</div></td>
+                        <td><span className="acct-code">{p.vendorId}</span>{p.vendorName}</td>
                         <td>{p.entityName}</td>
                         <td title={(p.accountTitles || []).join(', ')}>{(p.expenseAccounts || []).join(', ')}</td>
                         <td>

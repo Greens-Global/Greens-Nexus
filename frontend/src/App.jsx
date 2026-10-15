@@ -19,7 +19,6 @@ import TimeclockWidget from "./components/TimeclockWidget";
 import { StepUpOverlay } from "./stepup/StepUp";
 import GlobalSearch from "./components/GlobalSearch";
 import PullToRefresh from "./components/PullToRefresh";
-import UpdateBanner from "./components/UpdateBanner";
 import FeatureBanner from "./components/FeatureBanner";
 import AssistantWidget from "./components/AssistantWidget";
 import ViewErrorBoundary from "./components/ViewErrorBoundary";
@@ -808,8 +807,9 @@ function MainApp() {
               center via <ModuleTabs> (Work OS shell - Stella-style layout) */}
           <HeaderTabsProvider>
           <main className={`main-content${sidebarCollapsed ? " main-collapsed" : ""}`}>
-            {/* The weekly "New in Nexus" bar - across the top of the page,
-                above the header (components/FeatureBanner.jsx). */}
+            {/* The announcement bar - across the top of the page, above the
+                header: the weekly "New in Nexus" news, or "a new version is
+                ready, Reload" (components/FeatureBanner.jsx). */}
             <WidgetBoundary name="feature-banner" resetKey={widgetKey}><FeatureBanner activeView={activeView} onNavigate={navigate} /></WidgetBoundary>
             {/* PDF Editor is a full-bleed workspace with its own toolbar — hide
                 the Nexus top header so it gets the whole viewport height. */}
@@ -872,9 +872,6 @@ function MainApp() {
           progress - the exact window a user would otherwise see a white screen.
           Skipped under the dev/E2E bypass, which has no real MSAL interaction. */}
       {!_SKIP_MSAL_GATE && <AuthBusyFallback />}
-      {/* Outside both gates on purpose: a tab running superseded code should be
-          told so whether or not it is signed in. */}
-      <UpdateBanner />
     </>
   );
 }

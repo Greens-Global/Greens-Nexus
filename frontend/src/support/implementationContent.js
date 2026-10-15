@@ -489,7 +489,7 @@ export const IMPL_PHASES = [
       { title: 'The rest', items: [
         'Credential Vault: Batch Import shared passwords and set owners.',
         'Marketing: connect Google Business Profile and Google Ads; set lead goals and budgets per property.',
-        'Investor Relations, Construction, Operations, IT and Business Intelligence: give the grants to their owners and load their records.',
+        'Investor Relations, Construction, Operations, IT and Insights: give the grants to their owners and load their records.',
       ]},
     ],
     checks: [

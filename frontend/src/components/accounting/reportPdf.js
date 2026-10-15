@@ -1,6 +1,6 @@
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { formatDate } from '../../lib/datetime';
-import { bookLabel, canPickBook, cellText, dimsText, entityText, periodText } from './reportModel';
+import { bookLabel, canPickBook, cellText, dimsText, entityText, periodText, reportTitle } from './reportModel';
 
 // A reporting package as one PDF (Neil, Sep 25): a lender opens this, so it
 // has to read like a statement from an accounting firm - a cover with the
@@ -75,6 +75,8 @@ export async function buildPackagePdf({ name, description = '', org = '', prepar
     const H = size[1];
     const labelW = W - MARGIN * 2 - figures;
     const sub = [entityText(config, entities), periodText(config), canPickBook(config) ? `${bookLabel(config.book)} basis` : ''].filter(Boolean);
+    // The book is part of the statement's name (10/15).
+    title = reportTitle(config, title || def.label);
     const filters = dimsText(config);
     let page;
     let y;

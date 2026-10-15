@@ -18,6 +18,10 @@ import { isTypingTarget } from '../lib/keys';
 import { Component, lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { ModalLoading } from '../components/AsyncState';
 import { CircleHelp } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { takePendingAutoTour, AUTO_TOUR_EVENT } from '../lib/tours';
+
+const GuidedTour = lazy(() => import('../components/GuidedTour'));
 
 const loadWidget = () => import('./HelpWidget');
 const HelpWidget = lazy(loadWidget);
@@ -114,6 +118,31 @@ export default function HelpMenu({ activeView, onWhatsNew }) {
 
   const ask = useCallback(() => { setOpen(false); setComposing(true); }, []);
 
+  // The built-for-this-page tour (lib/autoTour.js) for screens with no
+  // hand-built one: built at the moment it starts, from the Help entry and
+  // the page as it is. Leaving the screen ends it.
+  const [autoSteps, setAutoSteps] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    // Loaded only when a tour starts: the Help docs are big, the header is not.
+    const start = async () => {
+      const [{ buildAutoTour }, { docForView }] = await Promise.all([import('../lib/autoTour'), import('./docsSearch')]);
+      const steps = alive ? buildAutoTour(docForView(activeView)) : [];
+      if (alive && steps.length) setAutoSteps(steps);
+    };
+    window.addEventListener(AUTO_TOUR_EVENT, start);
+    return () => { alive = false; window.removeEventListener(AUTO_TOUR_EVENT, start); };
+  }, [activeView]);
+  // Sent here from the Help panel's tour list: start once the screen has drawn.
+  useEffect(() => {
+    if (!takePendingAutoTour(activeView)) return undefined;
+    const t = setTimeout(() => window.dispatchEvent(new CustomEvent(AUTO_TOUR_EVENT)), 700);
+    return () => clearTimeout(t);
+  }, [activeView]);
+  const [tourView, setTourView] = useState(activeView);
+  if (tourView !== activeView) { setTourView(activeView); if (autoSteps) setAutoSteps(null); }
+  const endAuto = useCallback(() => { setAutoSteps(null); import('../lib/autoTour').then((m) => m.clearAutoTourTags()); }, []);
+
   return (
     <div className="help-menu-wrap" ref={wrapRef}>
       <button ref={btnRef} type="button" className="icon-btn help-menu-btn" aria-label="Help" title="Help and Support (?)"
@@ -133,6 +162,15 @@ export default function HelpMenu({ activeView, onWhatsNew }) {
               onWhatsNew={onWhatsNew} onAsk={ask} onClose={close} />
           </Suspense>
         </WidgetBoundary>
+      )}
+      {/* At the page root: inside the header, whose backdrop blur makes it
+          the box "fixed" positions measure from, the spotlight sat a
+          sidebar's width to the right of its target. */}
+      {autoSteps && createPortal(
+        <Suspense fallback={null}>
+          <GuidedTour steps={autoSteps} onClose={endAuto} />
+        </Suspense>,
+        document.body,
       )}
       {composing && (
         <Suspense fallback={<ModalLoading />}>

@@ -1,113 +1,373 @@
 {
-  "id": "greens-storage-murrieta",
-  "name": "Greens Storage Murrieta",
-  "address": "25698 Adams Ave, Murrieta, CA 92562",
-  "apn": "909-060-071",
-  "acreage": 3.85,
-  "opened": "",
-  "county": "Riverside",
-  "parcelSource": "Riverside County Assessor parcels (OpenData)",
-  "cubbyFacilityId": "fac_TqcwmjuRLgy",
-  "frame": {
-    "lat0": 33.54245,
-    "lon0": -117.19463,
-    "bearingDeg": 47.8,
-    "mPerDegLon": 92783,
-    "mPerDegLat": 110900
-  },
-  "image": {
-    "file": "frontend/public/site-models/greens-storage-murrieta/ground.jpg",
-    "bbox": [
-      -117.196,
-      33.54087,
-      -117.193,
-      33.54373
-    ],
-    "px": [
-      1200,
-      1144
-    ],
-    "attribution": "Imagery: Esri, Maxar, Earthstar Geographics"
-  },
-  "imageWide": {
-    "file": "frontend/public/site-models/greens-storage-murrieta/ground-wide.jpg",
-    "bbox": [
-      -117.2061,
-      33.534,
-      -117.1831,
-      33.551
-    ]
-  },
-  "gates": [
-    {
-      "id": "main",
-      "name": "Gate",
-      "uv": [
-        [
-          -76,
-          4
-        ]
-      ]
-    }
+ "id": "greens-storage-murrieta",
+ "name": "Greens Storage Murrieta",
+ "address": "25698 Adams Ave, Murrieta, CA 92562",
+ "apn": "909-060-071",
+ "acreage": 3.85,
+ "opened": "",
+ "county": "Riverside",
+ "parcelSource": "Riverside County Assessor parcels (OpenData)",
+ "cubbyFacilityId": "fac_TqcwmjuRLgy",
+ "frame": {
+  "lat0": 33.54245,
+  "lon0": -117.19463,
+  "bearingDeg": 47.8,
+  "mPerDegLon": 92783,
+  "mPerDegLat": 110900
+ },
+ "image": {
+  "file": "frontend/public/site-models/greens-storage-murrieta/ground.jpg",
+  "bbox": [
+   -117.196,
+   33.54087,
+   -117.193,
+   33.54373
   ],
-  "classify": [
-    {
-      "match": "^(X|Z|DL|TEST|109)",
-      "k": "in",
-      "veh": 0
-    }
+  "px": [
+   1200,
+   1144
   ],
-  "buildings": [
-    {
-      "id": "SHOP",
-      "letters": [
-        "X",
-        "Z",
-        "DL",
-        "TEST",
-        ""
-      ],
-      "name": "Office / Shop",
-      "kind": "office",
-      "rect": {
-        "E": -33.4,
-        "N": -16.9,
-        "L": 21.9,
-        "W": 17.1,
-        "bearing": 136.9
-      },
-      "height": 4.5,
-      "floors": 1,
-      "roof": "red",
-      "doorSide": "ne",
-      "inferred": true,
-      "note": "Building at the Adams Ave corner; holds the enclosed spaces X001, Z001 and the DL cells."
-    }
-  ],
-  "zones": [
-    {
-      "id": "LOT",
-      "name": "RV Lot",
-      "kind": "rv-lot",
-      "letters": [
-        "A",
-        "B",
-        "C",
-        "D",
-        "E",
-        "F",
-        "H",
-        "J"
-      ],
-      "parcels": [
-        "909060071"
-      ],
-      "inset": 4
-    }
-  ],
-  "sources": [
-    "Parcel: Riverside County Assessor OpenData parcels (APN 909060071, 3.85 ac)",
-    "Stall rows: schematic fill of the lot in letter order; no row survey yet",
-    "Units: Cubby FMS inventory export, Oct 11, 2026 (175 active units)"
+  "attribution": "Imagery: Esri, Maxar, Earthstar Geographics"
+ },
+ "imageWide": {
+  "file": "frontend/public/site-models/greens-storage-murrieta/ground-wide.jpg",
+  "bbox": [
+   -117.2061,
+   33.534,
+   -117.1831,
+   33.551
   ]
+ },
+ "gates": [
+  {
+   "id": "main",
+   "name": "Gate",
+   "uv": [
+    [
+     -37.1,
+     -22.5
+    ]
+   ]
+  }
+ ],
+ "classify": [
+  {
+   "match": "^(X|Z|DL|TEST|109)",
+   "k": "in",
+   "veh": 0
+  }
+ ],
+ "buildings": [
+  {
+   "id": "SHOP",
+   "units": "^(X|Z|DL|TEST|109A$|F109$|B033A$|B036A$)",
+   "name": "Office / Shop",
+   "kind": "office",
+   "rect": {
+    "E": -33.4,
+    "N": -16.9,
+    "L": 21.9,
+    "W": 17.1,
+    "bearing": 136.9
+   },
+   "height": 4.5,
+   "floors": 1,
+   "roof": "red",
+   "doorSide": "ne",
+   "inferred": false,
+   "note": "Office / shop at the Adams Ave entry (footprint: Microsoft building outline, matches the customer map and imagery). Z001 (the shop bay) and Z002 are placed from the customer map. X001, the DL cells, TEST1 and the size-less Cubby records 109A, F109, B033A and B036A are not on any plan and are parked here schematically."
+  }
+ ],
+ "zones": [
+  {
+   "id": "LOT",
+   "name": "RV Lot",
+   "kind": "rv-lot",
+   "letters": [
+    "A",
+    "B",
+    "C",
+    "D",
+    "E",
+    "F",
+    "H",
+    "J"
+   ],
+   "parcels": [
+    "909060071"
+   ],
+   "inset": 4
+  }
+ ],
+ "sources": [
+  "Parcel: Riverside County Assessor OpenData parcels (APN 909060071, 3.85 ac)",
+  "Stall rows A-J and F: Greens Storage Murrieta customer map v8 (2024-06-20, Egnyte /Shared/--Asset Management/03 - GS Murrieta/Property Plans & Maps/Customer Map GSM), georeferenced to the parcel and checked against Esri imagery; angled stalls are drawn as their along-row pitch with the Cubby depth",
+  "Office / shop footprint: Microsoft Open Buildings outline; Z001 / Z002 from the customer map",
+  "Units: Cubby FMS inventory export, Oct 11, 2026 (175 active units)"
+ ],
+ "runs": [
+  {
+   "note": "H row along the southeast fence, H122 at the Adams Ave (southwest) end",
+   "at": [
+    -46.86,
+    -60.56
+   ],
+   "dir": "+u",
+   "depth": "-v",
+   "width": 3.0,
+   "units": [
+    "H122-H154"
+   ],
+   "angle": 120,
+   "zone": "LOT"
+  },
+  {
+   "note": "E row, island between the H and D aisles, E094 at the Adams Ave end",
+   "at": [
+    -12.69,
+    -47.64
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 3.59,
+   "units": [
+    "E094-E111"
+   ],
+   "angle": 120,
+   "zone": "LOT"
+  },
+  {
+   "note": "D row, southeast face of the center island",
+   "at": [
+    -15.28,
+    -29.22
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 3.0,
+   "units": [
+    "D072-D092"
+   ],
+   "angle": 60,
+   "zone": "LOT"
+  },
+  {
+   "note": "C row, northwest face of the center island, back to back with D",
+   "at": [
+    -11.48,
+    -16.36
+   ],
+   "dir": "+u",
+   "depth": "-v",
+   "width": 3.0,
+   "units": [
+    "C050-C070"
+   ],
+   "angle": 120,
+   "zone": "LOT"
+  },
+  {
+   "note": "B row (50 ft stalls), between the C and A aisles",
+   "at": [
+    -10.85,
+    -5.13
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 3.58,
+   "units": [
+    "B032-B049"
+   ],
+   "angle": 120,
+   "zone": "LOT"
+  },
+  {
+   "note": "A row along the northwest fence, A001 beside the office",
+   "at": [
+    -23.25,
+    15.58
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 3.59,
+   "units": [
+    "A001-A024"
+   ],
+   "angle": 70,
+   "zone": "LOT"
+  },
+  {
+   "note": "J column along the northeast fence, J155 at the northwest end",
+   "at": [
+    72.97,
+    9.75
+   ],
+   "dir": "-v",
+   "depth": "+u",
+   "width": 3.03,
+   "units": [
+    "J155-J164"
+   ],
+   "angle": 59,
+   "zone": "LOT"
+  },
+  {
+   "note": "J column southeast of the dump station, J168 nearest it, J173 at the southeast end",
+   "at": [
+    73.04,
+    -29.38
+   ],
+   "dir": "-v",
+   "depth": "+u",
+   "width": 3.03,
+   "units": [
+    "J168",
+    "J169",
+    "J170",
+    "J172",
+    "J173"
+   ],
+   "angle": 59,
+   "zone": "LOT"
+  },
+  {
+   "note": "F111 / F111A, the pair beside the Adams Ave landscape strip",
+   "at": [
+    -55.93,
+    -37.98
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 3.02,
+   "units": [
+    "F111",
+    "F111A"
+   ],
+   "zone": "LOT"
+  },
+  {
+   "note": "F112, angled stall in the F island by the Adams Ave entry",
+   "at": [
+    -49.33,
+    -48.81
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "angle": 120,
+   "units": [
+    "F112"
+   ],
+   "zone": "LOT"
+  },
+  {
+   "note": "F113, angled stall in the F island by the Adams Ave entry",
+   "at": [
+    -45.71,
+    -48.96
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "angle": 120,
+   "units": [
+    "F113"
+   ],
+   "zone": "LOT"
+  },
+  {
+   "note": "F114, angled stall in the F island by the Adams Ave entry",
+   "at": [
+    -41.07,
+    -49.04
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "angle": 120,
+   "units": [
+    "F114"
+   ],
+   "zone": "LOT"
+  },
+  {
+   "note": "F115, angled stall in the F island by the Adams Ave entry",
+   "at": [
+    -36.85,
+    -49.0
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "angle": 120,
+   "units": [
+    "F115"
+   ],
+   "zone": "LOT"
+  },
+  {
+   "note": "F116, angled stall in the F island by the Adams Ave entry",
+   "at": [
+    -35.54,
+    -43.87
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "angle": 120,
+   "units": [
+    "F116"
+   ],
+   "zone": "LOT"
+  },
+  {
+   "note": "109A / 110A on the map (Cubby F109A, F110A), 45 ft stalls laid along the frame",
+   "at": [
+    -30.03,
+    -36.9
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "units": [
+    "F109A",
+    "F110A"
+   ],
+   "zone": "LOT"
+  },
+  {
+   "note": "109B / 110B on the map (Cubby F109B, F110B)",
+   "at": [
+    -60.54,
+    -36.9
+   ],
+   "dir": "+v",
+   "depth": "+u",
+   "units": [
+    "F109B",
+    "F110B"
+   ],
+   "zone": "LOT"
+  },
+  {
+   "building": "SHOP",
+   "note": "Z001, the 25 x 25 ft shop bay in the northeast part of the office building (customer map)",
+   "at": [
+    7.73,
+    4.22
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "units": [
+    "Z001"
+   ]
+  },
+  {
+   "building": "SHOP",
+   "note": "Z002, small room beside the office (customer map); size-less in Cubby",
+   "at": [
+    4.27,
+    18.45
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "units": [
+    "Z002"
+   ]
+  }
+ ]
 }

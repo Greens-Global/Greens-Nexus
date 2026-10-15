@@ -123,7 +123,7 @@ export default function LeasingFromLedger({ onClose, onCreated, pollMs = POLL_MS
                       <tr key={k} style={p.status === 'set_up' ? { color: 'var(--text-muted)' } : undefined}>
                         <td>{p.status === 'new' ? <input type="checkbox" checked={ticked.has(k)} onChange={() => toggle(k)} aria-label={`Create a lease for ${p.tenantName} at ${p.entityName}`} /> : null}</td>
                         <td>{p.entityName}</td>
-                        <td><div>{p.tenantName}</div><div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{p.customerId}</div></td>
+                        <td>{p.customerId ? <span className="acct-code">{p.customerId}</span> : null}<span>{p.tenantName}</span></td>
                         <td title={(p.accountTitles || []).join(', ')}>{(p.incomeAccounts || []).join(', ')}</td>
                         <td style={num}><Amount value={p.monthlyRent} /></td>
                         <td>{monthLabel(p.firstMonth)}</td>

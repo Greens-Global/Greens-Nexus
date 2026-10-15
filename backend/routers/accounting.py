@@ -447,7 +447,9 @@ def _search_book(book: str | None) -> str | None:
     if not book:
         return None
     b = book.strip().lower()
-    if b == "all" or b in _BOOKS or _USER_BOOK.fullmatch(b):
+    # "both" is the side-by-side statement view - never a book of its own,
+    # here either (10/15: it used to slip through as a user book key).
+    if b == "all" or b in _BOOKS or (b != "both" and _USER_BOOK.fullmatch(b)):
         return b
     raise HTTPException(status_code=400, detail="book must be all, accrual, cash or a book the accounting app lists")
 

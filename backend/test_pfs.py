@@ -619,6 +619,8 @@ class PfsTests(unittest.TestCase):
         self._line(pid, section="asset", category="bank", label="Chase", manualValue=9000, ownershipPct=50)
         self._line(pid, section="asset", category="bank", label="Citi", manualValue=1000, ownershipPct=100)
         self._line(pid, section="asset", category="investment", label="Schwab", manualValue=5000)
+        # Oct 14 (Vinod): Business Interests roll into the Investments line with the investment accounts.
+        self._line(pid, section="asset", category="business", label="Greens LLC", manualValue=2000)
         self._line(pid, section="liability", category="credit_card", label="Amex", manualValue=700)
         self._line(pid, section="liability", category="loc", label="Chase LOC", manualValue=300)
         # Contingent is not offered for a new line since Oct 7; one kept from before still prints.
@@ -634,10 +636,10 @@ class PfsTests(unittest.TestCase):
         st = self.client.get(f"/pfs/profiles/{pid}/statement?asof=2026-09-28").json()
         c = st["condition"]
         self.assertEqual([x["key"] for x in c["assets"]],
-                         ["cash", "bank", "securities", "retirement", "real_estate", "business", "notes_receivable", "insurance", "vehicles", "personal", "other"])
+                         ["cash", "bank", "investments", "retirement", "real_estate", "notes_receivable", "insurance", "vehicles", "personal", "other"])
         a = {x["key"]: x for x in c["assets"]}
-        self.assertEqual((a["cash"]["amount"], a["bank"]["amount"], a["bank"]["ownership"], a["securities"]["amount"], a["real_estate"]["amount"], a["vehicles"]["amount"]),
-                         (1000.0, 5500.0, "Various", 5000.0, 1_000_000.0, 0.0))
+        self.assertEqual((a["cash"]["amount"], a["bank"]["amount"], a["bank"]["ownership"], a["investments"]["amount"], a["real_estate"]["amount"], a["vehicles"]["amount"]),
+                         (1000.0, 5500.0, "Various", 7000.0, 1_000_000.0, 0.0))
         liab = {x["key"]: x["amount"] for x in c["liabilities"]}
         self.assertEqual(liab, {"notes_banks": 300.0, "mortgages": 600_000.0, "credit_cards": 700.0, "auto": 0.0, "other": 0.0})
         # The first page agrees with the statement; a guarantee is listed, not owed.
@@ -648,6 +650,21 @@ class PfsTests(unittest.TestCase):
         self.assertEqual(c["contingentAnswer"], {"answer": "", "note": ""})
         self.assertEqual(c["income"], {"year": "2026", "lines": [{"key": "rental", "label": "Net Rental Income (Schedule E)", "amount": 8850.0}], "total": 8850.0})
 
+    def test_guarantors_keep_the_order_they_are_put_in(self):
+        """Neil, 10/14: "be able to move Guarantors up and down on the list
+        dropdown at the top". Placed files lead in their order, the rest follow
+        by name; editors only."""
+        a = self._profile(name="Zed Order Test")["id"]
+        b = self._profile(name="Amy Order Test")["id"]
+        mine = lambda: [p["id"] for p in self.client.get("/pfs/profiles").json() if p["id"] in (a, b)]  # noqa: E731
+        self.assertEqual(mine(), [b, a])
+        r = self.client.put("/pfs/profile-order", json={"ids": [a, b]})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(mine(), [a, b])
+        self.assertEqual(self.client.put("/pfs/profile-order", json={"ids": ["nope"]}).status_code, 404)
+        self.assertEqual(self.client.put("/pfs/profile-order", json={"ids": []}).status_code, 400)
+        _as(VIEWER)
+        self.assertEqual(self.client.put("/pfs/profile-order", json={"ids": [b, a]}).status_code, 403)
     def test_where_a_statement_went_is_audited(self):
         pid = self._profile()["id"]
         self._line(pid, section="asset", category="personal", label="Household", manualValue=50000)

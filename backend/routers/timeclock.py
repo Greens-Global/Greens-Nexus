@@ -435,9 +435,18 @@ def _notify_out_of_fence(db: Session, emp, row, geo: dict) -> None:
     site = geo.get("work_site_name") or "the nearest location"
     dist = int(geo.get("distance_m") or 0)
     when = _fmt_local(row.at, row.tz_offset_min or 0)
-    _hr_notify(db, emp.manager_email, "Out-of-fence punch",
-               f"{who} {verb} at {when}, {_us_distance(dist)} from {site} - outside the geofence. Open the timecard to review.",
-               ref_id=row.id, action=_timecard_action(db, emp.work_email, row.local_date))
+    # One notice per person per day, growing with each punch outside the
+    # fence (Neil, Oct 14 2026: "spammy" - it was a notice AND an email for
+    # every punch). The email goes with the first of the day only.
+    from notify_rollup import upsert_rollup
+    first = upsert_rollup(
+        db, recipient=emp.manager_email, key=f"fence:{(emp.work_email or '').lower()}:{row.local_date}",
+        title=f"Out-of-fence punches - {who}",
+        line=f"{verb.capitalize()} at {when}, {_us_distance(dist)} from {site}.",
+        action=_timecard_action(db, emp.work_email, row.local_date),
+        company=notification_company(db, emp.manager_email))
+    if not first:
+        return
     try:
         from graph_mail import graph_configured, send_mail, DEFAULT_FROM_EMAIL, GraphMailError  # noqa: F401
     except Exception:
@@ -1827,7 +1836,11 @@ def _team_alert_recipients(db: Session, employee_email: str, actor_email: str = 
     # Admins hear only when there is neither (Oct 2, Shifts QA B4-34: every
     # owner was bell-ed on every request). Oversight alerts (a timecard edit
     # by the manager themself) keep reaching the owners.
-    if not owners_as_fallback or not out:
+    # "Nobody else" is judged after the person who acted is taken out: a
+    # manager editing their own report's card, with no HR contact on file,
+    # still has to reach someone (the Aug 11 oversight rule).
+    others = [e for e in out if e not in (actor_email, employee_email)]
+    if not owners_as_fallback or not others:
         for r in db.query(NexusRole).filter(NexusRole.role == "owner").all():
             e = (r.email or "").strip().lower()
             if e and e not in out:
@@ -1884,12 +1897,34 @@ def _notify_timecard_change(db: Session, *, employee_email: str, actor_email: st
                             body: str, ref_id: str = "", local_date: str = "") -> None:
     """Oversight for DIRECT timecard edits (Visesh, Aug 11): a punch changed
     without going through a request/approval must still be seen by someone
-    OTHER than the person who changed it - the employee's manager and the
-    Global Admins (see _team_alert_recipients), so a manager's edit to their
-    own report still reaches a Global Admin."""
-    _notify_team_alert(db, employee_email=employee_email, actor_email=actor_email,
-                       title="Timecard edited", body=body, ref_id=ref_id,
-                       action=_timecard_action(db, employee_email, local_date))
+    OTHER than the person who changed it - the employee's manager and their
+    company's HR contact.
+
+    Global Admins hear only about their OWN direct reports (as the manager),
+    or when there is no one else to tell (Neil, Oct 14 2026: "Global admins
+    should not get a copy of every timecard edit, only their direct
+    reports"). And ONE notice per person per day per recipient, growing with
+    each edit (notify_rollup), not one per punch - ten fixes used to be ten
+    notices for every overseer."""
+    from notify_rollup import upsert_rollup
+    em = (employee_email or "").strip().lower()
+    key = f"tc-edit:{em}:{local_date or ''}"
+    title = f"Timecard edited - {_display_name(db, em)}"
+    action = _timecard_action(db, employee_email, local_date)
+    company = notification_company(db, employee_email, actor_email)
+    for recipient in _team_alert_recipients(db, employee_email, actor_email, owners_as_fallback=True):
+        upsert_rollup(db, recipient=recipient, key=key, title=title, line=body, action=action,
+                      company=company, requested_by=actor_email)
+
+
+def _tell_employee_timecard(db: Session, employee_email: str, local_date: str, line: str) -> None:
+    """The employee's side of a direct edit: one "Your timecard was changed"
+    notice per day, growing with each change, not one per punch."""
+    from notify_rollup import upsert_rollup
+    em = (employee_email or "").strip().lower()
+    upsert_rollup(db, recipient=em, key=f"tc-you:{em}:{local_date or ''}", title="Your timecard was changed",
+                  line=line, action={"view": "timeclock", "sub": "timecard"},
+                  company=notification_company(db, em))
 
 
 @router.patch("/punches/{punch_id}")
@@ -1941,11 +1976,9 @@ def adjust_punch(punch_id: str, body: PunchAdjust,
     # and symmetric with the employee-edit -> approver flow. Skip a manager editing
     # their own punch (no self-notification).
     if row.employee_email != user["email"]:
-        _hr_notify(db, row.employee_email, "Timecard corrected",
-                   f"Your {row.kind.replace('_', ' ')} punch on {row.local_date} was corrected by a manager"
-                   + (f": {body.adjust_note.strip()[:200]}" if body.adjust_note else ".")
-                   + " - open your timecard to review.",
-                   ref_id=row.id, action={"view": "timeclock", "sub": "timecard"})
+        _tell_employee_timecard(db, row.employee_email, row.local_date,
+                                f"Your {row.kind.replace('_', ' ')} punch on {_us_day(row.local_date)} was corrected by a manager"
+                                + (f": {body.adjust_note.strip()[:200]}" if body.adjust_note else "."))
     # And the oversight side (Visesh, Aug 11): the approver/HR/global admins
     # hear about EVERY direct edit, not just the person it happened to.
     what = "voided" if body.void else ("restored" if body.void is not None else "edited")
@@ -1998,10 +2031,8 @@ def manager_add_punch(body: ManagerPunchIn, user: dict = Depends(require_team_wr
     # learns a punch appeared on their card, and the approver/HR/global admins
     # learn who put it there.
     if row.employee_email != user["email"]:
-        _hr_notify(db, row.employee_email, "Punch added to your timecard",
-                   f"A {row.kind.replace('_', ' ')} punch on {_us_day(row.local_date)} was added to your "
-                   "timecard by a manager - open your timecard to review.",
-                   ref_id=row.id, action={"view": "timeclock", "sub": "timecard"})
+        _tell_employee_timecard(db, row.employee_email, row.local_date,
+                                f"A {row.kind.replace('_', ' ')} punch on {_us_day(row.local_date)} was added by a manager.")
     _notify_timecard_change(
         db, employee_email=row.employee_email, actor_email=user["email"],
         local_date=row.local_date,
@@ -2101,8 +2132,39 @@ def export_csv(start: str = "", end: str = "", mode: str = "summary",
                              headers={"Content-Disposition": f"attachment; filename={fname}"})
 
 
+def _export_scope(db: Session, user: dict, company: str = ""):
+    """The caller's team scope (_visible_emails), narrowed to one company's
+    people when `company` (an HrEntity id) is given - the Import Hub's company
+    picker (Neil, 10/15)."""
+    scope = _visible_emails(db, user)
+    company = (company or "").strip()
+    if not company:
+        return scope
+    co = {(e.work_email or "").lower() for e in db.query(NexusEmployee).filter(NexusEmployee.company == company).all() if e.work_email}
+    return co if scope is None else set(scope) & co
+
+
+def _approved_emails(db: Session, rows: list, start: str, end: str) -> set:
+    """Who is approved for the period: a manager approval or HR finalization of
+    the exact period, or every worked day approved one by one - the same rule as
+    the summary CSV's Approved column. An employee's own signature alone is not
+    an approval."""
+    ok = {a.employee_email for a in db.query(TimeApproval)
+          .filter(TimeApproval.period_start == start, TimeApproval.period_end == end,
+                  TimeApproval.revoked == 0).all() if (a.kind or "manager") != "employee_sign"}
+    day_ok = {(a.employee_email, a.period_start) for a in db.query(TimeApproval)
+              .filter(TimeApproval.revoked == 0,
+                      TimeApproval.period_start == TimeApproval.period_end,
+                      TimeApproval.period_start >= (start or "0"),
+                      TimeApproval.period_end <= (end or "9")).all() if (a.kind or "manager") != "employee_sign"}
+    for r in rows:
+        if r["days"] and all((r["email"], d) in day_ok for d in r["days"]):
+            ok.add(r["email"])
+    return ok
+
+
 @router.get("/export.iif")
-def export_iif(start: str = "", end: str = "",
+def export_iif(start: str = "", end: str = "", company: str = "", approved_only: bool = False,
                user: dict = Depends(require_team_read_pay),
                _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
     """QuickBooks Desktop time import (IIF TIMEACT rows) - Charmi keys every
@@ -2111,9 +2173,14 @@ def export_iif(start: str = "", end: str = "",
     in decimal hours from the SAME engine as the timecard, so what QuickBooks
     imports is exactly what was approved. EMP must match the employee's name in
     QuickBooks; the payroll item names (Regular Pay / Overtime Pay / Double-time
-    Pay / Sick Pay / Vacation Pay) must exist in QuickBooks or be mapped at import."""
-    scope = _visible_emails(db, user)
+    Pay / Sick Pay / Vacation Pay) must exist in QuickBooks or be mapped at import.
+    `company` keeps one company's people; `approved_only` keeps the approved
+    time sheets (_approved_emails) - both optional (Import Hub, Neil 10/15)."""
+    scope = _export_scope(db, user, company)
     rows = _team_rows(db, start, end, only_emails=scope)
+    if approved_only:
+        ok = _approved_emails(db, rows, start, end)
+        rows = [r for r in rows if r["email"] in ok]
 
     def _mdy(ds: str) -> str:
         y, m, d = ds.split("-")
@@ -2153,6 +2220,41 @@ def export_iif(start: str = "", end: str = "",
     fname = f"timeclock-{start or 'all'}-to-{end or 'now'}.iif"
     return PlainTextResponse(body, media_type="application/octet-stream",
                              headers={"Content-Disposition": f"attachment; filename={fname}"})
+
+
+@router.get("/export-hours")
+def export_hours(start: str = "", end: str = "", company: str = "", approved_only: bool = False,
+                 user: dict = Depends(require_team_read_pay),
+                 _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
+    """The period's hours per hourly employee by pay class, off the SAME engine
+    as the timecard and the IIF - for Accounting > Import Hub's Payroll Hours
+    card (Neil, 10/15: "Payroll export to QB is not there"), which previews
+    them, then downloads the QuickBooks IIF (export.iif with the same filters)
+    or the Intacct statistical hours import built in the browser. Hours only,
+    no pay; payroll/HR callers only (require_team_read_pay) behind step-up,
+    like the other payroll files."""
+    if not start or not end:
+        raise HTTPException(400, "start and end are required")
+    scope = _export_scope(db, user, company)
+    rows = _team_rows(db, start, end, only_emails=scope)
+    ok = _approved_emails(db, rows, start, end)
+    emps = {(e.work_email or "").lower(): e for e in db.query(NexusEmployee).all() if e.work_email}
+    out = []
+    for r in rows:
+        approved = r["email"] in ok
+        if approved_only and not approved:
+            continue
+        t = _compute_timecard(db, r["email"], start, end)["totals"]
+        emp = emps.get(r["email"])
+        def h(k, t=t):
+            return round(float(t.get(k) or 0) / 60, 2)
+        out.append({"email": r["email"], "name": r["name"], "approved": approved,
+                    "employeeCode": (emp.employee_code if emp else "") or "",
+                    "department": (emp.department if emp else "") or "",
+                    "company": (emp.company if emp else "") or "",
+                    "hours": {"regular": h("regMin"), "overtime": h("otMin"), "doubleTime": h("dtMin"),
+                              "sick": h("sickMin"), "vacation": h("vacationMin"), "personal": h("personalMin")}})
+    return {"start": start, "end": end, "rows": out}
 
 
 # The pay classes an Intacct payroll line is written for, in order, with the
@@ -9085,33 +9187,42 @@ def record_bod(body: BodIn, user: dict = Depends(get_current_user), db: Session 
                   send_error=("" if chan_id else (body.send_error or "")[:300]),
                   created_at=now, html=(body.html or "")[:8000], attempts=0, last_try_at="")
     db.add(row)
-    # A real BOD/EOD (not the "already sent elsewhere" skip marker) notifies the
-    # manager - one notification per employee per day, updated in place so a BOD
-    # then an EOD don't stack into two bell entries (see CLAUDE.md notification rule).
+    # A real BOD/EOD (not the "already sent elsewhere" skip marker) tells the
+    # manager in ONE day report per person, rewritten as the day goes (Neil,
+    # Oct 14 2026): "Beginning of Day - Amy" with her message when she clocks
+    # in, then the same notice becomes "End of Day - Amy" with both messages
+    # when she clocks out - unread again, back at the top.
     if kind in ("bod", "eod") and row.message != "(sent outside Nexus)":
         emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == user["email"]).first()
         if emp and emp.manager_email:
             name = f"{emp.first_name} {emp.last_name}".strip() or user["email"]
-            other = (db.query(TimeBod)
-                     .filter(TimeBod.employee_email == user["email"],
-                             TimeBod.local_date == row.local_date,
-                             TimeBod.kind.in_(("bod", "eod")))
-                     .filter(TimeBod.id != row.id).first())
-            both = other is not None and other.kind != kind
-            body_text = (f"{name} submitted both BOD and EOD for {row.local_date}."
-                         if both else f"{name} submitted their {kind.upper()} for {row.local_date}.")
-            ref_id = f"{user['email']}:{row.local_date}"
-            existing = db.query(NexusNotification).filter(
-                NexusNotification.ref_id == ref_id,
-                NexusNotification.type == "custom_alert",
-                NexusNotification.recipient == emp.manager_email.strip().lower(),
-            ).first()
-            if existing:
-                existing.body = body_text
-                existing.read_by = ""   # a fresh EOD reopens a bell the manager already read
-            else:
-                _hr_notify(db, emp.manager_email, f"Beginning/End of day - {name}", body_text,
-                           ref_id=ref_id, action={"view": "hr", "sub": "hr-people"})
+            day = [r for r in (db.query(TimeBod)
+                               .filter(TimeBod.employee_email == user["email"],
+                                       TimeBod.local_date == row.local_date,
+                                       TimeBod.kind.in_(("bod", "eod")))
+                               .filter(TimeBod.id != row.id).all())
+                   if (r.message or "") != "(sent outside Nexus)"] + [row]
+            tz = body.tz_offset_min or 0
+
+            def _at(r):
+                t = _parse_iso(r.created_at)
+                return (t - timedelta(minutes=tz)).strftime("%I:%M %p").lstrip("0") if t else ""
+
+            def _line(k, label):
+                r = max((x for x in day if x.kind == k), key=lambda x: x.created_at or "", default=None)
+                if not r:
+                    return ""
+                msg = " ".join((r.message or "").split())
+                msg = msg if len(msg) <= 220 else msg[:217].rstrip() + "..."
+                return f"{label}, {_at(r)}: {msg}" if msg else f"{label}, {_at(r)}"
+
+            lines = [x for x in (_line("bod", "Beginning of Day"), _line("eod", "End of Day")) if x]
+            stage = "End of Day" if any(x.kind == "eod" for x in day) else "Beginning of Day"
+            from notify_rollup import upsert_rollup
+            upsert_rollup(db, recipient=emp.manager_email, key=f"{user['email']}:{row.local_date}",
+                          title=f"{stage} - {name}", line="\n".join(lines), replace=True,
+                          action={"view": "hr", "sub": "hr-people"},
+                          company=notification_company(db, emp.manager_email))
     db.commit()
     # One inline delivery attempt so the common case lands in Teams before the
     # toast shows. Sync endpoint = FastAPI threadpool, so blocking HTTP is fine
@@ -9892,3 +10003,350 @@ def cancel_timeoff(req_id: str, user: dict = Depends(get_current_user), db: Sess
         _tell_reports_manager_off(db, row, "Your manager's time off is cancelled", "is no longer off")
     db.commit()
     return _ser_timeoff(row, priv=_TimeoffPrivacy(db, user["email"]))
+
+
+# ── Add Time (Neil, Oct 14 2026) ─────────────────────────────────────────────
+# A manager adds a whole shift - or a run of them - for someone who did not
+# clock in right ("Dean forgot all week"). One request, every day judged with
+# the same three guards a single manager punch gets (finalized period, review
+# lock, punch order), a day that cannot take time is SKIPPED with its reason
+# rather than failing the batch, one notice pair instead of one per punch,
+# and a batch id on every punch written together so the whole batch can be
+# undone. The day picker in the modal reads /add-time/days first, so the
+# manager sees what each day already holds before choosing it.
+
+class AddTimeDay(BaseModel):
+    date: str                      # the employee's local date, YYYY-MM-DD
+    in_at: str = ""                # UTC ISO
+    out_at: str = ""               # UTC ISO
+    break_start_at: str = ""       # UTC ISO - an unpaid break inside the shift (optional)
+    break_min: int = 0
+    force: bool = False            # a second segment on a day that already has time
+    tz_offset_min: Optional[int] = None   # this day's own offset (DST can differ across a batch)
+
+
+class AddTimeIn(BaseModel):
+    employee_email: str
+    reason: str
+    days: List[AddTimeDay] = []
+    tz_offset_min: Optional[int] = 0   # the zone the times were typed in (JS getTimezoneOffset)
+    category: Optional[str] = ""       # job / leave type on each in-punch ("Sick Day", "Vacation"...)
+    dry_run: bool = False
+
+
+_ADD_TIME_MAX_DAYS = 31
+
+
+def _add_time_scope(db: Session, user: dict, email: str) -> str:
+    em = (email or "").strip().lower()
+    if not em:
+        raise HTTPException(400, "employee_email is required")
+    scope = _visible_emails(db, user)
+    if scope is not None and em not in scope:
+        raise HTTPException(403, "You can only add time for your own team.")
+    return em
+
+
+def _add_time_day_state(db: Session, email: str, d: str) -> dict:
+    """What a day already holds, in the words the modal shows: `empty`,
+    `needs_out` (an open shift), `needs_in` (a clock-out with no clock-in),
+    `has_time` (closed pairs) or `live` (on the clock right now)."""
+    # The day with its neighbours: an overnight shift's clock-out is dated
+    # the NEXT local day, and _day_summaries pairs across the whole run, so
+    # a normally punched night shift reads as closed time on the day it
+    # started - not as a missing out plus a missing in (same reason
+    # _period_exceptions reads one day past its range).
+    d0 = date.fromisoformat(d)
+    around = _live_punches(db, email, (d0 - timedelta(days=1)).isoformat(), (d0 + timedelta(days=1)).isoformat())
+    summ = _day_summaries(around, _round_min(db), break_cfg=_break_cfg_for(db, email)).get(d, {})
+    flags = set(summ.get("flags", []))
+    own = [p for p in around if p.local_date == d]
+    if _clocked_in_now(db, email) == d:
+        state = "live"
+    elif "missing_out" in flags:
+        state = "needs_out"
+    elif "out_without_in" in flags:
+        state = "needs_in"
+    elif summ.get("workedMin") or any(p.kind == "in" for p in own):
+        state = "has_time"
+    else:
+        state = "empty"
+    ins = [p for p in own if p.kind == "in"]
+    outs = [p for p in own if p.kind == "out"]
+    # The day's closed in/out pairs, so a forced second shift cannot be laid
+    # over time that is already there.
+    pairs, open_in = [], None
+    for p in sorted(around, key=lambda x: x.at or ""):
+        if p.kind == "in":
+            open_in = p
+        elif p.kind == "out" and open_in:
+            # Any shift touching this day - one that started the night
+            # before and ran into it counts too.
+            if open_in.local_date == d or p.local_date == d:
+                pairs.append((open_in.at, p.at))
+            open_in = None
+    return {"state": state, "workedMin": int(summ.get("workedMin") or 0),
+            "firstIn": ins[0].at if ins else "", "lastOut": outs[-1].at if outs else "",
+            "openIn": ins[-1].at if state == "needs_out" and ins else "",
+            "loneOut": outs[0].at if state == "needs_in" and outs else "",
+            "pairs": pairs}
+
+
+def _add_time_lock(db: Session, email: str, d: str, actor: str) -> str:
+    """Why this day cannot take time right now ('' when it can)."""
+    try:
+        _guard_not_finalized(db, email, d)
+        _guard_review(db, email, d, actor)
+    except HTTPException as e:
+        return str(e.detail)
+    return ""
+
+
+def _usual_hours(db: Session, email: str) -> Optional[dict]:
+    """The person's usual shift (their assigned preset), for prefilling."""
+    a = db.query(ShiftAssignment).filter(ShiftAssignment.employee_email == email).first()
+    if not a or not a.shift_id:
+        return None
+    s = db.query(Shift).filter(Shift.id == a.shift_id).first()
+    if not s:
+        return None
+    days = [int(x) for x in str(s.days or "").split(",") if x.strip().isdigit()]
+    return {"start": s.start_hhmm or "09:00", "end": s.end_hhmm or "17:00",
+            "breakMin": int(getattr(s, "break_min", 0) or 0), "days": days,
+            "timezone": s.timezone or "", "name": s.name or ""}
+
+
+@router.get("/add-time/days")
+def add_time_days(email: str, start: str, end: str, user: dict = Depends(require_team_write),
+                  db: Session = Depends(get_db)):
+    """One row per day of [start, end] for the Add Time picker: what the day
+    holds, whether it is locked, the published shift or usual hours to
+    prefill from, and approved time off / a company holiday to warn about."""
+    em = _add_time_scope(db, user, email)
+    try:
+        d0, d1 = date.fromisoformat(start[:10]), date.fromisoformat(end[:10])
+    except ValueError:
+        raise HTTPException(400, "start and end must be YYYY-MM-DD")
+    if d1 < d0:
+        d0, d1 = d1, d0
+    if (d1 - d0).days >= 62:
+        raise HTTPException(400, "Pick a range of two months or less.")
+    shifts = {r.work_date: r for r in db.query(ScheduledShift)
+              .filter(ScheduledShift.employee_email == em, ScheduledShift.published == 1,
+                      ScheduledShift.work_date >= d0.isoformat(), ScheduledShift.work_date <= d1.isoformat()).all()}
+    offs = (db.query(TimeOffRequest)
+            .filter(TimeOffRequest.employee_email == em, TimeOffRequest.status == "approved",
+                    TimeOffRequest.start_date <= d1.isoformat(), TimeOffRequest.end_date >= d0.isoformat()).all())
+    holidays = _company_holidays_for_employee(db, em, d0.isoformat(), d1.isoformat())
+    usual = _usual_hours(db, em)
+    out = []
+    d = d0
+    while d <= d1:
+        ds = d.isoformat()
+        st = _add_time_day_state(db, em, ds)
+        sh = shifts.get(ds)
+        off = next((o for o in offs if (o.start_date or "") <= ds <= (o.end_date or "")), None)
+        usual_today = usual if usual and (not usual["days"] or d.isoweekday() in usual["days"]) else None
+        out.append({
+            "date": ds, **{k: v for k, v in st.items() if k != "pairs"},
+            "locked": _add_time_lock(db, em, ds, user["email"]),
+            "shift": ({"start": sh.start_hhmm, "end": sh.end_hhmm, "breakMin": int(getattr(sh, "break_min", 0) or 0),
+                       "label": sh.label or ""} if sh else None),
+            "usual": ({"start": usual_today["start"], "end": usual_today["end"], "breakMin": usual_today["breakMin"]}
+                      if usual_today else None),
+            "timeOff": (off.type or "other") if off else "",
+            "holiday": (holidays.get(ds) or {}).get("name", ""),
+        })
+        d += timedelta(days=1)
+    return {"email": em, "name": _display_name(db, em), "days": out,
+            "timezone": (usual or {}).get("timezone", "")}
+
+
+def _add_time_plan(db: Session, em: str, body: AddTimeIn, actor: str) -> list:
+    """Judge every requested day: what will be written, or why it is skipped."""
+    seen, plan, extra = set(), [], []
+    for day in sorted(body.days, key=lambda x: x.date or ""):
+        ds = (day.date or "")[:10]
+        try:
+            date.fromisoformat(ds)
+        except ValueError:
+            raise HTTPException(400, f"Bad date: {day.date!r}")
+        if ds in seen:
+            continue
+        seen.add(ds)
+        row = {"date": ds, "action": "skip", "reason": "", "inAt": "", "outAt": "", "breakMin": 0, "minutes": 0}
+        plan.append(row)
+        st = _add_time_day_state(db, em, ds)
+        row["state"] = st["state"]
+        lock = _add_time_lock(db, em, ds, actor)
+        if lock:
+            row["reason"] = lock
+            continue
+        if st["state"] == "live":
+            row["reason"] = "On the clock right now - the shift has not ended."
+            continue
+        t_in, t_out = _parse_iso(day.in_at), _parse_iso(day.out_at)
+        tz = int(day.tz_offset_min if day.tz_offset_min is not None else (body.tz_offset_min or 0))
+        row["tz"] = tz
+        if st["state"] == "needs_out":
+            if not t_out:
+                row["reason"] = "This day needs a clock-out time."
+                continue
+            open_in = _parse_iso(st["openIn"])
+            if open_in and t_out <= open_in:
+                row["reason"] = f"The clock-out must be after the open clock-in ({_fmt_local(st['openIn'], tz)})."
+                continue
+            if open_in and (t_out - open_in) > timedelta(hours=16):
+                row["reason"] = "A shift longer than 16 hours cannot be closed in one go."
+                continue
+            if _local_date(day.out_at, tz) not in (ds, (date.fromisoformat(ds) + timedelta(days=1)).isoformat()):
+                row["reason"] = "The clock-out is not on this date (or the next morning) in the employee's time zone."
+                continue
+            row.update(action="fill_out", inAt=st["openIn"], outAt=day.out_at[:19],
+                       minutes=int((t_out - open_in).total_seconds() // 60) if open_in else 0)
+            writes = [("out", day.out_at[:19])]
+        elif st["state"] == "needs_in":
+            if not t_in:
+                row["reason"] = "This day needs a clock-in time."
+                continue
+            lone_out = _parse_iso(st["loneOut"])
+            if lone_out and t_in >= lone_out:
+                row["reason"] = f"The clock-in must be before the clock-out ({_fmt_local(st['loneOut'], tz)})."
+                continue
+            if lone_out and (lone_out - t_in) > timedelta(hours=16):
+                row["reason"] = "A shift longer than 16 hours cannot be added in one go."
+                continue
+            if _local_date(day.in_at, tz) != ds:
+                row["reason"] = "The clock-in is not on this date in the employee's time zone."
+                continue
+            row.update(action="fill_in", inAt=day.in_at[:19], outAt=st["loneOut"],
+                       minutes=int((lone_out - t_in).total_seconds() // 60) if lone_out else 0)
+            writes = [("in", day.in_at[:19])]
+        else:
+            if st["state"] == "has_time" and not day.force:
+                row["reason"] = f"Already has {st['workedMin'] // 60}h {st['workedMin'] % 60:02d}m - add anyway to put a second shift on this day."
+                continue
+            if not t_in or not t_out:
+                row["reason"] = "Both a clock-in and a clock-out time are needed."
+                continue
+            if t_out <= t_in:
+                row["reason"] = "The clock-out must be after the clock-in."
+                continue
+            if (t_out - t_in) > timedelta(hours=16):
+                row["reason"] = "A shift longer than 16 hours cannot be added in one go."
+                continue
+            if _local_date(day.in_at, tz) != ds:
+                row["reason"] = "The clock-in is not on this date in the employee's time zone."
+                continue
+            # Shifts already on the card, and ones planned earlier in this batch.
+            planned = [(a.at, b.at) for a, b in zip(extra, extra[1:]) if a.kind == "in" and b.kind == "out"]
+            clash = next((pr for pr in st.get("pairs", []) + planned
+                          if (_parse_iso(pr[0]) or t_in) < t_out and (_parse_iso(pr[1]) or t_out) > t_in), None)
+            if clash:
+                row["reason"] = f"It overlaps the time already on this day ({_fmt_local(clash[0], tz)} - {_fmt_local(clash[1], tz)})."
+                continue
+            brk = max(0, int(day.break_min or 0))
+            writes = [("in", day.in_at[:19])]
+            if brk:
+                b0 = _parse_iso(day.break_start_at) or (t_in + (t_out - t_in) / 2 - timedelta(minutes=brk // 2))
+                b1 = b0 + timedelta(minutes=brk)
+                if b0 <= t_in or b1 >= t_out:
+                    row["reason"] = "The break has to sit inside the shift."
+                    continue
+                writes += [("break_start", b0.strftime("%Y-%m-%dT%H:%M:%S")), ("break_end", b1.strftime("%Y-%m-%dT%H:%M:%S"))]
+            writes.append(("out", day.out_at[:19]))
+            row.update(action="add", inAt=day.in_at[:19], outAt=day.out_at[:19], breakMin=brk,
+                       minutes=int((t_out - t_in).total_seconds() // 60) - brk)
+        # Every punch is dated by its own time (an overnight clock-out lands
+        # on the next local day), the same as every other write path.
+        writes = [(k, at, _local_date(at, tz)) for k, at in writes]
+        # A punch that lands on the next day (an overnight clock-out) must
+        # not slip into a period that is locked there.
+        later = next((lk for lk in (_add_time_lock(db, em, ld, actor) for _, _, ld in writes if ld != ds) if lk), "")
+        if later:
+            row.update(action="skip", reason=later, minutes=0)
+            continue
+        mine = []
+        try:
+            for kind, at, ld in writes:
+                if kind in ("in", "out"):
+                    _guard_punch_order(db, em, kind=kind, at=at, local_date=ld, extra=extra + mine)
+                mine.append(SimpleNamespace(id=f"new-{ds}-{kind}", kind=kind, at=at, local_date=ld))
+        except HTTPException as e:
+            row.update(action="skip", reason=str(e.detail), minutes=0)
+            continue
+        row["writes"] = writes
+        extra += mine
+    return plan
+
+
+@router.post("/add-time")
+def add_time(body: AddTimeIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    """Write the days the plan admits. `dry_run` answers with the plan only -
+    the modal's preview, so what is shown is exactly what will be written."""
+    em = _add_time_scope(db, user, body.employee_email)
+    reason = (body.reason or "").strip()
+    if len(reason) < 3:
+        raise HTTPException(400, "Say why this time is being added - it goes on every punch.")
+    if not body.days:
+        raise HTTPException(400, "Pick at least one day.")
+    if len(body.days) > _ADD_TIME_MAX_DAYS:
+        raise HTTPException(400, f"Add at most {_ADD_TIME_MAX_DAYS} days at a time.")
+    plan = _add_time_plan(db, em, body, user["email"])
+    doing = [r for r in plan if r["action"] != "skip"]
+    total = sum(r["minutes"] for r in doing)
+    public = [{k: v for k, v in r.items() if k not in ("writes", "tz")} for r in plan]
+    if body.dry_run:
+        return {"dryRun": True, "days": public, "added": len(doing), "totalMin": total}
+    if not doing:
+        return {"batchId": "", "days": public, "added": 0, "totalMin": 0}
+    batch_id = str(uuid.uuid4())
+    now = _now_iso()
+    cat = (body.category or "").strip()[:80]
+    for r in doing:
+        for kind, at, ld in r["writes"]:
+            db.add(TimePunch(id=str(uuid.uuid4()), employee_email=em, kind=kind, at=at,
+                             local_date=ld, tz_offset_min=r.get("tz", int(body.tz_offset_min or 0)), geo_status="no_location",
+                             note=reason[:300], source="manual", category=cat if kind == "in" else "",
+                             created_by=user["email"], created_at=now, batch_id=batch_id))
+    dates = ", ".join(_us_day(r["date"]) for r in doing)
+    hrs = f"{total // 60}h {total % 60:02d}m"
+    n = len(doing)
+    if em != user["email"]:
+        _tell_employee_timecard(db, em, doing[0]["date"],
+                                f"{hrs} over {n} day{'' if n == 1 else 's'} ({dates}) was added by a manager: {reason[:200]}")
+    _notify_timecard_change(
+        db, employee_email=em, actor_email=user["email"], local_date=doing[0]["date"],
+        body=f"{_display_name(db, user['email'])} added {hrs} over {n} day{'' if n == 1 else 's'} ({dates}) "
+             f"to {_display_name(db, em)}'s timecard: {reason[:200]}",
+        ref_id=batch_id)
+    db.commit()
+    return {"batchId": batch_id, "days": public, "added": n, "totalMin": total}
+
+
+@router.post("/add-time/{batch_id}/undo")
+def add_time_undo(batch_id: str, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    """Void every punch an Add Time wrote together. Refused as a whole when any
+    of its days has since been finalized or gone out for signature."""
+    rows = db.query(TimePunch).filter(TimePunch.batch_id == batch_id, TimePunch.voided == 0).all()
+    if not rows:
+        raise HTTPException(404, "Nothing left to undo for this batch.")
+    em = _add_time_scope(db, user, rows[0].employee_email)
+    for ds in sorted({r.local_date for r in rows}):
+        _guard_not_finalized(db, em, ds)
+        _guard_review(db, em, ds, user["email"])
+    now = _now_iso()
+    for r in rows:
+        r.voided = 1
+        r.adjusted_by = user["email"]
+        r.adjusted_at = now
+        r.adjust_note = "Undo of Add Time"
+    dates = ", ".join(_us_day(d) for d in sorted({r.local_date for r in rows}))
+    if em != user["email"]:
+        _tell_employee_timecard(db, em, rows[0].local_date,
+                                f"The time a manager added for {dates} was taken back.")
+    _notify_timecard_change(db, employee_email=em, actor_email=user["email"], local_date=rows[0].local_date,
+                            body=f"{_display_name(db, user['email'])} undid the time added to {_display_name(db, em)}'s timecard for {dates}.",
+                            ref_id=batch_id)
+    db.commit()
+    return {"voided": len(rows)}

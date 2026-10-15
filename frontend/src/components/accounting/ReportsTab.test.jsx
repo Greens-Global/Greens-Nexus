@@ -64,7 +64,10 @@ vi.mock('../../api', () => ({
       { symbol: 'ARJ', title: 'Accounts Receivable', kind: 'ar' }, { symbol: 'STAT', title: 'Units', kind: 'statistical' },
     ] })),
     getAccountingFluxNotes: vi.fn(async () => ({ notes: [{ accountNo: '41100', note: 'New tenant in suite B.' }] })),
+    getAccountingReportBudget: vi.fn(async () => ({ budget_id: 'STD', rows: [{ account_no: '61000', title: 'Repairs', section: 'expense', month: '2026-01', amount: 300 }] })),
+    getAccountingBudget: vi.fn(async () => ({ source: 'none', rows: [] })),
     saveAccountingFluxNote: vi.fn(async (body) => ({ accountNo: body.accountNo, note: body.note, by: 'me', at: '2026-10-02' })),
+    saveAccountingFluxReview: vi.fn(async (body) => ({ accountNo: body.accountNo, note: 'Roof repair last year, one-time.', closed: body.closed, closedBy: body.closed ? 'me' : '', status: body.closed ? 'closed' : 'answered' })),
     egnyteFolder: vi.fn(async (path) => ({ path, folders: [{ name: '2026', path: `${path}/2026` }, { name: 'Lenders', path: `${path}/Lenders` }], files: [] })),
     egnyteCreateFolder: vi.fn(async (path) => ({ path })),
     egnyteUpload: vi.fn(async (folder, file) => ({ path: `${folder}/${file.name}`, webUrl: 'https://greens.egnyte.com/navigate/file/abc' })),
@@ -191,11 +194,22 @@ describe('ReportsTab controls', () => {
     await screen.findByText('Rental Income');
     const report = screen.getByLabelText('Report');
     expect(report.tagName).toBe('SELECT');
-    expect([...report.options].map((o) => o.textContent)).toEqual(['Income Statement', 'Balance Sheet', 'Trial Balance', 'General Ledger', 'Cash Position', 'Flux Analysis', 'Statement of Cash Flows']);
+    expect([...report.options].map((o) => o.textContent)).toEqual(['Income Statement', 'Balance Sheet', 'Trial Balance', 'General Ledger', 'Cash Position', 'Flux Analysis', 'Statement of Cash Flows', 'Actual vs Budget']);
     expect(screen.queryByText('Profit & Loss')).toBeNull();
     expect(screen.queryByRole('button', { name: /refresh/i })).toBeNull();
     expect(screen.queryByText(/add filter/i)).toBeNull();
-    expect(screen.getByRole('heading', { name: 'Income Statement' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Income Statement (Accrual Book)' })).toBeTruthy();
+  });
+
+  it('opens the statement picked in the Reporting menu and tells the menu when another is picked here (Oct 14)', async () => {
+    const onReportChange = vi.fn();
+    const { rerender } = render(<ReportsTab report="balance-sheet" onReportChange={onReportChange} />);
+    expect(screen.getByLabelText('Report').value).toBe('balance-sheet');
+    rerender(<ReportsTab report="general-ledger" onReportChange={onReportChange} />);
+    await waitFor(() => expect(screen.getByLabelText('Report').value).toBe('general-ledger'));
+    expect(onReportChange).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText('Report'), { target: { value: 'trial-balance' } });
+    await waitFor(() => expect(onReportChange).toHaveBeenCalledWith('trial-balance'));
   });
 
   it('reads the cash book, and both books side by side', async () => {
@@ -370,7 +384,7 @@ describe('ReportsTab controls', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Accounts' }));
     // Every account of the statement, under its section.
-    expect(within(screen.getByRole('listbox', { name: 'Accounts' })).getAllByRole('option').map((o) => o.textContent)).toEqual(['Rental Income41000', 'Parking Income41100', 'Repairs61000']);
+    expect(within(screen.getByRole('listbox', { name: 'Accounts' })).getAllByRole('option').map((o) => o.textContent)).toEqual(['41000Rental Income', '41100Parking Income', '61000Repairs']);
     fireEvent.click(screen.getByRole('option', { name: /Repairs/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
     await waitFor(() => expect(screen.queryByText('Rental Income')).toBeNull());
@@ -494,13 +508,13 @@ describe('ReportsTab controls', () => {
     await screen.findByText('Old Income (H)');
     fireEvent.click(screen.getByRole('button', { name: 'Accounts' }));
     const names = () => within(screen.getByRole('listbox', { name: 'Accounts' })).getAllByRole('option').map((o) => o.textContent);
-    expect(names()).toEqual(['Rental Income41000', 'Parking Income41100', 'Repairs61000']);
+    expect(names()).toEqual(['41000Rental Income', '41100Parking Income', '61000Repairs']);
     expect(within(screen.getByRole('listbox', { name: 'Accounts' })).queryByText(/hidden/i)).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
     fireEvent.click(screen.getByRole('button', { name: /Customize/ }));
     fireEvent.click(screen.getByLabelText(/Show historical accounts/i));
     fireEvent.click(screen.getByRole('button', { name: 'Accounts' }));
-    expect(names()).toEqual(['Rental Income41000', 'Parking Income41100', 'Old Income (H)49000', 'Repairs61000']);
+    expect(names()).toEqual(['41000Rental Income', '41100Parking Income', '49000Old Income (H)', '61000Repairs']);
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
     // The Filters lists follow the same switch.
     fireEvent.click(screen.getByRole('button', { name: 'Filters' }));
@@ -603,14 +617,16 @@ describe('ReportsTab controls', () => {
     await screen.findByText('Rental Income');
     fireEvent.change(screen.getByLabelText('Report'), { target: { value: 'flux' } });
     await screen.findByRole('columnheader', { name: 'Variance $' });
-    expect(screen.getAllByRole('columnheader').map((h) => h.textContent).slice(3)).toEqual(['Variance $', 'Variance %', 'Flag', 'Explanation']);
+    expect(screen.getAllByRole('columnheader').map((h) => h.textContent).slice(3)).toEqual(['Variance $', 'Variance %', 'Review', 'Explanation']);
     const repairs = screen.getByText('Repairs').closest('tr');
     expect(repairs.className).toContain('acct-flag');
     expect([...repairs.querySelectorAll('td.acct-num')].map((c) => c.textContent)).toEqual(['400.00', '6,000.00', '(5,600.00)', '(93.3%)']);
-    expect(within(repairs).getByText('Review')).toBeTruthy();
+    expect(within(repairs).getByText('Open')).toBeTruthy();
     // Rental Income moved by nothing: no flag.
     expect(screen.getByText('Rental Income').closest('tr').className).not.toContain('acct-flag');
-    expect(screen.getByLabelText('Summary').textContent).toContain('Flagged 1 to review · 0 explained');
+    // Parking Income is not flagged but has an explanation: Answered.
+    await screen.findByText('New tenant in suite B.');
+    expect(screen.getByLabelText('Summary').textContent).toContain('Review 1 Open · 1 Answered · 0 Closed');
     // The kept explanation shows; a new one is written in the cell itself (item 26a), no dialog.
     await screen.findByText('New tenant in suite B.');
     fireEvent.click(within(repairs).getByRole('button', { name: /Add explanation for 61000/ }));
@@ -622,14 +638,35 @@ describe('ReportsTab controls', () => {
     expect(api.saveAccountingFluxNote.mock.calls[0][0]).toMatchObject({ entity: 'all', accountNo: '61000', note: 'Roof repair last year, one-time.' });
     expect(api.saveAccountingFluxNote.mock.calls[0][0].period).toMatch(/^\d{4}-\d{2}-\d{2}_\d{4}-\d{2}-\d{2}$/);
     await screen.findByText('Roof repair last year, one-time.');
-    // Explained = answered (item 26b): the flag reads Explained, still a flagged line.
+    // A comment answers the review (Charmi, 10/15), still a flagged line.
     const done = screen.getByText('Repairs').closest('tr');
-    expect(within(done).getByText('Explained')).toBeTruthy();
-    expect(within(done).queryByText('Review')).toBeNull();
+    expect(within(done).getByText('Answered')).toBeTruthy();
+    expect(within(done).queryByText('Open')).toBeNull();
     expect(done.className).toContain('acct-flag');
-    expect(screen.getByLabelText('Summary').textContent).toContain('Flagged 0 to review · 1 explained');
+    expect(screen.getByLabelText('Summary').textContent).toContain('Review 0 Open · 2 Answered · 0 Closed');
+    // The reviewer closes it; the Review Status filter shows one state at a time.
+    fireEvent.click(within(done).getByRole('button', { name: /Close the review of 61000/ }));
+    await waitFor(() => expect(within(screen.getByText('Repairs').closest('tr')).getByText('Closed')).toBeTruthy());
+    expect(api.saveAccountingFluxReview.mock.calls[0][0]).toMatchObject({ entity: 'all', accountNo: '61000', closed: true });
+    const status = screen.getByLabelText('Review Status');
+    expect([...status.options].map((o) => o.textContent)).toEqual(['Review: All Lines', 'Flagged (1)', 'Open (0)', 'Answered (1)', 'Closed (1)']);
+    const pnlReads = api.getAccountingPnl.mock.calls.length;
+    fireEvent.change(status, { target: { value: 'closed' } });
+    await waitFor(() => expect(screen.queryByText('Parking Income')).toBeNull());
+    expect(screen.getByText('Repairs')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Remove Review: Closed' })).toBeTruthy();
+    fireEvent.change(status, { target: { value: 'answered' } });
+    await waitFor(() => expect(screen.queryByText('Repairs')).toBeNull());
+    expect(screen.getByText('Parking Income')).toBeTruthy();
+    // A view filter: the ledger is not read again.
+    await new Promise((r) => setTimeout(r, 300));
+    expect(api.getAccountingPnl.mock.calls.length).toBe(pnlReads);
+    fireEvent.change(status, { target: { value: 'all' } });
+    await screen.findByText('Repairs');
+    fireEvent.click(within(screen.getByText('Repairs').closest('tr')).getByRole('button', { name: /Reopen the review of 61000/ }));
+    await waitFor(() => expect(within(screen.getByText('Repairs').closest('tr')).getByText('Answered')).toBeTruthy());
     // Esc leaves an edit without saving; the trash asks Remove / Keep in place.
-    fireEvent.click(within(done).getByRole('button', { name: /Edit explanation for 61000/ }));
+    fireEvent.click(within(screen.getByText('Repairs').closest('tr')).getByRole('button', { name: /Edit explanation for 61000/ }));
     const again = within(screen.getByText('Repairs').closest('tr')).getByLabelText('Explanation for 61000 Repairs');
     fireEvent.change(again, { target: { value: 'Changed my mind' } });
     fireEvent.keyDown(again, { key: 'Escape' });
@@ -641,11 +678,64 @@ describe('ReportsTab controls', () => {
     fireEvent.click(within(screen.getByText('Repairs').closest('tr')).getByRole('button', { name: 'Remove' }));
     await waitFor(() => expect(api.saveAccountingFluxNote).toHaveBeenCalledTimes(2));
     expect(api.saveAccountingFluxNote.mock.calls[1][0]).toMatchObject({ accountNo: '61000', note: '' });
-    await waitFor(() => expect(within(screen.getByText('Repairs').closest('tr')).getByText('Review')).toBeTruthy());
+    await waitFor(() => expect(within(screen.getByText('Repairs').closest('tr')).getByText('Open')).toBeTruthy());
     // Customize carries the thresholds; a looser one takes the flag off.
     fireEvent.click(screen.getByRole('button', { name: /Customize/ }));
     fireEvent.change(screen.getByLabelText('Flux variance amount threshold'), { target: { value: '6000' } });
     await waitFor(() => expect(screen.getByText('Repairs').closest('tr').className).not.toContain('acct-flag'));
+  });
+
+  it('filters a Flux by amount with an operator, on the figure picked, without reading the ledger again (Charmi, 10/15)', async () => {
+    const year = new Date().getFullYear();
+    const prior = { ...pnl, sections: [
+      { key: 'revenue', label: 'Revenue', accounts: [{ account_no: '41000', title: 'Rental Income', amount: 1000 }, { account_no: '41100', title: 'Parking Income', amount: 500 }] },
+      { key: 'expense', label: 'Operating Expenses', accounts: [{ account_no: '61000', title: 'Repairs', amount: 6000 }] },
+    ] };
+    api.getAccountingPnl.mockImplementation(async (from) => (from < `${year}-01-01` ? prior : pnl));
+    render(<ReportsTab />);
+    await screen.findByText('Rental Income');
+    fireEvent.change(screen.getByLabelText('Report'), { target: { value: 'flux' } });
+    await screen.findByRole('columnheader', { name: 'Variance $' });
+    const reads = api.getAccountingPnl.mock.calls.length;
+    const target = screen.getByLabelText('Amount to Filter');
+    expect([...target.options].map((o) => o.textContent)).toEqual(['Variance $ (Either Way)', 'Variance $', 'Variance %', 'Current Period', 'Prior Period']);
+    expect([...screen.getByLabelText('Operator for Amount').options].map((o) => o.textContent)).toEqual(['=', '>', '<', '>=', '<=', 'Between']);
+    // Repairs fell by 5,600: a move of 5,000 or more either way.
+    fireEvent.change(screen.getByLabelText('Filter Amount'), { target: { value: '5000' } });
+    await waitFor(() => expect(screen.queryByText('Rental Income')).toBeNull());
+    expect(screen.getByText('Repairs')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Remove Variance $ (Either Way) >= 5000' })).toBeTruthy();
+    // The signed variance: a fall is below zero.
+    fireEvent.change(target, { target: { value: 'var' } });
+    await waitFor(() => expect(screen.queryByText('Repairs')).toBeNull());
+    fireEvent.change(screen.getByLabelText('Operator for Amount'), { target: { value: '<' } });
+    fireEvent.change(screen.getByLabelText('Filter Amount'), { target: { value: '0' } });
+    await screen.findByText('Repairs');
+    // Between takes a second value; the current period's amount.
+    fireEvent.change(target, { target: { value: 'cur' } });
+    fireEvent.change(screen.getByLabelText('Operator for Amount'), { target: { value: 'between' } });
+    fireEvent.change(screen.getByLabelText('Filter Amount'), { target: { value: '450' } });
+    fireEvent.change(screen.getByLabelText('Filter Amount up to'), { target: { value: '1000' } });
+    await screen.findByText('Rental Income');
+    expect(screen.getByText('Parking Income')).toBeTruthy();
+    expect(screen.queryByText('Repairs')).toBeNull();
+    await new Promise((r) => setTimeout(r, 300));
+    expect(api.getAccountingPnl.mock.calls.length).toBe(reads);
+    // The chip takes it off.
+    fireEvent.click(screen.getByRole('button', { name: /^Remove Current Period Between/ }));
+    await screen.findByText('Repairs');
+  });
+
+  it('opens Actual vs Budget as its own report: Actual, Budget, Variance $ and Variance % (Charmi, 10/15)', async () => {
+    render(<ReportsTab report="budget" />);
+    await screen.findByRole('columnheader', { name: 'Variance $' });
+    expect(screen.getByRole('heading', { level: 3 }).textContent).toContain('Actual vs Budget');
+    expect(screen.getAllByRole('columnheader').map((h) => h.textContent).slice(1)).toEqual(['Actual', 'Budget', 'Variance $', 'Variance %']);
+    const repairs = screen.getByText('Repairs').closest('tr');
+    expect([...repairs.querySelectorAll('td.acct-num')].map((c) => c.textContent)).toEqual(['400.00', '300.00', '100.00', '33.3%']);
+    expect(screen.getByText(/Budget: Intacct budget STD/)).toBeTruthy();
+    // A budget is per entity and account: no department or vendor filters here.
+    expect(screen.queryByRole('button', { name: /^Filters/ })).toBeNull();
   });
 
   it('asks the ledger once when two controls change one after the other', async () => {

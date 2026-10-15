@@ -48,7 +48,7 @@ vi.mock('../../api', () => ({
 }));
 vi.mock('./reportModel', async (importOriginal) => ({ ...(await importOriginal()), downloadBlob: vi.fn() }));
 
-import MreTab, { MreFromLedger, mreTable, visibleRows } from './MreTab';
+import MreTab, { MreFromLedger, dueInMonth, frequencyLabel, mreTable, steadyProgress, visibleRows } from './MreTab';
 import { linesCsv } from './linesExport';
 import { api } from '../../api';
 import { downloadBlob } from './reportModel';
@@ -132,8 +132,8 @@ describe('MreTab', () => {
     expect(name).toBe('Monthly Recurring Expenses - 2026.csv');
     expect(file.type).toMatch(/text\/csv/);
     const text = linesCsv(mreTable(grid.rows.slice(0, 2), 2026, 'All entities'));
-    expect(text).toContain('Vendor,Entity,Category,Frequency,Expected,Jan');
-    expect(text).toContain('San Diego Gas & Electric,"Greens Escondido, LLC. (15000)",Utilities,Monthly,410');
+    expect(text).toContain('Vendor No.,Vendor,Entity,Category,Frequency,Expected,Jan');
+    expect(text).toContain('V-SDGE,San Diego Gas & Electric,"Greens Escondido, LLC. (15000)",Utilities,Monthly,410');
     expect(text).toContain('Total Paid');
   });
 
@@ -192,12 +192,109 @@ describe('MreFromLedger', () => {
     expect(within(dialog).getByRole('button', { name: 'Add 2 Expenses' })).toBeTruthy();
   });
 
-  it('offers + Add with From the Ledger and Manual', async () => {
+  // Oct 14 (Charmi: "Set up ledger option needs to be taken out from MRE").
+  it('offers + Add with Manual only', async () => {
     render(<MreTab canEdit />);
     await screen.findByText('San Diego Gas & Electric');
     fireEvent.click(screen.getByRole('button', { name: 'Add' }));
     const menu = screen.getByRole('menu', { name: 'Add a recurring expense' });
-    expect(within(menu).getAllByRole('menuitem').map((m) => m.querySelector('span span').textContent)).toEqual(['From the Ledger', 'Manual']);
+    expect(within(menu).getAllByRole('menuitem').map((m) => m.querySelector('span span').textContent)).toEqual(['Manual']);
+  });
+
+  // Oct 14 (Urmi: "the number keeps reducing back").
+  it('never shows the scan going backward', async () => {
+    const answers = [{ scanning: true, done: 58, total: 142 }, { scanning: true, done: 40, total: 142 }, proposals];
+    let n = 0;
+    api.getMreProposals.mockImplementation(async () => answers[Math.min(n++, answers.length - 1)]);
+    render(<MreFromLedger pollMs={60} onClose={() => {}} onCreated={() => {}} />);
+    await screen.findByText('Reading the ledger... 58 of 142 entities');
+    await waitFor(() => expect(n).toBeGreaterThanOrEqual(2));
+    expect(screen.queryByText('Reading the ledger... 40 of 142 entities')).toBeNull();
+    await screen.findByText('State Farm');
+    expect(steadyProgress({ scanning: true, done: 58, total: 142 }, { scanning: true, done: 40, total: 142 }).done).toBe(58);
+    expect(steadyProgress({ scanning: true, done: 58, total: 142 }, { scanning: true, done: 3, total: 9 }).done).toBe(3);   // another run
+    expect(steadyProgress(null, { scanning: true, done: 3, total: 9 }).done).toBe(3);
+  });
+});
+
+// Oct 14 (Charmi, Urmi, Priyanka, Neil): the Add Recurring Expense dialog.
+describe('MreTab Oct 14 feedback', () => {
+  const openAdd = async () => {
+    api.getAccountingDimensionValues.mockImplementation(async () => ({ values: [{ code: 'V-100', name: 'Acme Power' }, { code: 'V-200', name: 'County Tax Collector' }] }));
+    render(<MreTab canEdit />);
+    await screen.findByText('San Diego Gas & Electric');
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /Manual/ }));
+    return screen.getByRole('dialog', { name: 'Add recurring expense' });
+  };
+
+  it('picks the vendor from a dropdown with the number on the left, or keeps free text', async () => {
+    const dialog = await openAdd();
+    const box = within(dialog).getByRole('combobox', { name: 'Vendor' });
+    fireEvent.focus(box);
+    fireEvent.change(box, { target: { value: 'tax' } });
+    const opt = await screen.findByRole('option', { name: /County Tax Collector/ });
+    expect(opt.textContent.indexOf('V-200')).toBeLessThan(opt.textContent.indexOf('County Tax Collector'));
+    expect(screen.queryByRole('option', { name: /Acme Power/ })).toBeNull();
+    fireEvent.mouseDown(opt);
+    expect(box.value).toBe('V-200 - County Tax Collector');
+    fireEvent.change(box, { target: { value: 'Brand New Vendor' } });
+    expect(box.value).toBe('Brand New Vendor');
+  });
+
+  it('has the new categories, Semi-Annual and Custom every N months, Variance %, and the vendor details', async () => {
+    const dialog = await openAdd();
+    const cats = [...within(dialog).getByLabelText('Category').querySelectorAll('option')].map((o) => o.textContent);
+    for (const c of ['Mortgage', 'Dues & Subscriptions', 'Property Tax', 'Advertising', 'Auto Registration', 'State Tax']) expect(cats).toContain(c);
+    const freqs = [...within(dialog).getByLabelText('Frequency').querySelectorAll('option')].map((o) => o.textContent);
+    expect(freqs).toEqual(['Monthly', 'Quarterly', 'Semi-Annual', 'Annual', 'Custom']);
+    expect([...within(dialog).getByLabelText('Variance').querySelectorAll('option')].map((o) => o.textContent)).toEqual(['0%', '5%', '10%', '15%', '20%', '25%', '30%', '35%', '40%', '45%', '50%']);
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Entity' }));
+    fireEvent.click(screen.getByRole('option', { name: /MCD Services/ }));
+    const box = within(dialog).getByRole('combobox', { name: 'Vendor' });
+    fireEvent.focus(box);
+    fireEvent.mouseDown(await screen.findByRole('option', { name: /Acme Power/ }));
+    fireEvent.change(within(dialog).getByLabelText('Expense Accounts'), { target: { value: '62100' } });
+    fireEvent.change(within(dialog).getByLabelText('Category'), { target: { value: 'property_tax' } });
+    fireEvent.change(within(dialog).getByLabelText('Start'), { target: { value: '2026-01-01' } });
+    fireEvent.change(within(dialog).getByLabelText('Frequency'), { target: { value: 'custom' } });
+    fireEvent.change(within(dialog).getByLabelText('Every (Months)'), { target: { value: '4' } });
+    expect(within(dialog).getByText(/Due in \d{4}: Jan, May, Sep\./)).toBeTruthy();
+    fireEvent.change(within(dialog).getByLabelText('Variance'), { target: { value: '10' } });
+    fireEvent.change(within(dialog).getByLabelText('Account Number'), { target: { value: 'ACCT-0042' } });
+    fireEvent.change(within(dialog).getByLabelText('Account Details'), { target: { value: 'Parcel 12-345' } });
+    fireEvent.change(within(dialog).getByLabelText('Contact Information'), { target: { value: 'Jane Doe, 800-555-0100' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.createMreLine).toHaveBeenCalled());
+    expect(api.createMreLine.mock.calls[0][0]).toMatchObject({
+      entityCode: '56000', vendorId: 'V-100', vendorName: 'Acme Power', expenseAccounts: ['62100'], category: 'property_tax',
+      frequency: 'custom', frequencyMonths: 4, variancePct: 10, accountNumber: 'ACCT-0042', accountDetails: 'Parcel 12-345', contactInfo: 'Jane Doe, 800-555-0100',
+    });
+  });
+
+  it('works out the months a line falls due, frontend like the API', () => {
+    const due = (l) => [...Array(12).keys()].map((i) => i + 1).filter((m) => dueInMonth({ status: 'active', endDate: '', ...l }, 2026, m));
+    expect(due({ frequency: 'semi_annual', startDate: '2025-03-01' })).toEqual([3, 9]);
+    expect(due({ frequency: 'custom', frequencyMonths: 2, startDate: '2026-01-10' })).toEqual([1, 3, 5, 7, 9, 11]);
+    expect(due({ frequency: 'quarterly', startDate: '2026-02-15' })).toEqual([2, 5, 8, 11]);
+    expect(frequencyLabel({ frequency: 'custom', frequencyMonths: 2 })).toBe('Every 2 Months');
+    expect(frequencyLabel({ frequency: 'semi_annual' })).toBe('Semi-Annual');
+  });
+
+  it('shows the vendor number on the left in the grid and the optional columns under Customize', async () => {
+    api.getMreGrid.mockImplementationOnce(async () => ({ ...grid, rows: [{ ...grid.rows[0], line: { ...grid.rows[0].line, accountNumber: 'ACCT-9', contactInfo: 'Billing, 800-411-7343', variancePct: 5 } }, ...grid.rows.slice(1)] }));
+    render(<MreTab canEdit />);
+    const vendor = await screen.findByText('San Diego Gas & Electric');
+    expect(vendor.textContent.indexOf('V-SDGE')).toBe(0);
+    expect(screen.queryByRole('columnheader', { name: 'Account Number' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Customize/ }));
+    fireEvent.click(screen.getByLabelText(/Show Account Number/));
+    fireEvent.click(screen.getByLabelText(/Show Contact Information/));
+    expect(await screen.findByRole('columnheader', { name: 'Account Number' })).toBeTruthy();
+    const row = vendor.closest('tr');
+    expect(within(row).getByText('ACCT-9')).toBeTruthy();
+    expect(within(row).getByText('Billing, 800-411-7343')).toBeTruthy();
   });
 });
 

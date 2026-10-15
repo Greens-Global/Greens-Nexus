@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Menu, Search, LogOut, User, ArrowLeft, Shield, ChevronDown, Sparkles, X, UserCog, Eye, Scale } from "lucide-react";
+import { Menu, Search, LogOut, User, ArrowLeft, Shield, ChevronDown, Sparkles, X, UserCog, Scale } from "lucide-react";
 import NotificationBell from "./NotificationBell";
 import HelpMenu from "../support/HelpMenu";
 import { TabGroupButton, useHeaderTabs } from "./ModuleTabs";
@@ -98,26 +98,19 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
   }, []);
 
   const [open,         setOpen]         = useState(false);
-  // Red-dot eye icon next to the profile pill: lit while a published changelog
-  // update is newer than this user's last visit to What's New (cleared on open).
-  const [changelogUnseen, setChangelogUnseen] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    api.getTaskChangelogUnseen().then(r => { if (alive) setChangelogUnseen(!!r?.unseen); }).catch(() => {});
-    return () => { alive = false; };
-  }, []);
   // What's New is a page in the app now (Neil, Oct 12 2026), not an overlay:
   // every way in navigates to it, and every signed-in user may read it.
   function openChangelog() {
     onNavigate?.('whats-new');
   }
-  // Landing on What's New by any route (menu, Help panel, a link, the URL)
-  // records the visit. The dot is hidden at once while the page is open
-  // (below) and the flag clears once the visit is saved, so it stays gone.
+  // Landing on What's New by any route (menu, Help panel, the announcement
+  // bar, a link, the URL) records the visit. The weekly New in Nexus bar goes
+  // by it ("already seen") and it marks the bell's copy of the news read. The
+  // header's red-dot eye icon that used to sit beside the profile pill is gone
+  // (Neil, Oct 14 2026) - the bar and the bell already say it.
   useEffect(() => {
-    if (activeView !== 'whats-new' || !changelogUnseen) return;
-    api.markTaskChangelogSeen().catch(() => {}).finally(() => setChangelogUnseen(false));
-  }, [activeView, changelogUnseen]);
+    if (activeView === 'whats-new') api.markTaskChangelogSeen().catch(() => {});
+  }, [activeView]);
   const [searchQuery,  setSearchQuery]  = useState('');
   const [searchOpen,   setSearchOpen]   = useState(false);
   const [searchIdx,    setSearchIdx]    = useState(0);
@@ -327,23 +320,6 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
             Support - self-service first (Neil, Sep 26). support/HelpMenu.jsx. */}
         <HelpMenu activeView={activeView} onWhatsNew={openChangelog} />
         <NotificationBell onNavigate={onNavigate} />
-
-        {/* Unseen-changelog eye icon: only rendered while there's a published
-            update this user hasn't opened What's New for yet. */}
-        {changelogUnseen && activeView !== 'whats-new' && (
-          <button onClick={openChangelog} title="What's New: a new update is available" aria-label="New update published"
-            style={{
-              position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              width: 32, height: 32, borderRadius: 8, border: 'none', background: 'transparent',
-              color: 'var(--muted)', cursor: 'pointer', flexShrink: 0,
-            }}>
-            <Eye size={16} />
-            <span style={{
-              position: 'absolute', top: 4, right: 4, width: 8, height: 8, borderRadius: 999,
-              background: 'hsl(var(--color-red))', border: '1.5px dashed #fff',
-            }} />
-          </button>
-        )}
 
         {/* User profile pill */}
         <div className="header-user-wrap" ref={dropRef}>

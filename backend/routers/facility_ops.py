@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 import cubby
+import cubby_sync
 import models
 import ops_market
 import ops_market_engine
@@ -32,14 +33,17 @@ router = APIRouter(
 
 
 def _require_cubby() -> None:
+    """Only what talks to Cubby needs the key (starting a sync). Reads come
+    from the database the sync fills, whether or not this server has it."""
     if not cubby.configured():
-        raise HTTPException(status_code=503, detail="Cubby is not connected (CUBBY_API_KEY is not set)")
+        raise HTTPException(status_code=503, detail=cubby_sync.NOT_CONFIGURED)
 
 
 async def _from_cubby(fn, *args):
     """Run a blocking cubby.py read in a thread; 424 (never 502 - Cloudflare
-    replaces a 502 body and hides the reason) when Cubby is unhappy."""
-    _require_cubby()
+    replaces a 502 body and hides the reason) when Cubby is unhappy. No key
+    gate: a server without CUBBY_API_KEY still serves the synced tables, and
+    with empty tables the summary says `not_configured` instead of failing."""
     try:
         return await asyncio.to_thread(fn, *args)
     except cubby.CubbyError as e:
@@ -65,6 +69,30 @@ async def report(kind: str, facility_id: str = ""):
     if kind not in cubby.REPORTS:
         raise HTTPException(status_code=404, detail="No such report")
     return await _from_cubby(cubby.report, kind, facility_id)
+
+
+# ── Cubby sync (Oct 15 2026): the screen reads the database; Refresh asks for a sync ──
+
+@router.get("/sync")
+async def sync_status():
+    """Is a Cubby sync running, how did the last one go. The screen polls this
+    after Refresh, then re-reads the summary."""
+    return await asyncio.to_thread(cubby_sync.status)
+
+
+@router.post("/sync")
+async def sync_start(user: dict = Depends(get_current_user)):
+    """Start a Cubby -> database sync in the background. Same door as the rest
+    of the screen (the old Refresh pulled Cubby for anyone who could open it);
+    one at a time across every worker, and at most one per few minutes."""
+    _require_cubby()
+    run_id, why = await asyncio.to_thread(cubby_sync.start_manual, user.get("email") or "")
+    if why == "running":
+        raise HTTPException(status_code=409, detail="A Cubby sync is already running. The figures will update when it finishes.")
+    if why == "too-soon":
+        raise HTTPException(status_code=429, detail="Cubby was synced moments ago. Try again in a few minutes.")
+    cubby_sync.run_in_background(run_id)
+    return {"started": True, "runId": run_id}
 
 
 # ── Market Rates ──────────────────────────────────────────────────────────────

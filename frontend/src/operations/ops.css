@@ -118,6 +118,7 @@
 .ops-period select { font: 500 13px/1 'Inter', sans-serif; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 8px 12px; cursor: pointer; }
 .ops-period select:focus-visible, .ops-search input:focus-visible { outline: 2px solid var(--ops-s1); outline-offset: 2px; }
 .ops-note { font-size: 12.5px; color: var(--muted); margin: -8px 0 0; }
+.ops-sync { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 
 /* Search and pager: a long list stays one page tall. */
 .ops-search { display: flex; align-items: center; gap: 8px; max-width: 320px; margin-bottom: 10px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); background: var(--card); }

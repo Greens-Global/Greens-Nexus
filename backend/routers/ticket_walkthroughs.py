@@ -244,7 +244,8 @@ def _bells(db: Session, batch: models.TicketBatch, tickets: list, actor: str, de
 
     req = (batch.requester_email or "").lower()
     if req and req not in told:
-        task_notify(db, kind="ticket_received", for_email=req,
+        # The requester, who may have no Tickets screen: the main bell too.
+        task_notify(db, kind="ticket_received", for_email=req, main_bell=True,
                     title=f"{n} ticket{s} raised for you{at}", body=f"{span} - filed by {who}"[:500],
                     nexus_action={"view": "support", "label": "View Tickets"})
         told.add(req)

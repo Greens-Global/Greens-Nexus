@@ -102,17 +102,13 @@ describe('LeasingFromLedger', () => {
     await screen.findByText('Not available here.');
   });
 
-  it('opens from + Add on MRI and reloads the list after', async () => {
+  // Oct 14 (Charmi: "Set up ledger option needs to be taken out from MRI"):
+  // the dialog and its endpoints stay, but + Add on MRI no longer offers it.
+  it('is no longer on the MRI + Add menu', async () => {
     render(<LeasingTab canEdit />);
     fireEvent.click(await screen.findByRole('button', { name: 'Add' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: /Set Up From the Ledger/ }));
-    const dialog = await screen.findByRole('dialog', { name: /Set up leases from the ledger/ });
-    await within(dialog).findByText('Santos Blancas Jr.');
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Create 1 Lease' }));
-    await within(dialog).findByText('1 lease set up.');
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
-    await waitFor(() => expect(api.getLeasingRentRollFor).toHaveBeenCalledTimes(2));
-    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.getByRole('menuitem', { name: /New Lease/ })).toBeTruthy();
+    expect(screen.queryByRole('menuitem', { name: /Set Up From the Ledger/ })).toBeNull();
   });
 
   // Oct 7 (Charmi): most batches timed out, then "none had one".

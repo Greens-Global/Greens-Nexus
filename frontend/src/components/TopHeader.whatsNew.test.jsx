@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 
 // What's New is a page in the app now, not an overlay over it, and the profile
 // dropdown's "Help with this page" is gone - the header's Help panel has
@@ -52,13 +52,17 @@ describe("TopHeader - What's New and page help", () => {
     expect(onNavigate).toHaveBeenCalledWith('whats-new');
   });
 
-  it('landing on the page clears the unseen dot and records the visit', async () => {
+  it('landing on the page records the visit; there is no eye icon to clear', async () => {
+    // The red-dot eye beside the profile pill is gone (Neil, Oct 14 2026) - the
+    // announcement bar and the bell already say there is news. The visit is
+    // still recorded: the weekly bar and the bell's read state go by it.
     unseen.value = true;
     const { rerender } = header();
-    expect(await screen.findByLabelText('New update published')).toBeTruthy();
+    await act(async () => {});
+    expect(screen.queryByLabelText('New update published')).toBeNull();
+    expect(markSeen).not.toHaveBeenCalled();
     rerender(<TopHeader title="What's New" activeView="whats-new" theme="light" onThemeToggle={() => {}} onNavigate={() => {}} />);
-    await waitFor(() => expect(screen.queryByLabelText('New update published')).toBeNull());
-    expect(markSeen).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(markSeen).toHaveBeenCalledTimes(1));
   });
 
   it('is offered to every signed-in user - reading it needs no grant, externals included', () => {

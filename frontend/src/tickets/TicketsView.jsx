@@ -6,7 +6,7 @@
 // Ticket statuses get their own color map here (STATUS_META in tasks/theme.js
 // is for tasks, not tickets). Inline-styled to match the rest of the app.
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Plus, Pencil, Search, Link2, Trash2, CheckCircle2, Clock, ClipboardList, Paperclip, Send, X, Download, MessageSquare, History, List as ListIcon, Columns3, BarChart3, ShieldAlert, ArrowUp, ArrowDown, ArrowUpDown, ChevronDown, Star, Lock, Bookmark, SlidersHorizontal, Image as ImageIcon, ScanText, Camera, ImagePlus, Video, Upload as UploadIcon, Mic, CircleDot, Play, MousePointer2, Check } from 'lucide-react';
+import { AlertTriangle, Plus, Pencil, Search, Link2, Trash2, CheckCircle2, Clock, ClipboardList, Paperclip, Send, X, Download, MessageSquare, History, List as ListIcon, Columns3, BarChart3, ShieldAlert, ArrowUp, ArrowDown, ArrowUpDown, ChevronDown, Star, Lock, Bookmark, SlidersHorizontal, Image as ImageIcon, ScanText, Camera, ImagePlus, Video, Upload as UploadIcon, Mic, CircleDot, Play, MousePointer2, Check } from 'lucide-react';
 import TicketToken from '../components/icons/TicketToken';
 import { api } from '../api';
 import { useTasks } from '../tasks/TasksContext';
@@ -61,6 +61,7 @@ import { TicketAssignSheet, MobileAssignField } from './TicketAssignSheet';
 import { useFrequentCollaborators } from '../tasks/frequentPeople';
 import { useTicketAccess } from './ticketAccess';
 import CreateModeTabs from './CreateModeTabs';
+import { registerTour } from '../lib/tours';
 
 // Tour id this module reports to the server (routers/user_tours.py) - see
 // the Task module's identical TASK_TOUR_ID in views/Tasks.jsx.
@@ -101,8 +102,8 @@ const TICKET_COLUMNS = [
   { key: 'priority', label: 'Priority', width: 180, shrink: 160, sort: (t) => PRIORITY_ORDER.indexOf(t.priority) },
   { key: 'due', label: 'Due Date', width: 110, shrink: 92, sort: (t) => t.slaDueOn || '' },
   { key: 'requester', label: 'Requester', width: 150, shrink: 110, sort: (t, ctx) => (ctx.nameOf(t.requesterId) || '').toLowerCase() },
-  { key: 'assignee', label: 'Assigned To', width: 150, shrink: 110, sort: (t, ctx) => (ctx.nameOf(t.assigneeId) || '').toLowerCase() },
-  { key: 'created', label: 'Created Date', width: 110, shrink: 92, sort: (t) => t.createdAt || '' },
+  { key: 'assignee', label: 'Assignee', width: 150, shrink: 110, sort: (t, ctx) => (ctx.nameOf(t.assigneeId) || '').toLowerCase() },
+  { key: 'created', label: 'Created', width: 110, shrink: 92, sort: (t) => t.createdAt || '' },
   // The newest reply, last (Neil, Oct 1 2026) - see LatestComment.jsx. Wide
   // enough by default for a name and a line of the preview; sorts by when.
   { key: 'latestComment', label: 'Latest Comment', width: 300, minWidth: 160, shrink: 140, sort: (t) => t.latestComment?.createdAt || '' },
@@ -265,7 +266,7 @@ function csvEscape(v) {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 function downloadTicketsCsv(rows, nameOf, companyName, hrDeptName) {
-  const headers = ['Code', 'Title', 'Type', 'Help With', 'Service Area', 'Company', 'Department', 'Status', 'Priority', 'Due Date', 'Requester', 'Assigned To', 'Created Date', 'Resolved At', 'Resolution', 'Description', 'Latest Comment'];
+  const headers = ['Code', 'Title', 'Type', 'Help With', 'Service Area', 'Company', 'Department', 'Status', 'Priority', 'Due Date', 'Requester', 'Assignee', 'Created', 'Resolved At', 'Resolution', 'Description', 'Latest Comment'];
   const body = rows.map((t) => [
     ticketNoShort(t.code) || '', t.subject || '', TICKET_TYPE_META[t.type]?.label || t.type || '',
     helpWithLabel(t), serviceAreaLabel(t.serviceArea) || '',
@@ -301,7 +302,7 @@ const MOBILE_SORTS = [
   ['title:asc', 'Title (A-Z)'],
   ['company:asc', 'Company (A-Z)'],
   ['requester:asc', 'Requester (A-Z)'],
-  ['assignee:asc', 'Assigned To (A-Z)'],
+  ['assignee:asc', 'Assignee (A-Z)'],
 ];
 const sortValueOf = (sort) => `${sort?.key || 'created'}:${sort?.dir === 'asc' ? 'asc' : 'desc'}`;
 // A sort picked from a desktop header (say Title, descending) and carried over
@@ -378,7 +379,7 @@ function TicketMobileFilters({
       </div>
       {assigneeOptions.length > 0 && (
         <div style={wrap}>
-          <label style={lab}>Assigned To</label>
+          <label style={lab}>Assignee</label>
           <TicketSelect value={assigneeFilter} onChange={setAssigneeFilter} style={row} searchPlaceholder="Search people…"
             options={[['all', 'Anyone'], ...assigneeOptions]} />
         </div>
@@ -472,7 +473,7 @@ function TicketFilterMenu({
         </div>
         {assigneeOptions.length > 0 && (
           <div style={wrap}>
-            <label style={lab}>Assigned To</label>
+            <label style={lab}>Assignee</label>
             <TicketSelect value={assigneeFilter} onChange={setAssigneeFilter} style={rowStyle} searchPlaceholder="Search people…"
               options={[['all', 'Anyone'], ...assigneeOptions]} />
           </div>
@@ -704,7 +705,8 @@ export default function TicketsView() {
   useEffect(() => {
     const openTour = () => setTour(true);
     window.addEventListener('nexus:tickets-tour', openTour);
-    return () => window.removeEventListener('nexus:tickets-tour', openTour);
+    const unTour = registerTour('tickets', 'Tickets', openTour);   // the Help panel's Take the Tour (lib/tours.js)
+    return () => { window.removeEventListener('nexus:tickets-tour', openTour); unTour(); };
   }, []);
 
   // Column order/widths - the same drag-to-reorder/resize kit the Task List
@@ -1038,20 +1040,30 @@ export default function TicketsView() {
         // made a row of five different colors. Only Unassigned and SLA
         // Breached color their number, and only when it is above zero; the
         // selected tile takes the Nexus green outline.
-        const tile = (label, dot, n, sub, onGo, active, alarm) => (
-          <button key={label} onClick={onGo} aria-pressed={active}
-            style={{ textAlign: 'left', border: `1px solid ${active ? 'var(--wk-brand, #15803d)' : NX.border}`, borderRadius: 12, background: NX.surface, cursor: 'pointer', fontFamily: FONT, padding: '11px 14px 12px', boxShadow: active ? '0 0 0 1px var(--wk-brand, #15803d)' : 'none', transition: 'transform .15s, box-shadow .15s', display: 'flex', flexDirection: 'column', gap: 4 }}
+        // `urgent` (Neil, Oct 14): with a count, the whole tile turns into a
+        // call to act - tinted and bordered in its color, an Action Required
+        // line in place of the quiet subtitle - so an unassigned ticket cannot
+        // be read past. Empty, it sits as quietly as the others.
+        const tile = (label, dot, n, sub, onGo, active, alarm, urgent) => {
+          const act = urgent && n > 0;
+          const ring = active ? 'var(--wk-brand, #15803d)' : act ? dot : NX.border;
+          return (
+          <button key={label} onClick={onGo} aria-pressed={active} data-action-required={act ? '' : undefined}
+            style={{ textAlign: 'left', border: `1px solid ${ring}`, borderRadius: 12, background: act ? `color-mix(in srgb, ${dot} 12%, ${NX.surface})` : NX.surface, cursor: 'pointer', fontFamily: FONT, padding: '11px 14px 12px', boxShadow: active ? '0 0 0 1px var(--wk-brand, #15803d)' : act ? `0 0 0 1px ${dot}` : 'none', transition: 'transform .15s, box-shadow .15s', display: 'flex', flexDirection: 'column', gap: 4 }}
             onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 20px rgba(0,0,0,.08)'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = active ? '0 0 0 1px var(--wk-brand, #15803d)' : 'none'; }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, fontWeight: 600, color: NX.dim }}>
+            onMouseLeave={(e) => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = active ? '0 0 0 1px var(--wk-brand, #15803d)' : act ? `0 0 0 1px ${dot}` : 'none'; }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, fontWeight: 600, color: act ? NX.ink : NX.dim }}>
               <span style={{ width: 7, height: 7, borderRadius: '50%', background: dot, flexShrink: 0 }} />{label}
             </span>
             <span style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-              <span style={{ fontSize: 24, fontWeight: 800, color: alarm && n > 0 ? dot : NX.ink, fontVariantNumeric: 'tabular-nums' }}>{n}</span>
-              <span style={{ fontSize: 12, color: NX.faint }}>{sub}</span>
+              <span style={{ fontSize: 24, fontWeight: 800, color: (alarm || act) && n > 0 ? dot : NX.ink, fontVariantNumeric: 'tabular-nums' }}>{n}</span>
+              {act
+                ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, fontWeight: 700, color: dot }}><AlertTriangle size={12} /> Action Required</span>
+                : <span style={{ fontSize: 12, color: NX.faint }}>{sub}</span>}
             </span>
           </button>
-        );
+          );
+        };
         return (
           <div data-tour="ticket-tiles" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, padding: '14px 24px 0', background: NX.canvas }}>
             {/* Every tile counts the WHOLE workspace, so every tile clears the
@@ -1065,7 +1077,7 @@ export default function TicketsView() {
                 the desk sees, the whole card tinted, not only its band. */}
             {tile('Unassigned', NX.amber, unassignedCount, 'nobody working them',
               () => { setScope('all'); setSlaFilter('all'); setStatusFilter(statusFilter === 'unassigned' ? 'all' : 'unassigned'); },
-              statusFilter === 'unassigned', true)}
+              statusFilter === 'unassigned', true, true)}
             {tile('Open', TICKET_STATUS_META.open.color, openCount, 'not yet resolved',
               () => { setScope('all'); setSlaFilter('all'); setStatusFilter(statusFilter === 'open' ? 'all' : 'open'); },
               statusFilter === 'open')}

@@ -55,7 +55,9 @@ _COORD_MAX = 5000.0   # meters from the frame origin; every site fits well insid
 _cache: Dict[str, tuple] = {}
 
 # What a customer may see of a unit: where it is and what it is.
-PUBLIC_UNIT_KEYS = ("n", "b", "f", "u", "v", "wu", "dv", "door", "k", "veh", "pw", "w", "d")
+# rot (an angled stall's turn) and tr (traced from the plans) are geometry,
+# not occupancy - the customer view needs them to draw a stall where it is.
+PUBLIC_UNIT_KEYS = ("n", "b", "f", "u", "v", "wu", "dv", "door", "k", "veh", "pw", "w", "d", "rot", "tr")
 PUBLIC_PROPERTY_KEYS = ("id", "name", "address")
 PUBLIC_BUILDING_KEYS = ("id", "letters", "name", "kind", "u", "v", "height", "floors", "roof")
 PUBLIC_UNPLACED_KEYS = ("n", "w", "d", "k")

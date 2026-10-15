@@ -1,135 +1,326 @@
 {
-  "id": "greens-storage-fairfield",
-  "name": "Greens Storage Fairfield",
-  "address": "5044 Peabody Rd, Fairfield, CA 94533",
-  "apn": "0166-080-040, 0166-080-030",
-  "acreage": 9.75,
-  "opened": "",
-  "county": "Solano",
-  "parcelSource": "Solano County parcels (hosted layer)",
-  "cubbyFacilityId": "fac_NZEnukUARtt",
-  "frame": {
-    "lat0": 38.29201,
-    "lon0": -121.96738,
-    "bearingDeg": 90.3,
-    "mPerDegLon": 87371,
-    "mPerDegLat": 110900
-  },
-  "image": {
-    "file": "frontend/public/site-models/greens-storage-fairfield/ground.jpg",
-    "bbox": [
-      -121.9698,
-      38.290756,
-      -121.9644,
-      38.293044
-    ],
-    "px": [
-      2360,
-      1000
-    ],
-    "attribution": "Imagery: Esri, Maxar, Earthstar Geographics"
-  },
-  "imageWide": {
-    "file": "frontend/public/site-models/greens-storage-fairfield/ground-wide.jpg",
-    "bbox": [
-      -121.9789,
-      38.2835,
-      -121.9559,
-      38.3005
-    ]
-  },
-  "gates": [
-    {
-      "id": "main",
-      "name": "Gate",
-      "en": [
-        [
-          -8,
-          42
-        ]
-      ]
-    }
+ "id": "greens-storage-fairfield",
+ "name": "Greens Storage Fairfield",
+ "address": "5044 Peabody Rd, Fairfield, CA 94533",
+ "apn": "0166-080-040, 0166-080-030",
+ "acreage": 9.75,
+ "opened": "",
+ "county": "Solano",
+ "parcelSource": "Solano County parcels (hosted layer)",
+ "cubbyFacilityId": "fac_NZEnukUARtt",
+ "frame": {
+  "lat0": 38.29201,
+  "lon0": -121.96738,
+  "bearingDeg": 90.3,
+  "mPerDegLon": 87371,
+  "mPerDegLat": 110900
+ },
+ "image": {
+  "file": "frontend/public/site-models/greens-storage-fairfield/ground.jpg",
+  "bbox": [
+   -121.9698,
+   38.290756,
+   -121.9644,
+   38.293044
   ],
-  "classify": [
-    {
-      "match": "^X",
-      "k": "in",
-      "veh": 0
-    }
+  "px": [
+   2360,
+   1000
   ],
-  "buildings": [
-    {
-      "id": "OFFICE",
-      "letters": [],
-      "name": "Office",
-      "kind": "office",
-      "rect": {
-        "E": -8.8,
-        "N": 20.6,
-        "L": 18.3,
-        "W": 15.8,
-        "bearing": 88.8
-      },
-      "height": 4.0,
-      "floors": 1,
-      "roof": "red",
-      "doorSide": "ne",
-      "inferred": true,
-      "note": "Office at the Peabody Rd entrance."
-    }
-  ],
-  "zones": [
-    {
-      "id": "LOT",
-      "name": "RV Lot",
-      "kind": "rv-lot",
-      "letters": [
-        "A",
-        "B",
-        "C",
-        "D",
-        "E",
-        "F",
-        "G",
-        "H",
-        "I"
-      ],
-      "parcels": [
-        "0166080040",
-        "0166080030"
-      ],
-      "inset": 4
-    },
-    {
-      "id": "X",
-      "name": "Containers",
-      "kind": "rv-lot",
-      "letters": [
-        "X"
-      ],
-      "en": [
-        [
-          -48,
-          4
-        ],
-        [
-          -26,
-          4
-        ],
-        [
-          -26,
-          30
-        ],
-        [
-          -48,
-          30
-        ]
-      ]
-    }
-  ],
-  "sources": [
-    "Parcel: Solano County parcel layer (APNs 0166080040 4.75 ac and 0166080030 5.00 ac)",
-    "Stall rows: schematic fill of the lot in letter order; no row survey yet",
-    "Units: Cubby FMS inventory export, Oct 11, 2026 (307 active units)"
+  "attribution": "Imagery: Esri, Maxar, Earthstar Geographics"
+ },
+ "imageWide": {
+  "file": "frontend/public/site-models/greens-storage-fairfield/ground-wide.jpg",
+  "bbox": [
+   -121.9789,
+   38.2835,
+   -121.9559,
+   38.3005
   ]
+ },
+ "gates": [
+  {
+   "id": "main",
+   "name": "Entrance Gate",
+   "uv": [
+    [
+     6.0,
+     29.0
+    ]
+   ]
+  }
+ ],
+ "classify": [
+  {
+   "match": "^X",
+   "k": "in",
+   "veh": 0
+  }
+ ],
+ "buildings": [
+  {
+   "id": "OFFICE",
+   "letters": [],
+   "name": "Office",
+   "kind": "office",
+   "rect": {
+    "E": -8.8,
+    "N": 20.6,
+    "L": 18.3,
+    "W": 15.8,
+    "bearing": 88.8
+   },
+   "height": 4.0,
+   "floors": 1,
+   "roof": "red",
+   "doorSide": "ne",
+   "inferred": true,
+   "note": "Office at the Peabody Rd entrance."
+  }
+ ],
+ "zones": [
+  {
+   "id": "HOLD",
+   "name": "Not On Site Plan",
+   "kind": "rv-lot",
+   "units": "^A03[2-8]$",
+   "uv": [
+    [
+     -34,
+     -32
+    ],
+    [
+     -6,
+     -32
+    ],
+    [
+     -6,
+     -22
+    ],
+    [
+     -34,
+     -22
+    ]
+   ]
+  },
+  {
+   "id": "LOT",
+   "name": "RV Lot",
+   "kind": "rv-lot",
+   "letters": [
+    "A",
+    "B",
+    "C",
+    "D",
+    "E",
+    "F",
+    "G",
+    "H",
+    "I",
+    "X"
+   ],
+   "uv": [
+    [
+     1.5,
+     -61.6
+    ],
+    [
+     213.8,
+     -61.6
+    ],
+    [
+     213.8,
+     33.45
+    ],
+    [
+     1.5,
+     33.45
+    ]
+   ]
+  }
+ ],
+ "sources": [
+  "Parcel: Solano County parcel layer (APNs 0166080040 4.75 ac and 0166080030 5.00 ac)",
+  "Stall rows, H and I columns: Greens customer map A-3.0 (CAD drawn to scale, 7.2 pt per ft, Jun 9 2026, Egnyte --Asset Management/05 - GS Fairfield/Plans & Maps/2026-06-09_LATEST CUSTOMER MAP), fitted to the fence lines on the Esri imagery (rows line up with the parked vehicles)",
+  "Unit numbering per row: storEDGE facility map (Sep 16 2025) and the directional map key (A1-A31, B1-B38, C1-C39, D1-D36, E1-E37, F1-F37, G1-G37, H1-H19 + H20, I1-I18): B and D rows are filled from the west end; H014 is not a stall (H015-H019 take the plan's H014-H018 slots); I has 18 stalls, 6 short at the north end",
+  "Inferred: containers X001-X002 are the two boxes east of A031 on the storEDGE map and the imagery (SC1-SC2 on the directional key; the A-3.0 map proposes moving them to the northeast corner); X003-X004 at the east end of the E row (SC-4, A-3.0 X006-X007); H020 is the straight-in space at the south fence west of the H column (storEDGE); A001A-D (inactive) laid west of A001 where the imagery shows four straight-in spaces; A032-A038 (inactive, proposed on A-3.0 only) are on no operating map and sit in the Not On Site Plan box",
+  "Stalls are angled 45 deg (A) and 60 deg (B-I) on the ground; each stall is drawn at its painted angle, centered in its painted space",
+  "Units: Cubby FMS inventory export, Oct 11, 2026 (307 active units)"
+ ],
+ "runs": [
+  {
+   "zone": "LOT",
+   "at": [
+    29.69,
+    33.2
+   ],
+   "dir": "+u",
+   "depth": "-v",
+   "units": [
+    "A001-A031"
+   ],
+   "angle": 135
+  },
+  {
+   "zone": "LOT",
+   "at": [
+    25.3,
+    33.2
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "units": [
+    "A001A",
+    "A001B",
+    "A001C",
+    "A001D"
+   ]
+  },
+  {
+   "zone": "LOT",
+   "at": [
+    24.88,
+    8.97
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "units": [
+    "B001-B038"
+   ],
+   "angle": 120
+  },
+  {
+   "zone": "LOT",
+   "at": [
+    20.66,
+    8.97
+   ],
+   "dir": "+u",
+   "depth": "-v",
+   "units": [
+    "C001-C039"
+   ],
+   "angle": 60
+  },
+  {
+   "zone": "LOT",
+   "at": [
+    27.47,
+    -17.4
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "units": [
+    "D001-D036"
+   ],
+   "angle": 60
+  },
+  {
+   "zone": "LOT",
+   "at": [
+    31.7,
+    -17.4
+   ],
+   "dir": "+u",
+   "depth": "-v",
+   "units": [
+    "E001-E037"
+   ],
+   "angle": 120
+  },
+  {
+   "zone": "LOT",
+   "at": [
+    32.3,
+    -42.17
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "units": [
+    "F001-F037"
+   ],
+   "angle": 120
+  },
+  {
+   "zone": "LOT",
+   "at": [
+    28.08,
+    -42.17
+   ],
+   "dir": "+u",
+   "depth": "-v",
+   "units": [
+    "G001-G037"
+   ],
+   "angle": 60
+  },
+  {
+   "zone": "LOT",
+   "at": [
+    213.6,
+    14.05
+   ],
+   "dir": "-v",
+   "depth": "-u",
+   "units": [
+    "H001-H013",
+    "H015-H019"
+   ],
+   "angle": 120
+  },
+  {
+   "zone": "LOT",
+   "at": [
+    198.9,
+    -61.4
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "units": [
+    "H020"
+   ]
+  },
+  {
+   "zone": "LOT",
+   "at": [
+    2.8,
+    -61.96
+   ],
+   "dir": "+v",
+   "depth": "+u",
+   "units": [
+    "I018-I001"
+   ],
+   "angle": 60
+  },
+  {
+   "zone": "LOT",
+   "at": [
+    190.5,
+    33.2
+   ],
+   "dir": "+u",
+   "depth": "-v",
+   "units": [
+    "X001",
+    {
+     "gap": 1.16
+    },
+    "X002"
+   ]
+  },
+  {
+   "zone": "LOT",
+   "at": [
+    186.9,
+    -19.6
+   ],
+   "dir": "-v",
+   "depth": "+u",
+   "units": [
+    "X003",
+    "X004"
+   ]
+  }
+ ]
 }

@@ -10,6 +10,7 @@ import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import DayTimeline from './DayTimeline';
 import PayrollTimecard from './PayrollTimecard';
+import AddTimeModal from './AddTimeModal';
 import TimeInsights from './TimeInsights';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { MonitoringAlertsLine } from './MonitoringAlerts';
@@ -340,6 +341,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
   // A read-only viewer (the list needs team write) gets an error; the header
   // tile that showed it is gone (Sep 30), the Missing punches tab badge remains.
   const [, setExceptionsErr] = useState(false);
+  const [addTimeFor, setAddTimeFor] = useState(null);   // { email, name, dates } - Add Time (Oct 14)
   const loadExceptions = useCallback(() => {
     api.timeExceptions(start, end).then(r => { setExceptions(Array.isArray(r) ? r : []); setExceptionsErr(false); })
       .catch(() => { setExceptions([]); setExceptionsErr(true); });
@@ -896,6 +898,13 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                     </div>
                     {g.rows.length > 0 && <span style={pill('var(--wk-brand-tint, rgba(43,69,225,0.08))', 'var(--wk-brand, #2b45e1)')}><Inbox size={11} /> {g.rows.length} Request{g.rows.length === 1 ? '' : 's'}</span>}
                     {g.blocking > 0 && actKind !== 'requests' && <span style={pill('rgba(220,38,38,0.08)', 'hsl(var(--color-red))')}><AlertTriangle size={11} /> {g.blocking} Missing</span>}
+                    {g.email && g.missing.length > 0 && (
+                      <button className="secondary-btn" onClick={() => setAddTimeFor({ email: g.email, name: g.name, dates: g.missing.filter(e => e.blocking).map(e => e.date) })}
+                        title="Add the missing time - one or several days at once"
+                        style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                        <Plus size={12} /> Add Time
+                      </button>
+                    )}
                     {g.email && (
                       <button className="secondary-btn" onClick={() => openTimecard(g.email, '', '')}
                         style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
@@ -949,6 +958,10 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                 </div>
               );
             })}
+            {addTimeFor && (
+              <AddTimeModal email={addTimeFor.email} name={addTimeFor.name} start={start} end={end} initialDates={addTimeFor.dates}
+                onClose={() => setAddTimeFor(null)} onDone={() => loadExceptions()} toastOk={toastOk} toastErr={toastErr} />
+            )}
             <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 10, lineHeight: 1.5 }}>
               Missing punches cover {rangeText}. A shift with no clock-out (or a clock-out with no clock-in) can't be paid until it's fixed.
               Someone still on the clock is not listed - their shift has not ended yet.

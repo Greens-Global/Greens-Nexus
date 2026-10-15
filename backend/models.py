@@ -2177,6 +2177,9 @@ class TimePunch(Base):
     edit_status      = Column(String, default="")   # '' | pending | approved | rejected
     edit_reviewed_by = Column(String, default="")   # approver email
     edit_reviewed_at = Column(String, default="")
+    # Add Time (Oct 14 2026): every punch a manager's batch wrote together
+    # shares an id, so the batch can be undone as one.
+    batch_id         = Column(String, default="", index=True)
 
 
 class TimeScreenshot(Base):
@@ -4910,6 +4913,9 @@ class PfsProfile(Base):
     created_at        = Column(String, default="")
     updated_by        = Column(String, default="")
     updated_at        = Column(String, default="")
+    # The place in the guarantor dropdown (Neil, 10/14: "move Guarantors up and
+    # down"); 0 = never placed, listed by name after the placed ones.
+    sort_order        = Column(Integer, default=0)
 
 
 class PfsLine(Base):
@@ -5002,6 +5008,12 @@ class Lease(Base):
     # Oct 7 (Charmi): MRI is one list of every recurring income source, so a
     # row says what it is - lease | interest | loan_payment | other.
     income_type      = Column(String, default="lease")
+    # Oct 15 (Charmi + Neil): the lease term is a pick, never free text -
+    # annual | month_to_month | custom ('' = not picked yet; lease_terms then
+    # holds the old free text, read best-effort). term_months: 12 for annual,
+    # None for month to month, N for custom.
+    term_type        = Column(String, default="")
+    term_months      = Column(Integer, nullable=True)
 
 
 class LeaseRate(Base):
@@ -5090,6 +5102,14 @@ class AccountingFluxNote(Base):
     note       = Column(String, default="")
     noted_by   = Column(String, default="")
     noted_at   = Column(String, default="")
+    # Review status (Charmi, Oct 15: "once a comment has been added ... the
+    # review is answered"): Open = flagged, no explanation; Answered = an
+    # explanation is written; Closed = a reviewer signed the line off. Only
+    # `closed` is stored - Open / Answered follow from the note. A closed row
+    # outlives its note being removed.
+    closed     = Column(Boolean, default=False)
+    closed_by  = Column(String, default="")
+    closed_at  = Column(String, default="")
 
 
 class AccountingPartnerChange(Base):
@@ -5273,6 +5293,13 @@ class RecurringExpense(Base):
     created_at       = Column(String, default="")
     updated_by       = Column(String, default="")
     updated_at       = Column(String, default="")
+    # Oct 14 (Charmi, Urmi, Neil): Custom frequency's period in months, the
+    # match tolerance (0-50 in steps of 5), and the vendor-side details.
+    frequency_months = Column(Integer, default=0)                # frequency == 'custom': every N months
+    variance_pct     = Column(Integer, default=0)                # paid within this % of expected counts as Paid
+    account_number   = Column(String, default="")                # the account number with the vendor (e.g. utility account)
+    account_details  = Column(String, default="")
+    contact_info     = Column(String, default="")                # name / phone / email
 
 
 class PfsAffiliate(Base):
@@ -5322,7 +5349,7 @@ class PfsAccessChallenge(Base):
     session (Charmi, 10/04: "it should ask for OTP to the file and not to the
     module"). The code is never stored: `code_hash` is sha256 over
     "id:code", salted with an id the caller never sees. A used code becomes
-    the grant: `granted_until` is when the file closes again (30 minutes).
+    the grant: `granted_until` is when the file closes again (90 minutes).
     `session_hash` is a hash of the tab's X-Pfs-Session id. Read only by
     routers/pfs_access.py. New table - RLS by the startup sweep and main.py."""
     __tablename__ = "pfs_access_challenges"
@@ -6188,3 +6215,195 @@ class HrRoleChangeRequest(Base):
     decided_by        = Column(String, default="")                  # approver / decliner / whoever canceled
     decided_at        = Column(String, default="")
     decision_note     = Column(String, default="")                  # why it was declined
+
+
+# ── Cubby -> Supabase (Operations, Oct 15 2026) ──────────────────────────────
+# cubby_sync.py copies what the Operations screen uses from Cubby into these
+# tables every 15 minutes; the screen, the unit lookup and the report exports
+# read only from here (cubby.py). Keyed "<facility_id>:<cubby id>". `data` is
+# the Cubby row as summarize_facility reads it, with phone, email, address,
+# date of birth and ID numbers stripped before it is written - never stored.
+# New tables - create_all builds them; RLS per CLAUDE.md (main.py list + the
+# startup sweep).
+
+class CubbyFacility(Base):
+    """One Cubby facility. `enabled` false = no longer in Cubby's list (its rows stay)."""
+    __tablename__ = "cubby_facilities"
+    facility_id             = Column(String, primary_key=True)
+    organization            = Column(String, default="")
+    name                    = Column(String, default="")
+    time_zone               = Column(String, default="")
+    enabled                 = Column(Boolean, default=True)
+    data                    = Column(JSON, default=dict)     # facilityId, name, internalName, timeZone, latitude, longitude
+    synced_at               = Column(String, default="")     # UTC iso of this facility's last good sync
+    payments_synced_through = Column(String, default="")     # YYYY-MM-DD; '' = payments not backfilled yet
+
+
+class CubbyUnit(Base):
+    """A unit: its rent-roll line (status, rates, tenant name) and its units/search row (rentability)."""
+    __tablename__ = "cubby_units"
+    id          = Column(String, primary_key=True)          # "<facility_id>:<unitId>"
+    facility_id = Column(String, index=True, nullable=False)
+    unit_id     = Column(String, default="")
+    unit_name   = Column(String, default="")
+    status      = Column(String, default="")                # RENTED | VACANT | ...
+    customer_id = Column(String, default="", index=True)
+    data        = Column(JSON, default=dict)                # {"rentRoll": {...} | null, "unit": {...} | null}
+
+
+class CubbyRental(Base):
+    """A tenancy (Cubby lease), past or current."""
+    __tablename__ = "cubby_rentals"
+    id            = Column(String, primary_key=True)        # "<facility_id>:<leaseId>"
+    facility_id   = Column(String, index=True, nullable=False)
+    lease_id      = Column(String, default="")
+    unit_id       = Column(String, default="")
+    customer_id   = Column(String, default="", index=True)
+    move_in_date  = Column(String, default="", index=True)  # YYYY-MM-DD
+    move_out_date = Column(String, default="")
+    data          = Column(JSON, default=dict)
+
+
+class CubbyCustomer(Base):
+    """A customer's NAME only (leads/search returns an id, the screen shows the name)."""
+    __tablename__ = "cubby_customers"
+    id          = Column(String, primary_key=True)          # "<facility_id>:<customerId>"
+    facility_id = Column(String, index=True, nullable=False)
+    customer_id = Column(String, default="")
+    name        = Column(String, default="")
+
+
+class CubbyPayment(Base):
+    """A payment. Kept incrementally: each sync re-reads the last 45 days."""
+    __tablename__ = "cubby_payments"
+    id           = Column(String, primary_key=True)         # "<facility_id>:<paymentId>"
+    facility_id  = Column(String, index=True, nullable=False)
+    payment_id   = Column(String, default="")
+    customer_id  = Column(String, default="", index=True)
+    payment_date = Column(String, default="", index=True)   # the date Cubby's payments/search filters on, YYYY-MM-DD
+    status       = Column(String, default="")
+    amount_cents = Column(BigInteger, default=0)
+    data         = Column(JSON, default=dict)
+    __table_args__ = (Index("ix_cubby_payments_facility_date", "facility_id", "payment_date"),)
+
+
+class CubbyLead(Base):
+    __tablename__ = "cubby_leads"
+    id          = Column(String, primary_key=True)          # "<facility_id>:<leadId>"
+    facility_id = Column(String, index=True, nullable=False)
+    lead_id     = Column(String, default="")
+    customer_id = Column(String, default="")
+    status      = Column(String, default="")
+    created_at  = Column(String, default="")                # Cubby's createdAt
+    data        = Column(JSON, default=dict)
+
+
+class CubbyReceivable(Base):
+    """One aged-receivables line: what a tenant owes on a unit, by age."""
+    __tablename__ = "cubby_receivables"
+    id          = Column(String, primary_key=True)          # "<facility_id>:<unitId>:<customerId>"
+    facility_id = Column(String, index=True, nullable=False)
+    unit_id     = Column(String, default="")
+    customer_id = Column(String, default="")
+    total_cents = Column(BigInteger, default=0)
+    data        = Column(JSON, default=dict)
+
+
+class CubbyTask(Base):
+    """An OPEN Cubby task (the worklist)."""
+    __tablename__ = "cubby_tasks"
+    id          = Column(String, primary_key=True)          # "<facility_id>:<taskId>"
+    facility_id = Column(String, index=True, nullable=False)
+    task_id     = Column(String, default="")
+    unit_id     = Column(String, default="")
+    due_date    = Column(String, default="")
+    data        = Column(JSON, default=dict)
+
+
+class CubbySyncRun(Base):
+    """One Cubby -> database sync. At most one is `running` at a time (the
+    partial unique index is the lock, so it holds across workers and instances).
+    `facilities` = {facility_id: {name, status, counts, error}}. Error text
+    never carries the key or tenant data."""
+    __tablename__ = "cubby_sync_runs"
+    id           = Column(String, primary_key=True)         # uuid
+    trigger      = Column(String, default="")               # schedule | manual | first-read
+    requested_by = Column(String, default="")               # staff email for a manual run
+    started_at   = Column(String, default="", index=True)   # UTC iso
+    finished_at  = Column(String, default="")
+    status       = Column(String, default="running")        # running | ok | partial | failed
+    facilities   = Column(JSON, default=dict)
+    error        = Column(Text, default="")
+    __table_args__ = (
+        Index("ux_cubby_sync_running", "status", unique=True,
+              sqlite_where=(status == "running"), postgresql_where=(status == "running")),
+    )
+
+
+class AccountingAmaThread(Base):
+    """One "Ask My Accountant" question on one ledger line (Neil, 10/15: AMA
+    means Ask My Accountant). Keyed by the line, with a snapshot of it (entity,
+    entry, line, account, date, amount, memo) so the thread still reads after
+    Intacct changes or reclasses the line. `status` runs Open -> Answered (the
+    assigned accountant replied) -> Resolved (asker, accountant or an editor;
+    `moved_to_account` says where it went). `reclassed_at` is stamped when a
+    line on an Ask My Accountant account no longer sits on it in the ledger.
+    routers/accounting_ask.py. New table - create_all builds it; RLS by
+    main.py and the startup sweep."""
+    __tablename__ = "accounting_ama_threads"
+    id               = Column(String, primary_key=True)            # uuid
+    entity_code      = Column(String, default="", index=True)      # Intacct location of the line
+    entry_id         = Column(String, default="")                  # ledger entry uuid (EntryDetail)
+    entry_no         = Column(String, default="")
+    line_id          = Column(String, default="", index=True)      # ledger line id ('' = unknown)
+    line_no          = Column(String, default="")
+    account_no       = Column(String, default="", index=True)
+    account_title    = Column(String, default="")
+    entry_date       = Column(String, default="")                  # YYYY-MM-DD
+    debit            = Column(Float, default=0.0)
+    credit           = Column(Float, default=0.0)
+    description      = Column(String, default="")
+    memo             = Column(String, default="")
+    party            = Column(String, default="")                  # vendor / customer / employee, as shown
+    journal          = Column(String, default="")
+    source           = Column(String, default="question")          # question | ama (asked on an AMA-account line)
+    question         = Column(Text, default="")
+    asked_by         = Column(String, default="", index=True)
+    asked_at         = Column(String, default="")
+    accountant_email = Column(String, default="", index=True)
+    status           = Column(String, default="Open", index=True)  # Open | Answered | Resolved
+    moved_to_account = Column(String, default="")
+    resolved_by      = Column(String, default="")
+    resolved_at      = Column(String, default="")
+    reclassed_at     = Column(String, default="")
+    last_reply_at    = Column(String, default="")
+    last_reply_by    = Column(String, default="")
+    updated_at       = Column(String, default="")
+
+
+class AccountingAmaMessage(Base):
+    """One message on an Ask My Accountant thread: the question, a reply, or
+    an event line (resolved, reopened, reassigned). New table - create_all
+    builds it; RLS by main.py and the startup sweep."""
+    __tablename__ = "accounting_ama_messages"
+    id           = Column(String, primary_key=True)                # uuid
+    thread_id    = Column(String, default="", index=True)
+    author_email = Column(String, default="")
+    kind         = Column(String, default="reply")                 # question | reply | event
+    body         = Column(Text, default="")
+    created_at   = Column(String, default="")
+
+
+class AccountingAmaSetting(Base):
+    """Ask My Accountant settings, one row per entity. The '' row holds the
+    GL accounts that ARE the Ask My Accountant (suspense) accounts - the chart
+    of accounts is shared by every entity, so they are set once; an empty list
+    means "find them by title" - and the default accountants; an entity row
+    holds that entity's own accountants. New table - create_all builds it;
+    RLS by main.py and the startup sweep."""
+    __tablename__ = "accounting_ama_settings"
+    entity_code = Column(String, primary_key=True)                 # '' = every entity
+    accounts    = Column(JSON, default=list)                       # ['99999', ...] (the '' row only)
+    accountants = Column(JSON, default=list)                       # ['person@greensglobal.com', ...]
+    updated_by  = Column(String, default="")
+    updated_at  = Column(String, default="")

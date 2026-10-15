@@ -36,6 +36,7 @@ import { SkeletonBlocks, ModalLoading, LoadingState } from '../components/AsyncS
 import { buildSupportTourSteps } from './supportTourSteps';
 import { LatestCommentPreview } from '../tickets/LatestComment';
 import { StatusLabel } from '../components/StatusLabel';
+import { registerTour } from '../lib/tours';
 
 // Documentation tab (Sep 24): the written guide to every module. Lazy so its
 // content and drawn screenshots only load when someone opens the tab. The
@@ -348,7 +349,8 @@ export default function Support({ activeSub, onSubChange }) {
     // The tour spotlights Help Center cards, so it always runs on that tab.
     const openTour = () => { onSubChangeRef.current?.(null); setTour(true); };
     window.addEventListener('nexus:support-tour', openTour);
-    return () => window.removeEventListener('nexus:support-tour', openTour);
+    const unTour = registerTour('support', 'Help Center', openTour);   // the Help panel's Take the Tour (lib/tours.js)
+    return () => { window.removeEventListener('nexus:support-tour', openTour); unTour(); };
   }, []);
 
   const load = useCallback(() => {

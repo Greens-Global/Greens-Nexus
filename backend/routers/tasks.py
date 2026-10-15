@@ -13,7 +13,7 @@ import io
 import json
 import re
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
@@ -2689,7 +2689,7 @@ def edit_comment(comment_id: str, upd: CommentUpdate, background_tasks: Backgrou
             # yet, and a cleared one is no longer anybody's to resolve.
             c.resolved_at, c.resolved_by = "", ""
             if who and who != me:
-                task_notify(db, kind="task_activity", for_email=who,
+                task_notify(db, kind="task_activity", for_email=who, main_bell=True,
                             title="A comment was assigned to you", body=f"{t.title}", task_id=t.id,
                             nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
                 # Same email the person gets when the comment is posted to them.
@@ -3139,7 +3139,7 @@ def add_checklist_items(task_id: str, body: ChecklistItemCreate, user: dict = De
         made.append(i)
     _recount_checklist(db, t)
     if who and who != user["email"].lower():
-        task_notify(db, kind="task_activity", for_email=who,
+        task_notify(db, kind="task_activity", for_email=who, main_bell=True,
                     title="You were given a checklist item",
                     body=f"{titles[0]} - {t.title}" if len(titles) == 1 else f"{len(titles)} items - {t.title}",
                     task_id=t.id, nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
@@ -3172,7 +3172,7 @@ def update_checklist_item(item_id: str, upd: ChecklistItemUpdate, user: dict = D
     if "assignee_email" in data:
         who = assert_person_on_task(db, t, data["assignee_email"] or "")
         if who and who != (i.assignee_email or "") and who != me:
-            task_notify(db, kind="task_activity", for_email=who,
+            task_notify(db, kind="task_activity", for_email=who, main_bell=True,
                         title="You were given a checklist item", body=f"{i.title} - {t.title}",
                         task_id=t.id, nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
         i.assignee_email = who
@@ -3347,6 +3347,57 @@ def task_activity(task_id: str, user: dict = Depends(get_current_user), db: Sess
                     models.TaskActivity.type != "synced_from_asana")
             .order_by(models.TaskActivity.at.desc()).all())
     return [activity_to_dict(a) for a in rows]
+
+
+@router.get("/activity/mine")
+def my_task_activity(limit: int = 30, days: int = 14, user: dict = Depends(get_current_user),
+                     db: Session = Depends(get_db)):
+    """What OTHER people did lately on the tasks I am on - assigned to me or
+    following as a collaborator - newest first. The Updates card on the Tasks
+    Home (Neil, Oct 14 2026). My own actions stay out (I know what I did), so
+    do the Asana sync markers; a task in the Trash drops out with the default
+    soft-delete filter. The window is capped so the scan stays a bounded
+    slice of the activity table rather than a walk over all of it.
+
+    Declared as /activity/mine, which the /{task_id}/activity route cannot
+    capture (its second segment is the literal "activity")."""
+    me = (user.get("email") or "").lower()
+    if not me:
+        return []
+    limit = max(1, min(int(limit or 30), 100))
+    days = max(1, min(int(days or 14), 90))
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    # The bounded activity slice first; only the tasks it names are read
+    # (not every task's assignee list), in chunks that stay under SQLite's
+    # bound-parameter limit.
+    rows = (db.query(models.TaskActivity)
+            .filter(models.TaskActivity.entity_kind == "task",
+                    models.TaskActivity.at >= since,
+                    models.TaskActivity.type != "synced_from_asana",
+                    func.lower(func.coalesce(models.TaskActivity.actor_email, "")) != me)
+            .order_by(models.TaskActivity.at.desc()).limit(2000).all())
+    ids = list({a.entity_id for a in rows if a.entity_id})
+    if not ids:
+        return []
+    mine = {}
+    for i in range(0, len(ids), 500):
+        for t in db.query(models.Task.id, models.Task.assignee_email, models.Task.assignee_emails,
+                          models.Task.follower_emails).filter(models.Task.id.in_(ids[i:i + 500])).all():
+            if me in task_assignees(t):
+                mine[t.id] = "assignee"
+            elif me in email_list(t.follower_emails):
+                mine[t.id] = "collaborator"
+    if not mine:
+        return []
+    out = []
+    for a in rows:
+        rel = mine.get(a.entity_id or "")
+        if not rel:
+            continue
+        out.append({**activity_to_dict(a), "taskId": a.entity_id, "relation": rel})
+        if len(out) >= limit:
+            break
+    return out
 
 
 # ── Sections & custom statuses (board columns) ───────────────────────────────
