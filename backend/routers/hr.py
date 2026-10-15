@@ -4454,6 +4454,15 @@ def apply_status_change(db: Session, row: NexusEmployee, body: StatusChangeIn, a
         items_returned = force_return_person(db, row.work_email, actor)
         if entry is not None and (items_returned["checkouts"] or items_returned["assignments"]):
             entry["itemsReturned"] = items_returned
+        # Their future shifts leave the schedule in the same session
+        # (shift_offboard.py, Oct 15 2026) - never a reason to fail the offboarding.
+        try:
+            import shift_offboard
+            shifts_removed = shift_offboard.remove_future_shifts(db, row.work_email, actor)
+            if entry is not None and (shifts_removed["pendingDelete"] or shifts_removed["deleted"]):
+                entry["shiftsRemoved"] = shifts_removed
+        except Exception as e:   # noqa: BLE001 - the offboarding goes on
+            print(f"[hr] future shifts not removed for {row.id}: {e}")
         # Task work moves at the same moment equipment does, in this same
         # session, so a half-completed offboarding can't leave tasks assigned to
         # someone who no longer exists.

@@ -10,10 +10,12 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 
 const timeSchedUnshared = vi.fn();
 const timeSchedPublishReview = vi.fn();
+const timeSchedShares = vi.fn();
 vi.mock('../../api', () => ({
   api: {
     timeSchedUnshared: (...a) => timeSchedUnshared(...a),
     timeSchedPublishReview: (...a) => timeSchedPublishReview(...a),
+    timeSchedShares: (...a) => timeSchedShares(...a),
   },
 }));
 
@@ -48,6 +50,7 @@ beforeEach(() => {
   onJump.mockReset(); onClose.mockReset();
   timeSchedUnshared.mockReset().mockResolvedValue({ count: 4 });
   timeSchedPublishReview.mockReset().mockResolvedValue(REVIEW);
+  timeSchedShares.mockReset().mockResolvedValue({ shares: [] });
 });
 
 describe('changeLine and reviewSummary', () => {
@@ -99,7 +102,9 @@ describe('ShareDialog', () => {
     const share = within(d).getByRole('button', { name: 'Share' });
     expect(share.disabled).toBe(true);
     const reason = within(d).getByLabelText('Reason for sharing with warnings');
-    expect(within(d).getByText('Everyone who sees the history of these shifts sees this reason.')).toBeTruthy();
+    expect(within(d).getByText('Managers see this reason in the history of the shifts it applies to.')).toBeTruthy();
+    expect(reason.getAttribute('maxlength')).toBe('300');   // the server keeps 300 (routers/timeclock, shift_log)
+    expect(d.querySelector('[data-reason-count]')).toBeNull();
     fireEvent.change(reason, { target: { value: '   ' } });
     expect(share.disabled).toBe(true);
     fireEvent.change(reason, { target: { value: ' Short-staffed, overtime approved ' } });
@@ -150,6 +155,90 @@ describe('ShareDialog', () => {
     await review();
     expect(within(dlg()).getByText('No changes in these dates.')).toBeTruthy();
     expect(within(dlg()).getByRole('button', { name: 'Share' }).disabled).toBe(true);
+  });
+});
+
+describe('ShareDialog hardening (Oct 15)', () => {
+  it('counts the reason from 250 characters and never sends more than 300', async () => {
+    open();
+    await review();
+    const d = dlg();
+    const reason = within(d).getByLabelText('Reason for sharing with warnings');
+    fireEvent.change(reason, { target: { value: 'x'.repeat(249) } });
+    expect(d.querySelector('[data-reason-count]')).toBeNull();
+    fireEvent.change(reason, { target: { value: 'x'.repeat(250) } });
+    expect(d.querySelector('[data-reason-count]').textContent).toBe('250/300');
+    fireEvent.change(reason, { target: { value: 'y'.repeat(320) } });
+    expect(d.querySelector('[data-reason-count]').textContent).toBe('300/300');
+    fireEvent.click(within(d).getByRole('button', { name: 'Share' }));
+    await waitFor(() => expect(onPublish).toHaveBeenCalled());
+    expect(onPublish.mock.calls[0][0].reason).toBe('y'.repeat(300));
+  });
+
+  it('tags a pending request, availability or an overlap as a heads-up that never asks for a reason', async () => {
+    timeSchedPublishReview.mockResolvedValue({ ...REVIEW, reasonRequired: false, warnings: [
+      { email: 'bob@x.com', name: 'Bob Brown', date: '2026-10-21', shiftId: 's3', text: 'Time off requested that day (vacation).', kind: 'conflict', soft: true },
+      { email: 'bob@x.com', name: 'Bob Brown', date: '2026-10-21', shiftId: 's3', text: 'On approved time off that day (sick).', kind: 'conflict', soft: false },
+    ] });
+    open();
+    await review();
+    const warns = dlg().querySelector('[data-review-warnings]');
+    expect(within(warns).getByText('Heads Up')).toBeTruthy();
+    expect(within(warns).getByText('Conflict')).toBeTruthy();
+    expect(within(dlg()).queryByLabelText('Reason for sharing with warnings')).toBeNull();
+    expect(within(dlg()).getByRole('button', { name: 'Share' }).disabled).toBe(false);
+  });
+
+  it('lists the recent shares made with warnings, with the reason in quotes', async () => {
+    timeSchedShares.mockResolvedValue({ shares: [
+      { publishId: 'p1', by: 'mia@x.com', byName: 'Mia Lee', at: '2026-10-14T22:12:00Z', people: 2, shifts: 5, warnings: 3, reason: 'Short-staffed', start: '2026-10-19', end: '2026-10-25' },
+      { publishId: 'p2', by: 'ada@x.com', byName: 'Ada Lee', at: '2026-10-10T15:00:00Z', people: 1, shifts: 1, warnings: 1, reason: '', start: '2026-10-12', end: '2026-10-12' },
+    ] });
+    open();
+    const box = await waitFor(() => { const el = dlg().querySelector('[data-recent-shares]'); if (!el) throw new Error('not yet'); return el; });
+    expect(timeSchedShares).toHaveBeenCalledWith({ limit: 10 });
+    expect(within(box).getByText('Recent Shares')).toBeTruthy();
+    expect(box.textContent).toContain('Mia Lee');
+    expect(box.textContent).toContain('2 people · 3 warnings');
+    expect(box.textContent).toContain('"Short-staffed"');
+    expect(box.textContent).toContain('1 person · 1 warning');
+    await review();
+    expect(dlg().querySelector('[data-recent-shares]')).toBeNull();   // step 1 only
+  });
+
+  it('shows nothing under Recent Shares when there are none or the API has no such route', async () => {
+    open();
+    await screen.findByText('4 changes to share in these dates.');
+    await waitFor(() => expect(timeSchedShares).toHaveBeenCalled());
+    expect(dlg().querySelector('[data-recent-shares]')).toBeNull();
+  });
+
+  it('hands its state back on a warning jump and comes back on Review And Share with it', async () => {
+    const onMemo = vi.fn();
+    const { unmount } = open({ onMemo });
+    const d = dlg();
+    fireEvent.change(within(d).getByLabelText('Share to'), { target: { value: '2026-11-01' } });
+    fireEvent.click(within(d).getByText('The whole team'));
+    await review();
+    fireEvent.change(within(d).getByLabelText('Reason for sharing with warnings'), { target: { value: 'Overtime approved' } });
+    fireEvent.click(within(d.querySelector('[data-review-warnings]')).getByText('Overlaps approved time off.'));
+    expect(onMemo).toHaveBeenCalledWith({ from: '2026-10-19', to: '2026-11-01', notify: 'team', groupId: '', reason: 'Overtime approved', review: REVIEW });
+    expect(onJump).toHaveBeenCalledWith('bob@x.com', '2026-10-21', 's3');
+    unmount();
+    // Reopened with the memo: straight to Review And Share, the same review, the reason kept.
+    timeSchedPublishReview.mockClear();
+    open({ onMemo, memo: onMemo.mock.calls[0][0] });
+    expect(screen.getByText('Review And Share')).toBeTruthy();
+    expect(timeSchedPublishReview).not.toHaveBeenCalled();
+    expect(within(dlg()).getByLabelText('Reason for sharing with warnings').value).toBe('Overtime approved');
+    fireEvent.click(within(dlg()).getByRole('button', { name: 'Share' }));
+    await waitFor(() => expect(onPublish).toHaveBeenCalledWith({ start_date: '2026-10-19', end_date: '2026-11-01', notify: 'team', reason: 'Overtime approved' }));
+    await waitFor(() => expect(onMemo).toHaveBeenLastCalledWith(null));   // a share forgets it
+    // Cancel forgets it too.
+    onMemo.mockClear();
+    fireEvent.click(within(dlg()).getByRole('button', { name: 'Cancel' }));
+    expect(onMemo).toHaveBeenCalledWith(null);
+    expect(onClose).toHaveBeenCalled();
   });
 });
 

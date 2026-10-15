@@ -305,6 +305,11 @@ describe('actuals on my shifts', () => {
     expect(mine.getAttribute('data-actual')).toBe('late');
     expect(mine.closest('[data-shift]').getAttribute('title')).toContain('(12 min late)');
     expect(screen.getByRole('status', { name: 'Week summary' }).textContent).toMatch(/ · 1 late$/);
+    // On My Shifts a tap on the bar always opens the readable sheet (a phone has no hover) - Oct 15.
+    fireEvent.click(mine);
+    const sheet = document.querySelector('[data-actual-sheet]');
+    expect(sheet.getAttribute('data-actual-sheet')).toBe('late');
+    expect(sheet.textContent).toContain('(12 min late)');
   });
   it('shows no bar when the actuals cannot load', async () => {
     timeSchedActuals.mockRejectedValue(new Error('API error 500'));

@@ -6,10 +6,18 @@ Five schedule rules, set per company in Settings > Shifts
   ruleMinRestHours   rest between one shift's end and the next one's start
   ruleMaxDaysInRow   worked days in a row
   ruleDailyOtHours   paid hours in a day - only people whose overtime rule
-                     (PayrollRate.overtime_rule) is 'ca' have daily overtime
-  ruleWeeklyOtHours  paid hours in a week ('ca' and 'federal'; 'none' skips
+                     is 'ca' have daily overtime
+  ruleWeeklyOtHours  paid hours in the PAYROLL week (Sunday to Saturday,
+                     routers/timeclock._week_start_str's anchor - never the
+                     grid's display week; 'ca' and 'federal'; 'none' skips
                      both overtime rules but keeps the rest)
-  ruleMaxWeekHours   paid hours in a week, everyone
+  ruleMaxWeekHours   paid hours in the display week (`weekStart`), everyone
+
+A person's overtime rule (`config_for`): their PayrollRate.overtime_rule
+when they have a rate row; else from their country (nexus_employees
+.country, then their company's) - US -> 'ca', anything else -> 'none';
+someone in a time-tracking-exempt group gets no overtime rules at all
+(hardening pass, Oct 15 2026).
 
 Rules WARN - they never block a save. The grid shows a warning the same way
 it shows a conflict (the dot), the Add/Edit Shift dialog lists it live, and
@@ -30,7 +38,9 @@ a person's other, unchanged shifts (a Thursday added into a streak warns
 on Sunday; a Monday shift pushes the week over the line on Friday) - the
 published schedule before and after, compared.
 """
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
+
+import shift_expect
 
 RULE_KEYS = ("ruleMinRestHours", "ruleMaxDaysInRow", "ruleDailyOtHours", "ruleWeeklyOtHours", "ruleMaxWeekHours")
 # Days loaded either side of a window so a streak, a week or last night's
@@ -58,19 +68,19 @@ def _day(iso: str):
         return None
 
 
-def _span(d: date, start: str, end: str):
-    """(start, end) datetimes; an end at or before the start runs into the
-    next day. None when the times do not parse or the shift has no length."""
-    try:
-        s = datetime(d.year, d.month, d.day, int(start[:2]), int(start[3:5]))
-        e = datetime(d.year, d.month, d.day, int(end[:2]), int(end[3:5]))
-    except (ValueError, TypeError, IndexError):
-        return None
-    if e == s:
-        return None
-    if e < s:
-        e += timedelta(days=1)
-    return s, e
+def _span(d: date, start: str, end: str, tz: str = ""):
+    """(start, end) as aware UTC datetimes; an end at or before the start
+    runs into the next day. The wall-clock times are read in the shift's
+    zone (`tz`, UTC when the shift carries none), so the rest between a
+    10 PM - 6 AM shift and the next morning's is measured in real hours
+    across a DST change (shift_expect.span_utc). None when the times do
+    not parse or the shift has no length."""
+    return shift_expect.span_utc(d, str(start or ""), str(end or ""), tz or "UTC")
+
+
+# The overtime workweek is payroll's: Sunday to Saturday, whatever the
+# grid shows (routers/timeclock._week_start_str) - Oct 15 2026.
+OT_WEEK_START = "sunday"
 
 
 def week_of(d: date, week_start: str = "monday") -> date:
@@ -88,7 +98,10 @@ def _int(cfg: dict, key: str) -> int:
 
 def evaluate(shifts: list, cfg: dict, ot_rule: str = "ca", week_start: str = "monday") -> dict:
     """One person's shifts across a window -> {shift id: [warning sentences]}.
-    Each shift: {id, date (YYYY-MM-DD), start, end (HH:MM), paidMin, cancelled}."""
+    Each shift: {id, date (YYYY-MM-DD), start, end (HH:MM), paidMin, cancelled,
+    tz (optional IANA zone)}. `week_start` is the DISPLAY week and bounds
+    only ruleMaxWeekHours; the overtime rules use the payroll week
+    (OT_WEEK_START)."""
     out = {}
 
     def warn(sid, text):
@@ -104,9 +117,9 @@ def evaluate(shifts: list, cfg: dict, ot_rule: str = "ca", week_start: str = "mo
             paid = 0 if cancelled else max(0, int(s.get("paidMin") or 0))
         except (TypeError, ValueError):
             paid = 0
-        iv = _span(d, str(s.get("start") or ""), str(s.get("end") or ""))
+        iv = _span(d, str(s.get("start") or ""), str(s.get("end") or ""), str(s.get("tz") or ""))
         items.append({"id": s.get("id"), "d": d, "iv": iv, "paid": paid, "cancelled": cancelled,
-                      "key": (iv[0] if iv else datetime(d.year, d.month, d.day), str(s.get("id") or ""))})
+                      "key": (iv[0] if iv else datetime(d.year, d.month, d.day, tzinfo=timezone.utc), str(s.get("id") or ""))})
     worked = sorted((i for i in items if not i["cancelled"]), key=lambda i: i["key"])
     rule = (ot_rule or "ca").lower()
 
@@ -149,23 +162,25 @@ def evaluate(shifts: list, cfg: dict, ot_rule: str = "ca", week_start: str = "mo
                     if i["d"] == d:
                         warn(i["id"], f"{_hm(tot)} scheduled this day (over {daily}h is overtime).")
 
-    # Weekly overtime ('ca' and 'federal') and the hard weekly cap (everyone):
-    # the warning lands on the shift that crosses the line and every one after.
+    # Weekly overtime ('ca' and 'federal') on the PAYROLL week and the hard
+    # weekly cap (everyone) on the display week: the warning lands on the
+    # shift that crosses the line and every one after.
     weekly = _int(cfg, "ruleWeeklyOtHours") if rule in ("ca", "federal") else 0
     max_wk = _int(cfg, "ruleMaxWeekHours")
-    if weekly > 0 or max_wk > 0:
+    for limit, anchor, text in ((weekly, OT_WEEK_START, "(over {n}h is overtime)"),
+                                (max_wk, week_start, "({n}h is the most)")):
+        if limit <= 0:
+            continue
         by_week = {}
         for i in worked:
-            by_week.setdefault(week_of(i["d"], week_start), []).append(i)
+            by_week.setdefault(week_of(i["d"], anchor), []).append(i)
         for lst in by_week.values():
             tot = sum(i["paid"] for i in lst)
             cum = 0
             for i in lst:
                 cum += i["paid"]
-                if weekly > 0 and tot > weekly * 60 and cum > weekly * 60:
-                    warn(i["id"], f"{_hm(tot)} scheduled this week (over {weekly}h is overtime).")
-                if max_wk > 0 and tot > max_wk * 60 and cum > max_wk * 60:
-                    warn(i["id"], f"{_hm(tot)} scheduled this week ({max_wk}h is the most).")
+                if tot > limit * 60 and cum > limit * 60:
+                    warn(i["id"], f"{_hm(tot)} scheduled this week {text.format(n=limit)}.")
     return out
 
 
@@ -175,7 +190,7 @@ def as_rule_shift(sd: dict) -> dict:
     """A _sched_dict (or any dict with id/date/start/end/paidMin) -> what
     evaluate() reads."""
     return {"id": sd.get("id"), "date": sd.get("date"), "start": sd.get("start"), "end": sd.get("end"),
-            "paidMin": sd.get("paidMin") or 0,
+            "paidMin": sd.get("paidMin") or 0, "tz": sd.get("tz") or sd.get("timeZone") or "",
             "cancelled": bool(sd.get("cancelled")) or (sd.get("weatherStatus") or "") == "cancelled"}
 
 
@@ -211,28 +226,50 @@ def person_shifts(db, emails, lo: str, hi: str, view: str = "effective", presets
     return out
 
 
+def overtime_rule_for(rate_rule: str, country: str, company_country: str, exempt: bool) -> str:
+    """One person's overtime rule: PayrollRate.overtime_rule when they have
+    a rate row; else their country (own, then the company's): US -> 'ca',
+    anything else -> 'none'. Exempt from time tracking -> 'none'."""
+    if exempt:
+        return "none"
+    r = (rate_rule or "").strip().lower()
+    if r:
+        return r
+    c = ((country or "").strip() or (company_country or "").strip()).upper()
+    return "ca" if c in ("US", "USA") else "none"
+
+
 def config_for(db, emails) -> dict:
     """{email: (that person's company settings, their overtime rule)}. The
     tenant settings are read once and each company's override laid over
-    them - two reads plus one per company, however many people."""
+    them - two reads plus one per company, however many people. The rule
+    is overtime_rule_for's: the rate row, else the country, none when
+    exempt."""
     from sqlalchemy import func
-    from auth import company_of_email_map
-    from models import PayrollRate
+    from models import HrEntity, NexusEmployee, PayrollRate
     from routers.shift_requests import get_settings, _saved_settings
+    from routers.timeclock import time_tracking_exempt_emails
     emails = sorted({(e or "").lower() for e in emails if e})
     if not emails:
         return {}
-    companies = company_of_email_map(db)
-    rates = {(r.employee_email or "").lower(): (r.overtime_rule or "ca").lower()
+    people = {(e.work_email or "").lower(): e for e in
+              db.query(NexusEmployee.work_email, NexusEmployee.company, NexusEmployee.country)
+              .filter(func.lower(NexusEmployee.work_email).in_(emails)).all() if e.work_email}
+    company_country = {e.id: (e.country or "") for e in db.query(HrEntity.id, HrEntity.country).all()}
+    rates = {(r.employee_email or "").lower(): (r.overtime_rule or "").lower()
              for r in db.query(PayrollRate).filter(func.lower(PayrollRate.employee_email).in_(emails)).all()}
+    exempt = time_tracking_exempt_emails(db)
     base = get_settings(db)
     by_company = {"": base}
     out = {}
     for em in emails:
-        cid = companies.get(em, "") or ""
+        p = people.get(em)
+        cid = (p.company if p is not None else "") or ""
         if cid not in by_company:
             by_company[cid] = {**base, **_saved_settings(db, cid)}
-        out[em] = (by_company[cid], rates.get(em) or "ca")
+        rule = overtime_rule_for(rates.get(em, ""), p.country if p is not None else "",
+                                 company_country.get(cid, ""), em in exempt)
+        out[em] = (by_company[cid], rule)
     return out
 
 

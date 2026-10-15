@@ -22,8 +22,8 @@ import WeatherCallDialog from './shifts/WeatherCallDialog';
 import ScheduleDay from './shifts/ScheduleDay';
 import ScheduleMonth from './shifts/ScheduleMonth';
 import SchedulePhone from './shifts/SchedulePhone';
-import ShiftPanel from './shifts/ShiftPanel';
-import { isoDate, viewDays, weekStartOf, paidMinutes, counts, fmtHrs, hrsNumber, timeOffOn, shiftState, isUnshared, orderGroups, shiftTimeText, shiftShortText, sectionKey, teamColor, dayFullyOff, addDaysIso, parseIso, conflictMap, coverageFor, todayIso, adherenceLine } from './shifts/shiftLib';
+import ShiftPanel, { HistoryList } from './shifts/ShiftPanel';
+import { isoDate, viewDays, weekStartOf, paidMinutes, counts, fmtHrs, hrsNumber, timeOffOn, shiftState, isUnshared, orderGroups, shiftTimeText, shiftShortText, sectionKey, teamColor, dayFullyOff, addDaysIso, parseIso, conflictMap, coverageFor, todayIso, adherenceLine, isRuleWarning } from './shifts/shiftLib';
 
 // ── The schedule (Microsoft Teams "Shifts" style, rebuilt Oct 2026) ────────
 // This file is the container: it owns the data, the API calls and the
@@ -93,6 +93,12 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
   const [ghost, setGhost] = useState(null);
   const [dropKey, setDropKey] = useState('');
   const [open, setOpen] = useState('');            // which dialog: share | copy | clear | fill | import | view | note | reorder
+  // What the Share dialog had picked and typed when a warning jump closed
+  // it (Oct 15) - restored when it reopens, on Review And Share.
+  const [shareMemo, setShareMemo] = useState(null);
+  // An empty cell's history (a shift that was removed): looked up when its
+  // menu opens, shown as "History" only when there is some.
+  const [cellHistory, setCellHistory] = useState(null);   // { email, date, entries }
   const [weatherCall, setWeatherCall] = useState(null);   // { groupId, date } while the Weather Call is open
   const [noteDate, setNoteDate] = useState('');
   const [addTo, setAddTo] = useState(null);
@@ -571,10 +577,23 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
     if (!email && s.canEdit === false) { toastErr?.('This open shift was posted by another manager - only they or an administrator can change it.'); return; }
     setPanel({ cell: { email: email || '', date: ds, existing: s, groupId: s.groupId || '' }, mode: 'shift' });
   };
+  // The history an empty cell still has, fetched when its menu opens and
+  // put on the menu when the API has entries (lazy; nothing on a failure).
+  const historyFor = (email, date) => {
+    if (!email || !date) return;
+    Promise.resolve().then(() => api.timeSchedCellHistory?.(email, date))
+      .then((r) => {
+        const entries = Array.isArray(r?.entries) ? r.entries : [];
+        if (!entries.length) return;
+        setMenu((m) => (m && !m.shift && m.email === email && m.date === date ? { ...m, history: entries } : m));
+      })
+      .catch(() => {});
+  };
   function menuAction(action, arg) {
     const m = menu; setMenu(null);
     if (!m) return;
     const s = m.shift;
+    if (action === 'history') { setCellHistory({ email: m.email, date: m.date, entries: m.history || [] }); return; }
     if (action === 'edit') openShiftEditor(s, s.email, s.date);
     else if (action === 'details') setDetails({ x: m.x, y: m.y, shift: s, readOnly: !shiftEditable(s) });
     else if (action === 'add') setPanel({ cell: { email: m.email, date: m.date, groupId: m.groupId }, mode: 'shift' });
@@ -599,6 +618,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
     e.preventDefault(); e.stopPropagation();
     if (ctx.shift ? !shiftEditable(ctx.shift) : !rowEditable(ctx.email)) return;
     setMenu({ x: e.clientX, y: e.clientY, ...ctx, shift: ctx.shift && !ctx.shift.pendingDelete ? ctx.shift : null });
+    if (!ctx.shift) historyFor(ctx.email, ctx.date);
   };
   // Long-press on a touch screen opens the same menu (Teams parity); the
   // press is cancelled by moving or lifting the finger first.
@@ -611,6 +631,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
       pressRef.current = null;
       if (ctx.shift ? !shiftEditable(ctx.shift) : !rowEditable(ctx.email)) return;
       setMenu({ x: at.x, y: at.y, ...ctx, shift: ctx.shift && !ctx.shift.pendingDelete ? ctx.shift : null });
+      if (!ctx.shift) historyFor(ctx.email, ctx.date);
     }, LONG_PRESS_MS);
     const cancel = () => { clearTimeout(timer); window.removeEventListener('pointerup', cancel); window.removeEventListener('pointermove', move); };
     const move = (ev) => { if (Math.hypot(ev.clientX - at.x, ev.clientY - at.y) > 10) cancel(); };
@@ -944,6 +965,8 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
     pulseTimer.current = setTimeout(() => setPulseCells(null), 1500);
   }, [pendingJump, data, start]);   // the cell appears once the week's rows do  // eslint-disable-line react-hooks/exhaustive-deps
   const conflictCount = prefs.conflicts === false ? 0 : shown.filter((x) => x.email && !x.pendingDelete && conflicts[x.id]?.length).length;
+  // "N warnings" once any of them is a schedule rule, "N conflicts" otherwise (Oct 15).
+  const conflictWord = conflictCount > 0 && shown.some((x) => x.email && !x.pendingDelete && (x.ruleWarnings?.length || (conflicts[x.id] || []).some(isRuleWarning))) ? 'warning' : 'conflict';
   const goToConflict = () => {
     const el = rootRef.current?.querySelector('.week-grid [data-conflict]');
     if (!el) return;
@@ -1039,7 +1062,7 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
           dragProps={dragProps} personDragProps={personDragProps} dropProps={dropProps} dropStyle={dropStyle} hoverCell={hoverCell} hoverShift={hoverShift} clickable={clickable}
           single={single} emptyNote={emptyNote} cornerTools={cornerTools} ghostOf={ghostOf} blockClass={blockClass} motion={!reduce} glowToday={glowRef.current}
           personFill={managing ? personFill : null} usualCan={(email) => !!usualOf(email)}
-          coverageOf={coverageOf} onCoverage={managing ? onCoverage : null} pulseCells={pulseCells} conflictCount={conflictCount} onConflicts={goToConflict}
+          coverageOf={coverageOf} onCoverage={managing ? onCoverage : null} pulseCells={pulseCells} conflictCount={conflictCount} onConflicts={goToConflict} conflictWord={conflictWord}
           actualOf={actuals ? actualOf : null} adherence={adherence} />
       )}
       </div>
@@ -1070,7 +1093,16 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
       {open === 'share' && (
         <ShareDialog defaultStart={start} defaultEnd={end} lastPublishedAt={data?.lastPublishedAt || ''} localCount={localUnshared} groups={groups.filter((g) => !g.archived)}
           totalCount={unsharedCount} thisWeek={{ start: isoDate(weekStartOf(new Date(), weekStart)) }}
-          busy={busy} onPublish={publish} onJump={jumpToShift} onClose={() => setOpen('')} />
+          busy={busy} onPublish={publish} onJump={jumpToShift} onClose={() => setOpen('')} memo={shareMemo} onMemo={setShareMemo} />
+      )}
+      {cellHistory && (
+        <div style={MODAL_BACK} onClick={(e) => e.target === e.currentTarget && setCellHistory(null)}>
+          <div role="dialog" aria-label="Cell History" style={{ ...MODAL_CARD, maxWidth: 440 }}>
+            <DialogHead title="History" onClose={() => setCellHistory(null)} />
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>{nameOf(cellHistory.email)} · {formatDate(cellHistory.date)}. Shifts that were on this day and are not anymore.</div>
+            <HistoryList rows={cellHistory.entries} nameOf={nameOf} groupNameOf={(id) => groups.find((g) => g.id === id)?.name || ''} />
+          </div>
+        </div>
       )}
       {open === 'note' && (
         <DayNoteDialog date={noteDate} onDateChange={setNoteDate} groups={groups.filter((g) => !g.archived)} notes={data?.dayNotes || []} busy={busy}

@@ -245,27 +245,30 @@ export function ShiftSettingsPanel({ toastOk, toastErr }) {
               <div style={LBL}>Attendance</div>
               <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
                 <MinutesField label="No-Show Alert" aria="No-show alert" value={cfg.noShowAlertMin} fallback={10} onSave={(n) => save({ ...cfg, noShowAlertMin: n })}
-                  hint="Tells the person's manager and the team's schedulers when a shared shift has started, the grace has passed, and this many minutes have gone by with no clock-in. 0 turns it off." />
+                  hint="Tells the person's manager, their backup manager and the team's schedulers when a shared shift has started, the grace has passed, and this many minutes have gone by with no clock-in. The alert always lands inside the six hours after the start. 0 turns it off." />
                 <MinutesField label="Left Early" aria="Left early" value={cfg.leftEarlyMin} fallback={15} onSave={(n) => save({ ...cfg, leftEarlyMin: n })}
                   hint="Clocking out this many minutes before the shift's end counts as leaving early on the schedule." />
               </div>
+              <label style={{ ...CHECK, marginTop: 8 }}><input type="checkbox" checked={cfg.noShowOnUsualHours === true} onChange={(e) => save({ noShowOnUsualHours: e.target.checked })} /> Alert for usual hours too</label>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Also alerts for office staff who have usual hours but no shift on the schedule that day. Time off and holidays excuse those.</div>
             </div>
             <div>
               <div style={LBL}>Rules</div>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 8 }}>0 turns a rule off. Rules warn on the schedule; they never block.</div>
               <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
                 <MinutesField label="Minimum Rest Between Shifts" aria="Minimum rest between shifts" unit="hours" max={24} value={cfg.ruleMinRestHours} fallback={0} onSave={(n) => save({ ...cfg, ruleMinRestHours: n })}
                   hint="Warns when someone's next shift starts sooner than this after their last one ends." />
                 <MinutesField label="Most Days In A Row" aria="Most days in a row" unit="days" max={14} value={cfg.ruleMaxDaysInRow} fallback={0} onSave={(n) => save({ ...cfg, ruleMaxDaysInRow: n })}
                   hint="Warns when someone is scheduled more days in a row than this." />
                 <MinutesField label="Daily Overtime After" aria="Daily overtime after" unit="hours" max={24} value={cfg.ruleDailyOtHours} fallback={0} onSave={(n) => save({ ...cfg, ruleDailyOtHours: n })}
-                  hint="California daily overtime; applies to people on the California overtime rule." />
+                  hint="California daily overtime; applies to people on the California overtime rule. Someone with no payroll rate follows their country: US people get the California rule, everyone else has no overtime rules." />
                 <MinutesField label="Weekly Overtime After" aria="Weekly overtime after" unit="hours" max={80} value={cfg.ruleWeeklyOtHours} fallback={0} onSave={(n) => save({ ...cfg, ruleWeeklyOtHours: n })}
-                  hint="Warns when a week's scheduled hours pass this." />
+                  hint="Warns when the hours scheduled in the payroll week, Sunday to Saturday, pass this - whatever day the grid starts on." />
                 <MinutesField label="Most Hours Per Week" aria="Most hours per week" unit="hours" max={100} value={cfg.ruleMaxWeekHours} fallback={0} onSave={(n) => save({ ...cfg, ruleMaxWeekHours: n })}
-                  hint="0 turns a rule off. Rules warn on the schedule; they never block." />
+                  hint="Warns when the hours scheduled in the week shown on the grid pass this. Applies to everyone." />
               </div>
-              <label style={{ ...CHECK, marginTop: 8 }}><input type="checkbox" checked={cfg.publishReasonRequired === true} onChange={(e) => save({ ...cfg, publishReasonRequired: e.target.checked })} /> Require a reason to share a schedule that has warnings</label>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>The reason is kept in the history of every shift that share covers.</div>
+              <label style={{ ...CHECK, marginTop: 8 }}><input type="checkbox" checked={cfg.publishReasonRequired === true} onChange={(e) => save({ publishReasonRequired: e.target.checked })} /> Require a reason to share a schedule that has warnings</label>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Rule warnings, approved time off and holidays ask for it; a pending request, availability or an overlap only shows. Managers see the reason in the history of the shifts it applies to. A company that does not want to be asked turns this off here{canPick ? ' - pick the company above first' : ''}.</div>
             </div>
             {!company && <TimeOffReasons toastOk={toastOk} toastErr={toastErr} />}
           </div>

@@ -109,12 +109,52 @@ class EvaluateTests(unittest.TestCase):
         rest = [_s("a", MON, "14:00", "22:00"), _s("b", TUE, "06:00", "14:00")]
         self.assertEqual(shift_rules.evaluate(rest, CFG, "none"), {"b": ["Only 8h 00m rest before this shift (10h minimum)."]})
 
-    def test_week_boundary_follows_week_start(self):
+    def test_overtime_follows_the_payroll_week_and_the_cap_the_display_week(self):
+        # Hardening (Oct 15): overtime is paid on payroll's Sunday-Saturday
+        # week (timeclock._week_start_str), whatever the grid shows.
         shifts = [_s("sun", "2026-10-11", "08:00", "17:00", 540)] + \
                  [_s(d, d, "08:00", "17:00", 540) for d in (MON, TUE, WED, THU)]   # Sun + Mon-Thu = 45h
-        self.assertEqual(shift_rules.evaluate(shifts, WK, "ca", "monday"), {})       # Sunday is last week
-        out = shift_rules.evaluate(shifts, WK, "ca", "sunday")
-        self.assertEqual(out, {THU: ["45h 00m scheduled this week (over 40h is overtime)."]})
+        over = {THU: ["45h 00m scheduled this week (over 40h is overtime)."]}
+        self.assertEqual(shift_rules.evaluate(shifts, WK, "ca", "monday"), over, "a Monday grid still pays Sunday-Saturday")
+        self.assertEqual(shift_rules.evaluate(shifts, WK, "ca", "sunday"), over)
+        # The hard cap is the display week's: Monday grid -> Sunday is last week.
+        cap = {**WK, "ruleWeeklyOtHours": 0, "ruleMaxWeekHours": 40}
+        self.assertEqual(shift_rules.evaluate(shifts, cap, "ca", "monday"), {})
+        self.assertEqual(shift_rules.evaluate(shifts, cap, "ca", "sunday"), {THU: ["45h 00m scheduled this week (40h is the most)."]})
+
+    def test_rest_is_measured_in_real_hours_across_a_dst_change(self):
+        la = "America/Los_Angeles"
+        cfg = {**CFG, "ruleMinRestHours": 10, "ruleMaxDaysInRow": 0, "ruleDailyOtHours": 0, "ruleWeeklyOtHours": 0}
+        # Spring forward (03/08/2026): 10 PM - 6 AM is 7 real hours; the next
+        # 2 PM start is 8 hours after 6 AM on the wall clock and in real time.
+        night = {**_s("n", "2026-03-07", "22:00", "06:00"), "tz": la}
+        after = {**_s("a", "2026-03-08", "14:00", "22:00"), "tz": la}
+        self.assertEqual(shift_rules.evaluate([night, after], cfg, "none"), {"a": ["Only 8h 00m rest before this shift (10h minimum)."]})
+        # A shift that ends at 4 PM wall time: 10 hours of rest on the wall
+        # clock - 10 real hours too (both ends are past the change).
+        after2 = {**_s("b", "2026-03-08", "16:00", "22:00"), "tz": la}
+        self.assertEqual(shift_rules.evaluate([night, after2], cfg, "none"), {})
+        # Fall back (11/01/2026): 10 PM - 6 AM is 9 real hours; a 3:30 PM start
+        # is 9h 30m after 6 AM - under the 10-hour minimum, and the sentence
+        # says the real gap. Without a zone the same shifts read in UTC.
+        night2 = {**_s("n2", "2026-10-31", "22:00", "06:00"), "tz": la}
+        after3 = {**_s("c", "2026-11-01", "15:30", "22:00"), "tz": la}
+        self.assertEqual(shift_rules.evaluate([night2, after3], cfg, "none"), {"c": ["Only 9h 30m rest before this shift (10h minimum)."]})
+        self.assertEqual(shift_rules.evaluate([{**night2, "tz": ""}, {**after3, "tz": ""}], cfg, "none"), {"c": ["Only 9h 30m rest before this shift (10h minimum)."]})
+        # The overnight start is judged before the day's start in real time -
+        # across the change a 1:30 AM shift still sorts after 10 PM.
+        early = {**_s("e", "2026-11-01", "01:30", "03:00"), "tz": la}
+        self.assertEqual(list(shift_rules.evaluate([after3, night2, early], cfg, "none")), ["c"])
+
+    def test_overtime_rule_for(self):
+        f = shift_rules.overtime_rule_for
+        self.assertEqual(f("federal", "IN", "US", False), "federal")   # the rate row wins
+        self.assertEqual(f("", "US", "", False), "ca")
+        self.assertEqual(f("", "", "US", False), "ca")                  # the company's country
+        self.assertEqual(f("", "IN", "US", False), "none")             # the person's own first
+        self.assertEqual(f("", "", "IN", False), "none")
+        self.assertEqual(f("", "", "", False), "none")                 # unknown country: no overtime rules
+        self.assertEqual(f("ca", "US", "US", True), "none")            # exempt: no overtime rules at all
 
     def test_max_week_hours_applies_to_everyone(self):
         cfg = {**WK, "ruleWeeklyOtHours": 0, "ruleMaxWeekHours": 40}
@@ -126,11 +166,11 @@ class EvaluateTests(unittest.TestCase):
         shifts = [_s(f"s{i}", d, "08:00", "17:00", 540, cancelled=(d == WED)) for i, d in enumerate(days)]
         out = shift_rules.evaluate(shifts, WK, "ca")
         self.assertNotIn("s2", out, "a cancelled shift gets no warning")
-        # 6 x 9h = 54h without Wednesday - over the line from Saturday on.
+        # 5 x 9h = 45h in the Sunday-Saturday payroll week without Wednesday -
+        # over the line on Saturday; Sunday the 18th opens the next one.
         self.assertNotIn("s4", out, "Friday closes at 36h")
-        self.assertEqual(out["s5"], ["54h 00m scheduled this week (over 40h is overtime)."])
-        self.assertEqual(out["s6"], ["54h 00m scheduled this week (over 40h is overtime)."],
-                         "a 7th calendar day, but the streak restarted after the cancelled day")
+        self.assertEqual(out["s5"], ["45h 00m scheduled this week (over 40h is overtime)."])
+        self.assertNotIn("s6", out, "a 7th calendar day, but the streak restarted after the cancelled day, and a new payroll week")
         # With Wednesday worked it would be the 7th day in a row.
         shifts[2]["cancelled"] = False
         self.assertIn("7th day in a row (6 is the most).", shift_rules.evaluate(shifts, WK, "ca")["s6"])
@@ -223,10 +263,28 @@ class RuleWarningsTests(_Case):
         self.assertNotIn("s-amy-2026-10-13-06:00", shift_rules.rule_warnings(self.db, [AMY], MON, TUE))
 
     def test_each_person_gets_their_company_settings_and_overtime_rule(self):
-        self._shift(AMY, MON, "07:00", "17:00")   # 10h, 'ca'
+        self._shift(AMY, MON, "07:00", "17:00")   # 10h, 'ca' (no rate row, country US)
         self._shift(BOB, MON, "07:00", "17:00")   # 10h, 'federal': no daily rule
         out = shift_rules.rule_warnings(self.db, [AMY, BOB], MON, MON)
         self.assertEqual(list(out), ["s-amy-2026-10-12-07:00"])
+        # No rate row: the rule follows the country - India has no daily or
+        # weekly overtime rule here; rest and days in a row still apply.
+        amy = self.db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == AMY).first()
+        amy.country = "IN"
+        self.db.commit()
+        self.assertEqual(shift_rules.rule_warnings(self.db, [AMY, BOB], MON, MON), {})
+        self.assertEqual(shift_rules.config_for(self.db, [AMY, BOB])[AMY][1], "none")
+        amy.country = ""
+        self.db.query(models.HrEntity).filter(models.HrEntity.id == ENT).first().country = "US"
+        self.db.commit()
+        self.assertEqual(shift_rules.config_for(self.db, [AMY])[AMY][1], "ca", "the company's country when the person has none")
+        # Exempt from time tracking: no overtime rules.
+        self.db.add(models.NexusGroup(id="g-exempt", name="Leadership", time_tracking_exempt=1))
+        self.db.add(models.NexusGroupMember(group_id="g-exempt", email=AMY))
+        self.db.commit()
+        self.assertEqual(shift_rules.config_for(self.db, [AMY])[AMY][1], "none")
+        self.db.query(models.NexusGroupMember).delete()
+        self.db.commit()
         self._company_setting(ruleDailyOtHours=0)
         self.assertEqual(shift_rules.rule_warnings(self.db, [AMY, BOB], MON, MON), {})
 
@@ -297,7 +355,7 @@ class PublishReviewTests(_Case):
         self.assertEqual(body["changes"][0]["name"], "Amy Lee")
         self.assertEqual(body["people"], 2)
         self.assertEqual(body["warnings"], [{"email": AMY, "name": "Amy Lee", "date": TUE, "shiftId": "s-amy-2026-10-13-06:00",
-                                             "text": "Only 8h 00m rest before this shift (10h minimum).", "kind": "rule"}])
+                                             "text": "Only 8h 00m rest before this shift (10h minimum).", "kind": "rule", "soft": False}])
         self.assertTrue(body["reasonRequired"])
         # The company can switch the reason off.
         self._company_setting(publishReasonRequired=False)
@@ -376,11 +434,29 @@ class PublishReviewTests(_Case):
         self.assertEqual((r.json()["published"], r.json()["warnings"]), (2, 1))
         pid = r.json()["publishId"]
         self.assertTrue(pid)
+        # The reason lands on the warned shift's row only (Tuesday, the rest
+        # warning); Monday's row carries the publish id and no reason.
         for sid in (a, b):
             rows = [e for e in self._log(sid) if e.action == "shared"]
             self.assertEqual(len(rows), 1)
-            self.assertEqual((rows[0].actor, rows[0].reason, rows[0].publish_id), (MGR, "Short-staffed this week", pid))
+            self.assertEqual((rows[0].actor, rows[0].reason, rows[0].publish_id),
+                             (MGR, "Short-staffed this week" if sid == b else "", pid))
             self.assertEqual(json.loads(rows[0].after_json)["email"], AMY)
+        self.assertEqual(json.loads([e for e in self._log(b) if e.action == "shared"][0].after_json)["warnings"],
+                         ["Only 8h 00m rest before this shift (10h minimum)."])
+        self.assertNotIn("warnings", json.loads([e for e in self._log(a) if e.action == "shared"][0].after_json))
+        # Staff never see the reason or the warnings on a shared row.
+        r = self.client.get(f"/timeclock/schedule/{b}/history")
+        self.assertEqual(r.json()["entries"][0]["reason"], "Short-staffed this week")
+        self.db.add(models.NexusGroup(id="g-view", name="view", allowed_modules="hr:viewer"))
+        self.db.add(models.NexusGroupMember(group_id="g-view", email=AMY))
+        self.db.commit()
+        self._as(AMY)
+        r = self.client.get(f"/timeclock/schedule/{b}/history")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual([(e["action"], e["reason"], "warnings" in (e["after"] or {})) for e in r.json()["entries"]],
+                         [("shared", "", False)])
+        self._as(MGR)
         last = json.loads(self.db.query(models.NexusSetting).filter(models.NexusSetting.key == "shift_last_publish").one().value)
         self.assertEqual((last["reason"], last["publishId"], last["by"]), ("Short-staffed this week", pid, MGR))
         # Nothing to warn about: no reason needed.
@@ -388,6 +464,109 @@ class PublishReviewTests(_Case):
         r = self.client.post("/timeclock/schedule/publish", json={"start_date": MON, "end_date": FRI})
         self.assertEqual((r.status_code, r.json()["published"]), (200, 1), r.text)
         self.assertEqual(self._log("s-bob-2026-10-14-09:00")[-1].reason, "")
+
+
+    def test_soft_conflicts_are_shown_but_never_demand_a_reason(self):
+        # A pending request, availability and an overlap with another shift
+        # are tagged `soft`; approved time off and a holiday are not.
+        self._company_setting(ruleDailyOtHours=0)   # the overlap alone, not the hours
+        sid = self._shift(AMY, MON, published=0)
+        self.db.add(models.TimeOffRequest(id="to-p", employee_email=AMY, type="vacation", start_date=MON,
+                                          end_date=MON, status="pending"))
+        self.db.add(models.ShiftAvailability(id="av-1", employee_email=AMY, weekday=0, kind="unavailable"))
+        self._shift(AMY, MON, "16:00", "20:00", published=0)    # overlaps 9-5
+        self.db.commit()
+        body = self.client.get("/timeclock/schedule/publish/review", params={"start": MON, "end": MON}).json()
+        mine = [(w["text"], w["kind"], w["soft"]) for w in body["warnings"] if w["shiftId"] == sid]
+        self.assertEqual(mine, [("Overlaps another shift (4:00 PM - 8:00 PM on 10/12/2026).", "conflict", True),
+                                ("Time off requested that day (vacation).", "conflict", True),
+                                ("Marked unavailable on Mondays.", "conflict", True)])
+        self.assertFalse(body["reasonRequired"], "heads-ups do not ask for a reason")
+        r = self.client.post("/timeclock/schedule/publish", json={"start_date": MON, "end_date": MON})
+        self.assertEqual((r.status_code, r.json()["published"]), (200, 2), r.text)
+        self.assertEqual(self._log(sid)[-1].reason, "")
+        # Approved time off is a real conflict: a reason again.
+        self.db.query(models.TimeOffRequest).filter(models.TimeOffRequest.id == "to-p").first().status = "approved"
+        self._shift(AMY, TUE, published=0)
+        self.db.add(models.TimeOffRequest(id="to-a", employee_email=AMY, type="sick", start_date=TUE,
+                                          end_date=TUE, status="approved"))
+        self.db.commit()
+        body = self.client.get("/timeclock/schedule/publish/review", params={"start": TUE, "end": TUE}).json()
+        self.assertEqual([(w["text"], w["soft"]) for w in body["warnings"]], [("On approved time off that day (sick).", False)])
+        self.assertTrue(body["reasonRequired"])
+        self.assertEqual(self.client.post("/timeclock/schedule/publish", json={"start_date": TUE, "end_date": TUE}).status_code, 400)
+
+    def test_recent_shares_lists_the_ones_with_warnings(self):
+        self._shift(AMY, MON, "14:00", "22:00", published=0)
+        self._shift(AMY, TUE, "06:00", "14:00", published=0)
+        r = self.client.post("/timeclock/schedule/publish", json={"start_date": MON, "end_date": FRI, "reason": "Approved by Neil"})
+        self.assertEqual(r.status_code, 200, r.text)
+        pid = r.json()["publishId"]
+        self._shift(BOB, WED, published=0)
+        self.assertEqual(self.client.post("/timeclock/schedule/publish", json={"start_date": MON, "end_date": FRI}).status_code, 200)
+        r = self.client.get("/timeclock/schedule/shares")
+        self.assertEqual(r.status_code, 200, r.text)
+        shares = r.json()["shares"]
+        self.assertEqual([(x["publishId"], x["by"], x["byName"], x["people"], x["shifts"], x["warnings"], x["reason"], x["start"], x["end"]) for x in shares],
+                         [(pid, MGR, "Mia Lee", 1, 2, 1, "Approved by Neil", MON, TUE)], "the clean share is not listed")
+        self.assertTrue(shares[0]["at"].endswith("Z"))
+        # Out of the window: nothing. A manager with nobody under them: nothing.
+        self.assertEqual(self.client.get("/timeclock/schedule/shares", params={"start": "2020-01-01", "end": "2020-02-01"}).json()["shares"], [])
+        self._as(OTHER)
+        self.assertEqual(self.client.get("/timeclock/schedule/shares").json()["shares"], [])
+        self._as(MGR)
+        self.assertEqual(self.client.get("/timeclock/schedule/shares", params={"start": FRI, "end": MON}).status_code, 400)
+
+    def test_an_empty_cell_still_has_the_history_of_a_removed_shift(self):
+        sid = self.client.post("/timeclock/schedule", json={"employee_email": AMY, "work_date": MON}).json()["id"]
+        self.assertEqual(self.client.get("/timeclock/schedule/history", params={"email": AMY, "date": MON}).json()["entries"], [],
+                         "the shift is still there: its own history, not the cell's")
+        self.assertEqual(self.client.delete(f"/timeclock/schedule/{sid}").status_code, 200)
+        r = self.client.get("/timeclock/schedule/history", params={"email": AMY, "date": MON})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual([(e["action"], e["actor"]) for e in r.json()["entries"]], [("removed", MGR), ("created", MGR)])
+        self.assertEqual((r.json()["email"], r.json()["date"]), (AMY, MON))
+        # Another day, another person: nothing. Out of scope: refused.
+        self.assertEqual(self.client.get("/timeclock/schedule/history", params={"email": AMY, "date": TUE}).json()["entries"], [])
+        self._as(OTHER)
+        self.assertEqual(self.client.get("/timeclock/schedule/history", params={"email": AMY, "date": MON}).status_code, 403)
+        # Staff: only what was shared - a draft that came and went is nothing.
+        self.db.add(models.NexusGroup(id="g-view", name="view", allowed_modules="hr:viewer"))
+        self.db.add(models.NexusGroupMember(group_id="g-view", email=AMY))
+        self.db.commit()
+        self._as(AMY)
+        r = self.client.get("/timeclock/schedule/history", params={"email": AMY, "date": MON})
+        self.assertEqual((r.status_code, r.json()["entries"]), (200, []), r.text)
+
+    def test_offboarding_takes_future_shifts_off_the_schedule(self):
+        import shift_offboard
+        from datetime import date as _date
+        today = _date(2026, 10, 13)
+        past = self._shift(AMY, MON)                       # yesterday: stays
+        now_ = self._shift(AMY, TUE)                       # today: stays
+        pub = self._shift(AMY, WED)                        # published, future: marked for removal
+        draft = self._shift(AMY, THU, published=0)         # draft, future: gone
+        gone = self._shift(AMY, FRI, pending_delete=1)     # already going: untouched
+        out = shift_offboard.remove_future_shifts(self.db, AMY, "hr.bot", today=today)
+        self.db.commit()
+        self.assertEqual(out, {"pendingDelete": 1, "deleted": 1})
+        rows = {r.id: r for r in self.db.query(models.ScheduledShift).all()}
+        self.assertEqual((rows[past].pending_delete, rows[now_].pending_delete, rows[pub].pending_delete, rows[gone].pending_delete), (0, 0, 1, 1))
+        self.assertNotIn(draft, rows)
+        self.assertEqual([(e.action, e.reason, e.actor) for e in self._log(pub)], [("removed", "offboarded", "hr.bot")])
+        self.assertEqual([(e.action, e.reason) for e in self._log(draft)], [("removed", "offboarded")])
+        self.assertEqual(self._log(past), [])
+        # The schedule shows the removal; the empty Thursday cell keeps the story.
+        r = self.client.get("/timeclock/schedule/history", params={"email": AMY, "date": THU})
+        self.assertEqual([e["action"] for e in r.json()["entries"]], ["removed"])
+        # Through People: the status change calls it in the same session.
+        amy = self.db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == AMY).first()
+        self._shift(AMY, "2026-12-01")
+        self._as(ADMIN)
+        r = self.client.post(f"/hr/employees/{amy.id}/status", json={"status": "offboarded", "reason": "left"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.db.expire_all()
+        self.assertEqual(self.db.query(models.ScheduledShift).filter(models.ScheduledShift.id == "s-amy-2026-12-01-09:00").first().pending_delete, 1)
 
 
 class HistoryTests(_Case):
@@ -408,8 +587,13 @@ class HistoryTests(_Case):
         self.assertEqual([(e["action"], e["actor"], e["actorName"]) for e in entries],
                          [("edited", ADMIN, "Ada Lee"), ("shared", MGR, "Mia Lee"), ("created", MGR, "Mia Lee")])
         self.assertEqual(entries[0]["before"]["start"], "09:00")
-        self.assertEqual(entries[0]["after"], {"start": "10:00", "end": "18:00", "label": "Front", "shiftId": "",
-                                                "date": MON, "email": AMY, "openSlots": 0})
+        after = entries[0]["after"]
+        self.assertEqual({k: v for k, v in after.items() if k in ("start", "end", "label", "shiftId", "date", "email", "openSlots")},
+                         {"start": "10:00", "end": "18:00", "label": "Front", "shiftId": "", "date": MON, "email": AMY, "openSlots": 0})
+        # The snapshot also carries the lunch, the team, the zone and a note
+        # fingerprint (never the note) - Oct 15.
+        self.assertEqual((after["breakMin"], after.get("groupId", ""), after["noteHash"]), (0, "", ""))
+        self.assertNotIn("note", after)
         self.assertEqual(entries[2]["before"], None)
         self.assertEqual(entries[2]["after"]["label"], "Front")
         self.assertTrue(all(e["at"] for e in entries))

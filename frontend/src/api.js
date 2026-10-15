@@ -2337,6 +2337,10 @@ export const api = {
   // history is newest first.
   timeSchedPublishReview:     (params) => req(`/timeclock/schedule/publish/review?${new URLSearchParams(params).toString()}`),
   timeSchedHistory:           (id) => req(`/timeclock/schedule/${id}/history`),
+  // Hardening pass (Oct 15): the history an empty cell still has, and the
+  // shares made with warnings for the Share dialog's Recent Shares.
+  timeSchedCellHistory:       (email, date) => req(`/timeclock/schedule/history?email=${encodeURIComponent(email)}&date=${date}`),
+  timeSchedShares:            (params = {}) => req(`/timeclock/schedule/shares${Object.keys(params).length ? `?${new URLSearchParams(params).toString()}` : ''}`),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

@@ -185,10 +185,15 @@ function byPerson(rows) {
 const WARN_CHIP = (rule) => ({ fontSize: 10, fontWeight: 800, letterSpacing: 0.3, textTransform: 'uppercase', padding: '1px 6px', borderRadius: 999, flexShrink: 0,
   background: rule ? 'hsla(var(--color-orange),0.14)' : 'hsla(var(--color-red),0.12)', color: rule ? 'hsl(var(--color-orange))' : 'hsl(var(--color-red))' });
 
-export function ShareDialog({ defaultStart, defaultEnd, lastPublishedAt, localCount = 0, totalCount = 0, thisWeek = null, groups = [], busy, onPublish, onJump, onClose }) {
-  const big = totalCount > SHARE_SUMMARY_OVER && !!thisWeek;
-  const [from, setFrom] = useState(big ? thisWeek.start : defaultStart);
-  const [to, setTo] = useState(big ? addDaysIso(thisWeek.start, 13) : defaultEnd);
+export const REASON_MAX = 300;   // the server keeps 300 (routers/timeclock publish, shift_log)
+// `memo` / `onMemo` (Oct 15): a warning jump closes the dialog to show the
+// cell; what was picked and typed - and the review itself - is handed back
+// to the schedule and restored when the dialog reopens, on Review And Share.
+export function ShareDialog({ defaultStart, defaultEnd, lastPublishedAt, localCount = 0, totalCount = 0, thisWeek = null, groups = [], busy, onPublish, onJump, onClose,
+  memo = null, onMemo = null }) {
+  const big = totalCount > SHARE_SUMMARY_OVER && !!thisWeek && !memo;
+  const [from, setFrom] = useState(memo?.from || (big ? thisWeek.start : defaultStart));
+  const [to, setTo] = useState(memo?.to || (big ? addDaysIso(thisWeek.start, 13) : defaultEnd));
   const [byWeek, setByWeek] = useState(null);
   useEffect(() => {
     if (!big) return undefined;
@@ -201,9 +206,19 @@ export function ShareDialog({ defaultStart, defaultEnd, lastPublishedAt, localCo
     }).catch(() => { if (live) setByWeek(null); });
     return () => { live = false; };
   }, [big]); // eslint-disable-line react-hooks/exhaustive-deps
-  const [notify, setNotify] = useState('changed');
-  const [groupId, setGroupId] = useState('');
+  const [notify, setNotify] = useState(memo?.notify || 'changed');
+  const [groupId, setGroupId] = useState(memo?.groupId || '');
   const [count, setCount] = useState(null);    // null = unknown (older API)
+  // Recent shares made with warnings (Oct 15), under step 1 - the reason in
+  // quotes. An older API without the route: nothing shown.
+  const [recent, setRecent] = useState(null);
+  useEffect(() => {
+    let live = true;
+    Promise.resolve().then(() => api.timeSchedShares?.({ limit: 10 }))
+      .then((r) => { if (live) setRecent(Array.isArray(r?.shares) ? r.shares : []); })
+      .catch(() => { if (live) setRecent([]); });
+    return () => { live = false; };
+  }, []);
   const days = from && to ? Math.round((new Date(to) - new Date(from)) / 86400000) + 1 : 0;
   const tooLong = days > 92;
   useEffect(() => {
@@ -214,10 +229,14 @@ export function ShareDialog({ defaultStart, defaultEnd, lastPublishedAt, localCo
   }, [from, to]);
   const n = count ?? localCount;
   // Step 2: the review of exactly what step 1 picked.
-  const [review, setReview] = useState(null);     // { changes, people, warnings, reasonRequired }
+  const [review, setReview] = useState(memo?.review || null);     // { changes, people, warnings, reasonRequired }
   const [reviewing, setReviewing] = useState(false);
   const [reviewErr, setReviewErr] = useState('');
-  const [reason, setReason] = useState('');
+  const [reason, setReason] = useState(memo?.reason || '');
+  const jump = (email, date, shiftId) => {
+    onMemo?.({ from, to, notify, groupId, reason, review });
+    onJump?.(email, date, shiftId);
+  };
   const [shareErr, setShareErr] = useState('');
   const [showChanges, setShowChanges] = useState(null);   // null = open when the list is short
   // Mounted or not: the review and the share land on a dialog that may have
@@ -239,9 +258,11 @@ export function ShareDialog({ defaultStart, defaultEnd, lastPublishedAt, localCo
   }
   async function share() {
     setShareErr('');
-    const r = await onPublish({ start_date: from, end_date: to, notify, ...(groupId ? { group_id: groupId } : {}), reason: reason.trim() });
+    const r = await onPublish({ start_date: from, end_date: to, notify, ...(groupId ? { group_id: groupId } : {}), reason: reason.trim().slice(0, REASON_MAX) });
     if (liveRef.current && r?.error) setShareErr(r.error);
+    else if (liveRef.current && r && !r.error) onMemo?.(null);
   }
+  const cancel = () => { onMemo?.(null); onClose(); };
   const opt = (value, title, hint) => (
     <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 12px', borderRadius: 8, cursor: 'pointer',
       border: `1px solid ${notify === value ? 'var(--wk-brand)' : 'var(--line)'}`, background: notify === value ? 'var(--wk-brand-tint)' : 'transparent' }}>
@@ -251,12 +272,12 @@ export function ShareDialog({ defaultStart, defaultEnd, lastPublishedAt, localCo
   );
   const step2 = !!review;
   return (
-    <div style={MODAL_BACK} onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div style={MODAL_BACK} onClick={(e) => e.target === e.currentTarget && cancel()}>
       <div role="dialog" aria-label="Share Schedule" style={{ ...MODAL_CARD, maxWidth: step2 ? 520 : 440 }}>
-        <DialogHead title={step2 ? 'Review And Share' : 'Share Schedule'} onClose={onClose} />
+        <DialogHead title={step2 ? 'Review And Share' : 'Share Schedule'} onClose={cancel} />
         {step2 ? (
           <ReviewStep review={review} from={from} to={to} reason={reason} onReason={setReason} showChanges={showChanges} onShowChanges={setShowChanges}
-            shareErr={shareErr} onJump={onJump} />
+            shareErr={shareErr} onJump={onJump ? jump : null} />
         ) : (
           <>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
@@ -293,12 +314,13 @@ export function ShareDialog({ defaultStart, defaultEnd, lastPublishedAt, localCo
                 {opt('team', 'The whole team', 'The same, plus a short notification to everyone else on the schedule for these dates.')}
               </div>
               {reviewErr && <div role="alert" style={{ fontSize: 12.5, color: 'hsl(var(--color-red))' }}>{reviewErr}</div>}
+              {recent?.length > 0 && <RecentShares shares={recent} />}
             </div>
           </>
         )}
         <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
           {step2 && <button type="button" className="secondary-btn" onClick={() => { setReview(null); setShareErr(''); }} disabled={busy}>Back</button>}
-          <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
+          <button type="button" className="secondary-btn" onClick={cancel}>Cancel</button>
           {step2 ? (
             <button type="button" className="primary-btn" onClick={share}
               disabled={busy || review.changes.length === 0 || (review.reasonRequired && review.warnings.length > 0 && !reason.trim())}>{busy ? '…' : 'Share'}</button>
@@ -306,6 +328,25 @@ export function ShareDialog({ defaultStart, defaultEnd, lastPublishedAt, localCo
             <button type="button" className="primary-btn" disabled={busy || reviewing || tooLong || !from || !to || to < from || n === 0} onClick={loadReview}>{reviewing ? '…' : 'Review'}</button>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// "Recent Shares": the last shares that carried a warning, with who, when,
+// how many people and warnings, and the reason in quotes.
+function RecentShares({ shares }) {
+  return (
+    <div data-recent-shares="">
+      <div style={LBL}>Recent Shares</div>
+      <div style={{ display: 'grid', gap: 5, maxHeight: 150, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 10, padding: '8px 12px' }}>
+        {shares.slice(0, 10).map((x) => (
+          <div key={x.publishId} style={{ fontSize: 12 }}>
+            <span style={{ fontWeight: 700 }}>{x.byName || x.by}</span>
+            <span style={{ color: 'var(--muted)' }}> · {formatDateTime(x.at)} · {x.people} {x.people === 1 ? 'person' : 'people'} · {x.warnings} warning{x.warnings === 1 ? '' : 's'}</span>
+            {x.reason && <div style={{ color: 'var(--muted)', fontStyle: 'italic' }}>"{x.reason}"</div>}
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -357,10 +398,12 @@ function ReviewStep({ review, from, to, reason, onReason, showChanges, onShowCha
                 <div style={{ fontSize: 12.5, fontWeight: 700 }}>{p.name}</div>
                 {p.rows.map((w, i) => {
                   const rule = w.kind !== 'conflict';
+                  // A pending request, availability or an overlap is a heads-up: shown, never a reason (Oct 15).
+                  const soft = !rule && w.soft === true;
                   return (
                     <button key={`${w.date}|${w.shiftId || ''}|${i}`} type="button" onClick={() => onJump?.(w.email, w.date, w.shiftId)} title="Show this shift on the schedule"
                       style={{ display: 'flex', alignItems: 'flex-start', gap: 6, width: '100%', textAlign: 'left', background: 'none', border: 'none', cursor: onJump ? 'pointer' : 'default', padding: '2px 0', fontFamily: 'inherit', color: 'var(--ink)', fontSize: 12 }}>
-                      <span style={{ ...WARN_CHIP(rule), marginTop: 1 }}>{rule ? 'Rule' : 'Conflict'}</span>
+                      <span style={{ ...WARN_CHIP(rule || soft), marginTop: 1, ...(soft ? { background: 'var(--bg)', color: 'var(--muted)', border: '1px solid var(--line)' } : {}) }}>{rule ? 'Rule' : soft ? 'Heads Up' : 'Conflict'}</span>
                       <span><span style={{ color: 'var(--muted)' }}>{dayText(w.date)} · </span>{w.text}</span>
                     </button>
                   );
@@ -373,9 +416,12 @@ function ReviewStep({ review, from, to, reason, onReason, showChanges, onShowCha
       </div>
       {needReason && (
         <label><div style={LBL}>Reason For Sharing With Warnings</div>
-          <textarea className="form-input" rows={2} maxLength={400} value={reason} onChange={(e) => onReason(e.target.value)} required aria-label="Reason for sharing with warnings"
+          <textarea className="form-input" rows={2} maxLength={REASON_MAX} value={reason} onChange={(e) => onReason(e.target.value.slice(0, REASON_MAX))} required aria-label="Reason for sharing with warnings"
             placeholder="e.g. Short-staffed this week; overtime approved" style={{ width: '100%', fontSize: 13, resize: 'vertical', fontFamily: 'inherit' }} />
-          <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3 }}>Everyone who sees the history of these shifts sees this reason.</div>
+          <div style={{ display: 'flex', gap: 8, fontSize: 11.5, color: 'var(--muted)', marginTop: 3 }}>
+            <span style={{ flex: 1 }}>Managers see this reason in the history of the shifts it applies to.</span>
+            {reason.length >= REASON_MAX - 50 && <span data-reason-count="" style={{ color: reason.length >= REASON_MAX ? 'hsl(var(--color-red))' : 'var(--muted)', flexShrink: 0 }}>{reason.length}/{REASON_MAX}</span>}
+          </div>
         </label>
       )}
       {shareErr && <div role="alert" style={{ fontSize: 12.5, color: 'hsl(var(--color-red))' }}>{shareErr}</div>}

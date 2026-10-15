@@ -15,6 +15,8 @@ const timeSchedPublish = vi.fn();
 const timeSchedUnshared = vi.fn();
 const timeSchedPublishReview = vi.fn();
 const timeSchedHistory = vi.fn();
+const timeSchedCellHistory = vi.fn();
+const timeSchedShares = vi.fn();
 const timeSchedCheck = vi.fn();
 const timeSchedCopy = vi.fn();
 const timeSchedClear = vi.fn();
@@ -49,6 +51,8 @@ vi.mock('../api', () => ({
     timeSchedUnshared: (...a) => timeSchedUnshared(...a),
     timeSchedPublishReview: (...a) => timeSchedPublishReview(...a),
     timeSchedHistory: (...a) => timeSchedHistory(...a),
+    timeSchedCellHistory: (...a) => timeSchedCellHistory(...a),
+    timeSchedShares: (...a) => timeSchedShares(...a),
     timeSchedCreate: (...a) => timeSchedCreate(...a),
     timeSchedUpdate: (...a) => timeSchedUpdate(...a),
     timeSchedMove: (...a) => timeSchedMove(...a),
@@ -137,6 +141,8 @@ beforeEach(() => {
   timeSchedUnshared.mockReset().mockResolvedValue({ count: 1 });
   timeSchedPublishReview.mockReset().mockResolvedValue({ changes: [{ email: 'amy@greensglobal.com', name: 'Amy Adams', kind: 'added', date: monday, start: '09:00', end: '17:00', label: '', was: null }], people: 1, warnings: [], reasonRequired: false });
   timeSchedHistory.mockReset().mockResolvedValue({ entries: [] });
+  timeSchedCellHistory.mockReset().mockResolvedValue({ entries: [] });
+  timeSchedShares.mockReset().mockResolvedValue({ shares: [] });
   timeSchedCheck.mockReset().mockResolvedValue({ warnings: [] });
   timeSchedCopy.mockReset().mockResolvedValue({ created: 4, replaced: 0, skipped: 1, timeoffSkipped: 0, targetStart: plusDays(monday, 7), targetEnd: plusDays(monday, 13) });
   timeSchedClear.mockReset().mockResolvedValue({ removed: 2, pending: 1 });
@@ -291,6 +297,13 @@ describe('Grid: blocks, time off beside shifts, open shifts per group', () => {
     expect(screen.getByText('No Location Set')).toBeTruthy();
   });
 
+  it('calls the corner count warnings once any of them is a schedule rule (Oct 15)', async () => {
+    timeSchedule.mockResolvedValue(data([shift({ conflicts: ['Only 8h 00m rest before this shift (10h minimum).'], ruleWarnings: ['Only 8h 00m rest before this shift (10h minimum).'] })]));
+    render(<ShiftSchedule toastOk={toastOk} />);
+    await screen.findByText('Amy Adams');
+    expect(screen.getByRole('button', { name: /^1 warning$/ })).toBeTruthy();
+  });
+
   it('marks people with limited availability, and a conflict on a shift', async () => {
     timeSchedule.mockResolvedValue({ ...grid([shift({ conflicts: ['On approved time off that day (sick).'] })]),
       availability: { 'amy@greensglobal.com': [{ weekday: 0, kind: 'unavailable', start: '', end: '', note: '' }, { weekday: 1, kind: 'available', start: '08:00', end: '12:00', note: '' }] } });
@@ -430,6 +443,31 @@ describe('Menus, clipboard, keyboard and touch', () => {
     fireEvent.click(within(menu).getByText(/NGT · 9:00 PM - 5:00 AM/));
     await waitFor(() => expect(timeSchedCreate).toHaveBeenCalledWith({ employee_email: 'bob@greensglobal.com', work_date: monday, shift_id: 'p2', group_id: '' }));
     expect(toastOk).toHaveBeenCalledWith('NGT placed as a draft.');
+  });
+
+  it('offers History on an empty day only once the API says a shift was there (Oct 15)', async () => {
+    timeSchedule.mockResolvedValue(data([]));
+    render(<ShiftSchedule toastOk={toastOk} />);
+    await screen.findByText('Amy Adams');
+    fireEvent.contextMenu(cellOf('bob@greensglobal.com'));
+    let menu = screen.getByRole('menu', { name: 'Day options' });
+    await waitFor(() => expect(timeSchedCellHistory).toHaveBeenCalledWith('bob@greensglobal.com', monday));
+    expect(within(menu).queryByText('History')).toBeNull();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    timeSchedCellHistory.mockResolvedValue({ email: 'bob@greensglobal.com', date: monday, entries: [
+      { action: 'removed', actor: 'mia@greensglobal.com', actorName: 'Mia Lee', at: '2026-10-14T22:12:00Z', before: { start: '09:00', end: '17:00', label: 'Yard' }, after: null, reason: 'offboarded' },
+      { action: 'created', actor: 'mia@greensglobal.com', actorName: 'Mia Lee', at: '2026-10-10T15:00:00Z', before: null, after: { start: '09:00', end: '17:00', label: 'Yard' }, reason: '' },
+    ] });
+    fireEvent.contextMenu(cellOf('bob@greensglobal.com'));
+    menu = screen.getByRole('menu', { name: 'Day options' });
+    const item = await within(menu).findByText('History');
+    fireEvent.click(item);
+    const dlg = screen.getByRole('dialog', { name: 'Cell History' });
+    expect(dlg.textContent).toContain('Bob · ');
+    expect(dlg.textContent).toContain('Removed by Mia Lee');
+    expect(dlg.textContent).toContain('9:00 AM - 5:00 PM · Yard');
+    expect(dlg.textContent).toContain('"offboarded"');
+    expect(dlg.textContent).toContain('Created by Mia Lee');
   });
 
   it('copies and pastes with Ctrl+C / Ctrl+V, the menu, and a click on an empty day', async () => {
@@ -1171,7 +1209,7 @@ describe('Actuals: the schedule meets the clock', () => {
     expect(bar.style.background).toBe('hsl(var(--color-orange))');
     expect(blockOf('s1').getAttribute('title')).toContain('Clocked in 9:04 AM (4 min late)\nClocked out 4:58 PM');
     expect(blockOf('s1').getAttribute('aria-label')).toBe('Shift 9:00 AM - 5:00 PM GST, Late');
-    expect(blockOf('s1').textContent).toBe('9:00a - 5:00pGST');   // the bar is the only addition
+    expect(blockOf('s1').textContent).toBe('9:00a - 5:00pGSTL');   // the bar and the letter badge are the only additions
     // The line follows the people on screen.
     const dlg = viewOptions();
     fireEvent.change(within(dlg).getByLabelText('Search people'), { target: { value: 'amy' } });

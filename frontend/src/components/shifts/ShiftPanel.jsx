@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { X, Plus, Trash2, Copy, CalendarRange, RotateCcw, AlertTriangle, Lock, Check } from 'lucide-react';
 import { api } from '../../api';
+import { zoneOptionLabel } from '../../lib/worldClockZones';
 import { formatDate, formatWeekday, formatHHMM, formatDateTime } from '../../lib/datetime';
 import { useUnsavedGuard } from '../../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../UnsavedChangesPrompt';
@@ -267,7 +268,7 @@ function ShiftForm({ cell, ex, isOpen, presets, quickPicks = [], groups, people,
             <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 5 }}>Gives this shift to the person{groupId ? ` in ${groupName(groupId)}` : ''} and drops the open count by one.</div>
           </div>
         )}
-        {ex && <ShiftHistory id={ex.id} nameOf={nameOf} />}
+        {ex && <ShiftHistory id={ex.id} nameOf={nameOf} groupNameOf={groupName} />}
       </div>
       <div style={{ padding: '10px 18px', borderTop: '1px solid var(--line)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         {ex && onCopy && !ex.pendingDelete && <button type="button" onClick={() => onCopy(ex)} disabled={busy} title="Copy this shift to place on another person or day" style={{ ...LINK_BTN, color: 'var(--muted)' }}><Copy size={13} /> Copy</button>}
@@ -297,9 +298,12 @@ export const HISTORY_ACTIONS = { created: 'Created', edited: 'Edited', removed: 
   discarded: 'Discarded', shared: 'Shared', claimed: 'Claimed', swapped: 'Swapped', offered: 'Offered', weather: 'Weather Call' };
 const actionWord = (a) => HISTORY_ACTIONS[a] || (a ? a.charAt(0).toUpperCase() + a.slice(1) : 'Changed');
 const spanOf = (x) => (x?.start || x?.end ? `${formatHHMM(x.start, '?')} - ${formatHHMM(x.end, '?')}` : '');
-// "8:00 AM - 4:30 PM -> 7:00 AM - 3:30 PM · Label: Front -> Yard"
-export function historyChangeText(before, after, nameOf) {
+// "8:00 AM - 4:30 PM -> 7:00 AM - 3:30 PM · Label: Front -> Yard · Lunch
+// 30 -> 60 min · Team: Austin -> Georgetown · Zone: ... · Note changed"
+// (the snapshot carries a fingerprint of the note, never its text - Oct 15).
+export function historyChangeText(before, after, nameOf, groupNameOf) {
   const who = (e) => (e ? (nameOf ? nameOf(e) : e) : 'Open shift');
+  const team = (g) => (g ? (groupNameOf ? groupNameOf(g) || g : g) : 'No team');
   if (!before && !after) return '';
   if (!before) return [spanOf(after), after.label].filter(Boolean).join(' · ');
   if (!after) return [spanOf(before), before.label].filter(Boolean).join(' · ');
@@ -310,9 +314,37 @@ export function historyChangeText(before, after, nameOf) {
   if ((before.label || '') !== (after.label || '')) parts.push(`Label: ${before.label || '-'} -> ${after.label || '-'}`);
   if ((before.shiftId || '') !== (after.shiftId || '') && !parts.length) parts.push('Shift type changed');
   if (before.openSlots !== undefined && after.openSlots !== undefined && before.openSlots !== after.openSlots) parts.push(`${before.openSlots} -> ${after.openSlots} open`);
+  // The richer snapshot (lunch, team, zone, note fingerprint) is read only
+  // when both sides carry it - a row from before it says nothing new.
+  const rich = before.breakMin !== undefined && after.breakMin !== undefined;
+  if (rich && Number(before.breakMin) !== Number(after.breakMin)) parts.push(`Lunch ${Number(before.breakMin) || 0} -> ${Number(after.breakMin) || 0} min`);
+  if (rich && (before.groupId || '') !== (after.groupId || '')) parts.push(`Team: ${team(before.groupId)} -> ${team(after.groupId)}`);
+  if (rich && (before.timezone || '') !== (after.timezone || '')) parts.push(`Zone: ${before.timezone ? zoneOptionLabel(before.timezone) : 'Team zone'} -> ${after.timezone ? zoneOptionLabel(after.timezone) : 'Team zone'}`);
+  if (rich && (before.noteHash || '') !== (after.noteHash || '')) parts.push('Note changed');
   return parts.join(' · ');
 }
-function ShiftHistory({ id, nameOf }) {
+// The rows of a history, newest first - the panel's and the empty cell's
+// (ShiftSchedule's "History" on a day whose shift was removed).
+export function HistoryList({ rows, nameOf, groupNameOf }) {
+  if (!rows?.length) return <div style={{ fontSize: 12, color: 'var(--muted)' }}>No history yet.</div>;
+  return (
+    <div style={{ display: 'grid', gap: 8 }}>
+      {rows.map((h, i) => {
+        const change = historyChangeText(h.before, h.after, nameOf, groupNameOf);
+        const warned = Array.isArray(h.after?.warnings) ? h.after.warnings : [];
+        return (
+          <div key={`${h.at || ''}|${h.action}|${i}`} style={{ fontSize: 12 }}>
+            <div><b>{actionWord(h.action)}</b>{h.actorName || h.actor ? ` by ${h.actorName || h.actor}` : ''}{h.at ? ` · ${formatDateTime(h.at)}` : ''}</div>
+            {change && <div style={{ color: 'var(--muted)' }}>{change}</div>}
+            {warned.length > 0 && <div data-history-warnings="" style={{ color: 'hsl(var(--color-orange))' }}>Shared with {warned.length === 1 ? 'a warning' : `${warned.length} warnings`}: {warned.join(' ')}</div>}
+            {h.reason && <div style={{ color: 'var(--muted)', fontStyle: 'italic' }}>"{h.reason}"</div>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+function ShiftHistory({ id, nameOf, groupNameOf }) {
   const [rows, setRows] = useState(null);    // null = loading; false = unavailable
   useEffect(() => {
     if (!id) return undefined;
@@ -326,20 +358,7 @@ function ShiftHistory({ id, nameOf }) {
   return (
     <div data-shift-history="" style={{ borderTop: '1px solid var(--line)', paddingTop: 12 }}>
       <div style={LBL}>History</div>
-      {rows.length === 0 ? <div style={{ fontSize: 12, color: 'var(--muted)' }}>No history yet.</div> : (
-        <div style={{ display: 'grid', gap: 8 }}>
-          {rows.map((h, i) => {
-            const change = historyChangeText(h.before, h.after, nameOf);
-            return (
-              <div key={`${h.at || ''}|${h.action}|${i}`} style={{ fontSize: 12 }}>
-                <div><b>{actionWord(h.action)}</b>{h.actorName || h.actor ? ` by ${h.actorName || h.actor}` : ''}{h.at ? ` · ${formatDateTime(h.at)}` : ''}</div>
-                {change && <div style={{ color: 'var(--muted)' }}>{change}</div>}
-                {h.reason && <div style={{ color: 'var(--muted)', fontStyle: 'italic' }}>"{h.reason}"</div>}
-              </div>
-            );
-          })}
-        </div>
-      )}
+      <HistoryList rows={rows} nameOf={nameOf} groupNameOf={groupNameOf} />
     </div>
   );
 }

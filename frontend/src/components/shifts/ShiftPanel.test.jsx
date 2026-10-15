@@ -46,6 +46,17 @@ describe('historyChangeText', () => {
     expect(historyChangeText({ start: '08:00', end: '16:30' }, null)).toBe('8:00 AM - 4:30 PM');
     expect(historyChangeText(null, null)).toBe('');
     expect(historyChangeText({ shiftId: 'a' }, { shiftId: 'b' })).toBe('Shift type changed');
+    // Lunch, team, zone and the note fingerprint (Oct 15) - never the note's text.
+    const base = { start: '08:00', end: '16:30', breakMin: 30 };
+    expect(historyChangeText(base, { ...base, breakMin: 60 })).toBe('Lunch 30 -> 60 min');
+    expect(historyChangeText({ ...base, groupId: 'g1' }, { ...base, groupId: 'g2' }, null, (g) => ({ g1: 'Austin', g2: 'Georgetown' }[g]))).toBe('Team: Austin -> Georgetown');
+    expect(historyChangeText({ ...base, groupId: '' }, { ...base, groupId: 'g2' }, null, (g) => ({ g2: 'Georgetown' }[g]))).toBe('Team: No team -> Georgetown');
+    expect(historyChangeText({ ...base, timezone: 'America/Chicago' }, { ...base, timezone: 'Asia/Kolkata' })).toMatch(/^Zone: .*Chicago.* -> .*Kolkata/);
+    expect(historyChangeText(base, { ...base, timezone: 'Asia/Kolkata' })).toMatch(/^Zone: Team zone -> /);
+    expect(historyChangeText({ ...base, noteHash: '' }, { ...base, noteHash: 'ab12cd34' })).toBe('Note changed');
+    expect(historyChangeText({ ...base, noteHash: 'ab12cd34', groupId: 'g1' }, { ...base, noteHash: 'ab12cd34', groupId: 'g1' }, null, () => 'Austin')).toBe('');
+    // A row from before the richer snapshot (no lunch recorded) says nothing about the new fields.
+    expect(historyChangeText({ start: '08:00', end: '16:30' }, { ...base, groupId: 'g1', timezone: 'Asia/Kolkata', noteHash: 'x' })).toBe('');
   });
 });
 
@@ -60,6 +71,15 @@ describe('ShiftPanel history', () => {
     expect(rows[2]).toBe(`Weather Call by Bob Brown · ${formatDateTime('2026-10-13T15:00:00Z')}`);
     expect(rows[3]).toBe(`Created by amy.lee@x.com · ${formatDateTime('2026-10-10T15:00:00Z')}8:00 AM - 4:30 PM · GSV`);
     expect(screen.getByText('History')).toBeTruthy();
+  });
+
+  it('says what a share was warned about', async () => {
+    timeSchedHistory.mockResolvedValue({ shiftId: 's1', email: 'amy@x.com', date: '2026-10-20', entries: [
+      { ...HISTORY[0], after: { ...HISTORY[0].after, warnings: ['Only 8h 00m rest before this shift (10h minimum).'] } },
+    ] });
+    open({ email: 'amy@x.com', date: '2026-10-20', existing });
+    const el = await waitFor(() => { const x = document.querySelector('[data-history-warnings]'); if (!x) throw new Error('not yet'); return x; });
+    expect(el.textContent).toBe('Shared with a warning: Only 8h 00m rest before this shift (10h minimum).');
   });
 
   it('says No history yet. for a shift with none', async () => {

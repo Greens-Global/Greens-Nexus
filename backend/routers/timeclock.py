@@ -6460,8 +6460,14 @@ def check_scheduled(email: str, date: str, start: str, end: str, exclude_id: str
     if brk is None and exclude_id:
         cur = db.query(ScheduledShift).filter(ScheduledShift.id == exclude_id).first()
         brk = int(getattr(cur, "break_min", 0) or 0) if cur is not None else 0
+    # The hypothetical runs on the edited shift's zone, else the person's
+    # team zone - the rest rule measures real hours (shift_rules._span).
+    cur_row = db.query(ScheduledShift).filter(ScheduledShift.id == exclude_id).first() if exclude_id else None
+    import shift_expect
+    hypo_tz = (_shift_tz(cur_row, presets.get(cur_row.shift_id), shift_expect.team_tz(db, _company_of(db, em)))
+               if cur_row is not None else shift_expect.team_tz(db, _company_of(db, em)))
     hypo = {"id": exclude_id or "new", "email": em, "date": date[:10], "start": start[:5], "end": end[:5],
-            "paidMin": max(0, _shift_minutes(start[:5], end[:5]) - _clamp_break(brk or 0))}
+            "paidMin": max(0, _shift_minutes(start[:5], end[:5]) - _clamp_break(brk or 0)), "tz": hypo_tz}
     rules = shift_rules.rule_warnings(db, [em], date[:10], date[:10], extra=[hypo],
                                       exclude_ids=[exclude_id] if exclude_id else None).get(hypo["id"], [])
     return {"warnings": conflicts + rules, "conflicts": conflicts, "ruleWarnings": rules}
@@ -7574,6 +7580,13 @@ def publish_schedule(body: PublishScheduleIn, bt: BackgroundTasks, user: dict = 
     if review["reasonRequired"] and not reason:
         raise HTTPException(400, "A reason is needed to share a schedule with warnings.")
     publish_id = str(uuid.uuid4())
+    # The reason belongs to the shifts the review warned about (hardening
+    # pass, Oct 15): their 'shared' rows carry it and the warning sentences;
+    # every other row of the publish carries the publish id only.
+    warned: dict = {}
+    for w in review["warnings"]:
+        if w.get("shiftId"):
+            warned.setdefault(w["shiftId"], []).append(w["text"])
     import shift_notify
     from routers.shift_requests import cancel_requests_for_shifts
     added = updated = removed = 0
@@ -7583,8 +7596,8 @@ def publish_schedule(body: PublishScheduleIn, bt: BackgroundTasks, user: dict = 
         if r.pending_delete:
             changes.append(shift_notify.change("removed", r, start=r.start_hhmm, end=r.end_hhmm, label=r.label))
             touched.append(r.id)
-            shift_log.record(db, "shared", r, user["email"], before=shift_log.snapshot(r), reason=reason,
-                             publish_id=publish_id)
+            shift_log.record(db, "shared", r, user["email"], before=shift_log.snapshot(r),
+                             reason=reason if r.id in warned else "", publish_id=publish_id)
             db.delete(r)
             removed += 1
             continue
@@ -7611,8 +7624,9 @@ def publish_schedule(body: PublishScheduleIn, bt: BackgroundTasks, user: dict = 
             changes.append(shift_notify.change("added", r, start=r.start_hhmm, end=r.end_hhmm, label=r.label))
             added += 1
         r.published, r.pending_json = 1, ""
-        shift_log.record(db, "shared", r, user["email"], before=before, after=shift_log.snapshot(r), reason=reason,
-                         publish_id=publish_id)
+        after = shift_log.snapshot(r, **({"warnings": warned[r.id]} if r.id in warned else {}))
+        shift_log.record(db, "shared", r, user["email"], before=before, after=after,
+                         reason=reason if r.id in warned else "", publish_id=publish_id)
     # A swap / offer / open-shift request about a shift that just changed or
     # went away no longer describes the schedule (Oct 2, B2-5).
     cancelled = cancel_requests_for_shifts(db, touched, user["email"]) if touched else 0
@@ -10639,7 +10653,11 @@ def schedule_actuals(start: str, end: str, user: dict = Depends(get_current_user
         else:
             emails = {(e or "").lower() for e in scope}
         emails.add(me)
-    return shift_attendance.actuals(db, sorted(emails), d0.isoformat(), d1.isoformat())
+    out = shift_attendance.actuals(db, sorted(emails), d0.isoformat(), d1.isoformat())
+    # Status words only for anyone but themself unless the reader is a
+    # manager (hardening pass, Oct 15): a group scheduler below manager or
+    # a People viewer sees no clock stamps and no minutes for others.
+    return shift_attendance.for_viewer(out, me, can_manage_shifts(user))
 
 
 # ── Shifts Phase 2: rules before publish (Neil, Oct 14 2026) ──────────────
@@ -10725,16 +10743,21 @@ def _publish_review(db: Session, user: dict, d0: str, d1: str, group_id: str = "
             em = eff["email"]
             base = {"email": em, "name": names.get(em, em), "date": eff["date"], "shiftId": r.id}
             for text in _shift_conflicts(eff, others.get(em, []), off.get(em, []), holidays.get(em, {}), avail.get(em)):
-                warnings.append({**base, "text": text, "kind": "conflict"})
+                # A pending time-off request, availability or an overlap with
+                # another shift is shown and tagged but never demands a reason
+                # (hardening pass, Oct 15): `soft`.
+                warnings.append({**base, "text": text, "kind": "conflict", "soft": _soft_conflict(text)})
         for w in shift_rules.publish_warnings(db, emails_on, d0, d1, [r.id for _, r in shared], presets=presets):
             base = {"email": w["email"], "name": names.get(w["email"], w["email"]), "date": w["date"], "shiftId": w["shiftId"]}
             for text in w["texts"]:
-                warnings.append({**base, "text": text, "kind": "rule"})
+                warnings.append({**base, "text": text, "kind": "rule", "soft": False})
     required = False
     if warnings:
         companies = company_of_email_map(db)
         asks = {}
         for w in warnings:
+            if w.get("soft"):
+                continue
             cid = companies.get(w["email"], "") or ""
             if cid not in asks:
                 asks[cid] = bool(_sr_settings(db, cid).get("publishReasonRequired"))
@@ -10742,6 +10765,16 @@ def _publish_review(db: Session, user: dict, d0: str, d1: str, group_id: str = "
                 required = True
                 break
     return {"changes": changes, "people": len(people), "warnings": warnings, "reasonRequired": required}
+
+
+def _soft_conflict(text: str) -> bool:
+    """Whether a _shift_conflicts sentence is a heads-up rather than a real
+    warning: a request still pending, availability, an overlap with another
+    shift. Approved time off and a holiday are real."""
+    t = text or ""
+    return (t.startswith("Overlaps another shift") or t.startswith("Overlaps requested time off")
+            or t.startswith("Time off requested") or t.startswith("Marked unavailable")
+            or t.startswith("Outside their availability"))
 
 
 @router.get("/schedule/publish/review")
@@ -10781,3 +10814,70 @@ def scheduled_history(sched_id: str, user: dict = Depends(require_schedule_read)
         entries = shift_log.shared_only(entries)
     return {"shiftId": row.id, "email": (row.employee_email or "").lower(), "date": row.work_date,
             "entries": entries}
+
+
+# ── Hardening pass (Oct 15 2026): history of a removed shift, recent shares ──
+
+@router.get("/schedule/history")
+def removed_shift_history(email: str, date: str, user: dict = Depends(require_schedule_read),
+                          db: Session = Depends(get_db)):
+    """What an EMPTY cell can still tell: the log entries of shifts that no
+    longer exist on that person-day (removed, cleared, moved away), newest
+    first - the same scope rules as a shift's own history (own cell or in
+    scope; staff see shared history only). `entries` is [] when there is
+    nothing, so the grid shows "History" only when there is."""
+    em = (email or "").strip().lower()
+    day = _parse_day(date, "date").isoformat()
+    if not em:
+        raise HTTPException(400, "Pick a person.")
+    me = (user.get("email") or "").lower()
+    can_write = _can_write_schedule(user, db)
+    scope = _visible_emails(db, user)
+    if em != me and scope is not None and em not in scope:
+        raise HTTPException(403, "Outside your team")
+    entries = shift_log.removed_history(db, em, day, _employee_names(db))
+    if not can_write:
+        entries = shift_log.shared_only(entries)
+    return {"email": em, "date": day, "entries": entries}
+
+
+@router.get("/schedule/shares")
+def recent_shares(start: str = "", end: str = "", limit: int = 10, user: dict = Depends(require_schedule_write),
+                  db: Session = Depends(get_db)):
+    """The shares made with warnings, newest first, from the change log's
+    'shared' rows grouped by publish: {publishId, by, byName, at, people,
+    shifts, warnings, reason, start, end}. `start`/`end` bound WHEN they
+    were shared (YYYY-MM-DD, the last 90 days by default); only publishes
+    that touched someone in the caller's scope are listed, and only ones
+    that carried a warning (or a reason)."""
+    d1 = _parse_day(end, "end date") if end else date.today() + timedelta(days=1)
+    d0 = _parse_day(start, "start date") if start else d1 - timedelta(days=90)
+    if d1 < d0:
+        raise HTTPException(400, "The end date is before the start date.")
+    scope = _visible_emails(db, user)
+    from models import ShiftChangeLog as Log
+    rows = (db.query(Log)
+            .filter(Log.action == "shared", Log.publish_id != "",
+                    Log.at >= d0.isoformat(), Log.at < (d1 + timedelta(days=1)).isoformat())
+            .order_by(Log.at.desc()).all())
+    names = _employee_names(db)
+    out: dict = {}
+    for e in rows:
+        if scope is not None and e.employee_email and e.employee_email not in scope:
+            continue
+        rec = out.setdefault(e.publish_id, {"publishId": e.publish_id, "by": e.actor or "", "byName": names.get(e.actor or "", e.actor or ""),
+                                            "at": shift_log._utc_marked(e.at), "people": set(), "shifts": 0, "warnings": 0,
+                                            "reason": "", "start": e.work_date or "", "end": e.work_date or ""})
+        rec["shifts"] += 1
+        if e.employee_email:
+            rec["people"].add(e.employee_email)
+        after = shift_log._loads(e.after_json) or {}
+        rec["warnings"] += len(after.get("warnings") or [])
+        if e.reason and not rec["reason"]:
+            rec["reason"] = e.reason
+        if e.work_date:
+            rec["start"] = min(rec["start"] or e.work_date, e.work_date)
+            rec["end"] = max(rec["end"] or e.work_date, e.work_date)
+    shares = [{**r, "people": len(r["people"])} for r in out.values() if r["warnings"] or r["reason"]]
+    shares.sort(key=lambda r: r["at"], reverse=True)
+    return {"shares": shares[:max(1, min(int(limit or 10), 50))]}

@@ -299,8 +299,14 @@ describe('Companies', () => {
     fireEvent.change(early, { target: { value: '-5' } });
     fireEvent.blur(early);
     await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith(expect.objectContaining({ leftEarlyMin: 0, noShowAlertMin: 240 }), ''));
-    expect(screen.getByText(/0 turns it off\.$/)).toBeTruthy();
+    expect(screen.getByText(/always lands inside the six hours after the start\. 0 turns it off\.$/)).toBeTruthy();
     expect(screen.getByText(/counts as leaving early on the schedule/)).toBeTruthy();
+    // Usual hours (Oct 15): off unless turned on; saves only that key.
+    const usual = screen.getByLabelText('Alert for usual hours too');
+    expect(usual.checked).toBe(false);
+    expect(screen.getByText(/office staff who have usual hours but no shift on the schedule/)).toBeTruthy();
+    fireEvent.click(usual);
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ noShowOnUsualHours: true }, ''));
   });
 
   it('shows the defaults (10 and 15) when the API sends none, and an unchanged value saves nothing', async () => {
@@ -456,8 +462,14 @@ describe('ShiftSettingsPanel rules', () => {
     render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} />);
     const rest = await screen.findByLabelText('Minimum rest between shifts');
     expect(rest.value).toBe('0');
-    expect(screen.getByText('California daily overtime; applies to people on the California overtime rule.')).toBeTruthy();
-    expect(screen.getByText('0 turns a rule off. Rules warn on the schedule; they never block.')).toBeTruthy();
+    expect(screen.getByText(/^California daily overtime; applies to people on the California overtime rule\./)).toBeTruthy();
+    expect(screen.getByText(/US people get the California rule, everyone else has no overtime rules/)).toBeTruthy();
+    expect(screen.getByText(/the payroll week, Sunday to Saturday/)).toBeTruthy();
+    expect(screen.getByText(/the week shown on the grid/)).toBeTruthy();
+    // The "0 turns a rule off" note sits under the Rules heading, not on the last field.
+    const rules = screen.getByText('Rules').parentElement;
+    expect(rules.children[1].textContent).toBe('0 turns a rule off. Rules warn on the schedule; they never block.');
+    expect(screen.getByText(/A company that does not want to be asked turns this off here/)).toBeTruthy();
     commit(rest, '10');
     await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith(expect.objectContaining({ ruleMinRestHours: 10 }), ''));
     commit(screen.getByLabelText('Minimum rest between shifts'), '99');
@@ -475,7 +487,7 @@ describe('ShiftSettingsPanel rules', () => {
     const box = screen.getByLabelText('Require a reason to share a schedule that has warnings');
     expect(box.checked).toBe(false);
     fireEvent.click(box);
-    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith(expect.objectContaining({ publishReasonRequired: true, ruleMaxWeekHours: 0 }), ''));
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ publishReasonRequired: true }, ''));   // only the key that changed (a sparse company override)
     expect(screen.getByLabelText('Require a reason to share a schedule that has warnings').checked).toBe(true);
   });
 

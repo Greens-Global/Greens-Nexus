@@ -263,6 +263,46 @@ def start_utc(dd: date, exp: Optional[dict]) -> Optional[datetime]:
     return local.replace(tzinfo=zone(exp.get("tz", ""))).astimezone(timezone.utc)
 
 
+def end_local(dd: date, start_hhmm: str, end_hhmm: str) -> Optional[datetime]:
+    """The shift's end as a naive wall-clock datetime: `dd` at end_hhmm,
+    the NEXT day when the end is at or before the start (a 10 PM - 6 AM
+    shift ends on the morning after). None when either time is unusable
+    or the shift has no length."""
+    s, e = _hhmm_minutes(start_hhmm), _hhmm_minutes(end_hhmm)
+    if s is None or e is None or s == e:
+        return None
+    day = dd if e > s else dd + timedelta(days=1)
+    return datetime.combine(day, dtime(e // 60, e % 60))
+
+
+def to_utc(local: Optional[datetime], tz: str) -> Optional[datetime]:
+    """A naive wall-clock datetime in zone `tz` -> aware UTC. Wall time is
+    what the schedule says ("6:00 AM"), so a shift across a DST change
+    is one hour shorter or longer in real time, as it is on the ground -
+    never computed as start + a fixed length."""
+    if local is None:
+        return None
+    return local.replace(tzinfo=zone(tz)).astimezone(timezone.utc)
+
+
+def end_utc(dd: date, exp: Optional[dict]) -> Optional[datetime]:
+    """The shift end as an aware UTC datetime, from its wall-clock end in
+    the shift's own zone (DST-safe: see to_utc)."""
+    if not exp:
+        return None
+    return to_utc(end_local(dd, exp.get("start") or "", exp.get("end") or ""), exp.get("tz", ""))
+
+
+def span_utc(dd: date, start_hhmm: str, end_hhmm: str, tz: str) -> Optional[tuple]:
+    """(start, end) as aware UTC datetimes for a shift on `dd` in `tz`, or
+    None when the times do not parse or the shift has no length."""
+    s = _hhmm_minutes(start_hhmm)
+    e = end_local(dd, start_hhmm, end_hhmm)
+    if s is None or e is None:
+        return None
+    return to_utc(datetime.combine(dd, dtime(s // 60, s % 60)), tz), to_utc(e, tz)
+
+
 def is_late_at(first_in_utc_iso: str, dd: date, exp: Optional[dict]):
     """True when the first clock-in (UTC stamp, punch-table shape) is after
     shift start + grace on the shift's own clock, False when it is not, None

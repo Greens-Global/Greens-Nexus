@@ -90,6 +90,10 @@ _DEFAULTS = {"openShifts": False, "swaps": False, "offers": False, "teamSchedule
              # (0 = no alerts for this company), and how many minutes before
              # the end a clock-out counts as leaving early.
              "noShowAlertMin": 10, "leftEarlyMin": 15,
+             # Hardening pass (Oct 15 2026): with this on, a person with no
+             # placement but a usual-hours preset on one of its working days
+             # is a no-show candidate too (office staff on usual hours).
+             "noShowOnUsualHours": False,
              # Shifts Phase 2 (Neil, Oct 14 2026, shift_rules.py): the schedule
              # rules, in hours; 0 turns one off. They warn, never block - and
              # sharing a schedule over a warning needs a reason when
@@ -257,6 +261,7 @@ class SettingsIn(BaseModel):
     defaultGraceMin: Optional[int] = None       # 0-120, clamped
     noShowAlertMin: Optional[int] = None        # 0-240, clamped; 0 = off (Phase 1)
     leftEarlyMin: Optional[int] = None          # 0-240, clamped (Phase 1)
+    noShowOnUsualHours: Optional[bool] = None   # usual-hours presets are no-show candidates too (Oct 15)
     ruleMinRestHours: Optional[int] = None      # 0-24; 0 = off (Phase 2)
     ruleMaxDaysInRow: Optional[int] = None      # 0-14; 0 = off
     ruleDailyOtHours: Optional[int] = None      # 0-24; 0 = off; 'ca' overtime rule only

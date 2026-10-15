@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { paidMinutes, unpaidMinutes, unpaidLabel, planMinutes, fmtHrs, hrsNumber, weekStartOf, viewDays, dayHeading, timeOffOn, timeOffWhen, isAllDayOff, dayFullyOff, shiftState, orderGroups, alpha, isoDate,
-  actualLabel, actualColor, actualWord, actualFor, adherenceLine, hmText, punchTime } from './shiftLib';
+  actualLabel, actualColor, actualWord, actualFor, adherenceLine, hmText, punchTime, actualLetter, isRuleWarning } from './shiftLib';
 import { formatHHMM, formatWeekday, formatMonthYear, formatMonthDay, formatTime } from '../../lib/datetime';
 
 // One rule for hours, time off and dates across every Shifts screen (Oct 2026).
@@ -101,7 +101,22 @@ describe('actuals', () => {
     expect(actualLabel({ status: 'on_time' })).toBe('On Time');
     expect(actualLabel({ status: 'in_progress', firstIn: '2026-10-12T15:04:00' })).toBe(`In progress since ${at('2026-10-12T15:04:00')}`);
     expect(actualLabel({ status: 'no_show' })).toBe('No clock-in (no-show)');
-    expect(actualLabel({ status: 'excused', excuse: 'approved time off' })).toBe('Excused: approved time off');
+    expect(actualLabel({ status: 'excused', excuse: 'time_off' })).toBe('Excused: approved time off');
+    expect(actualLabel({ status: 'excused', excuse: 'weather' })).toBe('Excused: weather call');
+    expect(actualLabel({ status: 'excused', excuse: 'vacation' })).toBe('Excused: vacation');
+    expect(actualLabel({ status: 'excused', excuse: 'personal' })).toBe('Excused: personal time');
+    expect(actualLabel({ status: 'no_show', over: 'time_off' })).toBe('No clock-in (no-show)\nScheduled over approved time off');
+    expect(actualLabel({ status: 'on_time', firstIn: '2026-10-12T15:00:00', over: 'holiday' })).toBe(`Clocked in ${at('2026-10-12T15:00:00')}\nScheduled over a company holiday`);
+    expect(actualLabel({ status: 'late', private: true })).toBe('Late');
+    expect(actualLabel({ status: 'in_progress', private: true })).toBe('In Progress');
+    expect([actualLetter('on_time'), actualLetter('late'), actualLetter('left_early'), actualLetter('no_show'), actualLetter('in_progress'), actualLetter('excused'), actualLetter('')])
+      .toEqual(['\u2713', 'L', 'E', 'N', '', '', '']);
+    expect(isRuleWarning('Only 8h 00m rest before this shift (10h minimum).')).toBe(true);
+    expect(isRuleWarning('7th day in a row (6 is the most).')).toBe(true);
+    expect(isRuleWarning('45h 00m scheduled this week (over 40h is overtime).')).toBe(true);
+    expect(isRuleWarning('45h 00m scheduled this week (40h is the most).')).toBe(true);
+    expect(isRuleWarning('On approved Vacation')).toBe(false);
+    expect(isRuleWarning('Overlaps 2:00a - 6:00a')).toBe(false);
     expect(actualLabel({ status: 'exempt' })).toBe('Exempt');
     expect(actualLabel({ status: 'upcoming' })).toBe('');
     expect(actualLabel(null)).toBe('');
