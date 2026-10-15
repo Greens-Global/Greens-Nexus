@@ -44,7 +44,8 @@ def _wipe():
         for em in (HOURLY, FIXED):
             (db.query(models.NexusEmployee).execution_options(include_deleted=True)
                .filter(models.NexusEmployee.work_email == em).delete(synchronize_session=False))
-            for m in (models.PayrollRate, models.PayrollRateHistory, models.TimePunch, models.TimeApproval):
+            for m in (models.PayrollRate, models.PayrollRateHistory, models.TimePunch, models.TimeApproval,
+                      models.TimeOffRequest):
                 db.query(m).filter(m.employee_email == em).delete(synchronize_session=False)
         db.query(models.HrEntity).filter(models.HrEntity.id.in_([ENTITY_IN, ENTITY_US])).delete(synchronize_session=False)
         db.commit()
@@ -141,6 +142,37 @@ class FixedCardTests(unittest.TestCase):
         self.assertEqual(T["weekendDaysWorked"], 2)
         absent = sum(1 for d in card["fixedDays"] if d["status"] == "absent")
         self.assertAlmostEqual(T["deduction"], round((absent + 2) * daily + 2 * daily / 2, 2), places=0)
+
+    def test_missed_days_say_why(self):
+        # Charmi, Oct 15 2026: the Missed days line names each reason.
+        db = database.SessionLocal()
+        try:
+            # Approved full-day Personal time off Mon-Tue 09/14-15 (not punched),
+            # a partial-day request (09/16) that must NOT explain a whole day,
+            # and a rejected one (09/17) that must not either.
+            db.add(models.TimeOffRequest(id="to-sep30-1", employee_email=FIXED, type="personal",
+                                         start_date="2026-09-14", end_date="2026-09-15", status="approved"))
+            db.add(models.TimeOffRequest(id="to-sep30-2", employee_email=FIXED, type="sick", start_date="2026-09-16",
+                                         end_date="2026-09-16", start_time="10:00", end_time="12:00", status="approved"))
+            db.add(models.TimeOffRequest(id="to-sep30-3", employee_email=FIXED, type="vacation",
+                                         start_date="2026-09-17", end_date="2026-09-17", status="rejected"))
+            db.commit()
+            card = _fixed_card(db, FIXED, "2026-09-15")
+        finally:
+            db.close()
+        T = card["totals"]
+        got = {r["reason"]: (r["label"], r["full"], r["half"]) for r in T["missedReasons"]}
+        # Weekdays with no reason: 3, 4, 7, 11 and 16-30 (11 days) = 15 Absent.
+        self.assertEqual(got, {
+            "absent": ("Absent", 15, 0),
+            "personal": ("Personal", 2, 1),     # two days of time off + the half-worked personal day
+            "vacation": ("Vacation", 1, 0),
+            "sick": ("Sick", 1, 0),
+            "half_day": ("Half Day", 0, 1),     # 09/02, 6h30 worked
+        })
+        self.assertEqual(sum(r["full"] for r in T["missedReasons"]), T["missedFullDays"])
+        self.assertEqual(sum(r["half"] for r in T["missedReasons"]), T["missedHalfDays"])
+        self.assertEqual(T["missedReasons"][0]["reason"], "absent")   # most missed first
 
     def test_daily_rate_bands_and_weekend_pay(self):
         db = database.SessionLocal()
@@ -370,3 +402,39 @@ class CompensationSaveTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BreakPunchIdsTests(unittest.TestCase):
+    """Each break on the timecard names its punches, so Delete This Break can
+    void them (Charmi, Oct 15 2026)."""
+
+    def setUp(self):
+        _wipe()
+        db = database.SessionLocal()
+        try:
+            db.add(models.NexusEmployee(id=f"emp-{HOURLY}", first_name="Hana", last_name="Test",
+                                        work_email=HOURLY, company="", status="active", deleted_at=""))
+            db.add(models.PayrollRate(employee_email=HOURLY, pay_type="hourly", currency="USD", hourly_rate=20,
+                                      overtime_rule="none"))
+            day = "2026-09-08"
+            for pid, kind, at in (("p-in", "in", "08:00"), ("p-bs", "break_start", "12:00"), ("p-be", "break_end", "12:30"),
+                                  ("p-bs2", "break_start", "15:00"), ("p-out", "out", "17:00")):
+                db.add(models.TimePunch(id=pid, employee_email=HOURLY, kind=kind, at=f"{day}T{at}:00", local_date=day,
+                                        tz_offset_min=0, voided=0, created_at=f"{day}T{at}:00"))
+            db.commit()
+        finally:
+            db.close()
+
+    def tearDown(self):
+        _wipe()
+
+    def test_breaks_carry_their_punch_ids(self):
+        db = database.SessionLocal()
+        try:
+            card = _compute_timecard(db, HOURLY, "2026-09-07", "2026-09-13")
+        finally:
+            db.close()
+        day = {d["date"]: d for d in card["days"]}["2026-09-08"]
+        breaks = [b for s in day["segments"] for b in s.get("breaks", [])]
+        self.assertEqual([(b["startId"], b["endId"], b["implicit"]) for b in breaks],
+                         [("p-bs", "p-be", False), ("p-bs2", "", True)])   # the second one the clock-out closed

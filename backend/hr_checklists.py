@@ -341,9 +341,25 @@ def _sig_envelope(db, emp, arg):
     who = HrSignRequest.employee_id == emp.id
     if cand_ids:
         who = or_(who, HrSignRequest.candidate_id.in_(cand_ids))
-    return (db.query(HrSignRequest.id)
+    if (db.query(HrSignRequest.id)
             .join(HrSignTemplate, HrSignTemplate.id == HrSignRequest.template_id)
             .filter(HrSignRequest.status == "completed", HrSignTemplate.kind.in_(kinds), who)
+            .first()) is not None:
+        return True
+    # Offers and hiring packets built from Documents (Oct 14) have no Nexus
+    # Sign template to carry a kind - their life event says what they were:
+    # a signed offer letter ticks "Offer Letter Signed", a signed hiring
+    # packet (the NDA, the onboarding forms) ticks the pre-boarding packet.
+    events = [ev for k, ev in (("offer", "offer"), ("contractor_agreement", "offer"),
+                               ("nda", "hire"), ("handbook_ack", "hire")) if k in kinds]
+    if not events:
+        return False
+    from models import HrLifeEvent
+    owner = HrLifeEvent.employee_id == emp.id
+    if cand_ids:
+        owner = or_(owner, HrLifeEvent.candidate_id.in_(cand_ids))
+    return (db.query(HrLifeEvent.id)
+            .filter(HrLifeEvent.kind.in_(events), HrLifeEvent.status == "completed", owner)
             .first()) is not None
 
 
@@ -407,7 +423,7 @@ SIGNAL_LABELS = {
     "personal_details": "Emergency contact on the profile",
     "contract_end": "Contract end date on the profile",
     "provisioned": "A provisioning run finished",
-    "envelope": "A Nexus Sign envelope of that kind completed",
+    "envelope": "A Nexus Sign envelope of that kind completed (or the signed offer letter / hiring packet)",
     "item_assigned": "An Item Management assignment exists for the work email",
     "item_active": "The person accepted their equipment",
     "no_items": "No equipment is still assigned to them",

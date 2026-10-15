@@ -52,7 +52,11 @@ _SYSTEM_FOLDERS = [
 
 _TEMPLATE_CATEGORIES = ("letterhead", "hr", "legal", "finance", "operations", "sales", "engineering", "general",
                         # One per role, picked when an HR packet starts (Oct 14).
-                        "job_description")
+                        "job_description",
+                        # The one document an offer is (Neil, Oct 14: "there is a
+                        # document to sign, but it's a single document called an
+                        # offer letter") - one per kind of hire.
+                        "offer_letter")
 
 # Requirement 3. A template is DRAFT while it is being written, ACTIVE once it
 # is the company's approved language, ARCHIVED when it is retired. Only an
@@ -75,6 +79,8 @@ _FIELD_TYPES = ("text", "multiline", "number", "currency", "date", "time",
                 "email", "address", "person",
                 "dropdown", "radio", "checkbox", "signature", "initials", "image", "file")
 _RESERVED_FIELD_TYPES = ("signature", "initials", "image", "file")
+# Who fills a template variable in an HR packet (Oct 14) - see _clean_field_defs.
+_FIELD_SOURCES = ("person", "hr")
 
 
 def _now_iso() -> str:
@@ -1676,6 +1682,15 @@ def _clean_field_defs(defs: list) -> list:
             # Pay (Restricted): the value is pay, so HR packets keep it out of
             # the document row and show it only to Pay & Benefits holders.
             "pay": bool(d.get("pay")) or ftype == "currency",
+            # Who fills it in an HR packet (Neil, Oct 14: "you can't send an
+            # offer without answering these questions - who has to answer
+            # those? HR has to"): 'person' = the person on their intake form,
+            # 'hr' = HR when they make the offer, '' = typed each time.
+            "source": d.get("source") if d.get("source") in _FIELD_SOURCES else "",
+            # A person's answer only Pay & Benefits sees (a bank account, an
+            # ID number), and one kept - and printed - as its last four.
+            "sensitive": bool(d.get("sensitive")),
+            "last4": bool(d.get("last4")) and ftype in ("text", "number"),
         }
         if ftype in ("dropdown", "radio"):
             clean["options"] = [str(o)[:200] for o in (d.get("options") or []) if str(o).strip()][:50]

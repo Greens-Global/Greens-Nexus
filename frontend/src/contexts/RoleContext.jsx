@@ -40,7 +40,7 @@ export const MODULES = [
   { id: 'inventory',           label: 'Item Management' },
   { id: 'admin',               label: 'Nexus Access Manager' },
   { id: 'admin-console',       label: 'Settings' },
-  { id: 'support',             label: 'Support' },
+  { id: 'support',             label: 'Help Center' },
   { id: 'testing',             label: 'Testing' },
   { id: 'credvault',           label: 'Credential Vault' },
   { id: 'egnyte',              label: 'Files' },

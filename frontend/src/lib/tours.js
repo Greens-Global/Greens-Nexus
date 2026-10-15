@@ -18,7 +18,7 @@ export const TOURS = [
   { key: 'documents', label: 'Documents', view: 'documents', need: 'documents' },
   { key: 'timecard', label: 'Timecard', view: 'hr', sub: 'hr-time', need: 'people' },
   { key: 'roles', label: 'Roles & Access', view: 'admin-console', sub: 'access', need: 'administrator' },
-  { key: 'support', label: 'Support', view: 'support', need: '' },
+  { key: 'support', label: 'Help Center', view: 'support', need: '' },
 ];
 
 const live = new Map();          // key -> { label, open }

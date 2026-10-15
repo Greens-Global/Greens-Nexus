@@ -1032,6 +1032,10 @@ def _run_migrations():
             # Packet Details Form + Signs Once (Oct 14). models.HrPacketSetting.
             "ALTER TABLE hr_packet_settings ADD COLUMN details_form JSON DEFAULT '[]'",
             "ALTER TABLE hr_packet_settings ADD COLUMN saved_signatures JSON DEFAULT '[]'",
+            # Offer letters and packets picked by where the person works (Oct 14).
+            "ALTER TABLE hr_packet_settings ADD COLUMN country VARCHAR DEFAULT ''",
+            # Packets assembled from building blocks: a team's / role's documents (Oct 14).
+            "ALTER TABLE hr_packet_settings ADD COLUMN extra_docs JSON DEFAULT '[]'",
             # Tasks from tickets (Oct 14 2026). models.Task.source_ticket_id.
             "ALTER TABLE tasks ADD COLUMN source_ticket_id VARCHAR DEFAULT ''",
             "CREATE INDEX IF NOT EXISTS ix_tasks_source_ticket_id ON tasks (source_ticket_id)",
@@ -1058,6 +1062,22 @@ def _run_migrations():
             # MRI Lease Term is a pick, not text (Charmi + Neil, Oct 15) - see the Postgres list.
             "ALTER TABLE leases ADD COLUMN term_type VARCHAR DEFAULT ''",
             "ALTER TABLE leases ADD COLUMN term_months INTEGER",
+            # Shifts Phase 0 (Oct 14): shift types and groups per company. models.Shift / ShiftGroup.
+            "ALTER TABLE shifts ADD COLUMN company_id VARCHAR DEFAULT ''",
+            "ALTER TABLE shift_groups ADD COLUMN company_id VARCHAR DEFAULT ''",
+            # Shifts Phase 3a (Oct 14): Outlook calendar opt-out and the subscribe-link salt. models.NexusPersonPref.
+            "ALTER TABLE nexus_person_prefs ADD COLUMN shift_calendar INTEGER DEFAULT 1",
+            "ALTER TABLE nexus_person_prefs ADD COLUMN ical_salt VARCHAR DEFAULT ''",
+            # Shifts Phase 3a review (Oct 15): failed sync tries per queued row. models.ShiftCalendarEvent.
+            "ALTER TABLE shift_calendar_events ADD COLUMN attempts INTEGER DEFAULT 0",
+            # Hiring board (Neil, Oct 14): expected interview date, rejected -> inactive.
+            "ALTER TABLE hr_candidates ADD COLUMN expected_interview_on VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_candidates ADD COLUMN rejected_at VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_candidates ADD COLUMN inactive_at VARCHAR DEFAULT ''",
+            # One notes timeline per candidate (Oct 14): plain notes in hr_stage_events.
+            "ALTER TABLE hr_stage_events ADD COLUMN kind VARCHAR DEFAULT ''",
+            # The screening task per candidate (Oct 14). models.HrCandidate.screen_task_id.
+            "ALTER TABLE hr_candidates ADD COLUMN screen_task_id VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2316,6 +2336,10 @@ def _run_migrations():
         # Packet Details Form + Signs Once (Oct 14). models.HrPacketSetting.
         "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS details_form JSONB DEFAULT '[]'::jsonb",
         "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS saved_signatures JSONB DEFAULT '[]'::jsonb",
+        # Offer letters and packets picked by where the person works (Oct 14).
+        "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS country VARCHAR DEFAULT ''",
+        # Packets assembled from building blocks: a team's / role's documents (Oct 14).
+        "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS extra_docs JSONB DEFAULT '[]'::jsonb",
         # Tasks from tickets (Oct 14 2026). models.Task.source_ticket_id.
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS source_ticket_id VARCHAR DEFAULT ''",
         "CREATE INDEX IF NOT EXISTS ix_tasks_source_ticket_id ON tasks (source_ticket_id)",
@@ -2360,6 +2384,23 @@ def _run_migrations():
         "ALTER TABLE accounting_ama_threads ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE accounting_ama_messages ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE accounting_ama_settings ENABLE ROW LEVEL SECURITY",
+        # Shifts Phase 0 (Oct 14): shift types and groups per company ('' =
+        # shared with every company). models.Shift / ShiftGroup.company_id.
+        "ALTER TABLE shifts ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
+        "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
+        # Shifts Phase 3a (Oct 14): Outlook calendar opt-out and the subscribe-link salt. models.NexusPersonPref.
+        "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS shift_calendar INTEGER DEFAULT 1",
+        "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS ical_salt VARCHAR DEFAULT ''",
+        # Shifts Phase 3a review (Oct 15): failed sync tries per queued row. models.ShiftCalendarEvent.
+        "ALTER TABLE shift_calendar_events ADD COLUMN IF NOT EXISTS attempts INTEGER DEFAULT 0",
+        # Hiring board (Neil, Oct 14): expected interview date, rejected -> inactive.
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS expected_interview_on VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS rejected_at VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS inactive_at VARCHAR DEFAULT ''",
+        # One notes timeline per candidate (Oct 14): plain notes in hr_stage_events.
+        "ALTER TABLE hr_stage_events ADD COLUMN IF NOT EXISTS kind VARCHAR DEFAULT ''",
+        # The screening task per candidate (Oct 14). models.HrCandidate.screen_task_id.
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS screen_task_id VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -2942,6 +2983,20 @@ def _startup_seeds():
             db.close()
     except Exception as e:
         print(f"[startup] credential vault rehash skipped: {e}")
+    # One department head everywhere (Oct 15 2026): the ticket desk's heads
+    # become the departments' own, once (routers/tickets.py adopt_ticket_heads).
+    try:
+        from database import SessionLocal
+        from routers.tickets import adopt_ticket_heads
+        db = SessionLocal()
+        try:
+            n = adopt_ticket_heads(db)
+            if n:
+                print(f"[startup] department heads: {n} taken over from the ticket desk")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] department head adoption skipped: {e}")
 
 
 @asynccontextmanager
@@ -3022,6 +3077,23 @@ async def lifespan(app: FastAPI):
             _tasks.append(_a.create_task(weather_watch_loop()))
         except Exception as e:
             print(f"[startup] weather watch loop skipped: {e}")
+        try:
+            # Shifts Phase 1 (Oct 2026): the no-show scan - every minute, one
+            # bell per manager / scheduler per team-day for anyone not clocked
+            # in past start + grace + the company's noShowAlertMin, closed
+            # when everyone is in. See shift_attendance.py.
+            from shift_attendance import noshow_loop
+            _tasks.append(_a.create_task(noshow_loop()))
+        except Exception as e:
+            print(f"[startup] no-show loop skipped: {e}")
+        try:
+            # Shifts Phase 3a (Oct 14 2026): shared shifts onto people's
+            # Outlook calendars - every minute, up to 50 queued rows, Graph
+            # app-only in a thread. See shift_calendar.py.
+            from shift_calendar import calendar_sync_loop
+            _tasks.append(_a.create_task(calendar_sync_loop()))
+        except Exception as e:
+            print(f"[startup] shift calendar sync loop skipped: {e}")
         try:
             # ...and the follow-up on a weather call: a second text to anyone
             # silent after 30 minutes, the decider told after 60. weather_call.py.
@@ -3664,3 +3736,5 @@ app.include_router(accounting_profitability.router)  # Accounting > Reporting > 
 app.include_router(accounting_compensation.router)   # Accounting > Reporting > Employee Compensation: wages and hours per employee, payroll on the ledger (Neil, 10/15)
 from routers import accounting_ask  # noqa: E402
 app.include_router(accounting_ask.router)            # Accounting > Reporting > AMA: Ask My Accountant - questions on ledger lines, the suspense account's lines (Neil, 10/15)
+from routers import shift_ical  # noqa: E402
+app.include_router(shift_ical.router)                # Shifts Phase 3a: the personal calendar subscribe feed (signed link, no login on the .ics) (Neil, 10/14)

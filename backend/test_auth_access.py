@@ -62,6 +62,9 @@ KNOWN_PUBLIC = {
     "/esign/public/{token}",               # 43-char token is the credential
     "/hr/intake/public/{token}",           # a candidate's details link (Oct 14): 43-char token, sha256 at rest,
                                            # one submit, dies with the offer, same per-IP guessing throttle
+    "/timeclock/ical/{token}.ics",         # a person's own shift feed for Google / phone calendars (Shifts Phase 3a,
+                                           # Oct 15): the HMAC-signed token IS the credential, revocable by rotating
+                                           # their salt; own shared shifts only, no-store, in SENSITIVE_PREFIXES
     "/esign/public/{token}/sign",          # + access-code lockout
     "/esign/public/{token}/decline",       # + per-IP guessing throttle
     "/esign/public/{token}/download",

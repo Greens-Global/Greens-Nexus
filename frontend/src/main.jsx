@@ -133,7 +133,10 @@ function renderLanding() {
 // bffBootstrap's "no session -> renderLanding()" below would strand an
 // unauthenticated visitor (an external signer, or anyone sent a policy link)
 // on the "Continue with Microsoft" screen before App.jsx ever mounts.
-const PUBLIC_PATH = /^\/(sign|verify|privacy|terms|activate)(\/|$)/;
+// /intake is the new hire's details form (Oct 14) - "they don't need a Nexus
+// account to fill it out" (Neil); without it here a candidate with no session
+// lands on the sign-in screen instead of their form.
+const PUBLIC_PATH = /^\/(sign|verify|privacy|terms|activate|intake)(\/|$)/;
 const isPublicPath = PUBLIC_PATH.test(window.location.pathname);
 
 // BFF cookie mode: resolve the server session BEFORE the first render. If signed

@@ -105,13 +105,13 @@ describe('Help widget', () => {
     fireEvent.click(more);
     expect(more.getAttribute('aria-expanded')).toBe('true');
     expect(screen.queryByRole('button', { name: /^Dashboard Tour/ })).toBeNull();     // not the screen you are on
-    fireEvent.click(screen.getByRole('button', { name: /Support Tour/ }));   // open to everyone
+    fireEvent.click(screen.getByRole('button', { name: /Help Center Tour/ }));   // open to everyone
     expect(nav.mock.calls.at(-1)[0].detail).toEqual({ view: 'support', sub: null });
     window.removeEventListener('nexus:navigate', nav);
     const open = vi.fn();
     vi.useFakeTimers();
     try {
-      const off = registerTour('support', 'Support', open);   // the Support screen mounts
+      const off = registerTour('support', 'Help Center', open);   // the Help Center screen mounts
       act(() => { vi.runAllTimers(); });
       expect(open).toHaveBeenCalledTimes(1);
       off();

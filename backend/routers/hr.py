@@ -525,14 +525,18 @@ _STAGES = ("applied", "screening", "interview", "offer", "hired", "rejected")
 # action should not be moved to interview. It should be schedule an interview"
 # - which is also how an Offer goes back for another round. Hired by hand only
 # from Offer (the hiring packet hires by itself when signed).
+# Neil, Oct 14: "you should be able to go backwards to different stages" -
+# any earlier stage, by hand or by dragging the card. Hired is final.
 _STAGE_MOVES = {
     "applied":   {"screening", "rejected"},
     "screening": {"applied", "rejected"},
-    "interview": {"offer", "screening", "rejected"},
-    "offer":     {"hired", "rejected"},
+    "interview": {"offer", "screening", "applied", "rejected"},
+    "offer":     {"hired", "interview", "screening", "applied", "rejected"},
     "rejected":  {"applied", "screening"},     # reopen
     "hired":     set(),
 }
+# A rejected candidate leaves the board after this long (Neil, Oct 14).
+INACTIVE_AFTER_DAYS = 90
 _STAGE_HINTS = {
     "interview": "Schedule the interview - that moves them to Interview.",
     "hired": "Hire from Offer - send the hiring packet, or Mark Hired By Hand.",
@@ -562,6 +566,7 @@ class CandidateIn(BaseModel):
     last_name:      Optional[str] = ""
     email:          Optional[str] = ""
     phone:          Optional[str] = ""
+    expected_interview_on: Optional[str] = ""   # ISO date the interview is expected by
     role_title:     Optional[str] = ""
     department:     Optional[str] = ""
     expected_start: Optional[str] = ""
@@ -586,10 +591,25 @@ class CandidateUpdate(BaseModel):
     stage_note:     Optional[str] = None
     interview_at:   Optional[str] = None   # ISO datetime; '' clears
     role_id:        Optional[str] = None
+    expected_interview_on: Optional[str] = None
+    inactive:       Optional[bool] = None  # Remove a rejected candidate from the board (True)
+
+
+def _is_inactive(c: HrCandidate) -> bool:
+    """Off the board: removed by hand, or rejected 90+ days ago."""
+    if (c.inactive_at or "").strip():
+        return True
+    if c.stage != "rejected":
+        return False
+    since = (c.rejected_at or c.updated_at or "")[:10]
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=INACTIVE_AFTER_DAYS)).strftime("%Y-%m-%d")
+    return bool(since) and since < cutoff
 
 
 def _ser_candidate(c: HrCandidate) -> dict:
     return {
+        "expectedInterviewOn": c.expected_interview_on or "", "rejectedAt": c.rejected_at or "",
+        "inactive": _is_inactive(c),
         "id": c.id, "firstName": c.first_name, "lastName": c.last_name,
         "email": c.email, "phone": c.phone, "roleTitle": c.role_title,
         "department": c.department, "stage": c.stage,
@@ -716,20 +736,89 @@ def list_candidates(user: dict = Depends(require_hr_read), db: Session = Depends
 
 @router.get("/candidates/{cid}/history")
 def candidate_history(cid: str, user: dict = Depends(require_hr_read), db: Session = Depends(get_db)):
-    _cand_in_scope(db.query(HrCandidate).filter(HrCandidate.id == cid).first(), hr_scope(user, db))
+    """The candidate's ONE timeline (Neil, Oct 14: "consolidate all of that and
+    just make it a notes section ... with time and date and person who put it
+    in"): every note, every stage move with its note, and every interview
+    that finished with its verdict - oldest first, each with who and when."""
+    cand = _cand_in_scope(db.query(HrCandidate).filter(HrCandidate.id == cid).first(), hr_scope(user, db))
+    if cand is None:
+        raise HTTPException(404, "Candidate not found")
     rows = (db.query(HrStageEvent).filter(HrStageEvent.candidate_id == cid)
             .order_by(HrStageEvent.created_at).all())
-    return [{"fromStage": e.from_stage, "toStage": e.to_stage, "note": e.note,
-             "byEmail": e.by_email, "createdAt": e.created_at} for e in rows]
+    out = [{"kind": e.kind or "move", "fromStage": e.from_stage, "toStage": e.to_stage, "note": e.note,
+            "byEmail": e.by_email, "createdAt": e.created_at} for e in rows]
+    # The single notes box from before the timeline - kept, shown as a note.
+    if (cand.notes or "").strip():
+        out.append({"kind": "note", "fromStage": "", "toStage": "", "note": cand.notes.strip(),
+                    "byEmail": cand.created_by or "", "createdAt": cand.created_at or "", "legacy": True})
+    from models import HrInterview
+    for iv in (db.query(HrInterview).filter(HrInterview.candidate_id == cid,
+                                            HrInterview.status.in_(("completed", "scored"))).all()):
+        score = f"Scored {round(iv.total_score)}/100. " if iv.status == "scored" and iv.total_score is not None else ""
+        out.append({"kind": "interview", "fromStage": "", "toStage": "interview",
+                    "note": (score + (iv.summary or "")).strip() or "Interview finished.",
+                    "byEmail": (iv.interviewer_emails or [iv.organizer_email or ""])[0] if (iv.interviewer_emails or iv.organizer_email) else "",
+                    "createdAt": iv.completed_at or iv.at or ""})
+    names = {}
+    emails = {x["byEmail"].lower() for x in out if x["byEmail"]}
+    if emails:
+        names = {r.work_email: (r.display_name or f"{r.first_name} {r.last_name}").strip()
+                 for r in db.query(NexusEmployee).filter(NexusEmployee.work_email.in_(emails)).all()}
+    for x in out:
+        x["byName"] = names.get((x["byEmail"] or "").lower(), "") or (
+            "The candidate" if x["byEmail"] == "candidate" else (x["byEmail"] or "").split("@")[0].replace(".", " ").title())
+    out.sort(key=lambda x: x["createdAt"] or "")
+    return out
+
+
+class CandidateNoteIn(BaseModel):
+    note: str
+
+
+@router.post("/candidates/{cid}/notes")
+def add_candidate_note(cid: str, body: CandidateNoteIn, user: dict = Depends(require_hr_read),
+                       db: Session = Depends(get_db)):
+    """A note on the candidate's timeline - anyone who can see the candidate
+    can add one (Neil: "whoever is looking at the candidate should be able to
+    put their notes in"). Notes are never edited or deleted - the timeline is
+    the record."""
+    cand = _cand_in_scope(db.query(HrCandidate).filter(HrCandidate.id == cid).first(), hr_scope(user, db))
+    if cand is None:
+        raise HTTPException(404, "Candidate not found")
+    text = re.sub(r"[\x00-\x08\x0b-\x1f\x7f]", "", body.note or "").strip()[:4000]
+    if not text:
+        raise HTTPException(400, "Write the note first.")
+    now = datetime.now(timezone.utc).isoformat()
+    db.add(HrStageEvent(id=str(uuid.uuid4()), candidate_id=cand.id, from_stage=cand.stage, to_stage=cand.stage,
+                        note=text, by_email=user["email"], created_at=now, kind="note"))
+    cand.updated_at = now
+    db.commit()
+    return {"ok": True}
+
+
+def _check_date(value: str, label: str) -> str:
+    v = (value or "").strip()[:10]
+    if v:
+        try:
+            datetime.strptime(v, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(400, f"{label} is not a valid date.")
+    return v
 
 
 @router.post("/candidates")
-def create_candidate(body: CandidateIn, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
+def create_candidate(body: CandidateIn, background: BackgroundTasks = None, user: dict = Depends(require_hr_write),
+                     db: Session = Depends(get_db)):
     if not body.first_name.strip():
         raise HTTPException(400, "first_name is required")
     scope = hr_scope(user, db)
     if scope is not None and (body.company or "").strip() not in scope:
         raise HTTPException(403, "Pick one of your companies - your People access is limited to specific companies")
+    # Neil, Oct 14: "last name is mandatory ... e-mail and phone number needs
+    # to be mandatory" - the invites and the offer go there.
+    for value, label in ((body.last_name, "Last name"), (body.email, "Email"), (body.phone, "Phone")):
+        if not (value or "").strip():
+            raise HTTPException(400, f"{label} is required.")
     now = datetime.now(timezone.utc).isoformat()
     role_title, department = (body.role_title or "").strip(), (body.department or "").strip()
     role_id = (body.role_id or "").strip()
@@ -756,14 +845,33 @@ def create_candidate(body: CandidateIn, user: dict = Depends(require_hr_write), 
         email=_check_candidate_email(body.email), phone=(body.phone or "").strip(),
         role_title=role_title, department=department,
         expected_start=(body.expected_start or "").strip(), source=(body.source or "").strip(),
+        expected_interview_on=_check_date(body.expected_interview_on, "Expected interview date"),
         company=(body.company or "").strip(),
-        notes=body.notes or "", created_by=user["email"], created_at=now, updated_at=now,
+        notes="", created_by=user["email"], created_at=now, updated_at=now,
     )
     db.add(row)
     db.add(HrStageEvent(id=str(uuid.uuid4()), candidate_id=row.id, from_stage="",
                         to_stage="applied", note="Candidate added", by_email=user["email"], created_at=now))
+    if (body.notes or "").strip():
+        # What HR wrote on Add Candidate is the timeline's first note (Oct 14).
+        db.add(HrStageEvent(id=str(uuid.uuid4()), candidate_id=row.id, from_stage="applied", to_stage="applied",
+                            note=body.notes.strip()[:4000], by_email=user["email"], created_at=now, kind="note"))
+    # Screening (Neil, Oct 14): one task for the department head and up, due
+    # the business day before the interview - never in the way of the add.
+    import hiring_screening
+    task = None
+    try:
+        sp = db.begin_nested()
+        task = hiring_screening.start(db, row, user["email"])
+        sp.commit()
+    except Exception as e:   # noqa: BLE001 - the candidate is added either way
+        sp.rollback()
+        print(f"[hiring] screening task not created for {row.id}: {type(e).__name__}: {e}")
     db.commit()
     db.refresh(row)
+    if task is not None and background is not None:
+        from task_notify import notify_task_event
+        background.add_task(notify_task_event, task.id, "assigned", user["email"])
     out = _ser_candidate(row)
     out["roleCreated"] = role_created     # the new role's name, '' when an existing one was used
     return out
@@ -856,16 +964,32 @@ def update_candidate(cid: str, body: CandidateUpdate, user: dict = Depends(requi
         if body.stage not in _STAGE_MOVES.get(row.stage, set()):
             raise HTTPException(409, _STAGE_HINTS.get(body.stage)
                                 or f"A candidate in {row.stage} can't move to {body.stage}.")
-        if body.stage == "rejected":
-            # A hiring packet still out would hire them the moment they sign.
+        if row.stage == "offer" and body.stage != "hired" or body.stage == "rejected":
+            # A hiring packet still out would hire them the moment they sign -
+            # never under a candidate moved back or rejected.
             import hr_life_events as hle
             if hle.active_hire_event(db, row.id):
-                raise HTTPException(409, "Their hiring packet is still out for signature - void it first "
-                                         "(on the packet card), then reject.")
+                raise HTTPException(409, "Their offer letter or hiring packet is still open - void it first "
+                                         "(on its card), then move them.")
+        if body.stage == "hired":
+            # A signature would hire them a second time.
+            import hr_life_events as hle
+            if hle.active_hire_event(db, row.id):
+                raise HTTPException(409, "Their offer letter or hiring packet is still open - void it first "
+                                         "(on its card), then mark them hired.")
+            if not (body.stage_note or "").strip():
+                raise HTTPException(400, "Say why they are marked hired by hand.")
         db.add(HrStageEvent(id=str(uuid.uuid4()), candidate_id=row.id, from_stage=row.stage,
                             to_stage=body.stage, note=(body.stage_note or "").strip(),
                             by_email=user["email"], created_at=now))
         row.stage = body.stage
+        if body.stage in ("rejected", "hired"):
+            import hiring_screening
+            hiring_screening.close(db, row)          # nothing left to screen
+        if body.stage == "rejected":
+            row.rejected_at = now
+        elif row.rejected_at or row.inactive_at:
+            row.rejected_at, row.inactive_at = "", ""     # reopened: back on the board
         # Hired -> the candidate becomes an employee master record (onboarding)
         if body.stage == "hired" and not row.employee_id:
             created_employee = create_employee_from_candidate(db, row, user["email"])
@@ -904,6 +1028,14 @@ def update_candidate(cid: str, body: CandidateUpdate, user: dict = Depends(requi
             hle.reroute_hire_packet(db, row, body.email, user["email"])
     if body.first_name is not None and not body.first_name.strip():
         raise HTTPException(400, "First name can't be empty.")
+    if body.expected_interview_on is not None:
+        row.expected_interview_on = _check_date(body.expected_interview_on, "Expected interview date")
+        import hiring_screening
+        hiring_screening.follow_interview(db, row)
+    if body.inactive is not None:
+        if body.inactive and row.stage != "rejected":
+            raise HTTPException(409, "Only a rejected candidate can be removed from the board.")
+        row.inactive_at = now if body.inactive else ""
     if body.role_id is not None:
         rid = body.role_id.strip()
         if rid:
@@ -966,6 +1098,13 @@ def upload_resume(cid: str, file: UploadFile = File(...),
         raise HTTPException(502, f"Storage upload failed: {up.text[:200]}")
     row.resume_url = path
     row.updated_at = datetime.now(timezone.utc).isoformat()
+    # The screeners read it from their task (Oct 15).
+    if (row.screen_task_id or "").strip():
+        import hiring_screening
+        try:
+            hiring_screening.attach_resume(db, row, name, data, file.content_type or "", user["email"])
+        except Exception as e:   # noqa: BLE001 - the resume is saved either way
+            print(f"[hiring] resume not attached to the screening task for {row.id}: {type(e).__name__}: {e}")
     db.commit()
     return _ser_candidate(row)
 
@@ -2962,6 +3101,7 @@ def list_departments(entity_id: str, user: dict = Depends(require_hr_read), db: 
 
 class DepartmentIn(BaseModel):
     name: str
+    lead_email: str = ""     # the department head (Oct 15 2026) - optional when adding
 
 
 @router.post("/entities/{entity_id}/departments", status_code=201)
@@ -2984,7 +3124,9 @@ def add_department(entity_id: str, body: DepartmentIn, user: dict = Depends(requ
     if any(_dept_key(r.name) == _dept_key(name) for r in rows):
         return [_serialize_dept(d) for d in sorted(rows, key=lambda d: (d.sort_order, d.name))]
     nxt = max([r.sort_order for r in rows], default=-1) + 1
-    db.add(HrDepartment(id=str(uuid.uuid4()), company_id=entity_id, name=name, sort_order=nxt, created_by=user["email"], created_at=datetime.now(timezone.utc).isoformat()))
+    db.add(HrDepartment(id=str(uuid.uuid4()), company_id=entity_id, name=name, sort_order=nxt,
+                        lead_email=(body.lead_email or "").strip().lower(),
+                        created_by=user["email"], created_at=datetime.now(timezone.utc).isoformat()))
     db.commit()
     rows = db.query(HrDepartment).filter(HrDepartment.company_id == entity_id).order_by(HrDepartment.sort_order, HrDepartment.name).all()
     return [_serialize_dept(d) for d in rows]
@@ -2999,9 +3141,10 @@ class DepartmentUpdate(BaseModel):
 @router.patch("/entities/{entity_id}/departments/{dept_id}")
 def update_department(entity_id: str, dept_id: str, body: DepartmentUpdate,
                       user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
-    """Rename a department and/or set its triage lead / backup. Tickets raised
-    against it are left unassigned and these two are notified to assign an
-    employee."""
+    """Rename a department and/or set its head / backup. The head is THE
+    department head everywhere (Pranshu, Oct 15 2026): ticket escalations,
+    hiring screening, equipment reminders and the Contact Directory all read
+    hr_departments.lead_email - never keep a second one."""
     row = db.query(HrDepartment).filter(HrDepartment.id == dept_id, HrDepartment.company_id == entity_id).first()
     if not row:
         raise HTTPException(404, "Department not found")
@@ -4002,7 +4145,9 @@ def adopt_pending_role(db: Session, emp: NexusEmployee, by: str, ev=None) -> Non
     if has_role:
         return
     if ev is None:
-        ev = (db.query(HrLifeEvent).filter(HrLifeEvent.employee_id == emp.id, HrLifeEvent.kind == "hire",
+        # The signed offer letter (Oct 14) or the hiring packet - whichever
+        # signed last carries the role they were hired into.
+        ev = (db.query(HrLifeEvent).filter(HrLifeEvent.employee_id == emp.id, HrLifeEvent.kind.in_(("offer", "hire")),
                                            HrLifeEvent.status == "completed")
               .order_by(HrLifeEvent.completed_at.desc()).first())
     role_id = ((ev.inputs or {}).get("role_id") if ev else "") or ""
@@ -4454,6 +4599,15 @@ def apply_status_change(db: Session, row: NexusEmployee, body: StatusChangeIn, a
         items_returned = force_return_person(db, row.work_email, actor)
         if entry is not None and (items_returned["checkouts"] or items_returned["assignments"]):
             entry["itemsReturned"] = items_returned
+        # Their future shifts leave the schedule in the same session
+        # (shift_offboard.py, Oct 15 2026) - never a reason to fail the offboarding.
+        try:
+            import shift_offboard
+            shifts_removed = shift_offboard.remove_future_shifts(db, row.work_email, actor)
+            if entry is not None and (shifts_removed["pendingDelete"] or shifts_removed["deleted"]):
+                entry["shiftsRemoved"] = shifts_removed
+        except Exception as e:   # noqa: BLE001 - the offboarding goes on
+            print(f"[hr] future shifts not removed for {row.id}: {e}")
         # Task work moves at the same moment equipment does, in this same
         # session, so a half-completed offboarding can't leave tasks assigned to
         # someone who no longer exists.

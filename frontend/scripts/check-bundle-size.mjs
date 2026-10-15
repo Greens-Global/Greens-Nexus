@@ -222,7 +222,11 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // Budget / books on every report (#571). All app code, no new dependency.
 // Same lines in #569 and #571 so the second to merge does not conflict.
 // Deliberate.
-const TOTAL_KB     = 12550;
+// Oct 15, 2026: 12550 -> 12750. dev itself measured 12519 KB on CI, so any
+// feature tipped it again; #564 (Hiring: offer letter first, no-login
+// intake, the hiring board and screening task) measured 12582 KB. All app
+// code, no new dependency. Deliberate.
+const TOTAL_KB     = 12750;
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a

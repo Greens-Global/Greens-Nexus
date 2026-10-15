@@ -2,8 +2,11 @@
 // everything for the user to the other end"): the one place an employee
 // asks for a swap, an offer or an open shift, sees what waits on them, and
 // what became of what they asked. Time off is the form above it.
+// Shifts Phase 3b (Oct 15): a release (my shift to the open pool) is a
+// fourth kind - "You asked to release ..." while it waits, "Released ..."
+// once it is in the pool; cancel works as for the others.
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, CheckCircle2, ArrowLeftRight, Send, Hand, CalendarClock } from 'lucide-react';
+import { Plus, CheckCircle2, ArrowLeftRight, Send, Hand, Undo2, CalendarClock } from 'lucide-react';
 import { api } from '../../api';
 import { toDateInputValue, formatDate } from '../../lib/datetime';
 import { useNameResolver } from '../../lib/useNameResolver';
@@ -18,7 +21,7 @@ const STATUS = {
   pending_peer: ['Waiting On Teammate', 'hsl(var(--color-orange))'], pending_manager: ['Waiting On Manager', 'hsl(var(--color-orange))'],
   approved: ['Approved', 'hsl(var(--color-green))'], declined: ['Declined', 'hsl(var(--color-red))'], cancelled: ['Cancelled', 'var(--muted)'],
 };
-const KIND_ICON = { swap: ArrowLeftRight, offer: Send, open: Hand };
+const KIND_ICON = { swap: ArrowLeftRight, offer: Send, open: Hand, release: Undo2 };
 const card = { background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 12, padding: '10px 12px' };
 const pill = { display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 7,
   border: '1px solid var(--wk-line2)', background: 'var(--card)', color: 'var(--ink)', cursor: 'pointer', fontFamily: 'inherit' };
@@ -56,13 +59,14 @@ export default function WorkdayShiftRequests({ toast }) {
     setBusyId('');
   }
   const cfg = reqs?.settings || {};
-  const anyKind = cfg.swaps !== false || cfg.offers !== false || cfg.openShifts !== false;
+  const anyKind = cfg.swaps !== false || cfg.offers !== false || cfg.openShifts !== false || cfg.releaseShifts === true;
   const incoming = reqs?.incoming || [];
   const list = reqs?.mine || [];
   const shownList = showAll ? list : list.slice(0, 10);
   const who = (p) => (p ? nameOf(p.email, p.name) : 'a teammate');
   const mySummary = (r) => {
     if (r.kind === 'open') return `You asked for the open shift ${span(r.shift)}`;
+    if (r.kind === 'release') return r.status === 'approved' ? `Released ${span(r.shift)} to the open pool` : `You asked to release ${span(r.shift)}`;
     if (r.kind === 'swap') return `You asked to swap ${span(r.shift)} for ${who(r.target)}'s ${span(r.targetShift)}`;
     return `You offered ${span(r.shift)} to ${who(r.target)}`;
   };
@@ -77,7 +81,7 @@ export default function WorkdayShiftRequests({ toast }) {
           style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}><Plus size={13} /> New Request</button>
       </div>
       <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
-        Swap a shift with a teammate, offer one away, or ask for an open shift. A swap or an offer goes to your teammate first, then to a manager.
+        Swap a shift with a teammate, offer one away, {cfg.releaseShifts === true ? 'release one to the open pool, ' : ''}or ask for an open shift. A swap or an offer goes to your teammate first, then to a manager.
       </div>
       <AsyncSection loading={!reqs && !reqsError} error={!!reqsError} onRetry={retry} errorMessage="Your shift requests could not be loaded right now." skeleton={<SkeletonBlocks count={2} height={48} borderRadius={10} />}
         isEmpty={!incoming.length && !list.length} emptyContent={<div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '8px 0' }}>No shift requests yet.</div>}>

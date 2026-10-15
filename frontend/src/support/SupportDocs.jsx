@@ -7,10 +7,10 @@
 // what it is for, a picture, step-by-step walkthroughs (every step is one
 // action, so the count on each card is the click count), every feature, what
 // managers/admins get, and tips.
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Search, ArrowUpRight, ChevronLeft, ChevronRight, CheckCircle2, MousePointerClick,
-  ShieldCheck, Lightbulb, MapPin, UserCheck, BookOpen, X,
+  ShieldCheck, Lightbulb, MapPin, UserCheck, BookOpen, X, Rocket,
   Sparkles, LayoutDashboard, Contact, MonitorDot, CalendarClock, CheckSquare, HardDrive, Ticket,
   FileText, Monitor, HardHat, Store, Package, Home, Calculator, Landmark, Users,
   Megaphone, Gauge, KeyRound, HelpCircle, Settings,
@@ -21,6 +21,14 @@ import { useDocAccess } from './docsAccess';
 import { searchDocs, sectionDomId, walkthroughAnchor, featureAnchor, TIPS_ANCHOR, MANAGER_ANCHOR } from './docsSearch';
 import { DOCS_OPEN_EVENT, PENDING_DOCS_KIND, decodeDocTarget } from './openDoc';
 import { takePendingOpen } from '../lib/pendingOpen';
+import { SkeletonBlocks } from '../components/AsyncState';
+
+// The Implementation Guide is part of Documentation (Neil, Oct 13 2026:
+// "technically it is all of documentation"). Administrators get a
+// Module Guides | Implementation Guide switch in the header (Pranshu, Oct 15
+// 2026: a row in the index was too easy to miss), and the guide takes the
+// full width. Lazy: only its readers load it.
+const ImplementationGuide = lazy(() => import('./ImplementationGuide'));
 
 const ICONS = {
   Sparkles, LayoutDashboard, Contact, MonitorDot, CalendarClock, CheckSquare, HardDrive, Ticket,
@@ -119,7 +127,7 @@ function Article({ doc, onPrev, onNext, prev, next }) {
       </header>
 
       {/* What it is for */}
-      <section>
+      <section id={sectionDomId(doc.id, 'sec-purpose')} style={{ scrollMarginTop: 90 }}>
         <SectionTitle icon={BookOpen}>What It Is For</SectionTitle>
         <p style={{ margin: '0 0 14px', fontSize: 14, lineHeight: 1.65, color: 'var(--ink)' }}>{doc.purpose}</p>
         {doc.gains?.length > 0 && (
@@ -138,12 +146,12 @@ function Article({ doc, onPrev, onNext, prev, next }) {
 
       {/* Picture */}
       {doc.shot && (
-        <section>
+        <section id={sectionDomId(doc.id, 'sec-shot')} style={{ scrollMarginTop: 90 }}>
           <SectionTitle>What It Looks Like</SectionTitle>
           <div className="docs-shot">
-            <div style={{ maxWidth: 620 }}><DocShot shot={doc.shot} /></div>
+            <div style={{ minWidth: 0 }}><DocShot shot={doc.shot} /></div>
             {legend.length > 0 && (
-              <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 9, alignSelf: 'center' }}>
+              <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 9, alignSelf: 'start' }}>
                 {legend.map((l, i) => (
                   <li key={i} style={{ display: 'flex', gap: 9, fontSize: 13, lineHeight: 1.45, color: 'var(--ink)' }}>
                     <StepNumber n={i + 1} /><span>{l}</span>
@@ -158,7 +166,7 @@ function Article({ doc, onPrev, onNext, prev, next }) {
 
       {/* Walkthroughs */}
       {doc.walkthroughs?.length > 0 && (
-        <section>
+        <section id={sectionDomId(doc.id, 'sec-steps')} style={{ scrollMarginTop: 90 }}>
           <SectionTitle icon={MousePointerClick}>How To Use It, Step by Step</SectionTitle>
           <div className="docs-grid">
             {doc.walkthroughs.map((w) => <Walkthrough key={w.title} w={w} id={sectionDomId(doc.id, walkthroughAnchor(w.title))} />)}
@@ -168,7 +176,7 @@ function Article({ doc, onPrev, onNext, prev, next }) {
 
       {/* Features */}
       {doc.features?.length > 0 && (
-        <section>
+        <section id={sectionDomId(doc.id, 'sec-features')} style={{ scrollMarginTop: 90 }}>
           <SectionTitle icon={Sparkles}>Every Feature, Explained</SectionTitle>
           <div className="docs-feature-grid">
             {doc.features.map((f) => (
@@ -183,7 +191,7 @@ function Article({ doc, onPrev, onNext, prev, next }) {
 
       {/* Roles (Getting Started only) */}
       {doc.id === 'getting-started' && (
-        <section>
+        <section id={sectionDomId(doc.id, 'sec-roles')} style={{ scrollMarginTop: 90 }}>
           <SectionTitle icon={Users}>Roles in Nexus</SectionTitle>
           <div className="docs-feature-grid">
             {ROLE_TIERS.map((r, i) => (
@@ -260,11 +268,14 @@ function takeUrlTarget() {
   } catch { return null; }
 }
 
-export default function SupportDocs() {
+export default function SupportDocs({ canImplement = false, startOnGuide = false, onBack = null }) {
   // Where to open: a deep link (URL, or a help search that navigated here)
   // wins over the page this person last read.
   const [initialTarget] = useState(() => takeUrlTarget() || decodeDocTarget(takePendingOpen(PENDING_DOCS_KIND)));
   const [activeId, setActiveId] = useState(() => initialTarget?.docId || readLast() || DOCS[0].id);
+  // 'modules' | 'guide' - the header switch; /help-center/implementation opens on the guide.
+  const [section, setSection] = useState(() => (startOnGuide && canImplement ? 'guide' : 'modules'));
+  useEffect(() => { if (startOnGuide && canImplement) setSection('guide'); }, [startOnGuide, canImplement]);
   // Section to scroll to and flash once the page for it has rendered.
   const [flash, setFlash] = useState(() => (initialTarget ? { ...initialTarget, at: Date.now() } : null));
 
@@ -280,6 +291,7 @@ export default function SupportDocs() {
       const { docId, anchor } = e.detail || {};
       if (!docId) return;
       takePendingOpen(PENDING_DOCS_KIND);   // served here; don't replay it on a later mount
+      setSection('modules');                // a module page, even if the guide was showing
       setQuery('');
       setActiveId(docId);
       writeLast(docId);
@@ -327,6 +339,7 @@ export default function SupportDocs() {
   const shownId = isShown(activeId) ? activeId : (matches && visible.length ? visible : allowed)[0].id;
   const idx = Math.max(0, allowed.findIndex((d) => d.id === shownId));
   const doc = allowed[idx];
+  const onGuide = canImplement && section === 'guide';
 
   const select = (id) => {
     setActiveId(id);
@@ -334,34 +347,65 @@ export default function SupportDocs() {
     topRef.current?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
   };
 
+  // On This Page (Oct 15 2026): the article's own sections, for the right
+  // rail on wide screens - the space beside the article used to sit empty.
+  const outline = doc ? [
+    ['What It Is For', 'sec-purpose'],
+    doc.shot && ['What It Looks Like', 'sec-shot'],
+    doc.walkthroughs?.length && ['Step by Step', 'sec-steps'],
+    doc.features?.length && ['Every Feature', 'sec-features'],
+    doc.id === 'getting-started' && ['Roles in Nexus', 'sec-roles'],
+    doc.manager?.points?.length && [doc.manager.title, MANAGER_ANCHOR],
+    doc.tips?.length && ['Good To Know', TIPS_ANCHOR],
+  ].filter(Boolean) : [];
+  const jump = (anchor) => document.getElementById(sectionDomId(doc.id, anchor))?.scrollIntoView?.({ block: 'start', behavior: 'smooth' });
+
   return (
-    <div ref={topRef} style={{ display: 'flex', flexDirection: 'column', gap: 20, scrollMarginTop: 80 }}>
-      {/* Hero */}
-      <div className="docs-hero">
-        <div style={{ flex: 1, minWidth: 240 }}>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, fontWeight: 700, color: BRAND, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 999, padding: '3px 10px', marginBottom: 10 }}>
-            <BookOpen size={12} /> Nexus Documentation
+    <div ref={topRef} style={{ display: 'flex', flexDirection: 'column', gap: 16, scrollMarginTop: 80 }}>
+      {/* One toolbar (Pranshu, Oct 15 2026: the hero card wasted space): back,
+          the title, the Module Guides | Implementation Guide switch for
+          administrators, and the module search on the right. */}
+      <div className="docs-toolbar">
+        {onBack && (
+          <button type="button" className="docs-back" onClick={onBack} aria-label="Back to Help Center" title="Back to Help Center">
+            <ChevronLeft size={16} />
+          </button>
+        )}
+        <h2 className="docs-title"><BookOpen size={17} style={{ color: BRAND }} /> Documentation</h2>
+        {canImplement && (
+          <div role="tablist" aria-label="Documentation sections" className="docs-tabs scroll-tabs">
+            {[['modules', 'Module Guides', BookOpen], ['guide', 'Implementation Guide', Rocket]].map(([key, label, I]) => {
+              const on = section === key;
+              return (
+                <button key={key} type="button" role="tab" aria-selected={on} onClick={() => setSection(key)} className={`docs-tab${on ? ' active' : ''}`}>
+                  <I size={14} /> {label}
+                </button>
+              );
+            })}
           </div>
-          <h2 style={{ margin: '0 0 6px', fontSize: 22, fontWeight: 800, color: 'var(--ink)', letterSpacing: '-0.02em' }}>Learn Any Module in a Few Minutes</h2>
-          <p style={{ margin: 0, fontSize: 14, color: 'var(--muted)', lineHeight: 1.55, maxWidth: 560 }}>
-            What each module is for, how to use it step by step, every feature explained, and what managers get extra. New to Nexus? Start with Getting Started.
-          </p>
-        </div>
-        <div style={{ position: 'relative', width: 320, maxWidth: '100%', alignSelf: 'flex-end' }}>
-          <Search size={15} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)', pointerEvents: 'none' }} />
-          <input type="text" className="form-input" value={query} onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search e.g. time off, cart, signature…" aria-label="Search the documentation"
-            style={{ width: '100%', paddingLeft: 32, paddingRight: 30, fontSize: 13.5 }} />
-          {query && (
-            <button type="button" onClick={() => setQuery('')} aria-label="Clear search"
-              style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}>
-              <X size={14} />
-            </button>
-          )}
-        </div>
+        )}
+        {!onGuide && (
+          <div className="docs-search">
+            <Search size={15} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)', pointerEvents: 'none' }} />
+            <input type="text" className="form-input" value={query} onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search e.g. time off, cart, signature…" aria-label="Search the documentation"
+              style={{ width: '100%', paddingLeft: 32, paddingRight: 30, fontSize: 13.5 }} />
+            {query && (
+              <button type="button" onClick={() => setQuery('')} aria-label="Clear search"
+                style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}>
+                <X size={14} />
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
-      <div className="docs-layout">
+      {onGuide ? (
+        <Suspense fallback={<SkeletonBlocks count={4} height={120} />}>
+          <ImplementationGuide />
+        </Suspense>
+      ) : (
+      <div className="docs-layout docs-layout--toc">
         {/* Index - desktop */}
         <aside className="docs-index" aria-label="Modules">
           {visible.length === 0 && (
@@ -371,8 +415,8 @@ export default function SupportDocs() {
             const items = visible.filter((d) => d.group === g);
             if (!items.length) return null;
             return (
-              <div key={g} style={{ marginBottom: 12 }}>
-                <div style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.07em', padding: '0 10px 5px' }}>{g}</div>
+              <div key={g} style={{ marginBottom: 10 }}>
+                <div className="docs-index-group">{g}</div>
                 {items.map((d) => {
                   const I = ICONS[d.icon] || BookOpen;
                   const on = d.id === doc.id;
@@ -407,7 +451,16 @@ export default function SupportDocs() {
             onNext={() => select(allowed[idx + 1].id)}
           />
         </div>
+
+        {/* On This Page - wide screens only (style.css hides it below 1280px). */}
+        <nav className="docs-toc" aria-label="On this page">
+          <div className="docs-index-group" style={{ padding: '0 0 6px' }}>On This Page</div>
+          {outline.map(([label, anchor]) => (
+            <button key={anchor} type="button" onClick={() => jump(anchor)} className="docs-toc-item">{label}</button>
+          ))}
+        </nav>
       </div>
+      )}
     </div>
   );
 }

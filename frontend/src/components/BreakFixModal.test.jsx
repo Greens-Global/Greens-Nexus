@@ -6,10 +6,12 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 const timeAddPunch = vi.fn();
 const timePunchRequestCreate = vi.fn();
+const timeAdjustPunch = vi.fn();
 vi.mock('../api', () => ({
   api: {
     timeAddPunch: (...a) => timeAddPunch(...a),
     timePunchRequestCreate: (...a) => timePunchRequestCreate(...a),
+    timeAdjustPunch: (...a) => timeAdjustPunch(...a),
   },
 }));
 
@@ -20,6 +22,62 @@ const day = { date: '2026-08-05', breaks: [{ start: '2026-08-05T09:00:00', end: 
 beforeEach(() => {
   timeAddPunch.mockReset().mockResolvedValue({});
   timePunchRequestCreate.mockReset().mockResolvedValue({});
+  timeAdjustPunch.mockReset().mockResolvedValue({});
+});
+
+// Delete a break (Charmi, Oct 15 2026).
+const twoBreaks = { date: '2026-08-05', breaks: [
+  { start: '2026-08-05T09:00:00', end: '2026-08-05T09:30:00', min: 30, implicit: false, startId: 'bs1', endId: 'be1' },
+  { start: '2026-08-05T13:00:00', end: '2026-08-05T19:25:00', min: 385, implicit: true, startId: 'bs2', endId: '' },
+] };
+function openWith(d, self) {
+  const onDone = vi.fn(), toastOk = vi.fn();
+  render(<BreakFixModal day={d} email="aarav@x.com" self={self} busy={false} setBusy={() => {}}
+    onDone={onDone} onClose={() => {}} toastOk={toastOk} toastErr={() => {}} />);
+  return { onDone, toastOk };
+}
+
+describe('BreakFixModal - delete a break', () => {
+  it('lets a manager delete a break: both of its punches are voided, with the reason', async () => {
+    const { onDone } = openWith(twoBreaks, false);
+    fireEvent.change(screen.getByLabelText('What needs fixing'), { target: { value: 'delete' } });
+    expect(screen.getByRole('dialog', { name: 'Delete a break' })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/Which break/), { target: { value: '0' } });
+    fireEvent.change(screen.getByPlaceholderText(/Why - e.g. confirmed/), { target: { value: 'Punched by mistake' } });
+    fireEvent.click(screen.getByText('Delete Break'));
+    await waitFor(() => expect(onDone).toHaveBeenCalled());
+    expect(timeAdjustPunch.mock.calls).toEqual([
+      ['be1', { void: true, adjust_note: 'Punched by mistake' }],
+      ['bs1', { void: true, adjust_note: 'Punched by mistake' }],
+    ]);
+    expect(timeAddPunch).not.toHaveBeenCalled();
+  });
+
+  it('opens on the break that never ended, which has only a start punch to remove', async () => {
+    openWith(twoBreaks, false);
+    fireEvent.change(screen.getByLabelText('What needs fixing'), { target: { value: 'delete' } });
+    fireEvent.change(screen.getByPlaceholderText(/Why - e.g. confirmed/), { target: { value: 'Not a real break' } });
+    fireEvent.click(screen.getByText('Delete Break'));
+    await waitFor(() => expect(timeAdjustPunch).toHaveBeenCalledTimes(1));
+    expect(timeAdjustPunch).toHaveBeenCalledWith('bs2', { void: true, adjust_note: 'Not a real break' });
+  });
+
+  it('an employee asks their approver to remove it instead', async () => {
+    openWith(twoBreaks, true);
+    fireEvent.change(screen.getByLabelText('What needs fixing'), { target: { value: 'delete' } });
+    fireEvent.change(screen.getByLabelText(/Which break/), { target: { value: '0' } });
+    fireEvent.change(screen.getByPlaceholderText(/Why it's missing/), { target: { value: 'I never took this break' } });
+    fireEvent.click(screen.getByText('Send Request'));
+    await waitFor(() => expect(timePunchRequestCreate).toHaveBeenCalledTimes(2));
+    expect(timePunchRequestCreate).toHaveBeenCalledWith({ action: 'remove', target_punch_id: 'be1', reason: 'I never took this break' });
+    expect(timePunchRequestCreate).toHaveBeenCalledWith({ action: 'remove', target_punch_id: 'bs1', reason: 'I never took this break' });
+    expect(timeAdjustPunch).not.toHaveBeenCalled();
+  });
+
+  it('offers no delete when the server named no punches for the breaks', () => {
+    openWith(day, false);
+    expect([...screen.getByLabelText('What needs fixing').options].map((o) => o.value)).not.toContain('delete');
+  });
 });
 
 function open(self) {

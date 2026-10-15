@@ -5,7 +5,7 @@ import { useIsMobile } from "../lib/useIsMobile";
 import SidebarClock from "./SidebarClock";
 import NavTip from "./NavTip";
 import {
-  LayoutDashboard, ShoppingCart, CheckSquare, BookOpen,
+  LayoutDashboard, ShoppingCart, CheckSquare,
   Monitor, Wifi, Home, LayoutGrid, FileText,
   ClipboardCheck, Calculator,
   FileSpreadsheet, Landmark, BarChart3,
@@ -62,26 +62,29 @@ export const NAV = [
   // tab only - TimeTrackingAdmin hides the monitoring tabs without the
   // employee-tracking grant). Neil, 10/10.
   { view: "employee-tracking", code: "EMP", label: "Workforce Analytics",  icon: MonitorDot,   minRole: 'supervisor', grants: ['employee-tracking', 'workforce-scorecard'] },
-  // Shifts (Sep 29, Sagar): its own module, moved out of People > Time.
-  // Everyone's module since Neil, Sep 29: each person sees their own week and
-  // their team's (My Shifts, formerly Workday > Shifts); managers and above
-  // get Manage - the schedule grid and presets/groups. The backend enforces
-  // the same line (routers/timeclock.py require_shift_manage).
+  // Team (Neil, Oct 13 2026): everything about the people you work with -
+  // the Contact directory (moved out of Support) and the group's Shifts; your
+  // OWN shifts moved to Workday > My Shifts. The view id stays 'shifts' (the
+  // address reads /team, lib/routes.js). Managers and above also get the
+  // Schedule and Requests; the backend enforces the same line
+  // (routers/timeclock.py require_shift_manage).
   {
-    view: "shifts", code: "SFT", label: "Shifts", icon: CalendarClock,
+    view: "shifts", code: "TEAM", label: "Team", icon: Users,
     sub: [
-      { subview: "mine",     label: "My Shifts",        icon: CalendarClock },
+      { subview: "shifts",   label: "Shifts",           icon: CalendarClock },
       { subview: "schedule", label: "Schedule",         icon: Calendar,      minRole: 'manager' },
       // Requests = the manager's inbox (Charmi, 09/30); staff ask in Workday >
       // Time Off, and shift types / groups live in Settings > Global Settings.
       { subview: "requests", label: "Requests",         icon: ClipboardList, minRole: 'manager' },
+      { subview: "contact",  label: "Contact",          icon: Contact },
     ],
   },
   { divider: true },
   // Tasks + Tickets are grant-driven like every other module (Aug 10): they
   // only appear when an Access Group / job role grants them (most job roles
-  // carry tasks:*). Knowledge Base stays baseline - it is the LMS and assigned
-  // courses/SOPs must be reachable by everyone; KB admin ops are level 3+.
+  // carry tasks:*). Knowledge Base moved into Help Center as a tile (Neil,
+  // Oct 13 2026: "anything to do with support or learning is right here") -
+  // still baseline, the 'sop' view and its address are unchanged.
   { view: "tasks", code: "TSK",             label: "Tasks",               icon: CheckSquare,  minRole: 'supervisor' },
   // Files (Egnyte-backed) sits directly beneath Tasks (Pranshu, Aug 31).
   // Egnyte stays the source of truth for files; this module browses, uploads
@@ -95,7 +98,6 @@ export const NAV = [
     ],
   },
   { view: "tickets", code: "TKT",           label: "Tickets",             icon: TicketToken,  minRole: 'supervisor' },
-  { view: "sop", code: "KB", label: "Knowledge Base", icon: BookOpen },
   {
     view: "documents", code: "DOC", label: "Documents", icon: FileText, minRole: 'supervisor',
     sub: [
@@ -185,7 +187,9 @@ export const NAV = [
   { view: "bi", code: "INS", label: "Insights", icon: Gauge, minRole: 'supervisor' },
   { view: "credvault", code: "VLT", label: "Credential Vault", icon: KeyRound, minRole: 'supervisor' },
   { divider: true },
-  { view: "support", code: "SUP",        label: "Support",        icon: HelpCircle },
+  // Help Center (Neil, Oct 13 2026; was Support): Submit a Ticket,
+  // Documentation and the Knowledge Base & Training. View id stays 'support'.
+  { view: "support", code: "HLP",        label: "Help Center",    icon: HelpCircle },
   // External Links folded into Dashboard as a tab (Pranshu, Sep 3 - same
   // "shrink the left nav" pattern as Manager Dashboard, Aug 31). The
   // 'external-links' view id still resolves (App.jsx parsePath/navigate
