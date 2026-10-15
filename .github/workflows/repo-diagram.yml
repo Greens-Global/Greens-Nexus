@@ -1,0 +1,51 @@
+name: Repo Diagram
+
+# A picture of the codebase (Neil, Oct 14 2026): every folder a circle, every
+# file a dot sized by length and colored by language - GitHub Next's
+# repo-visualizer. Drawn on every merge to dev, or on demand (Actions > Repo
+# Diagram > Run workflow), and attached to the run as "repo-diagram"
+# (diagram.svg - open it in a browser).
+#
+# Not committed anywhere on purpose: nothing may push to dev or main
+# (CLAUDE.md), and a branch holding only the picture would set off a failing
+# Cloudflare Pages preview build on every merge. The action itself is archived
+# by GitHub (Aug 2026) but pinned and working; it targets Node 12, which the
+# runner upgrades automatically.
+
+on:
+  push:
+    branches: ["dev"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repo-diagram
+  cancel-in-progress: true
+
+jobs:
+  diagram:
+    name: Draw the Repo Diagram
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Draw the diagram
+        uses: githubocto/repo-visualizer@0.7.1
+        with:
+          output_file: diagram.svg
+          should_push: false
+          max_depth: 5
+          excluded_paths: "node_modules,dist,.git,.github,.claude"
+          # Data, images and fonts would drown the code in dots.
+          excluded_globs: "**/*.json;**/*.lock;**/*.geojson;**/*.jpg;**/*.jpeg;**/*.png;**/*.webp;**/*.svg;**/*.ico;**/*.woff2;**/*.pdf"
+
+      # The action's own artifact upload uses the artifact service GitHub
+      # retired in Jan 2025 - upload with the current action instead.
+      - name: Attach the diagram to the run
+        uses: actions/upload-artifact@v4
+        with:
+          name: repo-diagram
+          path: diagram.svg
+          retention-days: 30
