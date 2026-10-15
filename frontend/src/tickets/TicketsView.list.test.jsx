@@ -104,3 +104,35 @@ describe('Requester resolves their own ticket', () => {
     expect(updateTicket).toHaveBeenCalledWith('t1', { status: 'resolved', comment: '<p>Rebooted</p>' });
   });
 });
+
+// Neil, Oct 14 2026: "Assignee" and "Created" as the column words, the
+// author's picture (not name) in the comment cell, and an unassigned ticket
+// turning the Unassigned tile into a call to act.
+describe('Ticket list - Oct 14 column and tile words', () => {
+  it('heads the columns Assignee and Created', async () => {
+    render(<TicketsView />);
+    expect(await screen.findByText('Assignee')).toBeTruthy();
+    expect(screen.getByText('Created')).toBeTruthy();
+    expect(screen.queryByText('Assigned To')).toBeNull();
+    expect(screen.queryByText('Created Date')).toBeNull();
+  });
+
+  it('shows the commenter as a picture, their name only on hover', async () => {
+    render(<TicketsView />);
+    const cell = await screen.findByRole('button', { name: /Latest comment by Ava Agent/ });
+    expect(cell.getAttribute('title')).toMatch(/^Ava Agent/);
+    expect(within(cell).queryByText(/Ava Agent/)).toBeNull();          // not as text...
+    const pic = within(cell).getByTitle('Ava Agent');                    // ...but as their picture (initials here)
+    expect(pic.textContent).toBe('AA');
+    expect(pic.getAttribute('role')).toBeNull();                         // no hover card inside the button
+    expect(within(cell).getByText(/Swapping the toner now/)).toBeTruthy();
+  });
+
+  it('marks the Unassigned tile Action Required while a ticket has no owner', async () => {
+    render(<TicketsView />);
+    const tile = (await screen.findByText('Unassigned', { selector: 'button span' })).closest('button');
+    expect(tile.hasAttribute('data-action-required')).toBe(true);
+    expect(within(tile).getByText('Action Required')).toBeTruthy();
+    expect(within(tile).queryByText('nobody working them')).toBeNull();
+  });
+});

@@ -6,5 +6,7 @@
 //   itemmanagement <-> inventory   (Neil, Jun 16)
 //   construction   <-> ops         (the module was renamed, the id stayed)
 //   workday        <-> myhr        (Workday since Sep 3; the address since Oct 14)
-export const PATH_TO_VIEW = { itemmanagement: 'inventory', inventory: 'inventory', construction: 'ops', ops: 'ops', workday: 'myhr', myhr: 'myhr' };
-export const VIEW_TO_PATH = { inventory: 'itemmanagement', ops: 'construction', myhr: 'workday' };
+//   insights       <-> bi          (Business Intelligence renamed Insights, Neil Oct 14;
+//                                   the id stays - it is the stored access grant)
+export const PATH_TO_VIEW = { itemmanagement: 'inventory', inventory: 'inventory', construction: 'ops', ops: 'ops', workday: 'myhr', myhr: 'myhr', insights: 'bi', bi: 'bi' };
+export const VIEW_TO_PATH = { inventory: 'itemmanagement', ops: 'construction', myhr: 'workday', bi: 'insights' };

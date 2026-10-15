@@ -20,6 +20,7 @@ import GuidedTour from '../components/GuidedTour';
 import { takePendingOpen } from '../lib/pendingOpen';
 import AnchoredMenu from '../components/AnchoredMenu';
 import TeamsTargetPicker, { EMPTY_TEAMS_TARGET, teamsTargetLabel } from '../components/TeamsTargetPicker';
+import { registerTour } from '../lib/tours';
 
 // ── Roles & Access - people-first restructure (Jul 27) ───────────────────────
 // One rule: a person's access = their ONE job role (baseline) + extra groups
@@ -263,6 +264,7 @@ export default function RolesAccess({ embedded = false }) {
   const [person, setPerson] = useState(null);        // selected person email
   const [toast, setToast] = useState(null);
   const [tour, setTour] = useState(false);
+  useEffect(() => registerTour('roles', 'Roles & Access', () => setTour(true)), []);   // the Help panel's Take the Tour (lib/tours.js)
   const [collapsedDepts, setCollapsedDepts] = useState(() => new Set());   // department sections closed
   const toggleDept = d => setCollapsedDepts(s => { const n = new Set(s); n.has(d) ? n.delete(d) : n.add(d); return n; });
   const [dragRole, setDragRole] = useState(null);   // job-role id being dragged

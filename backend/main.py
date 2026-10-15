@@ -1044,6 +1044,32 @@ def _run_migrations():
             "ALTER TABLE task_templates ADD COLUMN checklist JSON DEFAULT '[]'",
             "ALTER TABLE task_templates ADD COLUMN source_task_id VARCHAR DEFAULT ''",
             "ALTER TABLE task_templates ADD COLUMN created_by VARCHAR DEFAULT ''",
+            # PFS guarantor dropdown order (Neil, Oct 14). models.PfsProfile.sort_order.
+            "ALTER TABLE pfs_profiles ADD COLUMN sort_order INTEGER DEFAULT 0",
+            # MRE frequency period, variance and vendor details (Oct 14). models.RecurringExpense.
+            "ALTER TABLE recurring_expenses ADD COLUMN frequency_months INTEGER DEFAULT 0",
+            "ALTER TABLE recurring_expenses ADD COLUMN variance_pct INTEGER DEFAULT 0",
+            "ALTER TABLE recurring_expenses ADD COLUMN account_number VARCHAR DEFAULT ''",
+            "ALTER TABLE recurring_expenses ADD COLUMN account_details VARCHAR DEFAULT ''",
+            "ALTER TABLE recurring_expenses ADD COLUMN contact_info VARCHAR DEFAULT ''",
+            # Flux review status (Charmi, Oct 15). models.AccountingFluxNote.closed_*.
+            "ALTER TABLE accounting_flux_notes ADD COLUMN closed INTEGER DEFAULT 0",
+            "ALTER TABLE accounting_flux_notes ADD COLUMN closed_by VARCHAR DEFAULT ''",
+            "ALTER TABLE accounting_flux_notes ADD COLUMN closed_at VARCHAR DEFAULT ''",
+            # Add Time batches (Oct 14) - see the Postgres list.
+            "ALTER TABLE time_punches ADD COLUMN batch_id TEXT DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS ix_time_punches_batch_id ON time_punches (batch_id)",
+            # MRI Lease Term is a pick, not text (Charmi + Neil, Oct 15) - see the Postgres list.
+            "ALTER TABLE leases ADD COLUMN term_type VARCHAR DEFAULT ''",
+            "ALTER TABLE leases ADD COLUMN term_months INTEGER",
+            # Shifts Phase 0 (Oct 14): shift types and groups per company. models.Shift / ShiftGroup.
+            "ALTER TABLE shifts ADD COLUMN company_id VARCHAR DEFAULT ''",
+            "ALTER TABLE shift_groups ADD COLUMN company_id VARCHAR DEFAULT ''",
+            # Shifts Phase 3a (Oct 14): Outlook calendar opt-out and the subscribe-link salt. models.NexusPersonPref.
+            "ALTER TABLE nexus_person_prefs ADD COLUMN shift_calendar INTEGER DEFAULT 1",
+            "ALTER TABLE nexus_person_prefs ADD COLUMN ical_salt VARCHAR DEFAULT ''",
+            # Shifts Phase 3a review (Oct 15): failed sync tries per queued row. models.ShiftCalendarEvent.
+            "ALTER TABLE shift_calendar_events ADD COLUMN attempts INTEGER DEFAULT 0",
             # Hiring board (Neil, Oct 14): expected interview date, rejected -> inactive.
             "ALTER TABLE hr_candidates ADD COLUMN expected_interview_on VARCHAR DEFAULT ''",
             "ALTER TABLE hr_candidates ADD COLUMN rejected_at VARCHAR DEFAULT ''",
@@ -2322,6 +2348,51 @@ def _run_migrations():
         "ALTER TABLE task_templates ADD COLUMN IF NOT EXISTS checklist JSONB DEFAULT '[]'::jsonb",
         "ALTER TABLE task_templates ADD COLUMN IF NOT EXISTS source_task_id VARCHAR DEFAULT ''",
         "ALTER TABLE task_templates ADD COLUMN IF NOT EXISTS created_by VARCHAR DEFAULT ''",
+        # PFS guarantor dropdown order (Neil, Oct 14). models.PfsProfile.sort_order.
+        "ALTER TABLE pfs_profiles ADD COLUMN IF NOT EXISTS sort_order INTEGER DEFAULT 0",
+        # MRE frequency period, variance and vendor details (Oct 14). models.RecurringExpense.
+        "ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS frequency_months INTEGER DEFAULT 0",
+        "ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS variance_pct INTEGER DEFAULT 0",
+        "ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS account_number VARCHAR DEFAULT ''",
+        "ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS account_details VARCHAR DEFAULT ''",
+        "ALTER TABLE recurring_expenses ADD COLUMN IF NOT EXISTS contact_info VARCHAR DEFAULT ''",
+        # Flux review status (Charmi, Oct 15). models.AccountingFluxNote.closed_*.
+        "ALTER TABLE accounting_flux_notes ADD COLUMN IF NOT EXISTS closed BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE accounting_flux_notes ADD COLUMN IF NOT EXISTS closed_by VARCHAR DEFAULT ''",
+        "ALTER TABLE accounting_flux_notes ADD COLUMN IF NOT EXISTS closed_at VARCHAR DEFAULT ''",
+        # Add Time (Oct 14): the punches one manager batch wrote together share
+        # an id, so the batch can be undone as one.
+        "ALTER TABLE time_punches ADD COLUMN IF NOT EXISTS batch_id TEXT DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_time_punches_batch_id ON time_punches (batch_id)",
+        # Cubby -> Supabase (Operations, Oct 15). New tables - RLS per CLAUDE.md. models.Cubby*.
+        "ALTER TABLE cubby_facilities ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE cubby_units ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE cubby_rentals ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE cubby_customers ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE cubby_payments ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE cubby_leads ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE cubby_receivables ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE cubby_tasks ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE cubby_sync_runs ENABLE ROW LEVEL SECURITY",
+        # MRI Lease Term is a pick, not text (Charmi + Neil, Oct 15): annual |
+        # month_to_month | custom, and the months it runs. models.Lease.term_*.
+        "ALTER TABLE leases ADD COLUMN IF NOT EXISTS term_type VARCHAR DEFAULT ''",
+        "ALTER TABLE leases ADD COLUMN IF NOT EXISTS term_months INTEGER",
+        # Accounting > AMA, Ask My Accountant (Neil, 10/15). Three new tables -
+        # RLS per CLAUDE.md. models.AccountingAmaThread / AccountingAmaMessage /
+        # AccountingAmaSetting, routers/accounting_ask.py.
+        "ALTER TABLE accounting_ama_threads ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE accounting_ama_messages ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE accounting_ama_settings ENABLE ROW LEVEL SECURITY",
+        # Shifts Phase 0 (Oct 14): shift types and groups per company ('' =
+        # shared with every company). models.Shift / ShiftGroup.company_id.
+        "ALTER TABLE shifts ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
+        "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
+        # Shifts Phase 3a (Oct 14): Outlook calendar opt-out and the subscribe-link salt. models.NexusPersonPref.
+        "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS shift_calendar INTEGER DEFAULT 1",
+        "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS ical_salt VARCHAR DEFAULT ''",
+        # Shifts Phase 3a review (Oct 15): failed sync tries per queued row. models.ShiftCalendarEvent.
+        "ALTER TABLE shift_calendar_events ADD COLUMN IF NOT EXISTS attempts INTEGER DEFAULT 0",
         # Hiring board (Neil, Oct 14): expected interview date, rejected -> inactive.
         "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS expected_interview_on VARCHAR DEFAULT ''",
         "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS rejected_at VARCHAR DEFAULT ''",
@@ -2993,6 +3064,23 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             print(f"[startup] weather watch loop skipped: {e}")
         try:
+            # Shifts Phase 1 (Oct 2026): the no-show scan - every minute, one
+            # bell per manager / scheduler per team-day for anyone not clocked
+            # in past start + grace + the company's noShowAlertMin, closed
+            # when everyone is in. See shift_attendance.py.
+            from shift_attendance import noshow_loop
+            _tasks.append(_a.create_task(noshow_loop()))
+        except Exception as e:
+            print(f"[startup] no-show loop skipped: {e}")
+        try:
+            # Shifts Phase 3a (Oct 14 2026): shared shifts onto people's
+            # Outlook calendars - every minute, up to 50 queued rows, Graph
+            # app-only in a thread. See shift_calendar.py.
+            from shift_calendar import calendar_sync_loop
+            _tasks.append(_a.create_task(calendar_sync_loop()))
+        except Exception as e:
+            print(f"[startup] shift calendar sync loop skipped: {e}")
+        try:
             # ...and the follow-up on a weather call: a second text to anyone
             # silent after 30 minutes, the decider told after 60. weather_call.py.
             from weather_call import weather_call_loop
@@ -3394,7 +3482,10 @@ def health():
                         # (NEXUS_AM_ORIGINATOR + NEXUS_AM_AUDIENCE) - the
                         # task-email card is only emitted when this is true.
                         "actionable_messages": bool(os.getenv("NEXUS_AM_ORIGINATOR", "").strip()
-                                                    and os.getenv("NEXUS_AM_AUDIENCE", "").strip())}}
+                                                    and os.getenv("NEXUS_AM_AUDIENCE", "").strip()),
+                        # Cubby -> database sync (Operations, Oct 15). Only the
+                        # sync needs it; the screens read the synced tables.
+                        "cubby_api_key": bool(os.getenv("CUBBY_API_KEY", "").strip())}}
 
 
 @app.get("/health/ready")
@@ -3626,3 +3717,10 @@ app.include_router(my_work.router)                 # Dashboard > My Work tile: t
 app.include_router(my_team.router)                 # Dashboard > My Team tile: direct reports today + their overdue work, supervisor+ (Oct 7)
 from routers import implementation  # noqa: E402
 app.include_router(implementation.router)          # Support > Implementation Guide: the shared setup checklist (Neil, 10/06)
+from routers import accounting_profitability, accounting_compensation  # noqa: E402
+app.include_router(accounting_profitability.router)  # Accounting > Reporting > Profitability: per-entity NOI, net income, debt service vs prior year (Charmi + Neil, 10/15)
+app.include_router(accounting_compensation.router)   # Accounting > Reporting > Employee Compensation: wages and hours per employee, payroll on the ledger (Neil, 10/15)
+from routers import accounting_ask  # noqa: E402
+app.include_router(accounting_ask.router)            # Accounting > Reporting > AMA: Ask My Accountant - questions on ledger lines, the suspense account's lines (Neil, 10/15)
+from routers import shift_ical  # noqa: E402
+app.include_router(shift_ical.router)                # Shifts Phase 3a: the personal calendar subscribe feed (signed link, no login on the .ics) (Neil, 10/14)

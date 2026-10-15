@@ -2191,6 +2191,9 @@ class TimePunch(Base):
     edit_status      = Column(String, default="")   # '' | pending | approved | rejected
     edit_reviewed_by = Column(String, default="")   # approver email
     edit_reviewed_at = Column(String, default="")
+    # Add Time (Oct 14 2026): every punch a manager's batch wrote together
+    # shares an id, so the batch can be undone as one.
+    batch_id         = Column(String, default="", index=True)
 
 
 class TimeScreenshot(Base):
@@ -2416,6 +2419,11 @@ class Shift(Base):
     # onto each placement (ScheduledShift.break_min), so scheduled hours on the
     # grid are PAID hours. Pay itself still comes from real punches.
     break_min  = Column(Integer, default=0)
+    # Shifts Phase 0 (Neil, Oct 14 2026): the HrEntity company this shift
+    # type belongs to; '' = shared with every company. A company-scoped
+    # People admin manages only their own company's types; shared ones
+    # take company-wide access (timeclock._require_company_manage).
+    company_id = Column(String, default="")
 
 
 class ScheduledShift(Base):
@@ -2517,6 +2525,9 @@ class ShiftGroup(Base):
     weather_decider_emails = Column(String, default="")
     # 1 = the weather watch includes this group (when its company is switched on).
     weather_alerts  = Column(Integer, default=1)
+    # Shifts Phase 0 (Oct 14 2026): the HrEntity company this group belongs
+    # to; '' = shared across companies (managed company-wide only).
+    company_id      = Column(String, default="")
 
 
 class ShiftGroupMember(Base):
@@ -4924,6 +4935,9 @@ class PfsProfile(Base):
     created_at        = Column(String, default="")
     updated_by        = Column(String, default="")
     updated_at        = Column(String, default="")
+    # The place in the guarantor dropdown (Neil, 10/14: "move Guarantors up and
+    # down"); 0 = never placed, listed by name after the placed ones.
+    sort_order        = Column(Integer, default=0)
 
 
 class PfsLine(Base):
@@ -5016,6 +5030,12 @@ class Lease(Base):
     # Oct 7 (Charmi): MRI is one list of every recurring income source, so a
     # row says what it is - lease | interest | loan_payment | other.
     income_type      = Column(String, default="lease")
+    # Oct 15 (Charmi + Neil): the lease term is a pick, never free text -
+    # annual | month_to_month | custom ('' = not picked yet; lease_terms then
+    # holds the old free text, read best-effort). term_months: 12 for annual,
+    # None for month to month, N for custom.
+    term_type        = Column(String, default="")
+    term_months      = Column(Integer, nullable=True)
 
 
 class LeaseRate(Base):
@@ -5104,6 +5124,14 @@ class AccountingFluxNote(Base):
     note       = Column(String, default="")
     noted_by   = Column(String, default="")
     noted_at   = Column(String, default="")
+    # Review status (Charmi, Oct 15: "once a comment has been added ... the
+    # review is answered"): Open = flagged, no explanation; Answered = an
+    # explanation is written; Closed = a reviewer signed the line off. Only
+    # `closed` is stored - Open / Answered follow from the note. A closed row
+    # outlives its note being removed.
+    closed     = Column(Boolean, default=False)
+    closed_by  = Column(String, default="")
+    closed_at  = Column(String, default="")
 
 
 class AccountingPartnerChange(Base):
@@ -5287,6 +5315,13 @@ class RecurringExpense(Base):
     created_at       = Column(String, default="")
     updated_by       = Column(String, default="")
     updated_at       = Column(String, default="")
+    # Oct 14 (Charmi, Urmi, Neil): Custom frequency's period in months, the
+    # match tolerance (0-50 in steps of 5), and the vendor-side details.
+    frequency_months = Column(Integer, default=0)                # frequency == 'custom': every N months
+    variance_pct     = Column(Integer, default=0)                # paid within this % of expected counts as Paid
+    account_number   = Column(String, default="")                # the account number with the vendor (e.g. utility account)
+    account_details  = Column(String, default="")
+    contact_info     = Column(String, default="")                # name / phone / email
 
 
 class PfsAffiliate(Base):
@@ -5336,7 +5371,7 @@ class PfsAccessChallenge(Base):
     session (Charmi, 10/04: "it should ask for OTP to the file and not to the
     module"). The code is never stored: `code_hash` is sha256 over
     "id:code", salted with an id the caller never sees. A used code becomes
-    the grant: `granted_until` is when the file closes again (30 minutes).
+    the grant: `granted_until` is when the file closes again (90 minutes).
     `session_hash` is a hash of the tab's X-Pfs-Session id. Read only by
     routers/pfs_access.py. New table - RLS by the startup sweep and main.py."""
     __tablename__ = "pfs_access_challenges"
@@ -6111,6 +6146,13 @@ class NexusPersonPref(Base):
     email       = Column(String, primary_key=True)
     weather_sms = Column(Integer, default=1)
     updated_at  = Column(String, default="")
+    # Shifts Phase 3a (Neil, Oct 14 2026, shift_calendar.py): 1 = their shared
+    # shifts go onto their Outlook calendar (the company switch must be on
+    # too); 0 = they opted out. Added column -> ALTER lines in main.py.
+    shift_calendar = Column(Integer, default=1)
+    # The per-person salt in their calendar subscribe link (routers/
+    # shift_ical.py): rotating it invalidates every link issued before.
+    ical_salt   = Column(String, default="")
 
 
 class TaskAutomationRun(Base):
@@ -6210,3 +6252,336 @@ class HrRoleChangeRequest(Base):
     decided_by        = Column(String, default="")                  # approver / decliner / whoever canceled
     decided_at        = Column(String, default="")
     decision_note     = Column(String, default="")                  # why it was declined
+
+
+# ── Cubby -> Supabase (Operations, Oct 15 2026) ──────────────────────────────
+# cubby_sync.py copies what the Operations screen uses from Cubby into these
+# tables every 15 minutes; the screen, the unit lookup and the report exports
+# read only from here (cubby.py). Keyed "<facility_id>:<cubby id>". `data` is
+# the Cubby row as summarize_facility reads it, with phone, email, address,
+# date of birth and ID numbers stripped before it is written - never stored.
+# New tables - create_all builds them; RLS per CLAUDE.md (main.py list + the
+# startup sweep).
+
+class CubbyFacility(Base):
+    """One Cubby facility. `enabled` false = no longer in Cubby's list (its rows stay)."""
+    __tablename__ = "cubby_facilities"
+    facility_id             = Column(String, primary_key=True)
+    organization            = Column(String, default="")
+    name                    = Column(String, default="")
+    time_zone               = Column(String, default="")
+    enabled                 = Column(Boolean, default=True)
+    data                    = Column(JSON, default=dict)     # facilityId, name, internalName, timeZone, latitude, longitude
+    synced_at               = Column(String, default="")     # UTC iso of this facility's last good sync
+    payments_synced_through = Column(String, default="")     # YYYY-MM-DD; '' = payments not backfilled yet
+
+
+class CubbyUnit(Base):
+    """A unit: its rent-roll line (status, rates, tenant name) and its units/search row (rentability)."""
+    __tablename__ = "cubby_units"
+    id          = Column(String, primary_key=True)          # "<facility_id>:<unitId>"
+    facility_id = Column(String, index=True, nullable=False)
+    unit_id     = Column(String, default="")
+    unit_name   = Column(String, default="")
+    status      = Column(String, default="")                # RENTED | VACANT | ...
+    customer_id = Column(String, default="", index=True)
+    data        = Column(JSON, default=dict)                # {"rentRoll": {...} | null, "unit": {...} | null}
+
+
+class CubbyRental(Base):
+    """A tenancy (Cubby lease), past or current."""
+    __tablename__ = "cubby_rentals"
+    id            = Column(String, primary_key=True)        # "<facility_id>:<leaseId>"
+    facility_id   = Column(String, index=True, nullable=False)
+    lease_id      = Column(String, default="")
+    unit_id       = Column(String, default="")
+    customer_id   = Column(String, default="", index=True)
+    move_in_date  = Column(String, default="", index=True)  # YYYY-MM-DD
+    move_out_date = Column(String, default="")
+    data          = Column(JSON, default=dict)
+
+
+class CubbyCustomer(Base):
+    """A customer's NAME only (leads/search returns an id, the screen shows the name)."""
+    __tablename__ = "cubby_customers"
+    id          = Column(String, primary_key=True)          # "<facility_id>:<customerId>"
+    facility_id = Column(String, index=True, nullable=False)
+    customer_id = Column(String, default="")
+    name        = Column(String, default="")
+
+
+class CubbyPayment(Base):
+    """A payment. Kept incrementally: each sync re-reads the last 45 days."""
+    __tablename__ = "cubby_payments"
+    id           = Column(String, primary_key=True)         # "<facility_id>:<paymentId>"
+    facility_id  = Column(String, index=True, nullable=False)
+    payment_id   = Column(String, default="")
+    customer_id  = Column(String, default="", index=True)
+    payment_date = Column(String, default="", index=True)   # the date Cubby's payments/search filters on, YYYY-MM-DD
+    status       = Column(String, default="")
+    amount_cents = Column(BigInteger, default=0)
+    data         = Column(JSON, default=dict)
+    __table_args__ = (Index("ix_cubby_payments_facility_date", "facility_id", "payment_date"),)
+
+
+class CubbyLead(Base):
+    __tablename__ = "cubby_leads"
+    id          = Column(String, primary_key=True)          # "<facility_id>:<leadId>"
+    facility_id = Column(String, index=True, nullable=False)
+    lead_id     = Column(String, default="")
+    customer_id = Column(String, default="")
+    status      = Column(String, default="")
+    created_at  = Column(String, default="")                # Cubby's createdAt
+    data        = Column(JSON, default=dict)
+
+
+class CubbyReceivable(Base):
+    """One aged-receivables line: what a tenant owes on a unit, by age."""
+    __tablename__ = "cubby_receivables"
+    id          = Column(String, primary_key=True)          # "<facility_id>:<unitId>:<customerId>"
+    facility_id = Column(String, index=True, nullable=False)
+    unit_id     = Column(String, default="")
+    customer_id = Column(String, default="")
+    total_cents = Column(BigInteger, default=0)
+    data        = Column(JSON, default=dict)
+
+
+class CubbyTask(Base):
+    """An OPEN Cubby task (the worklist)."""
+    __tablename__ = "cubby_tasks"
+    id          = Column(String, primary_key=True)          # "<facility_id>:<taskId>"
+    facility_id = Column(String, index=True, nullable=False)
+    task_id     = Column(String, default="")
+    unit_id     = Column(String, default="")
+    due_date    = Column(String, default="")
+    data        = Column(JSON, default=dict)
+
+
+class CubbySyncRun(Base):
+    """One Cubby -> database sync. At most one is `running` at a time (the
+    partial unique index is the lock, so it holds across workers and instances).
+    `facilities` = {facility_id: {name, status, counts, error}}. Error text
+    never carries the key or tenant data."""
+    __tablename__ = "cubby_sync_runs"
+    id           = Column(String, primary_key=True)         # uuid
+    trigger      = Column(String, default="")               # schedule | manual | first-read
+    requested_by = Column(String, default="")               # staff email for a manual run
+    started_at   = Column(String, default="", index=True)   # UTC iso
+    finished_at  = Column(String, default="")
+    status       = Column(String, default="running")        # running | ok | partial | failed
+    facilities   = Column(JSON, default=dict)
+    error        = Column(Text, default="")
+    __table_args__ = (
+        Index("ux_cubby_sync_running", "status", unique=True,
+              sqlite_where=(status == "running"), postgresql_where=(status == "running")),
+    )
+
+
+class AccountingAmaThread(Base):
+    """One "Ask My Accountant" question on one ledger line (Neil, 10/15: AMA
+    means Ask My Accountant). Keyed by the line, with a snapshot of it (entity,
+    entry, line, account, date, amount, memo) so the thread still reads after
+    Intacct changes or reclasses the line. `status` runs Open -> Answered (the
+    assigned accountant replied) -> Resolved (asker, accountant or an editor;
+    `moved_to_account` says where it went). `reclassed_at` is stamped when a
+    line on an Ask My Accountant account no longer sits on it in the ledger.
+    routers/accounting_ask.py. New table - create_all builds it; RLS by
+    main.py and the startup sweep."""
+    __tablename__ = "accounting_ama_threads"
+    id               = Column(String, primary_key=True)            # uuid
+    entity_code      = Column(String, default="", index=True)      # Intacct location of the line
+    entry_id         = Column(String, default="")                  # ledger entry uuid (EntryDetail)
+    entry_no         = Column(String, default="")
+    line_id          = Column(String, default="", index=True)      # ledger line id ('' = unknown)
+    line_no          = Column(String, default="")
+    account_no       = Column(String, default="", index=True)
+    account_title    = Column(String, default="")
+    entry_date       = Column(String, default="")                  # YYYY-MM-DD
+    debit            = Column(Float, default=0.0)
+    credit           = Column(Float, default=0.0)
+    description      = Column(String, default="")
+    memo             = Column(String, default="")
+    party            = Column(String, default="")                  # vendor / customer / employee, as shown
+    journal          = Column(String, default="")
+    source           = Column(String, default="question")          # question | ama (asked on an AMA-account line)
+    question         = Column(Text, default="")
+    asked_by         = Column(String, default="", index=True)
+    asked_at         = Column(String, default="")
+    accountant_email = Column(String, default="", index=True)
+    status           = Column(String, default="Open", index=True)  # Open | Answered | Resolved
+    moved_to_account = Column(String, default="")
+    resolved_by      = Column(String, default="")
+    resolved_at      = Column(String, default="")
+    reclassed_at     = Column(String, default="")
+    last_reply_at    = Column(String, default="")
+    last_reply_by    = Column(String, default="")
+    updated_at       = Column(String, default="")
+
+
+class AccountingAmaMessage(Base):
+    """One message on an Ask My Accountant thread: the question, a reply, or
+    an event line (resolved, reopened, reassigned). New table - create_all
+    builds it; RLS by main.py and the startup sweep."""
+    __tablename__ = "accounting_ama_messages"
+    id           = Column(String, primary_key=True)                # uuid
+    thread_id    = Column(String, default="", index=True)
+    author_email = Column(String, default="")
+    kind         = Column(String, default="reply")                 # question | reply | event
+    body         = Column(Text, default="")
+    created_at   = Column(String, default="")
+
+
+class AccountingAmaSetting(Base):
+    """Ask My Accountant settings, one row per entity. The '' row holds the
+    GL accounts that ARE the Ask My Accountant (suspense) accounts - the chart
+    of accounts is shared by every entity, so they are set once; an empty list
+    means "find them by title" - and the default accountants; an entity row
+    holds that entity's own accountants. New table - create_all builds it;
+    RLS by main.py and the startup sweep."""
+    __tablename__ = "accounting_ama_settings"
+    entity_code = Column(String, primary_key=True)                 # '' = every entity
+    accounts    = Column(JSON, default=list)                       # ['99999', ...] (the '' row only)
+    accountants = Column(JSON, default=list)                       # ['person@greensglobal.com', ...]
+    updated_by  = Column(String, default="")
+    updated_at  = Column(String, default="")
+
+
+class ShiftNoShowAlert(Base):
+    """Shifts Phase 1 (Oct 14 2026, shift_attendance.py): the no-show scan's
+    own memory and the record of what it told whom. One row per recipient,
+    group ('-' when the shift has no group) and work date: people_json lists
+    the people that recipient was told were not in (email, name, scheduled
+    start, minutes late), first_at / last_at bracket the alert, emailed_at is
+    stamped once (one email per recipient per group-day), resolved_at when
+    the set emptied and the bell was closed. New table - create_all builds
+    it; RLS comes from main._enable_rls_everywhere's startup sweep."""
+    __tablename__ = "shift_noshow_alerts"
+    id          = Column(String, primary_key=True)                 # uuid
+    group_id    = Column(String, default="", index=True)           # ShiftGroup.id, or '-' for no group
+    work_date   = Column(String, default="", index=True)           # YYYY-MM-DD (the shift's own zone)
+    recipient   = Column(String, default="", index=True)           # who holds the bell
+    people_json = Column(String, default="")                       # [{email, name, start, lateMin}]
+    first_at    = Column(String, default="")                       # UTC ISO
+    last_at     = Column(String, default="")
+    emailed_at  = Column(String, default="")
+    resolved_at = Column(String, default="")
+
+
+class ShiftChangeLog(Base):
+    """Shifts Phase 2 (Oct 14 2026, shift_log.py): who did what to a placed
+    shift, in order. One row per shift per action - created, edited (an
+    unshared edit saved), removed, assigned, copied, moved, cleared,
+    discarded, shared (a publish: every row it shared carries the reason
+    given and the publish_id), claimed / swapped / offered (a request
+    approved), weather (a weather call applied or reversed). before_json /
+    after_json hold the small {start, end, label, shiftId, date, email,
+    openSlots} snapshot either side. Rows outlive their shift: a removed
+    shift's history stays. New table - create_all builds it; RLS comes from
+    main._enable_rls_everywhere's startup sweep."""
+    __tablename__ = "shift_change_log"
+    id             = Column(String, primary_key=True)              # uuid
+    shift_id       = Column(String, default="", index=True)        # ScheduledShift.id
+    employee_email = Column(String, default="", index=True)        # '' for an open slot
+    work_date      = Column(String, default="", index=True)        # YYYY-MM-DD at the time
+    action         = Column(String, default="", index=True)
+    actor          = Column(String, default="", index=True)        # who made the change
+    at             = Column(String, default="", index=True)        # UTC ISO
+    before_json    = Column(String, default="")
+    after_json     = Column(String, default="")
+    reason         = Column(String, default="")                    # a publish over warnings, a weather call
+    publish_id     = Column(String, default="", index=True)        # one per publish; '' otherwise
+
+
+class ShiftCalendarEvent(Base):
+    """Shifts Phase 3a (Oct 14 2026, shift_calendar.py): the Outlook event
+    that mirrors one shared shift on one person's calendar. One row per
+    (shift, person); the sync loop works the queue - state pending (create
+    or update), delete (the shift is gone, cancelled or someone else's), ok,
+    error (last_error says why; retried), skipped (the company switch is
+    off, the person opted out, no Microsoft 365 account). synced_hash is
+    the event body last sent, so an unchanged shift is never re-sent. New
+    table - create_all builds it; RLS comes from main._enable_rls_everywhere's
+    startup sweep."""
+    __tablename__ = "shift_calendar_events"
+    id             = Column(String, primary_key=True)              # uuid
+    shift_id       = Column(String, default="", index=True)        # ScheduledShift.id
+    employee_email = Column(String, default="", index=True)
+    event_id       = Column(String, default="")                    # Graph event id; '' = none yet
+    synced_hash    = Column(String, default="")
+    synced_at      = Column(String, default="")                    # UTC ISO
+    state          = Column(String, default="pending", index=True)
+    last_error     = Column(String, default="")
+    updated_at     = Column(String, default="", index=True)
+    # Failed tries since the row was last queued (review, Oct 15): an errored
+    # row is retried until shift_calendar.MAX_ATTEMPTS, then left as error
+    # until the shift changes again - never retried forever. A 4xx Graph
+    # refuses for good jumps straight there. Added column -> ALTER lines in main.py.
+    attempts       = Column(Integer, default=0)
+
+
+class ShiftPublish(Base):
+    """Shifts Phase 3a (Oct 14 2026): one row per Share (publish) of the
+    schedule - who, when, the range, the team it was narrowed to, the reason
+    given over warnings, and how many shifts it changed. shift_change_log
+    rows carry the same publish_id; shift_publish_confirms say who has seen
+    it. New table - create_all builds it; RLS comes from
+    main._enable_rls_everywhere's startup sweep."""
+    __tablename__ = "shift_publishes"
+    id         = Column(String, primary_key=True)                  # the publish_id
+    by         = Column(String, default="", index=True)
+    at         = Column(String, default="", index=True)            # UTC ISO
+    start_date = Column(String, default="")                        # YYYY-MM-DD
+    end_date   = Column(String, default="")
+    group_id   = Column(String, default="")
+    reason     = Column(String, default="")
+    changes    = Column(Integer, default=0)
+
+
+class ShiftPublishConfirm(Base):
+    """Shifts Phase 3a (Oct 14 2026, shift_confirm.py): a person asked to
+    confirm they have seen a publish that changed their shifts. One row per
+    (publish, person), made when the publish is announced and the company's
+    confirmRequests switch is on; confirmed_at when they pressed Confirm,
+    nudged_at when a manager sent the one reminder allowed. New table -
+    create_all builds it; RLS comes from main._enable_rls_everywhere's
+    startup sweep."""
+    __tablename__ = "shift_publish_confirms"
+    id             = Column(String, primary_key=True)              # uuid
+    publish_id     = Column(String, default="", index=True)        # ShiftPublish.id
+    employee_email = Column(String, default="", index=True)
+    confirmed_at   = Column(String, default="")                    # UTC ISO; '' = not yet
+    nudged_at      = Column(String, default="")                    # UTC ISO; '' = never
+
+
+class ShiftAvailabilityDate(Base):
+    """Shifts Phase 3b (Oct 14 2026): when a person can work on ONE date, on
+    top of their weekly pattern (ShiftAvailability). A dated row wins over
+    the weekday rule for that date in the schedule's conflict check
+    (routers/timeclock._shift_conflicts): `unavailable` = not that day,
+    `available` = only between start and end. Staff set their own in My
+    Workday > Shifts (PUT /timeclock/availability/mine replaces the rows
+    from today on; past dates are kept as a record). New table - create_all
+    builds it; RLS comes from main._enable_rls_everywhere's startup sweep."""
+    __tablename__ = "shift_availability_dates"
+    id             = Column(String, primary_key=True)              # uuid
+    employee_email = Column(String, index=True, nullable=False)
+    date           = Column(String, index=True, nullable=False)    # YYYY-MM-DD
+    kind           = Column(String, default="unavailable")         # unavailable | available
+    start_hhmm     = Column(String, default="")
+    end_hhmm       = Column(String, default="")
+    note           = Column(String, default="")
+    created_at     = Column(String, default="")
+
+
+class ShiftAvailabilityPref(Base):
+    """Shifts Phase 3b (Oct 14 2026): a person's own hours preferences. 0 =
+    not set. `max_hours_week` is a week cap like the company's
+    ruleMaxWeekHours (shift_rules.py warns past the tighter of the two);
+    `preferred_hours_week` is informational - the grid shows "prefers 24h"
+    on the person cell and nothing warns on it. New table - create_all
+    builds it; RLS comes from main._enable_rls_everywhere's startup sweep."""
+    __tablename__ = "shift_availability_prefs"
+    employee_email       = Column(String, primary_key=True)
+    preferred_hours_week = Column(Integer, default=0)
+    max_hours_week       = Column(Integer, default=0)
+    updated_at           = Column(String, default="")

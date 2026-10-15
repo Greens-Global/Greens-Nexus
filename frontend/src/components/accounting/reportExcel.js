@@ -1,5 +1,5 @@
 import JSZip from 'jszip';
-import { bookLabel, canPickBook, entityText, periodText } from './reportModel';
+import { bookLabel, canPickBook, entityText, periodText, reportTitle } from './reportModel';
 
 // A statement as an Excel workbook (Neil, 09/29 call, "critical"): the totals
 // stand out, every column is as wide as what is in it, and the totals are
@@ -102,7 +102,7 @@ export function statementCells({ title, result, entities = [] }) {
   const push = (cells) => { rows.push(cells); return rows.length; };   // 1-based row number
 
   const sub = [entityText(config, entities), periodText(config), canPickBook(config) ? `Book: ${bookLabel(config.book)}` : ''].filter(Boolean).join('  ·  ');
-  push([{ text: title || def.label, s: S.title }]);
+  push([{ text: reportTitle(config, title || def.label), s: S.title }]);
   push([{ text: `${result.org ? `${result.org}  ·  ` : ''}${sub}`, s: S.muted }]);
   push([]);
   const header = [{ text: result.glLabel ? 'Date' : 'Account', s: S.header }, { text: result.glLabel ? 'Account' : 'Title', s: S.header }];

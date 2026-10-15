@@ -35,10 +35,14 @@ export default function Shifts({ activeSub, onSubChange }) {
   const [subKey, focusDate = '', focusGroup = ''] = String(activeSub || '').split(':');
   const tab = tabs.some(([k]) => k === subKey) ? subKey : 'mine';
   const focus = tab === 'schedule' && /^\d{4}-\d{2}-\d{2}$/.test(focusDate) ? { date: focusDate, groupId: focusGroup } : null;
+  // A publish or nudge bell asks for one share to be confirmed the same
+  // way: sub = "mine:confirm:<publish id>" (Shifts Phase 3a) - My Shifts
+  // puts that share's banner in front.
+  const focusConfirm = tab === 'mine' && focusDate === 'confirm' ? focusGroup : '';
   // Consumed once: the schedule has landed (its own effect ran first), so
   // the address goes back to plain "schedule" and the same bell clicked
   // again is a change again.
-  useEffect(() => { if (focus) onSubChange?.('schedule'); }, [activeSub]);   // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (focus) onSubChange?.('schedule'); if (focusConfirm) onSubChange?.('mine'); }, [activeSub]);   // eslint-disable-line react-hooks/exhaustive-deps
   const [toast, setToast] = useState(null);
   const timer = useRef(null);
   const requests = useManagerInbox(canManage);
@@ -86,7 +90,7 @@ export default function Shifts({ activeSub, onSubChange }) {
         })}
       </div>
 
-      {tab === 'mine' ? <MyShifts />
+      {tab === 'mine' ? <MyShifts focusConfirm={focusConfirm} />
         : tab === 'schedule' ? <ShiftSchedule toastOk={toastOk} toastErr={toastErr} onOpenRequests={openRequests} focus={focus} />
           : <ShiftRequestsPage inbox={requests.inbox} timeoff={requests.timeoff} loading={requests.loading} error={requests.error}
             onRetry={requests.reload} onChanged={requests.reload} toastOk={toastOk} toastErr={toastErr} />}

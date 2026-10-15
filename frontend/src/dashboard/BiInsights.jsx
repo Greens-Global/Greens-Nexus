@@ -421,7 +421,7 @@ export default function BiInsights() {
     <div className="bi-root">
       <div className="bi-head">
         <div>
-          <h2 className="bi-title">Business Intelligence</h2>
+          <h2 className="bi-title">Insights</h2>
           <p className="bi-sub">
             Company-wide numbers from every module, as each module counts them.
             {state.at && formatTime(state.at) && <> Updated {formatTime(state.at)}, refreshes every 30 seconds.</>}

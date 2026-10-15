@@ -229,7 +229,7 @@ describe('columns', () => {
     expect(csv.find((x) => x[0] === 'Net Profit Margin %').slice(3)).toEqual([100, 85, 100, 91.2]);
   });
 
-  it('by vendor: names on the columns, the one without a vendor last, each drilling into its vendor', async () => {
+  it('by vendor: number and name on the columns (Charmi, 10/14), by name, the one without a vendor last, each drilling into its vendor', async () => {
     const api = fakeApi({
       buckets: () => ({
         labels: { V2: 'Amazon', V1: 'Zeta Plumbing' },
@@ -237,7 +237,7 @@ describe('columns', () => {
       }),
     });
     const r = await runReport(api, resolveConfig({ ...defaultConfig(NOW), cols: 'vendor' }, NOW));
-    expect(r.columns.map((c) => c.label)).toEqual(['Amazon', 'Zeta Plumbing', 'No Vendor', 'Total']);
+    expect(r.columns.map((c) => c.label)).toEqual(['V2 Amazon', 'V1 Zeta Plumbing', 'No Vendor', 'Total']);
     expect(r.columns[0].drill.party).toEqual({ kind: 'vendor', code: 'V2', name: 'Amazon' });
     // Lines without a vendor cannot be singled out by the line search.
     expect(r.columns[2].drill).toBeNull();
@@ -382,7 +382,7 @@ describe('export', () => {
     const api = fakeApi({ pnl: () => stmt([{ account_no: '41000', title: 'Rental Income', amount: 1000 }, { account_no: '41100', title: 'Parking', amount: 500 }]) });
     const r = await runReport(api, resolveConfig({ ...defaultConfig(NOW), entities: ['15000'] }, NOW));
     const rows = csvRows(r, [{ code: '15000', name: 'Greens Escondido, LLC.' }]);
-    expect(rows.slice(0, 4)).toEqual([['Income Statement'], ['Greens Escondido, LLC. (15000)'], [`Year-to-Date ${String.fromCharCode(0xb7)} 01/01/2026 - 09/28/2026`], ['Book: Accrual']]);
+    expect(rows.slice(0, 4)).toEqual([['Income Statement (Accrual Book)'], ['Greens Escondido, LLC. (15000)'], [`Year-to-Date ${String.fromCharCode(0xb7)} 01/01/2026 - 09/28/2026`], ['Book: Accrual']]);
     expect(rows[5]).toEqual(['Section', 'Account', 'Title', 'YTD Actual']);
     expect(rows.slice(6, 10)).toEqual([
       ['Revenue', '41000', 'Rental Income', 1000],
@@ -582,10 +582,10 @@ describe('flux analysis (R8)', () => {
     expect(api.getAccountingPnl.mock.calls.map((x) => x.slice(0, 2))).toEqual([['2026-09-01', '2026-09-30'], ['2026-08-01', '2026-08-31']]);
     expect(r.columns.map((x) => `${x.key}:${x.type}`)).toEqual(['cur:amount', 'prior:amount', 'var:variance', 'pct:pct', 'flag:text', 'note:text']);
     const rent = r.rows.find((x) => x.code === '41000');
-    expect(rent.values).toEqual([12000, 10000, 2000, '20.0%', 'Review', '']);
+    expect(rent.values).toEqual([12000, 10000, 2000, '20.0%', 'Open', '']);
     expect(rent.flag).toBe(true);
     expect(r.rows.find((x) => x.label === 'Net Income').values.slice(0, 4)).toEqual([12000, 10000, 2000, '20.0%']);
-    expect(r.summary.find((s) => s.label === 'Flagged').value).toBe('1');
+    expect(r.summary.find((s) => s.label === 'Review').value).toBe('1 Open');
     expect(r.flux.period).toBe('2026-09-01_2026-09-30');
     const noted = withFluxNotes(r, { 41000: 'Two new tenants.' });
     expect(noted.rows.find((x) => x.code === '41000').values[5]).toBe('Two new tenants.');

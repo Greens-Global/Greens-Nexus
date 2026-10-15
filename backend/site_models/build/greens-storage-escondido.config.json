@@ -9,312 +9,316 @@
   "frame": {
     "lat0": 33.171,
     "lon0": -117.1075,
-    "bearingDeg": 141.5,
+    "bearingDeg": 140.4,
     "mPerDegLon": 93200,
     "mPerDegLat": 110900
   },
   "image": {
     "file": "frontend/public/site-models/greens-storage-escondido/ground.jpg",
-    "bbox": [
-      -117.1098,
-      33.1692,
-      -117.1052,
-      33.1726
-    ],
-    "px": [
-      2000,
-      1478
-    ],
+    "bbox": [-117.1098, 33.1692, -117.1052, 33.1726],
+    "px": [2000, 1478],
     "attribution": "Imagery: Esri, Maxar, Earthstar Geographics"
   },
   "gates": [
     {
       "id": "main",
       "name": "Main Gate",
-      "px": [
-        1262,
-        884
-      ]
+      "px": [1262, 884]
     },
     {
       "id": "north",
       "name": "North Gate",
-      "px": [
-        775,
-        345
-      ]
+      "px": [775, 345]
     }
   ],
   "pad": {
     "px": [
-      [
-        760,
-        330
-      ],
-      [
-        1230,
-        700
-      ],
-      [
-        1540,
-        980
-      ],
-      [
-        1560,
-        1190
-      ],
-      [
-        1430,
-        1260
-      ],
-      [
-        1000,
-        1300
-      ],
-      [
-        880,
-        1230
-      ],
-      [
-        560,
-        760
-      ],
-      [
-        590,
-        650
-      ]
+      [760, 330],
+      [1230, 700],
+      [1540, 980],
+      [1560, 1190],
+      [1430, 1260],
+      [1000, 1300],
+      [880, 1230],
+      [560, 760],
+      [590, 650]
     ]
   },
   "buildings": [
     {
       "id": "A",
-      "letters": [
-        "A"
-      ],
+      "letters": ["A"],
       "name": "Building A",
       "kind": "garage",
-      "u": [
-        -50,
-        -21.5
-      ],
-      "v": [
-        -45.7,
-        -31.5
-      ],
+      "u": [127.05, 150.84],
+      "v": [-14.39, 0.08],
       "height": 4.5,
       "floors": 1,
       "roof": "white",
-      "doorSide": "ne",
-      "inferred": true,
-      "note": "Five 15x40 / 15x45 RV garages with power. Matched to the small building at the north tip by size."
-    },
-    {
-      "id": "EF",
-      "letters": [
-        "E",
-        "F"
-      ],
-      "name": "Building E / F",
-      "kind": "garage",
-      "u": [
-        -48,
-        45
-      ],
-      "v": [
-        -76,
-        -63
-      ],
-      "height": 6.0,
-      "floors": 1,
-      "roof": "white",
-      "doorSide": "both",
-      "inferred": true,
-      "note": "Drive-up vehicle garages (E) and six 15x44 powered garages (F) in the northwest half of the long west building."
-    },
-    {
-      "id": "D",
-      "letters": [
-        "D"
-      ],
-      "name": "Building D",
-      "kind": "storage",
-      "u": [
-        45,
-        110
-      ],
-      "v": [
-        -77,
-        -63
-      ],
-      "height": 6.0,
-      "floors": 1,
-      "roof": "white",
-      "doorSide": "ne",
-      "inferred": true,
-      "note": "Southeast half of the long west building: drive-up D001-D021 outside, climate-controlled D022-D057 inside."
-    },
-    {
-      "id": "C",
-      "letters": [
-        "C"
-      ],
-      "name": "Building C",
-      "kind": "storage",
-      "u": [
-        -15,
-        146
-      ],
-      "v": [
-        -48,
-        -21
-      ],
-      "height": 7.0,
-      "floors": 1,
-      "roof": "solar",
-      "doorSide": "both",
-      "inferred": true,
-      "note": "Main climate-controlled building under the solar roof; drive-up C units on the outside walls. Unit area exceeds one floor of this footprint, so the schematic adds a second level - confirm the real floor count."
-    },
-    {
-      "id": "B",
-      "letters": [
-        "B",
-        "BC"
-      ],
-      "name": "Building B",
-      "kind": "storage",
-      "u": [
-        -21.5,
-        60.7
-      ],
-      "v": [
-        -14,
-        2
-      ],
-      "height": 5.1,
-      "floors": 1,
-      "roof": "white",
-      "doorSide": "both",
-      "inferred": true,
-      "note": "Building along the parkway: drive-up vehicle units B001-B024, climate-controlled B025-B084 inside."
+      "doorSide": "sw",
+      "inferred": false,
+      "note": "Five RV garages with power at the east end of the office building, doors onto the gate aisle: A001 (15x40) next to the hall, then A002-A005 (15x45). The 2023 permit-era site map shows the 15x40 bay at the far end; the 2024 customer map and Cubby put A001 (15x40) next to the hall - the 2024 map is followed."
     },
     {
       "id": "OFFICE",
-      "letters": [
-        "M"
-      ],
+      "letters": ["M"],
       "name": "Office",
       "kind": "office",
-      "u": [
-        80,
-        126
-      ],
-      "v": [
-        -11,
-        3
-      ],
+      "u": [88.95, 106.73],
+      "v": [-14.39, 0.08],
+      "height": 5.0,
+      "floors": 1,
+      "roof": "red",
+      "doorSide": "sw",
+      "inferred": false,
+      "note": "Office, conference room and restrooms at the gate. The 77 rental mailboxes (M100-M176) are drawn along the lobby wall; their exact position inside the office is not on the plans."
+    },
+    {
+      "id": "Z",
+      "letters": ["Z"],
+      "name": "Hall (Z001)",
+      "kind": "storage",
+      "u": [106.73, 127.05],
+      "v": [-14.39, 0.08],
       "height": 5.0,
       "floors": 1,
       "roof": "red",
       "doorSide": "sw",
       "inferred": true,
-      "note": "Lobby (2,300 sq ft), conference room and the 77 rental mailboxes (M100-M176)."
+      "note": "Hall between the office and the A garages, labeled \"Building A\" on the 2023 site map (about 66 x 47 ft). Holds the 60x45 space Z001 - matched by size, the plans do not number it."
     },
     {
-      "id": "Z",
-      "letters": [
-        "Z"
-      ],
-      "name": "Building Z",
+      "id": "B",
+      "letters": ["B", "BC"],
+      "name": "Building B",
       "kind": "storage",
-      "u": [
-        126,
-        162
-      ],
-      "v": [
-        -11,
-        3
-      ],
-      "height": 4.3,
+      "u": [-24.33, 59.06],
+      "v": [-14.39, 0.25],
+      "height": 5.1,
+      "floors": 1,
+      "roof": "white",
+      "doorSide": "both",
+      "inferred": false,
+      "note": "Building along the parkway: drive-up B003-B022 (10x20) and B023 / B024 (RV size) open onto the gate aisle, B001 at the east end; climate-controlled B025-B084 off the inner hallway. BC1 / BC2 (no size, not on any plan) are parked in the B-101 / B-102 utility rooms."
+    },
+    {
+      "id": "C",
+      "letters": ["C"],
+      "name": "Building C",
+      "kind": "storage",
+      "u": [-14.09, 140.0],
+      "v": [-50.38, -24.72],
+      "height": 7.0,
+      "floors": 2,
+      "roof": "solar",
+      "doorSide": "both",
+      "inferred": false,
+      "note": "Main climate-controlled building under the solar roof, two stories (site map: \"Building C first floor\" and \"second floor\"). Level 1: drive-up C001-C044 on the north wall and the 10x10 drive-ups on the south wall, interior C046-C274 off two hallways; level 2: C300-C563. The southeast corner is cut at 45 degrees."
+    },
+    {
+      "id": "D",
+      "letters": ["D"],
+      "name": "Building D",
+      "kind": "storage",
+      "u": [45.18, 105.12],
+      "v": [-77.05, -62.57],
+      "height": 6.0,
+      "floors": 1,
+      "roof": "white",
+      "doorSide": "ne",
+      "inferred": false,
+      "note": "South of Building C: drive-up D001-D019 (10x20) facing C, climate-controlled D020-D057 off the hallway behind them."
+    },
+    {
+      "id": "E",
+      "letters": ["E"],
+      "name": "Building E",
+      "kind": "garage",
+      "u": [-48.97, 34.68],
+      "v": [-79.33, -66.12],
+      "height": 6.0,
+      "floors": 1,
+      "roof": "white",
+      "doorSide": "ne",
+      "inferred": false,
+      "note": "Long building at the southwest edge: seventeen 15x40 vehicle garages (E002-E018) facing the aisle, E001 (10x20) and E019 / E020 (10x10) at the east end."
+    },
+    {
+      "id": "F",
+      "letters": ["F"],
+      "name": "Building F",
+      "kind": "garage",
+      "u": [-52.95, -24.33],
+      "v": [-50.8, -36.41],
+      "height": 6.0,
       "floors": 1,
       "roof": "white",
       "doorSide": "sw",
-      "inferred": true,
-      "note": "Southeast building beside the office; holds the 60x45 swing-door space Z001."
+      "inferred": false,
+      "note": "Six 15x44 powered RV garages (F001-F006) in one row, doors facing Building E. One level - all six fit the footprint."
     }
   ],
   "zones": [
     {
-      "id": "RV",
-      "name": "RV Lot (unpaved)",
+      "id": "RVN",
+      "name": "RV Lot (North)",
       "kind": "rv-lot",
-      "units": "^G0(0[1-9]|[1-6][0-9]|7[0-8])[A-Z]?$",
-      "px": [
-        [
-          690,
-          318
-        ],
-        [
-          1240,
-          700
-        ],
-        [
-          960,
-          625
-        ],
-        [
-          830,
-          590
-        ],
-        [
-          600,
-          592
-        ],
-        [
-          562,
-          500
-        ]
+      "units": "^G0(0[1-9]|10A?|[1-4][0-9]|5[0-5])[A-Z]?$",
+      "uv": [
+        [50.99, 24.03],
+        [56.59, 21.43],
+        [57.99, 20.23],
+        [59.39, 17.83],
+        [60.99, 16.83],
+        [60.19, 15.63],
+        [60.19, 14.83],
+        [61.79, 11.63],
+        [61.79, 4.03],
+        [54.39, 4.03],
+        [54.19, 0.83],
+        [-24.61, 0.83],
+        [-24.81, 0.23],
+        [-27.01, 0.23],
+        [-27.21, -16.57],
+        [-35.61, -16.77],
+        [-35.61, -23.37],
+        [-35.21, -23.57],
+        [-35.61, -24.37],
+        [-35.61, -35.97],
+        [-53.21, -35.97],
+        [-53.41, -49.97],
+        [-54.41, -50.17],
+        [-54.41, -52.77],
+        [-58.21, -52.57],
+        [-58.61, -53.37],
+        [-61.61, -52.77],
+        [-62.41, -52.77],
+        [-62.61, -53.37],
+        [-67.01, -52.57],
+        [-78.21, -52.57],
+        [-87.21, -12.97],
+        [-89.61, -9.37],
+        [-111.21, 17.83],
+        [-101.61, 23.63]
       ]
     },
     {
-      "id": "RVP",
-      "name": "RV Parking (paved)",
+      "id": "RVS",
+      "name": "RV Lot (Office)",
       "kind": "rv-lot",
-      "units": "^G(079|08[0-9]|09[0-9]|1[0-9][0-9])[A-Z]?$",
-      "px": [
-        [
-          1370,
-          900
-        ],
-        [
-          1560,
-          980
-        ],
-        [
-          1590,
-          1180
-        ],
-        [
-          1450,
-          1240
-        ]
+      "units": "^G0(5[6-9]|6[0-9]|7[0-8])$",
+      "uv": [
+        [88.11, 22.68],
+        [116.51, 22.08],
+        [155.31, 22.08],
+        [168.71, 22.48],
+        [170.71, 20.88],
+        [172.91, 15.68],
+        [175.31, 14.68],
+        [174.51, 12.68],
+        [174.51, 11.68],
+        [176.31, 7.48],
+        [179.71, 7.28],
+        [179.71, 3.08],
+        [177.51, 2.88],
+        [178.11, -1.92],
+        [176.91, -4.52],
+        [175.11, -7.12],
+        [172.11, -9.52],
+        [164.31, -13.12],
+        [162.91, -14.52],
+        [162.91, -16.52],
+        [151.91, -16.52],
+        [151.91, -0.92],
+        [151.11, -0.72],
+        [150.91, 0.68],
+        [129.51, 0.68],
+        [129.31, 1.68],
+        [93.51, 1.68],
+        [93.31, 6.08],
+        [92.31, 5.88],
+        [92.31, 5.08],
+        [83.51, 5.48],
+        [83.31, 6.08],
+        [79.31, 6.08],
+        [81.51, 16.88],
+        [82.11, 18.28],
+        [84.51, 20.88],
+        [87.11, 22.48]
+      ]
+    },
+    {
+      "id": "PEF",
+      "name": "Parking G105-G107",
+      "kind": "rv-lot",
+      "units": "^G10[5-7]$",
+      "uv": [
+        [-58.55, -50.91],
+        [-53.95, -50.91],
+        [-53.55, -51.91],
+        [-50.35, -64.51],
+        [-52.55, -66.71],
+        [-53.95, -67.51],
+        [-59.75, -61.91]
+      ]
+    },
+    {
+      "id": "PDW",
+      "name": "Parking G111",
+      "kind": "rv-lot",
+      "units": "^G111$",
+      "uv": [[37.36, -67.93], [41.96, -67.93], [42.16, -68.33], [42.16, -82.13], [41.56, -82.73], [37.36, -82.53]]
+    },
+    {
+      "id": "PDE",
+      "name": "Parking G112-G114",
+      "kind": "rv-lot",
+      "units": "^G11[2-4]$",
+      "uv": [
+        [115.52, -63.05],
+        [119.52, -63.05],
+        [119.72, -63.45],
+        [119.52, -73.05],
+        [111.72, -76.85],
+        [107.72, -76.65],
+        [107.72, -65.05],
+        [111.92, -63.25]
+      ]
+    },
+    {
+      "id": "PSE",
+      "name": "Parking G115-G117",
+      "kind": "rv-lot",
+      "units": "^G11[5-7]A?$",
+      "uv": [
+        [149.75, -39.04],
+        [150.75, -39.04],
+        [153.15, -40.64],
+        [153.35, -41.64],
+        [148.55, -49.04],
+        [133.35, -62.24],
+        [123.35, -69.24],
+        [122.55, -69.24],
+        [120.55, -66.84],
+        [120.55, -66.04],
+        [137.15, -50.64],
+        [140.15, -50.64],
+        [140.35, -47.64]
       ]
     }
   ],
   "sources": [
     "Parcel: SANDAG / San Diego County Assessor parcel service (APN 1871706300, 25.79 ac)",
-    "Building massing: Microsoft Open Building Footprints (heights) refined against Esri World Imagery",
+    "Building footprints, unit positions and Building C levels: Greens Storage Escondido Site Map, Oct 10 2023 (Egnyte: Greens Escondido, LLC / #Unsorted / 2023-06-15 - Customer Site Map & Fire Site Map / 10 October 2023), drawn at 1\" = 20', every unit traced from its drawn cell",
+    "RV stalls G001-G117: Customer Map with RV Spots, Oct 18 2023 (Egnyte: --Asset Management / 04 - GS Escondido / Property Plans & Maps / Customer Maps), each stall traced from its painted lines",
+    "G105-G107, G115A and the A garage order: GSE Customer Map, Feb 23 2024 (same folder)",
+    "Placement on the ground: plan fitted to Esri World Imagery roof corners of Buildings C and E (about 1 m)",
     "Units: Cubby FMS inventory export, Oct 11, 2026 (884 active units)",
     "Facility facts: Modern Storage Media, 2023 Green Facility of the Year"
   ],
   "imageWide": {
     "file": "frontend/public/site-models/greens-storage-escondido/ground-wide.jpg",
-    "bbox": [
-      -117.119,
-      33.1624,
-      -117.096,
-      33.1794
-    ]
+    "bbox": [-117.119, 33.1624, -117.096, 33.1794]
   },
   "county": "San Diego",
   "parcelSource": "SANDAG parcel service",
@@ -438,5 +442,157 @@
       "k": "cc",
       "veh": 0
     }
+  ],
+  "runs": [
+    {"building": "F", "at": [0.28, 0.23], "dir": "+u", "depth": "+v", "units": ["F006", {"gap": 0.17}, "F005", {"gap": 0.16}, "F004", {"gap": 0.13}, "F003", {"gap": 0.12}, "F002", {"gap": 0.14}, "F001"]},
+    {"building": "E", "at": [0.34, 12.79], "dir": "+u", "depth": "-v", "units": ["E018", {"gap": 0.13}, "E017", {"gap": 0.14}, "E016", {"gap": 0.11}, "E015", {"gap": 0.14}, "E014", {"gap": 0.13}, "E013", {"gap": 0.13}, "E012", {"gap": 0.18}, "E011", {"gap": 0.17}, "E010", {"gap": 0.13}, "E009", {"gap": 0.13}, "E008", {"gap": 0.13}, "E007", {"gap": 0.13}, "E006", {"gap": 0.14}, "E005", {"gap": 0.13}, "E004", {"gap": 0.14}, "E003", {"gap": 0.11}, "E002"]},
+    {"building": "E", "at": [80.35, 13.04], "dir": "+u", "depth": "-v", "units": ["E001"]},
+    {"building": "E", "at": [83.39, 0.29], "dir": "+v", "depth": "-u", "units": ["E020", {"gap": 0.08}, "E019"]},
+    {"building": "B", "at": [0.19, 0.22], "dir": "+u", "depth": "+v", "units": ["B024", {"gap": 0.11}, "B023", {"gap": 3.35}, "B022", {"gap": 0.07}, "B021", {"gap": 0.1}, "B020", {"gap": 0.08}, "B019", {"gap": 0.08}, "B018", {"gap": 0.08}, "B017", {"gap": 0.08}, "B016", {"gap": 0.1}, "B015", {"gap": 0.07}, "B014", {"gap": 0.08}, "B013", {"gap": 0.1}, "B012", {"gap": 0.08}, "B011", {"gap": 0.08}, "B010", {"gap": 0.08}, "B009", {"gap": 0.08}, "B008", {"gap": 0.1}, "B007", {"gap": 0.08}, "B006", {"gap": 0.08}, "B005", {"gap": 0.08}, "B004", {"gap": 0.01}, "B003", {"gap": 0.16}, "B002", {"gap": 3.18}, "B001"]},
+    {"building": "B", "at": [9.46, 3.44], "dir": "+u", "depth": "+v", "units": ["B025"]},
+    {"building": "B", "at": [12.79, 11.4], "dir": "+u", "depth": "+v", "units": ["B032", {"gap": 0.07}, "B034", {"gap": 0.1}, "B036", {"gap": 0.01}, "B038", {"gap": 0.06}, "B039", {"gap": 0.03}, "B040", {"gap": 0.06}, "B042", {"gap": 0.03}, "B043", {"gap": 0.07}, "B044", {"gap": 0.02}, "B046", {"gap": 0.06}, "B048", {"gap": 0.07}, "B049", {"gap": 0.02}, "B050", {"gap": 0.1}, "B052", {"gap": 0.1}, "B054", {"gap": 0.08}, "B056", {"gap": 0.03}, "B058", {"gap": 0.03}, "B060", {"gap": 0.06}, "B062", {"gap": 0.03}, "B063", {"gap": 0.06}, "B064", "B066", {"gap": 0.09}, "B067", {"gap": 0.04}, "B068", {"gap": 0.04}, "B070", {"gap": 0.07}, "B072", {"gap": 0.1}, "B074", {"gap": 0.08}, "B076", {"gap": 0.08}, "B078", {"gap": 0.08}, "B080", {"gap": 0.1}, "B082", {"gap": 0.04}, "B083"]},
+    {"building": "B", "at": [81.61, 11.6], "dir": "+u", "depth": "+v", "units": ["BC1"]},
+    {"building": "B", "at": [10.97, 4.97], "dir": "+v", "depth": "-u", "units": ["B026", {"gap": 0.04}, "B027", {"gap": 0.09}, "B028", {"gap": 0.04}, "B029"]},
+    {"building": "B", "at": [78.45, 3.38], "dir": "+v", "depth": "-u", "units": ["B084"]},
+    {"building": "B", "at": [12.79, 9.51], "dir": "+u", "depth": "-v", "units": ["B031", {"gap": 0.07}, "B033", {"gap": 0.1}, "B035", {"gap": 0.08}, "B037", {"gap": 0.08}, "B041", {"gap": 0.08}, "B045", {"gap": 0.08}, "B047", {"gap": 0.1}, "B051", {"gap": 0.07}, "B053", {"gap": 0.1}, "B055", {"gap": 0.08}, "B057", {"gap": 0.08}, "B059", {"gap": 0.08}, "B061", {"gap": 0.08}, "B065", {"gap": 0.08}, "B069", {"gap": 0.1}, "B071", {"gap": 0.08}, "B073", {"gap": 0.08}, "B075", {"gap": 0.08}, "B077", {"gap": 0.08}, "B079", {"gap": 6.98}, "BC2"]},
+    {"building": "B", "at": [75.45, 9.56], "dir": "+u", "depth": "-v", "units": ["B081"]},
+    {"building": "B", "at": [9.6, 14.28], "dir": "+u", "depth": "-v", "units": ["B030"]},
+    {"building": "D", "at": [3.38, 3.17], "dir": "+u", "depth": "-v", "units": ["D023", {"gap": 0.07}, "D025", {"gap": 0.08}, "D027", {"gap": 0.1}, "D029", {"gap": 0.08}, "D031", {"gap": 0.08}, "D033", {"gap": 0.08}, "D035", {"gap": 0.08}, "D037", {"gap": 0.08}, "D039", {"gap": 0.08}, "D041", {"gap": 0.1}, "D043", {"gap": 0.07}, "D045", {"gap": 0.1}, "D047", {"gap": 0.08}, "D049", {"gap": 0.1}, "D051", {"gap": 0.07}, "D053", {"gap": 0.1}, "D055", {"gap": 0.07}, "D057"]},
+    {"building": "D", "at": [0.19, 14.26], "dir": "+u", "depth": "-v", "units": ["D019", {"gap": 0.12}, "D018", {"gap": 0.1}, "D017", {"gap": 0.07}, "D016", {"gap": 0.1}, "D015", {"gap": 0.08}, "D014", {"gap": 0.08}, "D013", {"gap": 0.08}, "D012", {"gap": 0.08}, "D011", {"gap": 0.08}, "D010", {"gap": 0.08}, "D009", {"gap": 0.1}, "D008", {"gap": 0.07}, "D007", {"gap": 0.1}, "D006", {"gap": 0.08}, "D005", {"gap": 0.1}, "D004", {"gap": 0.07}, "D003", {"gap": 0.1}, "D002", {"gap": 0.1}, "D001"]},
+    {"building": "D", "at": [0.19, 0.29], "dir": "+u", "depth": "+v", "units": ["D021"]},
+    {"building": "D", "at": [0.19, 5.08], "dir": "+u", "depth": "+v", "units": ["D020", {"gap": 0.12}, "D022", {"gap": 0.1}, "D024", {"gap": 0.07}, "D026", {"gap": 0.1}, "D028", {"gap": 0.08}, "D030", {"gap": 0.08}, "D032", {"gap": 0.08}, "D034", {"gap": 0.08}, "D036", {"gap": 0.08}, "D038", {"gap": 0.08}, "D040", {"gap": 0.1}, "D042", {"gap": 0.07}, "D044", {"gap": 0.1}, "D046", {"gap": 0.08}, "D048", {"gap": 0.1}, "D050", {"gap": 0.07}, "D052", {"gap": 0.1}, "D054", {"gap": 0.1}, "D056"]},
+    {"building": "C", "at": [3.36, 3.23], "dir": "+u", "depth": "-v", "units": ["C246", {"gap": 0.12}, "C247", {"gap": 0.08}, "C249", {"gap": 0.08}, "C252", {"gap": 0.08}, "C254", {"gap": 0.08}, "C256", {"gap": 0.1}, "C258", {"gap": 0.07}, "C260", {"gap": 0.1}, "C262", {"gap": 0.1}, "C264", {"gap": 0.07}, "C266", {"gap": 0.1}, "C268", {"gap": 0.08}, "C270", {"gap": 0.04}, "C272", {"gap": 0.08}, "C274", {"gap": 0.08}, "C157", {"gap": 0.07}, "C159", {"gap": 0.09}, "C160", {"gap": 0.05}, "C161", {"gap": 0.05}, "C163", {"gap": 0.05}, "C164", {"gap": 0.05}, "C165", {"gap": 0.05}, "C167", {"gap": 0.05}, "C168", {"gap": 0.05}, "C169", {"gap": 0.05}, "C171", {"gap": 0.05}, "C173", {"gap": 0.06}, "C175", {"gap": 0.05}, "C177", {"gap": 0.03}, "C178", {"gap": 0.05}, "C179", {"gap": 0.06}, "C181", {"gap": 0.05}, "C182", {"gap": 0.05}, "C183", {"gap": 0.05}, "C185", {"gap": 0.05}, "C186", {"gap": 0.05}, "C187", {"gap": 0.05}, "C189", {"gap": 0.06}, "C191", {"gap": 0.03}, "C193", {"gap": 0.05}, "C195", "C196", {"gap": 0.06}, "C197", {"gap": 0.09}, "C199", {"gap": 0.05}, "C200", {"gap": 0.03}, "C201", {"gap": 0.06}, "C203", {"gap": 0.02}, "C205", "C087A", {"gap": 0.09}, "C087", {"gap": 0.09}, "C089A", {"gap": 0.05}, "C089", {"gap": 0.06}, "C091", {"gap": 0.08}, "C093", {"gap": 0.08}, "C095", {"gap": 0.1}, "C097", {"gap": 0.08}, "C099", {"gap": 0.08}, "C101", {"gap": 0.08}, "C103", {"gap": 0.08}, "C105", {"gap": 0.04}, "C107"]},
+    {"building": "C", "at": [138.15, 12.62], "dir": "+u", "depth": "-v", "units": ["C055"]},
+    {"building": "C", "at": [4.94, 12.69], "dir": "+u", "depth": "-v", "units": ["C239", {"gap": 0.12}, "C233", {"gap": 0.03}, "C231", {"gap": 0.08}, "C229", {"gap": 0.08}, "C227", {"gap": 0.1}, "C225", {"gap": 0.07}, "C223", {"gap": 0.1}, "C221", {"gap": 0.08}, "C219", {"gap": 0.08}, "C217", {"gap": 0.1}, "C215", {"gap": 0.07}, "C213", {"gap": 0.1}, "C211", {"gap": 0.04}, "C209", {"gap": 0.01}, "C207", {"gap": 0.14}, "C152", {"gap": 1.67}, "C147", {"gap": 0.08}, "C145", {"gap": 0.08}, "C143", {"gap": 0.08}, "C141", {"gap": 0.1}, "C139", {"gap": 0.07}, "C137", {"gap": 0.1}, "C135", {"gap": 0.1}, "C133", {"gap": 0.07}, "C131", {"gap": 0.1}, "C129", {"gap": 0.08}, "C127", {"gap": 0.08}, "C125", {"gap": 0.04}, "C123", {"gap": 0.08}, "C121", {"gap": 0.13}, "C119", {"gap": 0.04}, "C117", {"gap": 1.66}, "C082", {"gap": 0.09}, "C075", {"gap": 0.07}, "C073", {"gap": 0.1}, "C071", {"gap": 0.1}, "C069", {"gap": 0.07}, "C067", {"gap": 0.1}, "C065", {"gap": 0.08}, "C063", {"gap": 0.08}, "C061", {"gap": 0.08}, "C059", {"gap": 0.04}, "C057"]},
+    {"building": "C", "at": [105.24, 20.59], "dir": "+u", "depth": "-v", "units": ["C078"]},
+    {"building": "C", "at": [4.94, 22.11], "dir": "+u", "depth": "-v", "units": ["C234"]},
+    {"building": "C", "at": [50.35, 22.13], "dir": "+u", "depth": "-v", "units": ["C148"]},
+    {"building": "C", "at": [72.36, 22.16], "dir": "+u", "depth": "-v", "units": ["C023", {"gap": 0.08}, "C022", {"gap": 0.08}, "C021", {"gap": 0.08}, "C020", {"gap": 0.1}, "C019", {"gap": 0.07}, "C018", {"gap": 0.05}, "C017", {"gap": 0.08}, "C016", {"gap": 0.13}, "C015", {"gap": 0.05}, "C014"]},
+    {"building": "C", "at": [147.5, 22.13], "dir": "+u", "depth": "-v", "units": ["C046"]},
+    {"building": "C", "at": [0.17, 25.27], "dir": "+u", "depth": "-v", "units": ["C044", {"gap": 3.33}, "C043", {"gap": 0.07}, "C042", {"gap": 0.1}, "C041", {"gap": 0.08}, "C040", {"gap": 0.08}, "C039", {"gap": 0.08}, "C038", {"gap": 0.08}, "C037", {"gap": 0.08}, "C036", {"gap": 0.08}, "C035", {"gap": 0.08}, "C034", {"gap": 0.08}, "C033", {"gap": 0.08}, "C032", {"gap": 0.04}, "C031", {"gap": 0.1}, "C030", {"gap": 3.26}, "C029", {"gap": 0.08}, "C028", {"gap": 0.08}, "C027", {"gap": 0.1}, "C026", {"gap": 0.08}, "C025", {"gap": 0.1}, "C024"]},
+    {"building": "C", "at": [106.85, 25.43], "dir": "+u", "depth": "-v", "units": ["C013", {"gap": 0.08}, "C012", {"gap": 0.08}, "C011", {"gap": 0.08}, "C010", {"gap": 0.08}, "C009", {"gap": 0.08}, "C008", {"gap": 0.1}, "C007", {"gap": 0.07}, "C006", {"gap": 0.1}, "C005", {"gap": 0.04}, "C004", {"gap": 0.08}, "C003", {"gap": 0.08}, "C002", {"gap": 0.04}, "C001A", {"gap": 3.31}, "C001"]},
+    {"building": "C", "at": [0.18, 0.29], "dir": "+u", "depth": "+v", "units": ["C245"]},
+    {"building": "C", "at": [4.97, 4.98], "dir": "+u", "depth": "+v", "units": ["C244", {"gap": 0.1}, "C248", {"gap": 0.03}, "C250", {"gap": 0.08}, "C251", {"gap": 0.08}, "C253", {"gap": 0.08}, "C255", {"gap": 0.1}, "C257", {"gap": 0.07}, "C259", {"gap": 0.1}, "C261", {"gap": 0.1}, "C263", {"gap": 0.07}, "C265", {"gap": 0.1}, "C267", {"gap": 0.08}, "C269", {"gap": 0.04}, "C271", {"gap": 0.01}, "C273", {"gap": 0.11}, "C156", {"gap": 1.7}, "C158", {"gap": 0.08}, "C162", {"gap": 0.08}, "C166", {"gap": 0.1}, "C170", {"gap": 0.08}, "C172", {"gap": 0.08}, "C174", {"gap": 0.08}, "C176", {"gap": 0.08}, "C180", {"gap": 0.08}, "C184", {"gap": 0.08}, "C188", {"gap": 0.1}, "C190", {"gap": 0.07}, "C192", {"gap": 0.05}, "C194", {"gap": 0.08}, "C198", {"gap": 0.13}, "C202", {"gap": 0.05}, "C204", {"gap": 1.68}, "C086", {"gap": 0.06}, "C088", {"gap": 0.08}, "C090", {"gap": 0.08}, "C092", {"gap": 0.08}, "C094", {"gap": 0.08}, "C096", {"gap": 0.08}, "C098", {"gap": 0.1}, "C100", {"gap": 0.07}, "C102", {"gap": 0.1}, "C104", {"gap": 0.04}, "C106"]},
+    {"building": "C", "at": [141.55, 8.13], "dir": "+u", "depth": "+v", "units": ["C112"]},
+    {"building": "C", "at": [151.03, 10.29], "dir": "+u", "depth": "+v", "units": ["C115"]},
+    {"building": "C", "at": [147.5, 13.9], "dir": "+u", "depth": "+v", "units": ["C050"]},
+    {"building": "C", "at": [4.95, 14.38], "dir": "+u", "depth": "+v", "units": ["C237"]},
+    {"building": "C", "at": [50.33, 14.38], "dir": "+u", "depth": "+v", "units": ["C151"]},
+    {"building": "C", "at": [105.27, 14.36], "dir": "+u", "depth": "+v", "units": ["C081"]},
+    {"building": "C", "at": [6.55, 14.47], "dir": "+u", "depth": "+v", "units": ["C232", {"gap": 0.07}, "C230", {"gap": 0.1}, "C228", {"gap": 0.08}, "C226", {"gap": 0.08}, "C224", {"gap": 0.08}, "C222", {"gap": 0.08}, "C220", {"gap": 0.08}, "C218", {"gap": 0.08}, "C216", {"gap": 0.08}, "C214", {"gap": 0.08}, "C212", {"gap": 0.08}, "C210", {"gap": 0.04}, "C208", {"gap": 0.03}, "C206", {"gap": 3.32}, "C146", {"gap": 0.08}, "C144", {"gap": 0.08}, "C142", {"gap": 0.1}, "C140", {"gap": 0.08}, "C138", {"gap": 0.08}, "C136", {"gap": 0.08}, "C134", {"gap": 0.08}, "C132", {"gap": 0.08}, "C130", {"gap": 0.08}, "C128", {"gap": 0.1}, "C126", {"gap": 0.07}, "C124", {"gap": 0.05}, "C122", {"gap": 0.08}, "C120", {"gap": 0.13}, "C118", {"gap": 0.05}, "C116", {"gap": 3.26}, "C076", {"gap": 0.08}, "C074", {"gap": 0.08}, "C072", {"gap": 0.08}, "C070", {"gap": 0.08}, "C068", {"gap": 0.08}, "C066", {"gap": 0.1}, "C064", {"gap": 0.07}, "C062", {"gap": 0.1}, "C060", {"gap": 0.04}, "C058", {"gap": 0.08}, "C056", {"gap": 0.08}, "C054", {"gap": 0.04}, "C052"]},
+    {"building": "C", "at": [0.18, 6.55], "dir": "+u", "depth": "+v", "door": "e", "units": ["C240"]},
+    {"building": "C", "at": [0.17, 12.82], "dir": "+u", "depth": "+v", "door": "e", "units": ["C238"]},
+    {"building": "C", "at": [147.5, 15.51], "dir": "+u", "depth": "+v", "door": "e", "units": ["C048"]},
+    {"building": "C", "at": [4.99, 6.49], "dir": "+v", "depth": "+u", "units": ["C243", {"gap": 0.04}, "C242", {"gap": 0.09}, "C241", {"gap": 4.74}, "C236", {"gap": 0.02}, "C235"]},
+    {"building": "C", "at": [105.26, 15.9], "dir": "+v", "depth": "+u", "units": ["C080", {"gap": 0.03}, "C079"]},
+    {"building": "C", "at": [105.33, 6.5], "dir": "+v", "depth": "+u", "units": ["C085", {"gap": 0.03}, "C084", {"gap": 0.03}, "C083"]},
+    {"building": "C", "at": [150.77, 12.77], "dir": "+v", "depth": "+u", "units": ["C051", {"gap": 0.08}, "C049", {"gap": 0.12}, "C047"]},
+    {"building": "C", "at": [51.77, 8.05], "dir": "+v", "depth": "-u", "units": ["C154", {"gap": 6.35}, "C150"]},
+    {"building": "C", "at": [51.83, 6.49], "dir": "+v", "depth": "-u", "units": ["C155", {"gap": 1.65}, "C153", {"gap": 6.35}, "C149"]},
+    {"building": "C", "at": [141.65, 4.98], "dir": "+v", "depth": "-u", "units": ["C108"]},
+    {"building": "C", "at": [145.8, 11.18], "dir": "+v", "depth": "-u", "units": ["C053"]},
+    {"building": "C", "at": [149.01, 18.55], "dir": "+v", "depth": "-u", "units": ["C048A"]},
+    {"building": "C", "at": [138.12, 0.13], "dir": "+v", "depth": "+u", "door": "sw", "units": ["C109"]},
+    {"building": "C", "f": 2, "at": [0.2, 0.32], "dir": "+u", "depth": "+v", "units": ["C340", {"gap": 3.36}, "C339", {"gap": 0.05}, "C338", {"gap": 0.08}, "C337", {"gap": 0.08}, "C336", {"gap": 0.08}, "C335", {"gap": 0.08}, "C334", {"gap": 0.08}, "C333", {"gap": 0.1}, "C332", {"gap": 0.08}, "C331", {"gap": 0.08}, "C330", {"gap": 0.08}, "C329", {"gap": 0.03}, "C328", {"gap": 0.02}, "C327", {"gap": 3.34}, "C326", {"gap": 0.08}, "C325", {"gap": 0.1}, "C324", {"gap": 0.08}, "C323", {"gap": 0.08}, "C322", {"gap": 0.1}, "C321", {"gap": 0.08}, "C320", {"gap": 0.08}, "C319", {"gap": 0.08}, "C318", {"gap": 0.08}, "C317", {"gap": 0.08}, "C316", {"gap": 0.08}, "C315", {"gap": 0.08}, "C314", {"gap": 0.04}, "C313", {"gap": 3.33}, "C312", "C311", {"gap": 0.05}, "C310", {"gap": 0.13}, "C309", {"gap": 0.1}, "C308", {"gap": 0.1}, "C307", {"gap": 0.07}, "C306", {"gap": 0.1}, "C305", {"gap": 0.08}, "C304", {"gap": 0.08}, "C303", {"gap": 0.04}, "C302", {"gap": 3.29}, "C301", "C300"]},
+    {"building": "C", "f": 2, "at": [47.22, 3.41], "dir": "+u", "depth": "+v", "units": ["C478"]},
+    {"building": "C", "f": 2, "at": [95.88, 3.41], "dir": "+u", "depth": "+v", "units": ["C388"]},
+    {"building": "C", "f": 2, "at": [133.49, 3.42], "dir": "+u", "depth": "+v", "units": ["C357"]},
+    {"building": "C", "f": 2, "at": [4.98, 3.5], "dir": "+u", "depth": "+v", "units": ["C519"]},
+    {"building": "C", "f": 2, "at": [144.41, 3.67], "dir": "+u", "depth": "+v", "units": ["C343"]},
+    {"building": "C", "f": 2, "at": [150.78, 9.99], "dir": "+u", "depth": "+v", "units": ["C341"]},
+    {"building": "C", "f": 2, "at": [47.22, 14.38], "dir": "+u", "depth": "+v", "units": ["C472"]},
+    {"building": "C", "f": 2, "at": [95.88, 14.39], "dir": "+u", "depth": "+v", "units": ["C382"]},
+    {"building": "C", "f": 2, "at": [97.49, 14.44], "dir": "+u", "depth": "+v", "units": ["C378", {"gap": 0.03}, "C376", {"gap": 0.08}, "C374", {"gap": 0.13}, "C372", {"gap": 0.08}, "C370", {"gap": 0.1}, "C368", {"gap": 0.07}, "C366", {"gap": 0.1}, "C364", {"gap": 0.08}, "C362", {"gap": 0.08}, "C360", {"gap": 0.08}, "C358", {"gap": 0.08}, "C351", {"gap": 0.05}, "C350", {"gap": 0.08}, "C348", {"gap": 0.08}, "C346", {"gap": 0.04}, "C344", {"gap": 0.05}, "C440"]},
+    {"building": "C", "f": 2, "at": [6.63, 14.54], "dir": "+u", "depth": "+v", "units": ["C504", {"gap": 0.03}, "C502", {"gap": 0.08}, "C500", {"gap": 0.08}, "C498", {"gap": 0.08}, "C496", {"gap": 0.08}, "C494", {"gap": 0.08}, "C492", {"gap": 0.1}, "C490", {"gap": 0.08}, "C488", {"gap": 0.08}, "C486", {"gap": 0.08}, "C484", {"gap": 0.03}, "C482", {"gap": 0.02}, "C480", {"gap": 3.33}, "C468", {"gap": 0.1}, "C466", {"gap": 0.08}, "C464", {"gap": 0.08}, "C462", {"gap": 0.08}, "C460", {"gap": 0.08}, "C458", {"gap": 0.08}, "C456", {"gap": 0.1}, "C454", {"gap": 0.08}, "C452", {"gap": 0.08}, "C450", {"gap": 0.08}, "C448", {"gap": 0.08}, "C446", {"gap": 0.08}, "C444", {"gap": 0.04}, "C442"]},
+    {"building": "C", "f": 2, "at": [5.59, 15.0], "dir": "+u", "depth": "+v", "units": ["C509"]},
+    {"building": "C", "f": 2, "at": [3.37, 22.37], "dir": "+u", "depth": "+v", "units": ["C520", {"gap": 0.1}, "C521", {"gap": 0.03}, "C522", {"gap": 0.05}, "C523", {"gap": 0.05}, "C524", {"gap": 0.06}, "C525", {"gap": 0.03}, "C526", {"gap": 0.06}, "C527", {"gap": 0.03}, "C528", {"gap": 0.06}, "C529", {"gap": 0.03}, "C530", {"gap": 0.06}, "C531", {"gap": 0.03}, "C532", {"gap": 0.06}, "C533", {"gap": 0.03}, "C534", {"gap": 0.06}, "C535", {"gap": 0.05}, "C536", {"gap": 0.05}, "C537", {"gap": 0.05}, "C538", {"gap": 0.05}, "C539", {"gap": 0.05}, "C540", {"gap": 0.06}, "C541", {"gap": 0.05}, "C542", {"gap": 0.03}, "C543", {"gap": 0.06}, "C544", {"gap": 0.03}, "C545", {"gap": 0.01}, "C546", {"gap": 0.03}, "C547", {"gap": 0.09}, "C548", {"gap": 0.06}, "C549", {"gap": 0.03}, "C550", "C551", {"gap": 0.09}, "C552", {"gap": 0.09}, "C553", {"gap": 0.03}, "C554", {"gap": 0.06}, "C555", {"gap": 0.03}, "C556", {"gap": 0.06}, "C557", {"gap": 0.03}, "C558", {"gap": 0.06}, "C559", {"gap": 0.03}, "C560", {"gap": 0.06}, "C561", {"gap": 0.05}, "C562", {"gap": 0.05}, "C563"]},
+    {"building": "C", "f": 2, "at": [103.7, 22.37], "dir": "+u", "depth": "+v", "units": ["C392", {"gap": 0.07}, "C393", {"gap": 0.03}, "C394", {"gap": 0.06}, "C396", {"gap": 0.03}, "C398", {"gap": 0.06}, "C399", {"gap": 0.05}, "C400", {"gap": 0.05}, "C402", {"gap": 0.05}, "C404", {"gap": 0.05}, "C405", {"gap": 0.06}, "C406", {"gap": 0.03}, "C408", {"gap": 0.06}, "C410", {"gap": 0.03}, "C411", {"gap": 0.06}, "C412", {"gap": 0.03}, "C414", {"gap": 0.06}, "C416", {"gap": 0.03}, "C417", {"gap": 0.06}, "C418", {"gap": 0.03}, "C420", {"gap": 0.06}, "C422", {"gap": 0.05}, "C423", {"gap": 0.05}, "C424", {"gap": 0.05}, "C426", {"gap": 0.05}, "C428", {"gap": 0.06}, "C429", {"gap": 0.03}, "C430", {"gap": 0.06}, "C432", {"gap": 0.03}, "C433", {"gap": 0.06}, "C434"]},
+    {"building": "C", "f": 2, "at": [3.19, 3.43], "dir": "+v", "depth": "-u", "units": ["C516", {"gap": 0.08}, "C514", {"gap": 0.08}, "C512", {"gap": 0.08}, "C510", {"gap": 0.08}, "C508"]},
+    {"building": "C", "f": 2, "at": [48.72, 5.02], "dir": "+v", "depth": "-u", "units": ["C477", {"gap": 0.02}, "C476", {"gap": 0.03}, "C475", {"gap": 0.04}, "C474", {"gap": 4.8}, "C471", {"gap": 0.03}, "C470"]},
+    {"building": "C", "f": 2, "at": [149.01, 17.61], "dir": "+v", "depth": "-u", "units": ["C438"]},
+    {"building": "C", "f": 2, "at": [6.61, 12.68], "dir": "+u", "depth": "-v", "units": ["C503", {"gap": 0.05}, "C501", {"gap": 0.08}, "C499", {"gap": 0.08}, "C497", {"gap": 0.08}, "C495", {"gap": 0.08}, "C493", {"gap": 0.08}, "C491", {"gap": 0.1}, "C489", {"gap": 0.08}, "C487", {"gap": 0.08}, "C485", {"gap": 0.08}, "C483", {"gap": 0.03}, "C481", {"gap": 0.02}, "C479", {"gap": 3.35}, "C467", {"gap": 0.08}, "C465", {"gap": 0.08}, "C463", {"gap": 0.08}, "C461", {"gap": 0.08}, "C459", {"gap": 0.08}, "C457", {"gap": 0.08}, "C455", {"gap": 0.1}, "C453", {"gap": 0.08}, "C451", {"gap": 0.08}, "C449", {"gap": 0.08}, "C447", {"gap": 0.08}, "C445", {"gap": 0.08}, "C443", {"gap": 0.04}, "C441", {"gap": 3.33}, "C379", "C377", {"gap": 0.05}, "C375", {"gap": 0.14}, "C373", {"gap": 0.08}, "C371", {"gap": 0.1}, "C369", {"gap": 0.07}, "C367", {"gap": 0.1}, "C365", {"gap": 0.08}, "C363", {"gap": 0.08}, "C361", {"gap": 0.04}, "C359", {"gap": 3.29}, "C349", "C347", {"gap": 0.1}, "C345", {"gap": 3.23}, "C342"]},
+    {"building": "C", "f": 2, "at": [4.98, 12.75], "dir": "+u", "depth": "-v", "units": ["C511"]},
+    {"building": "C", "f": 2, "at": [47.22, 12.75], "dir": "+u", "depth": "-v", "units": ["C473"]},
+    {"building": "C", "f": 2, "at": [95.88, 12.75], "dir": "+u", "depth": "-v", "units": ["C383"]},
+    {"building": "C", "f": 2, "at": [133.49, 12.75], "dir": "+u", "depth": "-v", "units": ["C352"]},
+    {"building": "C", "f": 2, "at": [148.11, 20.03], "dir": "+u", "depth": "-v", "units": ["C436"]},
+    {"building": "C", "f": 2, "at": [5.01, 20.58], "dir": "+u", "depth": "-v", "units": ["C505A"]},
+    {"building": "C", "f": 2, "at": [47.22, 20.62], "dir": "+u", "depth": "-v", "units": ["C469"]},
+    {"building": "C", "f": 2, "at": [95.88, 20.62], "dir": "+u", "depth": "-v", "units": ["C380", {"gap": 0.07}, "C389", {"gap": 0.09}, "C390", {"gap": 0.03}, "C391", {"gap": 0.13}, "C395", {"gap": 0.08}, "C397", {"gap": 0.1}, "C401", {"gap": 0.07}, "C403", {"gap": 0.1}, "C407", {"gap": 0.08}, "C409", {"gap": 0.08}, "C413", {"gap": 0.08}, "C415", {"gap": 0.08}, "C419", {"gap": 0.05}, "C421", {"gap": 0.08}, "C425", {"gap": 0.03}, "C427", {"gap": 0.08}, "C431"]},
+    {"building": "C", "f": 2, "at": [0.2, 25.35], "dir": "+u", "depth": "-v", "units": ["C506"]},
+    {"building": "C", "f": 2, "at": [150.76, 25.29], "dir": "+u", "depth": "-v", "units": ["C435"]},
+    {"building": "C", "f": 2, "at": [5.03, 5.02], "dir": "+v", "depth": "+u", "units": ["C518", {"gap": 0.02}, "C517", "C515", {"gap": 0.09}, "C513", {"gap": 4.68}, "C507"]},
+    {"building": "C", "f": 2, "at": [5.08, 17.5], "dir": "+v", "depth": "+u", "units": ["C505"]},
+    {"building": "C", "f": 2, "at": [95.95, 5.02], "dir": "+v", "depth": "+u", "units": ["C387", {"gap": 0.02}, "C386", {"gap": 0.03}, "C385", {"gap": 0.04}, "C384", {"gap": 4.82}, "C381"]},
+    {"building": "C", "f": 2, "at": [133.51, 4.96], "dir": "+v", "depth": "+u", "units": ["C356", {"gap": 1.63}, "C354"]},
+    {"building": "C", "f": 2, "at": [133.58, 6.57], "dir": "+v", "depth": "+u", "units": ["C355", {"gap": 1.58}, "C353"]},
+    {"building": "C", "f": 2, "at": [150.81, 15.96], "dir": "+v", "depth": "+u", "units": ["C439", {"gap": 0.02}, "C437"]},
+    {"building": "A", "at": [0.11, 0.36], "dir": "+u", "depth": "+v", "units": ["A001", {"gap": 0.21}, "A002", {"gap": 0.13}, "A003", {"gap": 0.14}, "A004", {"gap": 0.12}, "A005"]},
+    {"zone": "RVN", "at": [-106.14, 14.54], "dir": "+u", "depth": "+v", "angle": 113.4, "units": ["G020"]},
+    {"zone": "RVN", "at": [-96.96, 12.26], "dir": "+u", "depth": "+v", "angle": 113.5, "units": ["G022"]},
+    {"zone": "RVN", "at": [-87.9, 10.25], "dir": "+u", "depth": "+v", "angle": 113.5, "units": ["G024", {"gap": 0.12}, "G025", {"gap": 0.12}, "G026", {"gap": 0.11}, "G027", {"gap": 0.12}, "G028", {"gap": 0.12}, "G029"]},
+    {"zone": "RVN", "at": [-66.34, -52.85], "dir": "+u", "depth": "+v", "angle": 80.2, "units": ["G002"]},
+    {"zone": "RVN", "at": [-63.26, 10.24], "dir": "+u", "depth": "+v", "angle": 113.5, "units": ["G030"]},
+    {"zone": "RVN", "at": [-62.42, -52.86], "dir": "+u", "depth": "+v", "angle": 80.1, "units": ["G001"]},
+    {"zone": "RVN", "at": [-59.16, 10.25], "dir": "+u", "depth": "+v", "angle": 113.6, "units": ["G031", {"gap": 0.1}, "G032", {"gap": 0.44}, "G033"]},
+    {"zone": "RVN", "at": [-46.06, 10.24], "dir": "+u", "depth": "+v", "angle": 103.3, "units": ["G034"]},
+    {"zone": "RVN", "at": [-41.89, 10.26], "dir": "+u", "depth": "+v", "angle": 88.9, "units": ["G035"]},
+    {"zone": "RVN", "at": [-37.86, 10.26], "dir": "+u", "depth": "+v", "angle": 73.4, "units": ["G036"]},
+    {"zone": "RVN", "at": [-33.72, 10.24], "dir": "+u", "depth": "+v", "angle": 57.2, "units": ["G037", {"gap": 0.23}, "G038", {"gap": 0.12}, "G039", {"gap": 0.11}, "G040", {"gap": 0.12}, "G041", {"gap": 0.12}, "G042", {"gap": 0.11}, "G043", {"gap": 0.11}, "G044", {"gap": 0.11}, "G045", {"gap": 0.11}, "G046", {"gap": 0.11}, "G047", {"gap": 0.08}, "G048", {"gap": 0.05}, "G049", {"gap": 0.08}, "G050", {"gap": 0.22}, "G051", {"gap": 0.1}, "G052", {"gap": 0.12}, "G053", {"gap": 0.13}, "G054", {"gap": 0.23}, "G055"]},
+    {"zone": "RVN", "at": [51.68, 9.37], "dir": "+u", "depth": "+v", "angle": 57.0, "units": ["G055A"]},
+    {"zone": "RVN", "at": [-37.24, -31.41], "dir": "+v", "depth": "-u", "angle": 67.2, "units": ["G012"]},
+    {"zone": "RVN", "at": [-59.98, -27.69], "dir": "+v", "depth": "-u", "angle": 117.6, "units": ["G003"]},
+    {"zone": "RVN", "at": [-36.31, -27.54], "dir": "+v", "depth": "-u", "angle": 67.2, "units": ["G013"]},
+    {"zone": "RVN", "at": [-60.05, -23.64], "dir": "+v", "depth": "-u", "angle": 116.0, "units": ["G004"]},
+    {"zone": "RVN", "at": [-36.75, -23.03], "dir": "+v", "depth": "-u", "angle": 67.2, "units": ["G014"]},
+    {"zone": "RVN", "at": [-60.29, -19.68], "dir": "+v", "depth": "-u", "angle": 115.3, "units": ["G005"]},
+    {"zone": "RVN", "at": [-37.39, -18.51], "dir": "+v", "depth": "-u", "angle": 67.5, "units": ["G015"]},
+    {"zone": "RVN", "at": [-60.86, -15.83], "dir": "+v", "depth": "-u", "angle": 115.7, "units": ["G006"]},
+    {"zone": "RVN", "at": [-37.39, -14.31], "dir": "+v", "depth": "-u", "angle": 68.1, "units": ["G016"]},
+    {"zone": "RVN", "at": [-61.79, -11.98], "dir": "+v", "depth": "-u", "angle": 115.8, "units": ["G007"]},
+    {"zone": "RVN", "at": [-37.37, -10.14], "dir": "+v", "depth": "-u", "angle": 69.0, "units": ["G017"]},
+    {"zone": "RVN", "at": [-63.47, -8.17], "dir": "+v", "depth": "-u", "angle": 115.9, "units": ["G008"]},
+    {"zone": "RVN", "at": [-37.37, -4.92], "dir": "+v", "depth": "-u", "angle": 75.6, "units": ["G018"]},
+    {"zone": "RVN", "at": [-65.77, -4.78], "dir": "+v", "depth": "-u", "angle": 115.9, "units": ["G009"]},
+    {"zone": "RVN", "at": [-68.26, -1.73], "dir": "+v", "depth": "-u", "angle": 115.9, "units": ["G010"]},
+    {"zone": "RVN", "at": [-104.62, 20.5], "dir": "+u", "depth": "-v", "angle": 66.5, "units": ["G021"]},
+    {"zone": "RVN", "at": [-96.37, 20.32], "dir": "+u", "depth": "-v", "angle": 66.5, "units": ["G023"]},
+    {"zone": "RVN", "at": [-74.85, 2.87], "dir": "+u", "depth": "-v", "angle": 154.1, "units": ["G010A"]},
+    {"zone": "RVN", "at": [-52.13, -29.36], "dir": "+v", "depth": "+u", "angle": 112.0, "units": ["G011"]},
+    {"zone": "RVN", "at": [55.25, 4.59], "dir": "+v", "depth": "+u", "units": ["G055B"]},
+    {"zone": "RVS", "at": [92.31, 5.27], "dir": "+v", "depth": "-u", "angle": 87.0, "units": ["G056"]},
+    {"zone": "RVS", "at": [92.81, 8.8], "dir": "+v", "depth": "-u", "angle": 77.3, "units": ["G057"]},
+    {"zone": "RVS", "at": [167.65, -8.01], "dir": "+v", "depth": "+u", "angle": 89.9, "units": ["G078"]},
+    {"zone": "RVS", "at": [169.04, -4.34], "dir": "+v", "depth": "+u", "angle": 89.6, "units": ["G077"]},
+    {"zone": "RVS", "at": [170.45, -0.6], "dir": "+v", "depth": "+u", "angle": 89.3, "units": ["G076"]},
+    {"zone": "RVS", "at": [171.87, 3.15], "dir": "+v", "depth": "+u", "angle": 89.3, "units": ["G075"]},
+    {"zone": "RVS", "at": [84.3, 15.89], "dir": "+v", "depth": "+u", "angle": 115.0, "units": ["G058"]},
+    {"zone": "RVS", "at": [89.19, 18.24], "dir": "+v", "depth": "+u", "angle": 125.0, "units": ["G059"]},
+    {"zone": "RVS", "at": [102.14, 10.13], "dir": "+u", "depth": "+v", "angle": 128.3, "units": ["G060", {"gap": 0.38}, "G061", {"gap": 0.38}, "G062", {"gap": 0.38}, "G063", {"gap": 0.31}, "G064"]},
+    {"zone": "RVS", "at": [127.67, 9.46], "dir": "+u", "depth": "+v", "angle": 128.3, "units": ["G065"]},
+    {"zone": "RVS", "at": [133.12, 8.8], "dir": "+u", "depth": "+v", "angle": 128.1, "units": ["G066", {"gap": 0.29}, "G067", {"gap": 0.29}, "G068", {"gap": 0.14}, "G069"]},
+    {"zone": "RVS", "at": [152.55, 6.89], "dir": "+u", "depth": "+v", "angle": 90.6, "units": ["G070"]},
+    {"zone": "RVS", "at": [156.63, 6.89], "dir": "+u", "depth": "+v", "angle": 89.1, "units": ["G071"]},
+    {"zone": "RVS", "at": [160.75, 6.89], "dir": "+u", "depth": "+v", "angle": 84.4, "units": ["G072"]},
+    {"zone": "RVS", "at": [164.73, 6.85], "dir": "+u", "depth": "+v", "angle": 77.6, "units": ["G073"]},
+    {"zone": "RVS", "at": [168.82, 7.87], "dir": "+u", "depth": "+v", "angle": 70.5, "units": ["G074"]},
+    {"zone": "PDE", "at": [108.32, -76.3], "dir": "+u", "depth": "+v", "width": 3.55, "units": ["G112"]},
+    {"zone": "PDE", "at": [112.05, -74.59], "dir": "+u", "depth": "+v", "angle": 89.9, "width": 3.55, "units": ["G113"]},
+    {"zone": "PDE", "at": [115.64, -72.79], "dir": "+u", "depth": "+v", "angle": 89.9, "width": 3.55, "units": ["G114"]},
+    {"zone": "PSE", "at": [122.06, -69.63], "dir": "+v", "depth": "+u", "angle": 53.0, "units": ["G115"]},
+    {"zone": "PSE", "at": [132.23, -62.53], "dir": "+v", "depth": "+u", "angle": 49.0, "units": ["G115A"]},
+    {"zone": "PSE", "at": [138.86, -56.8], "dir": "+v", "depth": "+u", "angle": 50.0, "units": ["G116"]},
+    {"zone": "PSE", "at": [144.86, -48.13], "dir": "+u", "depth": "+v", "angle": 57.0, "units": ["G117"]},
+    {"zone": "PDW", "at": [37.96, -68.53], "dir": "+u", "depth": "-v", "units": ["G111"]},
+    {"zone": "PEF", "at": [-51.18, -64.66], "dir": "+v", "depth": "+u", "angle": 135.0, "units": ["G105"]},
+    {"zone": "PEF", "at": [-60.44, -60.38], "dir": "+u", "depth": "-v", "angle": 45.0, "units": ["G106"]},
+    {"zone": "PEF", "at": [-58.0, -51.51], "dir": "+u", "depth": "-v", "units": ["G107"]},
+    {"building": "C", "at": [139.34, 2.99], "dir": "+u", "depth": "+v", "angle": 45, "width": 2.9, "units": ["C110"]},
+    {"building": "C", "at": [141.57, 5.22], "dir": "+u", "depth": "+v", "angle": 45, "width": 2.9, "units": ["C111"]},
+    {"building": "C", "at": [143.77, 7.42], "dir": "+u", "depth": "+v", "angle": 45, "width": 2.9, "units": ["C113"]},
+    {"building": "C", "at": [146.0, 9.64], "dir": "+u", "depth": "+v", "angle": 45, "width": 2.9, "units": ["C114"]},
+    {"building": "Z", "f": 1, "at": [1.02, 0.38], "dir": "+u", "depth": "+v", "units": ["Z001"]},
+    {"building": "OFFICE", "f": 1, "at": [2.0, 0.6], "dir": "+u", "depth": "+v", "width": 0.13, "units": ["M100-M112"]},
+    {"building": "OFFICE", "f": 1, "at": [4.0, 0.6], "dir": "+u", "depth": "+v", "width": 0.11, "units": ["M113-M176"]}
   ]
 }

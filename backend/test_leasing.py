@@ -46,6 +46,19 @@ def lease(**over):
 class ArithmeticTests(unittest.TestCase):
     """The rules, with no database and no ledger."""
 
+    def test_old_free_text_terms_read_best_effort(self):
+        p = leasing.parse_term
+        for text in ("Annual", "annual", "12 months", "12 Months.", "1 year", "One Year", "12-month lease"):
+            self.assertEqual(p(text), ("annual", 12), text)
+        for text in ("Month to month", "Month-to-Month", "MTM", "month to month"):
+            self.assertEqual(p(text), ("month_to_month", None), text)
+        self.assertEqual(p("18 months"), ("custom", 18))
+        self.assertEqual(p("16 mos"), ("custom", 16))
+        self.assertEqual(p("2 years"), ("custom", 24))
+        for text in ("", "Until the building sells", "0 months", "999 months", "NNN"):
+            self.assertIsNone(p(text), text)
+        self.assertEqual(leasing.term_label("custom", 18), "Custom - 18 Months")
+
     def test_a_whole_month(self):
         self.assertEqual(leasing.expected_for_month(lease(), 2026, 3), 3000.0)
 
@@ -278,6 +291,40 @@ class LeasingApiTests(unittest.TestCase):
         self.assertEqual((refused.status_code, refused.json()["detail"]), (400, "Name who pays it."))
         self.assertEqual({l["incomeType"] for l in self._mine()}, {"lease", "interest"})
 
+    def test_cam_is_a_type_of_its_own(self):
+        """Oct 14 (Priyanka): "there is no CAM option" - a CAM charge is kept
+        like a lease (a tenant, a space, the dates) under its own type."""
+        _as(EDITOR)
+        made = self.client.post("/leasing/leases", json=self._body(incomeType="cam", propertyName="910 SECR - CAM"))
+        self.assertEqual((made.status_code, made.json()["incomeType"]), (201, "cam"))
+        refused = self.client.post("/leasing/leases", json=self._body(incomeType="cam", tenantName=""))
+        self.assertEqual((refused.status_code, refused.json()["detail"]), (400, "Name the tenant, or mark the space vacant."))
+
+    def test_the_lease_term_is_a_pick(self):
+        """Oct 15 (Charmi + Neil): Annual, Month to Month or Custom with a
+        whole number of months - never free text."""
+        _as(EDITOR)
+        made = self.client.post("/leasing/leases", json=self._body(termType="custom", termMonths=18)).json()
+        self.assertEqual((made["termType"], made["termMonths"], made["termLabel"]), ("custom", 18, "Custom - 18 Months"))
+        annual = self.client.post("/leasing/leases", json=self._body(termType="annual", termMonths=5)).json()
+        self.assertEqual((annual["termType"], annual["termMonths"], annual["termLabel"]), ("annual", 12, "Annual"))
+        mtm = self.client.put(f"/leasing/leases/{annual['id']}", json=self._body(termType="month_to_month", termMonths=12)).json()
+        self.assertEqual((mtm["termType"], mtm["termMonths"], mtm["termLabel"]), ("month_to_month", None, "Month to Month"))
+        for over in ({"termType": "yearly"}, {"termType": "custom"}, {"termType": "custom", "termMonths": 0}, {"termType": "custom", "termMonths": -3},
+                     {"termType": "custom", "termMonths": 601}, {"termType": "custom", "termMonths": 16.5}):
+            r = self.client.post("/leasing/leases", json=self._body(**over))
+            self.assertEqual(r.status_code, 400, over)
+
+    def test_an_old_free_text_term_is_read_never_lost(self):
+        _as(EDITOR)
+        read = self.client.post("/leasing/leases", json=self._body(leaseTerms="Month to month")).json()
+        self.assertEqual((read["termType"], read["termMonths"], read["termLabel"], read["termLegacy"]), ("month_to_month", None, "Month to Month", ""))
+        odd = self.client.post("/leasing/leases", json=self._body(leaseTerms="Until the building sells")).json()
+        self.assertEqual((odd["termType"], odd["termMonths"], odd["termLegacy"], odd["leaseTerms"]), ("", None, "Until the building sells", "Until the building sells"))
+        # Picking a term keeps the old text alongside.
+        picked = self.client.put(f"/leasing/leases/{odd['id']}", json=self._body(leaseTerms="Until the building sells", termType="annual")).json()
+        self.assertEqual((picked["termType"], picked["leaseTerms"], picked["termLegacy"]), ("annual", "Until the building sells", ""))
+
     def test_what_is_refused(self):
         _as(EDITOR)
         y = date.today().year
@@ -425,6 +472,21 @@ class LeasingApiTests(unittest.TestCase):
         self.assertIn("C00498", codes())
         self.assertNotIn("C00272", codes())      # on a lease of an entity outside the limit
         self.assertNotIn("C00900", codes())      # on no lease the caller may read
+
+    def test_the_customer_list_carries_intacct_contact_details(self):
+        """Oct 15 (Charmi): picking the tenant fills the lease form from the
+        Intacct customer record - phone, email and address ride on the list."""
+        _as(EDITOR)
+        self.partners = [{"id": "C00498", "name": "Greens Fairfield, LLC.", "phone": "(951) 555-0199", "email": "ap@fairfield.example",
+                          "address": {"line1": "100 Main St", "line2": "", "city": "Fairfield", "state": "CA", "zip": "94534", "country": ""}}]
+        c = self.client.get("/leasing/customers").json()["customers"][0]
+        self.assertEqual((c["code"], c["phone"], c["email"], c["address"]), ("C00498", "(951) 555-0199", "ap@fairfield.example", "100 Main St, Fairfield, CA 94534"))
+
+        async def down():
+            raise RuntimeError("501")
+        leasing._partner_customers = down
+        c = self.client.get("/leasing/customers").json()["customers"][0]
+        self.assertEqual((c["code"], c["phone"], c["email"], c["address"]), ("C00498", "", "", ""))
 
     def test_the_team_note(self):
         _as(EDITOR)

@@ -87,6 +87,23 @@ function hasCustomOrderFor(layout, sourceType) {
   return layout.items.some(i => i.item_type === sourceType)
     || layout.folders.some(f => (f.item_type || 'external') === sourceType);
 }
+// A tab that HAS been arranged lists only the links its saved layout places.
+// A link added since - Manage > Add Link, an import, a new Personal Link -
+// has no place in it yet, so it used to stay hidden until a page reload, when
+// the server appends missing Company Links (link_layouts._clean_and_merge);
+// a new Personal Link never appeared at all, since the server does not merge
+// those. Every live link the layout has not placed is put after the arranged
+// top-level ones, in the default order - the same place the server puts a
+// Company Link - so it shows the moment it is added, and the next change to
+// the layout saves it there (seedFirst).
+function withUnplaced(items, links, sourceType) {
+  const placed = new Set(items.filter(i => i.item_type === sourceType).map(i => i.item_id));
+  const unplaced = links.filter(l => !placed.has(l.id));
+  if (!unplaced.length) return items;
+  const top = items.filter(i => i.item_type === sourceType && i.folder_id === null).map(i => i.position);
+  const start = top.length ? Math.max(...top) + 1 : 0;
+  return [...items, ...defaultOrderItems(unplaced, sourceType).map((i, n) => ({ ...i, position: start + n }))];
+}
 function entryActions(entry, itemsById, ctx) {
   const link = resolveEntryLink(itemsById, entry);
   if (!link) return null;
@@ -430,10 +447,12 @@ export default function ExternalLinks() {
   // order for display in that case, but an actual drag needs something real
   // in `items` to reorder - this wraps a mutator (the hook's dirty-tracked
   // `mutate`, or its always-live `mutateNow`) to seed that tab's default
-  // order in first, on whichever mutator is passed.
+  // order in first, on whichever mutator is passed. On a tab that is already
+  // arranged it places any link the layout has not yet (withUnplaced), so a
+  // drag saves a just-added link where it was shown.
   const seedFirst = (sourceType, sourceLinks, updater) => (prev) => {
     const seeded = hasCustomOrderFor(prev, sourceType)
-      ? prev
+      ? { ...prev, items: withUnplaced(prev.items, sourceLinks, sourceType) }
       : { ...prev, items: [...prev.items, ...defaultOrderItems(sourceLinks, sourceType)] };
     return updater(seeded);
   };
@@ -1676,8 +1695,10 @@ function LinksLayoutSection({ sourceType, layout, itemsById, actionCtx, mutate, 
   // after some other action has already triggered a save. Once this tab has
   // any real data, its own items are used even if empty (e.g. every item
   // moved into folders leaves an empty top-level list on purpose).
-  const displayItems = hasCustomOrderFor(layout, sourceType)
-    ? layout.items : defaultOrderItems(allLinks, sourceType);
+  // An arranged tab also shows the links it has not placed yet (withUnplaced).
+  const displayItems = useMemo(() => (hasCustomOrderFor(layout, sourceType)
+    ? withUnplaced(layout.items, allLinks, sourceType) : defaultOrderItems(allLinks, sourceType)),
+  [layout, allLinks, sourceType]);
   const topItems = useMemo(
     () => displayItems.filter(i => i.item_type === sourceType && i.folder_id === null && entryExists(i)).sort((a, b) => a.position - b.position),
     [displayItems, sourceType, entryExists]

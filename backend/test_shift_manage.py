@@ -6,6 +6,7 @@ own-and-team view includes the teams they run.
 
     python -m unittest test_shift_manage
 """
+import json
 import os
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -28,6 +29,8 @@ with database.engine.connect() as _c:
                  "ALTER TABLE scheduled_shifts ADD COLUMN pending_json TEXT DEFAULT ''",
                  "ALTER TABLE scheduled_shifts ADD COLUMN pending_delete INTEGER DEFAULT 0",
                  "ALTER TABLE shifts ADD COLUMN break_min INTEGER DEFAULT 0",
+                 "ALTER TABLE shifts ADD COLUMN company_id VARCHAR DEFAULT ''",
+                 "ALTER TABLE shift_groups ADD COLUMN company_id VARCHAR DEFAULT ''",
                  "ALTER TABLE scheduled_shifts ADD COLUMN break_min INTEGER DEFAULT 0",
                  "ALTER TABLE scheduled_shifts ADD COLUMN activities_json TEXT DEFAULT ''",
                  "ALTER TABLE scheduled_shifts ADD COLUMN color TEXT DEFAULT ''",
@@ -68,6 +71,10 @@ class ShiftManageTests(unittest.TestCase):
             db.add(models.ShiftGroup(id=GROUP, name="Store"))
             for i, em in enumerate((A, B, M1)):
                 db.add(models.ShiftGroupMember(id=f"sgm-smgr-{i}", group_id=GROUP, employee_email=em))
+            # Trading is OFF by default since Oct 14 2026 (Shifts Phase 0); these
+            # tests exercise the switches ON, as the tenant used to be.
+            db.add(models.NexusSetting(key="shift_requests_config",
+                                       value=json.dumps({"openShifts": True, "swaps": True, "offers": True})))
             db.commit()
         finally:
             db.close()

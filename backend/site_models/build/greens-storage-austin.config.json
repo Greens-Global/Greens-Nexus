@@ -1,118 +1,6773 @@
 {
-  "id": "greens-storage-austin",
-  "name": "Greens Storage Austin",
-  "address": "8023 W Parmer Ln, Austin, TX 78729",
-  "apn": "R569024",
-  "acreage": 2.818,
-  "opened": "Operated by CubeSmart (store 6992); the signage reads CubeSmart",
-  "county": "Williamson",
-  "parcelSource": "Williamson County (WCAD) parcels",
-  "cubbyFacilityId": "",
-  "frame": {
-    "lat0": 30.4613,
-    "lon0": -97.7561,
-    "bearingDeg": 59.4,
-    "mPerDegLon": 95955,
-    "mPerDegLat": 110900
-  },
-  "image": {
-    "file": "frontend/public/site-models/greens-storage-austin/ground.jpg",
-    "bbox": [
-      -97.7572,
-      30.4602,
-      -97.7546,
-      30.4627
-    ],
-    "px": [
-      1200,
-      1336
-    ],
-    "attribution": "Imagery: Esri, Maxar, Earthstar Geographics"
-  },
-  "imageWide": {
-    "file": "frontend/public/site-models/greens-storage-austin/ground-wide.jpg",
-    "bbox": [
-      -97.7671,
-      30.4513,
-      -97.7451,
-      30.4713
+ "id": "greens-storage-austin",
+ "name": "Greens Storage Austin",
+ "address": "8023 W Parmer Ln, Austin, TX 78729",
+ "apn": "R569024",
+ "acreage": 2.818,
+ "opened": "Operated by CubeSmart (store 6992); the signage reads CubeSmart",
+ "county": "Williamson",
+ "parcelSource": "Williamson County (WCAD) parcels",
+ "cubbyFacilityId": "",
+ "frame": {
+  "lat0": 30.4613,
+  "lon0": -97.7561,
+  "bearingDeg": 59.4,
+  "mPerDegLon": 95955,
+  "mPerDegLat": 110900
+ },
+ "image": {
+  "file": "frontend/public/site-models/greens-storage-austin/ground.jpg",
+  "bbox": [
+   -97.7572,
+   30.4602,
+   -97.7546,
+   30.4627
+  ],
+  "px": [
+   1200,
+   1336
+  ],
+  "attribution": "Imagery: Esri, Maxar, Earthstar Geographics"
+ },
+ "imageWide": {
+  "file": "frontend/public/site-models/greens-storage-austin/ground-wide.jpg",
+  "bbox": [
+   -97.7671,
+   30.4513,
+   -97.7451,
+   30.4713
+  ]
+ },
+ "gates": [
+  {
+   "id": "main",
+   "name": "Main Entrance",
+   "en": [
+    [
+     46,
+     -6
     ]
+   ]
+  }
+ ],
+ "classify": [
+  {
+   "match": "^1",
+   "f": 1,
+   "k": "cc",
+   "veh": 0
   },
-  "gates": [
+  {
+   "match": "^2",
+   "f": 2,
+   "k": "cc",
+   "veh": 0
+  },
+  {
+   "match": "^3",
+   "f": 3,
+   "k": "cc",
+   "veh": 0
+  },
+  {
+   "match": "^4",
+   "f": 4,
+   "k": "cc",
+   "veh": 0
+  },
+  {
+   "match": "^5",
+   "f": 5,
+   "k": "cc",
+   "veh": 0
+  }
+ ],
+ "buildings": [
+  {
+   "id": "MAIN",
+   "letters": [],
+   "name": "Main Building",
+   "kind": "storage",
+   "height": 17.0,
+   "floors": 5,
+   "roof": "white",
+   "doorSide": "both",
+   "corridor": 1.6,
+   "inferred": false,
+   "note": "Five-story climate-controlled building, 200 ft 11 in x 155 ft 11 in overall (Merriman Anderson as-built set, sheets A1.01-A1.05). Lobby, elevators and office on the south (parking) side, stairs at the west and east ends; the drive aisle on the east side runs out to Parmer Ln. Every unit is traced from the floor plans: numbers start with the floor (1000-1146 on level 1 to 5000-5250 on level 5) and run in a serpentine along the corridors. The plans carry sizes but not numbers, so each unit's cell comes from matching the rent roll's size sequence to the plan; the direction along a row of identical units follows that serpentine.",
+   "units": "^[1-5]",
+   "u": [
+    -21.67,
+    39.68
+   ],
+   "v": [
+    -24.44,
+    23.08
+   ]
+  }
+ ],
+ "zones": [],
+ "sources": [
+  "Parcel: Williamson County Appraisal District (WCAD R569024, Broadstone at Parmer Blk A Lot 2A, 2.818 ac, Greens Austin LLC, DBA CubeSmart)",
+  "Building and unit positions: Merriman Anderson architectural as-builts (Egnyte: Greens Austin, LLC > Properties > 8023 W Parmer Lane > Development > Plans & Maps > Construction Close Out Docs > 8. As Builts > Arch.pdf), floor plans A1.01-A1.05 - unit counts per floor (147 / 253 / 251 / 250 / 251) match the unit numbering exactly",
+  "Paved area: traced on the detail imagery along the drive, parking and fire-lane layout of the Merriman Anderson architectural site plan A0.01 (issued for construction 03/06/2018, in the Final Set)",
+  "Units: CubeSmart rent roll for store 6992, 08/31/2026 (966 rented units); vacant sizes read from the plan cell each vacant number falls in",
+  "Not in Cubby: the store runs on CubeSmart's system, so there is no live link"
+ ],
+ "operator": "CubeSmart",
+ "unitSource": "CubeSmart rent roll, 08/31/2026",
+ "pad": {
+  "px": [
+   [
+    485.0,
+    875.0
+   ],
+   [
+    740.0,
+    750.0
+   ],
+   [
+    615.0,
+    580.0
+   ],
+   [
+    640.0,
+    545.0
+   ],
+   [
+    705.0,
+    560.0
+   ],
+   [
+    780.0,
+    545.0
+   ],
+   [
+    800.0,
+    505.0
+   ],
+   [
+    830.0,
+    545.0
+   ],
+   [
+    860.0,
+    605.0
+   ],
+   [
+    880.0,
+    685.0
+   ],
+   [
+    910.0,
+    760.0
+   ],
+   [
+    930.0,
+    840.0
+   ],
+   [
+    940.0,
+    860.0
+   ],
+   [
+    880.0,
+    882.5
+   ],
+   [
+    875.0,
+    845.0
+   ],
+   [
+    855.0,
+    800.0
+   ],
+   [
+    810.0,
+    780.0
+   ],
+   [
+    660.0,
+    840.0
+   ],
+   [
+    530.0,
+    910.0
+   ],
+   [
+    505.0,
+    935.0
+   ],
+   [
+    500.0,
+    1010.0
+   ],
+   [
+    460.0,
+    1015.0
+   ],
+   [
+    455.0,
+    900.0
+   ],
+   [
+    425.0,
+    860.0
+   ]
+  ]
+ },
+ "runs": [
+  {
+   "building": "MAIN",
+   "f": 1,
+   "at": [
+    50.42,
+    10.95
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 2.98,
+   "units": [
+    "1000",
     {
-      "id": "main",
-      "name": "Main Entrance",
-      "en": [
-        [
-          46,
-          -6
-        ]
-      ]
-    }
-  ],
-  "classify": [
-    {
-      "match": "^1",
-      "f": 1,
-      "k": "cc",
-      "veh": 0
+     "gap": 0.03
     },
+    "1001"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 1,
+   "at": [
+    44.29,
+    10.82
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 2.96,
+   "units": [
+    "1002-1003"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 1,
+   "at": [
+    35.45,
+    10.82
+   ],
+   "dir": "+u",
+   "depth": "-v",
+   "width": 2.78,
+   "units": [
+    "1004"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 1,
+   "at": [
+    23.02,
+    10.85
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 3.0,
+   "units": [
+    "1005",
     {
-      "match": "^2",
-      "f": 2,
-      "k": "cc",
-      "veh": 0
+     "gap": 0.03
     },
+    "1006",
     {
-      "match": "^3",
-      "f": 3,
-      "k": "cc",
-      "veh": 0
+     "gap": 0.06
     },
+    "1007",
     {
-      "match": "^4",
-      "f": 4,
-      "k": "cc",
-      "veh": 0
+     "gap": 0.04
     },
+    "1008",
     {
-      "match": "^5",
-      "f": 5,
-      "k": "cc",
-      "veh": 0
-    }
-  ],
-  "buildings": [
+     "gap": 0.06
+    },
+    "1009",
     {
-      "id": "MAIN",
-      "letters": [],
-      "name": "Main Building",
-      "kind": "storage",
-      "rect": {
-        "E": 8.1,
-        "N": 4.0,
-        "L": 61.5,
-        "W": 47.9,
-        "bearing": 59.4
-      },
-      "height": 17.0,
-      "floors": 5,
-      "roof": "white",
-      "doorSide": "both",
-      "corridor": 1.6,
-      "inferred": false,
-      "note": "Five-story climate-controlled building, 200 ft 11 in x 155 ft 11 in (Merriman Anderson, issued for construction 03/06/2018). Lobby, office and elevators at the glass corner facing Parmer Ln. Unit numbers start with the floor (1xxx on level 1 to 5xxx on level 5).",
-      "units": "^[1-5]",
-      "autoFit": true
-    }
+     "gap": 0.05
+    },
+    "1010"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 1,
+   "at": [
+    3.48,
+    4.65
+   ],
+   "dir": "+u",
+   "depth": "-v",
+   "width": 1.22,
+   "units": [
+    "1011"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 1,
+   "at": [
+    3.43,
+    1.61
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 6.13,
+   "units": [
+    "1012"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 1,
+   "at": [
+    3.51,
+    7.74
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 2.91,
+   "units": [
+    "1013",
+    {
+     "gap": 0.14
+    },
+    "1014",
+    {
+     "gap": 0.13
+    },
+    "1015",
+    {
+     "gap": 0.14
+    },
+    "1016",
+    {
+     "gap": 0.13
+    },
+    "1017"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 1,
+   "at": [
+    4.8,
+    12.21
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 3.0,
+   "units": [
+    "1018-1019",
+    {
+     "gap": 0.05
+    },
+    "1020",
+    {
+     "gap": 0.05
+    },
+    "1021",
+    {
+     "gap": 0.05
+    },
+    "1022",
+    {
+     "gap": 0.05
+    },
+    "1023"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 1,
+   "at": [
+    24.58,
+    12.41
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.42,
+   "units": [
+    "1024-1025",
+    {
+     "gap": 0.09
+    },
+    "1026",
+    {
+     "gap": 0.11
+    },
+    "1027"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 1,
+   "at": [
+    24.58,
+    18.39
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 2.96,
+   "units": [
+    "1028-1029"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 1,
+   "at": [
+    24.58,
+    21.35
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.47,
+   "units": [
+    "1030",
+    {
+     "gap": 0.14
+    },
+    "1031",
+    {
+     "gap": 0.05
+    },
+    "1032",
+    {
+     "gap": 0.05
+    },
+    "1033",
+    {
+     "gap": 0.05
+    },
+    "1034"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 1,
+   "at": [
+    26.14,
+    12.21
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 2.98,
+   "units": [
+    "1035",
+    {
+     "gap": 0.02
+    },
+    "1036",
+    {
+     "gap": 0.07
+    },
+    "1037",
+    {
+     "gap": 0.06
+    },
+    "1038",
+    {
+     "gap": 0.07
+    },
+    "1039",
+    {
+     "gap": 0.07
+    },
+    "1040",
+    {
+     "gap": 0.05
+    },
+    "1041",
+    {
+     "gap": 0.07
+    },
+    "1042",
+    {
+     "gap": 0.06
+    },
+    "1043"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 1,
+   "at": [
+    55.06,
+    12.41
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 2.93,
+   "units": [
+    "1044-1045",
+    "1046-1047"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 1,
+   "at": [
+    55.06,
+    18.39
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.54,
+   "units": [
+    "1048"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 1,
+   "at": [
+    55.06,
+    19.93
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 3.03,
+   "units": [
+    "1049-1050"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 1,
+   "at": [
+    55.06,
+    22.96
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.47,
+   "units": [
+    "1051",
+    {
+     "gap": 0.05
+    },
+    "1052",
+    {
+     "gap": 0.05
+    },
+    "1053",
+    {
+     "gap": 0.05
+    },
+    "1054"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 1,
+   "at": [
+    53.43,
+    29.14
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 2.98,
+   "units": [
+    "1055-1056",
+    {
+     "gap": 0.07
+    },
+    "1057",
+    {
+     "gap": 0.07
+    },
+    "1058",
+    {
+     "gap": 0.05
+    },
+    "1059",
+    {
+     "gap": 0.06
+    },
+    "1060",
+    {
+     "gap": 0.07
+    },
+    "1061",
+    {
+     "gap": 0.07
+    },
+    "1062",
+    {
+     "gap": 0.07
+    },
+    "1063"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 1,
+   "at": [
+    22.99,
+    29.14
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 3.0,
+   "units": [
+    "1064-1065",
+    {
+     "gap": 0.05
+    },
+    "1066",
+    {
+     "gap": 0.05
+    },
+    "1067",
+    {
+     "gap": 0.05
+    },
+    "1068",
+    {
+     "gap": 0.05
+    },
+    "1069"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 1,
+   "at": [
+    3.51,
+    29.0
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 3.05,
+   "units": [
+    "1070",
+    {
+     "gap": 0.05
+    },
+    "1071-1073"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 1,
+   "at": [
+    3.43,
+    41.25
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 5.84,
+   "units": [
+    "1074"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 1,
+   "at": [
+    4.8,
+    30.56
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 3.0,
+   "units": [
+    "1075-1076",
+    {
+     "gap": 0.05
+    },
+    "1077",
+    {
+     "gap": 0.05
+    },
+    "1078",
+    {
+     "gap": 0.05
+    },
+    "1079",
+    {
+     "gap": 0.05
+    },
+    "1080"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 1,
+   "at": [
+    24.58,
+    30.7
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.41,
+   "units": [
+    "1081-1082"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 1,
+   "at": [
+    24.58,
+    33.63
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 2.95,
+   "units": [
+    "1083-1084"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 1,
+   "at": [
+    24.58,
+    36.57
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.42,
+   "units": [
+    "1085",
+    {
+     "gap": 0.2
+    },
+    "1086"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 1,
+   "at": [
+    24.58,
+    39.62
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 2.83,
+   "units": [
+    "1087-1088"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 1,
+   "at": [
+    26.14,
+    30.56
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 2.98,
+   "units": [
+    "1089",
+    {
+     "gap": 0.02
+    },
+    "1090",
+    {
+     "gap": 0.07
+    },
+    "1091",
+    {
+     "gap": 0.06
+    },
+    "1092",
+    {
+     "gap": 0.07
+    },
+    "1093",
+    {
+     "gap": 0.07
+    },
+    "1094",
+    {
+     "gap": 0.05
+    },
+    "1095",
+    {
+     "gap": 0.07
+    },
+    "1096",
+    {
+     "gap": 0.06
+    },
+    "1097"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 1,
+   "at": [
+    55.06,
+    30.7
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.41,
+   "units": [
+    "1098-1099",
+    {
+     "gap": 0.12
+    },
+    "1100",
+    {
+     "gap": 0.12
+    },
+    "1101",
+    {
+     "gap": 0.01
+    },
+    "1102",
+    {
+     "gap": 0.22
+    },
+    "1103",
+    {
+     "gap": 0.02
+    },
+    "1104",
+    {
+     "gap": 0.02
+    },
+    "1105"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 1,
+   "at": [
+    53.43,
+    42.67
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 2.98,
+   "units": [
+    "1106-1107",
+    {
+     "gap": 0.07
+    },
+    "1108",
+    {
+     "gap": 0.07
+    },
+    "1109",
+    {
+     "gap": 0.05
+    },
+    "1110",
+    {
+     "gap": 0.06
+    },
+    "1111",
+    {
+     "gap": 0.07
+    },
+    "1112",
+    {
+     "gap": 0.07
+    },
+    "1113",
+    {
+     "gap": 0.07
+    },
+    "1114"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 1,
+   "at": [
+    22.99,
+    42.67
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 3.0,
+   "units": [
+    "1115-1116",
+    {
+     "gap": 0.05
+    },
+    "1117",
+    {
+     "gap": 0.05
+    },
+    "1118",
+    {
+     "gap": 0.05
+    },
+    "1119",
+    {
+     "gap": 0.05
+    },
+    "1120"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 1,
+   "at": [
+    3.48,
+    44.07
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 1.27,
+   "units": [
+    "1121"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 1,
+   "at": [
+    4.75,
+    44.01
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 2.98,
+   "units": [
+    "1122",
+    {
+     "gap": 0.07
+    },
+    "1123",
+    {
+     "gap": 0.07
+    },
+    "1124",
+    {
+     "gap": 0.06
+    },
+    "1125",
+    {
+     "gap": 0.07
+    },
+    "1126",
+    {
+     "gap": 0.07
+    },
+    "1127",
+    {
+     "gap": 0.07
+    },
+    "1128",
+    {
+     "gap": 0.06
+    },
+    "1129",
+    {
+     "gap": 0.07
+    },
+    "1130",
+    {
+     "gap": 0.07
+    },
+    "1131",
+    {
+     "gap": 0.07
+    },
+    "1132",
+    {
+     "gap": 0.07
+    },
+    "1133",
+    {
+     "gap": 0.06
+    },
+    "1134",
+    {
+     "gap": 0.05
+    },
+    "1135",
+    {
+     "gap": 0.07
+    },
+    "1136",
+    {
+     "gap": 0.07
+    },
+    "1137",
+    {
+     "gap": 0.07
+    },
+    "1138"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 1,
+   "at": [
+    56.55,
+    47.16
+   ],
+   "dir": "-v",
+   "depth": "+u",
+   "width": 5.91,
+   "units": [
+    "1139"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 1,
+   "at": [
+    56.48,
+    41.25
+   ],
+   "dir": "-v",
+   "depth": "+u",
+   "width": 3.05,
+   "units": [
+    "1140-1141"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 1,
+   "at": [
+    56.52,
+    35.15
+   ],
+   "dir": "-v",
+   "depth": "+u",
+   "width": 1.68,
+   "units": [
+    "1142"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 1,
+   "at": [
+    56.52,
+    22.84
+   ],
+   "dir": "-v",
+   "depth": "+u",
+   "width": 2.91,
+   "units": [
+    "1143-1144"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 1,
+   "at": [
+    56.52,
+    16.81
+   ],
+   "dir": "-v",
+   "depth": "+u",
+   "width": 2.98,
+   "units": [
+    "1145-1146"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    26.21,
+    7.8
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 2.98,
+   "units": [
+    "2000",
+    {
+     "gap": 0.17
+    },
+    "2001",
+    {
+     "gap": 0.07
+    },
+    "2002",
+    {
+     "gap": 0.07
+    },
+    "2003",
+    {
+     "gap": 0.06
+    },
+    "2004",
+    {
+     "gap": 0.07
+    },
+    "2005",
+    {
+     "gap": 0.07
+    },
+    "2006"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    3.48,
+    4.62
+   ],
+   "dir": "+u",
+   "depth": "-v",
+   "width": 1.22,
+   "units": [
+    "2007"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    3.43,
+    1.61
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 6.11,
+   "units": [
+    "2008"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    3.51,
+    7.72
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.52,
+   "units": [
+    "2009"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    3.51,
+    9.24
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 3.05,
+   "units": [
+    "2010-2011"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    3.51,
+    12.29
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.46,
+   "units": [
+    "2012",
+    {
+     "gap": 0.07
+    },
+    "2013",
+    {
+     "gap": 0.07
+    },
+    "2014",
+    {
+     "gap": 0.06
+    },
+    "2015",
+    {
+     "gap": 0.07
+    },
+    "2016",
+    {
+     "gap": 0.07
+    },
+    "2017",
+    {
+     "gap": 0.02
+    },
+    "2018"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    4.84,
+    9.16
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 2.98,
+   "units": [
+    "2019-2020",
+    {
+     "gap": 0.07
+    },
+    "2021",
+    {
+     "gap": 0.07
+    },
+    "2022",
+    {
+     "gap": 0.06
+    },
+    "2023",
+    {
+     "gap": 0.07
+    },
+    "2024",
+    {
+     "gap": 0.07
+    },
+    "2025"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    27.63,
+    9.36
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.41,
+   "units": [
+    "2026-2027",
+    {
+     "gap": 0.12
+    },
+    "2028",
+    {
+     "gap": 0.12
+    },
+    "2029",
+    {
+     "gap": 0.12
+    },
+    "2030",
+    {
+     "gap": 0.11
+    },
+    "2031",
+    {
+     "gap": 0.04
+    },
+    "2032",
+    {
+     "gap": 0.2
+    },
+    "2033",
+    {
+     "gap": 0.12
+    },
+    "2034",
+    {
+     "gap": 0.12
+    },
+    "2035",
+    {
+     "gap": 0.12
+    },
+    "2036"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    29.22,
+    9.16
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 2.98,
+   "units": [
+    "2037-2038",
+    {
+     "gap": 0.07
+    },
+    "2039",
+    {
+     "gap": 0.07
+    },
+    "2040",
+    {
+     "gap": 0.05
+    },
+    "2041",
+    {
+     "gap": 0.06
+    },
+    "2042",
+    {
+     "gap": 0.07
+    },
+    "2043",
+    {
+     "gap": 0.07
+    },
+    "2044"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    55.06,
+    9.36
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.41,
+   "units": [
+    "2045-2046",
+    {
+     "gap": 0.12
+    },
+    "2047",
+    {
+     "gap": 0.12
+    },
+    "2048",
+    {
+     "gap": 0.12
+    },
+    "2049",
+    {
+     "gap": 0.11
+    },
+    "2050",
+    {
+     "gap": 0.04
+    },
+    "2051",
+    {
+     "gap": 0.2
+    },
+    "2052",
+    {
+     "gap": 0.12
+    },
+    "2053",
+    {
+     "gap": 0.12
+    },
+    "2054",
+    {
+     "gap": 0.12
+    },
+    "2055"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    53.47,
+    26.09
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 2.98,
+   "units": [
+    "2056",
+    {
+     "gap": 0.02
+    },
+    "2057",
+    {
+     "gap": 0.07
+    },
+    "2058",
+    {
+     "gap": 0.06
+    },
+    "2059",
+    {
+     "gap": 0.07
+    },
+    "2060",
+    {
+     "gap": 0.05
+    },
+    "2061",
+    {
+     "gap": 0.07
+    },
+    "2062",
+    {
+     "gap": 0.07
+    },
+    "2063"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    26.04,
+    26.09
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 2.98,
+   "units": [
+    "2064-2065",
+    {
+     "gap": 0.07
+    },
+    "2066",
+    {
+     "gap": 0.07
+    },
+    "2067",
+    {
+     "gap": 0.06
+    },
+    "2068",
+    {
+     "gap": 0.07
+    },
+    "2069",
+    {
+     "gap": 0.07
+    },
+    "2070"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    3.51,
+    29.0
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.51,
+   "units": [
+    "2071-2072",
+    {
+     "gap": 0.07
+    },
+    "2073",
+    {
+     "gap": 0.03
+    },
+    "2074-2075",
+    {
+     "gap": 0.04
+    },
+    "2076-2077",
+    {
+     "gap": 0.01
+    },
+    "2078"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    3.43,
+    41.23
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 5.93,
+   "units": [
+    "2079"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    4.84,
+    27.43
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 2.98,
+   "units": [
+    "2080-2081",
+    {
+     "gap": 0.07
+    },
+    "2082",
+    {
+     "gap": 0.07
+    },
+    "2083"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    16.96,
+    27.43
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 6.1,
+   "units": [
+    "2084-2085"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    23.06,
+    27.43
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 2.98,
+   "units": [
+    "2086"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    27.63,
+    27.65
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.39,
+   "units": [
+    "2087-2088",
+    {
+     "gap": 0.15
+    },
+    "2089",
+    {
+     "gap": 0.12
+    },
+    "2090",
+    {
+     "gap": 0.05
+    },
+    "2091",
+    {
+     "gap": 0.22
+    },
+    "2092",
+    {
+     "gap": 0.15
+    },
+    "2093"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    29.22,
+    27.43
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 2.98,
+   "units": [
+    "2094-2095",
+    {
+     "gap": 0.07
+    },
+    "2096",
+    {
+     "gap": 0.07
+    },
+    "2097",
+    {
+     "gap": 0.05
+    },
+    "2098",
+    {
+     "gap": 0.06
+    },
+    "2099",
+    {
+     "gap": 0.07
+    },
+    "2100",
+    {
+     "gap": 0.07
+    },
+    "2101"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    55.06,
+    27.65
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.39,
+   "units": [
+    "2102-2103",
+    {
+     "gap": 0.15
+    },
+    "2104",
+    {
+     "gap": 0.12
+    },
+    "2105",
+    {
+     "gap": 0.05
+    },
+    "2106",
+    {
+     "gap": 0.22
+    },
+    "2107",
+    {
+     "gap": 0.15
+    },
+    "2108"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    53.47,
+    38.25
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 2.98,
+   "units": [
+    "2109",
+    {
+     "gap": 0.02
+    },
+    "2110",
+    {
+     "gap": 0.07
+    },
+    "2111",
+    {
+     "gap": 0.06
+    },
+    "2112",
+    {
+     "gap": 0.07
+    },
+    "2113",
+    {
+     "gap": 0.05
+    },
+    "2114",
+    {
+     "gap": 0.07
+    },
+    "2115",
+    {
+     "gap": 0.07
+    },
+    "2116"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    26.04,
+    38.25
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 2.98,
+   "units": [
+    "2117-2118",
+    {
+     "gap": 0.07
+    },
+    "2119",
+    {
+     "gap": 0.07
+    },
+    "2120",
+    {
+     "gap": 0.06
+    },
+    "2121",
+    {
+     "gap": 0.07
+    },
+    "2122",
+    {
+     "gap": 0.07
+    },
+    "2123"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    4.84,
+    39.71
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 1.46,
+   "units": [
+    "2124-2125",
+    {
+     "gap": 0.07
+    },
+    "2126",
+    {
+     "gap": 0.07
+    },
+    "2127",
+    {
+     "gap": 0.06
+    },
+    "2128",
+    {
+     "gap": 0.07
+    },
+    "2129",
+    {
+     "gap": 0.07
+    },
+    "2130",
+    {
+     "gap": 0.07
+    },
+    "2131",
+    {
+     "gap": 0.06
+    },
+    "2132",
+    {
+     "gap": 0.07
+    },
+    "2133",
+    {
+     "gap": 0.07
+    },
+    "2134",
+    {
+     "gap": 0.07
+    },
+    "2135",
+    {
+     "gap": 0.07
+    },
+    "2136"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    24.58,
+    39.71
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 2.91,
+   "units": [
+    "2137-2138"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    29.22,
+    39.71
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 1.41,
+   "units": [
+    "2139",
+    {
+     "gap": 0.03
+    },
+    "2140",
+    {
+     "gap": 0.14
+    },
+    "2141",
+    {
+     "gap": 0.1
+    },
+    "2142",
+    {
+     "gap": 0.14
+    },
+    "2143",
+    {
+     "gap": 0.1
+    },
+    "2144",
+    {
+     "gap": 0.13
+    },
+    "2145",
+    {
+     "gap": 0.1
+    },
+    "2146",
+    {
+     "gap": 0.12
+    },
+    "2147",
+    {
+     "gap": 0.12
+    },
+    "2148",
+    {
+     "gap": 0.12
+    },
+    "2149",
+    {
+     "gap": 0.12
+    },
+    "2150",
+    {
+     "gap": 0.12
+    },
+    "2151",
+    {
+     "gap": 0.12
+    },
+    "2152",
+    {
+     "gap": 0.12
+    },
+    "2153",
+    {
+     "gap": 0.11
+    },
+    "2154",
+    {
+     "gap": 0.12
+    },
+    "2155"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    54.92,
+    42.75
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 1.41,
+   "units": [
+    "2156-2157",
+    {
+     "gap": 0.12
+    },
+    "2158",
+    {
+     "gap": 0.12
+    },
+    "2159",
+    {
+     "gap": 0.12
+    },
+    "2160",
+    {
+     "gap": 0.11
+    },
+    "2161",
+    {
+     "gap": 0.12
+    },
+    "2162",
+    {
+     "gap": 0.12
+    },
+    "2163",
+    {
+     "gap": 0.12
+    },
+    "2164"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    41.33,
+    42.75
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 3.03,
+   "units": [
+    "2165-2166"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    38.3,
+    42.75
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 1.51,
+   "units": [
+    "2167",
+    {
+     "gap": 0.03
+    },
+    "2168-2169",
+    {
+     "gap": 0.04
+    },
+    "2170"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    32.2,
+    42.75
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 2.98,
+   "units": [
+    "2171-2172"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    27.49,
+    42.75
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 2.91,
+   "units": [
+    "2173-2174"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    24.58,
+    42.75
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 1.52,
+   "units": [
+    "2175-2176"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    21.53,
+    42.75
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 3.05,
+   "units": [
+    "2177-2178",
+    "2179-2180"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    15.44,
+    42.75
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 1.46,
+   "units": [
+    "2181",
+    {
+     "gap": 0.07
+    },
+    "2182",
+    {
+     "gap": 0.07
+    },
+    "2183",
+    {
+     "gap": 0.06
+    },
+    "2184",
+    {
+     "gap": 0.07
+    },
+    "2185",
+    {
+     "gap": 0.07
+    },
+    "2186",
+    {
+     "gap": 0.07
+    },
+    "2187"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    3.48,
+    44.04
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 1.29,
+   "units": [
+    "2188-2189",
+    {
+     "gap": 0.24
+    },
+    "2190",
+    {
+     "gap": 0.23
+    },
+    "2191",
+    {
+     "gap": 0.24
+    },
+    "2192",
+    {
+     "gap": 0.24
+    },
+    "2193",
+    {
+     "gap": 0.23
+    },
+    "2194",
+    {
+     "gap": 0.24
+    },
+    "2195",
+    {
+     "gap": 0.24
+    },
+    "2196",
+    {
+     "gap": 0.24
+    },
+    "2197",
+    {
+     "gap": 0.23
+    },
+    "2198",
+    {
+     "gap": 0.24
+    },
+    "2199",
+    {
+     "gap": 0.24
+    },
+    "2200",
+    {
+     "gap": 0.23
+    },
+    "2201",
+    {
+     "gap": 0.24
+    },
+    "2202",
+    {
+     "gap": 0.24
+    },
+    "2203",
+    {
+     "gap": 0.24
+    },
+    "2204",
+    {
+     "gap": 0.23
+    },
+    "2205"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    30.66,
+    44.04
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 1.41,
+   "units": [
+    "2206",
+    {
+     "gap": 0.14
+    },
+    "2207",
+    {
+     "gap": 0.1
+    },
+    "2208",
+    {
+     "gap": 0.13
+    },
+    "2209",
+    {
+     "gap": 0.1
+    },
+    "2210",
+    {
+     "gap": 0.14
+    },
+    "2211",
+    {
+     "gap": 0.1
+    },
+    "2212",
+    {
+     "gap": 0.12
+    },
+    "2213",
+    {
+     "gap": 0.12
+    },
+    "2214",
+    {
+     "gap": 0.12
+    },
+    "2215",
+    {
+     "gap": 0.12
+    },
+    "2216",
+    {
+     "gap": 0.11
+    },
+    "2217",
+    {
+     "gap": 0.12
+    },
+    "2218",
+    {
+     "gap": 0.12
+    },
+    "2219",
+    {
+     "gap": 0.12
+    },
+    "2220",
+    {
+     "gap": 0.12
+    },
+    "2221"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    56.48,
+    47.16
+   ],
+   "dir": "-v",
+   "depth": "+u",
+   "width": 1.44,
+   "units": [
+    "2222",
+    {
+     "gap": 0.07
+    },
+    "2223",
+    {
+     "gap": 0.1
+    },
+    "2224-2226",
+    {
+     "gap": 0.08
+    },
+    "2227",
+    {
+     "gap": 0.09
+    },
+    "2228",
+    {
+     "gap": 0.07
+    },
+    "2229",
+    {
+     "gap": 0.1
+    },
+    "2230",
+    {
+     "gap": 0.07
+    },
+    "2231",
+    {
+     "gap": 0.1
+    },
+    "2232",
+    {
+     "gap": 0.12
+    },
+    "2233"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    56.48,
+    22.84
+   ],
+   "dir": "-v",
+   "depth": "+u",
+   "width": 1.44,
+   "units": [
+    "2234-2235",
+    {
+     "gap": 0.05
+    },
+    "2236",
+    {
+     "gap": 0.09
+    },
+    "2237",
+    {
+     "gap": 0.08
+    },
+    "2238"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    56.35,
+    13.87
+   ],
+   "dir": "+v",
+   "depth": "+u",
+   "width": 1.42,
+   "units": [
+    "2239"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    56.48,
+    13.76
+   ],
+   "dir": "-v",
+   "depth": "+u",
+   "width": 1.41,
+   "units": [
+    "2240",
+    {
+     "gap": 0.07
+    },
+    "2241",
+    {
+     "gap": 0.12
+    },
+    "2242"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    59.63,
+    7.8
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 6.11,
+   "units": [
+    "2243-2244"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    53.52,
+    7.8
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 2.98,
+   "units": [
+    "2245",
+    {
+     "gap": 0.07
+    },
+    "2246",
+    {
+     "gap": 0.07
+    },
+    "2247",
+    {
+     "gap": 0.06
+    },
+    "2248",
+    {
+     "gap": 0.07
+    },
+    "2249",
+    {
+     "gap": 0.05
+    },
+    "2250",
+    {
+     "gap": 0.07
+    },
+    "2251"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 2,
+   "at": [
+    29.22,
+    7.84
+   ],
+   "dir": "+u",
+   "depth": "-v",
+   "width": 2.91,
+   "units": [
+    "2252"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    26.21,
+    7.77
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 3.0,
+   "units": [
+    "3000",
+    {
+     "gap": 0.14
+    },
+    "3001",
+    {
+     "gap": 0.05
+    },
+    "3002",
+    {
+     "gap": 0.05
+    },
+    "3003",
+    {
+     "gap": 0.05
+    },
+    "3004",
+    {
+     "gap": 0.05
+    },
+    "3005",
+    {
+     "gap": 0.05
+    },
+    "3006"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    3.38,
+    4.62
+   ],
+   "dir": "+u",
+   "depth": "-v",
+   "width": 1.35,
+   "units": [
+    "3007"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    3.36,
+    1.61
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 6.1,
+   "units": [
+    "3008"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    3.48,
+    7.7
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.46,
+   "units": [
+    "3009-3010",
+    {
+     "gap": 0.14
+    },
+    "3011-3012",
+    {
+     "gap": 0.13
+    },
+    "3013-3014",
+    {
+     "gap": 0.14
+    },
+    "3015-3016",
+    {
+     "gap": 0.13
+    },
+    "3017-3018"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    4.84,
+    9.23
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 6.05,
+   "units": [
+    "3019-3020"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    10.88,
+    9.23
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 2.96,
+   "units": [
+    "3021",
+    {
+     "gap": 0.09
+    },
+    "3022",
+    {
+     "gap": 0.08
+    },
+    "3023",
+    {
+     "gap": 0.08
+    },
+    "3024",
+    {
+     "gap": 0.09
+    },
+    "3025"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    27.66,
+    9.36
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.25,
+   "units": [
+    "3026",
+    {
+     "gap": 0.14
+    },
+    "3027",
+    {
+     "gap": 0.2
+    },
+    "3028",
+    {
+     "gap": 0.34
+    },
+    "3029",
+    {
+     "gap": 0.2
+    },
+    "3030",
+    {
+     "gap": 0.34
+    },
+    "3031"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    29.22,
+    9.23
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 2.98,
+   "units": [
+    "3032-3033",
+    {
+     "gap": 0.07
+    },
+    "3034",
+    {
+     "gap": 0.07
+    },
+    "3035",
+    {
+     "gap": 0.06
+    },
+    "3036",
+    {
+     "gap": 0.07
+    },
+    "3037",
+    {
+     "gap": 0.07
+    },
+    "3038",
+    {
+     "gap": 0.07
+    },
+    "3039"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    55.06,
+    9.36
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.39,
+   "units": [
+    "3040-3041",
+    {
+     "gap": 0.07
+    },
+    "3042",
+    {
+     "gap": 0.2
+    },
+    "3043"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    55.06,
+    15.25
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 2.84,
+   "units": [
+    "3044-3045"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    53.47,
+    18.37
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 2.98,
+   "units": [
+    "3046-3047",
+    {
+     "gap": 0.07
+    },
+    "3048",
+    {
+     "gap": 0.07
+    },
+    "3049",
+    {
+     "gap": 0.06
+    },
+    "3050",
+    {
+     "gap": 0.07
+    },
+    "3051",
+    {
+     "gap": 0.07
+    },
+    "3052",
+    {
+     "gap": 0.07
+    },
+    "3053"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    26.04,
+    18.37
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 2.96,
+   "units": [
+    "3054-3055",
+    {
+     "gap": 0.09
+    },
+    "3056",
+    {
+     "gap": 0.08
+    },
+    "3057",
+    {
+     "gap": 0.08
+    },
+    "3058",
+    {
+     "gap": 0.09
+    },
+    "3059",
+    {
+     "gap": 0.08
+    },
+    "3060"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    4.84,
+    19.66
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 2.96,
+   "units": [
+    "3061",
+    {
+     "gap": 0.03
+    },
+    "3062",
+    {
+     "gap": 0.09
+    },
+    "3063",
+    {
+     "gap": 0.08
+    },
+    "3064",
+    {
+     "gap": 0.09
+    },
+    "3065",
+    {
+     "gap": 0.08
+    },
+    "3066",
+    {
+     "gap": 0.09
+    },
+    "3067"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    27.66,
+    19.79
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 3.15,
+   "units": [
+    "3068-3069"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    27.66,
+    22.94
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.25,
+   "units": [
+    "3070",
+    {
+     "gap": 0.19
+    },
+    "3071",
+    {
+     "gap": 0.35
+    },
+    "3072"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    29.22,
+    19.66
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 2.98,
+   "units": [
+    "3073-3074",
+    {
+     "gap": 0.07
+    },
+    "3075",
+    {
+     "gap": 0.07
+    },
+    "3076",
+    {
+     "gap": 0.06
+    },
+    "3077",
+    {
+     "gap": 0.07
+    },
+    "3078",
+    {
+     "gap": 0.07
+    },
+    "3079",
+    {
+     "gap": 0.07
+    },
+    "3080"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    55.06,
+    19.79
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.44,
+   "units": [
+    "3081",
+    {
+     "gap": 0.12
+    },
+    "3082",
+    {
+     "gap": 0.15
+    },
+    "3083"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    55.06,
+    24.38
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 2.86,
+   "units": [
+    "3084-3085"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    53.47,
+    27.43
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 2.98,
+   "units": [
+    "3086-3087",
+    {
+     "gap": 0.07
+    },
+    "3088",
+    {
+     "gap": 0.07
+    },
+    "3089",
+    {
+     "gap": 0.06
+    },
+    "3090",
+    {
+     "gap": 0.07
+    },
+    "3091",
+    {
+     "gap": 0.07
+    },
+    "3092",
+    {
+     "gap": 0.07
+    },
+    "3093"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    26.04,
+    27.43
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 2.96,
+   "units": [
+    "3094-3095",
+    {
+     "gap": 0.09
+    },
+    "3096",
+    {
+     "gap": 0.08
+    },
+    "3097",
+    {
+     "gap": 0.08
+    },
+    "3098",
+    {
+     "gap": 0.09
+    },
+    "3099",
+    {
+     "gap": 0.08
+    },
+    "3100"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    3.48,
+    29.0
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.44,
+   "units": [
+    "3101",
+    {
+     "gap": 0.03
+    },
+    "3102",
+    {
+     "gap": 0.17
+    },
+    "3103-3104",
+    {
+     "gap": 0.17
+    },
+    "3105-3106",
+    {
+     "gap": 0.17
+    },
+    "3107-3108"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    3.41,
+    41.23
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 5.93,
+   "units": [
+    "3109"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    4.84,
+    28.73
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 2.96,
+   "units": [
+    "3110",
+    {
+     "gap": 0.03
+    },
+    "3111",
+    {
+     "gap": 0.09
+    },
+    "3112",
+    {
+     "gap": 0.08
+    },
+    "3113",
+    {
+     "gap": 0.09
+    },
+    "3114",
+    {
+     "gap": 0.08
+    },
+    "3115",
+    {
+     "gap": 0.09
+    },
+    "3116"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    27.66,
+    28.94
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.42,
+   "units": [
+    "3117",
+    {
+     "gap": 0.14
+    },
+    "3118",
+    {
+     "gap": 0.17
+    },
+    "3119-3120"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    29.22,
+    28.73
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 2.98,
+   "units": [
+    "3121-3122",
+    {
+     "gap": 0.07
+    },
+    "3123",
+    {
+     "gap": 0.07
+    },
+    "3124",
+    {
+     "gap": 0.06
+    },
+    "3125",
+    {
+     "gap": 0.07
+    },
+    "3126",
+    {
+     "gap": 0.07
+    },
+    "3127",
+    {
+     "gap": 0.07
+    },
+    "3128"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    55.06,
+    28.94
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.42,
+   "units": [
+    "3129",
+    {
+     "gap": 0.14
+    },
+    "3130",
+    {
+     "gap": 0.17
+    },
+    "3131-3132"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    53.47,
+    35.44
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 6.03,
+   "units": [
+    "3133-3134",
+    "3135-3136"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    41.34,
+    35.44
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 2.98,
+   "units": [
+    "3137",
+    {
+     "gap": 0.07
+    },
+    "3138",
+    {
+     "gap": 0.07
+    },
+    "3139",
+    {
+     "gap": 0.06
+    },
+    "3140"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    26.04,
+    35.44
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 2.96,
+   "units": [
+    "3141-3142",
+    {
+     "gap": 0.09
+    },
+    "3143"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    16.98,
+    35.44
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 6.05,
+   "units": [
+    "3144-3145",
+    {
+     "gap": 0.05
+    },
+    "3146-3147"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    4.84,
+    36.62
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 2.96,
+   "units": [
+    "3148",
+    {
+     "gap": 0.03
+    },
+    "3149",
+    {
+     "gap": 0.09
+    },
+    "3150",
+    {
+     "gap": 0.08
+    },
+    "3151",
+    {
+     "gap": 0.09
+    },
+    "3152",
+    {
+     "gap": 0.08
+    },
+    "3153",
+    {
+     "gap": 0.09
+    },
+    "3154"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    27.66,
+    36.76
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.42,
+   "units": [
+    "3155-3156"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    27.66,
+    39.62
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 2.86,
+   "units": [
+    "3157-3158"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    29.22,
+    36.62
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 2.98,
+   "units": [
+    "3159-3160",
+    {
+     "gap": 0.07
+    },
+    "3161",
+    {
+     "gap": 0.07
+    },
+    "3162",
+    {
+     "gap": 0.06
+    },
+    "3163",
+    {
+     "gap": 0.07
+    },
+    "3164",
+    {
+     "gap": 0.07
+    },
+    "3165",
+    {
+     "gap": 0.07
+    },
+    "3166"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    55.06,
+    36.76
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.25,
+   "units": [
+    "3167",
+    {
+     "gap": 0.17
+    },
+    "3168",
+    {
+     "gap": 0.19
+    },
+    "3169",
+    {
+     "gap": 0.35
+    },
+    "3170"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    53.47,
+    42.67
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 2.98,
+   "units": [
+    "3171-3172",
+    {
+     "gap": 0.07
+    },
+    "3173",
+    {
+     "gap": 0.07
+    },
+    "3174",
+    {
+     "gap": 0.06
+    },
+    "3175",
+    {
+     "gap": 0.07
+    },
+    "3176",
+    {
+     "gap": 0.07
+    },
+    "3177",
+    {
+     "gap": 0.07
+    },
+    "3178"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    26.04,
+    42.67
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 2.96,
+   "units": [
+    "3179-3180",
+    {
+     "gap": 0.09
+    },
+    "3181",
+    {
+     "gap": 0.08
+    },
+    "3182",
+    {
+     "gap": 0.08
+    },
+    "3183",
+    {
+     "gap": 0.09
+    },
+    "3184",
+    {
+     "gap": 0.08
+    },
+    "3185"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    3.48,
+    44.04
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 1.3,
+   "units": [
+    "3186"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    4.79,
+    44.04
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 1.47,
+   "units": [
+    "3187",
+    {
+     "gap": 0.1
+    },
+    "3188-3189",
+    {
+     "gap": 0.1
+    },
+    "3190-3191",
+    {
+     "gap": 0.1
+    },
+    "3192-3193",
+    {
+     "gap": 0.11
+    },
+    "3194-3195",
+    {
+     "gap": 0.1
+    },
+    "3196-3197",
+    {
+     "gap": 0.1
+    },
+    "3198-3199"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    24.65,
+    44.04
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 3.05,
+   "units": [
+    "3200-3201"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    27.7,
+    44.04
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 1.39,
+   "units": [
+    "3202",
+    {
+     "gap": 0.07
+    },
+    "3203",
+    {
+     "gap": 0.2
+    },
+    "3204",
+    {
+     "gap": 0.07
+    },
+    "3205",
+    {
+     "gap": 0.2
+    },
+    "3206",
+    {
+     "gap": 0.07
+    },
+    "3207",
+    {
+     "gap": 0.2
+    },
+    "3208",
+    {
+     "gap": 0.07
+    },
+    "3209",
+    {
+     "gap": 0.19
+    },
+    "3210",
+    {
+     "gap": 0.08
+    },
+    "3211",
+    {
+     "gap": 0.19
+    },
+    "3212",
+    {
+     "gap": 0.08
+    },
+    "3213",
+    {
+     "gap": 0.19
+    },
+    "3214",
+    {
+     "gap": 0.08
+    },
+    "3215",
+    {
+     "gap": 0.19
+    },
+    "3216",
+    {
+     "gap": 0.08
+    },
+    "3217",
+    {
+     "gap": 0.19
+    },
+    "3218",
+    {
+     "gap": 0.09
+    },
+    "3219"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    56.52,
+    47.16
+   ],
+   "dir": "-v",
+   "depth": "+u",
+   "width": 1.44,
+   "units": [
+    "3220-3221",
+    {
+     "gap": 0.02
+    },
+    "3222",
+    {
+     "gap": 0.15
+    },
+    "3223-3224",
+    {
+     "gap": 0.17
+    },
+    "3225-3226",
+    {
+     "gap": 0.17
+    },
+    "3227-3228",
+    {
+     "gap": 0.17
+    },
+    "3229"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    56.55,
+    32.09
+   ],
+   "dir": "-v",
+   "depth": "+u",
+   "width": 1.76,
+   "units": [
+    "3230"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    56.52,
+    30.32
+   ],
+   "dir": "-v",
+   "depth": "+u",
+   "width": 1.32,
+   "units": [
+    "3231"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    56.52,
+    22.84
+   ],
+   "dir": "-v",
+   "depth": "+u",
+   "width": 1.39,
+   "units": [
+    "3232",
+    {
+     "gap": 0.1
+    },
+    "3233",
+    {
+     "gap": 0.07
+    },
+    "3234",
+    {
+     "gap": 0.2
+    },
+    "3235",
+    {
+     "gap": 0.07
+    },
+    "3236",
+    {
+     "gap": 0.2
+    },
+    "3237",
+    {
+     "gap": 0.07
+    },
+    "3238",
+    {
+     "gap": 0.2
+    },
+    "3239",
+    {
+     "gap": 0.07
+    },
+    "3240"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    59.63,
+    7.77
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 6.1,
+   "units": [
+    "3241-3242"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    53.54,
+    7.77
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 2.98,
+   "units": [
+    "3243",
+    {
+     "gap": 0.07
+    },
+    "3244",
+    {
+     "gap": 0.07
+    },
+    "3245",
+    {
+     "gap": 0.06
+    },
+    "3246",
+    {
+     "gap": 0.07
+    },
+    "3247",
+    {
+     "gap": 0.07
+    },
+    "3248",
+    {
+     "gap": 0.07
+    },
+    "3249"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 3,
+   "at": [
+    29.22,
+    7.84
+   ],
+   "dir": "+u",
+   "depth": "-v",
+   "width": 2.91,
+   "units": [
+    "3250"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    23.02,
+    7.77
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 3.0,
+   "units": [
+    "4000-4001",
+    {
+     "gap": 0.05
+    },
+    "4002",
+    {
+     "gap": 0.05
+    },
+    "4003",
+    {
+     "gap": 0.05
+    },
+    "4004",
+    {
+     "gap": 0.05
+    },
+    "4005"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    3.45,
+    4.62
+   ],
+   "dir": "+u",
+   "depth": "-v",
+   "width": 1.29,
+   "units": [
+    "4006"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    3.4,
+    1.61
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 6.1,
+   "units": [
+    "4007"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    3.48,
+    7.7
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.46,
+   "units": [
+    "4008",
+    {
+     "gap": 0.07
+    },
+    "4009",
+    {
+     "gap": 0.07
+    },
+    "4010",
+    {
+     "gap": 0.06
+    },
+    "4011",
+    {
+     "gap": 0.07
+    },
+    "4012",
+    {
+     "gap": 0.05
+    },
+    "4013",
+    {
+     "gap": 0.09
+    },
+    "4014",
+    {
+     "gap": 0.05
+    },
+    "4015",
+    {
+     "gap": 0.08
+    },
+    "4016-4017"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    4.84,
+    9.19
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 3.0,
+   "units": [
+    "4018-4019",
+    {
+     "gap": 0.05
+    },
+    "4020",
+    {
+     "gap": 0.05
+    },
+    "4021",
+    {
+     "gap": 0.05
+    },
+    "4022",
+    {
+     "gap": 0.05
+    },
+    "4023",
+    {
+     "gap": 0.05
+    },
+    "4024"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    27.66,
+    9.33
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.25,
+   "units": [
+    "4025",
+    {
+     "gap": 0.17
+    },
+    "4026",
+    {
+     "gap": 0.27
+    },
+    "4027",
+    {
+     "gap": 0.27
+    },
+    "4028",
+    {
+     "gap": 0.26
+    },
+    "4029",
+    {
+     "gap": 0.28
+    },
+    "4030"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    29.22,
+    9.19
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 2.98,
+   "units": [
+    "4031",
+    {
+     "gap": 0.02
+    },
+    "4032",
+    {
+     "gap": 0.07
+    },
+    "4033",
+    {
+     "gap": 0.06
+    },
+    "4034",
+    {
+     "gap": 0.07
+    },
+    "4035",
+    {
+     "gap": 0.05
+    },
+    "4036",
+    {
+     "gap": 0.07
+    },
+    "4037",
+    {
+     "gap": 0.07
+    },
+    "4038"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    55.09,
+    9.33
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.25,
+   "units": [
+    "4039",
+    {
+     "gap": 0.17
+    },
+    "4040",
+    {
+     "gap": 0.27
+    },
+    "4041",
+    {
+     "gap": 0.27
+    },
+    "4042",
+    {
+     "gap": 0.26
+    },
+    "4043",
+    {
+     "gap": 0.28
+    },
+    "4044"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    53.47,
+    18.37
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 2.98,
+   "units": [
+    "4045-4046",
+    {
+     "gap": 0.07
+    },
+    "4047",
+    {
+     "gap": 0.07
+    },
+    "4048",
+    {
+     "gap": 0.05
+    },
+    "4049",
+    {
+     "gap": 0.06
+    },
+    "4050",
+    {
+     "gap": 0.07
+    },
+    "4051",
+    {
+     "gap": 0.07
+    },
+    "4052"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    26.07,
+    18.37
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 3.0,
+   "units": [
+    "4053-4054",
+    {
+     "gap": 0.05
+    },
+    "4055",
+    {
+     "gap": 0.05
+    },
+    "4056",
+    {
+     "gap": 0.05
+    },
+    "4057",
+    {
+     "gap": 0.05
+    },
+    "4058",
+    {
+     "gap": 0.05
+    },
+    "4059"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    4.84,
+    19.69
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 3.0,
+   "units": [
+    "4060-4061",
+    {
+     "gap": 0.05
+    },
+    "4062",
+    {
+     "gap": 0.05
+    },
+    "4063",
+    {
+     "gap": 0.05
+    },
+    "4064",
+    {
+     "gap": 0.05
+    },
+    "4065",
+    {
+     "gap": 0.05
+    },
+    "4066"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    27.66,
+    19.83
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.37,
+   "units": [
+    "4067",
+    {
+     "gap": 0.15
+    },
+    "4068",
+    {
+     "gap": 0.22
+    },
+    "4069",
+    {
+     "gap": 0.07
+    },
+    "4070",
+    {
+     "gap": 0.22
+    },
+    "4071"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    29.22,
+    19.69
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 2.98,
+   "units": [
+    "4072",
+    {
+     "gap": 0.02
+    },
+    "4073",
+    {
+     "gap": 0.07
+    },
+    "4074",
+    {
+     "gap": 0.06
+    },
+    "4075",
+    {
+     "gap": 0.07
+    },
+    "4076",
+    {
+     "gap": 0.05
+    },
+    "4077",
+    {
+     "gap": 0.07
+    },
+    "4078",
+    {
+     "gap": 0.07
+    },
+    "4079"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    55.09,
+    19.83
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 3.12,
+   "units": [
+    "4080-4081"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    55.09,
+    22.94
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.27,
+   "units": [
+    "4082",
+    {
+     "gap": 0.17
+    },
+    "4083",
+    {
+     "gap": 0.32
+    },
+    "4084"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    53.47,
+    27.43
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 2.98,
+   "units": [
+    "4085-4086",
+    {
+     "gap": 0.07
+    },
+    "4087",
+    {
+     "gap": 0.07
+    },
+    "4088",
+    {
+     "gap": 0.05
+    },
+    "4089",
+    {
+     "gap": 0.06
+    },
+    "4090",
+    {
+     "gap": 0.07
+    },
+    "4091",
+    {
+     "gap": 0.07
+    },
+    "4092"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    26.07,
+    27.48
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 3.0,
+   "units": [
+    "4093-4094",
+    {
+     "gap": 0.05
+    },
+    "4095",
+    {
+     "gap": 0.05
+    },
+    "4096",
+    {
+     "gap": 0.05
+    },
+    "4097",
+    {
+     "gap": 0.05
+    },
+    "4098",
+    {
+     "gap": 0.05
+    },
+    "4099"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    3.48,
+    29.0
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.47,
+   "units": [
+    "4100-4101",
+    {
+     "gap": 0.12
+    },
+    "4102",
+    {
+     "gap": 0.05
+    },
+    "4103",
+    {
+     "gap": 0.05
+    },
+    "4104",
+    {
+     "gap": 0.05
+    },
+    "4105",
+    {
+     "gap": 0.05
+    },
+    "4106",
+    {
+     "gap": 0.05
+    },
+    "4107"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    3.4,
+    41.21
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 5.94,
+   "units": [
+    "4108"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    4.84,
+    28.72
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 3.0,
+   "units": [
+    "4109-4110",
+    {
+     "gap": 0.05
+    },
+    "4111",
+    {
+     "gap": 0.05
+    },
+    "4112",
+    {
+     "gap": 0.05
+    },
+    "4113",
+    {
+     "gap": 0.05
+    },
+    "4114",
+    {
+     "gap": 0.05
+    },
+    "4115"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    27.66,
+    28.94
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.44,
+   "units": [
+    "4116",
+    {
+     "gap": 0.12
+    },
+    "4117",
+    {
+     "gap": 0.13
+    },
+    "4118-4119"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    29.22,
+    28.72
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 2.98,
+   "units": [
+    "4120",
+    {
+     "gap": 0.02
+    },
+    "4121",
+    {
+     "gap": 0.07
+    },
+    "4122",
+    {
+     "gap": 0.06
+    },
+    "4123",
+    {
+     "gap": 0.07
+    },
+    "4124",
+    {
+     "gap": 0.05
+    },
+    "4125",
+    {
+     "gap": 0.07
+    },
+    "4126",
+    {
+     "gap": 0.07
+    },
+    "4127"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    55.09,
+    28.94
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.47,
+   "units": [
+    "4128",
+    {
+     "gap": 0.07
+    },
+    "4129",
+    {
+     "gap": 0.12
+    },
+    "4130",
+    {
+     "gap": 0.05
+    },
+    "4131"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    53.47,
+    35.2
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 2.98,
+   "units": [
+    "4132-4133",
+    {
+     "gap": 0.07
+    },
+    "4134",
+    {
+     "gap": 0.07
+    },
+    "4135",
+    {
+     "gap": 0.05
+    },
+    "4136",
+    {
+     "gap": 0.06
+    },
+    "4137",
+    {
+     "gap": 0.07
+    },
+    "4138",
+    {
+     "gap": 0.07
+    },
+    "4139"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    26.07,
+    35.2
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 3.0,
+   "units": [
+    "4140-4141",
+    {
+     "gap": 0.05
+    },
+    "4142",
+    {
+     "gap": 0.05
+    },
+    "4143",
+    {
+     "gap": 0.05
+    },
+    "4144",
+    {
+     "gap": 0.05
+    },
+    "4145",
+    {
+     "gap": 0.05
+    },
+    "4146"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    4.84,
+    36.62
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 3.0,
+   "units": [
+    "4147-4148",
+    {
+     "gap": 0.05
+    },
+    "4149",
+    {
+     "gap": 0.05
+    },
+    "4150",
+    {
+     "gap": 0.05
+    },
+    "4151",
+    {
+     "gap": 0.05
+    },
+    "4152",
+    {
+     "gap": 0.05
+    },
+    "4153"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    27.66,
+    36.76
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.27,
+   "units": [
+    "4154",
+    {
+     "gap": 0.14
+    },
+    "4155",
+    {
+     "gap": 0.18
+    },
+    "4156",
+    {
+     "gap": 0.32
+    },
+    "4157"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    29.22,
+    36.62
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 2.98,
+   "units": [
+    "4158",
+    {
+     "gap": 0.02
+    },
+    "4159",
+    {
+     "gap": 0.07
+    },
+    "4160",
+    {
+     "gap": 0.06
+    },
+    "4161",
+    {
+     "gap": 0.07
+    },
+    "4162",
+    {
+     "gap": 0.05
+    },
+    "4163",
+    {
+     "gap": 0.07
+    },
+    "4164",
+    {
+     "gap": 0.07
+    },
+    "4165"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    55.09,
+    36.76
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.41,
+   "units": [
+    "4166-4167",
+    {
+     "gap": 0.05
+    },
+    "4168",
+    {
+     "gap": 0.05
+    },
+    "4169"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    53.47,
+    42.67
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 2.98,
+   "units": [
+    "4170-4171",
+    {
+     "gap": 0.07
+    },
+    "4172",
+    {
+     "gap": 0.07
+    },
+    "4173",
+    {
+     "gap": 0.05
+    },
+    "4174",
+    {
+     "gap": 0.06
+    },
+    "4175",
+    {
+     "gap": 0.07
+    },
+    "4176",
+    {
+     "gap": 0.07
+    },
+    "4177"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    26.07,
+    42.67
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 3.0,
+   "units": [
+    "4178-4179",
+    {
+     "gap": 0.05
+    },
+    "4180",
+    {
+     "gap": 0.05
+    },
+    "4181",
+    {
+     "gap": 0.05
+    },
+    "4182",
+    {
+     "gap": 0.05
+    },
+    "4183",
+    {
+     "gap": 0.05
+    },
+    "4184"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    3.45,
+    44.04
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 1.34,
+   "units": [
+    "4185-4186",
+    {
+     "gap": 0.19
+    },
+    "4187",
+    {
+     "gap": 0.18
+    },
+    "4188",
+    {
+     "gap": 0.19
+    },
+    "4189",
+    {
+     "gap": 0.18
+    },
+    "4190",
+    {
+     "gap": 0.19
+    },
+    "4191",
+    {
+     "gap": 0.19
+    },
+    "4192",
+    {
+     "gap": 0.18
+    },
+    "4193",
+    {
+     "gap": 0.19
+    },
+    "4194",
+    {
+     "gap": 0.19
+    },
+    "4195",
+    {
+     "gap": 0.18
+    },
+    "4196",
+    {
+     "gap": 0.19
+    },
+    "4197",
+    {
+     "gap": 0.18
+    },
+    "4198"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    24.6,
+    44.04
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 3.05,
+   "units": [
+    "4199-4200"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    27.65,
+    44.04
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 1.51,
+   "units": [
+    "4201",
+    {
+     "gap": 0.02
+    },
+    "4202-4203"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    32.22,
+    44.04
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 3.05,
+   "units": [
+    "4204-4205"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    35.27,
+    44.04
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 1.42,
+   "units": [
+    "4206",
+    {
+     "gap": 0.09
+    },
+    "4207",
+    {
+     "gap": 0.11
+    },
+    "4208",
+    {
+     "gap": 0.09
+    },
+    "4209",
+    {
+     "gap": 0.12
+    },
+    "4210",
+    {
+     "gap": 0.08
+    },
+    "4211",
+    {
+     "gap": 0.1
+    },
+    "4212",
+    {
+     "gap": 0.1
+    },
+    "4213",
+    {
+     "gap": 0.11
+    },
+    "4214",
+    {
+     "gap": 0.1
+    },
+    "4215",
+    {
+     "gap": 0.1
+    },
+    "4216",
+    {
+     "gap": 0.1
+    },
+    "4217",
+    {
+     "gap": 0.1
+    },
+    "4218"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    56.52,
+    47.16
+   ],
+   "dir": "-v",
+   "depth": "+u",
+   "width": 1.42,
+   "units": [
+    "4219-4220",
+    {
+     "gap": 0.05
+    },
+    "4221",
+    {
+     "gap": 0.1
+    },
+    "4222",
+    {
+     "gap": 0.1
+    },
+    "4223",
+    {
+     "gap": 0.11
+    },
+    "4224",
+    {
+     "gap": 0.1
+    },
+    "4225",
+    {
+     "gap": 0.1
+    },
+    "4226",
+    {
+     "gap": 0.1
+    },
+    "4227",
+    {
+     "gap": 0.1
+    },
+    "4228",
+    {
+     "gap": 0.1
+    },
+    "4229",
+    {
+     "gap": 0.19
+    },
+    "4230"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    56.52,
+    22.84
+   ],
+   "dir": "-v",
+   "depth": "+u",
+   "width": 1.46,
+   "units": [
+    "4231-4232"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    56.52,
+    19.89
+   ],
+   "dir": "-v",
+   "depth": "+u",
+   "width": 3.05,
+   "units": [
+    "4233-4234"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    56.52,
+    16.85
+   ],
+   "dir": "-v",
+   "depth": "+u",
+   "width": 1.59,
+   "units": [
+    "4235"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    56.52,
+    15.25
+   ],
+   "dir": "-v",
+   "depth": "+u",
+   "width": 2.95,
+   "units": [
+    "4236-4237",
+    {
+     "gap": 0.03
+    },
+    "4238-4239"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    59.63,
+    7.77
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 6.1,
+   "units": [
+    "4240-4241"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    53.54,
+    7.77
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 2.86,
+   "units": [
+    "4242",
+    {
+     "gap": 0.19
+    },
+    "4243",
+    {
+     "gap": 0.18
+    },
+    "4244",
+    {
+     "gap": 0.19
+    },
+    "4245",
+    {
+     "gap": 0.17
+    },
+    "4246",
+    {
+     "gap": 0.18
+    },
+    "4247",
+    {
+     "gap": 0.19
+    },
+    "4248"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 4,
+   "at": [
+    29.22,
+    7.84
+   ],
+   "dir": "+u",
+   "depth": "-v",
+   "width": 3.08,
+   "units": [
+    "4249"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    26.21,
+    7.77
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 2.98,
+   "units": [
+    "5000",
+    {
+     "gap": 0.15
+    },
+    "5001",
+    {
+     "gap": 0.07
+    },
+    "5002",
+    {
+     "gap": 0.05
+    },
+    "5003",
+    {
+     "gap": 0.07
+    },
+    "5004",
+    {
+     "gap": 0.07
+    },
+    "5005",
+    {
+     "gap": 0.06
+    },
+    "5006"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    3.38,
+    4.62
+   ],
+   "dir": "+u",
+   "depth": "-v",
+   "width": 1.35,
+   "units": [
+    "5007"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    3.36,
+    1.61
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 6.08,
+   "units": [
+    "5008"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    3.48,
+    7.68
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.52,
+   "units": [
+    "5009-5013"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    3.48,
+    15.3
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 3.05,
+   "units": [
+    "5014-5015"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    3.48,
+    18.35
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.47,
+   "units": [
+    "5016",
+    {
+     "gap": 0.05
+    },
+    "5017",
+    {
+     "gap": 0.02
+    },
+    "5018"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    4.87,
+    9.19
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 2.98,
+   "units": [
+    "5019-5020",
+    {
+     "gap": 0.07
+    },
+    "5021",
+    {
+     "gap": 0.07
+    },
+    "5022"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    16.99,
+    9.19
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 6.08,
+   "units": [
+    "5023-5024"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    23.07,
+    9.19
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 3.0,
+   "units": [
+    "5025"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    27.66,
+    9.33
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.37,
+   "units": [
+    "5026",
+    {
+     "gap": 0.03
+    },
+    "5027",
+    {
+     "gap": 0.1
+    },
+    "5028",
+    {
+     "gap": 0.21
+    },
+    "5029",
+    {
+     "gap": 0.1
+    },
+    "5030",
+    {
+     "gap": 0.2
+    },
+    "5031"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    29.22,
+    9.19
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 3.0,
+   "units": [
+    "5032-5033",
+    {
+     "gap": 0.05
+    },
+    "5034",
+    {
+     "gap": 0.05
+    },
+    "5035",
+    {
+     "gap": 0.05
+    },
+    "5036",
+    {
+     "gap": 0.05
+    },
+    "5037",
+    {
+     "gap": 0.05
+    },
+    "5038",
+    {
+     "gap": 0.06
+    },
+    "5039"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    55.09,
+    9.33
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.27,
+   "units": [
+    "5040",
+    {
+     "gap": 0.14
+    },
+    "5041",
+    {
+     "gap": 0.25
+    },
+    "5042",
+    {
+     "gap": 0.25
+    },
+    "5043",
+    {
+     "gap": 0.24
+    },
+    "5044",
+    {
+     "gap": 0.27
+    },
+    "5045"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    53.5,
+    18.35
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 3.0,
+   "units": [
+    "5046-5047",
+    {
+     "gap": 0.05
+    },
+    "5048",
+    {
+     "gap": 0.05
+    },
+    "5049",
+    {
+     "gap": 0.05
+    },
+    "5050",
+    {
+     "gap": 0.05
+    },
+    "5051",
+    {
+     "gap": 0.05
+    },
+    "5052",
+    {
+     "gap": 0.06
+    },
+    "5053"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    26.07,
+    18.35
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 2.98,
+   "units": [
+    "5054",
+    {
+     "gap": 0.02
+    },
+    "5055",
+    {
+     "gap": 0.07
+    },
+    "5056",
+    {
+     "gap": 0.04
+    },
+    "5057",
+    {
+     "gap": 0.07
+    },
+    "5058",
+    {
+     "gap": 0.07
+    },
+    "5059",
+    {
+     "gap": 0.07
+    },
+    "5060"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    4.87,
+    19.69
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 2.98,
+   "units": [
+    "5061-5062",
+    {
+     "gap": 0.07
+    },
+    "5063",
+    {
+     "gap": 0.07
+    },
+    "5064",
+    {
+     "gap": 0.06
+    },
+    "5065",
+    {
+     "gap": 0.05
+    },
+    "5066",
+    {
+     "gap": 0.07
+    },
+    "5067"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    27.66,
+    19.83
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.27,
+   "units": [
+    "5068",
+    {
+     "gap": 0.24
+    },
+    "5069",
+    {
+     "gap": 0.32
+    },
+    "5070",
+    {
+     "gap": 0.25
+    },
+    "5071",
+    {
+     "gap": 0.26
+    },
+    "5072"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    29.22,
+    19.69
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 3.0,
+   "units": [
+    "5073-5074",
+    {
+     "gap": 0.05
+    },
+    "5075",
+    {
+     "gap": 0.05
+    },
+    "5076",
+    {
+     "gap": 0.05
+    },
+    "5077",
+    {
+     "gap": 0.05
+    },
+    "5078",
+    {
+     "gap": 0.05
+    },
+    "5079",
+    {
+     "gap": 0.06
+    },
+    "5080"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    55.08,
+    19.83
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.46,
+   "units": [
+    "5081"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    55.08,
+    21.28
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 3.17,
+   "units": [
+    "5082-5083"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    55.08,
+    24.45
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.52,
+   "units": [
+    "5084"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    55.08,
+    25.97
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.27,
+   "units": [
+    "5085"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    53.5,
+    27.5
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 3.0,
+   "units": [
+    "5086-5087",
+    {
+     "gap": 0.05
+    },
+    "5088",
+    {
+     "gap": 0.05
+    },
+    "5089",
+    {
+     "gap": 0.05
+    },
+    "5090",
+    {
+     "gap": 0.05
+    },
+    "5091",
+    {
+     "gap": 0.05
+    },
+    "5092",
+    {
+     "gap": 0.06
+    },
+    "5093"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    26.07,
+    27.5
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 2.98,
+   "units": [
+    "5094",
+    {
+     "gap": 0.02
+    },
+    "5095",
+    {
+     "gap": 0.07
+    },
+    "5096",
+    {
+     "gap": 0.04
+    },
+    "5097",
+    {
+     "gap": 0.07
+    },
+    "5098",
+    {
+     "gap": 0.07
+    },
+    "5099",
+    {
+     "gap": 0.07
+    },
+    "5100"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    3.48,
+    29.0
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.49,
+   "units": [
+    "5101-5102",
+    {
+     "gap": 0.09
+    },
+    "5103",
+    {
+     "gap": 0.03
+    },
+    "5104",
+    {
+     "gap": 0.03
+    },
+    "5105",
+    {
+     "gap": 0.04
+    },
+    "5106",
+    {
+     "gap": 0.03
+    },
+    "5107",
+    {
+     "gap": 0.03
+    },
+    "5108"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    3.4,
+    41.21
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 5.94,
+   "units": [
+    "5109"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    4.87,
+    28.72
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 2.98,
+   "units": [
+    "5110-5111",
+    {
+     "gap": 0.07
+    },
+    "5112",
+    {
+     "gap": 0.07
+    },
+    "5113",
+    {
+     "gap": 0.06
+    },
+    "5114",
+    {
+     "gap": 0.05
+    },
+    "5115",
+    {
+     "gap": 0.07
+    },
+    "5116"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    27.66,
+    28.97
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.47,
+   "units": [
+    "5117",
+    {
+     "gap": 0.03
+    },
+    "5118",
+    {
+     "gap": 0.12
+    },
+    "5119",
+    {
+     "gap": 0.05
+    },
+    "5120"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    29.22,
+    28.72
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 3.0,
+   "units": [
+    "5121-5122",
+    {
+     "gap": 0.05
+    },
+    "5123",
+    {
+     "gap": 0.05
+    },
+    "5124",
+    {
+     "gap": 0.05
+    },
+    "5125",
+    {
+     "gap": 0.05
+    },
+    "5126",
+    {
+     "gap": 0.05
+    },
+    "5127",
+    {
+     "gap": 0.06
+    },
+    "5128"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    55.09,
+    28.97
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.47,
+   "units": [
+    "5129",
+    {
+     "gap": 0.03
+    },
+    "5130",
+    {
+     "gap": 0.12
+    },
+    "5131",
+    {
+     "gap": 0.05
+    },
+    "5132"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    53.5,
+    35.2
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 3.0,
+   "units": [
+    "5133-5134",
+    {
+     "gap": 0.05
+    },
+    "5135",
+    {
+     "gap": 0.05
+    },
+    "5136",
+    {
+     "gap": 0.05
+    },
+    "5137",
+    {
+     "gap": 0.05
+    },
+    "5138",
+    {
+     "gap": 0.05
+    },
+    "5139",
+    {
+     "gap": 0.06
+    },
+    "5140"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    26.07,
+    35.2
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 2.98,
+   "units": [
+    "5141",
+    {
+     "gap": 0.02
+    },
+    "5142",
+    {
+     "gap": 0.07
+    },
+    "5143",
+    {
+     "gap": 0.04
+    },
+    "5144",
+    {
+     "gap": 0.07
+    },
+    "5145",
+    {
+     "gap": 0.07
+    },
+    "5146",
+    {
+     "gap": 0.07
+    },
+    "5147"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    4.87,
+    36.62
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 2.98,
+   "units": [
+    "5148-5149",
+    {
+     "gap": 0.07
+    },
+    "5150",
+    {
+     "gap": 0.07
+    },
+    "5151",
+    {
+     "gap": 0.06
+    },
+    "5152",
+    {
+     "gap": 0.05
+    },
+    "5153",
+    {
+     "gap": 0.07
+    },
+    "5154"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    27.66,
+    36.76
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.27,
+   "units": [
+    "5155",
+    {
+     "gap": 0.14
+    },
+    "5156",
+    {
+     "gap": 0.22
+    },
+    "5157",
+    {
+     "gap": 0.28
+    },
+    "5158"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    29.22,
+    36.62
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 3.0,
+   "units": [
+    "5159-5160",
+    {
+     "gap": 0.05
+    },
+    "5161",
+    {
+     "gap": 0.05
+    },
+    "5162",
+    {
+     "gap": 0.05
+    },
+    "5163",
+    {
+     "gap": 0.05
+    },
+    "5164",
+    {
+     "gap": 0.05
+    },
+    "5165",
+    {
+     "gap": 0.06
+    },
+    "5166"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    55.09,
+    36.76
+   ],
+   "dir": "+v",
+   "depth": "-u",
+   "width": 1.27,
+   "units": [
+    "5167",
+    {
+     "gap": 0.14
+    },
+    "5168",
+    {
+     "gap": 0.22
+    },
+    "5169",
+    {
+     "gap": 0.28
+    },
+    "5170"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    53.5,
+    42.7
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 3.0,
+   "units": [
+    "5171-5172",
+    {
+     "gap": 0.05
+    },
+    "5173",
+    {
+     "gap": 0.05
+    },
+    "5174",
+    {
+     "gap": 0.05
+    },
+    "5175",
+    {
+     "gap": 0.05
+    },
+    "5176",
+    {
+     "gap": 0.05
+    },
+    "5177",
+    {
+     "gap": 0.06
+    },
+    "5178"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    26.07,
+    42.7
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 2.98,
+   "units": [
+    "5179",
+    {
+     "gap": 0.02
+    },
+    "5180",
+    {
+     "gap": 0.07
+    },
+    "5181",
+    {
+     "gap": 0.04
+    },
+    "5182",
+    {
+     "gap": 0.07
+    },
+    "5183",
+    {
+     "gap": 0.07
+    },
+    "5184",
+    {
+     "gap": 0.07
+    },
+    "5185"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    3.45,
+    44.07
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 1.35,
+   "units": [
+    "5186-5187",
+    {
+     "gap": 0.17
+    },
+    "5188",
+    {
+     "gap": 0.17
+    },
+    "5189",
+    {
+     "gap": 0.15
+    },
+    "5190",
+    {
+     "gap": 0.19
+    },
+    "5191",
+    {
+     "gap": 0.15
+    },
+    "5192"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    13.95,
+    44.07
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 3.03,
+   "units": [
+    "5193-94",
+    {
+     "gap": 0.02
+    },
+    "5195-96",
+    "5197-98"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    23.07,
+    44.07
+   ],
+   "dir": "+u",
+   "depth": "+v",
+   "width": 1.41,
+   "units": [
+    "5199",
+    {
+     "gap": 0.12
+    },
+    "5200",
+    {
+     "gap": 0.12
+    },
+    "5201",
+    {
+     "gap": 0.12
+    },
+    "5202",
+    {
+     "gap": 0.11
+    },
+    "5203",
+    {
+     "gap": 0.12
+    },
+    "5204",
+    {
+     "gap": 0.12
+    },
+    "5205",
+    {
+     "gap": 0.12
+    },
+    "5206",
+    {
+     "gap": 0.12
+    },
+    "5207",
+    {
+     "gap": 0.12
+    },
+    "5208",
+    {
+     "gap": 0.12
+    },
+    "5209",
+    {
+     "gap": 0.11
+    },
+    "5210",
+    {
+     "gap": 0.12
+    },
+    "5211",
+    {
+     "gap": 0.12
+    },
+    "5212",
+    {
+     "gap": 0.12
+    },
+    "5213",
+    {
+     "gap": 0.12
+    },
+    "5214",
+    {
+     "gap": 0.12
+    },
+    "5215",
+    {
+     "gap": 0.1
+    },
+    "5216",
+    {
+     "gap": 0.13
+    },
+    "5217",
+    {
+     "gap": 0.1
+    },
+    "5218",
+    {
+     "gap": 0.14
+    },
+    "5219"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    56.52,
+    47.16
+   ],
+   "dir": "-v",
+   "depth": "+u",
+   "width": 1.44,
+   "units": [
+    "5220-5221",
+    {
+     "gap": 0.02
+    },
+    "5222",
+    {
+     "gap": 0.08
+    },
+    "5223",
+    {
+     "gap": 0.09
+    },
+    "5224",
+    {
+     "gap": 0.08
+    },
+    "5225",
+    {
+     "gap": 0.09
+    },
+    "5226",
+    {
+     "gap": 0.08
+    },
+    "5227",
+    {
+     "gap": 0.09
+    },
+    "5228",
+    {
+     "gap": 0.08
+    },
+    "5229",
+    {
+     "gap": 0.08
+    },
+    "5230",
+    {
+     "gap": 0.16
+    },
+    "5231"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    56.52,
+    22.84
+   ],
+   "dir": "-v",
+   "depth": "+u",
+   "width": 1.41,
+   "units": [
+    "5232",
+    {
+     "gap": 0.07
+    },
+    "5233",
+    {
+     "gap": 0.08
+    },
+    "5234",
+    {
+     "gap": 0.12
+    },
+    "5235",
+    {
+     "gap": 0.12
+    },
+    "5236",
+    {
+     "gap": 0.1
+    },
+    "5237",
+    {
+     "gap": 0.14
+    },
+    "5238",
+    {
+     "gap": 0.12
+    },
+    "5239",
+    {
+     "gap": 0.11
+    },
+    "5240"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    59.63,
+    7.77
+   ],
+   "dir": "-u",
+   "depth": "-v",
+   "width": 2.86,
+   "units": [
+    "5241",
+    {
+     "gap": 0.17
+    },
+    "5242",
+    {
+     "gap": 0.19
+    },
+    "5243",
+    {
+     "gap": 0.18
+    },
+    "5244",
+    {
+     "gap": 0.19
+    },
+    "5245",
+    {
+     "gap": 0.18
+    },
+    "5246",
+    {
+     "gap": 0.19
+    },
+    "5247",
+    {
+     "gap": 0.19
+    },
+    "5248",
+    {
+     "gap": 0.18
+    },
+    "5249"
+   ],
+   "numbering": "inferred"
+  },
+  {
+   "building": "MAIN",
+   "f": 5,
+   "at": [
+    29.22,
+    7.84
+   ],
+   "dir": "+u",
+   "depth": "-v",
+   "width": 3.05,
+   "units": [
+    "5250"
+   ],
+   "numbering": "inferred"
+  }
+ ],
+ "planSizes": {
+  "1030": [
+   5.0,
+   5.0
   ],
-  "zones": [],
-  "sources": [
-    "Parcel: Williamson County Appraisal District (WCAD R569024, Broadstone at Parmer Blk A Lot 2A, 2.818 ac, Greens Austin LLC, DBA CubeSmart)",
-    "Building: WCAD building footprint (30,594 sq ft) and Merriman Anderson floor plans A1.01-A1.05, issued for construction 03/06/2018",
-    "Units: CubeSmart rent roll for store 6992, 08/31/2026 (966 rented units); vacant sizes estimated from CubeSmart's unit mix",
-    "Not in Cubby: the store runs on CubeSmart's system, so there is no live link"
+  "1085": [
+   5.0,
+   5.0
   ],
-  "operator": "CubeSmart",
-  "unitSource": "CubeSmart rent roll, 08/31/2026"
+  "1099": [
+   5.0,
+   5.0
+  ],
+  "1104": [
+   5.0,
+   5.0
+  ],
+  "1133": [
+   10.0,
+   10.0
+  ],
+  "1137": [
+   10.0,
+   10.0
+  ],
+  "2036": [
+   5.0,
+   5.0
+  ],
+  "2087": [
+   5.0,
+   5.0
+  ],
+  "2090": [
+   5.0,
+   5.0
+  ],
+  "2091": [
+   5.0,
+   5.0
+  ],
+  "2093": [
+   5.0,
+   5.0
+  ],
+  "2139": [
+   5.0,
+   5.0
+  ],
+  "2141": [
+   5.0,
+   5.0
+  ],
+  "2167": [
+   5.0,
+   5.0
+  ],
+  "2170": [
+   5.0,
+   5.0
+  ],
+  "2175": [
+   5.0,
+   5.0
+  ],
+  "2176": [
+   5.0,
+   5.0
+  ],
+  "2246": [
+   10.0,
+   20.0
+  ],
+  "3016": [
+   5.0,
+   10.0
+  ],
+  "3027": [
+   5.0,
+   5.0
+  ],
+  "3031": [
+   5.0,
+   5.0
+  ],
+  "3075": [
+   10.0,
+   13.0
+  ],
+  "3118": [
+   5.0,
+   5.0
+  ],
+  "3120": [
+   5.0,
+   5.0
+  ],
+  "3156": [
+   5.0,
+   5.0
+  ],
+  "4030": [
+   5.0,
+   5.0
+  ],
+  "4038": [
+   10.0,
+   13.0
+  ],
+  "4067": [
+   5.0,
+   5.0
+  ],
+  "4069": [
+   5.0,
+   5.0
+  ],
+  "4071": [
+   5.0,
+   5.0
+  ],
+  "4093": [
+   10.0,
+   10.0
+  ],
+  "4161": [
+   10.0,
+   8.0
+  ],
+  "5018": [
+   5.0,
+   10.0
+  ],
+  "5021": [
+   10.0,
+   13.0
+  ],
+  "5028": [
+   5.0,
+   5.0
+  ],
+  "5029": [
+   5.0,
+   5.0
+  ],
+  "5052": [
+   10.0,
+   15.0
+  ],
+  "5116": [
+   10.0,
+   11.0
+  ],
+  "5160": [
+   10.0,
+   8.0
+  ],
+  "5200": [
+   5.0,
+   10.0
+  ],
+  "5201": [
+   5.0,
+   10.0
+  ],
+  "5202": [
+   5.0,
+   10.0
+  ],
+  "5203": [
+   5.0,
+   10.0
+  ],
+  "5205": [
+   5.0,
+   10.0
+  ],
+  "5227": [
+   5.0,
+   10.0
+  ],
+  "5235": [
+   5.0,
+   10.0
+  ],
+  "5238": [
+   5.0,
+   10.0
+  ],
+  "5239": [
+   5.0,
+   10.0
+  ]
+ }
 }

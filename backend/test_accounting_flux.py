@@ -132,6 +132,49 @@ class FluxNoteTests(unittest.TestCase):
         self.assertEqual(self.client.get(f"/accounting/flux-notes?period={PERIOD}").status_code, 403)
         self.assertEqual(len(self.client.get(f"/accounting/flux-notes?entity=15000&period={PERIOD}").json()["notes"]), 1)
 
+    def test_review_status_open_answered_closed(self):
+        """Charmi, 10/15: a comment answers the review; closing signs it off;
+        removing the comment reopens it unless it was closed."""
+        _as(EDITOR)
+        url = "/accounting/flux-notes"
+        key = {"entity": "15000", "period": PERIOD, "accountNo": "62101"}
+        r = self.client.put(url, json={**key, "note": "Roof repair."}).json()
+        self.assertEqual((r["status"], r["closed"]), ("answered", False))
+        # Removing the comment of an unclosed line: back to Open, row gone.
+        self.assertEqual(self.client.put(url, json={**key, "note": ""}).json()["status"], "open")
+        self.assertEqual(self.client.get(f"{url}?entity=15000&period={PERIOD}").json()["notes"], [])
+        # Answer, then close.
+        self.client.put(url, json={**key, "note": "Roof repair."})
+        r = self.client.put(f"{url}/review", json={**key, "closed": True}).json()
+        self.assertEqual((r["status"], r["closedBy"], r["note"]), ("closed", EDITOR, "Roof repair."))
+        self.assertTrue(r["closedAt"].startswith("20"))
+        # Removing the comment of a closed line keeps it closed.
+        r = self.client.put(url, json={**key, "note": ""}).json()
+        self.assertEqual((r["status"], r["note"]), ("closed", ""))
+        notes = self.client.get(f"{url}?entity=15000&period={PERIOD}").json()["notes"]
+        self.assertEqual([(n["accountNo"], n["status"], n["note"]) for n in notes], [("62101", "closed", "")])
+        # Reopening a line with no comment: Open, row gone.
+        self.assertEqual(self.client.put(f"{url}/review", json={**key, "closed": False}).json()["status"], "open")
+        self.assertEqual(self.client.get(f"{url}?entity=15000&period={PERIOD}").json()["notes"], [])
+        # Reopening a line with a comment: Answered.
+        self.client.put(url, json={**key, "note": "Insured."})
+        self.client.put(f"{url}/review", json={**key, "closed": True})
+        r = self.client.put(f"{url}/review", json={**key, "closed": False}).json()
+        self.assertEqual((r["status"], r["note"], r["closedBy"]), ("answered", "Insured.", ""))
+        # A line can be closed without a comment (a reviewer is satisfied).
+        r = self.client.put(f"{url}/review", json={**key, "accountNo": "41000", "closed": True}).json()
+        self.assertEqual(r["status"], "closed")
+
+    def test_review_needs_editor_and_reach(self):
+        _as(VIEWER)
+        body = {"entity": "15000", "period": PERIOD, "accountNo": "62101", "closed": True}
+        self.assertEqual(self.client.put("/accounting/flux-notes/review", json=body).status_code, 403)
+        _as(LIMITED)
+        self.assertEqual(self.client.put("/accounting/flux-notes/review", json={**body, "entity": "12000"}).status_code, 403)
+        self.assertEqual(self.client.put("/accounting/flux-notes/review", json=body).status_code, 200)
+        _as(EDITOR)
+        self.assertEqual(self.client.put("/accounting/flux-notes/review", json={**body, "accountNo": ""}).status_code, 400)
+
 
 if __name__ == "__main__":
     unittest.main()

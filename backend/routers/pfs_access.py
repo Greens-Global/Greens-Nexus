@@ -16,7 +16,7 @@ How it works
     to one code per 30 seconds and 10 an hour per person.
   - A correct code opens THAT file, for THAT browser session (the
     X-Pfs-Session header, a random id the tab keeps in sessionStorage), for
-    30 minutes. A code minted for one file never opens another, and a code
+    90 minutes. A code minted for one file never opens another, and a code
     used in one tab does not open the file in another person's tab.
   - The lock is enforced HERE, on the server, by `file_gate` - a dependency
     on the whole /pfs router (routers/pfs.py) and on the affiliated entities
@@ -64,7 +64,7 @@ CODE_TTL_SEC = 600            # 10 minutes to type the code in
 MAX_ATTEMPTS = 5              # wrong tries per code before it is burned
 RESEND_COOLDOWN_SEC = 30
 MAX_CODES_PER_HOUR = 10       # per person, every file together
-UNLOCK_TTL_SEC = 1800         # one code opens the file for 30 minutes
+UNLOCK_TTL_SEC = 5400         # one code opens the file for 90 minutes (Urmi, 10/14; was 30)
 VIEW_LOG_GAP_SEC = 600        # a file re-read every few seconds logs "viewed" once per 10 minutes
 
 # The switch the lock hangs on. On everywhere; the older PFS tests turn it off
@@ -183,6 +183,12 @@ def grant_now(db: Session, email: str, profile_id: str, request: Request, why: s
         code_hash="", attempts=0, created_at=_iso(now), expires_at=_iso(now), consumed_at=_iso(now),
         granted_until=_iso(now + timedelta(seconds=UNLOCK_TTL_SEC)), target=""))
     log(db, profile_id, email, "unlocked", _ip(request), {"how": why})
+    # An editor limited to certain files keeps the file they just made
+    # (Neil, 10/14); someone not limited stays not limited.
+    if why == "created" and file_limits(db, [email]):
+        db.add(models.NexusAccessScope(id=str(uuid.uuid4()), email=(email or "").lower(), module_id=SCOPE_MODULE,
+                                       scope_type=SCOPE_TYPE, scope_id=profile_id, created_by=(email or "").lower(),
+                                       created_at=_iso(now)))
 
 
 def _locked(profile_id: str) -> HTTPException:
@@ -190,14 +196,53 @@ def _locked(profile_id: str) -> HTTPException:
                                                   "message": "This file is locked. Request a one-time code to open it."})
 
 
+# ── Which files a person may see (Neil, 10/14: "WHICH PFS they can see, not
+# all or none, and then viewer/editor") ─────────────────────────────────────
+# nexus_access_scopes rows with module "pfs" (scope_type "pfs_file", scope_id =
+# the profile id) limit a person to those files; no rows = every file, as it
+# was before. Owners are never limited. Viewer / Editor stays the person's
+# "pfs" module grant. Unlike auth.scoped_ids there is no external-user
+# fail-close here: the "pfs" grant is itself given person by person by an
+# owner, and "no rows" reads "All PFS" on the Access tab.
+SCOPE_MODULE = "pfs"
+SCOPE_TYPE = "pfs_file"
+
+
+def file_limits(db: Session, emails=None) -> dict[str, list[str]]:
+    """{email: [profile ids]} for everyone limited to certain files."""
+    q = db.query(models.NexusAccessScope).filter(models.NexusAccessScope.module_id == SCOPE_MODULE)
+    if emails is not None:
+        q = q.filter(models.NexusAccessScope.email.in_([e.lower() for e in emails] or [""]))
+    out: dict[str, list[str]] = {}
+    for r in q.all():
+        out.setdefault((r.email or "").lower(), []).append(r.scope_id)
+    return {e: sorted(set(v)) for e, v in out.items()}
+
+
+def allowed_files(db: Session, user: dict) -> Optional[set[str]]:
+    """The profile ids the caller may see: None = every file (owners, and
+    anyone not limited), a set = only those."""
+    if user.get("level", 0) >= auth._LEVELS["owner"]:
+        return None
+    ids = file_limits(db, [user["email"]]).get(user["email"].lower())
+    return set(ids) if ids else None
+
+
+def check_file(db: Session, user: dict, profile_id: str) -> None:
+    """404 for a file the caller is not given - the same answer as a file that
+    does not exist, so a limited person cannot tell which files there are."""
+    allowed = allowed_files(db, user)
+    if allowed is not None and profile_id not in allowed:
+        raise HTTPException(status_code=404, detail="Profile not found.")
+
+
 def file_gate(request: Request, user: dict = Depends(_read)) -> None:
     """The lock, on every route of a file: a path with {profile_id} (or a kept
     statement's {statement_id}, which belongs to one) answers 423 unless the
     caller opened that file with a code in this browser session. Routes without
     either (the list of files, the vocabulary, the ledger pickers) pass.
+    A file the caller is not given (allowed_files) answers 404 first.
     Also writes the "viewed" and "exported" rows of the access log."""
-    if not LOCK_ENABLED:
-        return
     pid = request.path_params.get("profile_id")
     sid = request.path_params.get("statement_id")
     if not pid and not sid:
@@ -209,6 +254,11 @@ def file_gate(request: Request, user: dict = Depends(_read)) -> None:
             if not s:
                 return          # the route answers 404 itself
             pid = s.profile_id
+        # Which files the caller is given (Neil, 10/14) - enforced whether or
+        # not the lock is on, before anything about the file is answered.
+        check_file(db, user, pid)
+        if not LOCK_ENABLED:
+            return
         if not db.query(models.PfsProfile.id).filter(models.PfsProfile.id == pid).first():
             return              # 404 from the route, not a lock on nothing
         if not active_grant(db, user["email"], pid, session_hash(request)):
@@ -250,7 +300,7 @@ def _code_email(code: str, file_name: str) -> str:
     return _shell("Personal Financial Statement - Access Code", f"""
       <p style="margin:0 0 14px">Use this code to open the personal financial statement of <strong>{escape(file_name)}</strong> in Nexus.</p>
       <div style="font-family:Consolas,Menlo,Courier New,monospace;font-size:30px;font-weight:800;letter-spacing:7px;color:#111827;background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;padding:12px 18px;margin:0 0 14px">{escape(code)}</div>
-      <p style="margin:0;font-size:12.5px;color:#6b7280">The code expires in 10 minutes and opens this one file for 30 minutes. If you did not ask for it, tell your administrator - the borrower is told every time their file is opened.</p>""")
+      <p style="margin:0;font-size:12.5px;color:#6b7280">The code expires in 10 minutes and opens this one file for 90 minutes. If you did not ask for it, tell your administrator - the borrower is told every time their file is opened.</p>""")
 
 
 def _notice_email(viewer: str, when: str) -> str:
@@ -330,6 +380,7 @@ def status(request: Request, user: dict = Depends(_read), db: Session = Depends(
 @router.post("/files/{file_id}/code")
 def request_code(file_id: str, request: Request, user: dict = Depends(_read), db: Session = Depends(get_db)):
     """Email the caller a code that opens this one file."""
+    check_file(db, user, file_id)
     p = _profile(db, file_id)
     email = user["email"].lower()
     now = _now()
@@ -365,8 +416,9 @@ class VerifyBody(BaseModel):
 @router.post("/files/{file_id}/verify")
 def verify(file_id: str, body: VerifyBody, request: Request, background: BackgroundTasks,
            user: dict = Depends(_read), db: Session = Depends(get_db)):
-    """Check the code; a right one opens the file for 30 minutes in this
+    """Check the code; a right one opens the file for 90 minutes in this
     browser session and tells the borrowers."""
+    check_file(db, user, file_id)
     _profile(db, file_id)
     email = user["email"].lower()
     sess = session_hash(request)
@@ -402,7 +454,7 @@ def verify(file_id: str, body: VerifyBody, request: Request, background: Backgro
 
 @router.post("/files/{file_id}/lock", status_code=204)
 def lock(file_id: str, request: Request, user: dict = Depends(_read), db: Session = Depends(get_db)):
-    """Close the file again in this browser session before the 30 minutes run out."""
+    """Close the file again in this browser session before the 90 minutes run out."""
     now = _iso(_now())
     n = (db.query(models.PfsAccessChallenge)
          .filter(models.PfsAccessChallenge.email == user["email"].lower(), models.PfsAccessChallenge.profile_id == file_id,
@@ -451,6 +503,7 @@ def _people(db: Session) -> list[dict]:
     for m in db.query(models.NexusGroupMember).filter(models.NexusGroupMember.group_id.in_(list(groups) or [""])).all():
         members.setdefault((m.email or "").lower(), []).append(m.group_id)
     owners = {(r.email or "").lower() for r in db.query(models.NexusRole).filter(models.NexusRole.role == "owner").all()}
+    limits = file_limits(db)
     names: dict[str, str] = {}
     for e in db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email != "",
                                                    models.NexusEmployee.status.notin_(("inactive", "offboarded"))).all():
@@ -458,7 +511,7 @@ def _people(db: Session) -> list[dict]:
         if email:
             names[email] = (getattr(e, "display_name", "") or "").strip() or f"{e.first_name or ''} {e.last_name or ''}".strip() or email
     out = []
-    for email in sorted(set(names) | set(members) | owners):
+    for email in sorted(set(names) | set(members) | owners | set(limits)):
         gids = members.get(email, [])
         rank = max((groups[g][1] for g in gids), default=0)
         managed = max((auth._MODULE_LEVEL_RANK[managed_ids[g]] for g in gids if g in managed_ids), default=0)
@@ -467,8 +520,16 @@ def _people(db: Session) -> list[dict]:
                     "managedLevel": _LEVEL_NAMES.get(managed, "none"),
                     "otherGroups": [{"id": g, "name": groups[g][0], "level": _LEVEL_NAMES.get(groups[g][1], "viewer")}
                                     for g in gids if g not in managed_ids],
+                    "files": [] if email in owners else limits.get(email, []),
                     "canChange": email not in owners})
     return out
+
+
+def _files(db: Session) -> list[dict]:
+    """Every PFS file (guarantor), for the "which PFS" picker - names only."""
+    return [{"id": r.id, "name": r.name or "(no name)", "archived": bool(r.archived)}
+            for r in db.query(models.PfsProfile.id, models.PfsProfile.name, models.PfsProfile.archived)
+            .order_by(models.PfsProfile.archived, models.PfsProfile.name).all()]
 
 
 @router.get("/people")
@@ -477,13 +538,16 @@ def pfs_people(user: dict = Depends(_owner_only), db: Session = Depends(get_db))
     with their PFS access. -> {"people": [{email, name, isOwner, level
     ("none"|"viewer"|"editor"|"full"|"owner" - what they get today, from any
     group or the owner role), managedLevel ("none"|"viewer"|"editor" - what
-    this screen set), otherGroups [{id, name, level}], canChange}],
-    "levels": ["none", "viewer", "editor"]}. Owners only."""
-    return {"people": _people(db), "levels": ["none", "viewer", "editor"]}
+    this screen set), otherGroups [{id, name, level}], files (the profile ids
+    the person is limited to; [] = every file), canChange}],
+    "levels": ["none", "viewer", "editor"], "files": [{id, name, archived}]}.
+    Owners only."""
+    return {"people": _people(db), "levels": ["none", "viewer", "editor"], "files": _files(db)}
 
 
 class PfsLevelBody(BaseModel):
     level: str    # none | viewer | editor
+    files: Optional[list[str]] = None   # which files (profile ids); [] = every file; left out = unchanged
 
 
 def _ensure_group(db: Session, level: str, by: str) -> str:
@@ -496,9 +560,12 @@ def _ensure_group(db: Session, level: str, by: str) -> str:
 
 @router.put("/people/{email}")
 def set_pfs_level(email: str, body: PfsLevelBody, user: dict = Depends(_owner_only), db: Session = Depends(get_db)):
-    """Set one person's PFS access: "none" | "viewer" | "editor". Writes the
-    PFS Viewer / PFS Editor group membership; a grant from another group stays
-    (and is reported in `otherGroups`). Audited ("pfs_access_changed").
+    """Set one person's PFS access: "none" | "viewer" | "editor", and which
+    files (`files`: profile ids, [] = every file, left out = unchanged;
+    "none" leaves them). Writes the PFS Viewer / PFS Editor group membership
+    and the person's "pfs" scope rows; a grant from another group stays (and
+    is reported in `otherGroups`) - the file limit applies whatever group
+    gives the grant. Audited ("pfs_access_changed").
     -> the person's row as GET /people returns it."""
     email = (email or "").strip().lower()
     if "@" not in email:
@@ -508,6 +575,14 @@ def set_pfs_level(email: str, body: PfsLevelBody, user: dict = Depends(_owner_on
         raise HTTPException(status_code=400, detail="level must be none, viewer or editor")
     if db.query(models.NexusRole).filter(models.NexusRole.email == email, models.NexusRole.role == "owner").first():
         raise HTTPException(status_code=400, detail="An owner always sees personal financial statements.")
+    # Files change only when sent. "none" does not clear them: a "pfs" grant
+    # from another group would otherwise widen to every file.
+    files = None
+    if body.files is not None:
+        files = sorted({f.strip() for f in body.files if f and f.strip()})
+        known = {r.id for r in db.query(models.PfsProfile.id).filter(models.PfsProfile.id.in_(files or [""])).all()}
+        if set(files) - known:
+            raise HTTPException(status_code=400, detail="One of those files no longer exists. Reload and try again.")
     before = next((p for p in _people(db) if p["email"] == email), None)
     managed_ids = [gid for gid, _n in PFS_GROUPS.values()]
     db.query(models.NexusGroupMember).filter(models.NexusGroupMember.email == email,
@@ -515,14 +590,22 @@ def set_pfs_level(email: str, body: PfsLevelBody, user: dict = Depends(_owner_on
     if level != "none":
         gid = _ensure_group(db, level, user["email"])
         db.add(models.NexusGroupMember(group_id=gid, email=email, added_by=user["email"], added_at=_iso(_now())))
+    if files is not None:
+        db.query(models.NexusAccessScope).filter(models.NexusAccessScope.email == email,
+                                                 models.NexusAccessScope.module_id == SCOPE_MODULE).delete(synchronize_session=False)
+        for fid in files:
+            db.add(models.NexusAccessScope(id=str(uuid.uuid4()), email=email, module_id=SCOPE_MODULE, scope_type=SCOPE_TYPE,
+                                           scope_id=fid, created_by=user["email"], created_at=_iso(_now())))
+    details = {"email": email, "from": (before or {}).get("managedLevel", "none"), "to": level}
+    if files is not None:
+        details.update({"filesFrom": (before or {}).get("files", []), "filesTo": files})
     db.add(models.AuditLog(timestamp=_iso(_now()), user_email=user["email"], user_role=user.get("role", ""), action="pfs_access_changed",
-                           resource_type="pfs", resource_id=email,
-                           details=json.dumps({"email": email, "from": (before or {}).get("managedLevel", "none"), "to": level})))
+                           resource_type="pfs", resource_id=email, details=json.dumps(details)))
     db.commit()
     cache.module_grants.invalidate(email)
     row = next((p for p in _people(db) if p["email"] == email), None)
     return row or {"email": email, "name": person_name(db, email), "isOwner": False, "level": level, "managedLevel": level,
-                   "otherGroups": [], "canChange": True}
+                   "otherGroups": [], "files": files or [], "canChange": True}
 
 
 @router.get("/log")
@@ -531,6 +614,9 @@ def access_log(profile_id: Optional[str] = Query(None), limit: int = Query(200, 
     """The access log, newest first (owners and editors): who, which file,
     when, what. Names of files come along so the log reads on its own."""
     q = db.query(models.PfsAccessLog)
+    allowed = allowed_files(db, user)
+    if allowed is not None:   # an editor limited to certain files reads only their log
+        q = q.filter(models.PfsAccessLog.profile_id.in_(allowed))
     if profile_id:
         q = q.filter(models.PfsAccessLog.profile_id == profile_id)
     rows = q.order_by(models.PfsAccessLog.at.desc()).limit(limit).all()

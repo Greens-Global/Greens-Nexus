@@ -3,6 +3,7 @@ import { useRole } from "../contexts/RoleContext";
 import { api } from "../api";
 import { useIsMobile } from "../lib/useIsMobile";
 import SidebarClock from "./SidebarClock";
+import NavTip from "./NavTip";
 import {
   LayoutDashboard, ShoppingCart, CheckSquare, BookOpen,
   Monitor, Wifi, Home, LayoutGrid, FileText,
@@ -181,7 +182,7 @@ export const NAV = [
   },
   // BI board (Neil, Sep 14): cross-module KPIs, sortable/filterable, reusing
   // the same widget-grid engine as Dashboard - see dashboard/useDashboards.js.
-  { view: "bi", code: "BI", label: "Business Intelligence", icon: Gauge, minRole: 'supervisor' },
+  { view: "bi", code: "INS", label: "Insights", icon: Gauge, minRole: 'supervisor' },
   { view: "credvault", code: "VLT", label: "Credential Vault", icon: KeyRound, minRole: 'supervisor' },
   { divider: true },
   { view: "support", code: "SUP",        label: "Support",        icon: HelpCircle },
@@ -219,16 +220,19 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
 
   function renderItem(item, i) {
     // ── Collapsed: icon-only rail ──
+    // The module's name shows in the sidebar's own large tooltip
+    // (components/NavTip.jsx) rather than the browser's small `title` one.
     if (collapsed) {
       return (
-        <li
-          key={item.view || i}
-          className={`nav-item nav-item--icon${activeView === item.view ? " active" : ""}`}
-          onClick={() => item.view && onNavigate(item.view)}
-          title={item.label}
-        >
-          {renderIcon(item)}
-        </li>
+        <NavTip key={item.view || i} label={item.label} side="right">
+          <li
+            className={`nav-item nav-item--icon${activeView === item.view ? " active" : ""}`}
+            onClick={() => item.view && onNavigate(item.view)}
+            aria-label={item.label}
+          >
+            {renderIcon(item)}
+          </li>
+        </NavTip>
       );
     }
 
@@ -259,10 +263,10 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
         {/* ── Collapse toggle: the edge tab, as it always was (Neil, Oct 14
             2026: a header chevron was tried and sent back) - Nexus green on
             hover. ── */}
+        <NavTip label={collapsed ? "Expand Sidebar" : "Collapse Sidebar"} side="right">
         <button
           className="sidebar-collapse-btn"
           onClick={onToggleCollapse}
-          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           {collapsed
@@ -270,14 +274,17 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
             : <ChevronLeft  style={{ width: 13, height: 13 }} />
           }
         </button>
+        </NavTip>
 
         {/* ── Header: the mark and wordmark are the way Home (Oct 14 2026). ── */}
         <div className="sidebar-header">
-          <a href="#dashboard" className="sidebar-brand" title="Dashboard" aria-label="Nexus - go to Dashboard"
+          <NavTip label="Go to Dashboard" side="right">
+          <a href="#dashboard" className="sidebar-brand" aria-label="Nexus - go to Dashboard"
             onClick={(e) => { e.preventDefault(); onNavigate('dashboard'); }}>
             <span className="dk-mark" aria-hidden="true">N</span>
             {!collapsed && <span className="company-name">Nexus</span>}
           </a>
+          </NavTip>
         </div>
 
         {/* ── Nav ── */}

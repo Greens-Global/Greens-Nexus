@@ -11,7 +11,7 @@ vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: (r) => role.l
 const shiftRequestsInbox = vi.fn();
 const timeOffList = vi.fn();
 vi.mock('../api', () => ({ api: { shiftRequestsInbox: (...a) => shiftRequestsInbox(...a), timeOffList: (...a) => timeOffList(...a) } }));
-vi.mock('../components/MyShifts', () => ({ default: () => <div>My week</div> }));
+vi.mock('../components/MyShifts', () => ({ default: ({ focusConfirm }) => <div>My week{focusConfirm ? ` confirming ${focusConfirm}` : ''}</div> }));
 vi.mock('../components/ShiftSchedule', () => ({ default: ({ focus }) => <div>Schedule grid{focus ? ` at ${focus.date} for ${focus.groupId || 'all'}` : ''}</div> }));
 vi.mock('../components/ShiftRequestsPage', () => ({ default: ({ inbox, timeoff, error }) => <div>Requests page ({error ? 'error' : inbox ? `${inbox.pending.length} + ${timeoff.length}` : 'loading'})</div> }));
 
@@ -50,6 +50,21 @@ describe('Shifts module', () => {
     role.level = 1;
     render(<Shifts activeSub="schedule:2026-10-16:g1" onSubChange={vi.fn()} />);
     expect(screen.getByText('My week')).toBeTruthy();
+  });
+
+  // Shifts Phase 3a: a publish or nudge bell's sub "mine:confirm:<publish>"
+  // lands on My Shifts with that share to confirm, for everyone; the address
+  // then goes back to plain "mine" so the same bell works twice.
+  it('hands My Shifts the share a confirm bell points at, then resets the address', () => {
+    role.level = 1;
+    const onSubChange = vi.fn();
+    render(<Shifts activeSub="mine:confirm:pub-7" onSubChange={onSubChange} />);
+    expect(screen.getByText('My week confirming pub-7')).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'My Shifts' }).getAttribute('aria-selected')).toBe('true');
+    expect(onSubChange).toHaveBeenCalledWith('mine');
+    role.level = 3;
+    render(<Shifts activeSub="mine:confirm:pub-8" onSubChange={vi.fn()} />);
+    expect(screen.getByText('My week confirming pub-8')).toBeTruthy();
   });
 
   it('gives a manager three tabs, with what waits counted on Requests', async () => {

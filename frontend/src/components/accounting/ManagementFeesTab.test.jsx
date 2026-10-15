@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
-// Accounting -> Reporting -> AMA (Oct 7): the agreements render (a render
+// Accounting -> Reporting -> Management Fees (Oct 7, renamed from AMA Oct 15): the agreements render (a render
 // smoke test - a crash here would blank the screen), the fee text, a failed
 // ledger read on one row, Billed YTD opening the ledger lines, the editor's
 // inline validation and save, the trash confirmed in place, the empty state
@@ -35,7 +35,7 @@ vi.mock('../../api', () => ({
 }));
 vi.mock('./drill', () => ({ requestReportDrill: vi.fn() }));
 
-import AmaTab, { feeText, validateAgreement } from './AmaTab';
+import ManagementFeesTab, { feeText, validateAgreement } from './ManagementFeesTab';
 import { api } from '../../api';
 import { requestReportDrill } from './drill';
 import { resetAccountingPrefs } from './prefs';
@@ -47,10 +47,10 @@ beforeEach(() => {
   api.getAmaSummary.mockImplementation(async () => summary);
 });
 
-describe('AmaTab', () => {
+describe('ManagementFeesTab', () => {
   it('renders the agreements with fees, figures and the next billing date', async () => {
-    render(<AmaTab canEdit />);
-    expect(screen.getByText('Asset Management Agreements')).toBeTruthy();
+    render(<ManagementFeesTab canEdit />);
+    expect(screen.getByText('Management Fees')).toBeTruthy();
     const name = await screen.findByText('15000 Greens Escondido, LLC.');
     const tr = name.closest('tr');
     expect(within(tr).getByText('90000 Greens Asset Management')).toBeTruthy();
@@ -66,13 +66,13 @@ describe('AmaTab', () => {
   });
 
   it('opens the ledger lines behind Billed YTD', async () => {
-    render(<AmaTab canEdit />);
+    render(<ManagementFeesTab canEdit />);
     fireEvent.click(await screen.findByRole('button', { name: /Ledger lines behind the billed fee/ }));
     expect(requestReportDrill).toHaveBeenCalledWith(expect.objectContaining({ account: '40500', entity: '90000', from: '2026-01-01', to: '2026-10-07' }));
   });
 
   it('validates inline and saves a new agreement', async () => {
-    render(<AmaTab canEdit />);
+    render(<ManagementFeesTab canEdit />);
     await screen.findByText('15000 Greens Escondido, LLC.');
     fireEvent.click(screen.getByRole('button', { name: /Add Agreement/ }));
     const dialog = await screen.findByRole('dialog', { name: 'Add Agreement' });
@@ -92,7 +92,7 @@ describe('AmaTab', () => {
   });
 
   it('removes an agreement only after Remove is confirmed in place', async () => {
-    render(<AmaTab canEdit />);
+    render(<ManagementFeesTab canEdit />);
     fireEvent.click(await screen.findByRole('button', { name: 'Remove the agreement of 15000 Greens Escondido, LLC.' }));
     fireEvent.click(screen.getByRole('button', { name: 'Keep' }));
     expect(api.deleteAmaAgreement).not.toHaveBeenCalled();
@@ -103,14 +103,14 @@ describe('AmaTab', () => {
 
   it('hides editing from viewers and shows the empty state', async () => {
     api.getAmaSummary.mockImplementation(async () => ({ year: 2026, asOf: '2026-10-07', rows: [] }));
-    render(<AmaTab />);
+    render(<ManagementFeesTab />);
     expect(await screen.findByText('No asset management agreements yet.')).toBeTruthy();
     expect(screen.queryByRole('button', { name: /Add Agreement/ })).toBeNull();
   });
 
   it('shows a plain error with Try Again', async () => {
     api.getAmaSummary.mockImplementation(async () => { throw new Error('Server error'); });
-    render(<AmaTab canEdit />);
+    render(<ManagementFeesTab canEdit />);
     expect(await screen.findByText('Server error')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Try Again' })).toBeTruthy();
   });

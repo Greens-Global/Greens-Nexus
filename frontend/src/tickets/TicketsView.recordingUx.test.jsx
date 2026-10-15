@@ -41,7 +41,8 @@ describe('Ticket summary tiles', () => {
     const tiles = [...container.querySelector('[data-tour="ticket-tiles"]').children];
     expect(tiles[0].textContent).toContain('Unassigned');
     expect(tiles[1].textContent).toContain('Open');
-    expect(tiles[0].style.background).toBe('var(--nx-surface)');
+    // With a ticket nobody owns, the whole tile is tinted amber (Neil, Oct 14: action required).
+    expect(tiles[0].style.background).toMatch(/color-mix\(in srgb, (#d97706|rgb\(217, 119, 6\)) 12%/);
     const dot = tiles[0].querySelector('span > span');
     expect(dot.style.background).toMatch(/217, 119, 6|#d97706/);
   });

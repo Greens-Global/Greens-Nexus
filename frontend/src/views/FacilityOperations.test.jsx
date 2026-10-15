@@ -17,13 +17,18 @@ const getOpsNearby = vi.fn();
 const addOpsCompetitor = vi.fn();
 const checkOpsCompetitor = vi.fn();
 const updateOpsCompetitor = vi.fn();
+const getCubbySync = vi.fn();
+const startCubbySync = vi.fn();
 vi.mock('../api', () => ({ api: {
   getOpsNearby: (...a) => getOpsNearby(...a), addOpsCompetitor: (...a) => addOpsCompetitor(...a),
   checkOpsCompetitor: (...a) => checkOpsCompetitor(...a), updateOpsCompetitor: (...a) => updateOpsCompetitor(...a),
   getFacilityOps: (...a) => getFacilityOps(...a), facilityOpsLookup: (...a) => facilityOpsLookup(...a),
   facilityOpsReport: (...a) => facilityOpsReport(...a), getOpsMarket: (...a) => getOpsMarket(...a),
   recordOpsRate: (...a) => recordOpsRate(...a),
+  getCubbySync: (...a) => getCubbySync(...a), startCubbySync: (...a) => startCubbySync(...a),
 } }));
+let isManager = false;
+vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: (r) => (r === 'manager' ? isManager : true) }) }));
 const downloadCsv = vi.fn();
 vi.mock('../operations/csv', async (orig) => ({ ...(await orig()), downloadCsv: (...a) => downloadCsv(...a) }));
 vi.mock('../components/ModuleTabs', () => ({
@@ -33,6 +38,8 @@ vi.mock('../components/ModuleTabs', () => ({
 }));
 
 const FacilityOperations = (await import('./FacilityOperations')).default;
+const { default: SyncStatus } = await import('../operations/SyncStatus');
+const { syncDelayed } = await import('../operations/sync');
 
 function facility(id, shortName, over = {}) {
   return {
@@ -63,6 +70,7 @@ function facility(id, shortName, over = {}) {
 
 const PAYLOAD = {
   organization: 'Greens Storage', fetchedAt: '2026-10-13T16:00:00Z', trend: [],
+  syncedAt: new Date().toISOString(), syncStatus: 'ok', syncRunning: false, cubbyConfigured: true,
   facilities: [facility('fac_a', 'Temecula'), facility('fac_b', 'Murrieta', { units: { total: 50, rented: 45, vacant: 5, unavailable: 0 } })],
 };
 
@@ -258,6 +266,90 @@ describe('Operations module', () => {
     render(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
     await waitFor(() => expect(screen.getByText("Couldn't load the facility figures from Cubby.")).toBeTruthy());
     expect(screen.queryByText('boom')).toBeNull();
+  });
+});
+
+describe('Cubby sync indicator', () => {
+  const NOW = Date.parse('2026-10-15T17:42:00Z');
+
+  it('says when the figures were synced, with no warning while current', () => {
+    render(<SyncStatus data={{ syncedAt: '2026-10-15T17:30:00Z', syncStatus: 'ok' }} now={NOW} />);
+    expect(screen.getByTestId('ops-sync').textContent).toMatch(/^Synced \d{1,2}:\d{2} (AM|PM)$/);
+    expect(screen.queryByText('Cubby Sync Delayed')).toBeNull();
+  });
+
+  it('warns when the last sync failed, only partly finished, or is over 45 minutes old', () => {
+    expect(syncDelayed({ syncedAt: '2026-10-15T17:30:00Z', syncStatus: 'failed' }, NOW)).toBe(true);
+    expect(syncDelayed({ syncedAt: '2026-10-15T17:30:00Z', syncStatus: 'partial' }, NOW)).toBe(true);
+    expect(syncDelayed({ syncedAt: '2026-10-15T16:50:00Z', syncStatus: 'ok' }, NOW)).toBe(true);
+    expect(syncDelayed({ syncedAt: '2026-10-15T17:00:00Z', syncStatus: 'ok' }, NOW)).toBe(false);
+    expect(syncDelayed({ syncedAt: '', syncStatus: 'live' }, NOW)).toBe(false);
+    render(<SyncStatus data={{ syncedAt: '2026-10-14T17:30:00Z', syncStatus: 'failed' }} now={NOW} />);
+    expect(screen.getByText('Cubby Sync Delayed')).toBeTruthy();
+    expect(screen.getByTestId('ops-sync').textContent).toMatch(/^Synced \d{2}\/\d{2}\/2026, /);   // another day shows the date
+  });
+
+  it('shows the indicator on the screen, and Refresh syncs then re-reads', async () => {
+    getFacilityOps.mockResolvedValue({ ...PAYLOAD, syncedAt: '2026-10-15T08:00:00Z', syncStatus: 'partial' });
+    startCubbySync.mockReset().mockResolvedValue({ started: true, runId: 'r1' });
+    getCubbySync.mockReset().mockResolvedValue({ running: false, last: { status: 'ok' } });
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      render(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
+      expect(await screen.findByText('Cubby Sync Delayed')).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: /Refresh/ }));
+      expect(await screen.findByText('Syncing…')).toBeTruthy();
+      await vi.advanceTimersByTimeAsync(3500);
+      await waitFor(() => expect(getFacilityOps).toHaveBeenLastCalledWith(true));
+      expect(startCubbySync).toHaveBeenCalledTimes(1);
+      expect(getCubbySync).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('waits for a sync someone else started instead of failing', async () => {
+    startCubbySync.mockReset().mockRejectedValue(Object.assign(new Error('A Cubby sync is already running.'), { status: 409 }));
+    getCubbySync.mockReset().mockResolvedValue({ running: false, last: { status: 'ok' } });
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      render(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
+      await screen.findByText('Facility Scorecard');
+      fireEvent.click(screen.getByRole('button', { name: /Refresh/ }));
+      await vi.advanceTimersByTimeAsync(3500);
+      await waitFor(() => expect(getFacilityOps).toHaveBeenLastCalledWith(true));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('No Cubby key on the server', () => {
+  const KEY_HINT = /An administrator needs to set CUBBY_API_KEY/;
+
+  it('says Cubby is not connected instead of a blank screen when nothing was ever synced', async () => {
+    getFacilityOps.mockResolvedValue({ organization: '', fetchedAt: '', facilities: [], trend: [], syncedAt: '',
+      syncStatus: 'not_configured', syncRunning: false, cubbyConfigured: false });
+    render(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
+    expect(await screen.findByText("Cubby is not connected on this server yet. An administrator needs to set CUBBY_API_KEY in the API's app settings.")).toBeTruthy();
+  });
+
+  it('still shows the synced figures with the delayed chip, and the key hint to managers only', async () => {
+    getFacilityOps.mockResolvedValue({ ...PAYLOAD, cubbyConfigured: false });
+    isManager = false;
+    const { unmount } = render(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
+    expect(await screen.findByText('Facility Scorecard')).toBeTruthy();
+    expect(screen.getByText('Cubby Sync Delayed')).toBeTruthy();
+    expect(screen.queryByText(KEY_HINT)).toBeNull();
+    unmount();
+    isManager = true;
+    try {
+      render(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
+      expect(await screen.findByText(KEY_HINT)).toBeTruthy();
+      expect(screen.getByText('Cubby Sync Delayed')).toBeTruthy();
+    } finally {
+      isManager = false;
+    }
   });
 });
 

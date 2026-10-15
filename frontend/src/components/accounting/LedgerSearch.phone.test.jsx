@@ -43,7 +43,7 @@ describe('LedgerSearch on a phone', () => {
     expect(within(card).getByText('22.46')).toBeTruthy();
     expect(within(card).getByText(/General · Greens Global, Inc\./)).toBeTruthy();
     expect(within(card).getByText('08/19/2026 · IA-1293173')).toBeTruthy();
-    expect(within(card).getByText('American Express')).toBeTruthy();
+    expect(within(card).getByText('V00225 American Express')).toBeTruthy();
     // A line with no description shows its memo; a credit reads in parentheses.
     const pay = screen.getByText('Payment - American Express').closest('button');
     expect(within(pay).getByText('(3,960.00)')).toBeTruthy();
@@ -61,7 +61,7 @@ describe('LedgerSearch on a phone', () => {
     expect(within(dialog).queryByRole('table')).toBeNull();
     expect(within(dialog).queryByRole('button', { name: /Fill the screen|Back to window size/ })).toBeNull();
     expect(within(dialog).getByText('Personal')).toBeTruthy();
-    expect(within(dialog).getByText('American Express')).toBeTruthy();
+    expect(within(dialog).getByText('V00225 American Express')).toBeTruthy();
     expect(within(dialog).getByText('22.46 debit · 0.00 credit')).toBeTruthy();
     expect(dialog.style.width).toBe('100vw');
   });
