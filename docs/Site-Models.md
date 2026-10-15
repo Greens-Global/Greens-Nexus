@@ -160,7 +160,7 @@ docstring at the top of `build_site_model.py`): an ordered line of units along a
 wall, hallway or painted row, with a start point (meters from a building's
 corner, or frame u,v for a lot), a direction, the side the units extend toward,
 gaps for stairs and doors, an optional fixed stall width, and an optional
-`angle` for angled parking (the stall keeps its size, sits centered in its
+`angle` for angled parking or a skewed wall (the unit keeps its size, sits centered in its
 painted parallelogram and carries `rot`). Runs are placed first; anything in no
 run falls back to the schematic layout.
 
@@ -190,7 +190,7 @@ plan. Fit lot maps to the parcel and check over the Esri imagery.
 | Austin | 1113 of 1113, numbers matched by size | As-Built Arch A1.01-A1.05 + Final Set A0.01 | No numbered plan exists: order within runs of same-size units (and the 5x5 columns' direction) follows the numbering snake - confirm on site. Gate not confirmed. |
 | Georgetown | 964 of 964, numbers matched by size | Westinghouse Storage Add 05 Architectural A1.00, A2.01-A2.03, A2.06 + 12-15-21 Unit Mix | No numbered plan exists. 4000 on the north row (B) and 6000 on the south row (D) still need an on-site check, as does the direction along each row. 1500-1504 on the west wall, 1505-1538 along the south wall. 3068 sits where the level 3 plan shows an MEP closet. |
 | Valley Center | 568 of 851 (the rest are 279 mailboxes + Z1001 in the office, and N37 / P001 / P002) | Customer Map GSVC PB v0.4 (06/24/2024) + Building B CAD maps (02/25/2023) | Building letters corrected (E1, E2, C2, F, A). F023 is 14x20 in Cubby but a 10x12 cell on the map (overlaps F041-F043) - a Cubby data question. Split B units' halves, C045-C052 door sides, parking position from imagery. |
-| Temecula | 467 of 527 | TEMECULA SITE MAP (3 sheets, 06/2022) + Cubby map snips (03/2025) | 60 units on no plan (E600-E639 and others) sit in an "Unmapped Stalls" zone off the lot - a current stall map would place them. 37 stalls run past the assessor line where the fence does. About 75 Cubby sizes differ from the painted stalls. |
+| Temecula | 467 of 527 | TEMECULA SITE MAP (3 sheets, 06/2022) + Cubby map snips (03/2025) | 59 units on no plan (E600-E639 and others) sit in an "Unmapped Stalls" zone off the lot (plus one more untraced unit elsewhere) - a current stall map would place them. Some B stalls run past the assessor line where the fence does. About 75 Cubby sizes differ from the painted stalls. |
 | Murrieta | 163 of 175 | 2024-06-20 Murrieta Customer Map PB v8 | X001, DL cells, TEST1 and zero-size records are on no plan. Containers C01-C07 are on the map but not in Cubby. |
 | Fairfield | 300 of 307 | Customer Map A-3.0 (06/09/2026) + storEDGE map + directional key | A032-A038 are inactive placeholders on no map ("Not On Site Plan" zone). X001-X004, A001A-D and H020 on weaker evidence. |
 | Escondido | 884 of 884 | Site Map 1"=20' (10/10/2023), Customer Map with RV Spots (10/18/2023), Customer Map (02/23/2024) | Building C is two stories (C300-C563 on level 2) - C300-C339 keep the drive-up rule, confirm. E and F are separate buildings; A is the bays at the office's east end. C048A is on no plan (placed in the C1-1 mechanical room); C046/C048 are drawn 5x7.5 but rented as 5x10 (one overlap). BC1/BC2, Z001, mailboxes M100-M176 and about 15 curved/corner stalls are placed on weaker evidence. Frame bearing corrected 141.5 to 140.4 degrees (saved pins may shift up to about 3 m). |

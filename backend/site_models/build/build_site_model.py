@@ -56,10 +56,10 @@ Config reference (see the *.config.json files beside this script):
                            but the plan carries no unit numbers, so the numbers
                            were matched (e.g. by size order). Those units carry
                            tr: 2 instead of 1, and the screen says to confirm.
-                 angle     optional stall angle in degrees between the run line
-                           and each stall's long axis (default 90 = square on;
-                           60 or 45 for angled parking, above 90 leans the
-                           other way). The stall keeps its real width and depth,
+                 angle     optional angle in degrees (5-175) between the run line
+                           and each unit's long axis (default 90 = square on;
+                           60 or 45 for angled parking or a skewed wall, above
+                           90 leans the other way). The stall keeps its real width and depth,
                            is centered in its painted parallelogram, and carries
                            rot (degrees, counter-clockwise in u,v) in the output;
                            the pitch along the run is width / sin(angle).
@@ -263,7 +263,9 @@ class Builder:
             self.flags.append(f"run {index + 1} ({bid}): dir and depth must be at right angles"); return
         door = r.get('door') or self.DOOR[self.OPP[r['depth']]]
         floor = int(r.get('f', 1)); s = 0.0
-        ang = float(r.get('angle', 90) or 90)
+        ang = float(r['angle']) if r.get('angle') is not None else 90.0
+        if not 5 <= ang <= 175:
+            self.flags.append(f"run {index + 1} ({bid}): angle {ang:g} is outside 5-175 degrees"); return
         th = math.radians(ang)
         ax, ay = math.cos(th) * du_ + math.sin(th) * pu, math.cos(th) * dv_ + math.sin(th) * pv   # stall axis
         rot = round(math.degrees(math.atan2(pu * ay - pv * ax, pu * ax + pv * ay)), 1)
@@ -274,7 +276,9 @@ class Builder:
             x = self.by_name.get(e)
             if x is None:
                 self.flags.append(f"run {index + 1} ({bid}): {e} is on the plan but not in the unit list")
-                s += float(r.get('width') or 0); continue
+                gap = float(r.get('width') or 0)
+                s += gap / max(0.2, math.sin(th)) if abs(ang - 90) > 0.01 else gap
+                continue
             if e in traced:
                 self.flags.append(f"run {index + 1} ({bid}): {e} is in two runs"); continue
             w = float(r.get('width') or x['wm'] or 0.35); d = x['dm'] or 0.35
