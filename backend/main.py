@@ -2983,6 +2983,20 @@ def _startup_seeds():
             db.close()
     except Exception as e:
         print(f"[startup] credential vault rehash skipped: {e}")
+    # One department head everywhere (Oct 15 2026): the ticket desk's heads
+    # become the departments' own, once (routers/tickets.py adopt_ticket_heads).
+    try:
+        from database import SessionLocal
+        from routers.tickets import adopt_ticket_heads
+        db = SessionLocal()
+        try:
+            n = adopt_ticket_heads(db)
+            if n:
+                print(f"[startup] department heads: {n} taken over from the ticket desk")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] department head adoption skipped: {e}")
 
 
 @asynccontextmanager

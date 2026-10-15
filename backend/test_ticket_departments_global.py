@@ -130,11 +130,27 @@ class GlobalDepartmentTests(unittest.TestCase):
         T.update_ticket_department("g1", T.TicketDepartmentUpdate(enabled=True), user=MANAGER, db=self.db)
         self.assertIn("Construction", self._intake())
 
-    def test_lead_email_is_still_a_ticket_setting(self):
-        T.update_ticket_department("g0", T.TicketDepartmentUpdate(lead_email=" Lead@GreensGlobal.com "),
-                                   user=MANAGER, db=self.db)
-        self.assertEqual(self.db.query(models.TicketDepartment).filter_by(id="g0").one().lead_email,
-                         "lead@greensglobal.com")
+    def test_the_head_set_here_is_the_departments_own(self):
+        # One department head everywhere (Pranshu, Oct 15 2026)
+        rows = T.update_ticket_department("g0", T.TicketDepartmentUpdate(lead_email=" Lead@GreensGlobal.com "),
+                                          user=MANAGER, db=self.db)
+        self.assertEqual(self._hr("g0").lead_email, "lead@greensglobal.com")
+        self.assertEqual(next(d for d in rows if d["id"] == "g0")["leadEmail"], "lead@greensglobal.com")
+        self._hr("g0").lead_email = "head@greensglobal.com"            # set from People > Companies
+        self.db.commit()
+        rows = T.list_ticket_departments(user={"email": ME}, db=self.db)
+        self.assertEqual(next(d for d in rows if d["id"] == "g0")["leadEmail"], "head@greensglobal.com")
+
+    def test_the_ticket_desk_heads_are_adopted_once(self):
+        T._ticket_depts(self.db, CO)                                    # settings rows exist
+        self.db.query(models.TicketDepartment).filter_by(id="g0").one().lead_email = "desk@greensglobal.com"
+        self.db.commit()
+        self.assertEqual(T.adopt_ticket_heads(self.db), 1)
+        self.assertEqual(self._hr("g0").lead_email, "desk@greensglobal.com")
+        self._hr("g0").lead_email = ""                                  # cleared afterwards stays cleared
+        self.db.commit()
+        self.assertEqual(T.adopt_ticket_heads(self.db), 0)
+        self.assertEqual(self._hr("g0").lead_email, "")
 
     def test_ticket_order_is_its_own(self):
         rows = T.reorder_ticket_departments(T.TicketDepartmentOrder(company_id=CO, ids=["g2", "g0", "g1"]),
