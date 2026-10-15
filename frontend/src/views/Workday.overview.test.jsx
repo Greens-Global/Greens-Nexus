@@ -137,6 +137,20 @@ describe('Workday Overview with the Time Clock', () => {
     expect(screen.queryByText('Signed, filed and paystubs')).toBeNull();
   }, SLOW);
 
+  // Shifts Phase 3a + Oct 15: a "confirm your schedule" bell or email is your
+  // own week, which lives on Workday's My Schedule card - the share it names
+  // is the banner in front, and the address goes back to plain Overview.
+  it('a confirm-your-schedule link opens My Schedule on that share', async () => {
+    globalThis.__answers.timeMySchedule = { scheduled: [] };
+    globalThis.__answers.timeMyConfirmations = { pending: [
+      { publishId: 'pub-6', at: '2026-10-14T10:00:00Z', changes: 1 },
+      { publishId: 'pub-7', at: '2026-10-15T10:00:00Z', changes: 2 }] };
+    const onSubChange = await renderWorkday('shifts:confirm:pub-7');
+    const banner = await waitFor(() => { const el = document.querySelector('[data-confirm-banner]'); expect(el).toBeTruthy(); return el; });
+    expect(banner.getAttribute('data-confirm-banner')).toBe('pub-7');
+    await waitFor(() => expect(onSubChange).toHaveBeenCalledWith('overview'));
+  }, SLOW);
+
   it('opens the Time Sheet from the hours', async () => {
     globalThis.__answers.timeMySchedule = { scheduled: [] };
     await renderWorkday('overview');

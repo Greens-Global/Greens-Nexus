@@ -17,6 +17,8 @@ const CATEGORIES = [
   ['operations', 'Operations'], ['sales', 'Sales'], ['engineering', 'Engineering'], ['general', 'General'],
   // One per role - the Job Description a hiring packet picks per hire (Oct 14).
   ['job_description', 'Job Description'],
+  // The single document an offer is - one per kind of hire (Neil, Oct 14).
+  ['offer_letter', 'Offer Letter'],
 ];
 
 const overlayStyle = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 };

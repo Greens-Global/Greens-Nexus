@@ -10,7 +10,8 @@ import WeatherChip from './WeatherChip';
 import { formatDate } from '../../lib/datetime';
 import { Avatar } from '../ShiftScheduleExtras';
 import { ShiftBlock, TimeOffBlock, HolidayBlock } from './ShiftBlock';
-import { isoDate, dayShort, fmtHrs, todayIso, planMinutes, counts, sectionKey, shiftShortText } from './shiftLib';
+import { AdherenceLine } from './WeekGrid';
+import { isoDate, dayShort, fmtHrs, todayIso, planMinutes, counts, sectionKey, shiftShortText, actualFor, actualColor, actualWord } from './shiftLib';
 
 // The strip: one chip per day, the picked one filled, today ringed, a dot
 // for a day with a note. Scrolls sideways when the week is wider than the
@@ -67,7 +68,7 @@ export function firstDay(days) {
 }
 
 export default function SchedulePhone({ days, sections, byCell, openCells, offOn, holOn, usualOf = () => null, notes, weather = {}, holidayDates, me, prefs, teamZone, canManage,
-  rowEditable, empWeekMin, dayStats, dragId, collapsed, copied, on, single = false, emptyNote = null }) {
+  rowEditable, empWeekMin, dayStats, dragId, collapsed, copied, on, single = false, emptyNote = null, actualOf = null, adherence = null }) {
   const [day, setDay] = useState(() => firstDay(days));
   // A new range (next week) lands on today or its first day.
   useEffect(() => { setDay((d) => (days.some((x) => isoDate(x) === d) ? d : firstDay(days))); }, [days]);
@@ -76,10 +77,20 @@ export default function SchedulePhone({ days, sections, byCell, openCells, offOn
   const stats = d ? dayStats(d) : { shifts: 0, min: 0 };
   const hol = holidayDates.has(ds);
   const press = (ctx) => ({ onContextMenu: (e) => on.menu(e, ctx), onPointerDown: (e) => on.longPress(e, ctx) });
-  const block = (s, email, groupId) => (
+  // Actuals (Phase 1): the day's clock result rides on the block as its bar,
+  // and the row's hours line says the word when it is not on time.
+  const block = (s, email, groupId, sole = false) => (
     <ShiftBlock key={s.id} shift={s} open={!email} teamZone={teamZone} dragging={dragId === s.id} showConflicts={prefs.conflicts !== false}
+      actual={actualOf && email ? actualFor(actualOf(email, ds), s, sole) : null}
       onOpen={(e) => on.openShift(e, s, email, ds)} {...press({ email, date: ds, groupId, shift: s })} />
   );
+  const rowSub = (email) => {
+    const hrs = fmtHrs(empWeekMin(email));
+    const a = actualOf ? actualOf(email, ds) : null;
+    const word = a && a.status && a.status !== 'upcoming' && a.status !== 'on_time' ? actualWord(a.status) : '';
+    if (!word) return hrs;
+    return <>{hrs} · <span data-actual-word={a.status} style={{ color: actualColor(a.status, 'var(--wk-brand)'), fontWeight: 700 }}>{word}</span></>;
+  };
   const emptyTap = (email, groupId, editable) => (editable ? () => { if (copied) on.paste(email, ds, groupId); else on.cellClick(email, ds, groupId); } : undefined);
   const openRow = (g) => {
     const gid = g.id || '';
@@ -98,6 +109,7 @@ export default function SchedulePhone({ days, sections, byCell, openCells, offOn
   };
   return (
     <div>
+      {adherence && <AdherenceLine text={adherence} style={{ whiteSpace: 'normal' }} />}
       <DayStrip days={days} value={day} onChange={setDay} countOf={(k) => dayStats(days.find((x) => isoDate(x) === k)).shifts} noteOn={(k) => !!notes[k]} />
       <div role="list" aria-label={`Schedule for ${formatDate(ds)}`} style={{ border: '1px solid var(--line)', borderRadius: 12, background: 'var(--card)', overflow: 'hidden' }}>
         <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--line)', background: 'var(--bg)', display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
@@ -108,7 +120,10 @@ export default function SchedulePhone({ days, sections, byCell, openCells, offOn
           <span style={{ flex: 1 }} />
           {(notes[ds] || canManage) && (
             <button type="button" onClick={() => on.noteEdit(ds)} disabled={!canManage} aria-label={notes[ds] ? `Edit the note for ${formatDate(ds)}` : `Add a note for ${formatDate(ds)}`} title={notes[ds] || 'Add a day note'}
-              style={{ border: 'none', background: 'none', cursor: canManage ? 'pointer' : 'default', padding: 0, display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0, maxWidth: '55%', fontFamily: 'inherit',
+              // Padding pulled back with a negative margin: a finger-sized
+              // target (the bare 11px icon was the only thing to tap) with
+              // the header row laid out exactly as before.
+              style={{ border: 'none', background: 'none', cursor: canManage ? 'pointer' : 'default', padding: '9px 8px', margin: '-9px -8px', display: 'inline-flex', alignItems: 'center', gap: 4, minWidth: 0, maxWidth: '55%', fontFamily: 'inherit',
                 fontSize: 11, fontWeight: 600, color: notes[ds] ? 'hsl(var(--color-orange))' : 'var(--muted)' }}>
               <StickyNote size={11} style={{ flexShrink: 0 }} />
               {notes[ds] && <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{notes[ds]}</span>}
@@ -141,12 +156,12 @@ export default function SchedulePhone({ days, sections, byCell, openCells, offOn
                 const editable = rowEditable(emp.email);
                 const isMe = emp.email === me;
                 return (
-                  <PhoneRow key={emp.email} data-cell={`${emp.email}|${ds}`} isMe={isMe} name={emp.name} sub={fmtHrs(empWeekMin(emp.email))} sub2={usual ? `Usual ${shiftShortText(usual)}` : ''}
+                  <PhoneRow key={emp.email} data-cell={`${emp.email}|${ds}`} isMe={isMe} name={emp.name} sub={rowSub(emp.email)} sub2={usual ? `Usual ${shiftShortText(usual)}` : ''}
                     avatar={prefs.photos !== false ? <Avatar name={emp.name} photoUrl={emp.photoUrl} size={28} /> : null}
                     onTap={!items.length ? emptyTap(emp.email, g.id || '', editable) : undefined} {...press({ email: emp.email, date: ds, groupId: g.id || '', shift: null })}>
                     {h && <HolidayBlock holiday={h} />}
                     {off.map((t, i) => <TimeOffBlock key={t.id || i} off={t} />)}
-                    {items.map((s) => block(s, emp.email, g.id || ''))}
+                    {items.map((s) => block(s, emp.email, g.id || '', items.length === 1))}
                     {!items.length && !off.length && !h && editable && <AddHint />}
                   </PhoneRow>
                 );

@@ -3,7 +3,7 @@
 // ShiftSchedule.jsx, which is the container; the grid itself is
 // components/shifts/WeekGrid.jsx (Oct 2026 rebuild, redesigned 10/02).
 import { useEffect, useState } from 'react';
-import { X, Upload, Pencil, Plus, CalendarOff, Palette, CalendarRange, Copy, ClipboardPaste, Trash2, Search, Clock, CalendarDays } from 'lucide-react';
+import { X, Upload, Pencil, Plus, CalendarOff, Palette, CalendarRange, Copy, ClipboardPaste, Trash2, Search, Clock, CalendarDays, History } from 'lucide-react';
 import { parseScheduleSheet } from './shiftScheduleLib';
 import { formatDate, formatWeekday } from '../lib/datetime';
 import { Spinner } from './AsyncState';
@@ -179,6 +179,7 @@ export function ShiftMenu({ menu, presets = [], canTimeOff, hasCopied, onAction,
         </>
       )}
       {canTimeOff && menu.email && <MenuItem Icon={CalendarOff} label="Add Time Off" onClick={() => onAction('timeoff')} />}
+      {!s && menu.history?.length > 0 && <MenuItem Icon={History} label="History" onClick={() => onAction('history')} />}
       {s && <MenuItem Icon={Palette} label="Color" hint={colorsOpen ? '▾' : '▸'} onClick={() => setColorsOpen((o) => !o)} />}
       {s && colorsOpen && (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '4px 12px 8px 35px' }}>

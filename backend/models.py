@@ -977,6 +977,17 @@ class HrCandidate(Base):
     resume_url     = Column(String, default="")               # hr-docs storage path (private; signed URL to view)
     notes          = Column(String, default="")
     employee_id    = Column(String, default="")               # set when hired
+    # Neil, Oct 14: the interview is expected by this day - screening has to be
+    # done one business day before it.
+    expected_interview_on = Column(String, default="")        # ISO date
+    # A rejected candidate leaves the board: Remove, or 90 days after the
+    # rejection (Neil, Oct 14: "after 90 days it gets taken out and gets moved
+    # to like inactive"). Reopen brings them back.
+    rejected_at    = Column(String, default="")               # ISO datetime of the rejection
+    inactive_at    = Column(String, default="")               # ISO datetime removed from the board
+    # The "Screen <name>" task for the department head and up (Oct 14,
+    # hiring_screening.py) - its due date follows the interview.
+    screen_task_id = Column(String, default="")               # Task.id
     created_by     = Column(String, default="")
     created_at     = Column(String, default="")
     updated_at     = Column(String, default="")
@@ -991,6 +1002,9 @@ class HrStageEvent(Base):
     note         = Column(String, default="")
     by_email     = Column(String, default="")
     created_at   = Column(String, default="")
+    # Neil, Oct 14: one Notes section, "consolidated with time and date and
+    # person who put it in" - a plain note is a row here too ('' = a stage move).
+    kind         = Column(String, default="")               # '' (move) | note
 
 
 class HrLeaveRequest(Base):
@@ -2405,6 +2419,11 @@ class Shift(Base):
     # onto each placement (ScheduledShift.break_min), so scheduled hours on the
     # grid are PAID hours. Pay itself still comes from real punches.
     break_min  = Column(Integer, default=0)
+    # Shifts Phase 0 (Neil, Oct 14 2026): the HrEntity company this shift
+    # type belongs to; '' = shared with every company. A company-scoped
+    # People admin manages only their own company's types; shared ones
+    # take company-wide access (timeclock._require_company_manage).
+    company_id = Column(String, default="")
 
 
 class ScheduledShift(Base):
@@ -2506,6 +2525,9 @@ class ShiftGroup(Base):
     weather_decider_emails = Column(String, default="")
     # 1 = the weather watch includes this group (when its company is switched on).
     weather_alerts  = Column(Integer, default=1)
+    # Shifts Phase 0 (Oct 14 2026): the HrEntity company this group belongs
+    # to; '' = shared across companies (managed company-wide only).
+    company_id      = Column(String, default="")
 
 
 class ShiftGroupMember(Base):
@@ -5813,7 +5835,7 @@ class HrPacketSetting(Base):
     __tablename__ = "hr_packet_settings"
     id               = Column(String, primary_key=True)           # uuid
     entity_id        = Column(String, default="", index=True)     # HrEntity.id ('' = every company)
-    event            = Column(String, nullable=False)             # hire | promotion | separation
+    event            = Column(String, nullable=False)             # offer | hire | promotion | separation
     worker_type      = Column(String, default="any")              # any | employee | contractor
     template_id      = Column(String, default="")                 # HrSignTemplate.id
     subject_role     = Column(String, default="employee")         # template role the person signs as
@@ -5853,6 +5875,14 @@ class HrPacketSetting(Base):
     # consentVersion, otpChallengeId, ip, userAgent, replacedAt}] - never
     # deleted; a new holder's adoption marks the old one replaced.
     saved_signatures = Column(JSON, default=list)
+    # Offer letters (event 'offer', Oct 14) and hiring packets are also picked
+    # by where the person works - "if it's an Indian contractor, it needs a
+    # different document" (Neil): ISO country code, '' = any country.
+    country          = Column(String, default="")
+    # Building blocks (Oct 14): documents added for a team or a role on top
+    # of doc_template_ids - "there's a different confidentiality agreement for
+    # each team" (Neil). [{match: department | role, value, templateIds: []}]
+    extra_docs       = Column(JSON, default=list)
 
 
 class HrLifeEvent(Base):
@@ -5864,7 +5894,7 @@ class HrLifeEvent(Base):
     New table - RLS per CLAUDE.md (main.py list + the startup sweep)."""
     __tablename__ = "hr_life_events"
     id              = Column(String, primary_key=True)            # uuid
-    kind            = Column(String, nullable=False, index=True)  # hire | promotion | separation
+    kind            = Column(String, nullable=False, index=True)  # offer | hire | promotion | separation
     status          = Column(String, default="awaiting_sender")   # awaiting_sender | sent | completed | declined | voided | expired
     entity_id       = Column(String, default="", index=True)      # HrEntity.id
     candidate_id    = Column(String, default="", index=True)      # hire: HrCandidate.id
@@ -6116,6 +6146,13 @@ class NexusPersonPref(Base):
     email       = Column(String, primary_key=True)
     weather_sms = Column(Integer, default=1)
     updated_at  = Column(String, default="")
+    # Shifts Phase 3a (Neil, Oct 14 2026, shift_calendar.py): 1 = their shared
+    # shifts go onto their Outlook calendar (the company switch must be on
+    # too); 0 = they opted out. Added column -> ALTER lines in main.py.
+    shift_calendar = Column(Integer, default=1)
+    # The per-person salt in their calendar subscribe link (routers/
+    # shift_ical.py): rotating it invalidates every link issued before.
+    ical_salt   = Column(String, default="")
 
 
 class TaskAutomationRun(Base):
@@ -6407,3 +6444,144 @@ class AccountingAmaSetting(Base):
     accountants = Column(JSON, default=list)                       # ['person@greensglobal.com', ...]
     updated_by  = Column(String, default="")
     updated_at  = Column(String, default="")
+
+
+class ShiftNoShowAlert(Base):
+    """Shifts Phase 1 (Oct 14 2026, shift_attendance.py): the no-show scan's
+    own memory and the record of what it told whom. One row per recipient,
+    group ('-' when the shift has no group) and work date: people_json lists
+    the people that recipient was told were not in (email, name, scheduled
+    start, minutes late), first_at / last_at bracket the alert, emailed_at is
+    stamped once (one email per recipient per group-day), resolved_at when
+    the set emptied and the bell was closed. New table - create_all builds
+    it; RLS comes from main._enable_rls_everywhere's startup sweep."""
+    __tablename__ = "shift_noshow_alerts"
+    id          = Column(String, primary_key=True)                 # uuid
+    group_id    = Column(String, default="", index=True)           # ShiftGroup.id, or '-' for no group
+    work_date   = Column(String, default="", index=True)           # YYYY-MM-DD (the shift's own zone)
+    recipient   = Column(String, default="", index=True)           # who holds the bell
+    people_json = Column(String, default="")                       # [{email, name, start, lateMin}]
+    first_at    = Column(String, default="")                       # UTC ISO
+    last_at     = Column(String, default="")
+    emailed_at  = Column(String, default="")
+    resolved_at = Column(String, default="")
+
+
+class ShiftChangeLog(Base):
+    """Shifts Phase 2 (Oct 14 2026, shift_log.py): who did what to a placed
+    shift, in order. One row per shift per action - created, edited (an
+    unshared edit saved), removed, assigned, copied, moved, cleared,
+    discarded, shared (a publish: every row it shared carries the reason
+    given and the publish_id), claimed / swapped / offered (a request
+    approved), weather (a weather call applied or reversed). before_json /
+    after_json hold the small {start, end, label, shiftId, date, email,
+    openSlots} snapshot either side. Rows outlive their shift: a removed
+    shift's history stays. New table - create_all builds it; RLS comes from
+    main._enable_rls_everywhere's startup sweep."""
+    __tablename__ = "shift_change_log"
+    id             = Column(String, primary_key=True)              # uuid
+    shift_id       = Column(String, default="", index=True)        # ScheduledShift.id
+    employee_email = Column(String, default="", index=True)        # '' for an open slot
+    work_date      = Column(String, default="", index=True)        # YYYY-MM-DD at the time
+    action         = Column(String, default="", index=True)
+    actor          = Column(String, default="", index=True)        # who made the change
+    at             = Column(String, default="", index=True)        # UTC ISO
+    before_json    = Column(String, default="")
+    after_json     = Column(String, default="")
+    reason         = Column(String, default="")                    # a publish over warnings, a weather call
+    publish_id     = Column(String, default="", index=True)        # one per publish; '' otherwise
+
+
+class ShiftCalendarEvent(Base):
+    """Shifts Phase 3a (Oct 14 2026, shift_calendar.py): the Outlook event
+    that mirrors one shared shift on one person's calendar. One row per
+    (shift, person); the sync loop works the queue - state pending (create
+    or update), delete (the shift is gone, cancelled or someone else's), ok,
+    error (last_error says why; retried), skipped (the company switch is
+    off, the person opted out, no Microsoft 365 account). synced_hash is
+    the event body last sent, so an unchanged shift is never re-sent. New
+    table - create_all builds it; RLS comes from main._enable_rls_everywhere's
+    startup sweep."""
+    __tablename__ = "shift_calendar_events"
+    id             = Column(String, primary_key=True)              # uuid
+    shift_id       = Column(String, default="", index=True)        # ScheduledShift.id
+    employee_email = Column(String, default="", index=True)
+    event_id       = Column(String, default="")                    # Graph event id; '' = none yet
+    synced_hash    = Column(String, default="")
+    synced_at      = Column(String, default="")                    # UTC ISO
+    state          = Column(String, default="pending", index=True)
+    last_error     = Column(String, default="")
+    updated_at     = Column(String, default="", index=True)
+    # Failed tries since the row was last queued (review, Oct 15): an errored
+    # row is retried until shift_calendar.MAX_ATTEMPTS, then left as error
+    # until the shift changes again - never retried forever. A 4xx Graph
+    # refuses for good jumps straight there. Added column -> ALTER lines in main.py.
+    attempts       = Column(Integer, default=0)
+
+
+class ShiftPublish(Base):
+    """Shifts Phase 3a (Oct 14 2026): one row per Share (publish) of the
+    schedule - who, when, the range, the team it was narrowed to, the reason
+    given over warnings, and how many shifts it changed. shift_change_log
+    rows carry the same publish_id; shift_publish_confirms say who has seen
+    it. New table - create_all builds it; RLS comes from
+    main._enable_rls_everywhere's startup sweep."""
+    __tablename__ = "shift_publishes"
+    id         = Column(String, primary_key=True)                  # the publish_id
+    by         = Column(String, default="", index=True)
+    at         = Column(String, default="", index=True)            # UTC ISO
+    start_date = Column(String, default="")                        # YYYY-MM-DD
+    end_date   = Column(String, default="")
+    group_id   = Column(String, default="")
+    reason     = Column(String, default="")
+    changes    = Column(Integer, default=0)
+
+
+class ShiftPublishConfirm(Base):
+    """Shifts Phase 3a (Oct 14 2026, shift_confirm.py): a person asked to
+    confirm they have seen a publish that changed their shifts. One row per
+    (publish, person), made when the publish is announced and the company's
+    confirmRequests switch is on; confirmed_at when they pressed Confirm,
+    nudged_at when a manager sent the one reminder allowed. New table -
+    create_all builds it; RLS comes from main._enable_rls_everywhere's
+    startup sweep."""
+    __tablename__ = "shift_publish_confirms"
+    id             = Column(String, primary_key=True)              # uuid
+    publish_id     = Column(String, default="", index=True)        # ShiftPublish.id
+    employee_email = Column(String, default="", index=True)
+    confirmed_at   = Column(String, default="")                    # UTC ISO; '' = not yet
+    nudged_at      = Column(String, default="")                    # UTC ISO; '' = never
+
+
+class ShiftAvailabilityDate(Base):
+    """Shifts Phase 3b (Oct 14 2026): when a person can work on ONE date, on
+    top of their weekly pattern (ShiftAvailability). A dated row wins over
+    the weekday rule for that date in the schedule's conflict check
+    (routers/timeclock._shift_conflicts): `unavailable` = not that day,
+    `available` = only between start and end. Staff set their own in My
+    Workday > Shifts (PUT /timeclock/availability/mine replaces the rows
+    from today on; past dates are kept as a record). New table - create_all
+    builds it; RLS comes from main._enable_rls_everywhere's startup sweep."""
+    __tablename__ = "shift_availability_dates"
+    id             = Column(String, primary_key=True)              # uuid
+    employee_email = Column(String, index=True, nullable=False)
+    date           = Column(String, index=True, nullable=False)    # YYYY-MM-DD
+    kind           = Column(String, default="unavailable")         # unavailable | available
+    start_hhmm     = Column(String, default="")
+    end_hhmm       = Column(String, default="")
+    note           = Column(String, default="")
+    created_at     = Column(String, default="")
+
+
+class ShiftAvailabilityPref(Base):
+    """Shifts Phase 3b (Oct 14 2026): a person's own hours preferences. 0 =
+    not set. `max_hours_week` is a week cap like the company's
+    ruleMaxWeekHours (shift_rules.py warns past the tighter of the two);
+    `preferred_hours_week` is informational - the grid shows "prefers 24h"
+    on the person cell and nothing warns on it. New table - create_all
+    builds it; RLS comes from main._enable_rls_everywhere's startup sweep."""
+    __tablename__ = "shift_availability_prefs"
+    employee_email       = Column(String, primary_key=True)
+    preferred_hours_week = Column(Integer, default=0)
+    max_hours_week       = Column(Integer, default=0)
+    updated_at           = Column(String, default="")

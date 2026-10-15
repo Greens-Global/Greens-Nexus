@@ -66,7 +66,9 @@ const TAB_META = {
 // (Neil, Oct 13 2026: "the personal shift data should move into your
 // Workday" - the My Schedule card on Overview, MyHR.jsx) - a bookmark, a
 // bell or an email that still says 'clock' or 'shifts' lands there.
-const tabFor = (sub) => (sub === 'clock' || sub === 'shifts' ? 'overview' : sub);
+const tabFor = (sub) => (sub === 'clock' || /^shifts(:|$)/.test(sub || '') ? 'overview' : sub);
+// "shifts:confirm:<publish id>" (Shifts Phase 3a): a schedule to confirm - My Schedule shows its banner.
+const confirmOf = (sub) => (String(sub || '').match(/^shifts:confirm:(.+)$/) || [])[1] || '';
 // Work OS card-header title (sentence case, no uppercase tracking).
 const HD = { fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' };
 
@@ -463,6 +465,9 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   // setTab(...) call below just updates local state - the effects further
   // down mirror it out to activeSub/the URL in one place, so no call site had
   // to change (Pranshu, Sep 4: switching tabs left the URL on /myhr forever).
+  // Held past the address rewrite below (it goes back to plain 'overview').
+  const [focusConfirm, setFocusConfirm] = useState(() => confirmOf(activeSub));
+  useEffect(() => { const c = confirmOf(activeSub); if (c) setFocusConfirm(c); }, [activeSub]);
   const [tab, setTab] = useState(() => {
     const t = tabFor(activeSub) || tabFor(initialTab);
     return TAB_META[t] ? t : 'overview';
@@ -471,7 +476,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     const t = tabFor(activeSub);
     if (TAB_META[t] && t !== tab) setTab(t);
     // An old 'clock' or 'shifts' address already shows Overview - rewrite it to say so.
-    else if ((activeSub === 'clock' || activeSub === 'shifts') && onSubChange) onSubChange(tab);
+    else if ((activeSub === 'clock' || /^shifts(:|$)/.test(activeSub || '')) && onSubChange) onSubChange(tab);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSub]);
   useEffect(() => {
@@ -1257,7 +1262,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       {/* Overview: the Time Clock widget first, then the employee's own HR
           page (profile, hours, documents, time off, Ask HR). */}
       {tab === 'overview' && (
-        <MyHROverview clock={clockWidget} onOpenTimeOff={() => setTab('timeoff')} onOpenTimeSheet={exemptKnown ? undefined : () => setTab('timesheet')} />
+        <MyHROverview focusConfirm={focusConfirm} clock={clockWidget} onOpenTimeOff={() => setTab('timeoff')} onOpenTimeSheet={exemptKnown ? undefined : () => setTab('timesheet')} />
       )}
 
       {/* Timesheets submitted to me, not decided yet - above my own timesheet,

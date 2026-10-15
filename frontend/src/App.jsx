@@ -443,7 +443,13 @@ function parsePath() {
   // and /shifts/mine links (bells, emails, bookmarks) land there.
   if (raw === 'directory') return { view: 'shifts', sub: 'contact' };
   const view = PATH_TO_VIEW[raw] || raw;
-  if (view === 'shifts' && segs[1] === 'mine') return { view: 'myhr', sub: 'shifts' };
+  // ...and a "confirm your schedule" link (Shifts Phase 3a: the email's
+  // ?confirm=<id>, the bell's mine:confirm:<id>) opens My Schedule on it.
+  if (view === 'shifts' && /^mine(:|$)/.test(segs[1] || '')) {
+    const confirm = new URLSearchParams(window.location.search).get('confirm')
+      || ((segs[1] || '').match(/^mine:confirm:(.+)$/) || [])[1] || '';
+    return { view: 'myhr', sub: confirm ? `shifts:confirm:${confirm}` : 'shifts' };
+  }
   return { view, sub: segs[1] || null };
 }
 
@@ -680,7 +686,10 @@ function MainApp() {
     if (view === 'admin') { view = 'admin-console'; sub = 'access'; }
     // Contact Directory -> Team > Contact, My Shifts -> Workday (see parsePath).
     if (view === 'directory') { view = 'shifts'; sub = 'contact'; }
-    if (view === 'shifts' && sub === 'mine') { view = 'myhr'; sub = 'shifts'; }
+    if (view === 'shifts' && /^mine(:|$)/.test(sub || '')) {
+      const confirm = ((sub || '').match(/^mine:confirm:(.+)$/) || [])[1] || '';
+      view = 'myhr'; sub = confirm ? `shifts:confirm:${confirm}` : 'shifts';
+    }
     setActiveView(view);
     setActiveSub(sub ?? getDefaultSub(view));
     setSidebarOpen(false);

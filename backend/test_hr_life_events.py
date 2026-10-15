@@ -535,7 +535,7 @@ class HiringPacketTests(LifeEventCase):
         with self.assertRaises(hle.PacketError) as e:
             self._send()
         self.assertIn("already in People as active", str(e.exception))
-        r = self.client.patch("/hr/candidates/cand-1", json={"stage": "hired"})     # Mark Hired By Hand
+        r = self.client.patch("/hr/candidates/cand-1", json={"stage": "hired", "stage_note": "Signed on paper"})     # Mark Hired By Hand
         self.assertEqual(r.status_code, 409, r.text)
 
     def test_old_pay_is_only_shown_to_pay_holders(self):
@@ -1113,7 +1113,7 @@ class EmailAndRoleTests(LifeEventCase):
 
 class SharedHireAndPayTests(LifeEventCase):
     def test_mark_hired_still_builds_the_employee(self):
-        out = hr_router.update_candidate("cand-1", hr_router.CandidateUpdate(stage="hired"),
+        out = hr_router.update_candidate("cand-1", hr_router.CandidateUpdate(stage="hired", stage_note="Signed on paper"),
                                          user=HR_USER, db=self.db)
         emp = self.db.query(models.NexusEmployee).filter_by(id=out["employeeId"]).first()
         self.assertEqual((emp.job_title, emp.status, emp.employment_type), ("Analyst", "onboarding", "full_time"))

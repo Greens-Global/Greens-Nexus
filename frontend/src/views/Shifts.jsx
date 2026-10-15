@@ -46,6 +46,8 @@ export default function Shifts({ activeSub, onSubChange }) {
   const [subKey, focusDate = '', focusGroup = ''] = String(activeSub || '').split(':');
   const tab = tabs.some(([k]) => k === subKey) ? subKey : 'shifts';
   const focus = tab === 'schedule' && /^\d{4}-\d{2}-\d{2}$/.test(focusDate) ? { date: focusDate, groupId: focusGroup } : null;
+  // A publish or nudge bell's "mine:confirm:<publish id>" (Shifts Phase 3a)
+  // is your OWN week, so App.jsx sends it to Workday's My Schedule (Oct 15).
   // Consumed once: the schedule has landed (its own effect ran first), so
   // the address goes back to plain "schedule" and the same bell clicked
   // again is a change again.

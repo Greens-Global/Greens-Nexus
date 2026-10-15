@@ -2,7 +2,7 @@
 // grid, My Shifts, the team grid, the request cards and the settings. One
 // rule for hours, one for time off, one set of date helpers - the three
 // grids used to disagree on all of them (Shifts QA, 10/02).
-import { formatHHMM, formatWeekday, formatMonthDay, formatMonthYear, formatRangeShort, formatDate, weekOfYear } from '../../lib/datetime';
+import { formatHHMM, formatTime, formatTimeIn, formatWeekday, formatMonthDay, formatMonthYear, formatRangeShort, formatDate, weekOfYear } from '../../lib/datetime';
 
 // ── Dates ────────────────────────────────────────────────────────────────
 // The LOCAL calendar date as YYYY-MM-DD. toISOString() is UTC, so east of UTC
@@ -280,12 +280,19 @@ export function conflictMap(scheduled = [], timeoff = [], availability = {}) {
           const off = isAllDayOff(t) ? [dayIndex(ds) * 1440, dayIndex(ds) * 1440 + 1440] : spanOf(ds, t.startTime, t.endTime);
           if (hits(mine, off)) { seen.add(t); found.push(['timeoff', `On approved ${offType(t)}`]); }
         }));
+        // A row for THIS date (Phase 3b, {date, kind, ...}) replaces the
+        // weekday rule for that day - "not this Tuesday" or "only 9-1 this
+        // Tuesday" - the same precedence as the server's _shift_conflicts;
+        // the trailing {kind: 'prefs'} row matches neither.
         const wd = (parseIso(s.date).getDay() + 6) % 7;
-        avail.filter((a) => a.weekday === wd).forEach((a) => {
-          if (a.kind === 'unavailable') found.push(['availability', `Outside availability: ${DAY3[wd]} unavailable`]);
-          else if (a.start && a.end) {
+        const dated = avail.filter((a) => a?.date === s.date);
+        const rows = dated.length ? dated : avail.filter((a) => a?.weekday === wd);
+        rows.forEach((a) => {
+          const on = a.date ? formatDate(a.date) : DAY3[wd];
+          if (a.kind === 'unavailable') found.push(['availability', `Outside availability: ${on} unavailable`]);
+          else if (a.kind === 'available' && a.start && a.end) {
             const win = spanOf(s.date, a.start, a.end);
-            if (win && !(win[0] <= mine[0] && mine[1] <= win[1])) found.push(['availability', `Outside availability: ${DAY3[wd]} ${shortTimeText(a.start, a.end)}`]);
+            if (win && !(win[0] <= mine[0] && mine[1] <= win[1])) found.push(['availability', `Outside availability: ${on} ${shortTimeText(a.start, a.end)}`]);
           }
         });
       }
@@ -322,4 +329,107 @@ export function coverageFor(members, dayIsos, { byCell = {}, offOn = () => [], u
     const tone = !expected.length && !on.length ? 'none' : short === 0 ? 'met' : short === 1 ? 'short1' : 'short2';
     return { date: ds, expected: expected.length, on: on.length, missing, off, short, tone };
   });
+}
+
+// ── Actuals (Phase 1, Oct 14: the schedule meets the clock) ──────────────
+// What the clock said against a scheduled shift, one cell per person and
+// day from GET /timeclock/schedule/actuals:
+//   { shiftId, status, firstIn, lastOut, workedMin, lateMin, earlyMin, excuse }
+// status: upcoming | in_progress | on_time | late | left_early | no_show |
+// excused | exempt. The block draws ONE thin bar in the status color and
+// says the rest on hover; the week line above the grid adds the totals.
+export const ACTUAL_WORDS = { upcoming: 'Upcoming', in_progress: 'In Progress', on_time: 'On Time', late: 'Late', left_early: 'Left Early', no_show: 'No-Show', excused: 'Excused', exempt: 'Exempt' };
+// A one-letter cue at the right end of the bar for anyone who cannot tell
+// the colors apart (Oct 15): L late, E left early, N no-show, a check on
+// time. Nothing while it runs or when nothing was judged.
+export const ACTUAL_LETTERS = { on_time: '\u2713', late: 'L', left_early: 'E', no_show: 'N' };
+export const actualLetter = (status) => ACTUAL_LETTERS[status] || '';
+// What the API's `excuse` and `over` keys mean in words.
+export const EXCUSE_WORDS = { time_off: 'approved time off', holiday: 'company holiday', weather: 'weather call', sick: 'sick leave', vacation: 'vacation', personal: 'personal time' };
+export const OVER_WORDS = { time_off: 'Scheduled over approved time off', holiday: 'Scheduled over a company holiday' };
+const excuseWord = (x) => EXCUSE_WORDS[x] || x || '';
+const ACTUAL_COLORS = { on_time: 'hsl(var(--color-green))', late: 'hsl(var(--color-orange))', left_early: 'hsl(var(--color-orange))', no_show: 'hsl(var(--color-red))', excused: 'var(--muted)', exempt: 'var(--muted)' };
+// The bar's color: green / orange / red / grey by status; a shift still in
+// progress wears the block's own color (`own`). Nothing for an upcoming one.
+export function actualColor(status, own = DEFAULT_SHIFT_COLOR) {
+  if (status === 'in_progress') return own;
+  return ACTUAL_COLORS[status] || '';
+}
+export const actualWord = (status) => ACTUAL_WORDS[status] || '';
+// A punch stamp is naive UTC ("2026-10-12T15:04:00", no Z) like every punch
+// the API sends; read as UTC, shown on the SHIFT'S clock (the cell's `tz`,
+// the zone the scan judged it in - a Los Angeles manager reading an India
+// crew's 9:04 AM clock-in sees 9:04 AM), the viewer's own clock only when
+// the cell carries no zone.
+export function punchDate(iso) {
+  if (!iso) return null;
+  const t = Date.parse(`${String(iso).slice(0, 19)}Z`);
+  return Number.isNaN(t) ? null : new Date(t);
+}
+export function punchTime(iso, tz = '') {
+  const d = punchDate(iso);
+  if (!d) return '';
+  if (tz) { try { return formatTimeIn(d, tz); } catch { /* an unknown zone: the viewer's clock */ } }
+  return formatTime(d);
+}
+// The hover lines, one per fact, joined with newlines (the block's title):
+//   "Clocked in 8:04 AM (4 min late)" / "Clocked out 5:02 PM (23 min early)"
+//   "No clock-in (no-show)" / "Excused: approved time off" / "In progress since 8:04 AM"
+//   A cell shared over approved time off or a holiday adds "Scheduled over
+//   approved time off"; a `private` cell (the API gave a reader who is not
+//   a manager status words only) is just the word.
+export function actualLabel(a) {
+  const status = a?.status;
+  if (!status || status === 'upcoming') return '';
+  const over = OVER_WORDS[a.over] || '';
+  const withOver = (text) => (over ? `${text}\n${over}` : text);
+  if (a.private) return withOver(ACTUAL_WORDS[status] || '');
+  const inAt = punchTime(a.firstIn, a.tz), outAt = punchTime(a.lastOut, a.tz);
+  if (status === 'in_progress') return withOver(inAt ? `In progress since ${inAt}` : 'In progress');
+  if (status === 'no_show') return withOver('No clock-in (no-show)');
+  if (status === 'excused' || status === 'exempt') return `${ACTUAL_WORDS[status]}${a.excuse ? `: ${excuseWord(a.excuse)}` : ''}`;
+  const late = Number(a.lateMin) || 0, early = Number(a.earlyMin) || 0;
+  const lines = [];
+  if (inAt) lines.push(`Clocked in ${inAt}${late > 0 ? ` (${late} min late)` : ''}`);
+  if (outAt) lines.push(`Clocked out ${outAt}${early > 0 ? ` (${early} min early)` : ''}`);
+  return withOver(lines.length ? lines.join('\n') : (ACTUAL_WORDS[status] || ''));
+}
+// Whether a sentence on a shift's `conflicts` is one of the schedule rules
+// (shift_rules.py) rather than a conflict - the grid's corner says "N
+// warnings" when any of them is (Oct 15).
+export const isRuleWarning = (text) => /rest before this shift|day in a row|is overtime\)|is the most\)/.test(String(text || ''));
+// The cell's actual for one of the shifts in it: the one it names, else the
+// only shift there (an older row may carry no shiftId).
+export function actualFor(cell, shift, sole = false) {
+  if (!cell || !cell.status || cell.status === 'upcoming') return null;
+  if (cell.shiftId && shift?.id && String(cell.shiftId) !== String(shift.id) && !sole) return null;
+  return cell;
+}
+// "312h 30m" - the week line's hours (always both parts, minutes padded).
+export const hmText = (min) => { const m = Math.max(0, Math.round(Number(min) || 0)); return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`; };
+// The adherence line for the people on screen, from the API's per-person
+// totals: "Scheduled 312h 30m · Worked 298h 05m · 4 Late · 1 No-Show ·
+// 2 Left Early". `empty` = nothing worked and no counts, so nothing to say.
+export function adherenceLine(peopleMap, emails) {
+  const t = { scheduledMin: 0, workedMin: 0, late: 0, noShow: 0, leftEarly: 0, onTime: 0, people: 0 };
+  const map = peopleMap || {};
+  const lower = {};
+  Object.keys(map).forEach((k) => { lower[k.toLowerCase()] = map[k]; });
+  (emails || []).forEach((e) => {
+    const p = map[e] || lower[String(e || '').toLowerCase()];
+    if (!p) return;
+    t.people += 1;
+    t.scheduledMin += Number(p.scheduledMin) || 0;
+    t.workedMin += Number(p.workedMin) || 0;
+    t.late += Number(p.late) || 0;
+    t.noShow += Number(p.noShow) || 0;
+    t.leftEarly += Number(p.leftEarly) || 0;
+    t.onTime += Number(p.onTime) || 0;
+  });
+  const parts = [`Scheduled ${hmText(t.scheduledMin)}`, `Worked ${hmText(t.workedMin)}`];
+  if (t.late) parts.push(`${t.late} Late`);
+  if (t.noShow) parts.push(`${t.noShow} No-Show`);
+  if (t.leftEarly) parts.push(`${t.leftEarly} Left Early`);
+  const empty = !t.workedMin && !t.late && !t.noShow && !t.leftEarly;
+  return { ...t, parts, text: parts.join(' · '), empty };
 }

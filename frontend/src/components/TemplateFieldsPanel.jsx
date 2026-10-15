@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { X, Pencil, AlertTriangle } from 'lucide-react';
-import { FIELD_TYPES, RESERVED_TYPES } from '../lib/mergeFieldTypes';
+import { FIELD_SOURCES, FIELD_TYPES, RESERVED_TYPES } from '../lib/mergeFieldTypes';
 import { inferFieldDef } from '../lib/extractVariables';
 
 // Template Fields - every {{variable}} in a template, with the TYPE of answer
@@ -19,8 +19,8 @@ import { inferFieldDef } from '../lib/extractVariables';
 // dropdown, validation, default) stays in DefineMergeFieldModal, reached from
 // the pencil - one editor for that, not two.
 const overlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1290, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 };
-const card = { background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 560, maxHeight: '86vh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' };
-const rowStyle = { display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 150px auto auto', gap: 10, alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--line)' };
+const card = { background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 700, maxHeight: '86vh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)' };
+const rowStyle = { display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 130px 150px auto auto', gap: 10, alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--line)' };
 const selectStyle = { fontSize: 12.5, fontFamily: 'inherit', border: '1px solid var(--line)', borderRadius: 7, padding: '6px 8px', background: 'var(--card)', color: 'var(--ink)', width: '100%', cursor: 'pointer' };
 
 export default function TemplateFieldsPanel({ fieldDefs = [], tokens = [], highlight = [], onChange, onEdit, onClose }) {
@@ -30,14 +30,14 @@ export default function TemplateFieldsPanel({ fieldDefs = [], tokens = [], highl
   const [undefinedTokens] = useState(() => tokens.filter((t) => !known.has(t)));
   const rows = [...fieldDefs, ...undefinedTokens.filter((t) => !known.has(t)).map(inferFieldDef)];
 
-  const setType = (token, type) => {
+  const setField = (token, patch) => {
     const existing = fieldDefs.find((f) => f.token === token) || inferFieldDef(token);
-    const next = [...fieldDefs.filter((f) => f.token !== token),
-                  { ...existing, type, ...(RESERVED_TYPES.includes(type) ? { required: false } : {}) }];
+    const next = [...fieldDefs.filter((f) => f.token !== token), { ...existing, ...patch }];
     // Keep the document's own order - a list that reshuffles as you set types
     // is unusable.
     onChange(rows.map((r) => next.find((f) => f.token === r.token)).filter(Boolean));
   };
+  const setType = (token, type) => setField(token, { type, ...(RESERVED_TYPES.includes(type) ? { required: false } : {}) });
 
   return (
     <div style={overlay} onClick={onClose}>
@@ -46,7 +46,7 @@ export default function TemplateFieldsPanel({ fieldDefs = [], tokens = [], highl
           <div>
             <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>Template Fields</div>
             <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>
-              The type decides what the form asks for when this template is used.
+              Who fills each one in an HR packet, and the type of answer it takes.
             </div>
           </div>
           <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}>
@@ -72,6 +72,11 @@ export default function TemplateFieldsPanel({ fieldDefs = [], tokens = [], highl
                     {`{{${fd.token}}}`}
                   </div>
                 </div>
+                <select aria-label={`Who fills ${fd.label || fd.token}`} value={fd.source || ''} style={selectStyle}
+                  title="In an HR packet: asked of the person on their form, or of HR when they make the offer"
+                  onChange={(e) => setField(fd.token, { source: e.target.value })}>
+                  {FIELD_SOURCES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </select>
                 <select aria-label={`Type for ${fd.label || fd.token}`} value={fd.type || 'text'} style={selectStyle}
                   onChange={(e) => setType(fd.token, e.target.value)}>
                   {FIELD_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}

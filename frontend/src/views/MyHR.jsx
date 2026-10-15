@@ -114,7 +114,14 @@ function Stat({ label, value, hint, color, Icon, hero, title, onClick }) {
     : <div className={cls} style={{ cursor: 'default' }} title={title}>{body}</div>;
 }
 
-export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, clock = null }) {
+export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, clock = null, focusConfirm = '' }) {
+  // A "confirm your schedule" bell or email (Shifts Phase 3a) lands here:
+  // My Schedule shows that share's banner - bring the card into view.
+  useEffect(() => {
+    if (!focusConfirm) return undefined;
+    const t = setTimeout(() => document.getElementById('myhr-schedule')?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }), 400);
+    return () => clearTimeout(t);
+  }, [focusConfirm]);
   const [profile, setProfile] = useState(null);
   const [profErr, setProfErr] = useState('');
   const [docs, setDocs] = useState(null);     // null = loading, false = failed
@@ -613,7 +620,7 @@ export function MyHROverview({ onOpenTimeOff, onOpenTimeSheet, clock = null }) {
                   the hero and the clock stay where they are. */}
               <div className="dash-card myhr-span2" id="myhr-schedule" style={{ scrollMarginTop: 80 }}>
                 {cardHead('My Schedule', 'Your shifts this week, and your group\'s')}
-                <MyShifts embedded />
+                <MyShifts embedded focusConfirm={focusConfirm} />
               </div>
 
               {/* Full width since the Time Off card went (Pranshu, 10/15): what
