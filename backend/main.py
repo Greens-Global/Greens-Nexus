@@ -1058,6 +1058,9 @@ def _run_migrations():
             # MRI Lease Term is a pick, not text (Charmi + Neil, Oct 15) - see the Postgres list.
             "ALTER TABLE leases ADD COLUMN term_type VARCHAR DEFAULT ''",
             "ALTER TABLE leases ADD COLUMN term_months INTEGER",
+            # Shifts Phase 0 (Oct 14): shift types and groups per company. models.Shift / ShiftGroup.
+            "ALTER TABLE shifts ADD COLUMN company_id VARCHAR DEFAULT ''",
+            "ALTER TABLE shift_groups ADD COLUMN company_id VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2360,6 +2363,10 @@ def _run_migrations():
         "ALTER TABLE accounting_ama_threads ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE accounting_ama_messages ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE accounting_ama_settings ENABLE ROW LEVEL SECURITY",
+        # Shifts Phase 0 (Oct 14): shift types and groups per company ('' =
+        # shared with every company). models.Shift / ShiftGroup.company_id.
+        "ALTER TABLE shifts ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
+        "ALTER TABLE shift_groups ADD COLUMN IF NOT EXISTS company_id VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

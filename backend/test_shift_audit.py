@@ -14,6 +14,7 @@ found still wrong, and the rule each fix holds to:
 
     python -m pytest test_shift_audit.py
 """
+import json
 import os
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -38,6 +39,8 @@ with database.engine.connect() as _c:
                  "ALTER TABLE scheduled_shifts ADD COLUMN pending_json TEXT DEFAULT ''",
                  "ALTER TABLE scheduled_shifts ADD COLUMN pending_delete INTEGER DEFAULT 0",
                  "ALTER TABLE shifts ADD COLUMN break_min INTEGER DEFAULT 0",
+                 "ALTER TABLE shifts ADD COLUMN company_id VARCHAR DEFAULT ''",
+                 "ALTER TABLE shift_groups ADD COLUMN company_id VARCHAR DEFAULT ''",
                  "ALTER TABLE scheduled_shifts ADD COLUMN break_min INTEGER DEFAULT 0",
                  "ALTER TABLE scheduled_shifts ADD COLUMN activities_json TEXT DEFAULT ''",
                  "ALTER TABLE scheduled_shifts ADD COLUMN color TEXT DEFAULT ''",
@@ -84,6 +87,10 @@ class ShiftAuditTests(unittest.TestCase):
                 db.add(models.ShiftGroupMember(id=f"sgm-saud-{i}", group_id=GROUP, employee_email=em))
             db.add(models.Shift(id=PRESET, code="SAU", name="Saud Day", start_hhmm="09:00", end_hhmm="17:00",
                                 days="1,2,3,4,5", color="#16a34a", timezone="America/Los_Angeles"))
+            # Trading is OFF by default since Oct 14 2026 (Shifts Phase 0); these
+            # tests exercise the switches ON, as the tenant used to be.
+            db.add(models.NexusSetting(key="shift_requests_config",
+                                       value=json.dumps({"openShifts": True, "swaps": True, "offers": True})))
             db.commit()
         finally:
             db.close()

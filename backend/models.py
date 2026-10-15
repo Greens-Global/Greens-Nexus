@@ -2405,6 +2405,11 @@ class Shift(Base):
     # onto each placement (ScheduledShift.break_min), so scheduled hours on the
     # grid are PAID hours. Pay itself still comes from real punches.
     break_min  = Column(Integer, default=0)
+    # Shifts Phase 0 (Neil, Oct 14 2026): the HrEntity company this shift
+    # type belongs to; '' = shared with every company. A company-scoped
+    # People admin manages only their own company's types; shared ones
+    # take company-wide access (timeclock._require_company_manage).
+    company_id = Column(String, default="")
 
 
 class ScheduledShift(Base):
@@ -2506,6 +2511,9 @@ class ShiftGroup(Base):
     weather_decider_emails = Column(String, default="")
     # 1 = the weather watch includes this group (when its company is switched on).
     weather_alerts  = Column(Integer, default=1)
+    # Shifts Phase 0 (Oct 14 2026): the HrEntity company this group belongs
+    # to; '' = shared across companies (managed company-wide only).
+    company_id      = Column(String, default="")
 
 
 class ShiftGroupMember(Base):

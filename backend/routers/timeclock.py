@@ -5160,6 +5160,10 @@ class ShiftIn(BaseModel):
     color: Optional[str] = "#2563eb"
     timezone: Optional[str] = "America/Los_Angeles"
     break_min: int = 0                 # unpaid break inside the shift, minutes
+    # The HrEntity company this shift type belongs to ('' = shared with every
+    # company). None = leave as is on an edit; on create, a company-limited
+    # caller's own company, '' for company-wide access (Shifts Phase 0).
+    company_id: Optional[str] = None
 
 
 _BREAK_MAX_MIN = 480
@@ -5257,21 +5261,34 @@ def _valid_tz(tz: str) -> str:
 def _shift_dict(s: Shift) -> dict:
     return {"id": s.id, "name": s.name, "code": s.code or "", "start": s.start_hhmm,
             "end": s.end_hhmm, "days": s.days, "graceMin": s.grace_min, "color": s.color,
-            "timezone": s.timezone or "America/Los_Angeles", "breakMin": int(getattr(s, "break_min", 0) or 0)}
+            "timezone": s.timezone or "America/Los_Angeles", "breakMin": int(getattr(s, "break_min", 0) or 0),
+            "companyId": getattr(s, "company_id", "") or ""}
 
 
 @router.get("/shifts")
-def list_shifts(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+def list_shifts(company: str = "", user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    """Shift types: the shared ones ('' company) plus those of the companies
+    the caller may see (Shifts Phase 0). `?company=<id>` narrows to that
+    company's own types plus the shared ones."""
     # How much hangs off each preset - what the delete confirmation tells the
     # manager before they remove one.
     placed = dict(db.query(ScheduledShift.shift_id, func.count(ScheduledShift.id))
                   .filter(ScheduledShift.shift_id != "").group_by(ScheduledShift.shift_id).all())
     assigned = dict(db.query(ShiftAssignment.shift_id, func.count(ShiftAssignment.id))
                     .filter(ShiftAssignment.shift_id != "").group_by(ShiftAssignment.shift_id).all())
+    admit = _visible_companies(db, user)
+    company = (company or "").strip()
+    if company and admit is not None and company not in admit:
+        raise HTTPException(403, "That company is outside your access.")
+    companies, can_pick = _company_choices(db, user, admit)
     from routers.shift_requests import get_settings as _sr_settings
+    rows = [s for s in db.query(Shift).order_by(Shift.name).all()
+            if _company_admitted(getattr(s, "company_id", "") or "", admit)
+            and (not company or (getattr(s, "company_id", "") or "") in ("", company))]
     return {"shifts": [{**_shift_dict(s), "placed": int(placed.get(s.id, 0)), "assigned": int(assigned.get(s.id, 0))}
-                       for s in db.query(Shift).order_by(Shift.name).all()],
-            "defaultTimezone": _sr_settings(db).get("timeZone") or "America/Los_Angeles"}
+                       for s in rows],
+            "defaultTimezone": _sr_settings(db, company).get("timeZone") or "America/Los_Angeles",
+            "companies": companies, "canPickCompany": can_pick}
 
 
 @router.post("/shifts")
@@ -5280,11 +5297,13 @@ def create_shift(body: ShiftIn, user: dict = Depends(require_shift_manage), db: 
         raise HTTPException(400, "Name is required")
     _check_hhmm(body.start_hhmm, body.end_hhmm)
     _check_span(body.start_hhmm, body.end_hhmm)
+    company_id = _company_for_new(db, user, body.company_id)
+    _require_company_manage(user, db, company_id, "Adding a shift type")
     s = Shift(id=str(uuid.uuid4()), name=body.name.strip()[:80], code=(body.code or "").strip()[:12],
               start_hhmm=body.start_hhmm[:5], end_hhmm=body.end_hhmm[:5],
               days=body.days[:40], grace_min=max(0, int(body.grace_min or 0)),
               color=(body.color or "#2563eb")[:9], timezone=_valid_tz(body.timezone),
-              break_min=_clamp_break(body.break_min),
+              break_min=_clamp_break(body.break_min), company_id=company_id,
               created_by=user["email"], created_at=_now_iso())
     db.add(s)
     db.commit()
@@ -5296,6 +5315,11 @@ def update_shift(shift_id: str, body: ShiftIn, user: dict = Depends(require_shif
     s = db.query(Shift).filter(Shift.id == shift_id).first()
     if not s:
         raise HTTPException(404, "Shift not found")
+    _require_company_manage(user, db, getattr(s, "company_id", "") or "", "Editing this shift type")
+    if body.company_id is not None and (body.company_id or "").strip() != (getattr(s, "company_id", "") or ""):
+        new_company = _company_for_new(db, user, body.company_id)
+        _require_company_manage(user, db, new_company, "Moving a shift type to that company")
+        s.company_id = new_company
     _check_hhmm(body.start_hhmm, body.end_hhmm)
     _check_span(body.start_hhmm, body.end_hhmm)
     s.name = body.name.strip()[:80]
@@ -5316,6 +5340,7 @@ def delete_shift(shift_id: str, user: dict = Depends(require_shift_manage), db: 
     s = db.query(Shift).filter(Shift.id == shift_id).first()
     kept = 0
     if s:
+        _require_company_manage(user, db, getattr(s, "company_id", "") or "", "Deleting this shift type")
         # Shifts already placed from this preset stay on the schedule. They
         # took their code and color from the preset, so hand both to each
         # shift before it goes - otherwise they turn into gray, unnamed
@@ -5339,6 +5364,94 @@ def _require_unscoped_team(user: dict, db: Session, what: str = "Managing shift 
     reroute another company's work-log delivery - that stays whole-team."""
     if _visible_emails(db, user) is not None:
         raise HTTPException(403, f"{what} needs company-wide team access")
+
+
+# ── Company dimension (Shifts Phase 0, Neil, Oct 14 2026) ────────────────────
+# Shift types and groups carry an HrEntity company_id; '' = shared with every
+# company. Before this, any level-3 manager could edit or delete a shift type
+# that every company's shifts point at.
+
+def _manage_companies(db: Session, user: dict):
+    """The companies whose shift types, groups and settings this caller may
+    change. None = company-wide. Otherwise: their tenant scope when the
+    multi-company walls are on, else the company set their People grant is
+    limited to (a manager's own-team limit is NOT one - Neil, Oct 12), else
+    nothing."""
+    from auth import company_scope, hr_scope, is_team_scope
+    scope = company_scope(user, db)
+    if scope is not None:
+        return set(scope)
+    if _visible_emails(db, user) is None:
+        return None
+    hs = hr_scope(user, db)
+    if hs is not None and not is_team_scope(hs):
+        return set(hs)
+    return set()
+
+
+def _require_company_manage(user: dict, db: Session, company_id: str, what: str) -> None:
+    """403 unless the caller may change something that belongs to
+    `company_id`. A shared record (company_id '') always needs company-wide
+    access; a company's own record also passes for a caller whose access is
+    limited to that company."""
+    allowed = _manage_companies(db, user)
+    if allowed is None:
+        return
+    if company_id and company_id in allowed:
+        return
+    raise HTTPException(403, f"{what} needs company-wide access")
+
+
+def _visible_companies(db: Session, user: dict):
+    """The companies whose shift types this caller sees (shared ones always
+    show). None = every company. Otherwise their tenant scope (walls on),
+    the company set of their People grant, or the companies of the people
+    they can see - a manager sees the types their own team could be on."""
+    from auth import company_scope, hr_scope, is_team_scope, _module_level
+    scope = company_scope(user, db)
+    if scope is not None:
+        return set(scope)
+    visible = _visible_emails(db, user)
+    if visible is None:
+        return None
+    if _module_level(user["email"], "hr", db) >= 1:
+        hs = hr_scope(user, db)
+        if hs is not None and not is_team_scope(hs):
+            return set(hs)
+    emails = [e for e in visible if e]
+    if not emails:
+        return set()
+    return {(c or "").strip() for (c,) in db.query(NexusEmployee.company)
+            .filter(func.lower(NexusEmployee.work_email).in_(emails)).all() if (c or "").strip()}
+
+
+def _company_admitted(company_id: str, admit) -> bool:
+    return not company_id or admit is None or company_id in admit
+
+
+def _company_choices(db: Session, user: dict, admit=...) -> tuple:
+    """([{id, name}] the caller may pick a company from, more than one?)."""
+    from models import HrEntity
+    if admit is ...:
+        admit = _visible_companies(db, user)
+    rows = db.query(HrEntity).order_by(HrEntity.name).all()
+    companies = [{"id": e.id, "name": e.name or ""} for e in rows if admit is None or e.id in admit]
+    return companies, len(companies) > 1
+
+
+def _company_for_new(db: Session, user: dict, requested) -> str:
+    """The company a new shift type or group lands on: the one asked for,
+    else the caller's own company when their access is company-limited,
+    else '' (shared). A named company must exist."""
+    from auth import company_of
+    from models import HrEntity
+    if requested is not None:
+        cid = (requested or "").strip()
+    else:
+        cid = "" if _manage_companies(db, user) is None else (company_of(user, db) or "")
+    if cid and not db.query(HrEntity.id).filter(HrEntity.id == cid).first():
+        raise HTTPException(400, "Company not found.")
+    return cid
 
 
 def _ordered_groups(db: Session) -> list:
@@ -5417,17 +5530,21 @@ def list_shift_groups(user: dict = Depends(require_team_read), db: Session = Dep
         if scope is None or (m.employee_email or "").lower() in scope:
             members.setdefault(m.group_id, []).append(m.employee_email)
     sites = _site_map(db)
+    companies, can_pick = _company_choices(db, user)
     return {"groups": [{"id": g.id, "name": g.name, "members": members.get(g.id, []),
                         "schedulers": _schedulers(g), "archived": bool(getattr(g, "archived", 0)),
                         "sortOrder": int(getattr(g, "sort_order", 0) or 0),
                         "chatId": g.teams_chat_id or "", "chatName": g.teams_chat_name or "",
                         # chat | channel; for a channel, chatId/chatName are the CHANNEL.
                         "teamsTarget": _target_of(g), "teamId": g.teams_team_id or "",
-                        "teamName": g.teams_team_name or "", **_group_weather(g, sites)}
+                        "teamName": g.teams_team_name or "",
+                        # '' = shared across companies (Shifts Phase 0).
+                        "companyId": getattr(g, "company_id", "") or "", **_group_weather(g, sites)}
                        for g in _ordered_groups(db)],
-            # Groups are changed company-wide only (_require_unscoped_team), so
-            # the screen offers New / Edit / Delete to those who can use them.
-            "canManageGroups": scope is None and can_manage_shifts(user)}
+            # Shared groups are changed company-wide only (_require_company_manage),
+            # so the screen offers New / Edit / Delete to those who can use them.
+            "canManageGroups": scope is None and can_manage_shifts(user),
+            "companies": companies, "canPickCompany": can_pick}
 
 
 class GroupIn(BaseModel):
@@ -5446,6 +5563,9 @@ class GroupIn(BaseModel):
     work_site_id: Optional[str] = None
     weather_deciders: Optional[List[str]] = None
     weather_alerts: Optional[bool] = None
+    # The HrEntity company this group belongs to ('' = shared). None = leave
+    # as is; on create, a company-limited caller's own company (Phase 0).
+    company_id: Optional[str] = None
 
 
 def _target_of(g) -> str:
@@ -5484,12 +5604,13 @@ def _clean_members(db: Session, emails: list) -> list:
 
 @router.post("/shift-groups")
 def create_shift_group(body: GroupIn, user: dict = Depends(require_shift_manage), db: Session = Depends(get_db)):
-    _require_unscoped_team(user, db)
+    company_id = _company_for_new(db, user, body.company_id)
+    _require_company_manage(user, db, company_id, "Managing shift groups")
     if not body.name.strip():
         raise HTTPException(400, "Name is required")
     members = _clean_members(db, body.members)
     g = ShiftGroup(id=str(uuid.uuid4()), name=body.name.strip()[:80],
-                   teams_chat_id="", teams_chat_name="", teams_target="chat",
+                   teams_chat_id="", teams_chat_name="", teams_target="chat", company_id=company_id,
                    created_by=user["email"], created_at=_now_iso())
     _apply_teams_binding(g, body)
     _apply_weather(db, g, body)
@@ -5501,15 +5622,20 @@ def create_shift_group(body: GroupIn, user: dict = Depends(require_shift_manage)
     for em in members:
         db.add(ShiftGroupMember(id=str(uuid.uuid4()), group_id=g.id, employee_email=em))
     db.commit()
-    return {"id": g.id, "name": g.name, "members": members, "sortOrder": int(g.sort_order or 0)}
+    return {"id": g.id, "name": g.name, "members": members, "sortOrder": int(g.sort_order or 0),
+            "companyId": g.company_id or ""}
 
 
 @router.patch("/shift-groups/{group_id}")
 def set_group_members(group_id: str, body: GroupIn, user: dict = Depends(require_shift_manage), db: Session = Depends(get_db)):
-    _require_unscoped_team(user, db)
     g = db.query(ShiftGroup).filter(ShiftGroup.id == group_id).first()
     if not g:
         raise HTTPException(404, "Group not found")
+    _require_company_manage(user, db, getattr(g, "company_id", "") or "", "Managing shift groups")
+    if body.company_id is not None and (body.company_id or "").strip() != (getattr(g, "company_id", "") or ""):
+        new_company = _company_for_new(db, user, body.company_id)
+        _require_company_manage(user, db, new_company, "Moving a shift group to that company")
+        g.company_id = new_company
     members = _clean_members(db, body.members)
     if body.name.strip():
         g.name = body.name.strip()[:80]
@@ -5661,9 +5787,10 @@ def my_group_chat(user: dict = Depends(get_current_user), db: Session = Depends(
 def delete_shift_group(group_id: str, user: dict = Depends(require_shift_manage), db: Session = Depends(get_db)):
     """Deleting a team drops its members and day notes; its shifts stay with
     the people they are on, just no longer under a team (Oct 2)."""
-    _require_unscoped_team(user, db)
     if not group_id.strip():
         raise HTTPException(404, "Team not found")
+    g = db.query(ShiftGroup).filter(ShiftGroup.id == group_id).first()
+    _require_company_manage(user, db, (getattr(g, "company_id", "") or "") if g else "", "Managing shift groups")
     db.query(ShiftGroup).filter(ShiftGroup.id == group_id).delete()
     db.query(ShiftGroupMember).filter(ShiftGroupMember.group_id == group_id).delete()
     db.query(ScheduleDayNote).filter(ScheduleDayNote.group_id == group_id).delete(synchronize_session=False)
@@ -5684,8 +5811,20 @@ def assign_shift(body: AssignIn, user: dict = Depends(require_shift_manage), db:
     An empty shift_id clears the assignment."""
     now = _now_iso()
     scope = _visible_emails(db, user)   # scoped admins may only touch their own people
+    emails = list(dict.fromkeys(e.strip().lower() for e in body.emails if e.strip()))
+    preset = db.query(Shift).filter(Shift.id == body.shift_id).first() if body.shift_id else None
+    preset_company = (getattr(preset, "company_id", "") or "") if preset else ""
+    if preset_company and emails:
+        # A company's shift type goes on that company's people only; a
+        # shared one ('') on anyone (Shifts Phase 0).
+        theirs = {(em or "").lower(): (c or "").strip() for em, c in
+                  db.query(NexusEmployee.work_email, NexusEmployee.company)
+                  .filter(func.lower(NexusEmployee.work_email).in_(emails)).all()}
+        for em in emails:
+            if theirs.get(em, "") != preset_company:
+                raise HTTPException(400, f"{em} is not in the company this shift type belongs to.")
     n = 0
-    for em in dict.fromkeys(e.strip().lower() for e in body.emails if e.strip()):
+    for em in emails:
         if scope is not None and em not in scope:
             continue
         row = db.query(ShiftAssignment).filter(ShiftAssignment.employee_email == em).first()
@@ -6294,8 +6433,8 @@ def my_schedule(start: str, end: str, user: dict = Depends(get_current_user), db
     # Admins can hide teammates' shifts from staff (Sep 29, Teams "see
     # coworkers' schedules"); swaps still work - routers/shift_requests.py
     # hands the swap dialog only the shifts it can target.
-    from routers.shift_requests import get_settings as _sr_settings, _upcoming
-    cfg = _sr_settings(db)
+    from routers.shift_requests import settings_for as _sr_settings_for, _upcoming
+    cfg = _sr_settings_for(db, email)   # their own company's settings (Phase 0)
     team_tz = cfg.get("timeZone") or _DEFAULT_TEAM_TZ
     group_ids = list(member_of) if cfg.get("teamSchedules", True) else []
     # What staff see of a TEAMMATE (Teams "Visibility"): why they are off, and
@@ -7480,40 +7619,17 @@ def _employee_now(db: Session, email: str) -> datetime:
 
 
 def _shift_start_for(db: Session, email: str, dd: date):
-    """The scheduled shift start (HH:MM) + grace minutes + IANA timezone for this
-    employee on this date, or None if they have no shift that day. Prefers a
-    ScheduledShift placed on the exact date; else the employee's assigned Shift
-    preset when the weekday is one of its working days. Drives the live 'Late'
-    status for salaried staff (never affects pay) and the daily briefing's
-    per-team trigger time - the timezone tags which team's own local clock the
-    HH:MM is wall-clock-local to (e.g. a GG India shift stays on IST regardless
-    of where the employee last punched from)."""
-    placed = (db.query(ScheduledShift)
-              .filter(ScheduledShift.employee_email == email,
-                      ScheduledShift.work_date == dd.isoformat(),
-                      ScheduledShift.published == 1).all())   # unpublished drafts don't drive Late
-    # A day a weather call cancelled is not a shift: never Late, and no
-    # falling back to the preset either (Weather Call, Oct 12).
-    sched = next((r for r in placed if (getattr(r, "weather_status", "") or "") != "cancelled"), None)
-    if placed and sched is None:
-        return None
-    if sched:
-        grace, tz = 10, "America/Los_Angeles"
-        if sched.shift_id:
-            preset = db.query(Shift).filter(Shift.id == sched.shift_id).first()
-            if preset:
-                grace = preset.grace_min or 0
-                tz = preset.timezone or tz
-        return (sched.start_hhmm or "09:00", grace, tz)
-    assign = db.query(ShiftAssignment).filter(ShiftAssignment.employee_email == email).first()
-    if assign and assign.shift_id:
-        preset = db.query(Shift).filter(Shift.id == assign.shift_id).first()
-        if preset:
-            days = {int(x) for x in (preset.days or "").split(",") if x.strip().isdigit()}
-            if dd.isoweekday() in days:   # Mon=1 .. Sun=7
-                return (preset.start_hhmm or "09:00", preset.grace_min or 0,
-                        preset.timezone or "America/Los_Angeles")
-    return None
+    """(start_hhmm, grace_min, tz) for this employee on this date, or None -
+    shift_expect.expected_start, the ONE rule shared with My Team and the
+    Workforce Scorecard (Oct 14: there used to be three). Earliest live
+    placement for the date (a weather-cancelled day is None, never the
+    preset), else the usual-hours preset on its working days; grace from the
+    preset, else the Shifts setting defaultGraceMin; zone placement -> preset
+    -> team. Drives the live 'Late' status for salaried staff (never pay) and
+    the daily briefing's per-team trigger time."""
+    import shift_expect
+    exp = shift_expect.expected_start(db, email, dd)
+    return None if not exp else (exp["start"], exp["grace"], exp["tz"])
 
 
 def _shift_local_now(tz: str) -> datetime:
@@ -9506,15 +9622,17 @@ def _check_timeoff_overlap(db: Session, email: str, start_date: str, end_date: s
         raise HTTPException(409, "A request for those days is already pending/approved")
 
 
-def _timeoff_requests_on(db: Session) -> bool:
-    from routers.shift_requests import get_settings as _sr_settings
-    return bool(_sr_settings(db).get("timeOffRequests", True))
+def _timeoff_requests_on(db: Session, email: str = "") -> bool:
+    """With an email, that person's company settings decide (Phase 0)."""
+    from routers.shift_requests import get_settings as _sr_settings, settings_for as _sr_settings_for
+    cfg = _sr_settings_for(db, email) if email else _sr_settings(db)
+    return bool(cfg.get("timeOffRequests", True))
 
 
 @router.get("/timeoff/types")
 def timeoff_types(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     return {"builtIn": list(TIMEOFF_TYPES), "custom": _custom_timeoff_types(db),
-            "requestsOn": _timeoff_requests_on(db)}
+            "requestsOn": _timeoff_requests_on(db, user.get("email") or "")}
 
 
 class TimeOffTypesIn(BaseModel):
@@ -9740,7 +9858,7 @@ class TimeOffIn(BaseModel):
 @router.post("/timeoff")
 def request_timeoff(body: TimeOffIn, user: dict = Depends(get_current_user),
                     db: Session = Depends(get_db)):
-    if not _timeoff_requests_on(db):
+    if not _timeoff_requests_on(db, user.get("email") or ""):
         # Admins can switch self-service requests off (Sep 29, Teams parity);
         # a manager can still file one on the person's behalf.
         raise HTTPException(403, "Time-off requests are turned off. Ask your manager to add your time off.")

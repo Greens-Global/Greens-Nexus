@@ -56,15 +56,21 @@ from notify_company import notification_company
 from routers.timeclock import (require_schedule_write, require_shift_manage, SHIFT_MANAGE_LEVEL, _visible_emails,
                                _team_alert_recipients, _require_unscoped_team, _sched_dict, _hm12, _shift_local_now,
                                _shift_conflicts, _timeoff_dict, _availability, _company_holidays_for_employee,
-                               _TimeoffPrivacy, _DEFAULT_TEAM_TZ)
+                               _TimeoffPrivacy, _DEFAULT_TEAM_TZ, _require_company_manage, _company_choices)
 
 router = APIRouter(prefix="/timeclock/shift-requests", tags=["Shift Requests"])
 
 KINDS = ("open", "swap", "offer")
 PENDING = ("pending_peer", "pending_manager")
 WEEK_STARTS = ("monday", "sunday")
+# Settings live in one nexus_settings row per tenant (_SETTINGS_KEY) and,
+# since Shifts Phase 0 (Oct 14 2026), an optional override row per company
+# ("shift_requests_config:<HrEntity id>") holding only the keys that company
+# changed. get_settings(db, company_id) layers defaults <- tenant <- company.
 _SETTINGS_KEY = "shift_requests_config"
-_DEFAULTS = {"openShifts": True, "swaps": True, "offers": True, "teamSchedules": True,
+# Trading (open shifts, swaps, offers) stays a Global Settings switch but is
+# OFF by default (Neil, Oct 14 2026).
+_DEFAULTS = {"openShifts": False, "swaps": False, "offers": False, "teamSchedules": True,
              # Staff can request time off themselves (routers/timeclock.py).
              "timeOffRequests": True,
              # What staff see of their TEAMMATES in My Shifts (Teams "Visibility").
@@ -75,8 +81,12 @@ _DEFAULTS = {"openShifts": True, "swaps": True, "offers": True, "teamSchedules":
              # with (Teams "Team time zone"). A preset keeps its own zone.
              "timeZone": _DEFAULT_TEAM_TZ,
              # The first day of the week on every shifts grid (Oct 2).
-             "weekStart": "monday"}
+             "weekStart": "monday",
+             # Grace window, in minutes, for a shift with no shift type
+             # (shift_expect.py); a shift type carries its own grace_min.
+             "defaultGraceMin": 10}
 _TEXT_SETTINGS = ("timeZone", "weekStart")
+_INT_SETTINGS = {"defaultGraceMin": (0, 120)}   # key -> (min, max), clamped on read and save
 _KIND_SETTING = {"open": "openShifts", "swap": "swaps", "offer": "offers"}
 _EMPLOYEE_ACTION = {"view": "shifts", "sub": "mine"}
 _APPROVER_ACTION = {"view": "shifts", "sub": "schedule"}   # the Shifts module (Sep 29)
@@ -133,27 +143,89 @@ def _when(date: str, start: str, end: str) -> str:
 
 # ── Settings ──────────────────────────────────────────────────────────────
 
-def get_settings(db: Session) -> dict:
-    row = db.query(models.NexusSetting).filter(models.NexusSetting.key == _SETTINGS_KEY).first()
-    cfg = dict(_DEFAULTS)
-    if row and row.value:
+def _settings_key(company_id: str = "") -> str:
+    return f"{_SETTINGS_KEY}:{company_id}" if company_id else _SETTINGS_KEY
+
+
+def _clean_value(k: str, v):
+    """The stored form of one setting, or None when the value is not usable."""
+    if k == "weekStart":
+        return str(v).lower() if str(v or "").lower() in WEEK_STARTS else None
+    if k in _TEXT_SETTINGS:
+        return str(v) if _zone_ok(v) else None
+    if k in _INT_SETTINGS:
+        lo, hi = _INT_SETTINGS[k]
         try:
-            saved = json.loads(row.value)
-            if isinstance(saved, dict):
-                for k in _DEFAULTS:
-                    if k not in saved:
-                        continue
-                    if k == "weekStart":
-                        if str(saved[k] or "").lower() in WEEK_STARTS:
-                            cfg[k] = str(saved[k]).lower()
-                    elif k in _TEXT_SETTINGS:
-                        if _zone_ok(saved[k]):
-                            cfg[k] = str(saved[k])
-                    else:
-                        cfg[k] = bool(saved[k])
+            return max(lo, min(hi, int(v)))
         except (TypeError, ValueError):
-            pass
+            return None
+    return bool(v)
+
+
+def _saved_settings(db: Session, company_id: str = "") -> dict:
+    """What is stored for the tenant ('' company) or a company's override,
+    cleaned per key; {} when nothing is."""
+    row = db.query(models.NexusSetting).filter(models.NexusSetting.key == _settings_key(company_id)).first()
+    if not row or not row.value:
+        return {}
+    try:
+        saved = json.loads(row.value)
+    except (TypeError, ValueError):
+        return {}
+    if not isinstance(saved, dict):
+        return {}
+    out = {}
+    for k in _DEFAULTS:
+        if k in saved:
+            v = _clean_value(k, saved[k])
+            if v is not None:
+                out[k] = v
+    return out
+
+
+def get_settings(db: Session, company_id: str = "") -> dict:
+    """The effective settings: defaults <- the tenant row <- that company's
+    override (when `company_id` names one)."""
+    cfg = dict(_DEFAULTS)
+    cfg.update(_saved_settings(db))
+    if company_id:
+        cfg.update(_saved_settings(db, company_id))
     return cfg
+
+
+def settings_for(db: Session, email: str) -> dict:
+    """The settings that apply to one person: their company's (nexus_employees
+    .company), falling back to the tenant row when they are untagged. Use
+    this wherever a request KIND is allowed for a requester, or a time zone /
+    week start is read for a specific person."""
+    from auth import company_of
+    return get_settings(db, company_of(email or "", db))
+
+
+def _store_settings(db: Session, user: dict, key: str, cfg: dict) -> None:
+    row = db.query(models.NexusSetting).filter(models.NexusSetting.key == key).first()
+    if not row:
+        row = models.NexusSetting(key=key)
+        db.add(row)
+    row.value = json.dumps(cfg)
+    row.updated_by = user["email"]
+    row.updated_at = datetime.now(timezone.utc).isoformat()
+
+
+def _company_param(db: Session, company: str) -> str:
+    cid = (company or "").strip()
+    if cid and not db.query(models.HrEntity.id).filter(models.HrEntity.id == cid).first():
+        raise HTTPException(404, "Company not found.")
+    return cid
+
+
+def _settings_payload(db: Session, user: dict, company_id: str = "") -> dict:
+    """The effective settings plus which company they are for, whether that
+    company has its own override, and the companies the caller may pick."""
+    companies, can_pick = _company_choices(db, user)
+    return {**get_settings(db, company_id), "companyId": company_id,
+            "hasOverride": bool(company_id and _saved_settings(db, company_id)),
+            "companies": companies, "canPickCompany": can_pick}
 
 
 class SettingsIn(BaseModel):
@@ -166,33 +238,53 @@ class SettingsIn(BaseModel):
     teamShiftDetails: Optional[bool] = None     # staff see teammates' notes, activities and breaks
     timeZone: Optional[str] = None
     weekStart: Optional[str] = None             # monday | sunday
+    defaultGraceMin: Optional[int] = None       # 0-120, clamped
 
 
 @router.get("/settings")
-def read_settings(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    return get_settings(db)
+def read_settings(company: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The tenant settings, or with `?company=<id>` the settings in force
+    for that company (its override layered on the tenant row)."""
+    return _settings_payload(db, user, _company_param(db, company))
 
 
 @router.put("/settings")
-def save_settings(body: SettingsIn, user: dict = Depends(require_shift_manage), db: Session = Depends(get_db)):
-    _require_unscoped_team(user, db, "Changing shift settings")   # company-wide switches, like shift groups
+def save_settings(body: SettingsIn, company: str = "", user: dict = Depends(require_shift_manage),
+                  db: Session = Depends(get_db)):
+    """No company: the tenant defaults (company-wide access, like shared
+    groups). `?company=<id>`: that company's override - only the keys sent
+    are stored, so the rest keeps following the tenant row."""
+    cid = _company_param(db, company)
     if body.timeZone is not None and not _zone_ok(body.timeZone):
         raise HTTPException(400, "Pick a time zone from the list.")
     if body.weekStart is not None and str(body.weekStart).lower() not in WEEK_STARTS:
         raise HTTPException(400, "The week starts on Monday or Sunday.")
-    cfg = get_settings(db)
-    cfg.update({k: v for k, v in body.model_dump().items() if v is not None})
-    if body.weekStart is not None:
-        cfg["weekStart"] = str(body.weekStart).lower()
-    row = db.query(models.NexusSetting).filter(models.NexusSetting.key == _SETTINGS_KEY).first()
-    if not row:
-        row = models.NexusSetting(key=_SETTINGS_KEY)
-        db.add(row)
-    row.value = json.dumps(cfg)
-    row.updated_by = user["email"]
-    row.updated_at = datetime.now(timezone.utc).isoformat()
+    sent = {k: _clean_value(k, v) for k, v in body.model_dump().items() if v is not None and k in _DEFAULTS}
+    sent = {k: v for k, v in sent.items() if v is not None}
+    if cid:
+        _require_company_manage(user, db, cid, "Changing this company's shift settings")
+        cfg = _saved_settings(db, cid)
+        cfg.update(sent)
+        _store_settings(db, user, _settings_key(cid), cfg)
+    else:
+        _require_unscoped_team(user, db, "Changing shift settings")   # company-wide switches, like shift groups
+        cfg = get_settings(db)
+        cfg.update(sent)
+        _store_settings(db, user, _SETTINGS_KEY, cfg)
     db.commit()
-    return cfg
+    return _settings_payload(db, user, cid)
+
+
+@router.delete("/settings")
+def clear_settings(company: str = "", user: dict = Depends(require_shift_manage), db: Session = Depends(get_db)):
+    """Remove a company's override so it follows the tenant row again."""
+    cid = _company_param(db, company)
+    if not cid:
+        raise HTTPException(400, "Pick a company - the tenant settings cannot be removed.")
+    _require_company_manage(user, db, cid, "Changing this company's shift settings")
+    db.query(models.NexusSetting).filter(models.NexusSetting.key == _settings_key(cid)).delete(synchronize_session=False)
+    db.commit()
+    return _settings_payload(db, user, cid)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────
@@ -227,7 +319,8 @@ def _live_shift(db: Session, shift_id: str, lock: bool = False):
     if not r or not r.published or r.pending_delete:
         return None
     preset = db.query(models.Shift).filter(models.Shift.id == r.shift_id).first() if r.shift_id else None
-    if not _upcoming(r, {preset.id: preset} if preset else {}, get_settings(db)):
+    cfg = settings_for(db, r.employee_email) if r.employee_email else get_settings(db)
+    if not _upcoming(r, {preset.id: preset} if preset else {}, cfg):
         return None
     return r
 
@@ -326,7 +419,7 @@ def my_requests(start: str = "", end: str = "", user: dict = Depends(get_current
     incoming = (db.query(models.ShiftRequest)
                 .filter(models.ShiftRequest.target_email == me, models.ShiftRequest.status == "pending_peer")
                 .order_by(models.ShiftRequest.created_at.desc()).all())
-    cfg = get_settings(db)
+    cfg = settings_for(db, me)   # the requester's own company's switches and zone
     tz = cfg.get("timeZone") or _DEFAULT_TEAM_TZ
     my_groups = set(_my_groups(db, me))
     open_shifts = []
@@ -379,7 +472,7 @@ def create_request(body: CreateIn, user: dict = Depends(get_current_user), db: S
     kind = (body.kind or "").strip()
     if kind not in KINDS:
         raise HTTPException(400, "Unknown request type.")
-    if not get_settings(db)[_KIND_SETTING[kind]]:
+    if not settings_for(db, me)[_KIND_SETTING[kind]]:
         raise HTTPException(403, f"{_KIND_LABEL[kind].capitalize()} requests are turned off.")
     shift = _live_shift(db, body.shift_id)
     if not shift:

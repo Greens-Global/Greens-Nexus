@@ -28,6 +28,10 @@ forgotten clock-outs are flagged and not counted). Punches tagged with a
 Sick / PTO job category (_leave_class) are PAID LEAVE, not work: they cover the
 expectation but are shown as leave. Late = first clock-in after the shift start
 plus its grace, in the shift's own zone - only when the day has a shift time.
+The shift start, grace and zone are shift_expect.pick_start's (the one rule the
+timecard's Late status and the My Team tile read too: earliest live placement,
+a weather-cancelled day has no start, preset grace else the Shifts default) and
+the late test is shift_expect.is_late_at.
 
 Only days BEFORE the employee's own local today are scored (a day still in
 progress is shown, not judged). Weekly coverage = covered / expected, the
@@ -50,7 +54,6 @@ import re
 import uuid
 from datetime import datetime, timezone, timedelta, date, time as dtime
 from html import escape
-from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, or_, text
 from sqlalchemy.orm import Session
@@ -60,6 +63,7 @@ from database import SessionLocal
 import graph_mail
 import daily_briefing as daily
 import shift_day
+import shift_expect
 from app_url import app_url
 from routers.timeclock import (_day_summaries, _shift_minutes, time_tracking_exempt_emails,
                                _breakpolicy_cfg, _team_tz, _leave_class)
@@ -407,14 +411,16 @@ def expected_for_day(emp, dd: date, ctx: dict, cfg: dict) -> dict:
         return out
     base = 0
     placed = ctx["scheduled"].get(em, {}).get(iso) or []
+    # Start / grace / zone: the one rule (shift_expect) - a cancelled day has
+    # none, so it is never late. The MINUTES below are this module's own.
+    exp = shift_expect.pick_start(placed, ctx["presets"], ctx["assigned"].get(em, ""), dd,
+                                  ctx["team_tz"], ctx.get("default_grace", shift_expect.DEFAULT_GRACE_MIN))
+    if exp:
+        out.update(start=exp["start"], grace=exp["grace"], tz=exp["tz"])
     if placed:
         out["source"] = "scheduled"
         for r in placed:
             base += max(0, _shift_minutes(r.start_hhmm, r.end_hhmm) - int(r.break_min or 0))
-        first = min(placed, key=lambda r: r.start_hhmm or "")
-        preset = ctx["presets"].get(first.shift_id or "")
-        out.update(start=first.start_hhmm or "", grace=(preset.grace_min if preset else 10) or 0,
-                   tz=(first.timezone or "").strip() or ((preset.timezone or "") if preset else "") or ctx["team_tz"])
     else:
         preset = ctx["presets"].get(ctx["assigned"].get(em, ""))
         if preset:
@@ -422,8 +428,6 @@ def expected_for_day(emp, dd: date, ctx: dict, cfg: dict) -> dict:
             out["source"] = "preset"
             if dd.isoweekday() in days:
                 base = max(0, _shift_minutes(preset.start_hhmm, preset.end_hhmm) - int(preset.break_min or 0))
-                out.update(start=preset.start_hhmm or "", grace=preset.grace_min or 0,
-                           tz=preset.timezone or ctx["team_tz"])
         elif (emp.employment_type or "full_time") == "full_time":
             std = _standard_for(emp, ctx, cfg)
             out["source"] = "standard"
@@ -497,16 +501,11 @@ def _local_today(emp, punches: list, ctx: dict) -> date:
 
 def _is_late(first_in_utc: str, dd: date, start: str, grace: int, tz: str):
     """True when the first clock-in is after shift start + grace on the
-    shift's own clock; None when there is nothing to judge against."""
-    if not (first_in_utc and start and tz):
+    shift's own clock; None when there is nothing to judge against
+    (shift_expect.is_late_at - the one Late rule)."""
+    if not (start and tz):
         return None
-    try:
-        t = datetime.strptime(first_in_utc[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
-        local = t.astimezone(ZoneInfo(tz)).replace(tzinfo=None)
-        hh, mm = int(start[:2]), int(start[3:5])
-    except (ValueError, TypeError, KeyError, Exception):
-        return None
-    return local > datetime.combine(dd, dtime(hh, mm)) + timedelta(minutes=int(grace or 0))
+    return shift_expect.is_late_at(first_in_utc, dd, {"start": start, "grace": grace, "tz": tz})
 
 
 # ── Build ─────────────────────────────────────────────────────────────────
@@ -546,6 +545,7 @@ def _context(db: Session, people: list, ws: date, cfg: dict) -> dict:
     emails = [e.work_email.lower() for e in people]
     start, end = ws.isoformat(), (ws + timedelta(days=6)).isoformat()
     ctx = {"team_tz": _team_tz(db), "break_cfg": _breakpolicy_cfg(db),
+           "default_grace": shift_expect.default_grace_min(db),   # a placement with no preset
            "scheduled": {}, "assigned": {}, "presets": {}, "time_off": {}, "holidays": {},
            "punches": {}, "activity": {}, "rates": {}, "company_country": {}, "managers": {}}
     if not emails:
