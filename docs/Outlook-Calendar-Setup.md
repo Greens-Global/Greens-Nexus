@@ -17,9 +17,11 @@ portal; no code or deploy is involved.
   `POST / PATCH / DELETE /users/{id}/events` with the same client-credential
   token every other Graph feature uses (`graph_mail.access_token`).
 - Only people linked to a Microsoft 365 account (`nexus_employees.m365_id`,
-  set by the M365 sync) get events. The company switch (Settings > Shifts >
-  Outlook Calendar, on by default) and each person's own switch (My Shifts >
-  Calendar, on by default) both have to be on.
+  set by the M365 sync) get events. The company switch (Settings > Global
+  Settings > Shifts > Sharing, on by default) and each person's own switch
+  (My Shifts > "In your Outlook calendar", on by default) both have to be on.
+  A person who turns theirs off has every Nexus event taken off their
+  calendar at the next tick, past shifts included.
 - The event: subject `Shift · 7:00 AM - 3:30 PM · GSV` (the label, else the
   shift type), start and end in the shift's own time zone, shown as Free (or
   Busy, per the company setting), no reminder, a body with the team, the site
@@ -30,7 +32,12 @@ portal; no code or deploy is involved.
 - If Graph answers 401 / 403 the sync pauses for five minutes, remembers the
   reason, and tries again; `GET /timeclock/calendar-sync/status`
   (administrators) returns `{"enabled": false, "reason": ...}` naming this
-  document. Nothing else in Shifts is affected.
+  document. Nothing else in Shifts is affected. A token failure or a network
+  error pauses the same way; a 429 or a 5xx for one minute. A row Graph
+  refuses (a 4xx) or that fails five times in a row stays as `error` with
+  its reason until that shift changes again - the queue never spins on it.
+  A shift already in the past with no event yet is skipped, so a queue that
+  waited weeks for the permission never writes old history.
 
 ## The permission to add (one time)
 
@@ -82,9 +89,12 @@ People who do not use Outlook subscribe instead: My Shifts > Calendar >
 "Subscribe in another calendar" gives a personal link
 (`GET /timeclock/my-schedule/ical-link`) that Google Calendar, the iPhone
 Calendar app and the rest refresh on their own schedule (Google: every 12 to
-24 hours). The link is signed and needs no login; "Get a new link" rotates it
-so an old one stops working. It carries only that person's shared shifts, no
-pay and nobody else's shifts. No portal step is needed for this.
+24 hours). The link is signed and needs no login; "New Link" rotates it so an
+old one stops working. It carries only that person's shared shifts, no pay
+and nobody else's shifts. The feed answers with `Cache-Control: no-store`,
+the route is rate limited per IP like every credential-taking route, and a
+rate-limit trip logs the prefix, never the token. No portal step is needed
+for this.
 
 ## Privacy note
 

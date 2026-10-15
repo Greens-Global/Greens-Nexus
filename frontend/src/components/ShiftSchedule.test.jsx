@@ -162,7 +162,7 @@ beforeEach(() => {
   timeOffOnBehalf.mockReset().mockResolvedValue({ id: 't9' });
   timeOffDecide.mockReset().mockResolvedValue({});
   timeSchedActuals.mockReset().mockResolvedValue({ cells: {}, people: {}, totals: {} });
-  timeSchedConfirmations.mockReset().mockResolvedValue([]);
+  timeSchedConfirmations.mockReset().mockResolvedValue({ people: [], unconfirmed: 0 });
   timeSchedNudge.mockReset().mockImplementation(async (b) => ({ nudged: b.emails.length }));
 });
 
@@ -1286,19 +1286,21 @@ describe('Actuals: the schedule meets the clock', () => {
 });
 
 // Shifts Phase 3a (Oct 14): who has confirmed the schedules shared in view.
+// GET /timeclock/schedule/confirmations answers { people: [...], unconfirmed }.
 // The chip counts people, its list nudges the rest (one call per share),
 // and the person column wears a 12px mark - green when every share in view
 // is confirmed, hollow when one is not, nothing when no share asked them.
 describe('Confirmations: the schedule comes to people', () => {
   const rows = () => [
-    { email: 'amy@greensglobal.com', name: 'Amy Adams', publishes: [{ publishId: 'pub1', at: '2026-10-13T18:00:00Z', confirmedAt: '2026-10-13T19:00:00Z', nudgedAt: '' }] },
-    { email: 'bob@greensglobal.com', name: 'Bob Brown', publishes: [
-      { publishId: 'pub1', at: '2026-10-13T18:00:00Z', confirmedAt: '2026-10-13T19:00:00Z', nudgedAt: '' },
-      { publishId: 'pub2', at: '2026-10-14T18:00:00Z', confirmedAt: '', nudgedAt: '' }] },
+    { email: 'amy@greensglobal.com', name: 'Amy Adams', unconfirmed: 0, publishes: [{ publishId: 'pub1', at: '2026-10-13T18:00:00Z', by: 'ada@greensglobal.com', confirmedAt: '2026-10-13T19:00:00Z', nudgedAt: null }] },
+    { email: 'bob@greensglobal.com', name: 'Bob Brown', unconfirmed: 1, publishes: [
+      { publishId: 'pub1', at: '2026-10-13T18:00:00Z', by: 'ada@greensglobal.com', confirmedAt: '2026-10-13T19:00:00Z', nudgedAt: null },
+      { publishId: 'pub2', at: '2026-10-14T18:00:00Z', by: 'ada@greensglobal.com', confirmedAt: null, nudgedAt: null }] },
   ];
+  const answer = (people) => ({ people, unconfirmed: people.reduce((n, p) => n + (p.unconfirmed || 0), 0) });
   it('counts the people, marks the person column, and nudges from the list', async () => {
     timeSchedule.mockResolvedValue(data([shift(), shift({ id: 's2', email: 'bob@greensglobal.com' })]));
-    timeSchedConfirmations.mockResolvedValue(rows());
+    timeSchedConfirmations.mockResolvedValue(answer(rows()));
     render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
     await screen.findByText('Amy Adams');
     await waitFor(() => expect(timeSchedConfirmations).toHaveBeenCalledWith(monday, plusDays(monday, 6)));
@@ -1328,9 +1330,9 @@ describe('Confirmations: the schedule comes to people', () => {
   });
   it('nudges one person, shows who was already nudged, and reads all-confirmed in green', async () => {
     const r = rows();
-    r.push({ email: 'cat@greensglobal.com', name: 'Cat Cole', publishes: [{ publishId: 'pub2', at: '2026-10-14T18:00:00Z', confirmedAt: '', nudgedAt: '2026-10-14T20:00:00Z' }] });
+    r.push({ email: 'cat@greensglobal.com', name: 'Cat Cole', unconfirmed: 1, publishes: [{ publishId: 'pub2', at: '2026-10-14T18:00:00Z', by: 'ada@greensglobal.com', confirmedAt: null, nudgedAt: '2026-10-14T20:00:00Z' }] });
     timeSchedule.mockResolvedValue({ ...data([shift()]), employees: [...data([]).employees, { email: 'cat@greensglobal.com', name: 'Cat Cole' }] });
-    timeSchedConfirmations.mockResolvedValue(r);
+    timeSchedConfirmations.mockResolvedValue(answer(r));
     render(<ShiftSchedule toastOk={toastOk} toastErr={toastErr} />);
     fireEvent.click(await screen.findByRole('button', { name: '1 Of 3 Confirmed' }));
     const dlg = await screen.findByRole('dialog', { name: 'Schedule confirmations' });
@@ -1345,14 +1347,14 @@ describe('Confirmations: the schedule comes to people', () => {
   });
   it('is green when everyone has confirmed; failed calls, a viewer and a range with no share show nothing', async () => {
     timeSchedule.mockResolvedValue(data([shift()]));
-    timeSchedConfirmations.mockResolvedValue([rows()[0]]);
+    timeSchedConfirmations.mockResolvedValue(answer([rows()[0]]));
     const { unmount } = render(<ShiftSchedule toastOk={toastOk} />);
     const chip = await screen.findByRole('button', { name: '1 Of 1 Confirmed' });
     expect(chip.style.color).toBe('hsl(var(--color-green))');
     fireEvent.click(chip);
     expect((await screen.findByRole('dialog', { name: 'Schedule confirmations' })).textContent).toContain('Everyone Has Confirmed');
     unmount();
-    timeSchedConfirmations.mockResolvedValue([]);
+    timeSchedConfirmations.mockResolvedValue(answer([]));
     const r2 = render(<ShiftSchedule toastOk={toastOk} />);
     await screen.findByText('Amy Adams');
     await waitFor(() => expect(timeSchedConfirmations).toHaveBeenCalledTimes(2));
@@ -1367,7 +1369,7 @@ describe('Confirmations: the schedule comes to people', () => {
     expect(toastErr).not.toHaveBeenCalled();
     r3.unmount();
     timeSchedule.mockResolvedValue({ ...data([shift()]), canManage: false });
-    timeSchedConfirmations.mockResolvedValue(rows());
+    timeSchedConfirmations.mockResolvedValue(answer(rows()));
     render(<ShiftSchedule toastOk={toastOk} />);
     await screen.findByText('Amy Adams');
     expect(timeSchedConfirmations).toHaveBeenCalledTimes(3);                 // a viewer never asks

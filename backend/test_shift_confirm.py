@@ -111,10 +111,12 @@ class ConfirmTests(unittest.TestCase):
         for em in (AMY, BOB):
             bell = self._bell(em)
             self.assertIn("Confirm you have seen it.", bell.body)
-            self.assertEqual(json.loads(bell.action), {"view": "shifts", "sub": "mine", "confirm": pid})
+            # The publish rides in the sub (the bell only forwards view + sub).
+            self.assertEqual(json.loads(bell.action), {"view": "shifts", "sub": f"mine:confirm:{pid}", "confirm": pid})
             (to, subject, html), = self._mail(em)
             self.assertIn("Confirm You Have Seen It", html)
             self.assertIn(f"/shifts/mine?confirm={pid}", html)
+            self.assertIn("If the button does not work, open this link:", html)   # a client that strips buttons
             self.assertIn("Open My Shifts", html)
         # Company B: told, not asked.
         bell = self._bell(CAL)
@@ -161,6 +163,40 @@ class ConfirmTests(unittest.TestCase):
         self.assertEqual(self.client.post(f"/timeclock/schedule/confirm/{pid}").status_code, 404)
         self._as(AMY)
         self.assertEqual(self.client.post("/timeclock/schedule/confirm/nope").status_code, 404)
+
+    # Review (Oct 15): a second share of the same days supersedes the first -
+    # confirming the newer one confirms the older one too (what the person
+    # looks at IS that schedule, with the later changes on it). An older ask
+    # for other days stays open.
+    def test_confirming_a_newer_share_of_the_same_days_confirms_the_one_it_superseded(self):
+        pid1 = self._publish()
+        # The same shifts edited and shared again.
+        for em in (AMY, BOB):
+            self.db.query(models.ScheduledShift).filter(models.ScheduledShift.id == f"s-{em}").update(
+                {"pending_json": json.dumps({"shiftId": "gsv", "start": "10:00", "end": "18:00", "label": "", "note": ""})})
+        self.db.commit()
+        self._as(ADMIN)
+        r = self.client.post("/timeclock/schedule/publish", json={"start_date": DAY, "end_date": DAY})
+        pid2 = r.json()["publishId"]
+        self.assertNotEqual(pid1, pid2)
+        # ...and a share of other days, for Amy alone.
+        later = (datetime.now(timezone.utc).date() + timedelta(days=14)).isoformat()
+        self.db.add(models.ScheduledShift(id="s-later", employee_email=AMY, work_date=later, shift_id="gsv",
+                                          start_hhmm="09:00", end_hhmm="17:00", published=0, created_by=ADMIN))
+        self.db.commit()
+        pid3 = self.client.post("/timeclock/schedule/publish", json={"start_date": later, "end_date": later}).json()["publishId"]
+        self._as(AMY)
+        pending = self.client.get("/timeclock/my-schedule/confirmations").json()["pending"]
+        self.assertEqual([p["publishId"] for p in pending], [pid3, pid2, pid1])   # newest first
+        r = self.client.post(f"/timeclock/schedule/confirm/{pid2}")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["remaining"], 1)
+        pending = self.client.get("/timeclock/my-schedule/confirmations").json()["pending"]
+        self.assertEqual([p["publishId"] for p in pending], [pid3])   # pid1 went with pid2; other days stay
+        # Bob, asked for both, confirms the OLDER one: the newer stays open.
+        self._as(BOB)
+        self.assertEqual(self.client.post(f"/timeclock/schedule/confirm/{pid1}").json()["remaining"], 1)
+        self.assertEqual([p["publishId"] for p in self.client.get("/timeclock/my-schedule/confirmations").json()["pending"]], [pid2])
 
     # ── The manager's list ────────────────────────────────────────────────
 
@@ -209,11 +245,12 @@ class ConfirmTests(unittest.TestCase):
         bobs = self.db.query(models.NexusNotification).filter(models.NexusNotification.recipient == BOB).all()
         nudge = [n for n in bobs if n.title == "Please confirm your schedule"]
         self.assertEqual(len(nudge), 1)
-        self.assertEqual(json.loads(nudge[0].action), {"view": "shifts", "sub": "mine", "confirm": pid})
+        self.assertEqual(json.loads(nudge[0].action), {"view": "shifts", "sub": f"mine:confirm:{pid}", "confirm": pid})
         (to, subject, html), = self.sent
         self.assertEqual((to, subject), (BOB, "Please confirm your schedule"))
         self.assertIn("Confirm My Schedule", html)
         self.assertIn(f"/shifts/mine?confirm={pid}", html)
+        self.assertIn("If the button does not work, open this link:", html)
         self.assertIn("Ada Lee", html)
         # Once per publish: a second nudge sends nothing.
         r = self.client.post("/timeclock/schedule/nudge", json={"publish_id": pid})
@@ -257,9 +294,23 @@ class ConfirmTests(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual((r.json()["shiftCalendar"], r.json()["companyOutlookCalendar"], r.json()["hasMailbox"]),
                          (True, True, False))
+        # Opting out queues EVERY row that carries an event, a past shift's too
+        # (review, Oct 15); one with no event yet is simply skipped.
+        gone = (datetime.now(timezone.utc).date() - timedelta(days=20)).isoformat()
+        self.db.add(models.ShiftCalendarEvent(id="ev-old", shift_id="s-old", employee_email=AMY, state="ok",
+                                              event_id="evt-1", synced_hash="h", updated_at="2026-01-01T00:00:00"))
+        self.db.add(models.ShiftCalendarEvent(id="ev-none", shift_id="s-none", employee_email=AMY, state="error",
+                                              event_id="", updated_at="2026-01-01T00:00:00", attempts=5))
+        self.db.add(models.ScheduledShift(id="s-old", employee_email=AMY, work_date=gone, published=1,
+                                          start_hhmm="09:00", end_hhmm="17:00"))
+        self.db.commit()
         r = self.client.put("/timeclock/my-prefs", json={"shiftCalendar": False})
         self.assertFalse(r.json()["shiftCalendar"])
         self.assertFalse(self.client.get("/timeclock/my-prefs").json()["shiftCalendar"])
+        self.db.expire_all()
+        rows = {e.id: e for e in self.db.query(models.ShiftCalendarEvent).filter(models.ShiftCalendarEvent.employee_email == AMY).all()}
+        self.assertEqual((rows["ev-old"].state, rows["ev-old"].attempts), ("pending", 0))
+        self.assertEqual(rows["ev-none"].state, "skipped")
         self.assertIn(self.client.get("/timeclock/calendar-sync/status").status_code, (401, 403))   # administrators only
         self._as(ADMIN)
         r = self.client.get("/timeclock/calendar-sync/status")

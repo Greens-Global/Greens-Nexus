@@ -1064,6 +1064,8 @@ def _run_migrations():
             # Shifts Phase 3a (Oct 14): Outlook calendar opt-out and the subscribe-link salt. models.NexusPersonPref.
             "ALTER TABLE nexus_person_prefs ADD COLUMN shift_calendar INTEGER DEFAULT 1",
             "ALTER TABLE nexus_person_prefs ADD COLUMN ical_salt VARCHAR DEFAULT ''",
+            # Shifts Phase 3a review (Oct 15): failed sync tries per queued row. models.ShiftCalendarEvent.
+            "ALTER TABLE shift_calendar_events ADD COLUMN attempts INTEGER DEFAULT 0",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2373,6 +2375,8 @@ def _run_migrations():
         # Shifts Phase 3a (Oct 14): Outlook calendar opt-out and the subscribe-link salt. models.NexusPersonPref.
         "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS shift_calendar INTEGER DEFAULT 1",
         "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS ical_salt VARCHAR DEFAULT ''",
+        # Shifts Phase 3a review (Oct 15): failed sync tries per queued row. models.ShiftCalendarEvent.
+        "ALTER TABLE shift_calendar_events ADD COLUMN IF NOT EXISTS attempts INTEGER DEFAULT 0",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

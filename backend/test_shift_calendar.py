@@ -80,8 +80,8 @@ class _Case(unittest.TestCase):
         self.db.rollback()
         self.db.close()
 
-    def _shift(self, sid, email=AMY, start="07:00", end="15:30", label="", published=1, **kw):
-        r = models.ScheduledShift(id=sid, employee_email=email, work_date=DAY, shift_id="gsv", start_hhmm=start,
+    def _shift(self, sid, email=AMY, start="07:00", end="15:30", label="", published=1, work_date=DAY, **kw):
+        r = models.ScheduledShift(id=sid, employee_email=email, work_date=work_date, shift_id="gsv", start_hhmm=start,
                                   end_hhmm=end, label=label, published=published, group_id="grp-1", **kw)
         self.db.add(r)
         self.db.commit()
@@ -221,12 +221,72 @@ class EventTests(_Case):
         self._shift("s1")
         shift_calendar.enqueue(self.db, ["s1"])
         self.db.commit()
-        out = shift_calendar.sync_once(self.db, now=NOW, graph=FakeGraph(create_status=503))
+        out = shift_calendar.sync_once(self.db, now=NOW, graph=FakeGraph(create_status=500))
         self.assertEqual(out["errors"], 1)
         row, = self._rows("s1")
         self.assertEqual(row.state, "error")
-        self.assertIn("503", row.last_error)
+        self.assertIn("500", row.last_error)
+        self.assertEqual(row.attempts, 1)
         self.assertEqual(shift_calendar.status(self.db)["errors"], 1)
+
+    # Review (Oct 15): an errored row is retried after 15 minutes, five times,
+    # then left alone until the shift changes - never spun on forever.
+    def test_an_errored_row_is_retried_until_max_attempts_then_waits_for_a_change(self):
+        self._shift("s1")
+        shift_calendar.enqueue(self.db, ["s1"])
+        self.db.commit()
+        bad = FakeGraph(create_status=500)
+        shift_calendar.sync_once(self.db, now=NOW, graph=bad)
+        # Too soon: not picked up again.
+        soon = NOW + timedelta(minutes=5)
+        self.assertEqual(shift_calendar.sync_once(self.db, now=soon, graph=bad)["processed"], 0)
+        t = NOW
+        for n in range(2, shift_calendar.MAX_ATTEMPTS + 1):
+            t += timedelta(seconds=shift_calendar.ERROR_RETRY_SEC + 1)
+            self.assertEqual(shift_calendar.sync_once(self.db, now=t, graph=bad)["errors"], 1, n)
+            self.assertEqual(self._rows("s1")[0].attempts, n)
+        # Out of tries: a later tick leaves it, still visible as an error.
+        t += timedelta(seconds=shift_calendar.ERROR_RETRY_SEC + 1)
+        self.assertEqual(shift_calendar.sync_once(self.db, now=t, graph=bad)["processed"], 0)
+        self.assertEqual(shift_calendar.status(self.db)["errors"], 1)
+        # The shift changes: queued again with its tries back, and this time it lands.
+        shift_calendar.enqueue(self.db, ["s1"])
+        self.db.commit()
+        row, = self._rows("s1")
+        self.assertEqual((row.state, row.attempts), ("pending", 0))
+        self.assertEqual(shift_calendar.sync_once(self.db, now=t, graph=FakeGraph())["created"], 1)
+
+    def test_a_400_is_never_retried_until_the_shift_changes(self):
+        self._shift("s1")
+        shift_calendar.enqueue(self.db, ["s1"])
+        self.db.commit()
+        out = shift_calendar.sync_once(self.db, now=NOW, graph=FakeGraph(create_status=400))
+        self.assertEqual(out["errors"], 1)
+        row, = self._rows("s1")
+        self.assertEqual((row.state, row.attempts), ("error", shift_calendar.MAX_ATTEMPTS))
+        later = NOW + timedelta(days=1)
+        self.assertEqual(shift_calendar.sync_once(self.db, now=later, graph=FakeGraph(create_status=400))["processed"], 0)
+
+    def test_a_503_or_a_lost_token_pauses_the_tick_and_keeps_the_row_queued(self):
+        self._shift("s1")
+        self._shift("s2", email=BOB)
+        shift_calendar.enqueue(self.db, ["s1", "s2"])
+        self.db.commit()
+        out = shift_calendar.sync_once(self.db, now=NOW, graph=FakeGraph(create_status=503))
+        self.assertIn("503", out["disabled"])
+        self.assertEqual(out["processed"], 0)
+        self.assertEqual({r.state for r in self._rows()}, {"pending"})
+        self.assertEqual(shift_calendar.status(self.db)["enabled"], False)
+        shift_calendar._disabled_until = 0.0
+        # The real Graph caller with no token: the same pause, nothing marked.
+        from unittest import mock
+        with mock.patch("graph_mail.graph_configured", lambda: True), \
+                mock.patch("graph_mail.access_token", side_effect=RuntimeError("tenant said no")):
+            out = shift_calendar.sync_once(self.db, now=NOW, graph=None)
+        self.assertIn("tenant said no", out["disabled"])
+        self.assertEqual({r.state for r in self._rows()}, {"pending"})
+        shift_calendar._disabled_until = 0.0
+        self.assertEqual(shift_calendar.sync_once(self.db, now=NOW, graph=FakeGraph())["created"], 2)
 
 
 class SkipTests(_Case):
@@ -274,6 +334,30 @@ class SkipTests(_Case):
         out = shift_calendar.sync_once(self.db, now=NOW, graph=g)
         self.assertEqual((out["skipped"], g.calls), (1, []))
         self.assertIn("m365_id", self._rows("s1")[0].last_error)
+
+    def test_a_past_shift_with_no_event_is_skipped_but_one_with_an_event_is_kept_in_step(self):
+        # The queue waited weeks for the permission: old shifts must not be written now.
+        gone = (datetime.now(timezone.utc).date() - timedelta(days=3)).isoformat()
+        self._shift("old", work_date=gone)
+        shift_calendar.enqueue(self.db, ["old"])
+        self.db.commit()
+        g = FakeGraph()
+        out = shift_calendar.sync_once(self.db, now=datetime.now(timezone.utc), graph=g)
+        self.assertEqual((out["skipped"], out["created"]), (1, 0))
+        self.assertEqual(self._rows("old")[0].last_error, "already in the past")
+        # Yesterday still counts (a zone behind UTC may still be on it).
+        self._shift("yday", work_date=(datetime.now(timezone.utc).date() - timedelta(days=1)).isoformat())
+        shift_calendar.enqueue(self.db, ["yday"])
+        self.db.commit()
+        self.assertEqual(shift_calendar.sync_once(self.db, now=datetime.now(timezone.utc), graph=g)["created"], 1)
+        # A past shift that already has an event follows a change (a weather cancel, say).
+        row = self._rows("yday")[0]
+        self.db.query(models.ScheduledShift).filter(models.ScheduledShift.id == "yday").update({"work_date": gone, "label": "Moved"})
+        self.db.commit()
+        shift_calendar.enqueue(self.db, ["yday"])
+        self.db.commit()
+        self.assertEqual(shift_calendar.sync_once(self.db, now=datetime.now(timezone.utc), graph=g)["updated"], 1)
+        self.assertEqual(self._rows("yday")[0].event_id, row.event_id)
 
     def test_a_draft_is_never_sent(self):
         self._shift("s1", published=0)

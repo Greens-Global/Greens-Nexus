@@ -10956,13 +10956,18 @@ def save_my_shift_prefs(body: MyShiftPrefsIn, user: dict = Depends(get_current_u
                        ScheduledShift.work_date >= today).all()]
         shift_calendar.enqueue(db, ids)
         if not body.shiftCalendar:
-            # Rows that already carry an event go through the skip path, which
-            # removes it; rows with no event yet are not worth a Graph call.
+            # Opting out means EVERY Nexus event comes off their calendar, past
+            # shifts included (review, Oct 15): rows that carry an event go
+            # through the skip path, which removes it; rows with no event yet
+            # are not worth a Graph call.
+            stamp = shift_calendar._now_iso()
             for e in (db.query(models.ShiftCalendarEvent)
-                      .filter(models.ShiftCalendarEvent.employee_email == em,
-                              models.ShiftCalendarEvent.event_id == "").all()):
-                e.state = "skipped"
-                e.last_error = "opted out of the Outlook calendar"
+                      .filter(models.ShiftCalendarEvent.employee_email == em).all()):
+                if e.event_id:
+                    e.state, e.last_error, e.updated_at, e.attempts = "pending", "", stamp, 0
+                else:
+                    e.state = "skipped"
+                    e.last_error = "opted out of the Outlook calendar"
     row.updated_at = datetime.now(timezone.utc).isoformat()
     db.commit()
     return _my_prefs_payload(db, em)
@@ -10980,15 +10985,22 @@ def calendar_sync_status(user: dict = Depends(require_administrator), db: Sessio
 def confirm_schedule(publish_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """The person confirms they have seen a shared schedule. 404 when they
     were never asked for that publish."""
+    import models
     import shift_confirm
     row = shift_confirm.confirm(db, publish_id, user["email"])
     if row is None:
         raise HTTPException(404, "No confirmation was asked of you for this schedule.")
-    # The ask on the bell is done with.
+    # The ask on the bell is done with - for this publish and any older one
+    # of the same days that this confirm covered (shift_confirm.confirm).
+    db.flush()   # autoflush is off: the stamps above must be visible to the query
+    done = [f"schedule-confirm:{a.publish_id}" for a in
+            db.query(models.ShiftPublishConfirm)
+            .filter(models.ShiftPublishConfirm.employee_email == user["email"].lower(),
+                    models.ShiftPublishConfirm.confirmed_at != "").all()]
     for n in (db.query(NexusNotification)
               .filter(NexusNotification.recipient == user["email"].lower(),
                       NexusNotification.actioned == False,   # noqa: E712 - SQLAlchemy expression
-                      NexusNotification.ref_id.in_([f"schedule-confirm:{publish_id}"])).all()):
+                      NexusNotification.ref_id.in_(done)).all()):
         n.actioned = True
     db.commit()
     return {"ok": True, "publishId": publish_id, "confirmedAt": row.confirmed_at,

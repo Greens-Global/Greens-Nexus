@@ -54,7 +54,7 @@ beforeEach(() => {
   api.timeSchedUnshared.mockResolvedValue({ count: 4 });
   api.timeSchedCheck.mockResolvedValue({ warnings: [] });
   api.timeOffTypes.mockResolvedValue({ builtIn: ['vacation'], custom: [], requestsOn: true });
-  api.timeSchedConfirmations.mockResolvedValue([]);
+  api.timeSchedConfirmations.mockResolvedValue({ people: [], unconfirmed: 0 });
   api.timeSchedNudge.mockResolvedValue({ nudged: 0 });
 });
 

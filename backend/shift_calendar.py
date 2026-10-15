@@ -24,6 +24,17 @@ Microsoft 365 account (nexus_employees.m365_id), or the shift is no longer a
 shared, assigned, live shift. The event body is hashed (synced_hash) so an
 unchanged shift is never sent again. The first tick with an empty table
 backfills every shared assigned shift from today onward (enqueue_all_upcoming).
+A shift already in the past with no event yet is skipped too, so a queue that
+waited weeks for the permission never writes old history.
+
+Failures (review, Oct 15): a row that errors is retried after 15 minutes, up
+to MAX_ATTEMPTS times, then left as `error` with its reason until the shift
+changes again (enqueue resets the count) - never forever. A 4xx Graph will
+never accept (400, 404 on create, 405, 410, 413, 422...) uses up every try at
+once. A token failure, a network error, a 429 or a 5xx is the SERVICE, not
+the row: the tick stops, the row stays queued, and the sync pauses (one
+minute for a 429 / 503, five for the rest). Another 5xx errors the row and
+is retried like any failure.
 
 The event: subject "Shift · 7:00 AM - 3:30 PM · GSV" (the label, else the
 shift type), start and end in the shift's own zone (an overnight shift ends
@@ -51,8 +62,11 @@ from database import SessionLocal
 
 BATCH = 50
 SYNC_SEC = 60
-RETRY_SEC = 300            # how long a 401 / 403 pauses the sync
+RETRY_SEC = 300            # how long a 401 / 403, a token failure or a network error pauses the sync
+BUSY_SEC = 60              # ...and a 429 / 503
 ERROR_RETRY_SEC = 15 * 60  # an errored row is tried again after this
+MAX_ATTEMPTS = 5           # ...this many times, then it waits for the shift to change
+PAST_DAYS = 1              # a shift older than this with no event yet is never created
 CATEGORY = "Nexus Shift"
 SETUP_DOC = "docs/Outlook-Calendar-Setup.md"
 GRAPH = "https://graph.microsoft.com/v1.0"
@@ -64,12 +78,29 @@ _disabled_reason: str = ""
 _backfill_checked = False
 
 
-class GraphDenied(Exception):
+class GraphPaused(Exception):
+    """Graph cannot be used right now (no token, no network, throttled, a
+    5xx): stop the tick, leave the row queued, pause for `wait` seconds."""
+    wait = RETRY_SEC
+
+
+class GraphDenied(GraphPaused):
     """401 / 403 from Graph: the permission is missing - stop the tick."""
 
 
+class GraphBusy(GraphPaused):
+    """429 or 503 from Graph: back off briefly."""
+    wait = BUSY_SEC
+
+
 class GraphError(Exception):
-    """Any other failed Graph call: this row errors, the tick goes on."""
+    """A failed Graph call about THIS row: it errors, the tick goes on.
+    `permanent` = Graph will never take it as it is (a 4xx), so no retry
+    until the shift changes."""
+
+    def __init__(self, msg: str, permanent: bool = False):
+        super().__init__(msg)
+        self.permanent = permanent
 
 
 def _now_iso(now: datetime = None) -> str:
@@ -142,6 +173,7 @@ def enqueue(db: Session, shift_ids) -> int:
             mine = models.ShiftCalendarEvent(id=str(uuid.uuid4()), shift_id=sid, employee_email=owner)
             db.add(mine)
         mine.state, mine.last_error, mine.updated_at = "pending", "", now
+        mine.attempts = 0   # a changed shift gets its retries back
         n += 1
     return n
 
@@ -242,12 +274,20 @@ def _hash(payload: dict, upn: str) -> str:
 
 def _graph_call(method: str, path: str, body: dict = None) -> tuple:
     """The real thing: one Graph call with the cached app-only token.
-    Returns (status, json) - the caller judges the status."""
+    Returns (status, json) - the caller judges the status. No token or no
+    network is the service, not the row: GraphPaused stops the tick."""
     import httpx
 
     import graph_mail
-    headers = {"Authorization": f"Bearer {graph_mail.access_token()}", "Content-Type": "application/json"}
-    r = httpx.request(method, GRAPH + path, headers=headers, json=body, timeout=20)
+    try:
+        token = graph_mail.access_token()
+    except Exception as e:   # noqa: BLE001 - whatever the token fetch raised, the tick waits
+        raise GraphPaused(f"Could not get a Microsoft Graph token: {str(e)[:160]}")
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    try:
+        r = httpx.request(method, GRAPH + path, headers=headers, json=body, timeout=20)
+    except httpx.HTTPError as e:
+        raise GraphPaused(f"Microsoft Graph could not be reached: {type(e).__name__}")
     try:
         data = r.json() if r.content else {}
     except ValueError:
@@ -263,7 +303,13 @@ def _check(status: int, data: dict, what: str) -> None:
         return
     if status >= 300:
         msg = ((data or {}).get("error") or {}).get("message") or ""
-        raise GraphError(f"Graph answered {status} on {what}" + (f": {msg[:160]}" if msg else ""))
+        text = f"Graph answered {status} on {what}" + (f": {msg[:160]}" if msg else "")
+        if status in (429, 503):
+            raise GraphBusy(text)   # the service is busy: the tick stops, the row stays queued
+        if status >= 500:
+            raise GraphError(text)  # this row, this time: retried
+        # Any other 4xx: Graph will answer the same tomorrow - no retry.
+        raise GraphError(text, permanent=True)
 
 
 def _remove_event(graph, upn: str, event_id: str) -> None:
@@ -339,11 +385,18 @@ def _is_live(shift, email: str) -> bool:
             and (getattr(shift, "weather_status", "") or "") != "cancelled")
 
 
-def _skip_reason(shift, email: str, emp, ctx: _Ctx) -> str:
+def _skip_reason(shift, email: str, emp, ctx: _Ctx, has_event: bool = True, now: datetime = None) -> str:
     if not _is_live(shift, email):
         if shift is not None and (getattr(shift, "weather_status", "") or "") == "cancelled":
             return "cancelled by a weather call"
         return "not a shared assigned shift"
+    if not has_event:
+        # Nothing on the calendar yet and the day is gone: a queue that sat
+        # for weeks (the permission not granted) must not write old history.
+        # The cut-off is a day behind the zone furthest behind UTC.
+        cutoff = ((now or datetime.now(timezone.utc)) - timedelta(hours=12) - timedelta(days=PAST_DAYS)).date().isoformat()
+        if (shift.work_date or "")[:10] < cutoff:
+            return "already in the past"
     company = (emp.company or "") if emp is not None else ""
     if not ctx.settings(company).get("outlookCalendar", True):
         return "the Outlook calendar is off for this company"
@@ -365,7 +418,7 @@ def _sync_row(db: Session, e, ctx: _Ctx, graph, now: datetime, out: dict) -> Non
         out["deleted"] += 1
         return
     shift = db.query(models.ScheduledShift).filter(models.ScheduledShift.id == e.shift_id).first()
-    why = _skip_reason(shift, email, emp, ctx)
+    why = _skip_reason(shift, email, emp, ctx, has_event=bool(e.event_id), now=now)
     if why:
         if e.event_id:
             _remove_event(graph, upn, e.event_id)
@@ -402,7 +455,7 @@ def _sync_row(db: Session, e, ctx: _Ctx, graph, now: datetime, out: dict) -> Non
         status, data = graph("POST", f"/users/{upn}/events", create)
         _check(status, data, "create")
         if status == 404:
-            raise GraphError("Graph answered 404 on create: the mailbox was not found")
+            raise GraphError("Graph answered 404 on create: the mailbox was not found", permanent=True)
         e.event_id = str((data or {}).get("id") or "")
         if not e.event_id:
             raise GraphError("Graph created the event but returned no id")
@@ -436,8 +489,10 @@ def sync_once(db: Session, now: datetime = None, graph=None) -> dict:
         graph = _graph_call
     retry_before = _now_iso(now - timedelta(seconds=ERROR_RETRY_SEC))
     E = models.ShiftCalendarEvent
+    from sqlalchemy import func
+    retry = (E.state == "error") & (E.updated_at < retry_before) & (func.coalesce(E.attempts, 0) < MAX_ATTEMPTS)
     rows = (db.query(E)
-            .filter((E.state.in_(["pending", "delete"])) | ((E.state == "error") & (E.updated_at < retry_before)))
+            .filter((E.state.in_(["pending", "delete"])) | retry)
             .order_by(E.updated_at, E.id).limit(BATCH).all())
     if not rows:
         return out
@@ -445,14 +500,17 @@ def sync_once(db: Session, now: datetime = None, graph=None) -> dict:
     for e in rows:
         try:
             _sync_row(db, e, ctx, graph, now, out)
-        except GraphDenied as d:
+        except GraphPaused as d:
+            # The service, not the row: it stays queued; the tick stops.
             db.rollback()
-            _disabled_until, _disabled_reason = time.monotonic() + RETRY_SEC, str(d)
+            _disabled_until, _disabled_reason = time.monotonic() + d.wait, str(d)
             out["disabled"] = str(d)
             print(f"[shift-calendar] paused: {d}")
             break
         except Exception as ex:   # noqa: BLE001 - one bad row must not stop the queue
             db.rollback()
+            permanent = isinstance(ex, GraphError) and ex.permanent
+            e.attempts = MAX_ATTEMPTS if permanent else int(e.attempts or 0) + 1
             e.state, e.last_error, e.updated_at = "error", str(ex)[:300], _now_iso(now)
             out["errors"] += 1
         out["processed"] += 1

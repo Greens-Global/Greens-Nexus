@@ -113,6 +113,10 @@ class IcalTests(unittest.TestCase):
         r = self.client.get(path)
         self.assertEqual(r.status_code, 200, r.text)
         self.assertTrue(r.headers["content-type"].startswith("text/calendar"))
+        # The URL is the credential: never cached by a shared cache, never indexed.
+        self.assertEqual(r.headers["cache-control"], "private, no-store")
+        self.assertEqual(r.headers["referrer-policy"], "no-referrer")
+        self.assertIn("noindex", r.headers["x-robots-tag"])
         body = r.text
         self.assertIn("X-WR-CALNAME:Nexus Shifts", body)
         self.assertIn("BEGIN:VCALENDAR", body)
@@ -149,6 +153,12 @@ class IcalTests(unittest.TestCase):
         auth.SKIP_AUTH = False
         self.assertEqual(self.client.get(old_path).status_code, 404)
         self.assertEqual(self.client.get(new_path).status_code, 200)
+
+    def test_a_rate_limit_trip_logs_the_prefix_never_the_token(self):
+        import middleware_hardening as mh
+        self.assertIn("/timeclock/ical/", mh.RequestRateLimit.SENSITIVE_PREFIXES)
+        self.assertEqual(mh.RequestRateLimit._log_path("/timeclock/ical/eyJlIjoiYW15In0abc.ics"), "/timeclock/ical/<token>")
+        self.assertEqual(mh.RequestRateLimit._log_path("/auth/login"), "/auth/login")
 
     def test_a_forged_or_unknown_token_is_a_plain_404(self):
         auth.SKIP_AUTH = False

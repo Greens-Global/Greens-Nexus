@@ -31,10 +31,17 @@ import models
 from app_url import app_url
 
 MY_SHIFTS = {"view": "shifts", "sub": "mine"}
+# The bell's click-through carries only view + sub (NotificationBell.jsx
+# dispatches nexus:navigate with those two), so the publish rides in the sub
+# the way a weather advisory's day does: "mine:confirm:<publish id>" -
+# views/Shifts.jsx reads it, lands on My Shifts with that publish's banner
+# in front, and resets the address. `confirm` stays beside it for anything
+# that reads the action whole.
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+    # Milliseconds: two shares in the same second still sort newest first.
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3]
 
 
 def _us(iso: str) -> str:
@@ -46,7 +53,7 @@ def _us(iso: str) -> str:
 
 def confirm_action(publish_id: str) -> dict:
     """The bell action: open My Shifts with the publish to confirm."""
-    return {**MY_SHIFTS, "confirm": publish_id}
+    return {"view": "shifts", "sub": f"mine:confirm:{publish_id}", "confirm": publish_id}
 
 
 def confirm_url(publish_id: str) -> str:
@@ -84,15 +91,37 @@ def ask(db: Session, publish_id: str, email: str) -> models.ShiftPublishConfirm:
 def confirm(db: Session, publish_id: str, email: str):
     """The person has seen it. Returns the row, or None when they were
     never asked for this publish. Confirming twice keeps the first time.
-    No commit."""
+    No commit.
+
+    A publish superseded by this one is confirmed with it (review, Oct 15):
+    an OLDER ask of theirs still open whose days overlap this publish's -
+    what they are looking at IS that schedule, with the later changes on
+    it. An older ask for other days stays open."""
     em = (email or "").lower()
     row = (db.query(models.ShiftPublishConfirm)
            .filter(models.ShiftPublishConfirm.publish_id == publish_id,
                    models.ShiftPublishConfirm.employee_email == em).first())
     if row is None:
         return None
-    if not row.confirmed_at:
-        row.confirmed_at = _now()
+    if row.confirmed_at:
+        return row
+    stamp = _now()
+    row.confirmed_at = stamp
+    pub = db.query(models.ShiftPublish).filter(models.ShiftPublish.id == publish_id).first()
+    if pub is None:
+        return row
+    older = (db.query(models.ShiftPublishConfirm)
+             .filter(models.ShiftPublishConfirm.employee_email == em,
+                     models.ShiftPublishConfirm.confirmed_at == "",
+                     models.ShiftPublishConfirm.publish_id != publish_id).all())
+    if older:
+        pubs = {p.id: p for p in db.query(models.ShiftPublish)
+                .filter(models.ShiftPublish.id.in_([a.publish_id for a in older])).all()}
+        for a in older:
+            p = pubs.get(a.publish_id)
+            if (p is not None and (p.at or "") <= (pub.at or "")
+                    and (p.start_date or "") <= (pub.end_date or "") and (p.end_date or "") >= (pub.start_date or "")):
+                a.confirmed_at = stamp
     return row
 
 
@@ -199,6 +228,7 @@ def nudge_email_html(first_name: str, pub: models.ShiftPublish, actor_name: str)
     </td></tr>
     <tr><td style="padding:24px 28px 28px">
       <a href="{escape(url)}" style="display:inline-block;padding:10px 22px;border-radius:4px;background:{band};color:#ffffff;text-decoration:none;font-weight:600;font-size:13px">Confirm My Schedule</a>
+      <div style="font-size:11.5px;line-height:1.5;color:#6b7280;margin-top:12px">If the button does not work, open this link: {escape(url)}</div>
     </td></tr>
     <tr><td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 28px;font-size:11.5px;line-height:1.6;color:#6b7280">
       You get this email once per shared schedule, when a manager asks for a confirmation in Nexus.{theme.footer_lines()}

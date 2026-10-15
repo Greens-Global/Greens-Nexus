@@ -81,10 +81,11 @@ beforeEach(() => {
   weatherCallAck.mockReset().mockResolvedValue({ ok: true });
   weatherCallMyPrefsSave.mockReset().mockResolvedValue({ weatherSms: false, phone: false });
   timeSchedActuals.mockReset().mockResolvedValue({ cells: {}, people: {}, totals: {} });
-  timeMyConfirmations.mockReset().mockResolvedValue([]);
+  timeMyConfirmations.mockReset().mockResolvedValue({ pending: [] });
   timeSchedConfirm.mockReset().mockResolvedValue({ ok: true });
-  timeMyPrefsGet.mockReset().mockResolvedValue({ shiftCalendar: true });
-  timeMyPrefsSet.mockReset().mockImplementation(async (b) => ({ shiftCalendar: b.shiftCalendar !== false }));
+  timeMyPrefsGet.mockReset().mockResolvedValue({ shiftCalendar: true, companyOutlookCalendar: true, hasMailbox: true, showAs: 'free' });
+  timeMyPrefsSet.mockReset().mockImplementation(async (b) => ({ shiftCalendar: b.shiftCalendar !== false, companyOutlookCalendar: true, hasMailbox: true, showAs: 'free' }));
+  window.history.replaceState({}, '', '/shifts/mine');
   timeMyIcalLink.mockReset().mockResolvedValue({ url: 'https://api.nexus.test/timeclock/ical/abc123.ics' });
   timeMyIcalRotate.mockReset().mockResolvedValue({ url: 'https://api.nexus.test/timeclock/ical/new456.ics' });
   confirmAsk.mockReset().mockResolvedValue(true);
@@ -345,14 +346,18 @@ describe('actuals on my shifts', () => {
 // Shifts Phase 3a (Oct 14): the schedule comes to people. A shared schedule
 // I have not confirmed sits at the top until I confirm it (then the next
 // one); the Calendar row holds my Outlook switch (no switch when the
-// company's is off) and my iCal link with Copy and New Link.
+// company's is off, or with no Microsoft 365 mailbox on file) and my iCal
+// link with Copy and New Link. GET /timeclock/my-schedule/confirmations
+// answers { pending: [...] }; GET /timeclock/my-prefs answers
+// { shiftCalendar, companyOutlookCalendar, hasMailbox, showAs }.
 describe('MyShifts confirmations and calendar', () => {
   const banner = () => screen.queryByRole('note', { name: 'Confirm your schedule' });
+  const two = () => [
+    { publishId: 'pub2', at: '2026-10-14T18:05:00Z', by: 'amy@x.com', start: monday, end: plus(6), changes: 3 },
+    { publishId: 'pub1', at: '2026-10-07T18:05:00Z', by: 'bob@x.com', start: monday, end: plus(6), changes: 1 },
+  ];
   it('asks me to confirm the newest shared schedule, then the next one; a failed confirm asks again', async () => {
-    timeMyConfirmations.mockResolvedValue([
-      { publishId: 'pub2', at: '2026-10-14T18:05:00Z', by: 'amy@x.com', start: monday, end: plus(6), changes: 3 },
-      { publishId: 'pub1', at: '2026-10-07T18:05:00Z', by: 'bob@x.com', start: monday, end: plus(6), changes: 1 },
-    ]);
+    timeMyConfirmations.mockResolvedValue({ pending: two() });
     timeSchedConfirm.mockRejectedValueOnce(new Error('API error 500')).mockResolvedValue({ ok: true });
     render(<MyShifts />);
     const b = await waitFor(() => { const el = banner(); expect(el).toBeTruthy(); return el; });
@@ -380,6 +385,30 @@ describe('MyShifts confirmations and calendar', () => {
     expect(banner()).toBeNull();
   });
 
+  // A bell's click-through (sub "mine:confirm:<id>", handed down by
+  // Shifts.jsx) and the email's /shifts/mine?confirm=<id> both put THAT
+  // share's banner in front, even when a newer one is waiting.
+  it('puts the share a bell points at in front, and the one from an email link', async () => {
+    timeMyConfirmations.mockResolvedValue({ pending: two() });
+    const { unmount } = render(<MyShifts focusConfirm="pub1" />);
+    const b = await waitFor(() => { const el = banner(); expect(el).toBeTruthy(); return el; });
+    expect(b.getAttribute('data-confirm-banner')).toBe('pub1');
+    expect(b.textContent).toContain('1 more waiting.');
+    unmount();
+    window.history.replaceState({}, '', '/shifts/mine?confirm=pub1&x=1');
+    render(<MyShifts />);
+    const b2 = await waitFor(() => { const el = banner(); expect(el).toBeTruthy(); return el; });
+    expect(b2.getAttribute('data-confirm-banner')).toBe('pub1');
+    expect(window.location.search).toBe('?x=1');                             // read once, then stripped
+  });
+
+  it('says so quietly when the share a link points at is no longer waiting on me', async () => {
+    timeMyConfirmations.mockResolvedValue({ pending: [two()[0]] });
+    render(<MyShifts focusConfirm="pub-gone" />);
+    expect(await screen.findByText('No confirmation is waiting for that schedule.')).toBeTruthy();
+    expect(banner().getAttribute('data-confirm-banner')).toBe('pub2');   // the newest still shows
+  });
+
   it('turns my Outlook calendar off and on from the Calendar row, and puts it back when the save fails', async () => {
     render(<MyShifts />);
     const sw = await screen.findByRole('switch', { name: 'In your Outlook calendar' });
@@ -394,12 +423,18 @@ describe('MyShifts confirmations and calendar', () => {
     expect(screen.getByText('Could not save that.')).toBeTruthy();
   });
 
-  it('says the company switch is off instead of offering mine', async () => {
-    shiftRequestsMine.mockResolvedValue(reqs({ settings: { openShifts: true, swaps: true, offers: true, outlookCalendar: false } }));
-    render(<MyShifts />);
+  it('says the company switch is off instead of offering mine, or that I have no mailbox', async () => {
+    timeMyPrefsGet.mockResolvedValue({ shiftCalendar: true, companyOutlookCalendar: false, hasMailbox: true, showAs: 'free' });
+    const { unmount } = render(<MyShifts />);
     expect(await screen.findByText('Outlook calendar is off for your company')).toBeTruthy();
     expect(screen.queryByRole('switch', { name: 'In your Outlook calendar' })).toBeNull();
     expect(screen.getByText('Subscribe in another calendar')).toBeTruthy();   // the iCal link still works
+    unmount();
+    timeMyPrefsGet.mockResolvedValue({ shiftCalendar: true, companyOutlookCalendar: true, hasMailbox: false, showAs: 'free' });
+    render(<MyShifts />);
+    expect(await screen.findByText(/No Microsoft 365 mailbox on file/i)).toBeTruthy();
+    expect(screen.queryByRole('switch', { name: 'In your Outlook calendar' })).toBeNull();
+    expect(screen.getByText('Subscribe in another calendar')).toBeTruthy();
   });
 
   it('reveals my iCal link on request, copies it, and makes a new one only after a confirmation', async () => {
@@ -440,7 +475,7 @@ describe('MyShifts confirmations and calendar', () => {
     delete document.execCommand;
   });
 
-  it('shows no Calendar row when my preferences cannot load, unless the company switch is off', async () => {
+  it('shows no Calendar row when my preferences cannot load', async () => {
     timeMyPrefsGet.mockRejectedValue(new Error('API error 500'));
     render(<MyShifts />);
     await screen.findByRole('status', { name: 'Week summary' });

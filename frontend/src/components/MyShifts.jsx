@@ -30,7 +30,10 @@ import MyAvailability from './MyAvailability';
 
 const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
 
-export default function MyShifts() {
+// `focusConfirm` (Phase 3a): the publish a bell or email asked to have
+// confirmed - its banner goes in front; the email's link is
+// /shifts/mine?confirm=<publish id>, read once on mount.
+export default function MyShifts({ focusConfirm = '' }) {
   const nameOf = useNameResolver();
   const phone = useIsMobile();
   const [weekStart, setWeekStartPref] = useState('monday');
@@ -105,16 +108,53 @@ export default function MyShifts() {
   // at a time), my Outlook calendar switch, and my iCal subscription link.
   // All three load beside the week and fail quiet: a failed call is simply
   // no banner, no switch, no link.
-  const [confirms, setConfirms] = useState([]);
+  const [confirms, setConfirms] = useState(null);   // null until the first answer
   const [confirmErr, setConfirmErr] = useState('');
   const [confirming, setConfirming] = useState('');
   const [calPrefs, setCalPrefs] = useState(null);
+  // The share a bell or email pointed at: the prop (a bell, consumed by
+  // Shifts.jsx right away, so it is kept here) or ?confirm= in the address
+  // (the email), stripped once read so a refresh does not ask again.
+  const [wanted, setWanted] = useState(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const id = params.get('confirm') || '';
+      if (id) {
+        params.delete('confirm');
+        const rest = params.toString();
+        window.history.replaceState(window.history.state, '', window.location.pathname + (rest ? `?${rest}` : ''));
+      }
+      return focusConfirm || id;
+    } catch { return focusConfirm || ''; }
+  });
+  // A bell clicked while this is already up may name a share announced
+  // after the list loaded: ask again (the list goes back to loading so the
+  // "not waiting" check below waits for the fresh answer). State adjusted
+  // during render, the React way for a prop change - not in an effect.
+  const [confirmTick, setConfirmTick] = useState(0);
+  const [seenFocus, setSeenFocus] = useState(focusConfirm);
+  if (focusConfirm !== seenFocus) {
+    setSeenFocus(focusConfirm);
+    if (focusConfirm) { setWanted(focusConfirm); setConfirms(null); setConfirmTick((n) => n + 1); }
+  }
   useEffect(() => {
     let live = true;
-    Promise.resolve().then(() => api.timeMyConfirmations()).then((r) => { if (live) setConfirms(Array.isArray(r) ? r : []); }).catch(() => {});
+    Promise.resolve().then(() => api.timeMyConfirmations())
+      .then((r) => { if (live) setConfirms(Array.isArray(r?.pending) ? r.pending : []); })
+      .catch(() => { if (live) setConfirms((c) => c || []); });
+    return () => { live = false; };
+  }, [reload, confirmTick]);
+  useEffect(() => {
+    let live = true;
     Promise.resolve().then(() => api.timeMyPrefsGet()).then((r) => { if (live && r && typeof r === 'object') setCalPrefs(r); }).catch(() => {});
     return () => { live = false; };
   }, [reload]);
+  // The share asked for is not waiting on me (confirmed already, or it was
+  // superseded and went with a later confirm): say so once, quietly.
+  if (wanted && confirms && !confirms.some((c) => c.publishId === wanted)) {
+    setWanted('');
+    setFlash('No confirmation is waiting for that schedule.');
+  }
   async function confirmSchedule(c) {
     setConfirming(c.publishId); setConfirmErr('');
     setConfirms((cs) => cs.filter((x) => x.publishId !== c.publishId));   // optimistic: the next one (if any) steps up
@@ -128,7 +168,8 @@ export default function MyShifts() {
     try { const r = await api.timeMyPrefsSet({ shiftCalendar: on }); if (r && typeof r === 'object') setCalPrefs(r); }
     catch { setCalPrefs(before); setFlash('Could not save that.'); }
   }
-  const toConfirm = confirms[0] || null;
+  const toConfirm = (wanted && (confirms || []).find((c) => c.publishId === wanted)) || (confirms || [])[0] || null;
+  const moreWaiting = (confirms || []).length - 1;
   async function requestOpen(s) {
     setBusyOpen(s.id);
     try { await api.shiftRequestCreate({ kind: 'open', shift_id: s.id }); done('Request sent. A manager will approve it.'); }
@@ -238,7 +279,7 @@ export default function MyShifts() {
           <div style={{ flex: 1, minWidth: 200, fontSize: 13 }}>
             Your schedule was shared{toConfirm.at ? ` on ${formatDate(toConfirm.at)}` : ''}{toConfirm.by ? ` by ${nameOf(toConfirm.by, toConfirm.by)}` : ''}
             {Number(toConfirm.changes) > 0 ? ` (${toConfirm.changes} change${Number(toConfirm.changes) === 1 ? '' : 's'})` : ''} - have a look and confirm.
-            {confirms.length > 1 && <span style={{ color: 'var(--muted)', fontSize: 12 }}> {confirms.length - 1} more waiting.</span>}
+            {moreWaiting > 0 && <span style={{ color: 'var(--muted)', fontSize: 12 }}> {moreWaiting} more waiting.</span>}
             {confirmErr && <span role="status" style={{ display: 'block', fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{confirmErr}</span>}
           </div>
           <button type="button" className="primary-btn" onClick={() => confirmSchedule(toConfirm)} disabled={confirming === toConfirm.publishId} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
@@ -276,8 +317,9 @@ export default function MyShifts() {
           {glance.late > 0 && <> · <b style={{ color: 'hsl(var(--color-orange))' }}>{glance.late} late</b></>}
         </div>
       )}
-      {glance && !error && (calPrefs || cfg.outlookCalendar === false) && (
-        <CalendarRow prefs={calPrefs} companyOn={cfg.outlookCalendar !== false} onToggle={setShiftCalendar} onFlash={setFlash} />
+      {glance && !error && calPrefs && (
+        <CalendarRow prefs={calPrefs} companyOn={calPrefs.companyOutlookCalendar !== false} hasMailbox={calPrefs.hasMailbox !== false}
+          onToggle={setShiftCalendar} onFlash={setFlash} />
       )}
 
       {error ? (
@@ -363,11 +405,13 @@ export default function MyShifts() {
 
 // The Calendar row under the week line (Shifts Phase 3a): my Outlook
 // calendar switch (a personal opt-out; the company's own switch off = no
-// switch, one line that says so) and "Subscribe in another calendar", which
-// reveals my iCal link with Copy and New Link. The link is fetched only
-// when asked for; a new link is confirmed first because the old one stops
-// working in every calendar that uses it.
-export function CalendarRow({ prefs, companyOn, onToggle, onFlash }) {
+// switch, one line that says so; no Microsoft 365 mailbox on file = the
+// same, the switch would do nothing) and "Subscribe in another calendar",
+// which reveals my iCal link with Copy and New Link. The link is fetched
+// only when asked for; a new link is confirmed first because the old one
+// stops working in every calendar that uses it. `prefs` is GET
+// /timeclock/my-prefs: {shiftCalendar, companyOutlookCalendar, hasMailbox}.
+export function CalendarRow({ prefs, companyOn, hasMailbox = true, onToggle, onFlash }) {
   const [open, setOpen] = useState(false);
   const [link, setLink] = useState(null);     // { url } | { error }
   const [copied, setCopied] = useState(false);
@@ -405,7 +449,11 @@ export function CalendarRow({ prefs, companyOn, onToggle, onFlash }) {
     <div data-calendar-row="" style={{ marginBottom: 12, fontSize: 12.5 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <CalendarDays size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-        {companyOn ? (
+        {!companyOn ? (
+          <span style={{ color: 'var(--muted)' }}>Outlook calendar is off for your company</span>
+        ) : !hasMailbox ? (
+          <span style={{ color: 'var(--muted)' }} title="Your shifts cannot be added to an Outlook calendar until your Nexus profile is linked to a Microsoft 365 account.">Outlook calendar: no Microsoft 365 mailbox on file</span>
+        ) : (
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: prefs ? 'pointer' : 'default', color: 'var(--ink)' }}>
             <span>In your Outlook calendar</span>
             <button type="button" role="switch" aria-checked={on} aria-label="In your Outlook calendar" onClick={() => onToggle(!on)} disabled={!prefs}
@@ -416,8 +464,6 @@ export function CalendarRow({ prefs, companyOn, onToggle, onFlash }) {
               </span>
             </button>
           </label>
-        ) : (
-          <span style={{ color: 'var(--muted)' }}>Outlook calendar is off for your company</span>
         )}
         <span aria-hidden="true" style={{ color: 'var(--muted)' }}>·</span>
         <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open}

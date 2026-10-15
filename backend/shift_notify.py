@@ -127,6 +127,9 @@ def email_html(first_name: str, items: list, actor_name: str, confirm_id: str = 
                    f"Please confirm you have seen it.</div>"
                    f"<a href=\"{curl}\" style=\"display:inline-block;padding:10px 22px;border-radius:4px;background:{band};"
                    f"color:#ffffff;text-decoration:none;font-weight:600;font-size:13px;margin-right:10px\">Confirm You Have Seen It</a>")
+    # A client that strips buttons to text still gets somewhere to click.
+    plain = (f"<div style='font-size:11.5px;line-height:1.5;color:#6b7280;margin-top:12px'>"
+             f"If the button does not work, open this link: {curl}</div>") if confirm_id else ""
     html = f"""<div style="background:#f3f4f6;padding:28px 12px;font-family:'Segoe UI',Arial,Helvetica,sans-serif">
   <table align="center" width="620" cellpadding="0" cellspacing="0" style="max-width:620px;width:100%;background:#ffffff;border:1px solid #e5e7eb;border-collapse:collapse">
     <tr><td style="background:{band};padding:16px 28px">{theme.logo_block()}</td></tr>
@@ -141,6 +144,7 @@ def email_html(first_name: str, items: list, actor_name: str, confirm_id: str = 
     </td></tr>
     <tr><td style="padding:24px 28px 28px">
       {confirm}<a href="{escape(url)}" style="display:inline-block;padding:10px 22px;border-radius:4px;background:{'#374151' if confirm else band};color:#ffffff;text-decoration:none;font-weight:600;font-size:13px">Open My Shifts</a>
+      {plain}
     </td></tr>
     <tr><td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 28px;font-size:11.5px;line-height:1.6;color:#6b7280">
       You get this email when a manager publishes a change to your shifts in Nexus.{theme.footer_lines()}

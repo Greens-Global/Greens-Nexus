@@ -160,13 +160,15 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
   // Confirmations (Phase 3a, Oct 14): who has confirmed the schedules shared
   // in this range - a manager only, fetched beside the schedule the same way
   // as the actuals (after it, never blocking it, a failed call is nothing).
-  // Rows: [{ email, name, publishes: [{ publishId, at, confirmedAt, nudgedAt }] }].
+  // The API answers { people: [{ email, name, publishes: [{ publishId, at, by,
+  // confirmedAt, nudgedAt }], unconfirmed }], unconfirmed }; the rows kept
+  // here are its people.
   const [confirmRows, setConfirmRows] = useState(null);
   useEffect(() => {
     if (!data || data.canManage === false || loadedRange.current !== `${start}|${end}`) { setConfirmRows(null); return undefined; }
     let live = true;
     Promise.resolve().then(() => api.timeSchedConfirmations(start, end))
-      .then((r) => { if (live) setConfirmRows(Array.isArray(r) ? r : null); })
+      .then((r) => { if (live) setConfirmRows(Array.isArray(r?.people) ? r.people : null); })
       .catch(() => { if (live) setConfirmRows(null); });
     return () => { live = false; };
   }, [data, start, end]);
@@ -196,13 +198,14 @@ export default function ShiftSchedule({ toastOk, toastErr, onOpenRequests, focus
     try {
       for (const [publishId, emails] of byPublish) {
         const r = await api.timeSchedNudge({ publish_id: publishId, emails });
-        n += Number(r?.nudged) || emails.length;
+        n += Number(r?.nudged) || 0;
       }
       const now = new Date().toISOString();
       const hit = new Set(people.map((p) => String(p.email).toLowerCase()));
       setConfirmRows((rows) => (rows || []).map((r) => (hit.has(String(r.email).toLowerCase())
         ? { ...r, publishes: r.publishes.map((p) => (p.confirmedAt ? p : { ...p, nudgedAt: now })) } : r)));
-      toastOk?.(`Nudged ${n === 1 ? '1 person' : `${n} people`}.`);
+      // The API skips anyone who confirmed or was nudged since the list loaded.
+      toastOk?.(n ? `Nudged ${n === 1 ? '1 person' : `${n} people`}.` : 'Nothing to nudge - everyone was already nudged or has confirmed.');
     } catch (e) { toastErr?.(e?.message || 'Could not send the nudge.'); }
   }
 

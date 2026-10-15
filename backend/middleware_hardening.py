@@ -210,12 +210,24 @@ class RequestRateLimit(BaseHTTPMiddleware):
                           "/timeclock/agent/self-enroll", "/timeclock/agent/release",
                           "/hr/intake/public/",
                           "/timeclock/ical/")   # the calendar subscribe feed: a signed link, no login (Shifts Phase 3a)
+    # Routes whose path IS the credential: the trip log names the prefix,
+    # never the token (the security log is durable).
+    TOKEN_PATH_PREFIXES = ("/timeclock/ical/",)
     SHARED_SOURCE_PER_MIN = int(os.getenv("NEXUS_RL_SHARED", "120"))
     SHARED_SOURCE_PREFIXES = ("/mail-actions/", "/briefing-actions/", "/webhooks/github")
     EXEMPT_PREFIXES = ("/health", "/version")
     ENABLED = os.getenv("NEXUS_RATE_LIMIT", "on").strip().lower() not in ("off", "0", "false", "no")
     MAX_KEYS = 20000                 # bound memory under spoofed floods
     MAX_LOGGED = 5000
+
+    @classmethod
+    def _log_path(cls, path: str) -> str:
+        """What the trip log says: the path, but a token-bearing route is
+        named by its prefix only (Shifts Phase 3a review, Oct 15)."""
+        for pre in cls.TOKEN_PATH_PREFIXES:
+            if path.startswith(pre):
+                return pre + "<token>"
+        return path[:80]
 
     def __init__(self, app):
         super().__init__(app)
@@ -277,7 +289,7 @@ class RequestRateLimit(BaseHTTPMiddleware):
             if log_it:
                 await asyncio.to_thread(
                     security_log, "rate_limited",
-                    f"over {limit}/min on {path[:80]} ({who})", ip=ip)
+                    f"over {limit}/min on {self._log_path(path)} ({who})", ip=ip)
             return Response(content=json.dumps({"detail": "Too many requests - slow down and try again in a moment."}),
                             status_code=429, media_type="application/json",
                             headers={"Retry-After": "10"})

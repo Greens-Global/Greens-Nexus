@@ -174,13 +174,14 @@ export function ConfirmChip({ c, onNudge, compact = false }) {
         <div ref={listRef} role="dialog" aria-label="Schedule confirmations" style={{ ...POP, ...pos, zIndex: 1350, padding: '4px 0 8px', maxHeight: `calc(100vh - ${Math.round(pos.top) + 12}px)`, overflowY: 'auto' }}>
           <div style={HEAD}>{all ? 'Everyone Has Confirmed' : 'Not Confirmed Yet'}</div>
           {c.pending.map((p) => (
-            <div key={p.email} data-confirm-pending={p.email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 12px', fontSize: 12.5 }}>
+            <div key={p.email} data-confirm-pending={p.email} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: compact ? '4px 12px' : '5px 12px', fontSize: 12.5 }}>
               <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600 }}>{p.name}</span>
               {p.nudgedAt ? (
                 <span style={{ fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap' }} title={`Nudged ${formatDateTime(p.nudgedAt)}`}>Nudged {nudgedDay(p.nudgedAt)}</span>
               ) : (
                 <button type="button" onClick={() => send([p], p.email)} disabled={!!busy || !onNudge} aria-label={`Nudge ${p.name}`}
-                  style={{ border: '1px solid var(--line)', background: 'var(--card)', borderRadius: 7, padding: '2px 8px', fontSize: 11.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                  style={{ border: '1px solid var(--line)', background: 'var(--card)', borderRadius: 7, padding: compact ? '8px 12px' : '2px 8px', minHeight: compact ? 36 : undefined,
+                    fontSize: 11.5, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                   <BellRing size={11} /> Nudge
                 </button>
               )}
@@ -190,7 +191,8 @@ export function ConfirmChip({ c, onNudge, compact = false }) {
           {!all && (
             <div style={{ padding: '6px 12px 0', display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ flex: 1, fontSize: 11.5, color: 'var(--muted)' }}>{waiting.length ? 'A nudge is one notification and email.' : 'Everyone waiting has been nudged.'}</span>
-              <button type="button" className="primary-btn" onClick={() => send(waiting, 'all')} disabled={!!busy || !waiting.length || !onNudge} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+              <button type="button" className="primary-btn" onClick={() => send(waiting, 'all')} disabled={!!busy || !waiting.length || !onNudge}
+                style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, minHeight: compact ? 36 : undefined }}>
                 <BellRing size={12} /> Nudge Everyone
               </button>
             </div>

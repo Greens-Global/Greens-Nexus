@@ -6490,6 +6490,11 @@ class ShiftCalendarEvent(Base):
     state          = Column(String, default="pending", index=True)
     last_error     = Column(String, default="")
     updated_at     = Column(String, default="", index=True)
+    # Failed tries since the row was last queued (review, Oct 15): an errored
+    # row is retried until shift_calendar.MAX_ATTEMPTS, then left as error
+    # until the shift changes again - never retried forever. A 4xx Graph
+    # refuses for good jumps straight there. Added column -> ALTER lines in main.py.
+    attempts       = Column(Integer, default=0)
 
 
 class ShiftPublish(Base):

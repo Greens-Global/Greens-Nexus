@@ -218,6 +218,10 @@ def ical_feed(token: str, db: Session = Depends(get_db)):
     if row is None or not (row.ical_salt or "") or not hmac.compare_digest(row.ical_salt, data["salt"]):
         return PlainTextResponse("Not found", status_code=404)
     body = build_feed(db, data["email"])
+    # The URL is the credential: no shared cache may keep the body, no
+    # crawler may index it, and nothing leaves as a referrer.
     return Response(content=body, media_type="text/calendar; charset=utf-8",
                     headers={"Content-Disposition": 'inline; filename="nexus-shifts.ics"',
-                             "Cache-Control": "private, max-age=300"})
+                             "Cache-Control": "private, no-store",
+                             "X-Robots-Tag": "noindex, nofollow",
+                             "Referrer-Policy": "no-referrer"})
