@@ -2,7 +2,7 @@
 // List and Board views + bulk action bar. Owns the shared view state, mirroring
 // the export's viewContext. Calendar/Timeline/Dashboard live in ./views/extras.
 import { useMemo, useState } from 'react';
-import { List, Columns3, Calendar as CalIcon, GanttChart, LayoutDashboard, Paperclip, Gauge, Plus, Search, CheckCircle2, Circle, FolderKanban, ArrowLeft, Copy, Pencil, LayoutTemplate, Star, Pin } from 'lucide-react';
+import { List, Columns3, Calendar as CalIcon, GanttChart, LayoutDashboard, Paperclip, Gauge, Plus, Search, CheckCircle2, Circle, ArrowLeft, Copy, Pencil, LayoutTemplate, Star, Pin } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { useRole } from '../contexts/RoleContext';
 import { EMPTY_FILTER, matchesFilter, personScoped, sortTasks, groupTasks, taskStats, taskIdFromUrl, fieldsForProject, cfKey, projectToForm, taskAssignees, fmtDate, taskExportRows, projectTracksTime, taskTracksTime, effectiveProjectView, projectRoleOf, roleAtLeast } from './lib';
@@ -29,6 +29,7 @@ import { SaveTemplateModal, DuplicateProjectModal } from './TemplatesView';
 import BulkActionBar from './BulkActionBar';
 import { useCustomSections } from './customSections';
 import { formatDate } from '../lib/datetime';
+import ProjectIcon from './ProjectIcon';
 
 const VIEW_KINDS = [
   { key: 'list', label: 'List', icon: List },
@@ -202,7 +203,7 @@ export default function TasksWorkspace({ lockedProjectId = null, mine = false, t
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 20, fontWeight: 700, minWidth: 0 }}>
           {lockedProject ? (
             <>
-              <FolderKanban size={19} style={{ color: lockedProject.color || NX.purple, flexShrink: 0 }} />
+              <ProjectIcon project={lockedProject} size={19} fallbackColor={NX.purple} />
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lockedProject.name}</span>
               {/* Bookmark (Neil, Oct 14 2026): a hollow star beside the name
                   that fills when clicked - the browser's own bookmark star -

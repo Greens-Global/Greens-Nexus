@@ -5,7 +5,7 @@
 // Manage rather than rendered here.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, ChevronRight, CheckCircle2, SlidersHorizontal, Plus, Circle, CalendarDays, FolderKanban, Bell, X, Building2, Flag, Clock, GripVertical, Check } from 'lucide-react';
+import { ChevronDown, ChevronRight, CheckCircle2, SlidersHorizontal, Plus, Circle, CalendarDays, Bell, X, Building2, Flag, Clock, GripVertical, Check } from 'lucide-react';
 import { useTasks } from './TasksContext';
 import { DeletedTasksTab as RecycleBinPanel } from './ManageView';
 import { fmtDate, taskIdFromUrl, taskAssignees } from './lib';
@@ -16,6 +16,8 @@ import AnchoredMenu from '../components/AnchoredMenu';
 import { useTableValue, whenTablePrefsLoaded } from './tableCols';
 import { api } from '../api';
 import { formatDateTime } from '../lib/datetime';
+import ProjectIcon from './ProjectIcon';
+import { projectLook } from './projectLook';
 
 const WIDGET_META = [
   { key: 'my_tasks', label: 'Tasks' },   // was "My Tasks" (Neil, Oct 13 2026); the key is what saved layouts store
@@ -485,7 +487,7 @@ export default function HomeView({ onNavigate }) {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {bookmarked.map((p, i) => {
-              const pc = p.color || NX.purple;
+              const pc = projectLook(p, NX.purple).color;
               const st = projStats[p.id] || { total: 0, done: 0 };
               const pct = st.total ? Math.round((st.done / st.total) * 100) : 0;
               return (
@@ -496,7 +498,7 @@ export default function HomeView({ onNavigate }) {
                     padding: '7px 8px', border: 'none', borderRadius: 7, cursor: 'pointer',
                     fontFamily: FONT, background: i % 2 === 1 ? NX.zebra : 'transparent',
                   }}>
-                  <FolderKanban size={14} style={{ color: pc, flexShrink: 0 }} />
+                  <ProjectIcon project={p} size={14} fallbackColor={NX.purple} />
                   <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
                   {/* The bar is the whole point of a watch list - progress at a
                       glance, without opening anything. */}

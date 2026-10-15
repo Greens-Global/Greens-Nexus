@@ -7,6 +7,7 @@ project) - not to be confused with a project's `hr_department_id`, which
 points at the real People-module department (HrDepartment) that owns the
 project. Same dual-field shape TaskTicket already uses for this distinction.
 """
+import re
 import time
 from datetime import date, timedelta
 
@@ -53,9 +54,29 @@ def _resolve_hr_department(db: Session, email: str):
     return (dept.id, dept.name) if dept else ("", "")
 
 
+# A project's look (Oct 15 2026): a #rrggbb color and an icon key. Anything
+# else is stored as "" - the default blue and folder - so a bad value can
+# never reach a screen. The icon is checked for SHAPE, not against the list
+# of icons: the list lives in the frontend (tasks/projectLook.js), which draws
+# an unknown key as the folder, so the two cannot drift into an error.
+_HEX_COLOR = re.compile(r"^#[0-9a-f]{6}$")
+_ICON_KEY = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
+
+
+def clean_project_color(v) -> str:
+    v = str(v or "").strip().lower()
+    return v if _HEX_COLOR.match(v) else ""
+
+
+def clean_project_icon(v) -> str:
+    v = str(v or "").strip().lower()
+    return v if _ICON_KEY.match(v) else ""
+
+
 def project_to_dict(p: models.TaskProject) -> dict:
     return {
         "id": p.id, "name": p.name, "description": p.description or "", "color": _nz(p.color),
+        "icon": _nz(getattr(p, "icon", "")),
         "ownerId": _nz(p.owner_email), "memberIds": p.member_emails or [], "memberRoles": p.member_roles or {},
         "portfolioId": _nz(p.portfolio_id),
         "hrDepartmentId": _nz(p.hr_department_id), "hrDepartmentName": _nz(p.hr_department_name),
@@ -187,6 +208,9 @@ class ProjectBody(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = ""
     color: Optional[str] = ""
+    # An icon key (see clean_project_icon). Optional, and left out of a PATCH
+    # that does not mention it, so a form from before icons cannot clear one.
+    icon: Optional[str] = None
     owner_email: Optional[str] = ""
     member_emails: Optional[list] = None
     member_roles: Optional[dict] = None
@@ -362,7 +386,8 @@ def create_project(body: ProjectBody, user: dict = Depends(get_current_user), db
     hr_dept_id, hr_dept_name = _resolve_hr_department(db, user["email"])
     p = models.TaskProject(
         id=body.id or gen_id(), name=body.name, description=body.description or "",
-        color=body.color or "", owner_email=(body.owner_email or user["email"]).lower(),
+        color=clean_project_color(body.color), icon=clean_project_icon(body.icon),
+        owner_email=(body.owner_email or user["email"]).lower(),
         member_emails=body.member_emails or [], portfolio_id=body.portfolio_id or "",
         hr_department_id=hr_dept_id, hr_department_name=hr_dept_name,
         # New projects default to 'restricted' (visible only to the owner,
@@ -443,6 +468,10 @@ def update_project(project_id: str, body: ProjectBody, user: dict = Depends(get_
             v = coerce_custom_field_values(db, v or {})
         if k == "time_tracking":
             v = v if v in ("on", "off") else ""
+        if k == "color":
+            v = clean_project_color(v)
+        if k == "icon":
+            v = clean_project_icon(v)
         setattr(p, k, v)
     # A role grant is also an access grant - keep member_emails (the flat
     # "has access at all" list every other visibility check relies on) a
@@ -1466,6 +1495,7 @@ def _snapshot_project(db: Session, p: models.TaskProject, *, blueprint: bool,
 
     project_block = {
         "name": p.name, "description": p.description or "", "color": p.color or "",
+        "icon": getattr(p, "icon", "") or "",
         "startOffset": (_iso_day(p.start_on) - anchor).days if (anchor and _iso_day(p.start_on)) else None,
         "dueOffset": (lambda d: (d - anchor).days if (d and anchor) else None)(_iso_day(p.due_on)),
         "customFieldValues": field_values(p.custom_field_values),
@@ -1638,6 +1668,7 @@ class ProjectSettings(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     color: Optional[str] = None
+    icon: Optional[str] = None
     owner_email: Optional[str] = None
     member_emails: Optional[list] = None
     member_roles: Optional[dict] = None
@@ -1713,7 +1744,7 @@ def _build_from_payload(db: Session, payload: dict, user: dict, *,
     p = models.TaskProject(
         id=gen_id(), name=name,
         description=str(pick("description") or ""),
-        color=str(pick("color") or ""),
+        color=clean_project_color(pick("color")), icon=clean_project_icon(pick("icon")),
         owner_email=owner, member_emails=members, member_roles=roles,
         portfolio_id=str(pick("portfolio_id", "portfolioId") or ""),
         hr_department_id=(dept.id if dept else ""),
