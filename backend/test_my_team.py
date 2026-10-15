@@ -4,7 +4,7 @@
     and up the whole reporting tree below them; the caller is never listed.
   - /me/team/today buckets: one person in exactly one of in / late / onLeave /
     out, in beats late beats onLeave beats out; late needs a shift start plus
-    the 15-minute grace to have passed with no clock-in today; a person on
+    its grace (shift_expect) to have passed with no clock-in today; a person on
     leave or a holiday is never late; scheduleAvailable follows the schedule.
   - /me/team/overdue: overdue open tasks and SLA-breached tickets per person,
     worst first, the single worst item named, capped.
@@ -263,7 +263,7 @@ class TodayBucketTests(_Case):
 
     def test_late_after_shift_start_plus_grace_with_no_clock_in(self):
         self._placed(AMY, "08:30")                 # 90 min ago, no punch -> late
-        self._placed(BOB, "15:50")                 # 10 min ago: inside the 15-minute grace -> out
+        self._placed(BOB, "15:55")                 # 5 min ago: inside the default 10-minute grace -> out
         d = self._today()
         self.assertTrue(d["scheduleAvailable"])
         self.assertEqual(self._emails(d["late"]), [AMY])
@@ -282,7 +282,7 @@ class TodayBucketTests(_Case):
         self.assertEqual(self._emails(d["out"]), [BOB])
 
     def test_shift_start_is_read_in_the_shifts_own_zone(self):
-        # 9:00 AM Pacific is exactly now: not late until 9:15.
+        # 9:00 AM Pacific is exactly now: not late until 9:10 (the default grace).
         self._placed(AMY, "09:00", tz="America/Los_Angeles")
         self._placed(BOB, "08:40", tz="America/Los_Angeles")   # 20 min ago Pacific -> late
         d = self._today()

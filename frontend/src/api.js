@@ -2320,6 +2320,14 @@ export const api = {
   // Operations: the Cubby -> database sync (10/15). Refresh starts one; the screen polls the status.
   getCubbySync: () => req('/facility-ops/sync'),
   startCubbySync: () => req('/facility-ops/sync', { method: 'POST' }),
+  // Shifts Phase 0 (Oct 14): shift settings and shift types per company. No
+  // company = the tenant defaults / every shift type; a company id = that
+  // company's own settings (PUT saves its override, DELETE drops it) and the
+  // shift types it can use.
+  timeShiftsFor:              (company = '') => req(`/timeclock/shifts${company ? `?company=${encodeURIComponent(company)}` : ''}`),
+  shiftRequestSettingsGetFor: (company = '') => req(`/timeclock/shift-requests/settings${company ? `?company=${encodeURIComponent(company)}` : ''}`),
+  shiftRequestSettingsSaveFor: (data, company = '') => req(`/timeclock/shift-requests/settings${company ? `?company=${encodeURIComponent(company)}` : ''}`, { method: 'PUT', body: JSON.stringify(data) }),
+  shiftRequestSettingsReset:  (company) => req(`/timeclock/shift-requests/settings?company=${encodeURIComponent(company)}`, { method: 'DELETE' }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
