@@ -5,6 +5,7 @@ import { SkeletonBlocks } from '../AsyncState';
 import { formatDate } from '../../lib/datetime';
 import { useIsMobile } from '../../lib/useIsMobile';
 import EntryDetail from './EntryDetail';
+import AskAccountantDialog, { AskButton, lineFromSearch } from './AskAccountantDialog';
 import Amount from './Amount';
 import { useAccountingPrefs } from './prefs';
 import { OpFilter, PopoverPanel, usePopover } from './reportControls';
@@ -84,6 +85,8 @@ export const LINE_COLUMNS = [
   { key: 'credit', label: 'Credit', width: 118, num: true, filter: true, text: (r) => money(r.credit) },
 ];
 const MIN_WIDTH = 60;
+// Oct 15 (Neil): the Ask My Accountant action at the end of every line.
+const ASK_WIDTH = 34;
 const DENSITY_PY = { comfortable: '9px', compact: '5px', condensed: '2px' };
 
 const chip = { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 10px', borderRadius: 999, fontSize: '0.75rem', cursor: 'pointer', border: '1px solid var(--border-color)', background: 'var(--bg-card)', color: 'var(--text-primary)', maxWidth: 260, fontFamily: 'inherit' };
@@ -214,6 +217,8 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   const [error, setError] = useState('');
   const isPhone = useIsMobile('(max-width: 640px)');
   const [openEntry, setOpenEntry] = useState(null); // { id, no } - the entry number clicked
+  const [asking, setAsking] = useState(null);       // the line in the Ask My Accountant dialog
+  const [asked, setAsked] = useState(null);         // the question just sent
   useEffect(() => { if (initialEntry?.id) setOpenEntry({ id: initialEntry.id, no: initialEntry.no || '' }); }, [initialEntry?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const closeEntry = () => { setOpenEntry(null); onEntryClosed?.(); };
   const seq = useRef(0);
@@ -239,10 +244,10 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
   }, [wrap]);
   const natural = shownColumns.reduce((s, c) => s + widthOf(c), 0);
   const fillers = shownColumns.filter((c) => !c.num && !layout.widths?.[c.key] && !['date', 'entry', 'journal'].includes(c.key));
-  const spare = fillers.length ? Math.max(0, room - natural - 2) : 0;
+  const spare = fillers.length ? Math.max(0, room - natural - ASK_WIDTH - 2) : 0;
   const columns = shownColumns;
   const colWidth = (c) => widthOf(c) + (fillers.includes(c) ? Math.floor(spare / fillers.length) : 0);
-  const tableWidth = natural + Math.floor(spare / Math.max(1, fillers.length)) * fillers.length;
+  const tableWidth = natural + Math.floor(spare / Math.max(1, fillers.length)) * fillers.length + ASK_WIDTH;
 
   // The filter boxes. What is typed waits a moment before the ledger is asked.
   // An amount column's box is { op, a, b } (the Reports tables' operators);
@@ -427,6 +432,14 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
       )}
 
       {error && <div style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '10px 12px', fontSize: '0.85rem', marginBottom: 10 }}>{error}</div>}
+      {asked && (
+        <div role="status" style={{ display: 'flex', alignItems: 'center', gap: 10, border: '1px solid var(--border-color)', borderRadius: 8, padding: '6px 10px', fontSize: '0.8rem', marginBottom: 8, color: 'var(--ok-fg, #15803d)' }}>
+          <span style={{ flex: 1 }}>{asked.merged ? 'Added to the open question on this line' : 'Question sent'} to {asked.accountantName || asked.accountant}.</span>
+          <button type="button" className="secondary-btn" style={{ fontSize: '0.74rem', padding: '2px 10px' }}
+            onClick={() => window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'accounting', sub: 'ama' } }))}>Open AMA</button>
+          <button type="button" onClick={() => setAsked(null)} aria-label="Dismiss" style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'inline-flex' }}><X size={14} /></button>
+        </div>
+      )}
 
       {!hasCriteria ? (
         <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', padding: '24px 0', textAlign: 'center', margin: 0 }}>
@@ -471,7 +484,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
           // No box of its own in a window: the page scrolls, and a tall monitor shows that many more lines (Charmi, 10/02).
           <div className="acct-lines-wrap" ref={setWrap} style={{ opacity: loading ? 0.6 : 1, ...(full ? {} : { maxHeight: 'none' }) }}>
             <table className="acct-lines" style={{ width: tableWidth, '--acct-row-py': DENSITY_PY[prefs.density] || DENSITY_PY.compact }}>
-              <colgroup>{columns.map((c) => <col key={c.key} style={{ width: colWidth(c) }} />)}</colgroup>
+              <colgroup>{columns.map((c) => <col key={c.key} style={{ width: colWidth(c) }} />)}<col style={{ width: ASK_WIDTH }} /></colgroup>
               <thead>
                 <tr>
                   {columns.map((c) => (
@@ -481,6 +494,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
                         className="acct-resize" onPointerDown={(e) => startResize(c, e)} onDoubleClick={() => resetWidth(c)} />
                     </th>
                   ))}
+                  <th scope="col" aria-label="Ask My Accountant" />
                 </tr>
                 <tr className="acct-filter-row">
                   {columns.map((c) => (
@@ -493,6 +507,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
                       ) : null}
                     </th>
                   ))}
+                  <th />
                 </tr>
               </thead>
               <tbody>
@@ -512,10 +527,11 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
                       }
                       return <td key={c.key} className={c.num ? 'acct-num' : undefined} title={c.num ? undefined : text}>{c.num ? <Amount value={r[c.key]} zero="blank" /> : text}</td>;
                     })}
+                    <td style={{ textAlign: 'center', padding: 0 }}><AskButton onClick={() => setAsking(lineFromSearch(r))} /></td>
                   </tr>
                 ))}
                 {!rows.length && (
-                  <tr><td colSpan={columns.length} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '22px 10px', whiteSpace: 'normal' }}>
+                  <tr><td colSpan={columns.length + 1} style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '22px 10px', whiteSpace: 'normal' }}>
                     {loaded.length ? 'None of the lines loaded here pass' : 'Nothing in the ledger matches'}{filtering ? ' these filters' : ' all of that'}{entities.length ? ' for the entities picked' : ''}. {filtering ? 'Clear a column filter' : 'Remove a word or a filter'} to widen the search.
                   </td></tr>
                 )}
@@ -523,6 +539,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
                   <tr className="acct-grand">
                     {labelSpan > 0 && <td colSpan={labelSpan}>Totals - {total.toLocaleString('en-US')} lines</td>}
                     {columns.filter((c) => c.num).map((c) => <td key={c.key} className="acct-num"><Amount value={data[c.key]} /></td>)}
+                    <td />
                   </tr>
                 )}
               </tbody>
@@ -544,6 +561,7 @@ export default function LedgerSearch({ term, entities = [], entityName, drill, o
         </>
       ) : null}
       {openEntry && <EntryDetail entryId={openEntry.id} entryNo={openEntry.no} onClose={closeEntry} />}
+      {asking && <AskAccountantDialog line={asking} onClose={() => setAsking(null)} onAsked={(t) => { setAsking(null); setAsked(t); }} />}
     </div>
   );
 }
