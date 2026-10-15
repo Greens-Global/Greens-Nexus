@@ -583,7 +583,9 @@ export default function TicketsView() {
   // for someone who should not see them. The backend re-checks every action.
   const [itAdmin, setItAdmin] = useState(false);
   // Bulk Delete is a supervisor's (ticket_roles.can_delete on the server).
-  const { canDelete: canBulkDelete } = useTicketAccess();
+  const { canDelete: canBulkDelete, privileged: deskPrivileged } = useTicketAccess();
+  // Manager+ or a Global Admin (server's _ticket_privileged).
+  const privileged = myLevel >= 3 || deskPrivileged;
   useEffect(() => {
     let alive = true;
     // onDesk, not canAct: the queues are shown to the people whose work they
@@ -1120,7 +1122,7 @@ export default function TicketsView() {
                 )}
                 {g.rows.slice(0, 200).map((t, idx) => (
                   <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName}
-                    myEmail={myEmail} myLevel={myLevel} updateTicket={guardedUpdate} onOpen={() => openTicket(t.id)}
+                    myEmail={myEmail} privileged={privileged} updateTicket={guardedUpdate} onOpen={() => openTicket(t.id)}
                     onOpenConversation={() => openTicket(t.id, 'conversation')} onResolve={requestResolve} people={people}
                     checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} band={idx % 2 === 1} mobile />
                 ))}
@@ -1141,7 +1143,7 @@ export default function TicketsView() {
                 </button>
                 {!completedCollapsed && sortedCompleted.slice(0, 200).map((t, idx) => (
                   <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName}
-                    myEmail={myEmail} myLevel={myLevel} updateTicket={guardedUpdate} onOpen={() => openTicket(t.id)}
+                    myEmail={myEmail} privileged={privileged} updateTicket={guardedUpdate} onOpen={() => openTicket(t.id)}
                     onOpenConversation={() => openTicket(t.id, 'conversation')} onResolve={requestResolve} people={people}
                     checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} band={idx % 2 === 1} mobile />
                 ))}
@@ -1190,7 +1192,7 @@ export default function TicketsView() {
                       the Created Date column on a wide screen. */}
                   {g.rows.slice(0, 200).map((t, idx) => (
                     <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName}
-                    myEmail={myEmail} myLevel={myLevel} updateTicket={guardedUpdate} onOpen={() => openTicket(t.id)}
+                    myEmail={myEmail} privileged={privileged} updateTicket={guardedUpdate} onOpen={() => openTicket(t.id)}
                     onOpenConversation={() => openTicket(t.id, 'conversation')} onResolve={requestResolve} people={people}
                       checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} cols={cols} band={idx % 2 === 1} />
                   ))}
@@ -1213,7 +1215,7 @@ export default function TicketsView() {
                   </button>
                   {!completedCollapsed && sortedCompleted.slice(0, 200).map((t, idx) => (
                     <TicketRow key={t.id} t={t} nameOf={nameOf} hrDeptName={hrDeptName} companyName={companyName}
-                    myEmail={myEmail} myLevel={myLevel} updateTicket={guardedUpdate} onOpen={() => openTicket(t.id)}
+                    myEmail={myEmail} privileged={privileged} updateTicket={guardedUpdate} onOpen={() => openTicket(t.id)}
                     onOpenConversation={() => openTicket(t.id, 'conversation')} onResolve={requestResolve} people={people}
                       checked={selected.has(t.id)} onToggle={() => toggleSel(t.id)} cols={cols} band={idx % 2 === 1} />
                   ))}
@@ -1427,7 +1429,7 @@ function InlineTicketSelect({ value, options, onChange, editable, meta, children
 // rotate across 640px a row could switch to the desktop grid while its parent
 // was still rendering the phone list (which passes no `cols`) and crash the
 // whole view on cols.map.
-function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, myLevel, updateTicket, onOpen, onOpenConversation, onResolve, people, checked, onToggle, cols, band = false, mobile = false }) {
+function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, privileged, updateTicket, onOpen, onOpenConversation, onResolve, people, checked, onToggle, cols, band = false, mobile = false }) {
   const isMobile = !!mobile || !Array.isArray(cols);
   const [assigning, setAssigning] = useState(false);
   // Resting background: selection wins, then the zebra band. Hover is the
@@ -1450,8 +1452,8 @@ function TicketRow({ t, nameOf, hrDeptName, companyName, myEmail, myLevel, updat
   const myEmailLower = (myEmail || '').toLowerCase();
   const rowIsRequester = (t.requesterId || '').toLowerCase() === myEmailLower;
   const rowIsAssignee = (t.assigneeId || '').toLowerCase() === myEmailLower;
-  const rowPrivileged = myLevel >= 3;
-  const rowRequesterLocked = rowIsRequester && !rowPrivileged && t.status !== 'open';
+  const rowPrivileged = !!privileged;
+  const rowRequesterLocked = rowIsRequester && !rowIsAssignee && !rowPrivileged && t.status !== 'open';
   const rowLocked = t.status === 'in_progress' && !!t.assigneeId;
   const canWorking = rowPrivileged || (!rowRequesterLocked && (rowLocked ? rowIsAssignee : true));
   // Mark Resolved from the row (Neil, Oct 1): the person who raised it may
@@ -2842,7 +2844,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   // is UI convenience, not the security boundary - that's the backend check).
   const isRequester = (t.requesterId || '').toLowerCase() === (myEmail || '').toLowerCase();
   const isAssignee = (t.assigneeId || '').toLowerCase() === (myEmail || '').toLowerCase();
-  const privileged = myLevel >= 3;
+  const privileged = myLevel >= 3 || deskAccess.privileged;   // + Global Admins (server's _ticket_privileged)
   // Request Control: LiveView's `assist` mode (components/LiveView.jsx) -
   // consent-first, NOT the Workforce Analytics roster's disclosed-monitoring
   // model. Nothing is visible until the requester accepts a control prompt
@@ -2868,7 +2870,8 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   // confusion this closes off). Conversation and Attachments stay theirs to
   // use regardless - see the tab bodies below, neither reads this flag.
   // Manager+ is never subject to it, same as every other restriction here.
-  const requesterLocked = isRequester && !privileged && t.status !== 'open';
+  // Not when they are also the assignee - it is theirs to work (backend parity).
+  const requesterLocked = isRequester && !isAssignee && !privileged && t.status !== 'open';
   const locked = t.status === 'in_progress' && !!t.assigneeId;
   const fullAccess = privileged || (!requesterLocked && (locked ? isAssignee : isRequester));
   // The always-open "working fields" (type/status/priority/assignee/department/
