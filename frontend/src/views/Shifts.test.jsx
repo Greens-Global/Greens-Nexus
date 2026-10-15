@@ -1,17 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 
-// Shifts module (Oct 2026): My Shifts for everyone; Schedule and Requests -
-// the manager's inbox, with a badge for what waits - for managers and above.
-// No Presets & Teams tab (that is Settings > Global Settings > Shifts) and
-// no employee New Request here (that is Workday > Time Off).
+// Team module (Neil, Oct 13 2026; was Shifts): Contact (the directory) and
+// Shifts (the group's week) for everyone; Schedule and Requests - the
+// manager's inbox, with a badge for what waits - for managers and above.
+// Your own week is Workday > My Shifts. No Presets & Teams tab (that is
+// Settings > Global Settings > Shifts) and no employee New Request here
+// (that is Workday > Time Off).
 
 const role = { level: 1 };
 vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: (r) => role.level >= ({ manager: 3 }[r] ?? 1) }) }));
 const shiftRequestsInbox = vi.fn();
 const timeOffList = vi.fn();
 vi.mock('../api', () => ({ api: { shiftRequestsInbox: (...a) => shiftRequestsInbox(...a), timeOffList: (...a) => timeOffList(...a) } }));
-vi.mock('../components/MyShifts', () => ({ default: ({ focusConfirm }) => <div>My week{focusConfirm ? ` confirming ${focusConfirm}` : ''}</div> }));
+vi.mock('../components/MyShifts', () => ({ default: ({ part }) => <div>{part === 'team' ? 'Group week' : 'My week'}</div> }));
+vi.mock('./Directory', () => ({ default: ({ embedded }) => <div>Directory{embedded ? ' (embedded)' : ''}</div> }));
 vi.mock('../components/ShiftSchedule', () => ({ default: ({ focus }) => <div>Schedule grid{focus ? ` at ${focus.date} for ${focus.groupId || 'all'}` : ''}</div> }));
 vi.mock('../components/ShiftRequestsPage', () => ({ default: ({ inbox, timeoff, error }) => <div>Requests page ({error ? 'error' : inbox ? `${inbox.pending.length} + ${timeoff.length}` : 'loading'})</div> }));
 
@@ -23,16 +26,17 @@ beforeEach(() => {
   timeOffList.mockReset().mockResolvedValue([{ id: 't1', canDecide: true }, { id: 't2', canDecide: false }]);
 });
 
-describe('Shifts module', () => {
-  it('shows an employee only My Shifts, and never a manager page by address', () => {
+describe('Team module', () => {
+  it('opens an employee on Shifts, Contact last, and never a manager page by address', async () => {
     role.level = 1;
     const onSubChange = vi.fn();
     const { rerender } = render(<Shifts activeSub={null} onSubChange={onSubChange} />);
-    expect(screen.getByRole('heading', { name: 'Shifts' })).toBeTruthy();
-    expect(screen.getByText('My week')).toBeTruthy();
-    expect(tabNames()).toEqual(['My Shifts']);
+    expect(screen.getByRole('heading', { name: 'Team' })).toBeTruthy();
+    expect(screen.getByText('Group week')).toBeTruthy();
+    expect(tabNames()).toEqual(['Shifts', 'Contact']);
+    rerender(<Shifts activeSub="contact" onSubChange={onSubChange} />);
+    expect(await screen.findByText('Directory (embedded)')).toBeTruthy();
     rerender(<Shifts activeSub="schedule" onSubChange={onSubChange} />);
-    expect(screen.getByText('My week')).toBeTruthy();
     expect(screen.queryByText('Schedule grid')).toBeNull();
     rerender(<Shifts activeSub="requests" onSubChange={onSubChange} />);
     expect(screen.queryByText(/Requests page/)).toBeNull();
@@ -41,37 +45,22 @@ describe('Shifts module', () => {
 
   // Weather Call (Oct 2026): a weather advisory's bell opens one day of
   // one group - sub "schedule:YYYY-MM-DD:<group>" - and an employee, who
-  // has no Schedule tab, still lands on My Shifts.
-  it('lands a manager on the day and group a weather advisory points at', () => {
+  // has no Schedule tab, lands on the module's first tab instead.
+  it('lands a manager on the day and group a weather advisory points at', async () => {
     role.level = 3;
     render(<Shifts activeSub="schedule:2026-10-16:g1" onSubChange={vi.fn()} />);
     expect(screen.getByRole('tab', { name: /Schedule/ }).getAttribute('aria-selected')).toBe('true');
     expect(screen.getByText('Schedule grid at 2026-10-16 for g1')).toBeTruthy();
     role.level = 1;
     render(<Shifts activeSub="schedule:2026-10-16:g1" onSubChange={vi.fn()} />);
-    expect(screen.getByText('My week')).toBeTruthy();
+    expect(screen.getByText('Group week')).toBeTruthy();
   });
 
-  // Shifts Phase 3a: a publish or nudge bell's sub "mine:confirm:<publish>"
-  // lands on My Shifts with that share to confirm, for everyone; the address
-  // then goes back to plain "mine" so the same bell works twice.
-  it('hands My Shifts the share a confirm bell points at, then resets the address', () => {
-    role.level = 1;
-    const onSubChange = vi.fn();
-    render(<Shifts activeSub="mine:confirm:pub-7" onSubChange={onSubChange} />);
-    expect(screen.getByText('My week confirming pub-7')).toBeTruthy();
-    expect(screen.getByRole('tab', { name: 'My Shifts' }).getAttribute('aria-selected')).toBe('true');
-    expect(onSubChange).toHaveBeenCalledWith('mine');
-    role.level = 3;
-    render(<Shifts activeSub="mine:confirm:pub-8" onSubChange={vi.fn()} />);
-    expect(screen.getByText('My week confirming pub-8')).toBeTruthy();
-  });
-
-  it('gives a manager three tabs, with what waits counted on Requests', async () => {
+  it('gives a manager four tabs, with what waits counted on Requests', async () => {
     role.level = 3;
     const onSubChange = vi.fn();
-    const { rerender } = render(<Shifts activeSub="mine" onSubChange={onSubChange} />);
-    expect(tabNames().map((t) => t.replace(/\d+$/, '').trim())).toEqual(['My Shifts', 'Schedule', 'Requests']);
+    const { rerender } = render(<Shifts activeSub="shifts" onSubChange={onSubChange} />);
+    expect(tabNames().map((t) => t.replace(/\d+$/, '').trim())).toEqual(['Shifts', 'Schedule', 'Requests', 'Contact']);
     expect(screen.queryByText(/Presets/)).toBeNull();
     // One pending swap + one decidable time-off request = 2 (the one that is not theirs to decide is not counted).
     expect(await screen.findByRole('tab', { name: 'Requests, 2 waiting' })).toBeTruthy();

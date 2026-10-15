@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { ChevronLeft, ChevronRight, CalendarDays, Info, StickyNote, ArrowLeftRight, CloudRain, Check, CalendarCheck, Copy, RefreshCw } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp, CalendarDays, Info, StickyNote, ArrowLeftRight, CloudRain, Check, CalendarCheck, Copy, RefreshCw } from 'lucide-react';
 import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { zoneClock, formatHHMM, formatMonthDay, formatDate } from '../lib/datetime';
@@ -27,13 +27,25 @@ import MyAvailability from './MyAvailability';
 // off). Asking for a swap, an offer or an open shift lives in Workday >
 // Time Off; the "Request" link under a shift here opens that same dialog
 // with the shift filled in.
+//
+// `part` (Neil, Oct 13 2026): 'mine' is Workday > My Shifts - your own days,
+// weather calls, availability; 'team' is Team > Shifts - your group's week.
+// One component, one fetch: the group grid is built from the same week.
 
 const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
 
+// `embedded` (Pranshu, Oct 15 2026): the Workday Overview's My Schedule card.
+// A My Week | Team switch in the toolbar flips between the two parts, so your
+// group's week is one click away without leaving Workday; availability sits
+// behind a toggle and the footer note is left out, so the card stays short.
 // `focusConfirm` (Phase 3a): the publish a bell or email asked to have
 // confirmed - its banner goes in front; the email's link is
 // /shifts/mine?confirm=<publish id>, read once on mount.
-export default function MyShifts({ focusConfirm = '' }) {
+export default function MyShifts({ part: partProp = 'mine', embedded = false, focusConfirm = '' }) {
+  const [partState, setPart] = useState(partProp);
+  const part = embedded ? partState : partProp;
+  const mine = part !== 'team';
+  const [availOpen, setAvailOpen] = useState(false);
   const nameOf = useNameResolver();
   const phone = useIsMobile();
   const [weekStart, setWeekStartPref] = useState('monday');
@@ -271,9 +283,20 @@ export default function MyShifts({ focusConfirm = '' }) {
         {/* The decorated date, same as the Schedule's: calendar tile, "Sep 28 - Oct 4",
             the year and week under it; a click picks a week from a month calendar. */}
         <DateBlock view="week" first={start} last={end} weekStart={weekStart} compact={phone} onPick={(ds) => setCursor(parseIso(ds))} />
+        {embedded && (
+          <div role="tablist" aria-label="Whose week" style={{ marginLeft: 'auto', display: 'inline-flex', gap: 2, background: 'var(--wk-line2)', borderRadius: 9, padding: 2 }}>
+            {[['mine', 'My Week'], ['team', 'Team']].map(([k, label]) => (
+              <button key={k} type="button" role="tab" aria-selected={part === k} onClick={() => setPart(k)}
+                style={{ border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 700, padding: '5px 12px', borderRadius: 7,
+                  background: part === k ? 'var(--card)' : 'transparent', color: part === k ? 'var(--ink)' : 'var(--muted)', boxShadow: part === k ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' }}>
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
-      {toConfirm && (
+      {mine && toConfirm && (
         <div role="note" aria-label="Confirm your schedule" data-confirm-banner={toConfirm.publishId}
           style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '10px 12px', borderRadius: 12, marginBottom: 12,
             background: 'var(--wk-brand-tint)', border: '1px solid var(--wk-brand)' }}>
@@ -290,7 +313,7 @@ export default function MyShifts({ focusConfirm = '' }) {
         </div>
       )}
 
-      {openCalls.length > 0 && (
+      {mine && openCalls.length > 0 && (
         <div style={{ display: 'grid', gap: 8, marginBottom: 12 }}>
           {openCalls.map((c) => (
             <div key={c.id} role="alert" data-weather-call={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '10px 12px', borderRadius: 12,
@@ -308,7 +331,7 @@ export default function MyShifts({ focusConfirm = '' }) {
         </div>
       )}
 
-      {glance && !error && (
+      {mine && glance && !error && (
         <div role="status" aria-label="Week summary" style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.5 }}>
           {thisWeek ? 'This week' : 'That week'}: <b style={{ color: 'var(--ink)' }}>{glance.shiftCount} shift{glance.shiftCount === 1 ? '' : 's'}</b>
           {' · '}<b style={{ color: 'var(--ink)' }}>{fmtHrs(glance.mins)}</b>
@@ -319,7 +342,7 @@ export default function MyShifts({ focusConfirm = '' }) {
           {glance.late > 0 && <> · <b style={{ color: 'hsl(var(--color-orange))' }}>{glance.late} late</b></>}
         </div>
       )}
-      {glance && !error && calPrefs && (
+      {mine && glance && !error && calPrefs && (
         <CalendarRow prefs={calPrefs} companyOn={calPrefs.companyOutlookCalendar !== false} hasMailbox={calPrefs.hasMailbox !== false}
           onToggle={setShiftCalendar} onFlash={setFlash} />
       )}
@@ -328,8 +351,8 @@ export default function MyShifts({ focusConfirm = '' }) {
         <ErrorBanner message="Your shifts could not be loaded right now." onRetry={() => setReload((n) => n + 1)} />
       ) : !data ? (
         <SkeletonBlocks count={7} height={96} gridTemplateColumns="repeat(auto-fill, minmax(150px, 1fr))" />
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: phone ? '1fr' : 'repeat(auto-fill, minmax(150px, 1fr))', gap: phone ? 6 : 10 }}>
+      ) : !mine ? null : (
+        <div style={{ display: 'grid', gridTemplateColumns: phone ? '1fr' : embedded ? 'repeat(7, minmax(0, 1fr))' : 'repeat(auto-fill, minmax(150px, 1fr))', gap: phone ? 6 : 10 }}>
           {days.map((d, i) => (
             <div key={d.key} style={{
               background: 'var(--card)', border: `1px solid ${d.isToday ? 'var(--wk-brand)' : 'var(--wk-line2)'}`, borderRadius: 12, padding: '10px 11px', minHeight: phone ? 0 : 96,
@@ -376,7 +399,7 @@ export default function MyShifts({ focusConfirm = '' }) {
           nameOf={nameOf} onClose={() => setAsk(null)} onDone={done} />
       )}
 
-      {data && team ? (
+      {mine ? null : data && team ? (
         <TeamShiftGrid teams={teams} team={team} onPickTeam={setTeamId} days={days} rows={teamRows} onNow={onNow}
           openShifts={openList} onRequestOpen={requestOpen} busyOpenId={busyOpen} thisWeek={thisWeek}
           timeZoneLabel={teamZoneLabel} teamZone={teamZone} />
@@ -384,18 +407,24 @@ export default function MyShifts({ focusConfirm = '' }) {
         <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8 }}>Times in {teamZoneLabel}</div>
       ) : null}
 
-      <MyAvailability />
+      {mine && embedded && (
+        <button type="button" onClick={() => setAvailOpen((v) => !v)} aria-expanded={availOpen}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 12, padding: 0, border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: 700, color: 'var(--ink)' }}>
+          {availOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />} My Availability
+        </button>
+      )}
+      {mine && (!embedded || availOpen) && <MyAvailability />}
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 14, fontSize: 12, color: 'var(--muted)' }}>
+      {!embedded && <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginTop: 14, fontSize: 12, color: 'var(--muted)' }}>
         <Info size={13} style={{ flexShrink: 0 }} />
         <span>
           Shifts are set by your manager. Only shifts they have shared appear here - ask them if something looks wrong.
-          {data?.shift && ' Usual hours are your regular schedule, shown on days with no shared shift.'}
-          {data && teams.length === 0 && ' Your group will show here once your manager adds you to one.'}
+          {mine && data?.shift && ' Usual hours are your regular schedule, shown on days with no shared shift.'}
+          {!mine && data && teams.length === 0 && ' Your group will show here once your manager adds you to one.'}
           {' '}Swaps, offers{canRelease ? ', releases' : ''} and open-shift requests are in Workday &gt; Time Off.
         </span>
-      </div>
-      {prefs && (
+      </div>}
+      {mine && prefs && (
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, fontSize: 12.5, cursor: 'pointer', color: 'var(--ink)' }}>
           <input type="checkbox" checked={prefs.weatherSms !== false} onChange={(e) => setWeatherSms(e.target.checked)} aria-label="Text me when a weather call changes my shift" />
           Text me when a weather call changes my shift{prefs.phone ? '' : ' (no phone number on file - ask HR to add one)'}

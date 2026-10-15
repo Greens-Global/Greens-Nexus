@@ -1,13 +1,13 @@
 import { useState, useRef, useEffect } from "react";
-import { Menu, Search, LogOut, User, ArrowLeft, Shield, ChevronDown, Sparkles, X, UserCog, Mail, Scale, Rocket } from "lucide-react";
+import { Menu, Search, LogOut, User, ArrowLeft, Shield, ChevronDown, Sparkles, X, UserCog, Scale } from "lucide-react";
 import NotificationBell from "./NotificationBell";
 import HelpMenu from "../support/HelpMenu";
 import { TabGroupButton, useHeaderTabs } from "./ModuleTabs";
 import TabInk from "./TabInk";
 import MyProfileModal from "./MyProfileModal";
-import EmailSettingsModal from "./EmailSettingsModal";
 
-// ?emailSettings=1 - the "Email Settings" link in task emails. Read when this
+// ?emailSettings=1 - the "Email Settings" link in task emails; it opens
+// Profile on its Email Settings section (Neil, Oct 13 2026). Read when this
 // module LOADS, not when the header mounts: the app's boot (auth, then routing
 // "/dashboard" to its canonical URL) rewrites the address before the header
 // ever renders, and the query went with it - the link opened nothing. Taken
@@ -39,7 +39,7 @@ const MOD_KEY = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navig
 
 export default function TopHeader({ title, activeView, theme, onThemeToggle, sidebarPinned, onSidebarPinnedChange, onMobileToggle, canGoBack, onBack, onNavigate, prevLabel }) {
   const { instance, accounts } = useMsal();
-  const { myRole, can, actingAs, stopActAs, isExternal } = useRole();
+  const { myRole, actingAs, stopActAs, isExternal } = useRole();
   // Module tab strip published by the active module (<ModuleTabs>). When
   // present it takes the header center (Work OS shell). The search bar is
   // NOT part of that bargain any more: it sits in the right cluster on
@@ -53,11 +53,12 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
   const displayTitle = (headerTabs?.syncTitle && activeTabMeta)
     ? (activeTabMeta.title || activeTabMeta.label)
     : title;
-  const [myProfileOpen, setMyProfileOpen] = useState(false);
-  // Email Settings (menu item below My Profile). The "Email Settings" link in
-  // every task email lands on ?emailSettings=1 and opens it straight away -
+  // Profile (Neil, Oct 13 2026; was My Profile): everything that relates only
+  // to you - photo, signature, appearance, world clock and Email Settings,
+  // which used to be a menu item of its own. 'email' opens it on that section:
+  // the "Email Settings" link in every task email lands on ?emailSettings=1 -
   // see EMAIL_SETTINGS_LINK above for why that is read at module load.
-  const [emailSettingsOpen, setEmailSettingsOpen] = useState(() => takeEmailSettingsLink());
+  const [myProfileOpen, setMyProfileOpen] = useState(() => (takeEmailSettingsLink() ? 'email' : false));
   // Asana severed (Aug 27). This used to catch the OAuth callback's
   // ?asana=connected|denied|error and reopen Account Settings on it. Nobody can
   // start that flow any more, but a stale bookmark or an in-flight redirect
@@ -374,10 +375,7 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
               <div className="hud-divider" />
 
               <button className="hud-item" onClick={() => { setOpen(false); setMyProfileOpen(true); }}>
-                <User size={14} /> My Profile
-              </button>
-              <button className="hud-item" onClick={() => { setOpen(false); setEmailSettingsOpen(true); }}>
-                <Mail size={14} /> Email Settings
+                <User size={14} /> Profile
               </button>
               <button className="hud-item" onClick={() => { setOpen(false); openChangelog(); }}>
                 <Sparkles size={14} /> What's New
@@ -391,16 +389,11 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
 
               {/* Legal (Neil, 10/06): the Privacy Policy and Terms & Conditions,
                   one page with a tab each - "nothing to do with Support". The
-                  Implementation Guide sits here too for administrators: how to
-                  set Nexus up for an organization (Support > Implementation Guide). */}
+                  Implementation Guide left this menu (Neil, Oct 13 2026) - it is
+                  a section of Help Center > Documentation. */}
               <button className="hud-item" onClick={() => { setOpen(false); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'legal', sub: 'privacy' } })); }}>
                 <Scale size={14} /> Legal
               </button>
-              {!isExternal && can('administrator') && (
-                <button className="hud-item" onClick={() => { setOpen(false); window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'support', sub: 'implementation' } })); }}>
-                  <Rocket size={14} /> Implementation Guide
-                </button>
-              )}
 
               {/* Act As and Audit Logs live in Settings (the Tools and Audit
                   Logs tabs) - neither belongs in this personal menu.
@@ -441,13 +434,12 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
     )}
 
     {myProfileOpen && (
-      <MyProfileModal onClose={() => setMyProfileOpen(false)}
+      <MyProfileModal onClose={() => setMyProfileOpen(false)} focusEmail={myProfileOpen === 'email'}
         theme={theme} onThemeToggle={onThemeToggle}
         wkTheme={wkTheme} setWkTheme={setWkTheme}
         sidebarPinned={sidebarPinned} onSidebarPinnedChange={onSidebarPinnedChange} />
     )}
 
-    {emailSettingsOpen && <EmailSettingsModal onClose={() => setEmailSettingsOpen(false)} />}
     </>
   );
 }
