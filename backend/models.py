@@ -6529,3 +6529,37 @@ class ShiftPublishConfirm(Base):
     employee_email = Column(String, default="", index=True)
     confirmed_at   = Column(String, default="")                    # UTC ISO; '' = not yet
     nudged_at      = Column(String, default="")                    # UTC ISO; '' = never
+
+
+class ShiftAvailabilityDate(Base):
+    """Shifts Phase 3b (Oct 14 2026): when a person can work on ONE date, on
+    top of their weekly pattern (ShiftAvailability). A dated row wins over
+    the weekday rule for that date in the schedule's conflict check
+    (routers/timeclock._shift_conflicts): `unavailable` = not that day,
+    `available` = only between start and end. Staff set their own in My
+    Workday > Shifts (PUT /timeclock/availability/mine replaces the rows
+    from today on; past dates are kept as a record). New table - create_all
+    builds it; RLS comes from main._enable_rls_everywhere's startup sweep."""
+    __tablename__ = "shift_availability_dates"
+    id             = Column(String, primary_key=True)              # uuid
+    employee_email = Column(String, index=True, nullable=False)
+    date           = Column(String, index=True, nullable=False)    # YYYY-MM-DD
+    kind           = Column(String, default="unavailable")         # unavailable | available
+    start_hhmm     = Column(String, default="")
+    end_hhmm       = Column(String, default="")
+    note           = Column(String, default="")
+    created_at     = Column(String, default="")
+
+
+class ShiftAvailabilityPref(Base):
+    """Shifts Phase 3b (Oct 14 2026): a person's own hours preferences. 0 =
+    not set. `max_hours_week` is a week cap like the company's
+    ruleMaxWeekHours (shift_rules.py warns past the tighter of the two);
+    `preferred_hours_week` is informational - the grid shows "prefers 24h"
+    on the person cell and nothing warns on it. New table - create_all
+    builds it; RLS comes from main._enable_rls_everywhere's startup sweep."""
+    __tablename__ = "shift_availability_prefs"
+    employee_email       = Column(String, primary_key=True)
+    preferred_hours_week = Column(Integer, default=0)
+    max_hours_week       = Column(Integer, default=0)
+    updated_at           = Column(String, default="")

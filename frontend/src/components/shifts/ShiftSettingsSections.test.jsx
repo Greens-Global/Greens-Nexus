@@ -99,6 +99,30 @@ describe('Shift Settings', () => {
     expect(toastOk).toHaveBeenCalledWith('Shift settings saved.');
   });
 
+  // Shifts Phase 3b (Oct 15): releases to the open pool, whether a manager
+  // approves one, and cross-team claiming - off by default, per company.
+  it('saves the release and cross-team switches; the approval switch follows the release switch', async () => {
+    render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} />);
+    const release = await screen.findByLabelText('People can release a shift to the open pool');
+    const approve = screen.getByLabelText('A manager approves a release');
+    const across = screen.getByLabelText('Open shifts can be claimed across teams');
+    expect(release.checked).toBe(false);                                        // off by default
+    expect(across.checked).toBe(false);
+    expect(approve.checked).toBe(true);                                         // approval is the default
+    expect(approve.disabled).toBe(true);                                        // ...but moot while releases are off
+    expect(screen.getByText(/Off by default\. Turn on per company\./)).toBeTruthy();
+    fireEvent.click(release);
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith(expect.objectContaining({ releaseShifts: true }), ''));
+    expect(screen.getByLabelText('A manager approves a release').disabled).toBe(false);
+    fireEvent.click(screen.getByLabelText('A manager approves a release'));
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith(expect.objectContaining({ releaseShifts: true, releaseNeedsApproval: false }), ''));
+    fireEvent.click(across);
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith(expect.objectContaining({ openShiftsAcrossTeams: true }), ''));
+    fireEvent.click(screen.getByLabelText('People can release a shift to the open pool'));
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith(expect.objectContaining({ releaseShifts: false }), ''));
+    expect(screen.getByLabelText('A manager approves a release').disabled).toBe(true);
+  });
+
   it('shows an error with Retry when the settings cannot load', async () => {
     shiftRequestSettingsGetFor.mockRejectedValueOnce(new Error('API error 500'));
     const { api } = await import('../../api');

@@ -50,7 +50,8 @@ from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, Tim
                     TrackConsent, TrackSession, TrackPing, MonitoringPolicy, MonitoringConsent,
                     PunchRequest, AgentActivity, AppRating, NexusGroup, NexusGroupMember,
                     NexusSetting, NexusNotification, HrCompanyHoliday, NexusRole, ScheduleDayNote,
-                    ShiftAvailability, TimecardNote, PayrollRateHistory)
+                    ShiftAvailability, TimecardNote, PayrollRateHistory, ShiftAvailabilityDate,
+                    ShiftAvailabilityPref)
 from routers.hr import company_sites, allowed_site_ids as _allowed_site_ids, _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET, _SHOT_BUCKET, sync_comp_from_rate
 from routers.esign import _client_meta
 from routers.stepup import require_stepup
@@ -6105,8 +6106,42 @@ def _avail_dict(r: ShiftAvailability) -> dict:
             "end": r.end_hhmm or "", "note": r.note or ""}
 
 
+def _avail_date_dict(r: ShiftAvailabilityDate) -> dict:
+    return {"id": r.id, "date": r.date, "kind": r.kind, "start": r.start_hhmm or "",
+            "end": r.end_hhmm or "", "note": r.note or ""}
+
+
+def _avail_prefs_dict(p: ShiftAvailabilityPref) -> dict:
+    return {"preferredHoursWeek": max(0, int(p.preferred_hours_week or 0)) if p is not None else 0,
+            "maxHoursWeek": max(0, int(p.max_hours_week or 0)) if p is not None else 0}
+
+
+def _availability_prefs(db: Session, emails) -> dict:
+    """{email: {preferredHoursWeek, maxHoursWeek}} for the people who set
+    either (Phase 3b); nobody else has a key."""
+    emails = [e for e in emails if e]
+    out = {}
+    if not emails:
+        return out
+    for p in db.query(ShiftAvailabilityPref).filter(ShiftAvailabilityPref.employee_email.in_(emails)).all():
+        d = _avail_prefs_dict(p)
+        if d["preferredHoursWeek"] or d["maxHoursWeek"]:
+            out[(p.employee_email or "").lower()] = d
+    return out
+
+
 def _availability(db: Session, emails) -> dict:
-    """{email: [availability rows]} - weekdays with no row are open."""
+    """{email: [availability rows]} - weekdays with no row are open. Each
+    row is one of (Shifts Phase 3b, Oct 14 2026):
+      {weekday, kind, start, end, note}        the weekly pattern (first)
+      {id, date, kind, start, end, note}       one date, which wins over the
+                                               weekday rule for that date
+      {kind: 'prefs', preferredHoursWeek,
+       maxHoursWeek}                           at most one, last, only when
+                                               either figure is set - the
+                                               grid's person cell reads it
+    Readers that match on `weekday` (the grid, _shift_conflicts) skip the
+    other two shapes by construction."""
     emails = [e for e in emails if e]
     out = {}
     if not emails:
@@ -6114,6 +6149,11 @@ def _availability(db: Session, emails) -> dict:
     for r in (db.query(ShiftAvailability).filter(ShiftAvailability.employee_email.in_(emails))
               .order_by(ShiftAvailability.weekday).all()):
         out.setdefault((r.employee_email or "").lower(), []).append(_avail_dict(r))
+    for r in (db.query(ShiftAvailabilityDate).filter(ShiftAvailabilityDate.employee_email.in_(emails))
+              .order_by(ShiftAvailabilityDate.date, ShiftAvailabilityDate.start_hhmm).all()):
+        out.setdefault((r.employee_email or "").lower(), []).append(_avail_date_dict(r))
+    for em, prefs in _availability_prefs(db, emails).items():
+        out.setdefault(em, []).append({"kind": "prefs", **prefs})
     return out
 
 
@@ -6151,13 +6191,16 @@ def _shift_conflicts(item: dict, others: list, timeoff: list, holidays: dict, av
     if h:
         out.append(f"{'Half-day holiday' if h.get('type') == 'half_day' else 'Company holiday'}: {h.get('name') or 'Holiday'}.")
     wd = datetime.strptime(day, "%Y-%m-%d").weekday()
-    for a in avail or []:
-        if a["weekday"] != wd:
-            continue
-        on = f"{_WEEKDAYS[wd]}s"
+    # A row for THIS date (Phase 3b) wins over the weekday pattern: "not this
+    # Tuesday" or "only 9-1 this Tuesday" replaces "Tuesdays" entirely, so an
+    # available date never also warns about the usual Tuesday rule.
+    dated = [a for a in avail or [] if a.get("date") == day]
+    weekly = [a for a in avail or [] if "weekday" in a and a["weekday"] == wd] if not dated else []
+    for a in dated + weekly:
+        on = _us_date(day) if a.get("date") else f"{_WEEKDAYS[wd]}s"
         if a["kind"] == "unavailable":
             out.append(f"Marked unavailable on {on}" + (f" ({a['note']})" if a.get("note") else "") + ".")
-        else:
+        elif a["kind"] == "available":
             win = _interval(day, a["start"], a["end"])
             if win and not (win[0] <= me[0] and me[1] <= win[1]):
                 out.append(f"Outside their availability on {on} ({_hm12(a['start'])} - {_hm12(a['end'])}).")
@@ -7242,46 +7285,133 @@ class AvailDayIn(BaseModel):
     note: Optional[str] = ""
 
 
+class AvailDateIn(BaseModel):
+    date: str                     # YYYY-MM-DD
+    kind: str                     # unavailable | available (only start-end)
+    start: Optional[str] = ""
+    end: Optional[str] = ""
+    note: Optional[str] = ""
+
+
+class AvailPrefsIn(BaseModel):
+    preferredHoursWeek: Optional[int] = None   # 0 = not set; informational
+    maxHoursWeek: Optional[int] = None         # 0 = not set; a week cap (shift_rules)
+
+
 class AvailIn(BaseModel):
-    days: List[AvailDayIn] = []
+    # Each part is optional (Phase 3b): a part left out is untouched, so the
+    # dates sheet can save without re-sending the week and the other way
+    # round. `days: []` still clears the week, as it always has.
+    days: Optional[List[AvailDayIn]] = None
+    dates: Optional[List[AvailDateIn]] = None   # replaces the rows from today on; past dates are kept
+    prefs: Optional[AvailPrefsIn] = None
+
+
+_AVAIL_HOURS_MAX = 168
+
+
+def _my_availability_payload(db: Session, em: str) -> dict:
+    rows = _availability(db, [em]).get(em, [])
+    return {"days": [a for a in rows if "weekday" in a],
+            "dates": [a for a in rows if a.get("date")],
+            "prefs": _availability_prefs(db, [em]).get(em) or {"preferredHoursWeek": 0, "maxHoursWeek": 0}}
+
+
+def _avail_today(db: Session, em: str) -> str:
+    """Today in the zone the person's shifts run on (their company's shift
+    settings), the line between dated rows that can still change and the
+    past ones kept as a record."""
+    from routers.shift_requests import settings_for as _sr_settings_for
+    return _shift_local_now(_sr_settings_for(db, em).get("timeZone") or _DEFAULT_TEAM_TZ).date().isoformat()
 
 
 @router.get("/availability/mine")
 def my_availability(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """{days, dates, prefs}: the weekly pattern, every dated row (past ones
+    included, oldest first) and the hours preferences."""
     em = (user.get("email") or "").lower()
-    return {"days": _availability(db, [em]).get(em, [])}
+    return _my_availability_payload(db, em)
 
 
 @router.put("/availability/mine")
 def save_my_availability(body: AvailIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Replace the caller's weekly availability. A day left out, or `any`, is
-    open all day. The schedule grid warns a scheduler who places a shift
-    outside it - it never blocks them."""
+    """Replace the caller's weekly availability (`days`: a day left out, or
+    `any`, is open all day), their dated availability from today on
+    (`dates`: past dates are kept) and their hours preferences (`prefs`).
+    A part not sent is left alone. The schedule grid warns a scheduler who
+    places a shift outside it - it never blocks them."""
     em = (user.get("email") or "").lower()
-    clean = {}
-    for d in body.days:
-        if not 0 <= int(d.weekday) <= 6:
-            raise HTTPException(400, "Pick a day of the week.")
-        if d.kind == "any":
-            clean.pop(d.weekday, None)
-            continue
-        if d.kind not in ("unavailable", "available"):
-            raise HTTPException(400, "Availability is any time, unavailable, or available between two times.")
-        st = et = ""
-        if d.kind == "available":
-            st, et = (d.start or "")[:5], (d.end or "")[:5]
-            if not (st and et):
-                raise HTTPException(400, f"Set the times you are available on {_WEEKDAYS[d.weekday]}.")
-            _check_hhmm(st, et)
-            _check_span(st, et)
-        clean[d.weekday] = (d.kind, st, et, (d.note or "").strip()[:120])
-    db.query(ShiftAvailability).filter(ShiftAvailability.employee_email == em).delete()
     now = _now_iso()
-    for wd, (kind, st, et, note) in sorted(clean.items()):
-        db.add(ShiftAvailability(id=str(uuid.uuid4()), employee_email=em, weekday=wd, kind=kind,
-                                 start_hhmm=st, end_hhmm=et, note=note, updated_at=now))
+    if body.days is not None:
+        clean = {}
+        for d in body.days:
+            if not 0 <= int(d.weekday) <= 6:
+                raise HTTPException(400, "Pick a day of the week.")
+            if d.kind == "any":
+                clean.pop(d.weekday, None)
+                continue
+            if d.kind not in ("unavailable", "available"):
+                raise HTTPException(400, "Availability is any time, unavailable, or available between two times.")
+            st = et = ""
+            if d.kind == "available":
+                st, et = (d.start or "")[:5], (d.end or "")[:5]
+                if not (st and et):
+                    raise HTTPException(400, f"Set the times you are available on {_WEEKDAYS[d.weekday]}.")
+                _check_hhmm(st, et)
+                _check_span(st, et)
+            clean[d.weekday] = (d.kind, st, et, (d.note or "").strip()[:120])
+        db.query(ShiftAvailability).filter(ShiftAvailability.employee_email == em).delete()
+        for wd, (kind, st, et, note) in sorted(clean.items()):
+            db.add(ShiftAvailability(id=str(uuid.uuid4()), employee_email=em, weekday=wd, kind=kind,
+                                     start_hhmm=st, end_hhmm=et, note=note, updated_at=now))
+    if body.dates is not None:
+        today = _avail_today(db, em)
+        clean = {}
+        for d in body.dates:
+            day = (d.date or "").strip()[:10]
+            try:
+                datetime.strptime(day, "%Y-%m-%d")
+            except ValueError:
+                raise HTTPException(400, "Pick a date.")
+            if day < today:
+                continue   # the past is a record, never rewritten
+            if d.kind == "any":
+                clean.pop(day, None)
+                continue
+            if d.kind not in ("unavailable", "available"):
+                raise HTTPException(400, "Availability is any time, unavailable, or available between two times.")
+            st = et = ""
+            if d.kind == "available":
+                st, et = (d.start or "")[:5], (d.end or "")[:5]
+                if not (st and et):
+                    raise HTTPException(400, f"Set the times you are available on {_us_date(day)}.")
+                _check_hhmm(st, et)
+                _check_span(st, et)
+            clean[day] = (d.kind, st, et, (d.note or "").strip()[:120])
+        db.query(ShiftAvailabilityDate).filter(ShiftAvailabilityDate.employee_email == em,
+                                               ShiftAvailabilityDate.date >= today).delete(synchronize_session=False)
+        for day, (kind, st, et, note) in sorted(clean.items()):
+            db.add(ShiftAvailabilityDate(id=str(uuid.uuid4()), employee_email=em, date=day, kind=kind,
+                                         start_hhmm=st, end_hhmm=et, note=note, created_at=now))
+    if body.prefs is not None:
+        p = db.query(ShiftAvailabilityPref).filter(ShiftAvailabilityPref.employee_email == em).first()
+        if p is None:
+            p = ShiftAvailabilityPref(employee_email=em)
+            db.add(p)
+        for attr, val in (("preferred_hours_week", body.prefs.preferredHoursWeek),
+                          ("max_hours_week", body.prefs.maxHoursWeek)):
+            if val is None:
+                continue
+            try:
+                val = int(val)
+            except (TypeError, ValueError):
+                raise HTTPException(400, "Hours are a whole number.")
+            if not 0 <= val <= _AVAIL_HOURS_MAX:
+                raise HTTPException(400, f"Hours a week are 0 to {_AVAIL_HOURS_MAX}.")
+            setattr(p, attr, val)
+        p.updated_at = now
     db.commit()
-    return {"days": _availability(db, [em]).get(em, [])}
+    return _my_availability_payload(db, em)
 
 
 # ── Excel import (Sep 29, Teams parity) ──────────────────────────────────
