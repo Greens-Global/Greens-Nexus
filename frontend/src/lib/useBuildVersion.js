@@ -18,6 +18,10 @@ import { pollWhileVisible } from './pollWhileVisible';
 // through a deploy.
 const POLL_MS = 3 * 60 * 1000;
 const MINE = import.meta.env.VITE_BUILD_ID || 'dev';
+// The running build's time (vite.config.js), so "what the waiting version
+// brings" (FeatureBanner) is exactly what came after it. A tab on a build with
+// no stamp falls back to when it loaded.
+export const RUNNING_SINCE = import.meta.env.VITE_BUILD_TIME || new Date().toISOString();
 
 export function useBuildVersion() {
   const [stale, setStale] = useState(false);

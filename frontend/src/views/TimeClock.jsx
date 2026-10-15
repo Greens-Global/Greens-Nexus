@@ -62,9 +62,13 @@ const TAB_META = {
   timesheet: { title: 'Time Sheet', label: 'Time Sheet' },
   timeoff:   { title: 'Time Off',   label: 'Time Off' },
 };
-// The Clock tab folded into Overview (Oct 2) - a bookmark, a bell or an
-// email that still says 'clock' lands there.
-const tabFor = (sub) => (sub === 'clock' ? 'overview' : sub);
+// The Clock tab folded into Overview (Oct 2), and so did your own shifts
+// (Neil, Oct 13 2026: "the personal shift data should move into your
+// Workday" - the My Schedule card on Overview, MyHR.jsx) - a bookmark, a
+// bell or an email that still says 'clock' or 'shifts' lands there.
+const tabFor = (sub) => (sub === 'clock' || /^shifts(:|$)/.test(sub || '') ? 'overview' : sub);
+// "shifts:confirm:<publish id>" (Shifts Phase 3a): a schedule to confirm - My Schedule shows its banner.
+const confirmOf = (sub) => (String(sub || '').match(/^shifts:confirm:(.+)$/) || [])[1] || '';
 // Work OS card-header title (sentence case, no uppercase tracking).
 const HD = { fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' };
 
@@ -145,7 +149,26 @@ if (typeof document !== 'undefined' && !document.getElementById('ts-anim')) {
     [data-theme="dark"] .wd-clock-side { background: rgba(255,255,255,.02); }
     /* Overview tiles (dk-stat look, hero gradient included) in one compact
        row: chip, then number / label / hint, then the arrow. */
-    .wd-statgrid { display: grid; grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+    .wd-statgrid { display: grid; grid-template-columns: minmax(0, 1.3fr) repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+    .wd-statgrid--nohours { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    /* Ask HR tile (Oct 15 2026): a light echo of the hero's gradient so it reads
+       as the place to go for HR, with a solid badge and a call-to-action pill. */
+    .dk-stat.wd-stat.wd-askhr { position: relative; overflow: hidden; border: 1px solid rgba(43, 69, 225, .18);
+      background: linear-gradient(135deg, rgba(66, 86, 232, .10) 0%, rgba(22, 163, 74, .10) 100%), var(--card);
+      box-shadow: 0 6px 18px rgba(43, 69, 225, .10); }
+    .dk-stat.wd-stat.wd-askhr::after { content: ''; position: absolute; right: -28px; top: -28px; width: 96px; height: 96px; border-radius: 50%;
+      background: radial-gradient(circle, rgba(66, 86, 232, .16), transparent 70%); pointer-events: none; }
+    .dk-stat.wd-stat.wd-askhr:hover { border-color: rgba(43, 69, 225, .35); box-shadow: 0 10px 24px rgba(43, 69, 225, .18); transform: translateY(-1px); }
+    .wd-askhr-badge { position: relative; flex-shrink: 0; width: 38px; height: 38px; border-radius: 11px; display: inline-flex; align-items: center; justify-content: center;
+      color: #fff; background: linear-gradient(135deg, #4256e8, #16a34a); box-shadow: 0 4px 12px rgba(43, 69, 225, .30); }
+    .wd-askhr-dot { position: absolute; top: -4px; right: -4px; width: 11px; height: 11px; border-radius: 50%; background: hsl(var(--color-red)); box-shadow: 0 0 0 2px var(--card); }
+    .wd-askhr-title { display: block; font-size: 15px; font-weight: 800; color: var(--ink); letter-spacing: -.01em; }
+    .wd-askhr-sub { display: block; font-size: 11.5px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .wd-askhr-sub--new { color: hsl(var(--color-red)); font-weight: 700; }
+    .wd-askhr-cta { position: relative; z-index: 1; flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px; padding: 5px 10px; border-radius: 999px;
+      font-size: 11.5px; font-weight: 700; color: #fff; background: var(--wk-brand, #2b45e1); white-space: nowrap; }
+    [data-theme="dark"] .dk-stat.wd-stat.wd-askhr { background: linear-gradient(135deg, rgba(66, 86, 232, .22) 0%, rgba(22, 163, 74, .16) 100%), var(--card); border-color: rgba(120, 140, 255, .28); }
+    @media (max-width: 1200px) { .wd-askhr-cta { display: none; } }
     .dk-stat.wd-stat.wd-hero { padding: 0; gap: 0; align-items: stretch; }
     .wd-hero-part { display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: none; border: none; color: inherit; font: inherit; text-align: left; cursor: pointer; min-width: 0; border-radius: inherit; transition: background .15s ease; }
     .wd-hero-part:first-child { flex: 1.15; }
@@ -442,26 +465,22 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   // setTab(...) call below just updates local state - the effects further
   // down mirror it out to activeSub/the URL in one place, so no call site had
   // to change (Pranshu, Sep 4: switching tabs left the URL on /myhr forever).
+  // Held past the address rewrite below (it goes back to plain 'overview').
+  const [focusConfirm, setFocusConfirm] = useState(() => confirmOf(activeSub));
+  useEffect(() => { const c = confirmOf(activeSub); if (c) setFocusConfirm(c); }, [activeSub]);
   const [tab, setTab] = useState(() => {
     const t = tabFor(activeSub) || tabFor(initialTab);
     return TAB_META[t] ? t : 'overview';
   });
-  // Workday > Shifts moved into the Shifts module (Sep 29). Old links - a
-  // bookmark, a bell or schedule email sent before the move - land there.
-  useEffect(() => {
-    if (activeSub === 'shifts') window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'shifts', sub: 'mine' } }));
-  }, [activeSub]);   // overview | clock | timesheet | timeoff
-  useEffect(() => {
+  useEffect(() => {   // overview | clock | shifts | timesheet | timeoff
     const t = tabFor(activeSub);
     if (TAB_META[t] && t !== tab) setTab(t);
-    // An old 'clock' address already shows Overview - rewrite it to say so.
-    else if (activeSub === 'clock' && onSubChange) onSubChange(tab);
+    // An old 'clock' or 'shifts' address already shows Overview - rewrite it to say so.
+    else if ((activeSub === 'clock' || /^shifts(:|$)/.test(activeSub || '')) && onSubChange) onSubChange(tab);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSub]);
   useEffect(() => {
-    // Not while forwarding an old Shifts link - that would pull the address
-    // back to this view on its way out.
-    if (onSubChange && activeSub !== tab && activeSub !== 'shifts') onSubChange(tab);
+    if (onSubChange && activeSub !== tab) onSubChange(tab);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
   // The shared read (lib/useTimeStatus): this screen, the floating timer and
@@ -879,10 +898,11 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     window.addEventListener('nexus:timeclock-changed', refresh);
     return () => window.removeEventListener('nexus:timeclock-changed', refresh);
   }, [tab]);
-  // Which hours the clock card shows - Today / This Week / Pay Period. A
-  // per-viewer convenience, so it is remembered in this browser only.
+  // Which hours the clock card shows - Today / This Week / Pay Period. Today
+  // by default (Neil, Oct 14 2026); a pick is a per-viewer convenience, so it
+  // is remembered in this browser only.
   const [hoursView, setHoursView] = useState(() => {
-    try { return localStorage.getItem('nx-wd-hours-view') || 'week'; } catch { return 'week'; }
+    try { return localStorage.getItem('nx-wd-hours-view') || 'today'; } catch { return 'today'; }
   });
   const pickHoursView = (v) => {
     setHoursView(v);
@@ -1242,7 +1262,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       {/* Overview: the Time Clock widget first, then the employee's own HR
           page (profile, hours, documents, time off, Ask HR). */}
       {tab === 'overview' && (
-        <MyHROverview clock={clockWidget} onOpenTimeOff={() => setTab('timeoff')} onOpenTimeSheet={exemptKnown ? undefined : () => setTab('timesheet')} />
+        <MyHROverview focusConfirm={focusConfirm} clock={clockWidget} onOpenTimeOff={() => setTab('timeoff')} onOpenTimeSheet={exemptKnown ? undefined : () => setTab('timesheet')} />
       )}
 
       {/* Timesheets submitted to me, not decided yet - above my own timesheet,

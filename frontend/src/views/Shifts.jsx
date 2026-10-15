@@ -1,26 +1,37 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { CalendarClock, CalendarDays, Inbox, UserRound } from 'lucide-react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { CalendarClock, CalendarDays, Contact, Inbox, Users } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import MyShifts from '../components/MyShifts';
+import { SkeletonBlocks } from '../components/AsyncState';
 import ShiftRequestsPage from '../components/ShiftRequestsPage';
 import ShiftSchedule from '../components/ShiftSchedule';
 import { useManagerInbox } from '../components/shifts/useManagerInbox';
 
-// Shifts (Sep 29 2026): its own module in My Desk. Three tabs (Charmi,
-// 09/30): My Shifts for everyone; Schedule and Requests - the manager's
-// inbox, with a badge for what waits - for managers and above. An employee
-// asks for a swap, an offer, an open shift or time off in Workday > Time
-// Off; shift settings, shift types and groups are in Settings > Global
-// Settings > Shifts. Employees never change a shift - the backend refuses
-// any write below manager (routers/timeclock.py require_shift_manage).
+// Team (Neil, Oct 13 2026; was Shifts, Sep 29): everything about the people
+// you work with. Contact (the Contact Directory, moved out of Support) and
+// Shifts (your group's week) for everyone; Schedule and Requests - the
+// manager's inbox, with a badge for what waits - for managers and above.
+// Your OWN week is Workday > My Shifts (Neil: "the personal shift data should
+// move into your Workday"); old 'mine' links are redirected there (App.jsx).
+// An employee asks for a swap, an offer, an open shift or time off in
+// Workday > Time Off; shift settings, shift types and groups are in
+// Settings > Global Settings > Shifts. Employees never change a shift - the
+// backend refuses any write below manager (routers/timeclock.py
+// require_shift_manage).
 
+// Lazy: the directory is a big screen, and only its tab needs it.
+const Directory = lazy(() => import('./Directory'));
+
+// Contact last (Pranshu, Oct 15 2026); Team opens on Shifts.
 const TABS = [
-  ['mine', 'My Shifts', UserRound, false],
+  ['shifts', 'Shifts', CalendarClock, false],
   ['schedule', 'Schedule', CalendarDays, true],
   ['requests', 'Requests', Inbox, true],
+  ['contact', 'Contact', Contact, false],
 ];
 const SUBTITLE = {
-  mine: "Your week at a glance, and your group's",
+  contact: 'Find and reach anyone in the company',
+  shifts: "Your group's week",
   schedule: "Build, share and adjust the team's schedule",
   requests: "Decide your team's time off, swaps, offers and open-shift requests",
 };
@@ -33,8 +44,10 @@ export default function Shifts({ activeSub, onSubChange }) {
   // sub = "schedule:YYYY-MM-DD:<group id>" (Weather Call, Oct 2026). The tab
   // is the part before the first colon; the rest is where to land.
   const [subKey, focusDate = '', focusGroup = ''] = String(activeSub || '').split(':');
-  const tab = tabs.some(([k]) => k === subKey) ? subKey : 'mine';
+  const tab = tabs.some(([k]) => k === subKey) ? subKey : 'shifts';
   const focus = tab === 'schedule' && /^\d{4}-\d{2}-\d{2}$/.test(focusDate) ? { date: focusDate, groupId: focusGroup } : null;
+  // A publish or nudge bell's "mine:confirm:<publish id>" (Shifts Phase 3a)
+  // is your OWN week, so App.jsx sends it to Workday's My Schedule (Oct 15).
   // Consumed once: the schedule has landed (its own effect ran first), so
   // the address goes back to plain "schedule" and the same bell clicked
   // again is a change again.
@@ -53,22 +66,25 @@ export default function Shifts({ activeSub, onSubChange }) {
   const toastOk = useCallback((msg) => show(msg, 'ok'), [show]);
   const toastErr = useCallback((msg) => show(msg, 'error'), [show]);
   const openRequests = useCallback(() => onSubChange?.('requests'), [onSubChange]);
+  // Where the Contact tab's Manage / Export buttons go: the right end of the tab row.
+  const [toolSlot, setToolSlot] = useState(null);
 
   return (
     <div style={{ animation: 'fadeIn var(--transition-normal) ease-in-out' }}>
       <div className="view-header" style={{ marginBottom: 14, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: 1 }}>
           <span style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <CalendarClock size={19} />
+            <Users size={19} />
           </span>
           <div className="view-title-group">
-            <h2 style={{ fontFamily: 'var(--wk-font)' }}>Shifts</h2>
+            <h2 style={{ fontFamily: 'var(--wk-font)' }}>Team</h2>
             <p>{SUBTITLE[tab]}</p>
           </div>
         </div>
       </div>
 
-      <div className="scroll-tabs" role="tablist" style={{ display: 'flex', gap: 2, marginBottom: 18, borderBottom: '1px solid var(--wk-line)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18, borderBottom: '1px solid var(--wk-line)', flexWrap: 'wrap' }}>
+      <div className="scroll-tabs" role="tablist" style={{ display: 'flex', gap: 2, minWidth: 0 }}>
         {tabs.map(([key, label, Icon]) => {
           const on = tab === key;
           const badge = key === 'requests' ? requests.pendingCount : 0;
@@ -85,8 +101,11 @@ export default function Shifts({ activeSub, onSubChange }) {
           );
         })}
       </div>
+      {tab === 'contact' && <div ref={setToolSlot} style={{ marginLeft: 'auto', padding: '4px 0' }} />}
+      </div>
 
-      {tab === 'mine' ? <MyShifts />
+      {tab === 'contact' ? <Suspense fallback={<SkeletonBlocks count={4} height={96} />}><Directory embedded toolsTarget={toolSlot} /></Suspense>
+        : tab === 'shifts' ? <MyShifts part="team" />
         : tab === 'schedule' ? <ShiftSchedule toastOk={toastOk} toastErr={toastErr} onOpenRequests={openRequests} focus={focus} />
           : <ShiftRequestsPage inbox={requests.inbox} timeoff={requests.timeoff} loading={requests.loading} error={requests.error}
             onRetry={requests.reload} onChanged={requests.reload} toastOk={toastOk} toastErr={toastErr} />}

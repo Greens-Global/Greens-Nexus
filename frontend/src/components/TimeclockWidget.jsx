@@ -4,7 +4,7 @@ import { api } from '../api';
 import { editGuard } from '../asset/lib/editGuard.js';
 import BodModal from './BodModal';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
-import { useTimeStatus } from '../lib/useTimeStatus';
+import { useTimeStatus, applyPunch } from '../lib/useTimeStatus';
 import { punchDurable, replayPending, readPending } from '../lib/punchQueue';
 import { punchPosition, keepPositionWarm } from '../lib/geoPosition';
 import { replayPendingBods } from '../lib/bodQueue';
@@ -356,8 +356,23 @@ export default function TimeclockWidget() {
   const noteTimer = useRef(null);
   useEffect(() => () => clearTimeout(noteTimer.current), []);
   const say = (text) => { setNote(text); clearTimeout(noteTimer.current); noteTimer.current = setTimeout(() => setNote(''), 6000); };
+  // 'break' / 'break_end' while the reason / note prompt holds the punch, and
+  // the moment the button was pressed, so the server backdates the punch to
+  // it (bounded to 15 minutes) - the Time Clock screen's own order.
+  const [breakGate, setBreakGate] = useState(null);
+  const breakClickRef = useRef('');
+  const breakPosRef = useRef(null);   // the location fix, started as the prompt opens
+  // Set for a tap's whole flow (share, prompt, punch). busy / breakBusy are
+  // React state, so a second tap landing before the re-render read them
+  // false and punched twice - the same guard usePunchClock keeps (inFlight).
+  const punchFlight = useRef(false);
+  // The shift closed under an open prompt (punched out on another device, a
+  // stale shift): drop it right here in the render, or the chip stays
+  // disabled and the prompt comes back on the next shift.
+  if (!clockedIn && (breakGate || breakBusy)) { setBreakGate(null); setBreakBusy(false); breakClickRef.current = ''; punchFlight.current = false; }
   async function quickBreak(kind) {
-    if (busy || breakBusy) return false;   // a sheet must not close on a tap that did nothing
+    if (busy || breakBusy || punchFlight.current) return false;   // a sheet must not close on a tap that did nothing
+    punchFlight.current = true;
     setBreakBusy(true);
     // Coming back from a break needs the screen shared where the policy
     // requires it (same rule as the Workday page and the Punch tile): the
@@ -369,26 +384,62 @@ export default function TimeclockWidget() {
       if (!ok) {
         say('Share your screen to end your break - choose a screen when your browser asks, then tap again.');
         setBreakBusy(false);
+        punchFlight.current = false;
         return false;
       }
     }
+    // A break asks for its reason on the way out and offers a note on the way
+    // back, posted to the person's chat (BodModal) - the same prompts the Time
+    // Clock screen holds the punch behind; the sidebar chip skipped them (Neil,
+    // Oct 14 2026). The punch records once the message is sent; closing the
+    // prompt cancels it. Role-flagged people (bodExempt: field workers who
+    // cannot type) punch straight through.
+    if (!status?.bodExempt) {
+      breakClickRef.current = new Date().toISOString().slice(0, 19);
+      breakPosRef.current = punchPosition(kind);   // runs while they type
+      setBreakGate(kind === 'break_start' ? 'break' : 'break_end');
+      return true;   // the sheet may close - the prompt stands on its own
+    }
+    return finishBreak(kind);
+  }
+  async function finishBreak(kind) {
     // With a position, like the Time Clock page - without one every break
     // from here read "Location off" on the timecard (Charmi, Sep 29).
-    const pos = await punchPosition(kind);
-    const res = await punchDurable({ kind, tzOffsetMin: new Date().getTimezoneOffset(), pos });
-    if (res.ok) {
-      setLostOut(false);
-      window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));
-    } else if (res.unreachable) {
-      setLostOut(true);
-      setExpanded(true);
+    let res;
+    try {
+      const pos = (await (breakPosRef.current || punchPosition(kind))) ?? await punchPosition(kind);   // a miss asks once more, as before
+      breakPosRef.current = null;
+      res = await punchDurable({ kind, tzOffsetMin: new Date().getTimezoneOffset(), pos, clickedAt: breakClickRef.current || undefined });
+      if (res.ok) {
+        setLostOut(false);
+        applyPunch(res.punch);   // the chip flips now; the re-read confirms
+        window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));
+      } else if (res.unreachable) {
+        setLostOut(true);
+        setExpanded(true);
+      } else {
+        // Refused by the server (already on a break, a stale shift): say why,
+        // or the tap looks like it did nothing at all.
+        say(res.error?.message || 'Punch failed.');
+      }
+    } finally {
+      // One stamp per tap: a refused punch must not hand its moment to the next.
+      breakClickRef.current = '';
+      setBreakBusy(false);
+      punchFlight.current = false;
     }
-    setBreakBusy(false);
-    return !!res.ok;
+    return !!res?.ok;
   }
 
   async function quickPunchOut() {
-    if (busy) return false;
+    if (busy || punchFlight.current) return false;
+    punchFlight.current = true;
+    // busy is released here too: a throw inside runPunchOut (replay, the
+    // position read, the durable punch) used to leave Punch Out dead until
+    // a reload.
+    try { return await runPunchOut(); } finally { punchFlight.current = false; setBusy(false); }
+  }
+  async function runPunchOut() {
     setBusy(true);
     // An earlier punch is still owed (a break end that never landed). Send THAT
     // first: punching out moves the state past it, after which it can never be
@@ -411,11 +462,14 @@ export default function TimeclockWidget() {
     if (res.ok) {
       setLostOut(false);
       stopCapture();
+      applyPunch(res.punch);
       window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));
       if (res.result?.promptEod) setEodOpen(true); // offer the end-of-day message
     } else if (res.unreachable) {
       setLostOut(true);
       setExpanded(true);   // never leave this hiding inside a collapsed capsule
+    } else {
+      say(res.error?.message || 'Punch failed.');
     }
     setBusy(false);
     return !!res.ok;
@@ -485,6 +539,17 @@ export default function TimeclockWidget() {
     return () => { alive = false; };
   }, [live, todayLocal]);
 
+  // The break prompt, drawn whichever surface holds the shift (the sidebar
+  // chip, the capsule, the phone sheet): a sent message lands the punch, the
+  // X cancels it and frees the button. The modal's own complaints ("Add a
+  // short reason.") go to the chip's note line.
+  const breakModal = breakGate ? (
+    <BodModal mode={breakGate} required
+      onSent={() => { const kind = breakGate === 'break' ? 'break_start' : 'break_end'; setBreakGate(null); finishBreak(kind); }}
+      onClose={() => { breakClickRef.current = ''; breakPosRef.current = null; setBreakGate(null); setBreakBusy(false); punchFlight.current = false; }}
+      toastOk={() => {}} toastErr={say} />
+  ) : null;
+
   // Salaried/exempt people are never time-tracked - no floating timer for them
   // (Charmi, Aug 21).
   if (status?.timeTrackingExempt) return null;
@@ -495,7 +560,7 @@ export default function TimeclockWidget() {
   }
   // The sidebar chip is on screen: it draws the shift, this engine keeps
   // running underneath (capture, replay, polling) with nothing to show.
-  if (claimed) return null;
+  if (claimed) return breakModal;
 
   // Lift the capsule clear of any bottom save bar (asset detail edit) so the
   // Save/Discard buttons underneath are never covered. editGuard.dirty is the
@@ -512,7 +577,8 @@ export default function TimeclockWidget() {
   // dot and the hours; tap it and the same chip the sidebar draws opens
   // above it. Small on purpose so it never buries page-level bars (e.g. the
   // asset "Save before you leave" bar).
-  return (
+  return (<>
+    {breakModal}
     <div ref={wrapRef} className="tc-capsule" style={{ position: 'fixed', bottom, right, zIndex: 1190, display: 'flex',
       flexDirection: 'column', alignItems: 'flex-end', gap: 8, fontFamily: 'var(--wk-font)', transition: 'bottom .18s ease' }}>
       {expanded && (
@@ -527,5 +593,5 @@ export default function TimeclockWidget() {
         <ChevronUp size={13} style={{ color: 'var(--muted)', transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
       </button>
     </div>
-  );
+  </>);
 }

@@ -14,8 +14,10 @@ import { ArrowRight, ArrowUpRight, Cake, CalendarDays, Clock, Package, HandCoins
 import { api } from '../api';
 import { useTimeStatus } from '../lib/useTimeStatus';
 import { useRole } from '../contexts/RoleContext';
-import { formatDate, formatTime, formatDateLong } from '../lib/datetime';
+import { formatDate, formatTime, formatMonthDay } from '../lib/datetime';
 import { DashCard, navigate } from './widgets.jsx';
+import { MoreRow, WidgetError } from './listParts.jsx';
+import { openSession } from './essentials/punchMath.js';
 
 export const noteStyle = { fontSize: 12.5, color: 'var(--muted)', padding: '24px 8px', textAlign: 'center', lineHeight: 1.5 };
 const fmtH = (m) => `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`;
@@ -46,7 +48,7 @@ export function Row({ Icon, title, meta, status, statusLabel, onClick }) {
       onMouseLeave={onClick ? (e => e.currentTarget.style.background = 'none') : undefined}>
       {Icon && <span className="dk-chip dk-chip--blue" style={{ width: 28, height: 28, borderRadius: 7, flexShrink: 0 }}><Icon size={14} /></span>}
       <span style={{ flex: 1, minWidth: 0 }}>
-        <span style={{ display: 'block', fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</span>
+        <span title={typeof title === 'string' ? title : undefined} style={{ display: 'block', fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</span>
         {meta && <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)' }}>{meta}</span>}
       </span>
       {statusLabel && (
@@ -94,8 +96,11 @@ export function TimeClockWidget() {
   const stale = !!status?.staleOpenShift;
   const clockedIn = !!(last && last.kind !== 'out') && !stale;
   const onBreak = clockedIn && last?.kind === 'break_start';
-  const elapsedMin = clockedIn && !onBreak && last?.at ? Math.max(0, Math.floor((now - utc(last.at)) / 60000)) : 0;
   const days = status?.days || {};
+  // The open shift's minutes so far, breaks excluded - the same number My
+  // Time shows (essentials/punchMath.js). This used to be "minutes since the
+  // last punch", which after a break dropped everything before it.
+  const elapsedMin = clockedIn ? (openSession(days, last, now)?.workedMin || 0) : 0;
   const todayMin = (days[localKey(now)]?.workedMin || 0) + elapsedMin;
   let weekMin = elapsedMin;
   for (let i = 0; i < 7; i++) weekMin += days[localKey(new Date(now.getTime() - i * DAY_MS))]?.workedMin || 0;
@@ -118,20 +123,23 @@ export function TimeClockWidget() {
       </div>
     );
   }
-  const num = { fontSize: 26, fontWeight: 800, letterSpacing: '-.02em', lineHeight: 1.1, fontVariantNumeric: 'tabular-nums', color: 'var(--wk-ink)', whiteSpace: 'nowrap' };
-  const lbl = { fontSize: 11.5, color: 'var(--wk-faint)', marginTop: 2, whiteSpace: 'nowrap' };
+  // Sized to fit a 2-row tile (130px on desktop, 1px border + 10px padding
+  // each side = 108px of content): 26 chip + 6 + 26 numeral + 15 label + 6 +
+  // 16 action line = 95px, so nothing is cut at three or four columns.
+  const num = { fontSize: 26, fontWeight: 800, letterSpacing: '-.02em', lineHeight: 1, fontVariantNumeric: 'tabular-nums', color: 'var(--wk-ink)', whiteSpace: 'nowrap' };
+  const lbl = { fontSize: 11.5, lineHeight: 1.3, color: 'var(--wk-faint)', marginTop: 1, whiteSpace: 'nowrap' };
   return (
     <div className="dk-stat" role="button" onClick={go} title={cta}
-      style={{ height: '100%', boxSizing: 'border-box', justifyContent: 'center', padding: '14px 18px 13px', gap: 0 }}>
+      style={{ height: '100%', boxSizing: 'border-box', justifyContent: 'center', padding: '10px 16px', gap: 0, overflow: 'hidden' }}>
       <span className="dk-stat-top" style={{ gap: 10 }}>
-        <span className={`dk-chip dk-chip--${tone === 'muted' ? 'blue' : tone}`} style={{ width: 30, height: 30, borderRadius: 8 }}><Clock /></span>
+        <span className={`dk-chip dk-chip--${tone === 'muted' ? 'blue' : tone}`} style={{ width: 26, height: 26, borderRadius: 7 }}><Clock /></span>
         <span style={{ flex: 1, minWidth: 0, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 700, color: stateColor, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           <span style={{ width: 7, height: 7, borderRadius: 99, background: stateColor, flexShrink: 0 }} />
           {state}
         </span>
         <ArrowUpRight size={15} className="dk-stat-arrow" />
       </span>
-      <span style={{ display: 'flex', alignItems: 'flex-end', gap: 22, marginTop: 10, minWidth: 0 }}>
+      <span style={{ display: 'flex', alignItems: 'flex-end', gap: 22, marginTop: 6, minWidth: 0 }}>
         <span style={{ minWidth: 0 }}>
           <span style={{ display: 'block', ...num }}>{status && !status.error ? fmtH(todayMin) : '--'}</span>
           <span style={{ display: 'block', ...lbl }}>Today</span>
@@ -141,7 +149,7 @@ export function TimeClockWidget() {
           <span style={{ display: 'block', ...lbl }}>Last 7 days</span>
         </span>
       </span>
-      <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 9, width: '100%', minWidth: 0 }}>
+      <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 6, width: '100%', minWidth: 0, lineHeight: 1.3 }}>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12.5, fontWeight: 600, color: 'var(--wk-green)', whiteSpace: 'nowrap' }}>
           {cta} <ArrowRight size={12} />
         </span>
@@ -160,6 +168,9 @@ const TIMEOFF_TYPES = { vacation: 'Vacation', sick: 'Sick', personal: 'Personal'
 const HR_REQ_LABEL = { document: 'Document update', profile: 'Profile change', question: 'Question', other: 'Request' };
 const PUNCH_KIND = { in: 'Punch In', out: 'Punch Out', break_start: 'Break Start', break_end: 'Break End' };
 const DECIDED_WINDOW_DAYS = 14;
+const REQUESTS_SHOWN = 10;
+const DUE_SHOWN = 10;
+const COMING_SHOWN = 8;
 
 export function normalizeRequests({ timeOff = [], punch = [], hr = [] }, now = new Date()) {
   const rows = [];
@@ -184,33 +195,48 @@ export function normalizeRequests({ timeOff = [], punch = [], hr = [] }, now = n
     .sort((a, b) => (isPending(b.status) - isPending(a.status)) || (new Date(b.at || 0) - new Date(a.at || 0)));
 }
 
+// A status word as a label, Title Case ("Pending", "In Review").
+const statusWord = (s) => String(s || '').split('_').map(w => (w ? w.charAt(0).toUpperCase() + w.slice(1) : w)).join(' ');
+
 export function MyRequestsWidget() {
-  const [state, setState] = useState({ loading: true, rows: [] });
+  const [state, setState] = useState({ loading: true, error: false, rows: [] });
+  const [attempt, setAttempt] = useState(0);
+  const [all, setAll] = useState(false);
+  const retry = () => { setState(s => ({ ...s, loading: true, error: false })); setAttempt(n => n + 1); };
   useEffect(() => {
     let alive = true;
-    Promise.all([
-      api.timeOffMine().catch(() => []),
-      api.timeMyPunchRequests().catch(() => []),
-      api.myHrRequests().catch(() => []),
-    ]).then(([timeOff, punch, hr]) => {
-      if (alive) setState({ loading: false, rows: normalizeRequests({ timeOff: timeOff || [], punch: punch || [], hr: hr || [] }) });
-    });
+    // One list of three sources: a source that fails is dropped, but if all
+    // three fail the tile says so instead of claiming there is nothing open.
+    let failed = 0;
+    const soft = (p) => p.catch(() => { failed += 1; return []; });
+    Promise.all([soft(api.timeOffMine()), soft(api.timeMyPunchRequests()), soft(api.myHrRequests())])
+      .then(([timeOff, punch, hr]) => {
+        if (!alive) return;
+        if (failed === 3) { setState({ loading: false, error: true, rows: [] }); return; }
+        setState({ loading: false, error: false, rows: normalizeRequests({ timeOff: timeOff || [], punch: punch || [], hr: hr || [] }) });
+      });
     return () => { alive = false; };
-  }, []);
+  }, [attempt]);
   const pending = state.rows.filter(r => r.status === 'pending').length;
+  // The rows belong to three different screens, so "+N more" opens the rest
+  // here rather than sending you to one of them.
+  const shown = all ? state.rows : state.rows.slice(0, REQUESTS_SHOWN);
   return (
-    <DashCard title="My Requests" sub={state.loading ? undefined : pending ? `${pending} waiting on a decision` : 'Nothing waiting'}>
+    <DashCard title="My Requests" sub={state.loading || state.error ? undefined : pending ? `${pending} waiting on a decision` : 'Nothing waiting'}>
       {state.loading ? (
         <LoadingState compact />
+      ) : state.error ? (
+        <WidgetError message="Couldn't load your requests." onRetry={retry} />
       ) : state.rows.length === 0 ? (
         <div style={noteStyle}>No open requests. Time off, punch corrections and HR requests show up here.</div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-          {state.rows.slice(0, 10).map(r => (
+          {shown.map(r => (
             <Row key={r.id} Icon={r.Icon} title={r.title} meta={r.meta} status={r.status}
-              statusLabel={r.status === 'pending' ? 'Pending' : r.status.charAt(0).toUpperCase() + r.status.slice(1)}
+              statusLabel={statusWord(r.status)}
               onClick={() => navigate(r.nav[0], r.nav[1])} />
           ))}
+          <MoreRow count={state.rows.length - shown.length} onClick={() => setAll(true)} />
         </div>
       )}
     </DashCard>
@@ -235,9 +261,9 @@ export function dueRows(checkouts = [], assignments = [], myEmail = '', now = ne
       dayDiff = daysUntil(due, now);
     }
     const status = dayDiff == null ? 'pending' : dayDiff < 0 ? 'overdue' : dayDiff <= 1 ? 'soon' : 'ok';
-    const label = dayDiff == null ? 'Awaiting handover'
-      : dayDiff < 0 ? `Overdue ${-dayDiff} ${-dayDiff === 1 ? 'day' : 'days'}`
-      : dayDiff === 0 ? 'Due today' : dayDiff === 1 ? 'Due tomorrow' : `Due in ${dayDiff} days`;
+    const label = dayDiff == null ? 'Awaiting Handover'
+      : dayDiff < 0 ? `Overdue ${-dayDiff} ${-dayDiff === 1 ? 'Day' : 'Days'}`
+      : dayDiff === 0 ? 'Due Today' : dayDiff === 1 ? 'Due Tomorrow' : `Due in ${dayDiff} Days`;
     rows.push({ id: `co-${c.id}`, Icon: Package, title: c.item_name, meta: due ? `Return by ${formatDate(due)}` : 'Approved, not yet handed over',
       status, statusLabel: label, sort: dayDiff == null ? 1e6 : dayDiff, nav: ['inventory', 'checkouts'] });
   }
@@ -252,26 +278,33 @@ export function dueRows(checkouts = [], assignments = [], myEmail = '', now = ne
 
 export function DueBackWidget() {
   const { myEmail } = useRole();
-  const [state, setState] = useState({ loading: true, rows: [] });
+  const [state, setState] = useState({ loading: true, error: false, rows: [] });
+  const [attempt, setAttempt] = useState(0);
+  const retry = () => { setState(s => ({ ...s, loading: true, error: false })); setAttempt(n => n + 1); };
   useEffect(() => {
     let alive = true;
-    Promise.all([api.getItemCheckouts().catch(() => []), api.getAssignments().catch(() => [])])
-      .then(([c, a]) => { if (alive) setState({ loading: false, rows: dueRows(c || [], a || [], myEmail) }); });
+    // Checkouts are the list; assignments waiting on an accept are extra.
+    Promise.all([api.getItemCheckouts(), api.getAssignments().catch(() => [])])
+      .then(([c, a]) => { if (alive) setState({ loading: false, error: false, rows: dueRows(c || [], a || [], myEmail) }); })
+      .catch(() => { if (alive) setState({ loading: false, error: true, rows: [] }); });
     return () => { alive = false; };
-  }, [myEmail]);
+  }, [myEmail, attempt]);
   const overdue = state.rows.filter(r => r.status === 'overdue').length;
   return (
-    <DashCard title="Due Back Soon" sub={state.loading ? undefined : overdue ? `${overdue} overdue` : state.rows.length ? `${state.rows.length} with you` : undefined}>
+    <DashCard title="Due Back Soon" sub={state.loading || state.error ? undefined : overdue ? `${overdue} overdue` : state.rows.length ? `${state.rows.length} with you` : undefined}>
       {state.loading ? (
         <LoadingState compact />
+      ) : state.error ? (
+        <WidgetError message="Couldn't load your checkouts." onRetry={retry} />
       ) : state.rows.length === 0 ? (
         <div style={noteStyle}>Nothing due back. Items you check out show up here as their return date nears.</div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-          {state.rows.slice(0, 10).map(r => (
+          {state.rows.slice(0, DUE_SHOWN).map(r => (
             <Row key={r.id} Icon={r.Icon} title={r.title} meta={r.meta} status={r.status === 'soon' ? 'pending' : r.status === 'ok' ? 'approved' : r.status}
               statusLabel={r.statusLabel} onClick={() => navigate(r.nav[0], r.nav[1])} />
           ))}
+          <MoreRow count={state.rows.length - DUE_SHOWN} noun="more items" onClick={() => navigate('inventory', 'checkouts')} />
         </div>
       )}
     </DashCard>
@@ -301,27 +334,45 @@ export function comingUpRows(birthdays = [], holidays = [], now = new Date()) {
   }
   return rows.sort((a, b) => a.diff - b.diff || a.title.localeCompare(b.title));
 }
-const whenLabel = (r) => r.diff === 0 ? 'Today' : r.diff === 1 ? 'Tomorrow' : formatDateLong(r.date);
+// Short on purpose ("Oct 14", the year is implied inside a 30-day window) so
+// the names keep the room at three columns.
+const whenLabel = (r) => r.diff === 0 ? 'Today' : r.diff === 1 ? 'Tomorrow' : formatMonthDay(r.date);
 
 export function ComingUpWidget() {
-  const [state, setState] = useState({ loading: true, rows: [] });
+  const [state, setState] = useState({ loading: true, error: false, rows: [] });
+  const [attempt, setAttempt] = useState(0);
+  const [all, setAll] = useState(false);
+  const retry = () => { setState(s => ({ ...s, loading: true, error: false })); setAttempt(n => n + 1); };
   useEffect(() => {
     let alive = true;
-    Promise.all([api.dashBirthdays().catch(() => ({})), api.dashHolidays().catch(() => ({}))])
-      .then(([b, h]) => { if (alive) setState({ loading: false, rows: comingUpRows(b?.birthdays || [], h?.holidays || []) }); });
+    // Either source alone is still a useful list; both failing is an error.
+    let failed = 0;
+    const soft = (p) => p.catch(() => { failed += 1; return {}; });
+    Promise.all([soft(api.dashBirthdays()), soft(api.dashHolidays())])
+      .then(([b, h]) => {
+        if (!alive) return;
+        if (failed === 2) { setState({ loading: false, error: true, rows: [] }); return; }
+        setState({ loading: false, error: false, rows: comingUpRows(b?.birthdays || [], h?.holidays || []) });
+      });
     return () => { alive = false; };
-  }, []);
+  }, [attempt]);
+  // No screen holds birthdays for every employee (People is supervisor-only),
+  // so "+N more" opens the rest in the tile itself.
+  const shown = all ? state.rows : state.rows.slice(0, COMING_SHOWN);
   return (
     <DashCard title="Coming Up" sub="Next 30 days" action={<Cake size={15} style={{ color: 'var(--muted)' }} />}>
       {state.loading ? (
         <LoadingState compact />
+      ) : state.error ? (
+        <WidgetError message="Couldn't load birthdays and holidays." onRetry={retry} />
       ) : state.rows.length === 0 ? (
         <div style={noteStyle}>No birthdays or holidays in the next 30 days.</div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-          {state.rows.slice(0, 8).map(r => (
+          {shown.map(r => (
             <Row key={r.id} Icon={r.Icon} title={r.title} meta={r.meta} statusLabel={whenLabel(r)} status={r.diff === 0 ? 'approved' : 'info'} />
           ))}
+          <MoreRow count={state.rows.length - shown.length} onClick={() => setAll(true)} />
         </div>
       )}
     </DashCard>

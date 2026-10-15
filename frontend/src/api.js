@@ -1147,6 +1147,8 @@ export const api = {
     req(`/pfs/profiles/${encodeURIComponent(id)}/lines/${encodeURIComponent(lineId)}/move`, { method: "PATCH", body: JSON.stringify({ section, category }) }),
   // The order of lines within a section, kept per guarantor (Charmi, 10/04).
   reorderPfsLines: (id, ids) => req(`/pfs/profiles/${encodeURIComponent(id)}/line-order`, { method: "PUT", body: JSON.stringify({ ids }) }),
+  // The order of the guarantor dropdown (Neil, Oct 14).
+  reorderPfsProfiles: (ids) => req("/pfs/profile-order", { method: "PUT", body: JSON.stringify({ ids }) }),
   // Leasing: tenants, the rent as it changes, and each month's expected
   // against what the ledger received.
   getLeasingRentRoll: (year) => req(`/leasing/rent-roll?year=${year}`),
@@ -1230,7 +1232,7 @@ export const api = {
   deleteEntity:   (id)       => req(`/hr/entities/${id}`, { method: 'DELETE' }),
   // per-company departments (managed list, not free text)
   getCompanyDepartments:    (entityId)       => req(`/hr/entities/${entityId}/departments`),
-  addCompanyDepartment:     (entityId, name) => req(`/hr/entities/${entityId}/departments`, { method: 'POST', body: JSON.stringify({ name }) }),
+  addCompanyDepartment:     (entityId, name, leadEmail = '') => req(`/hr/entities/${entityId}/departments`, { method: 'POST', body: JSON.stringify({ name, lead_email: leadEmail }) }),
   deleteCompanyDepartment:  (entityId, deptId) => req(`/hr/entities/${entityId}/departments/${deptId}`, { method: 'DELETE' }),
   updateCompanyDepartment:  (entityId, deptId, data) => req(`/hr/entities/${entityId}/departments/${deptId}`, { method: 'PATCH', body: JSON.stringify(data) }),
   getWorkSites:   ()         => cachedGet('/hr/work-sites', 120_000),
@@ -1278,6 +1280,8 @@ export const api = {
   // HR - hiring pipeline
   getCandidates:       ()         => req('/hr/candidates'),
   getCandidateHistory: (id)       => req(`/hr/candidates/${id}/history`),
+  // One notes timeline (Oct 14): add a note - who and when are recorded.
+  addCandidateNote:    (id, note) => req(`/hr/candidates/${id}/notes`, { method: 'POST', body: JSON.stringify({ note }) }),
   createCandidate:     (data)     => req('/hr/candidates', { method: 'POST', body: JSON.stringify(data) }),
   updateCandidate:     (id, data) => req(`/hr/candidates/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   candidateResumeUpload: (id, form) => req(`/hr/candidates/${id}/resume`, { method: 'POST', body: form }),
@@ -1985,6 +1989,13 @@ export const api = {
   // QuickBooks IIF on the team timecard.
   timeExportIntacct:    (start, end, { journal = 'PYRJ', expense = '', clearing = '', location = '' } = {}) =>
     reqBlob(`/timeclock/export-intacct.csv?start=${start || ''}&end=${end || ''}&journal=${encodeURIComponent(journal)}&expense=${encodeURIComponent(expense)}&clearing=${encodeURIComponent(clearing)}&location=${encodeURIComponent(location)}`),
+  // Accounting > Import Hub, Payroll Hours card (Neil, 10/15): the period's
+  // hours by pay class (no pay) for one company, optionally approved time
+  // sheets only, and the QuickBooks IIF with the same filters.
+  timeExportHours:      (start, end, { company = '', approvedOnly = false } = {}) =>
+    req(`/timeclock/export-hours?start=${start || ''}&end=${end || ''}&company=${encodeURIComponent(company)}&approved_only=${approvedOnly ? 'true' : 'false'}`, { timeoutMs: 120_000 }),
+  timeExportIifFor:     (start, end, { company = '', approvedOnly = false } = {}) =>
+    reqBlob(`/timeclock/export.iif?start=${start || ''}&end=${end || ''}&company=${encodeURIComponent(company)}&approved_only=${approvedOnly ? 'true' : 'false'}`, { timeoutMs: 120_000 }),
   // Accounting > Loans & Financing (Oct 2): loans proposed from the ledger's
   // liability accounts, the ledger-driven review (balances, principal and
   // interest paid, NOI, DSCR) for a month, and the typed fields (rate,
@@ -2160,7 +2171,7 @@ export const api = {
   resolvePfsShareMismatches: (id, ids, action) => req(`/pfs/profiles/${encodeURIComponent(id)}/share-mismatches`, { method: 'POST', body: JSON.stringify({ ids, action }) }),
   encryptPfsPdf:          (id, body) => req(`/pfs/profiles/${encodeURIComponent(id)}/pdf/encrypt`, { method: 'POST', body: JSON.stringify(body) }),
   getPfsAccessPeople:     () => req('/pfs-access/people'),
-  setPfsAccessLevel:      (email, level) => req(`/pfs-access/people/${encodeURIComponent(email)}`, { method: 'PUT', body: JSON.stringify({ level }) }),
+  setPfsAccessLevel:      (email, level, files) => req(`/pfs-access/people/${encodeURIComponent(email)}`, { method: 'PUT', body: JSON.stringify(files ? { level, files } : { level }) }),
   // ── Accounting > Reports, Oct 7 (Charmi, item 35): the books a report can
   //    read ({available, books: [{key, label, kind, journals}]}; available
   //    false = the accounting app lists none yet), and one report read with
@@ -2192,6 +2203,27 @@ export const api = {
   createAmaAgreement:  (body)     => req('/accounting/ama/agreements', { method: 'POST', body: JSON.stringify(body) }),
   updateAmaAgreement:  (id, body) => req(`/accounting/ama/agreements/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
   deleteAmaAgreement:  (id)       => req(`/accounting/ama/agreements/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  // Accounting > Reporting > AMA, Ask My Accountant (Neil, 10/15,
+  // routers/accounting_ask.py): questions on ledger lines + the lines on the
+  // Ask My Accountant (suspense) accounts. The agreements above are now
+  // "Management Fees" on screen; their API did not move.
+  getAskItems:         ({ entity, from, to } = {}) => {
+    const qs = new URLSearchParams();
+    if (entity) qs.set('entity', entity);
+    if (from) qs.set('from', from);
+    if (to) qs.set('to', to);
+    const s = qs.toString();
+    return req(`/accounting/ask/items${s ? `?${s}` : ''}`);
+  },
+  getAskThread:        (id)       => req(`/accounting/ask/threads/${encodeURIComponent(id)}`),
+  askAccountant:       (body)     => req('/accounting/ask/threads', { method: 'POST', body: JSON.stringify(body) }),
+  replyAskThread:      (id, text) => req(`/accounting/ask/threads/${encodeURIComponent(id)}/messages`, { method: 'POST', body: JSON.stringify({ body: text }) }),
+  resolveAskThread:    (id, body = {}) => req(`/accounting/ask/threads/${encodeURIComponent(id)}/resolve`, { method: 'POST', body: JSON.stringify(body) }),
+  reopenAskThread:     (id)       => req(`/accounting/ask/threads/${encodeURIComponent(id)}/reopen`, { method: 'POST', body: '{}' }),
+  assignAskThread:     (id, accountant) => req(`/accounting/ask/threads/${encodeURIComponent(id)}/accountant`, { method: 'PUT', body: JSON.stringify({ accountant }) }),
+  getAskSettings:      ()         => req('/accounting/ask/settings'),
+  saveAskSettings:     (body)     => req('/accounting/ask/settings', { method: 'PUT', body: JSON.stringify(body) }),
+  getAskChart:         ()         => req('/accounting/ask/chart'),
   // ── Dashboard Essentials tiles (Oct 7): My Work, My Team, Announcements.
   //    routers/my_work.py, my_team.py (supervisor+), announcements.py.
   //    My Day reads getMyBriefing / actOnMyBriefing; My Time reads
@@ -2265,6 +2297,74 @@ export const api = {
   signOnceStatus:      (sid, entityId = '') => req(`/hr/packets/${sid}/sign-once?entity_id=${encodeURIComponent(entityId)}`),
   signOnceCode:        (sid, data) => req(`/hr/packets/${sid}/sign-once/code`, { method: 'POST', body: JSON.stringify(data) }),
   signOnce:            (sid, data) => req(`/hr/packets/${sid}/sign-once`, { method: 'POST', body: JSON.stringify(data) }),
+  // Accounting > Loans & Financing > Loan Planning (Charmi, item 25, Oct 15):
+  // planned loans saved by name per entity (routers/accounting_loan_plans.py).
+  getPlannedLoans:   ()         => req('/accounting/loan-plans/planned'),
+  createPlannedLoan: (body)     => req('/accounting/loan-plans/planned', { method: 'POST', body: JSON.stringify(body) }),
+  updatePlannedLoan: (id, body) => req(`/accounting/loan-plans/planned/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(body) }),
+  deletePlannedLoan: (id)       => req(`/accounting/loan-plans/planned/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  // Accounting > Reporting > Profitability and Employee Compensation (10/15).
+  getProfitability:      (from, to, { locations = [], book = 'accrual', expand = false, compare = true } = {}) => req(`/accounting/profitability?from=${from}&to=${to}${locations.length ? `&locations=${encodeURIComponent(locations.join(','))}` : ''}${book && book !== 'accrual' ? `&book=${encodeURIComponent(book)}` : ''}${expand ? '&expand=true' : ''}${compare ? '' : '&compare=false'}`, { timeoutMs: 120_000 }),
+  getCompensationPeople: (from, to) => req(`/accounting/compensation/people?from=${from}&to=${to}`, { timeoutMs: 180_000 }),
+  getCompensationLedger: (from, to, by = 'department') => req(`/accounting/compensation/ledger?from=${from}&to=${to}&by=${by}`, { timeoutMs: 120_000 }),
+  // Flux Analysis review (Charmi, Oct 15): close (sign off) or reopen one
+  // account's review - { entity, period, accountNo, closed }.
+  saveAccountingFluxReview: (body) => req('/accounting/flux-notes/review', { method: 'PUT', body: JSON.stringify(body) }),
+  // Tasks Home > Updates (Oct 14): what other people did lately on the tasks
+  // I am assigned to or follow.
+  getMyTaskActivity:   ({ limit = 30, days = 14 } = {}) => req(`/tasks/activity/mine?limit=${limit}&days=${days}`),
+  // Add Time (Oct 14): a manager adds a shift, or a run of them, for someone
+  // who did not clock in right - the picker's day states, the batch (dry run
+  // = the preview), and the undo of a batch.
+  timeAddTimeDays:     (email, start, end) => req(`/timeclock/add-time/days?email=${encodeURIComponent(email)}&start=${start}&end=${end}`),
+  timeAddTime:         (data) => req('/timeclock/add-time', { method: 'POST', body: JSON.stringify(data) }),
+  timeAddTimeUndo:     (batchId) => req(`/timeclock/add-time/${encodeURIComponent(batchId)}/undo`, { method: 'POST' }),
+  // Operations: the Cubby -> database sync (10/15). Refresh starts one; the screen polls the status.
+  getCubbySync: () => req('/facility-ops/sync'),
+  startCubbySync: () => req('/facility-ops/sync', { method: 'POST' }),
+  // Shifts Phase 0 (Oct 14): shift settings and shift types per company. No
+  // company = the tenant defaults / every shift type; a company id = that
+  // company's own settings (PUT saves its override, DELETE drops it) and the
+  // shift types it can use.
+  timeShiftsFor:              (company = '') => req(`/timeclock/shifts${company ? `?company=${encodeURIComponent(company)}` : ''}`),
+  shiftRequestSettingsGetFor: (company = '') => req(`/timeclock/shift-requests/settings${company ? `?company=${encodeURIComponent(company)}` : ''}`),
+  shiftRequestSettingsSaveFor: (data, company = '') => req(`/timeclock/shift-requests/settings${company ? `?company=${encodeURIComponent(company)}` : ''}`, { method: 'PUT', body: JSON.stringify(data) }),
+  shiftRequestSettingsReset:  (company) => req(`/timeclock/shift-requests/settings?company=${encodeURIComponent(company)}`, { method: 'DELETE' }),
+  // Shifts Phase 1 (Oct 14): what the clock says against the schedule - one
+  // cell per person and day (status, punches, late / early minutes), per-
+  // person and overall totals. Someone who cannot manage shifts gets their own.
+  timeSchedActuals:           (start, end) => req(`/timeclock/schedule/actuals?start=${start}&end=${end}`),
+  // Shifts Phase 2 (Oct 2026): rules before publish. The review takes the
+  // same params the publish does (start, end, group_id, emails); a shift's
+  // history is newest first.
+  timeSchedPublishReview:     (params) => req(`/timeclock/schedule/publish/review?${new URLSearchParams(params).toString()}`),
+  timeSchedHistory:           (id) => req(`/timeclock/schedule/${id}/history`),
+  // Hardening pass (Oct 15): the history an empty cell still has, and the
+  // shares made with warnings for the Share dialog's Recent Shares.
+  timeSchedCellHistory:       (email, date) => req(`/timeclock/schedule/history?email=${encodeURIComponent(email)}&date=${date}`),
+  timeSchedShares:            (params = {}) => req(`/timeclock/schedule/shares${Object.keys(params).length ? `?${new URLSearchParams(params).toString()}` : ''}`),
+  // Shifts Phase 3a (Oct 14): the schedule comes to people. My own
+  // preferences (the Outlook calendar opt-out), the administrator's calendar
+  // sync status, my iCal subscription link (rotate = a new link, the old one
+  // stops working), the shared schedules I have not confirmed and the
+  // confirm, and for a manager who has confirmed in a range plus a nudge.
+  timeMyPrefsGet:             () => req('/timeclock/my-prefs'),
+  timeMyPrefsSet:             (data) => req('/timeclock/my-prefs', { method: 'PUT', body: JSON.stringify(data) }),
+  timeCalendarSyncStatus:     () => req('/timeclock/calendar-sync/status'),
+  timeMyIcalLink:             () => req('/timeclock/my-schedule/ical-link'),
+  timeMyIcalRotate:           () => req('/timeclock/my-schedule/ical-link/rotate', { method: 'POST' }),
+  timeMyConfirmations:        () => req('/timeclock/my-schedule/confirmations'),
+  timeSchedConfirm:           (publishId) => req(`/timeclock/schedule/confirm/${encodeURIComponent(publishId)}`, { method: 'POST' }),
+  timeSchedConfirmations:     (start, end) => req(`/timeclock/schedule/confirmations?start=${start}&end=${end}`),
+  timeSchedNudge:             (data) => req('/timeclock/schedule/nudge', { method: 'POST', body: JSON.stringify(data) }),
+  // The offer letter first, then the hiring packet (Neil, Oct 14). Options: which
+  // letter this kind of hire gets and what it asks of HR; start: generated and
+  // sent to the verifier; after-offer: start the packet when it could not start itself.
+  offerOptions:        (cid, params = {}) => req(`/hr/candidates/${cid}/offer/options?${new URLSearchParams(params)}`),
+  startOffer:          (cid, data) => req(`/hr/candidates/${cid}/offer/start`, { method: 'POST', body: JSON.stringify(data) }),
+  startPacketAfterOffer: (cid) => req(`/hr/candidates/${cid}/hiring-packet/after-offer`, { method: 'POST' }),
+  // File Manually (Oct 15 2026): automatic Egnyte filing failed - HR names the folder.
+  fileLifeEventManually: (eid, folder) => req(`/hr/life-events/${eid}/file-manually`, { method: 'POST', body: JSON.stringify({ folder }) }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

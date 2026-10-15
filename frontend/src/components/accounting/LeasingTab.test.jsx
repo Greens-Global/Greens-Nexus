@@ -44,7 +44,7 @@ vi.mock('../../api', () => ({
   },
 }));
 
-import LeasingTab from './LeasingTab';
+import LeasingTab, { leaseTermLabel, parseLeaseTerm } from './LeasingTab';
 import { api } from '../../api';
 import { resetAccountingPrefs } from './prefs';
 
@@ -115,7 +115,8 @@ describe('LeasingTab', () => {
     // The space comes along; the tenant does not.
     expect(within(dialog).getByLabelText('Property or Space').value).toBe('910 SECR - Ste 100, San Clemente');
     expect(within(dialog).getByLabelText('Tenant Name').value).toBe('');
-    fireEvent.change(within(dialog).getByLabelText('Tenant - find the Intacct customer'), { target: { value: 'azadeh' } });
+    // Oct 14 (Priyanka): the Tenant Name is a searchable dropdown of the Intacct customers.
+    fireEvent.change(within(dialog).getByLabelText('Tenant Name'), { target: { value: 'azadeh' } });
     fireEvent.click(await within(dialog).findByRole('option', { name: /Dr. Azadeh Sham/ }));
     expect(within(dialog).getByLabelText('Intacct Customer Code').value).toBe('C00272');
     fireEvent.change(within(dialog).getByLabelText('Last Day of Overstie Management'), { target: { value: '2026-06-30' } });
@@ -168,22 +169,29 @@ describe('LeasingTab - the 10/04 feedback', () => {
     expect(within(grand).getByText('400.00')).toBeTruthy();
   });
 
-  it('hides expired leases and inactive customers until Customize shows them, and the text filter finds them', async () => {
+  it('shows only active leases until Customize > Show Inactive Leases, and the text filter finds them', async () => {
+    // Oct 14 (Urmi): ended, expired and vacant leases and inactive payers are
+    // hidden by default, behind ONE switch.
+    const vacant = { lease: lease({ id: 'L5', propertyName: 'Suite 500, Escondido', tenantName: '', customerId: '', status: 'vacant' }), months: months([]), balanceToDate: 0, monthsBehind: 0, owed: 0, lateFees: 0, expired: false, customerActive: true };
+    api.getLeasingRentRollFor.mockResolvedValue({ ...full, rows: [...full.rows, vacant] });
     render(<LeasingTab canEdit />);
     await screen.findByText('910 SECR - Ste 100, San Clemente');
     expect(screen.queryByText('Suite 300, Escondido')).toBeNull();
     expect(screen.queryByText('Suite 400, Escondido')).toBeNull();
-    expect(screen.getByText(/2 expired or inactive hidden/)).toBeTruthy();
+    expect(screen.queryByText('Suite 500, Escondido')).toBeNull();
+    expect(screen.getByText(/3 inactive leases hidden/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: /Customize/ }));
-    fireEvent.click(screen.getByLabelText(/Show Inactive/));
+    expect(screen.queryByLabelText(/Show Expired/)).toBeNull();
+    const toggle = screen.getByLabelText(/Show Inactive Leases/);
+    expect(toggle.checked).toBe(false);
+    fireEvent.click(toggle);
     const inactive = (await screen.findByText('Suite 400, Escondido')).closest('tr');
     expect(within(inactive).getByText('Inactive')).toBeTruthy();
-    fireEvent.click(screen.getByLabelText(/Show Expired/));
-    const expired = (await screen.findByText('Suite 300, Escondido')).closest('tr');
+    const expired = screen.getByText('Suite 300, Escondido').closest('tr');
     expect(within(expired).getByText('Expired')).toBeTruthy();
+    expect(screen.getByText('Suite 500, Escondido')).toBeTruthy();
     // Off again: the text filter still finds the ended lease, marked.
-    fireEvent.click(screen.getByLabelText(/Show Expired/));
-    fireEvent.click(screen.getByLabelText(/Show Inactive/));
+    fireEvent.click(screen.getByLabelText(/Show Inactive Leases/));
     await waitFor(() => expect(screen.queryByText('Suite 300, Escondido')).toBeNull());
     fireEvent.change(screen.getByLabelText('Filter by property, payer or account'), { target: { value: 'old tenant' } });
     expect(within(screen.getByText('Suite 300, Escondido').closest('tr')).getByText('Expired')).toBeTruthy();
@@ -288,16 +296,17 @@ describe('LeasingTab - one list of every income source (10/07)', () => {
     expect(within(screen.getByText('Note - Oversite Inv2').closest('tr')).getByText('Interest')).toBeTruthy();
   });
 
-  it('has one + Add menu: New Lease, New Interest or Loan Payment, Set Up From the Ledger', async () => {
+  it('has one + Add menu: New Lease, New CAM Charge, New Interest or Loan Payment - no Set Up From the Ledger', async () => {
     render(<LeasingTab canEdit />);
     await screen.findByText('910 SECR - Ste 100, San Clemente');
     expect(screen.queryByRole('button', { name: /^New Lease/ })).toBeNull();
-    expect(screen.queryByRole('button', { name: /^Set Up From the Ledger/ })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Add' }));
     const menu = screen.getByRole('menu', { name: 'Add an income source' });
     expect(within(menu).getAllByRole('menuitem')).toHaveLength(3);
     expect(within(menu).getByRole('menuitem', { name: /New Lease/ })).toBeTruthy();
-    expect(within(menu).getByRole('menuitem', { name: /Set Up From the Ledger/ })).toBeTruthy();
+    expect(within(menu).getByRole('menuitem', { name: /New CAM Charge/ })).toBeTruthy();
+    // Oct 14 (Charmi): "Set up ledger option needs to be taken out from MRI".
+    expect(within(menu).queryByRole('menuitem', { name: /Set Up From the Ledger/ })).toBeNull();
     fireEvent.click(within(menu).getByRole('menuitem', { name: /New Interest or Loan Payment/ }));
     const dialog = screen.getByRole('dialog', { name: 'New interest or loan payment' });
     expect(within(dialog).getByLabelText('Type').value).toBe('interest');
@@ -342,7 +351,8 @@ describe('LeasingTab - one list of every income source (10/07)', () => {
     await waitFor(() => expect(api.getAccountingEntry).toHaveBeenCalledWith('11111111-2222-3333-4444-555555555555'));
   });
 
-  it('shows money posted outside the lease without counting it', async () => {
+  it('counts money posted outside the lease dates as received, with no separate Outside the Lease figure', async () => {
+    // Oct 14 (Charmi: "why do we even need that"): no chip, no header figure, no legend entry.
     const typedLate = { lease: lease({ id: 'L8', propertyName: 'Nicole Miller Suite', leaseStart: '2026-10-02' }),
       months: months([cell('01', 'outside', 2275, { expected: 0, balance: 0 }), cell('02', 'outside', 2275, { expected: 0, balance: 0 })]), balanceToDate: 0, monthsBehind: 0, owed: 0, lateFees: 0,
       outsideLease: { months: ['2026-01', '2026-02'], received: 4550 } };
@@ -350,10 +360,98 @@ describe('LeasingTab - one list of every income source (10/07)', () => {
     api.getAccountingBucketsFor.mockResolvedValue({ rows: [] });
     render(<LeasingTab canEdit />);
     const row = (await screen.findByText('Nicole Miller Suite')).closest('tr');
-    expect(within(row).getByText('Posted Outside Lease')).toBeTruthy();
-    expect(within(row).getByRole('button', { name: /Jan 2026: Outside the Lease/ })).toBeTruthy();
+    expect(within(row).queryByText('Posted Outside Lease')).toBeNull();
+    expect(screen.queryByText(/Outside the Lease/)).toBeNull();
+    expect(within(row).getByRole('button', { name: /Jan 2026: Received/ }).textContent).toBe('2,275');
     const grand = screen.getByText(/Received - 1 source/).closest('tr');
-    expect(within(grand).queryByText('4,550.00')).toBeNull();     // shown in the cells, not counted
+    expect(within(grand).getByText('4,550.00')).toBeTruthy();
+  });
+
+  it('shows a dash, not 0, in a month the lease is not in force', async () => {
+    // Oct 14 (Urmi): before the lease starts (and after it ends) a dash.
+    const later = { lease: lease({ id: 'L6', propertyName: 'Starts in March', leaseStart: '2026-03-01' }),
+      months: [{ month: '2026-01', inForce: false }, cell('02', 'outside', 0, { expected: 0, balance: 0, note: 'Keys handed over' }), ...months([cell('03', 'paid', 3200), cell('04', 'paid', 3200)]).slice(0, 10)].map((c, i) => ({ ...c, month: `2026-${String(i + 1).padStart(2, '0')}` })),
+      balanceToDate: 0, monthsBehind: 0, owed: 0, lateFees: 0 };
+    api.getLeasingRentRollFor.mockResolvedValue({ ...roll, rows: [later] });
+    api.getAccountingBucketsFor.mockResolvedValue({ rows: [] });
+    render(<LeasingTab canEdit />);
+    const row = (await screen.findByText('Starts in March')).closest('tr');
+    expect(within(row).getByRole('button', { name: /Feb 2026: Not in Force/ }).textContent).toBe('-*');
+    expect(within(row).getByRole('button', { name: /Mar 2026: Paid/ }).textContent).toBe('3,200');
+    // The month notes come up into the Notes column (Urmi, 10/14).
+    expect(within(row).getByText('Feb: Keys handed over')).toBeTruthy();
+  });
+
+  it('pulls the notes written on single months into the Notes column', async () => {
+    render(<LeasingTab canEdit />);
+    const row = (await screen.findByText('910 SECR - Ste 100, San Clemente')).closest('tr');
+    expect(within(row).getByText('Mar: AC repair taken off the rent')).toBeTruthy();
+    expect(within(row).getByRole('button', { name: /Add a note on 910 SECR/ }).getAttribute('title')).toContain('Mar: AC repair taken off the rent');
+  });
+
+  it('asks Keep Editing or Discard Edits when a changed month is clicked off or Escaped', async () => {
+    // Oct 14 (Neil): "if you click off of it it doesn't ask ... it just closes it".
+    render(<LeasingTab canEdit />);
+    await screen.findByText('910 SECR - Ste 100, San Clemente');
+    fireEvent.click(screen.getByRole('button', { name: /910 SECR.*Apr 2026: Late/ }));
+    let dialog = screen.getByRole('dialog', { name: /Apr 2026/ });
+    // Nothing changed: clicking off closes.
+    fireEvent.click(dialog.parentElement);
+    expect(screen.queryByRole('dialog', { name: /Apr 2026/ })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /910 SECR.*Apr 2026: Late/ }));
+    dialog = screen.getByRole('dialog', { name: /Apr 2026/ });
+    fireEvent.change(within(dialog).getByLabelText('Note'), { target: { value: 'Half paid in cash' } });
+    fireEvent.click(dialog.parentElement);
+    const ask = screen.getByRole('alertdialog', { name: 'Unsaved changes' });
+    fireEvent.click(within(ask).getByRole('button', { name: 'Keep Editing' }));
+    expect(within(dialog).getByLabelText('Note').value).toBe('Half paid in cash');
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.getByRole('alertdialog', { name: 'Unsaved changes' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Discard Edits' }));
+    expect(screen.queryByRole('dialog', { name: /Apr 2026/ })).toBeNull();
+    expect(api.setLeasingMonth).not.toHaveBeenCalled();
+  });
+
+  it('asks before a changed lease is clicked off', async () => {
+    render(<LeasingTab canEdit />);
+    fireEvent.click(await screen.findByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    const dialog = screen.getByRole('dialog', { name: 'Change lease' });
+    fireEvent.change(within(dialog).getByLabelText('Region'), { target: { value: 'San Diego' } });
+    fireEvent.click(dialog.parentElement);
+    expect(screen.getByRole('alertdialog', { name: 'Unsaved changes' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Discard Edits' }));
+    expect(screen.queryByRole('dialog', { name: 'Change lease' })).toBeNull();
+  });
+
+  it('picks the tenant from the Intacct customers, code left of the name, and keeps a typed name', async () => {
+    render(<LeasingTab canEdit />);
+    await screen.findByText('910 SECR - Ste 100, San Clemente');
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /New Lease/ }));
+    const dialog = screen.getByRole('dialog', { name: 'New lease' });
+    const box = within(dialog).getByLabelText('Tenant Name');
+    fireEvent.focus(box);
+    const options = within(await within(dialog).findByRole('listbox', { name: 'Customers' })).getAllByRole('option');
+    expect(options).toHaveLength(2);
+    expect(options[0].textContent.startsWith('C00272')).toBe(true);
+    fireEvent.change(box, { target: { value: 'Brand New Tenant LLC' } });
+    expect(within(dialog).getByText(/No Intacct customer matches/)).toBeTruthy();
+    expect(box.value).toBe('Brand New Tenant LLC');
+  });
+
+  it('has CAM as a type', async () => {
+    render(<LeasingTab canEdit />);
+    await screen.findByText('910 SECR - Ste 100, San Clemente');
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: /New CAM Charge/ }));
+    const dialog = screen.getByRole('dialog', { name: 'New CAM charge' });
+    expect(within(dialog).getByLabelText('Type').value).toBe('cam');
+    expect(within(within(dialog).getByLabelText('Type')).getByRole('option', { name: 'CAM' })).toBeTruthy();
+    fireEvent.change(within(dialog).getByLabelText('Property or Space'), { target: { value: '910 SECR - CAM' } });
+    fireEvent.change(within(dialog).getByLabelText('Tenant Name'), { target: { value: 'Overstie Management' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.createLeasingLease).toHaveBeenCalled());
+    expect(api.createLeasingLease.mock.calls[0][0]).toMatchObject({ incomeType: 'cam', incomeAccounts: ['41101'] });
   });
 });
 
@@ -372,7 +470,7 @@ describe('LeasingTab shared controls', () => {
     expect(btn.querySelector('.lucide-sliders-horizontal')).toBeTruthy();
     fireEvent.click(btn);
     expect(screen.getByRole('group', { name: 'Row Density' })).toBeTruthy();
-    expect(screen.getByLabelText(/Show Expired/)).toBeTruthy();
+    expect(screen.getByLabelText(/Show Inactive Leases/)).toBeTruthy();
     fireEvent.click(within(screen.getByRole('group', { name: 'Rows per Page' })).getByRole('button', { name: 'Other' }));
     fireEvent.change(screen.getByLabelText('Rows per page'), { target: { value: '1' } });
     await screen.findByText(/Page 1 of 2/);
@@ -420,5 +518,170 @@ describe('LeasingTab shared controls', () => {
     } finally {
       window.removeEventListener('nexus:accounting-drill', onDrill);
     }
+  });
+
+  it("a lease's Total and Balance open its ledger lines in Reports", async () => {
+    // Oct 14 (Charmi: "In MRI, we should be able to drill down").
+    const y = new Date().getFullYear();
+    const seen = [];
+    const onDrill = (e) => seen.push(e.detail);
+    window.addEventListener('nexus:accounting-drill', onDrill);
+    try {
+      render(<LeasingTab canEdit />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Ledger lines behind the total of 910 SECR - Ste 100, San Clemente' }));
+      expect(seen[0]).toMatchObject({ account: '41101', party: { kind: 'customer', code: 'C00498' }, from: `${y}-01-01`, to: `${y}-12-31`, entity: '15000' });
+      fireEvent.click(screen.getByRole('button', { name: 'Ledger lines behind the balance of 910 SECR - Ste 100, San Clemente' }));
+      expect(seen[1]).toMatchObject({ party: { kind: 'customer', code: 'C00498' } });
+    } finally {
+      window.removeEventListener('nexus:accounting-drill', onDrill);
+    }
+  });
+
+  // Oct 15 (Charmi + Neil): Lease Term is a pick, never free text.
+  const withLeases = async (first, second, run) => {
+    const custom = { ...roll, rows: [{ ...roll.rows[0], lease: lease(first) }, { ...roll.rows[1], lease: lease({ id: 'L2', propertyName: '47385 RCR, Temecula', tenantName: 'Santos Blancas Jr.', customerId: 'C00497', email: '', ...second }) }] };
+    api.getLeasingRentRollFor.mockImplementation(async () => custom);
+    try { await run(); } finally { api.getLeasingRentRollFor.mockImplementation(async () => roll); }
+  };
+
+  it('Lease Term is a dropdown: Annual, Month to Month, Custom - in that order', async () => {
+    render(<LeasingTab canEdit />);
+    fireEvent.click(await screen.findByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    const dialog = screen.getByRole('dialog', { name: 'Change lease' });
+    const select = within(dialog).getByLabelText('Lease Term');
+    expect(select.tagName).toBe('SELECT');
+    expect([...select.options].map((o) => o.textContent)).toEqual(['Annual', 'Month to Month', 'Custom']);
+    // The old free text "Annual" reads as Annual.
+    expect(select.value).toBe('annual');
+    expect(within(dialog).queryByLabelText('Lease Term in Months')).toBeNull();
+  });
+
+  it('Custom asks for the months and saves them as a whole number', async () => {
+    render(<LeasingTab canEdit />);
+    fireEvent.click(await screen.findByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    const dialog = screen.getByRole('dialog', { name: 'Change lease' });
+    fireEvent.change(within(dialog).getByLabelText('Lease Term'), { target: { value: 'custom' } });
+    const months = within(dialog).getByLabelText('Lease Term in Months');
+    // Nothing yet: Save waits for the months.
+    expect(within(dialog).getByRole('button', { name: 'Save' }).disabled).toBe(true);
+    fireEvent.change(months, { target: { value: '18' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.updateLeasingLease).toHaveBeenCalled());
+    const [, body] = api.updateLeasingLease.mock.calls[0];
+    expect(body.termType).toBe('custom');
+    expect(body.termMonths).toBe(18);
+    expect(Number.isInteger(body.termMonths)).toBe(true);
+    // The old text is kept, never lost.
+    expect(body.leaseTerms).toBe('Annual');
+  });
+
+  it('Month to Month saves no months', async () => {
+    render(<LeasingTab canEdit />);
+    fireEvent.click(await screen.findByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    const dialog = screen.getByRole('dialog', { name: 'Change lease' });
+    fireEvent.change(within(dialog).getByLabelText('Lease Term'), { target: { value: 'month_to_month' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.updateLeasingLease).toHaveBeenCalled());
+    expect(api.updateLeasingLease.mock.calls[0][1]).toMatchObject({ termType: 'month_to_month', termMonths: null });
+  });
+
+  it('reads old free-text terms best-effort', () => {
+    expect(parseLeaseTerm('Annual')).toEqual({ termType: 'annual', termMonths: 12 });
+    expect(parseLeaseTerm('12 months')).toEqual({ termType: 'annual', termMonths: 12 });
+    expect(parseLeaseTerm('1 Year')).toEqual({ termType: 'annual', termMonths: 12 });
+    expect(parseLeaseTerm('Month to month')).toEqual({ termType: 'month_to_month', termMonths: null });
+    expect(parseLeaseTerm('Month-to-Month')).toEqual({ termType: 'month_to_month', termMonths: null });
+    expect(parseLeaseTerm('MTM')).toEqual({ termType: 'month_to_month', termMonths: null });
+    expect(parseLeaseTerm('18 months')).toEqual({ termType: 'custom', termMonths: 18 });
+    expect(parseLeaseTerm('2 years')).toEqual({ termType: 'custom', termMonths: 24 });
+    expect(parseLeaseTerm('Until the building sells')).toBeNull();
+    expect(parseLeaseTerm('')).toBeNull();
+    expect(leaseTermLabel({ termType: 'custom', termMonths: 18 })).toBe('Custom - 18 Months');
+    expect(leaseTermLabel({ termType: 'month_to_month' })).toBe('Month to Month');
+    expect(leaseTermLabel({ leaseTerms: 'Annual' })).toBe('Annual');
+    expect(leaseTermLabel({ leaseTerms: 'Until the building sells' })).toBe('Until the building sells');
+  });
+
+  it('shows the term in the grid, and keeps text it cannot read with a prompt to pick a term', async () => {
+    await withLeases({ termType: 'custom', termMonths: 18, leaseTerms: '' }, { leaseTerms: 'Until the building sells', termType: '', termMonths: null, termLegacy: 'Until the building sells' }, async () => {
+      render(<LeasingTab canEdit />);
+      await screen.findByText('910 SECR - Ste 100, San Clemente');
+      fireEvent.click(screen.getByRole('button', { name: 'Payers' }));
+      const row = screen.getByText('910 SECR - Ste 100, San Clemente').closest('tr');
+      expect(within(row).getByText('Term: Custom - 18 Months')).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: 'Change 47385 RCR, Temecula' }));
+      const dialog = screen.getByRole('dialog', { name: 'Change lease' });
+      expect(within(dialog).getByLabelText('Lease Term').value).toBe('');
+      expect(within(dialog).getByText('Saved as "Until the building sells" - pick a term.')).toBeTruthy();
+    });
+  });
+
+  it('the rent changes are a table with Effective Date, Rent, CAM, Other and Note over the inputs', async () => {
+    render(<LeasingTab canEdit />);
+    fireEvent.click(await screen.findByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    const dialog = screen.getByRole('dialog', { name: 'Change lease' });
+    const table = within(dialog).getByRole('table', { name: 'Rent Changes' });
+    const heads = within(table).getAllByRole('columnheader').map((h) => h.textContent);
+    expect(heads.slice(0, 5)).toEqual(['Effective Date', 'Rent', 'CAM', 'Other', 'Note']);
+    // The header row is above the inputs, one label per input column.
+    const [headRow, firstRow] = within(table).getAllByRole('row');
+    expect(headRow.closest('thead')).toBeTruthy();
+    const cells = within(firstRow).getAllByRole('cell');
+    expect(within(cells[0]).getByLabelText('Rent 1 starts')).toBeTruthy();
+    expect(within(cells[1]).getByLabelText('Rent of rent 1').value).toBe('3000');
+    expect(within(cells[2]).getByLabelText('CAM of rent 1').value).toBe('200');
+    expect(within(cells[3]).getByLabelText('Other of rent 1')).toBeTruthy();
+    expect(within(cells[4]).getByLabelText('Note of rent 1')).toBeTruthy();
+    expect(within(cells[5]).getByRole('button', { name: 'Remove rent 1' })).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: /Add Rent Change/ }));
+    expect(within(table).getAllByRole('row')).toHaveLength(3);
+  });
+
+  // Oct 15 (Charmi): the Intacct customer record fills the lease form.
+  const withContacts = () => api.getLeasingCustomers.mockImplementationOnce(async () => ({ customers: [
+    { code: 'C00272', name: 'Dr. Azadeh Sham', phone: '(760) 555-0110', email: 'azadeh@example.com', address: '12 Palm Ave, Escondido, CA 92025' },
+    { code: 'C00498', name: 'Overstie Management', phone: '(949) 400-2788', email: '', address: '' },
+  ] }));
+
+  it('picking the tenant fills only the empty contact fields from Intacct, and says so', async () => {
+    withContacts();
+    render(<LeasingTab canEdit />);
+    fireEvent.click(await screen.findByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    const dialog = screen.getByRole('dialog', { name: 'Change lease' });
+    fireEvent.change(within(dialog).getByLabelText('Tenant Name'), { target: { value: 'azadeh' } });
+    fireEvent.click(await within(dialog).findByRole('option', { name: /Dr. Azadeh Sham/ }));
+    // Typed already: kept.
+    expect(within(dialog).getByLabelText('Phone').value).toBe('949-400-2788');
+    expect(within(dialog).getByLabelText('Email').value).toBe('tenant@example.com');
+    // Empty: filled from Intacct, with the hint under it.
+    const address = within(dialog).getByLabelText('Mailing Address');
+    expect(address.value).toBe('12 Palm Ave, Escondido, CA 92025');
+    expect(within(address.parentElement).getByText('Filled from Intacct')).toBeTruthy();
+    expect(within(within(dialog).getByLabelText('Phone').parentElement).queryByText('Filled from Intacct')).toBeNull();
+    expect(within(dialog).getByLabelText('Intacct Customer Code').value).toBe('C00272');
+    // Edited: the hint goes.
+    fireEvent.change(address, { target: { value: 'PO Box 9, Escondido' } });
+    expect(within(address.parentElement).queryByText('Filled from Intacct')).toBeNull();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.updateLeasingLease).toHaveBeenCalled());
+    expect(api.updateLeasingLease.mock.calls[0][1]).toMatchObject({ customerId: 'C00272', tenantName: 'Dr. Azadeh Sham', phone: '949-400-2788', email: 'tenant@example.com', mailingAddress: 'PO Box 9, Escondido' });
+  });
+
+  it('picking another customer replaces only what the last pick filled', async () => {
+    withContacts();
+    render(<LeasingTab canEdit />);
+    fireEvent.click(await screen.findByRole('button', { name: '910 SECR - Ste 100, San Clemente' }));
+    const dialog = screen.getByRole('dialog', { name: 'Change lease' });
+    fireEvent.change(within(dialog).getByLabelText('Email'), { target: { value: '' } });
+    fireEvent.change(within(dialog).getByLabelText('Tenant Name'), { target: { value: 'azadeh' } });
+    fireEvent.click(await within(dialog).findByRole('option', { name: /Dr. Azadeh Sham/ }));
+    expect(within(dialog).getByLabelText('Email').value).toBe('azadeh@example.com');
+    fireEvent.change(within(dialog).getByLabelText('Tenant Name'), { target: { value: 'overstie' } });
+    fireEvent.click(await within(dialog).findByRole('option', { name: /Overstie Management/ }));
+    // Overstie has no email or address in Intacct: what the last pick filled is cleared, nothing typed is touched.
+    expect(within(dialog).getByLabelText('Email').value).toBe('');
+    expect(within(dialog).getByLabelText('Mailing Address').value).toBe('');
+    expect(within(dialog).getByLabelText('Phone').value).toBe('949-400-2788');
+    expect(within(dialog).getByLabelText('Intacct Customer Code').value).toBe('C00498');
   });
 });

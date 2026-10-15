@@ -39,10 +39,39 @@ export function reloadTimeStatus() {
   return queryClient.invalidateQueries({ queryKey: TIME_STATUS_KEY }, { cancelRefetch: false });
 }
 
+// After a punch: a FRESH read, cancelling one already on its way (Oct 14).
+// Joining a poll that left before the punch landed would hand back the
+// pre-punch answer, overwrite the punch just applied, and offer the same
+// punch again (a second tap got "Duplicate punch").
+export function refetchTimeStatusFresh() {
+  return queryClient.refetchQueries({ queryKey: TIME_STATUS_KEY }, { cancelRefetch: true });
+}
+
 // Optimistic touch-up of the shared answer (the next read replaces it).
 export function patchTimeStatus(updater) {
   queryClient.setQueryData(TIME_STATUS_KEY, updater);
 }
+
+// What the clock accepts after each punch - the server's state machine.
+const NEXT_ALLOWED = { in: ['out', 'break_start'], break_start: ['break_end', 'out'], break_end: ['out', 'break_start'], out: ['in'] };
+
+/** The answer with a punch the server just accepted folded in: the last
+ *  punch, the next allowed ones, and the punch on its day so the live hours
+ *  derive from it. A chip flips the moment the punch lands instead of after
+ *  the re-read that follows (Neil, Oct 14 2026: the lag after Play / Pause). */
+export function withPunch(status, punch) {
+  if (!status || !punch?.kind || !punch.at) return status;
+  const key = punch.localDate || '';
+  const day = status.days?.[key] || { workedMin: 0, flags: [], punches: [] };
+  // Already there when a poll landed between the POST and this fold.
+  const had = (day.punches || []).some((p) => p.id && p.id === punch.id);
+  const days = key ? { ...(status.days || {}), [key]: { ...day, punches: had ? day.punches : [...(day.punches || []), punch] } } : status.days;
+  return {
+    ...status, lastPunch: punch, allowed: NEXT_ALLOWED[punch.kind] || status.allowed, staleOpenShift: false, days,
+    bodRequired: punch.kind === 'in' ? false : status.bodRequired,
+  };
+}
+export function applyPunch(punch) { patchTimeStatus((s) => withPunch(s, punch)); }
 
 if (typeof window !== 'undefined') {
   window.addEventListener('nexus:timeclock-changed', reloadTimeStatus);

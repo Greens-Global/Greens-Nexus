@@ -107,7 +107,12 @@ class NotifyCompanyTests(unittest.TestCase):
         self.assertEqual(notification_company(_BrokenDb(), ACME, GLOBEX), "")
 
     # ── the four paths that can broadcast ───────────────────────────────────
-    def test_kb_course_completion_broadcast(self):
+    def test_kb_course_completion_goes_to_the_learners_manager(self):
+        # Oct 14 2026: no longer a broadcast to every manager - the learner's
+        # own manager, stamped with the learner's company.
+        e = self.db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == GLOBEX).first()
+        e.manager_email = ACME
+        self.db.commit()
         self.db.add(models.KbCourse(
             id="course-1", course_code="LRN-001", title="Ladder Safety", status="published",
             lessons=json.dumps([{"_id": "l1", "type": "reading", "title": "Read", "body": "x"}]),
@@ -118,7 +123,7 @@ class NotifyCompanyTests(unittest.TestCase):
                                          user={"email": GLOBEX, "level": 1}, db=self.db)
         self.assertTrue(out["passed"])
         row = self._only("kb_course_complete")
-        self.assertEqual(row.recipient, "")
+        self.assertEqual(row.recipient, ACME)
         self.assertEqual(row.company, "globex")
 
     def test_credential_vault_backup_owner_bell_is_stamped_from_the_actor(self):

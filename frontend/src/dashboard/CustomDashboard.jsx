@@ -3,7 +3,9 @@ import { SkeletonBlocks, LoadingState } from '../components/AsyncState';
 import { LayoutGrid, Plus, Save, Pencil, MoreHorizontal, Star, Share2, Trash2, Copy, X, Wand2, SlidersHorizontal, Check } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import { useNotifications } from '../contexts/NotificationContext';
-import { useDashboards } from './useDashboards';
+import { useDashboards, resolveCollisions } from './useDashboards';
+import WidgetBoundary from '../components/WidgetBoundary';
+import { WidgetCrashCard } from './listParts.jsx';
 import { WIDGETS, widgetAllowed, widgetHidden, limitsOf } from './widgets.jsx';
 import DashboardGrid from './DashboardGrid';
 import DeskHome, { DeskGreeting } from './DeskHome';
@@ -37,7 +39,7 @@ function NameModal({ title, label = 'View name', initial = '', cta = 'Save', onS
         <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, width: '100%', maxWidth: 420, boxShadow: '0 24px 70px rgba(17,24,39,0.30)', fontFamily: 'var(--wk-font)' }}>
           <div style={{ padding: '15px 20px', borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center' }}>
             <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1 }}>{title}</h3>
-            <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={18} /></button>
+            <button onClick={guard.requestClose} aria-label="Close" title="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', alignItems: 'center', justifyContent: 'center', width: 36, height: 36, margin: '-8px -10px -8px 0', borderRadius: 8 }}><X size={18} /></button>
           </div>
           <div style={{ padding: 18 }}>
             <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>{label}</label>
@@ -139,14 +141,22 @@ export default function CustomDashboard() {
       );
     }
     const Comp = def.render;
+    // Each tile has its own boundary (Oct 14): a render crash - or a lazy
+    // chunk that 404s right after a deploy - used to reach the view's
+    // boundary and turn the whole dashboard into one error card.
     return (
-      <Suspense fallback={<div className="dash-card" style={{ height: '100%', boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><LoadingState compact /></div>}>
-        <Comp
-          config={it.config || {}} size={{ w: it.w, h: it.h }} phone={phone} kpis={d.kpis} notifications={notifications}
-          markRead={markRead} markAllRead={markAllRead} dismiss={dismiss} clearAll={clearAllNotifs}
-          updateConfig={(patch) => d.updateWidgetConfig(it.i, patch)}
-        />
-      </Suspense>
+      <WidgetBoundary name={`dashboard:${it.type}`} resetKey={`${it.i}:${it.type}`} fallback={<WidgetCrashCard title={def.title} />}>
+        <Suspense fallback={<div className="dash-card" style={{ height: '100%', boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><LoadingState compact /></div>}>
+          <Comp
+            config={it.config || {}} size={{ w: it.w, h: it.h }} phone={phone} kpis={d.kpis} notifications={notifications}
+            markRead={markRead} markAllRead={markAllRead} dismiss={dismiss} clearAll={clearAllNotifs}
+            // Outside Customize a widget's own change (the Weather tile's city)
+            // saves straight to the view - there is no Save button there.
+            updateConfig={(patch) => (d.editing ? d.updateWidgetConfig(it.i, patch) : d.saveWidgetConfig(it.i, patch))}
+            saveConfig={(patch) => d.saveWidgetConfig(it.i, patch)} canSaveConfig={d.canSaveInPlace}
+          />
+        </Suspense>
+      </WidgetBoundary>
     );
   };
 
@@ -156,7 +166,7 @@ export default function CustomDashboard() {
   const save = () => {
     if (canEditInPlace) return wrap(() => d.save(), 'Layout saved')();
     openName({
-      title: 'Save Your Dashboard', initial: 'My view', cta: 'Save View',
+      title: 'Save Your Dashboard', initial: 'My View', cta: 'Save View',
       onSubmit: wrap(async (name) => { const v = await d.saveAsNew(name); await d.setDefaultView(v.id); }, 'View saved'),
     });
   };
@@ -190,7 +200,7 @@ export default function CustomDashboard() {
   const confirmDiscard = () => !d.dirty || window.confirm('You have unsaved layout changes - discard them?');
   const guardedSwitch = (id) => { if (confirmDiscard()) d.switchView(id); };
   const guardedNew = () => { if (confirmDiscard()) createNew(); };
-  const guardedDone = () => { if (confirmDiscard()) { d.setEditing(false); d.reload(); } };
+  const guardedDone = () => { if (confirmDiscard()) d.cancelEdit(); };
 
   const btn = { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, fontFamily: 'var(--wk-font)', cursor: 'pointer' };
   const saveLabel = d.dirty ? 'Save' : 'Saved';
@@ -261,20 +271,20 @@ export default function CustomDashboard() {
               style={{ fontSize: 12.5, fontWeight: 600, width: isMobile ? 'auto' : 170, maxWidth: isMobile ? 176 : undefined, padding: '7px 30px 7px 11px', lineHeight: 1.4, height: 'auto', flexShrink: 0 }}>
               <option value="">Home</option>
               {d.views.filter(v => v.scope === 'personal').length > 0 && (
-                <optgroup label="My views">
+                <optgroup label="My Views">
                   {d.views.filter(v => v.scope === 'personal').map(v => (
                     <option key={v.id} value={v.id}>{v.name}{v.isDefault ? ' ★' : ''}</option>
                   ))}
                 </optgroup>
               )}
               {d.views.filter(v => v.scope === 'department').length > 0 && (
-                <optgroup label="Department views">
+                <optgroup label="Department Views">
                   {d.views.filter(v => v.scope === 'department').map(v => (
                     <option key={v.id} value={v.id}>{v.name} (dept)</option>
                   ))}
                 </optgroup>
               )}
-              <option value="__new__">＋ New view…</option>
+              <option value="__new__">＋ New View…</option>
             </select>
             {d.editing ? (
               // On a phone these live in the bottom bar (below) instead.
@@ -348,7 +358,8 @@ export default function CustomDashboard() {
             <DashboardGrid
               layout={shownLayout}
               editing={d.editing}
-              onLayoutChange={(next) => d.setLayout(hiddenItems.length ? [...next, ...hiddenItems] : next)}
+              onLayoutChange={(next) => d.setLayout(hiddenItems.length ? resolveCollisions([...next, ...hiddenItems], next.map(w => w.i)) : next)}
+              resolveLayout={(next, movedId) => resolveCollisions(next, [movedId])}
               renderWidget={renderWidget}
               onRemove={d.removeWidget}
               onDuplicate={d.duplicateWidget}
@@ -358,7 +369,7 @@ export default function CustomDashboard() {
               compactFor={(it) => !!WIDGETS[it.type]?.compact}
               rowsFor={(it) => WIDGETS[it.type]?.phoneRowsWhen?.(it.config)}
               stacked={isPhone}
-              onMove={d.moveWidget}
+              onMove={(i, dir) => d.moveWidget(i, dir, hiddenItems)}
               emptyState={(
                 // An empty board used to be a bare dotted canvas with nothing
                 // saying what to do next.

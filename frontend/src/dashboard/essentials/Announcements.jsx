@@ -46,10 +46,12 @@ export function formOf(a) {
   };
 }
 
-export default function Announcements() {
+export default function Announcements({ phone }) {
   const { can, myEmail } = useRole();
   const isAdmin = typeof can === 'function' && can('administrator');
-  const isMobile = useIsMobile();
+  const isMobileViewport = useIsMobile();
+  // The grid says when the board is a phone stack; outside it, the viewport.
+  const isMobile = phone ?? isMobileViewport;
   const [items, setItems] = useState(null);       // null = first load pending
   const [error, setError] = useState('');
   const [open, setOpen] = useState(() => new Set());
@@ -126,7 +128,7 @@ export default function Announcements() {
   return (
     <DashCard title="Announcements" sub={items ? `${unread} unread` : undefined} action={headerAction}>
       {composer && (
-        <Composer initial={composer.form} editingId={composer.id} isMobile={isMobile}
+        <Composer key={composer.id || 'new'} initial={composer.form} editingId={composer.id} isMobile={isMobile}
           onCancel={() => setComposer(null)}
           onSaved={() => { setComposer(null); load(); }} />
       )}
@@ -172,6 +174,9 @@ function AnnouncementRow({ a, expanded, isAdmin, isMobile, onToggle, onAck, onEd
   const unread = !a.read_at;
   const needsAck = !!a.requires_ack && !a.acknowledged_at;
   const tap = isMobile ? { minHeight: 44 } : {};
+  // The admin links sit in the meta line: 36px tall on a phone (a 16px text
+  // link is not a tap target), inline text on a desktop.
+  const metaLink = isMobile ? { ...linkBtn, minHeight: 36, padding: '0 6px', display: 'inline-flex', alignItems: 'center' } : linkBtn;
   const meta = [a.author_name || a.author_email, formatDate(a.created_at)].filter(Boolean).join(' - ');
   const stop = (fn) => (e) => { e.stopPropagation(); fn(); };
   return (
@@ -194,8 +199,10 @@ function AnnouncementRow({ a, expanded, isAdmin, isMobile, onToggle, onAck, onEd
             )}
           </span>
           <span style={expanded
-            ? { display: 'block', fontSize: 12.5, color: 'var(--ink)', whiteSpace: 'pre-wrap', marginTop: 4, lineHeight: 1.5 }
-            : { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', fontSize: 12.5, color: 'var(--muted)', marginTop: 2, lineHeight: 1.45 }}>
+            // overflowWrap: a long URL breaks inside the card instead of
+            // scrolling the whole tile sideways.
+            ? { display: 'block', fontSize: 12.5, color: 'var(--ink)', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', marginTop: 4, lineHeight: 1.5 }
+            : { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere', fontSize: 12.5, color: 'var(--muted)', marginTop: 2, lineHeight: 1.45 }}>
             {a.body}
           </span>
           <span style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 12px', fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>
@@ -204,9 +211,9 @@ function AnnouncementRow({ a, expanded, isAdmin, isMobile, onToggle, onAck, onEd
             {a.acknowledged_at && <span style={{ color: 'hsl(var(--color-green))', fontWeight: 600 }}>Acknowledged</span>}
             {isAdmin && (
               <>
-                <button type="button" onClick={stop(onReads)} style={linkBtn}>Read by {a.read_count ?? 0}{a.requires_ack ? `, acknowledged by ${a.ack_count ?? 0}` : ''}</button>
-                <button type="button" onClick={stop(onEdit)} style={linkBtn}>Edit</button>
-                <button type="button" onClick={stop(onDelete)} style={{ ...linkBtn, color: 'hsl(var(--color-red))' }}>Delete</button>
+                <button type="button" onClick={stop(onReads)} style={metaLink}>Read by {a.read_count ?? 0}{a.requires_ack ? `, acknowledged by ${a.ack_count ?? 0}` : ''}</button>
+                <button type="button" onClick={stop(onEdit)} style={metaLink}>Edit</button>
+                <button type="button" onClick={stop(onDelete)} style={{ ...metaLink, color: 'hsl(var(--color-red))' }}>Delete</button>
               </>
             )}
           </span>
@@ -251,6 +258,12 @@ function Composer({ initial, editingId, isMobile, onCancel, onSaved }) {
   const [err, setErr] = useState('');
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value }));
   const tap = isMobile ? { minHeight: 44 } : {};
+  // 16px on a phone: iOS zooms the page into any smaller focused field.
+  const field = isMobile ? { ...fieldStyle, fontSize: 16 } : fieldStyle;
+  // The composer opens at the top of the card's scroll area; Edit is pressed
+  // on a row that may be far below it - bring the form into view.
+  const formRef = useRef(null);
+  useEffect(() => { formRef.current?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' }); }, [editingId]);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -276,21 +289,21 @@ function Composer({ initial, editingId, isMobile, onCancel, onSaved }) {
   };
 
   return (
-    <form onSubmit={submit} aria-label={editingId ? 'Edit Announcement' : 'Post Announcement'}
+    <form ref={formRef} onSubmit={submit} aria-label={editingId ? 'Edit Announcement' : 'Post Announcement'}
       style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: isMobile ? '10px 0 14px' : '10px 8px 14px', marginBottom: 8, borderBottom: '1px solid var(--line, #eef0f3)' }}>
       <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{editingId ? 'Edit Announcement' : 'New Announcement'}</div>
       <label>
         <span style={labelStyle}>Title</span>
-        <input value={form.title} onChange={set('title')} maxLength={200} placeholder="What should people know?" style={{ ...fieldStyle, ...tap }} />
+        <input value={form.title} onChange={set('title')} maxLength={200} placeholder="What should people know?" style={{ ...field, ...tap }} />
       </label>
       <label>
         <span style={labelStyle}>Body</span>
-        <textarea value={form.body} onChange={set('body')} maxLength={20000} rows={isMobile ? 5 : 4} placeholder="Plain text, line breaks are kept." style={{ ...fieldStyle, resize: 'vertical' }} />
+        <textarea value={form.body} onChange={set('body')} maxLength={20000} rows={isMobile ? 5 : 4} placeholder="Plain text, line breaks are kept." style={{ ...field, resize: 'vertical' }} />
       </label>
       <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 10 }}>
         <label style={{ flex: 1 }}>
           <span style={labelStyle}>Audience</span>
-          <select value={form.audience} onChange={set('audience')} style={{ ...fieldStyle, ...tap }}>
+          <select value={form.audience} onChange={set('audience')} style={{ ...field, ...tap }}>
             <option value="company">Company</option>
             <option value="department">Department</option>
           </select>
@@ -298,16 +311,16 @@ function Composer({ initial, editingId, isMobile, onCancel, onSaved }) {
         {form.audience === 'department' && (
           <label style={{ flex: 1 }}>
             <span style={labelStyle}>Department</span>
-            <input value={form.department} onChange={set('department')} maxLength={120} placeholder="e.g. Operations" style={{ ...fieldStyle, ...tap }} />
+            <input value={form.department} onChange={set('department')} maxLength={120} placeholder="e.g. Operations" style={{ ...field, ...tap }} />
           </label>
         )}
         <label style={{ flex: 1 }}>
           <span style={labelStyle}>Pinned Until</span>
-          <input type="date" value={form.pinned_until} onChange={set('pinned_until')} style={{ ...fieldStyle, ...tap }} />
+          <input type="date" value={form.pinned_until} onChange={set('pinned_until')} style={{ ...field, ...tap }} />
         </label>
       </div>
       <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: 'var(--ink)', ...tap }}>
-        <input type="checkbox" checked={!!form.requires_ack} onChange={set('requires_ack')} /> Requires acknowledgement
+        <input type="checkbox" checked={!!form.requires_ack} onChange={set('requires_ack')} /> Requires acknowledgment
       </label>
       {err && <div role="alert" style={{ fontSize: 12, color: 'hsl(var(--color-red))' }}>{err}</div>}
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>

@@ -84,4 +84,26 @@ describe('PartnersTab', () => {
     render(<PartnersTab />);
     expect(await screen.findByText(/Not available yet - the accounting app needs its update/)).toBeTruthy();
   });
+
+  it('lists the ledger vendors read-only, number first, and opens their lines (Oct 14)', async () => {
+    api.getAccountingPartners.mockResolvedValueOnce({ kind: 'vendor', source: 'ledger', partners: [
+      { id: 'V00412', kind: 'vendor', name: 'Home Depot', displayName: 'Home Depot', status: '', lines: 1240, address: {} },
+    ] });
+    const drills = [];
+    const onDrill = (e) => drills.push(e.detail);
+    window.addEventListener('nexus:accounting-drill', onDrill);
+    try {
+      render(<PartnersTab />);
+      const row = (await screen.findByText('Home Depot')).closest('tr');
+      const cells = within(row).getAllByRole('cell');
+      expect(cells[0].textContent).toBe('V00412');
+      expect(within(row).getByText('1,240')).toBeTruthy();
+      expect(screen.getByRole('columnheader', { name: 'Vendor Number' })).toBeTruthy();
+      expect(screen.queryByRole('button', { name: 'Edit Home Depot' })).toBeNull();
+      fireEvent.click(within(row).getByRole('button', { name: 'Ledger lines of Home Depot' }));
+      expect(drills[0].party).toEqual({ kind: 'vendor', code: 'V00412', name: 'Home Depot' });
+    } finally {
+      window.removeEventListener('nexus:accounting-drill', onDrill);
+    }
+  });
 });

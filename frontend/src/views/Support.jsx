@@ -1,4 +1,7 @@
-// Support - the end-user face of the Ticket module.
+// Help Center (Neil, Oct 13 2026; was Support) - the end-user face of the
+// Ticket module, plus everything for learning: Documentation (the
+// Implementation Guide is a section of it) and the Knowledge Base & Training.
+// The view id and its routing stay 'support'; the address reads /help-center.
 //
 // This page used to be a mock: four cards whose "Open" buttons did nothing, and
 // two invented tickets (SUP-204, SUP-198) that looked exactly like real ones.
@@ -14,9 +17,9 @@ import { Fragment, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useS
 // Ticket is the Ticket module's own icon (Sidebar, TicketsView) - the card
 // that opens its create form should wear it, not a generic document.
 import {
-  Ticket, Users, ArrowUpRight, Search,
+  Ticket, ArrowUpRight, Search,
   ArrowUp, ArrowDown, ArrowUpDown, ChevronLeft, ChevronRight, LifeBuoy, BookOpen,
-  Pencil, CheckCircle2, RotateCcw, ClipboardList, Rocket, CircleHelp,
+  Pencil, CheckCircle2, RotateCcw, CircleHelp, GraduationCap,
 } from 'lucide-react';
 import { HELP_OPEN_EVENT } from '../support/HelpMenu';
 import { api } from '../api';
@@ -33,20 +36,22 @@ import { SkeletonBlocks, ModalLoading, LoadingState } from '../components/AsyncS
 import { buildSupportTourSteps } from './supportTourSteps';
 import { LatestCommentPreview } from '../tickets/LatestComment';
 import { StatusLabel } from '../components/StatusLabel';
+import { registerTour } from '../lib/tours';
 
 // Documentation tab (Sep 24): the written guide to every module. Lazy so its
-// content and drawn screenshots only load when someone opens the tab.
+// content and drawn screenshots only load when someone opens the tab. The
+// Implementation Guide is one of its sections since Oct 13 2026 (Neil:
+// "technically it is all of documentation") - /support/implementation opens
+// Documentation on it.
 const SupportDocs = lazy(() => import('../support/SupportDocs'));
-const ImplementationGuide = lazy(() => import('../support/ImplementationGuide'));
 
 // 'help' is the page as it always was; 'documentation' is the module guide.
-// URL: /support (help) or /support/documentation.
-// One tab in the header (Pranshu, 10/07): Documentation and the
-// Implementation Guide open from their cards, not the top bar, and "Help
-// Center" is now the card that opens the help panel - so the page's own tab
-// is just Support, and clicking it always comes back to the cards.
+// URL: /help-center or /help-center/documentation.
+// One tab in the header (Pranshu, 10/07): Documentation opens from its card,
+// not the top bar, so the page's own tab is just Help Center, and clicking it
+// always comes back to the cards.
 const SUPPORT_TABS = [
-  { key: 'help', label: 'Support', Icon: LifeBuoy },
+  { key: 'help', label: 'Help Center', Icon: LifeBuoy },
 ];
 
 // Tour id this page reports to the server (routers/user_tours.py) - same
@@ -69,8 +74,8 @@ const TicketComposer = lazy(async () => {
     import('../tickets/TicketsView'),
   ]);
   return {
-    default: ({ onClose }) => (
-      <TasksProvider><CreateTicketModal onClose={onClose} /></TasksProvider>
+    default: ({ onClose, onBatch }) => (
+      <TasksProvider><CreateTicketModal onClose={onClose} onBatch={onBatch} /></TasksProvider>
     ),
   };
 });
@@ -85,8 +90,9 @@ const TicketComposer = lazy(async () => {
 // auto-scoped server-side to "my tickets" for anyone without the desk grant -
 // so mounting it directly here shows exactly what the Ticket module would,
 // without needing the module's own access grant.
-// Property Walkthrough (Neil, 10/05) - shown only to people who may run one
-// (the desk, the Asset Management team, admins; /ticket-properties says).
+// Batch Create (Neil, Oct 13 2026; was the Property Walkthrough tile, 10/05) -
+// the second tab of Submit a Ticket, only for people who may run one (the
+// desk, the Asset Management team, admins; /ticket-properties says).
 // Needs no TasksProvider: it saves through api directly.
 const WalkthroughComposer = lazy(() => import('../tickets/PropertyWalkthrough'));
 const TicketDetail = lazy(async () => {
@@ -246,8 +252,8 @@ const SUPPORT_PAGE_SIZE = 10;
 export default function Support({ activeSub, onSubChange }) {
   const { can = () => false, isExternal = false } = useRole() || {};
   const canImplement = !isExternal && can('administrator');
-  const tab = activeSub === 'documentation' ? 'documentation'
-    : activeSub === 'implementation' && canImplement ? 'implementation' : 'help';
+  const onGuide = activeSub === 'implementation' && canImplement;
+  const tab = activeSub === 'documentation' || onGuide ? 'documentation' : 'help';
   const setTab = (key) => onSubChange?.(key === 'help' ? null : key);
   const [submitting, setSubmitting] = useState(false);
   const [walking, setWalking] = useState(false);
@@ -343,7 +349,8 @@ export default function Support({ activeSub, onSubChange }) {
     // The tour spotlights Help Center cards, so it always runs on that tab.
     const openTour = () => { onSubChangeRef.current?.(null); setTour(true); };
     window.addEventListener('nexus:support-tour', openTour);
-    return () => window.removeEventListener('nexus:support-tour', openTour);
+    const unTour = registerTour('support', 'Help Center', openTour);   // the Help panel's Take the Tour (lib/tours.js)
+    return () => { window.removeEventListener('nexus:support-tour', openTour); unTour(); };
   }, []);
 
   const load = useCallback(() => {
@@ -355,29 +362,30 @@ export default function Support({ activeSub, onSubChange }) {
   useEffect(load, [load]);
   useEffect(() => setPage(1), [search]);
 
+  // Neil, Oct 13 2026: "anything to do with support or learning is right
+  // here". The Contact Directory moved to Team > Contact, the Property
+  // Walkthrough became Submit a Ticket's Batch Create tab, and the
+  // Implementation Guide is a section of Documentation.
   const OPTIONS = [
-    { icon: Ticket, title: 'Submit a Ticket', desc: 'Report an issue or a bug, or request help from any department.',
+    { icon: Ticket, title: 'Submit a Ticket', desc: canWalk
+      ? 'Report an issue or a bug, or request help from any department - one ticket or a whole batch.'
+      : 'Report an issue or a bug, or request help from any department.',
       onOpen: () => setSubmitting(true), tour: 'support-submit-ticket' },
-    ...(canWalk ? [{ icon: ClipboardList, title: 'Property Walkthrough',
-      desc: 'Walking a property? Log every issue line by line - each one becomes its own ticket.',
-      onOpen: () => setWalking(true) }] : []),
-    // Contact Directory (Oct 2026): its own view - the tile used to point at
-    // a view id that no longer routed. Internal staff only: an external must
-    // not be able to browse the company.
-    ...(!isExternal ? [{ icon: Users, title: 'Contact Directory',
-      desc: 'Reach anyone in the company - Teams chat, call, email, the org chart, and who is off today.',
-      onOpen: () => go('directory') }] : []),
     // The help panel the header's "?" opens: search, ask a question, What's
     // New, help for this page (support/HelpMenu.jsx listens for the event).
-    { icon: CircleHelp, title: 'Help Center', desc: 'Search for help, ask a question, or see what is new in Nexus.',
+    // Not "Help Center" any more - that is this page now (Neil, Oct 13 2026).
+    { icon: CircleHelp, title: 'Assistant', desc: 'Search for help, ask a question, or see what is new in Nexus.',
       onOpen: () => window.dispatchEvent(new CustomEvent(HELP_OPEN_EVENT)) },
     // Privacy Policy and Terms & Conditions moved to Legal in the profile menu
     // (Neil, 10/06: "this has nothing to do with Support").
-    { icon: BookOpen, title: 'Documentation', desc: 'How every Nexus module works, step by step.',
+    { icon: BookOpen, title: 'Documentation', desc: canImplement
+      ? 'How every Nexus module works, step by step - and the Implementation Guide for setting Nexus up.'
+      : 'How every Nexus module works, step by step.',
       onOpen: () => setTab('documentation'), tour: 'support-documentation' },
-    ...(canImplement ? [{ icon: Rocket, title: 'Implementation Guide',
-      desc: 'Set Nexus up for an organization: companies, people, access, time and pay, phase by phase.',
-      onOpen: () => setTab('implementation') }] : []),
+    // The Knowledge Base left the left menu for here (Neil, Oct 13 2026:
+    // "people aren't going to use SOPs unless they're having an issue").
+    { icon: GraduationCap, title: 'Knowledge Base & Training', desc: 'SOPs, how-to articles and your assigned courses.',
+      onOpen: () => go('sop') },
   ];
 
   // Closed tickets are not what "Open Tickets" means, but a requester whose
@@ -443,26 +451,23 @@ export default function Support({ activeSub, onSubChange }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
       <ModuleTabs tabs={SUPPORT_TABS} active="help" onChange={setTab} />
 
-      {tab !== 'help' && (
+      {/* Documentation has its own back arrow in its toolbar (Oct 15 2026). */}
+      {tab !== 'help' && tab !== 'documentation' && (
         <button type="button" onClick={() => setTab('help')}
           style={{ alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 12px 6px 8px', borderRadius: 8,
             border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', marginBottom: -8 }}>
-          <ChevronLeft size={15} /> Back to Support
+          <ChevronLeft size={15} /> Back to Help Center
         </button>
       )}
 
       {tab === 'documentation' ? (
         <Suspense fallback={<SkeletonBlocks count={4} height={120} />}>
-          <SupportDocs />
-        </Suspense>
-      ) : tab === 'implementation' ? (
-        <Suspense fallback={<SkeletonBlocks count={4} height={120} />}>
-          <ImplementationGuide />
+          <SupportDocs canImplement={canImplement} startOnGuide={onGuide} onBack={() => setTab('help')} />
         </Suspense>
       ) : (<>
       <div className="view-header">
         <div className="view-title-group">
-          <h2>Support</h2>
+          <h2>Help Center</h2>
           <p>Get help across Nexus</p>
         </div>
       </div>
@@ -723,13 +728,15 @@ export default function Support({ activeSub, onSubChange }) {
         <Suspense fallback={<ModalLoading />}>
           {/* CreateTicketModal calls onClose after a successful create too, so
               reloading here covers both "submitted" and "cancelled". */}
-          <TicketComposer onClose={() => { setSubmitting(false); load(); }} />
+          <TicketComposer onClose={() => { setSubmitting(false); load(); }}
+            onBatch={canWalk ? () => { setSubmitting(false); setWalking(true); } : undefined} />
         </Suspense>
       )}
 
       {walking && (
         <Suspense fallback={<ModalLoading />}>
-          <WalkthroughComposer onClose={() => { setWalking(false); load(); }} />
+          <WalkthroughComposer onClose={() => { setWalking(false); load(); }}
+            onSingle={() => { setWalking(false); setSubmitting(true); }} />
         </Suspense>
       )}
 

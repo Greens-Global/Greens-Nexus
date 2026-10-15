@@ -18,9 +18,25 @@ const weatherCallMine = vi.fn();
 const weatherCallMyPrefs = vi.fn();
 const weatherCallAck = vi.fn();
 const weatherCallMyPrefsSave = vi.fn();
+const timeSchedActuals = vi.fn();
+const timeMyConfirmations = vi.fn();
+const timeSchedConfirm = vi.fn();
+const timeMyPrefsGet = vi.fn();
+const timeMyPrefsSet = vi.fn();
+const timeMyIcalLink = vi.fn();
+const timeMyIcalRotate = vi.fn();
+const confirmAsk = vi.fn();
+vi.mock('../ui/dialog', () => ({ dialog: { confirm: (...a) => confirmAsk(...a), prompt: vi.fn(), alert: vi.fn() } }));
 vi.mock('../api', () => ({
   api: {
     timeMySchedule: (...a) => timeMySchedule(...a),
+    timeSchedActuals: (...a) => timeSchedActuals(...a),
+    timeMyConfirmations: (...a) => timeMyConfirmations(...a),
+    timeSchedConfirm: (...a) => timeSchedConfirm(...a),
+    timeMyPrefsGet: (...a) => timeMyPrefsGet(...a),
+    timeMyPrefsSet: (...a) => timeMyPrefsSet(...a),
+    timeMyIcalLink: (...a) => timeMyIcalLink(...a),
+    timeMyIcalRotate: (...a) => timeMyIcalRotate(...a),
     weatherCallMine: (...a) => weatherCallMine(...a),
     weatherCallMyPrefs: (...a) => weatherCallMyPrefs(...a),
     weatherCallAck: (...a) => weatherCallAck(...a),
@@ -64,6 +80,15 @@ beforeEach(() => {
   weatherCallMyPrefs.mockReset().mockResolvedValue(null);
   weatherCallAck.mockReset().mockResolvedValue({ ok: true });
   weatherCallMyPrefsSave.mockReset().mockResolvedValue({ weatherSms: false, phone: false });
+  timeSchedActuals.mockReset().mockResolvedValue({ cells: {}, people: {}, totals: {} });
+  timeMyConfirmations.mockReset().mockResolvedValue({ pending: [] });
+  timeSchedConfirm.mockReset().mockResolvedValue({ ok: true });
+  timeMyPrefsGet.mockReset().mockResolvedValue({ shiftCalendar: true, companyOutlookCalendar: true, hasMailbox: true, showAs: 'free' });
+  timeMyPrefsSet.mockReset().mockImplementation(async (b) => ({ shiftCalendar: b.shiftCalendar !== false, companyOutlookCalendar: true, hasMailbox: true, showAs: 'free' }));
+  window.history.replaceState({}, '', '/shifts/mine');
+  timeMyIcalLink.mockReset().mockResolvedValue({ url: 'https://api.nexus.test/timeclock/ical/abc123.ics' });
+  timeMyIcalRotate.mockReset().mockResolvedValue({ url: 'https://api.nexus.test/timeclock/ical/new456.ics' });
+  confirmAsk.mockReset().mockResolvedValue(true);
   shiftRequestsMine.mockReset().mockResolvedValue(reqs());
   shiftRequestCreate.mockReset().mockResolvedValue({});
   availabilityMine.mockReset().mockResolvedValue({ days: [] });
@@ -107,7 +132,7 @@ describe('MyShifts week and group grid', () => {
             activities: [{ start: '12:00', end: '12:30', label: 'Lunch', paid: false }] }] },
         sched.teams[0].members[1],
       ] }] });
-    render(<MyShifts />);
+    render(<MyShifts part="team" />);
     const me = (await screen.findByText('Me Here')).closest('[data-member]');
     expect(me.querySelector('img').getAttribute('src')).toBe('https://x.test/me.jpg');
     const bob = screen.getByText('Bob Brown').closest('[data-member]');
@@ -119,7 +144,8 @@ describe('MyShifts week and group grid', () => {
     expect(block.textContent).toBe('9:00a - 5:00pGSTFront Desk');       // one line, the code in color, the label under it
     expect(block.getAttribute('title')).toContain('Lunch 30m');          // the lunch is the hover title
     expect(block.textContent).not.toMatch(/PDT|PST/);                    // same zone as the team: no chip
-    expect(block.style.borderLeft).toContain('3px solid');
+    expect(block.getAttribute('style')).not.toMatch(/border-left|inset/);          // no colored edge stripe (Neil, Oct 14): the tint carries the color
+    expect(block.style.background).toMatch(/rgba|color-mix|#/);
     const grid = screen.getByRole('table', { name: 'Store schedule' });
     expect(grid.textContent).toContain('Week · 15.5 Hrs');
     expect(grid.textContent).not.toContain('Times in');
@@ -128,11 +154,11 @@ describe('MyShifts week and group grid', () => {
     expect(grid.textContent).toContain('Inventory day');
     expect(grid.textContent).not.toContain('Open Shifts');              // only when there are open shifts
     expect(grid.querySelector('[data-team]')).toBeNull();                 // one team: no group header row (the heading names it)
-    // The same one-grid engine as the manager's Schedule: me marked with a bar and "You", no row tint.
+    // The same one-grid engine as the manager's Schedule: me marked with "You" only: no edge bar, no row tint.
     expect(grid.querySelectorAll('[data-week-grid]')).toHaveLength(1);
     const mePerson = me.querySelector('[data-person]');
     expect(mePerson.textContent).toContain('You');
-    expect(mePerson.style.boxShadow).toContain('inset 3px 0 0');
+    expect(mePerson.style.boxShadow).not.toContain('inset');
     me.querySelectorAll('[data-cell]').forEach((c) => expect(c.style.gridRow).toBe(mePerson.style.gridRow));
     const header = within(grid).getAllByRole('columnheader')[0];
     expect(header.textContent).toMatch(/^[A-Z][a-z]{2} \d{1,2}[A-Z][a-z]{2}/);   // "Mon 28" with the month said once
@@ -152,7 +178,7 @@ describe('MyShifts week and group grid', () => {
       matches: /max-width/.test(q), media: q, onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent() { return false; },
     }));
     try {
-      render(<MyShifts />);
+      render(<MyShifts part="team" />);
       const grid = await screen.findByRole('table', { name: 'Store schedule' });
       expect(within(grid).queryByRole('columnheader')).toBeNull();
       const strip = screen.getByRole('tablist', { name: 'Day' });
@@ -167,12 +193,15 @@ describe('MyShifts week and group grid', () => {
       timeoff: [{ id: 'to1', startDate: DAY, endDate: DAY, startTime: '14:00', endTime: '16:00', allDay: false, type: 'personal', status: 'approved', note: 'Dentist' }],
       teams: [{ id: 'g', name: 'Store', members: [sched.teams[0].members[0],
         { ...sched.teams[0].members[1], timeoff: [{ id: 'to2', startDate: DAY, endDate: DAY, startTime: '14:00', endTime: '16:00', allDay: false, type: 'personal', status: 'approved' }] }] }] });
-    render(<MyShifts />);
+    const { unmount } = render(<MyShifts part="team" />);
     const bob = (await screen.findByText('Bob Brown')).closest('[data-member]');
     expect(bob.querySelector('[data-shift="bob1"]')).toBeTruthy();          // the shift is still there
     expect(bob.querySelector('[data-timeoff="to2"]').textContent).toBe('2:00p - 4:00p Personal');
     expect(bob.textContent).toContain('8 Hrs');                              // and still counts
-    // My own day card shows both too, and my hours are not dropped.
+    unmount();
+    // My own day card (Workday > My Shifts) shows both too, and my hours are not dropped.
+    render(<MyShifts />);
+    await waitFor(() => expect(document.querySelector('[data-timeoff="to1"]')).toBeTruthy());
     expect(document.querySelector('[data-timeoff="to1"]').textContent).toContain('Personal');
     expect(screen.getAllByText('8 Hrs').length).toBeGreaterThan(0);
   });
@@ -180,13 +209,15 @@ describe('MyShifts week and group grid', () => {
   it('shows nothing, not "Off", on a day with nothing shared; usual hours as a reminder', async () => {
     timeMySchedule.mockResolvedValue({ ...sched, shift: { id: 'p', name: 'Day Shift', start: '08:30', end: '17:30', days: '1,2,3,4,5,6,7' },
       teams: [{ ...sched.teams[0], members: [{ ...sched.teams[0].members[0], shift: { id: 'p', start: '08:30', end: '17:30', days: '1,2,3,4,5,6,7' } }, sched.teams[0].members[1]] }] });
-    render(<MyShifts />);
+    const { unmount } = render(<MyShifts />);
     await screen.findAllByText('Usual Hours');
     expect(screen.getAllByText('Usual Hours')).toHaveLength(6);
     expect(screen.queryByText('Off')).toBeNull();
     expect(screen.getAllByText('8 Hrs').length).toBeGreaterThan(0);   // only the shared shift counts
-    // In the group grid, usual hours are one line under the name - the cells stay empty.
-    const me = screen.getByText('Me Here').closest('[data-member]');
+    unmount();
+    // In the group grid (Team > Shifts), usual hours are one line under the name - the cells stay empty.
+    render(<MyShifts part="team" />);
+    const me = (await screen.findByText('Me Here')).closest('[data-member]');
     expect(me.querySelector('[data-person]').textContent).toContain('Usual 8:30a - 5:30p');
     me.querySelectorAll('[data-cell]').forEach((c) => expect(c.textContent).toBe(''));
   });
@@ -194,7 +225,7 @@ describe('MyShifts week and group grid', () => {
   it('draws a teammate\'s days off as one spanning pill in the group grid', async () => {
     timeMySchedule.mockResolvedValue({ ...sched, teams: [{ ...sched.teams[0], members: [sched.teams[0].members[0],
       { ...sched.teams[0].members[1], scheduled: [], timeoff: [{ id: 'vac', startDate: monday, endDate: plus(30), type: 'vacation', status: 'pending' }] }] }] });
-    render(<MyShifts />);
+    render(<MyShifts part="team" />);
     const bob = (await screen.findByText('Bob Brown')).closest('[data-member]');
     const pills = bob.querySelectorAll('[data-timeoff="vac"]');
     expect(pills).toHaveLength(1);
@@ -220,6 +251,34 @@ describe('MyShifts week and group grid', () => {
   });
 });
 
+describe('MyShifts parts (Workday vs Team, Oct 13 2026)', () => {
+  it('shows my own days on Workday and only the group grid on Team', async () => {
+    const { unmount } = render(<MyShifts />);
+    await screen.findByRole('status', { name: 'Week summary' });
+    expect(screen.queryByRole('table', { name: 'Store schedule' })).toBeNull();
+    unmount();
+    render(<MyShifts part="team" />);
+    await screen.findByRole('table', { name: 'Store schedule' });
+    expect(screen.queryByRole('status', { name: 'Week summary' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Request a swap/ })).toBeNull();
+  });
+});
+
+describe('MyShifts embedded (Workday > My Schedule, Oct 15 2026)', () => {
+  it('switches between my week and the group grid, with availability behind a toggle', async () => {
+    render(<MyShifts embedded />);
+    await screen.findByRole('status', { name: 'Week summary' });
+    expect(screen.getByRole('button', { name: /Request a swap or offer/ })).toBeTruthy();   // my own day cards
+    expect(screen.queryByRole('table', { name: 'Store schedule' })).toBeNull();
+    expect(screen.queryByText('Edit Availability')).toBeNull();                              // folded until opened
+    fireEvent.click(screen.getByRole('button', { name: 'My Availability' }));
+    expect(await screen.findByText('Edit Availability')).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: 'Team' }));
+    expect(await screen.findByRole('table', { name: 'Store schedule' })).toBeTruthy();       // the group's week
+    expect(screen.queryByRole('status', { name: 'Week summary' })).toBeNull();
+  });
+});
+
 describe('MyShifts requests', () => {
   it('opens the request dialog from a shift with it filled in, and sends a swap', async () => {
     render(<MyShifts />);
@@ -241,7 +300,7 @@ describe('MyShifts requests', () => {
     unmount();
     shiftRequestsMine.mockResolvedValue(reqs({ settings: { openShifts: true, swaps: false, offers: false } }));
     render(<MyShifts />);
-    await screen.findByText('Me Here');
+    await screen.findByText('Front Desk');
     expect(screen.queryByRole('button', { name: /Request a swap/ })).toBeNull();
   });
 
@@ -249,7 +308,7 @@ describe('MyShifts requests', () => {
     const open = [{ id: 'open1', date: DAY, start: '06:00', end: '14:00', label: 'Early', openSlots: 2 }];
     if (PAST) open.push({ id: 'open0', date: PAST, start: '06:00', end: '14:00', label: 'Gone', openSlots: 1 });
     shiftRequestsMine.mockResolvedValue(reqs({ openShifts: open }));
-    render(<MyShifts />);
+    render(<MyShifts part="team" />);
     await screen.findByText('Me Here');
     const block = await waitFor(() => { const el = document.querySelector('[data-shift="open1"]'); expect(el).toBeTruthy(); return el; });
     expect(block.closest('[data-member]').getAttribute('data-member')).toBe('open');
@@ -259,6 +318,22 @@ describe('MyShifts requests', () => {
     fireEvent.click(screen.getByRole('button', { name: `Request the open shift on ${DAY}` }));
     await waitFor(() => expect(shiftRequestCreate).toHaveBeenCalledWith({ kind: 'open', shift_id: 'open1' }));
     expect(await screen.findByText('Request sent. A manager will approve it.')).toBeTruthy();
+  });
+
+  it('names the team on an open shift, and marks another team\'s with an Other Team chip (Phase 3b)', async () => {
+    shiftRequestsMine.mockResolvedValue(reqs({ openShifts: [
+      { id: 'open1', date: DAY, start: '06:00', end: '14:00', label: 'Early', openSlots: 1, team: 'Store', crossTeam: false },
+      { id: 'open2', date: DAY, start: '10:00', end: '18:00', label: 'Yard', openSlots: 1, team: 'Yard Crew', crossTeam: true },
+    ] }));
+    render(<MyShifts part="team" />);   // the group grid is Team > Shifts (Oct 15)
+    await screen.findByText('Me Here');
+    const ours = await waitFor(() => { const el = document.querySelector('[data-shift="open1"]'); expect(el).toBeTruthy(); return el; });
+    expect(ours.textContent).toContain('Store');
+    expect(ours.querySelector('[data-cross-team]')).toBeNull();
+    const theirs = document.querySelector('[data-shift="open2"]');
+    expect(theirs.textContent).toContain('Yard Crew');
+    expect(theirs.querySelector('[data-cross-team]').textContent).toBe('Other Team');
+    expect(screen.getAllByRole('button', { name: `Request the open shift on ${DAY}` })).toHaveLength(2);
   });
 });
 
@@ -286,5 +361,175 @@ describe('MyShifts availability', () => {
     expect(await screen.findByText('Unavailable')).toBeTruthy();
     expect(screen.getByText('Edit Availability')).toBeTruthy();
     expect(availabilitySave).not.toHaveBeenCalled();
+  });
+});
+
+// Actuals (Shifts Phase 1, Oct 14): my own clock results on my blocks, and
+// the week line counts my late days.
+describe('actuals on my shifts', () => {
+  it('draws the bar on my block from my own actuals, and counts late days on the week line', async () => {
+    timeSchedActuals.mockResolvedValue({ cells: { [`me@x.com|${DAY}`]: { shiftId: 'mine1', status: 'late', firstIn: `${DAY}T16:12:00`, lastOut: '', workedMin: 0, lateMin: 12, earlyMin: 0, excuse: '' } },
+      people: { 'me@x.com': { scheduledMin: 480, workedMin: 0, late: 1, noShow: 0, leftEarly: 0, onTime: 0 } }, totals: {} });
+    render(<MyShifts />);
+    await screen.findByRole('status', { name: 'Week summary' });
+    await waitFor(() => expect(timeSchedActuals).toHaveBeenCalledWith(monday, expect.any(String)));
+    const mine = await waitFor(() => { const b = document.querySelector('[data-shift="mine1"] [data-actual]'); expect(b).toBeTruthy(); return b; });
+    expect(mine.getAttribute('data-actual')).toBe('late');
+    expect(mine.closest('[data-shift]').getAttribute('title')).toContain('(12 min late)');
+    expect(screen.getByRole('status', { name: 'Week summary' }).textContent).toMatch(/ · 1 late$/);
+    // On My Shifts a tap on the bar always opens the readable sheet (a phone has no hover) - Oct 15.
+    fireEvent.click(mine);
+    const sheet = document.querySelector('[data-actual-sheet]');
+    expect(sheet.getAttribute('data-actual-sheet')).toBe('late');
+    expect(sheet.textContent).toContain('(12 min late)');
+  });
+  it('shows no bar when the actuals cannot load', async () => {
+    timeSchedActuals.mockRejectedValue(new Error('API error 500'));
+    render(<MyShifts />);
+    const line = await screen.findByRole('status', { name: 'Week summary' });
+    await waitFor(() => expect(timeSchedActuals).toHaveBeenCalled());
+    expect(document.querySelector('[data-actual]')).toBeNull();
+    expect(line.textContent).not.toContain('late');
+  });
+});
+
+// Shifts Phase 3a (Oct 14): the schedule comes to people. A shared schedule
+// I have not confirmed sits at the top until I confirm it (then the next
+// one); the Calendar row holds my Outlook switch (no switch when the
+// company's is off, or with no Microsoft 365 mailbox on file) and my iCal
+// link with Copy and New Link. GET /timeclock/my-schedule/confirmations
+// answers { pending: [...] }; GET /timeclock/my-prefs answers
+// { shiftCalendar, companyOutlookCalendar, hasMailbox, showAs }.
+describe('MyShifts confirmations and calendar', () => {
+  const banner = () => screen.queryByRole('note', { name: 'Confirm your schedule' });
+  const two = () => [
+    { publishId: 'pub2', at: '2026-10-14T18:05:00Z', by: 'amy@x.com', start: monday, end: plus(6), changes: 3 },
+    { publishId: 'pub1', at: '2026-10-07T18:05:00Z', by: 'bob@x.com', start: monday, end: plus(6), changes: 1 },
+  ];
+  it('asks me to confirm the newest shared schedule, then the next one; a failed confirm asks again', async () => {
+    timeMyConfirmations.mockResolvedValue({ pending: two() });
+    timeSchedConfirm.mockRejectedValueOnce(new Error('API error 500')).mockResolvedValue({ ok: true });
+    render(<MyShifts />);
+    const b = await waitFor(() => { const el = banner(); expect(el).toBeTruthy(); return el; });
+    expect(b.textContent).toContain('Your schedule was shared on 10/14/2026 by amy@x.com (3 changes) - have a look and confirm.');
+    expect(b.textContent).toContain('1 more waiting.');
+    fireEvent.click(within(b).getByRole('button', { name: /Confirm/ }));
+    await waitFor(() => expect(timeSchedConfirm).toHaveBeenCalledWith('pub2'));
+    // The call failed: the same share is back with a quiet retry line, never an error banner.
+    await waitFor(() => expect(banner().textContent).toContain('Could not confirm - try again.'));
+    expect(banner().getAttribute('data-confirm-banner')).toBe('pub2');
+    fireEvent.click(within(banner()).getByRole('button', { name: /Confirm/ }));
+    await waitFor(() => expect(banner().getAttribute('data-confirm-banner')).toBe('pub1'));   // the next one steps up
+    expect(banner().textContent).toContain('by Bob Brown (1 change)');
+    expect(banner().textContent).not.toContain('more waiting');
+    fireEvent.click(within(banner()).getByRole('button', { name: /Confirm/ }));
+    await waitFor(() => expect(timeSchedConfirm).toHaveBeenLastCalledWith('pub1'));
+    await waitFor(() => expect(banner()).toBeNull());
+  });
+
+  it('shows no banner with nothing to confirm, or when the call fails', async () => {
+    timeMyConfirmations.mockRejectedValue(new Error('API error 500'));
+    render(<MyShifts />);
+    await screen.findByRole('status', { name: 'Week summary' });
+    await waitFor(() => expect(timeMyConfirmations).toHaveBeenCalled());
+    expect(banner()).toBeNull();
+  });
+
+  // A bell's click-through (sub "mine:confirm:<id>", handed down by
+  // Shifts.jsx) and the email's /shifts/mine?confirm=<id> both put THAT
+  // share's banner in front, even when a newer one is waiting.
+  it('puts the share a bell points at in front, and the one from an email link', async () => {
+    timeMyConfirmations.mockResolvedValue({ pending: two() });
+    const { unmount } = render(<MyShifts focusConfirm="pub1" />);
+    const b = await waitFor(() => { const el = banner(); expect(el).toBeTruthy(); return el; });
+    expect(b.getAttribute('data-confirm-banner')).toBe('pub1');
+    expect(b.textContent).toContain('1 more waiting.');
+    unmount();
+    window.history.replaceState({}, '', '/shifts/mine?confirm=pub1&x=1');
+    render(<MyShifts />);
+    const b2 = await waitFor(() => { const el = banner(); expect(el).toBeTruthy(); return el; });
+    expect(b2.getAttribute('data-confirm-banner')).toBe('pub1');
+    expect(window.location.search).toBe('?x=1');                             // read once, then stripped
+  });
+
+  it('says so quietly when the share a link points at is no longer waiting on me', async () => {
+    timeMyConfirmations.mockResolvedValue({ pending: [two()[0]] });
+    render(<MyShifts focusConfirm="pub-gone" />);
+    expect(await screen.findByText('No confirmation is waiting for that schedule.')).toBeTruthy();
+    expect(banner().getAttribute('data-confirm-banner')).toBe('pub2');   // the newest still shows
+  });
+
+  it('turns my Outlook calendar off and on from the Calendar row, and puts it back when the save fails', async () => {
+    render(<MyShifts />);
+    const sw = await screen.findByRole('switch', { name: 'In your Outlook calendar' });
+    expect(sw.getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(sw);
+    await waitFor(() => expect(timeMyPrefsSet).toHaveBeenCalledWith({ shiftCalendar: false }));
+    expect(screen.getByRole('switch', { name: 'In your Outlook calendar' }).getAttribute('aria-checked')).toBe('false');
+    timeMyPrefsSet.mockRejectedValueOnce(new Error('API error 500'));
+    fireEvent.click(screen.getByRole('switch', { name: 'In your Outlook calendar' }));
+    await waitFor(() => expect(timeMyPrefsSet).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByRole('switch', { name: 'In your Outlook calendar' }).getAttribute('aria-checked')).toBe('false'));
+    expect(screen.getByText('Could not save that.')).toBeTruthy();
+  });
+
+  it('shows no Outlook line when the company switch is off (the default), or says I have no mailbox', async () => {
+    timeMyPrefsGet.mockResolvedValue({ shiftCalendar: true, companyOutlookCalendar: false, hasMailbox: true, showAs: 'free' });
+    const { unmount } = render(<MyShifts />);
+    expect(await screen.findByText('Subscribe in another calendar')).toBeTruthy();   // the iCal link still works
+    expect(screen.queryByRole('switch', { name: 'In your Outlook calendar' })).toBeNull();
+    expect(screen.queryByText(/Outlook calendar/)).toBeNull();
+    unmount();
+    timeMyPrefsGet.mockResolvedValue({ shiftCalendar: true, companyOutlookCalendar: true, hasMailbox: false, showAs: 'free' });
+    render(<MyShifts />);
+    expect(await screen.findByText(/No Microsoft 365 mailbox on file/i)).toBeTruthy();
+    expect(screen.queryByRole('switch', { name: 'In your Outlook calendar' })).toBeNull();
+    expect(screen.getByText('Subscribe in another calendar')).toBeTruthy();
+  });
+
+  it('reveals my iCal link on request, copies it, and makes a new one only after a confirmation', async () => {
+    const writeText = vi.fn().mockResolvedValue();
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    try {
+      render(<MyShifts />);
+      await screen.findByRole('switch', { name: 'In your Outlook calendar' });
+      expect(timeMyIcalLink).not.toHaveBeenCalled();                       // lazy: only when asked
+      fireEvent.click(screen.getByText('Subscribe in another calendar'));
+      const url = await screen.findByLabelText('Calendar subscription link');
+      expect(url.value).toBe('https://api.nexus.test/timeclock/ical/abc123.ics');
+      fireEvent.click(screen.getByRole('button', { name: /Copy/ }));
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith('https://api.nexus.test/timeclock/ical/abc123.ics'));
+      expect(await screen.findByText('Copied')).toBeTruthy();
+      confirmAsk.mockResolvedValueOnce(false);
+      fireEvent.click(screen.getByRole('button', { name: /New Link/ }));
+      await waitFor(() => expect(confirmAsk).toHaveBeenCalled());
+      expect(timeMyIcalRotate).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole('button', { name: /New Link/ }));
+      await waitFor(() => expect(timeMyIcalRotate).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(screen.getByLabelText('Calendar subscription link').value).toBe('https://api.nexus.test/timeclock/ical/new456.ics'));
+      expect(screen.getByText('New link made. The old one no longer works.')).toBeTruthy();
+    } finally { delete navigator.clipboard; }
+  });
+
+  it('falls back to selecting the link when there is no clipboard, and says so quietly when the link cannot load', async () => {
+    delete navigator.clipboard;
+    document.execCommand = vi.fn(() => true);
+    render(<MyShifts />);
+    await screen.findByRole('switch', { name: 'In your Outlook calendar' });
+    fireEvent.click(screen.getByText('Subscribe in another calendar'));
+    const url = await screen.findByLabelText('Calendar subscription link');
+    url.select = vi.fn();
+    fireEvent.click(screen.getByRole('button', { name: /Copy/ }));
+    await waitFor(() => expect(document.execCommand).toHaveBeenCalledWith('copy'));
+    expect(url.select).toHaveBeenCalled();
+    delete document.execCommand;
+  });
+
+  it('shows no Calendar row when my preferences cannot load', async () => {
+    timeMyPrefsGet.mockRejectedValue(new Error('API error 500'));
+    render(<MyShifts />);
+    await screen.findByRole('status', { name: 'Week summary' });
+    await waitFor(() => expect(timeMyPrefsGet).toHaveBeenCalled());
+    expect(document.querySelector('[data-calendar-row]')).toBeNull();
   });
 });

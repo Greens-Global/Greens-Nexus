@@ -6,6 +6,7 @@ import { formatDate } from '../../lib/datetime';
 import { useIsMobile } from '../../lib/useIsMobile';
 import { useAccountingPrefs } from './prefs';
 import Amount, { formatAmount } from './Amount';
+import AskAccountantDialog, { AskButton, lineFromEntry } from './AskAccountantDialog';
 
 // One journal entry, opened from the entry number on a search result or a
 // report drill-down (Charmi, Sep 24: "we should be able to click on the entry
@@ -23,6 +24,9 @@ import Amount, { formatAmount } from './Amount';
 
 const BOOK_LABEL = { both: 'Both books', actual_only: 'Accrual only', tax_only: 'Cash only' };
 const named = (name, id) => name || id || '';
+// Oct 14 (Charmi): a vendor's or customer's number before the
+// name - "V00412 Home Depot" - everywhere in the accounting module.
+const numbered = (name, id) => (id && name && name !== id ? `${id} ${name}` : name || id || '');
 
 // The columns, in the order Neil listed them.
 const COLUMNS = [
@@ -47,6 +51,9 @@ export default function EntryDetail({ entryId, entryNo, onClose }) {
   // cards instead of the 1,180 px table; the fill-screen toggle is moot there.
   const isPhone = useIsMobile('(max-width: 640px)');
   const full = isPhone || !!prefs.entryFull;
+  // Oct 15 (Neil): "Ask My Accountant" on any line of the entry.
+  const [asking, setAsking] = useState(null);
+  const [asked, setAsked] = useState(null);
 
   useEffect(() => {
     let alive = true;
@@ -66,10 +73,11 @@ export default function EntryDetail({ entryId, entryNo, onClose }) {
   }, [entryId]);
 
   useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    // Escape closes the Ask dialog first, not the entry under it.
+    const onKey = (e) => { if (e.key === 'Escape' && !asking) onClose(); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [onClose, asking]);
 
   const entry = data?.entry;
   const lines = data?.lines || [];
@@ -79,6 +87,7 @@ export default function EntryDetail({ entryId, entryNo, onClose }) {
   const doc = intacct.find((g) => g.doc)?.doc || '';
   const title = entry?.narration || intacct.find((g) => g.batch_title)?.batch_title || '';
   const books = [...new Set(lines.map((l) => l.book_tag))];
+  const ask = (l, g) => setAsking(lineFromEntry(l, g, { ...(entry || {}), id: entryId }, journal));
   const quiet = entry ? [
     entry.entry_no ? `Entry ${entry.entry_no}` : '',
     batch ? `Intacct batch ${batch}` : '',
@@ -95,11 +104,11 @@ export default function EntryDetail({ entryId, entryNo, onClose }) {
       case 'department': return named(l.department_name, l.department);
       case 'location': return named(l.location_name, l.location);
       case 'memo': return l.description || g?.memo || '';
-      case 'vendor': return named(g?.vendor_name, g?.vendor_id);
+      case 'vendor': return numbered(g?.vendor_name, g?.vendor_id);
       case 'project': return named(g?.class_name, g?.class_id || g?.project_id);
       case 'item': return named(g?.item_name, g?.item_id);
       case 'employee': return named(g?.employee_name, g?.employee_id);
-      case 'customer': return named(g?.customer_name, g?.customer_id);
+      case 'customer': return numbered(g?.customer_name, g?.customer_id);
       default: return '';
     }
   };
@@ -129,6 +138,11 @@ export default function EntryDetail({ entryId, entryNo, onClose }) {
         </div>
         <div style={{ padding: isPhone ? '10px 12px 16px' : '12px 18px 16px', overflow: isPhone ? 'auto' : undefined }}>
           {error && <div style={{ border: '1px solid var(--bad-fg, #dc2626)', color: 'var(--bad-fg, #dc2626)', borderRadius: 8, padding: '10px 12px', fontSize: '0.85rem', marginBottom: 12 }}>{error}</div>}
+          {asked && (
+            <div role="status" style={{ border: '1px solid var(--border-color)', borderRadius: 8, padding: '6px 10px', fontSize: '0.8rem', marginBottom: 10, color: 'var(--ok-fg, #15803d)' }}>
+              {asked.merged ? 'Added to the open question on this line' : 'Question sent'} to {asked.accountantName || asked.accountant}. It is on the AMA screen under Accounting - Reporting.
+            </div>
+          )}
           {!data && !error && <SkeletonBlocks count={3} />}
           {data && isPhone && (
             <div style={{ border: '1px solid var(--border-color)', borderRadius: 10, overflow: 'hidden' }}>
@@ -142,6 +156,7 @@ export default function EntryDetail({ entryId, entryNo, onClose }) {
                       <span style={{ fontSize: '0.86rem', fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
                         {Number(l.debit) > 0 ? formatAmount(l.debit) : Number(l.credit) > 0 ? `(${formatAmount(l.credit)})` : '0.00'}
                       </span>
+                      <AskButton onClick={() => ask(l, g)} />
                     </div>
                     {facts.map(([label, v]) => (
                       <div key={label} style={{ display: 'flex', gap: 8, fontSize: '0.76rem', marginTop: 3 }}>
@@ -162,9 +177,9 @@ export default function EntryDetail({ entryId, entryNo, onClose }) {
             <>
               {!isPhone && <div className="acct-lines-wrap" style={{ maxHeight: 'none' }}>
                 <table className="acct-lines acct-entry-lines" style={{ width: '100%', minWidth: 1180 }}>
-                  <colgroup>{COLUMNS.map((c) => <col key={c.key} style={{ width: c.width }} />)}</colgroup>
+                  <colgroup>{COLUMNS.map((c) => <col key={c.key} style={{ width: c.width }} />)}<col style={{ width: 34 }} /></colgroup>
                   <thead>
-                    <tr>{COLUMNS.map((c) => <th key={c.key} scope="col" className={c.num ? 'acct-num' : undefined}>{c.label}</th>)}</tr>
+                    <tr>{COLUMNS.map((c) => <th key={c.key} scope="col" className={c.num ? 'acct-num' : undefined}>{c.label}</th>)}<th scope="col" aria-label="Ask My Accountant" /></tr>
                   </thead>
                   <tbody>
                     {lines.map((l) => {
@@ -172,6 +187,7 @@ export default function EntryDetail({ entryId, entryNo, onClose }) {
                       return (
                         <tr key={l.id}>
                           {COLUMNS.map((c) => <td key={c.key} className={c.num ? 'acct-num' : undefined}>{cell(l, g, c.key)}</td>)}
+                          <td style={{ textAlign: 'center', padding: 0 }}><AskButton onClick={() => ask(l, g)} /></td>
                         </tr>
                       );
                     })}
@@ -179,7 +195,7 @@ export default function EntryDetail({ entryId, entryNo, onClose }) {
                       <td>Total</td>
                       <td className="acct-num"><Amount value={data.totals.debit} /></td>
                       <td className="acct-num"><Amount value={data.totals.credit} /></td>
-                      <td colSpan={COLUMNS.length - 3} />
+                      <td colSpan={COLUMNS.length - 2} />
                     </tr>
                   </tbody>
                 </table>
@@ -198,6 +214,7 @@ export default function EntryDetail({ entryId, entryNo, onClose }) {
             </>
           )}
         </div>
+        {asking && <AskAccountantDialog line={asking} onClose={() => setAsking(null)} onAsked={(t) => { setAsking(null); setAsked(t); }} />}
       </div>
     </div>
   );

@@ -123,6 +123,12 @@ class HardwareAssetCreate(BaseModel):
 
 # ── Requisition Routes ────────────────────────────────────────────────────────
 
+
+
+def _manager_of(db: Session, email: str) -> str:
+    e = db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == (email or "").lower()).first()
+    return ((e.manager_email if e else "") or "").strip().lower()
+
 @router.get("/requisitions")
 def list_requisitions(
     user: dict = Depends(get_current_user),
@@ -201,7 +207,10 @@ def create_requisition(
     reason_snip = (data.reason or "").strip().split("\n")[0][:120]
     _req_notify(db,
         type="req_pending",
-        recipient=(data.approver_email or "").lower().strip(),  # targeted; empty = all managers
+        # The chosen approver, else the requester's own manager (Neil, Oct 14
+        # 2026: no more "all managers" broadcast when none was picked). With
+        # neither on file it still goes to all managers - someone must decide.
+        recipient=((data.approver_email or "").lower().strip() or _manager_of(db, payload["employee_email"] or submitter_email)),
         title="New Purchase Requisition",
         body=f"{data.employee_name} ({data.employee_dept}) requested {data.quantity}× {data.item}."
              + (f" Submitted by {submitter_name}." if on_behalf else "")

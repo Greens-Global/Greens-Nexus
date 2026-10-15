@@ -20,13 +20,15 @@ in beats late beats onLeave beats out:
   in      - an open shift right now: the last non-voided punch is a clock-in or
             a break inside the 16-hour pairing guard (timeclock._clocked_in_now's
             rule, read for the whole team in one query);
-  late    - a shift scheduled for today (a PUBLISHED scheduled_shifts row, else
-            the person's default preset on one of its days - what
-            /timeclock/my-schedule shows them) whose start plus the 15-minute
-            grace has passed, and no clock-in on today's date yet. Someone on
-            approved leave or a company holiday is never late - a default
-            preset recurs every week, so without this every vacation day
-            would read as a missed shift;
+  late    - a shift scheduled for today (shift_expect.expected_starts: the
+            earliest PUBLISHED scheduled_shifts row, else the person's default
+            preset on one of its days - the one rule the timecard's Late status
+            and the Workforce Scorecard read too) whose start plus its grace
+            (the preset's, else the Shifts setting's default) has passed on the
+            shift's own zone clock, and no clock-in on today's date yet.
+            Someone on approved leave or a company holiday is never late - a
+            default preset recurs every week, so without this every vacation
+            day would read as a missed shift;
   onLeave - approved time off covering today (daily_briefing._approved_leave's
             filter), or a company holiday for them (timeclock's company +
             country rule, `_company_holidays_for_many`);
@@ -52,6 +54,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 import models
+import shift_expect
 from auth import require_level, team_emails, company_scope, company_ok
 from database import get_db
 from routers.task_util import task_assignees
@@ -60,7 +63,6 @@ router = APIRouter(prefix="", tags=["My Team"])
 
 require_supervisor = require_level(2)
 
-GRACE_MIN = 15          # a shift start this many minutes gone with no clock-in = late
 OVERDUE_CAP = 20
 _MAX_SHIFT_MIN = 16 * 60   # timeclock's pairing guard: an older open punch is a missing clock-out, not "in"
 _DEFAULT_TEAM_TZ = "America/Los_Angeles"
@@ -98,11 +100,7 @@ def _zone(name: str) -> ZoneInfo:
 def _team_tz(db: Session) -> str:
     """The team time zone from the shift settings (Teams "Team time zone"),
     the zone a shift with no preset runs on."""
-    try:
-        from routers.shift_requests import get_settings
-        return get_settings(db).get("timeZone") or _DEFAULT_TEAM_TZ
-    except Exception:
-        return _DEFAULT_TEAM_TZ
+    return shift_expect.team_tz(db)
 
 
 def _local_today(db: Session, now: datetime, tz_offset_min: Optional[int]) -> str:
@@ -224,62 +222,6 @@ def _holidays_today(db: Session, people: dict, today: str) -> dict:
     return out
 
 
-def _shift_starts(db: Session, emails: list, today: str, team_tz: str) -> dict:
-    """{email: shift start (UTC datetime)} for everyone scheduled today: a
-    PUBLISHED placed shift first, else the default preset on one of its days -
-    the same two sources /timeclock/my-schedule shows a person."""
-    presets = {s.id: s for s in db.query(models.Shift).all()}
-    out = {}
-
-    def start_at(hhmm: str, tz: str):
-        try:
-            y, m, d = (int(x) for x in today.split("-"))
-            hh, mm = (int(x) for x in (hhmm or "09:00").split(":")[:2])
-            return datetime(y, m, d, hh, mm, tzinfo=_zone(tz)).astimezone(timezone.utc)
-        except (ValueError, TypeError):
-            return None
-
-    placed = (db.query(models.ScheduledShift)
-              .filter(models.ScheduledShift.employee_email.in_(emails),
-                      models.ScheduledShift.work_date == today,
-                      models.ScheduledShift.published == 1)
-              .order_by(models.ScheduledShift.start_hhmm).all())
-    # A day a weather call cancelled is not a shift to be late for, and the
-    # preset below must not stand in for it (Weather Call, Oct 12).
-    called_off = set()
-    for r in placed:
-        if (getattr(r, "weather_status", "") or "") == "cancelled":
-            called_off.add((r.employee_email or "").lower())
-    for r in placed:
-        em = (r.employee_email or "").lower()
-        if em in out or (getattr(r, "weather_status", "") or "") == "cancelled":
-            continue
-        p = presets.get(r.shift_id)
-        tz = ((getattr(r, "timezone", "") or "").strip()
-              or ((p.timezone or "") if p is not None else "") or team_tz)
-        t = start_at(r.start_hhmm, tz)
-        if t:
-            out[em] = t
-    weekday = str(datetime.strptime(today, "%Y-%m-%d").isoweekday())
-    assigned = False
-    for a in (db.query(models.ShiftAssignment)
-              .filter(models.ShiftAssignment.employee_email.in_(emails)).all()):
-        em = (a.employee_email or "").lower()
-        p = presets.get(a.shift_id)
-        if p is None:
-            continue
-        assigned = True
-        if em in out or em in called_off:
-            continue
-        days = {d.strip() for d in (p.days or "").split(",") if d.strip()}
-        if weekday not in days:
-            continue
-        t = start_at(p.start_hhmm, p.timezone or team_tz)
-        if t:
-            out[em] = t
-    return {"starts": out, "available": bool(out) or assigned or bool(placed)}
-
-
 def _person(e: models.NexusEmployee, since: str = "", detail: str = "", **extra) -> dict:
     row = {"email": (e.work_email or "").lower(), "name": _name(e), "since": since or "", "detail": detail or ""}
     row.update(extra)
@@ -300,9 +242,9 @@ def my_team_today(tz_offset_min: Optional[int] = None,
         today_punches = _punched_in_today(db, emails, today)
         leave = _leave_today(db, emails, today)
         holidays = _holidays_today(db, people, today)
-        sched = _shift_starts(db, emails, today, _team_tz(db))
-        out["scheduleAvailable"] = sched["available"]
-        cutoff = now - timedelta(minutes=GRACE_MIN)
+        day = datetime.strptime(today, "%Y-%m-%d").date()
+        expected = shift_expect.expected_starts(db, emails, day)
+        out["scheduleAvailable"] = any(expected.values()) or shift_expect.schedule_exists(db, emails, day)
         for em in emails:
             e = people[em]
             if em in open_now:
@@ -310,8 +252,9 @@ def my_team_today(tz_offset_min: Optional[int] = None,
                                          "On break" if open_now[em]["onBreak"] else "Clocked in",
                                          onBreak=open_now[em]["onBreak"]))
                 continue
-            start = sched["starts"].get(em)
-            if start is not None and start <= cutoff and em not in today_punches["in"] \
+            exp = expected.get(em)
+            start = shift_expect.start_utc(day, exp)
+            if start is not None and shift_expect.late_now(day, exp, now) and em not in today_punches["in"] \
                     and em not in leave and em not in holidays:
                 out["late"].append(_person(e, _iso_z(_iso(start)), "Scheduled, not clocked in"))
                 continue

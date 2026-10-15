@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { LoadingState } from '../components/AsyncState';
 import { X, Plus, Check, Search, ArrowUp, ArrowDown } from 'lucide-react';
-import { WIDGETS, KPI_CATALOG, SHORTCUT_TARGETS, DEFAULT_QUICK_ACTIONS, ACTION_CHOICES, DEFAULT_ACTION, sizeLabel, QUICK_STYLES, DEFAULT_QUICK_STYLE, quickStyleOf, actionAllowed, actionChoice } from './widgets.jsx';
+import { WIDGETS, KPI_CATALOG, SHORTCUT_TARGETS, DEFAULT_QUICK_ACTIONS, ACTION_CHOICES, DEFAULT_ACTION, sizeLabel, limitsOf, QUICK_STYLES, DEFAULT_QUICK_STYLE, quickStyleOf, actionAllowed, actionChoice } from './widgets.jsx';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
@@ -30,7 +30,7 @@ const Shell = ({ title, sub, onClose, children }) => (
         <h3 style={{ margin: 0, fontSize: 15, fontWeight: 800 }}>{title}</h3>
         {sub && <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>{sub}</p>}
       </div>
-      <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><X size={18} /></button>
+      <button onClick={onClose} aria-label="Close" title="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', alignItems: 'center', justifyContent: 'center', width: 36, height: 36, margin: '-8px -10px -8px 0', borderRadius: 8, flexShrink: 0 }}><X size={18} /></button>
     </div>
     <div style={{ padding: 18, overflow: 'auto', minHeight: 0, overscrollBehavior: 'contain' }}>{children}</div>
   </div>
@@ -247,12 +247,14 @@ function ConfigFields({ type, config, onChange }) {
 }
 
 // Is this widget's config complete enough to add / save? Gates the primary
-// button in both the gallery's picking step and the pencil's ConfigModal.
+// button in both the gallery's picking step and the gear's ConfigModal.
 export function configValid(type, config) {
   if (type === 'weather') return weatherConfigValid(config);
   if (type === 'links-folder') return !!config?.folderId;
   if (type === 'quick-actions') return !Array.isArray(config?.actions) || config.actions.length > 0;
   if (type === 'action') return !!config?.action;
+  // A KPI tile with no metric used to save as a tile labeled "Metric" at 0.
+  if (type === 'kpi') return !!config?.metric;
   return true;
 }
 
@@ -348,7 +350,7 @@ export function WidgetGallery({ canSee, onAdd, onClose, layout = [] }) {
                       <span style={{ fontSize: 12.5, fontWeight: 600, overflowWrap: 'anywhere' }}>{def.title}</span>
                       {/* The footprint in the iOS size vocabulary, so you know
                           what you are adding before it lands on the board. */}
-                      <span style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 500 }}>{sizeLabel(def.size)}{def.limits?.minH === 1 ? ' · fits one row' : ''}</span>
+                      <span style={{ fontSize: 10.5, color: 'var(--muted)', fontWeight: 500 }}>{sizeLabel(def.size)}{limitsOf(type).minH === 1 ? ' · fits one row' : ''}</span>
                       {added && (
                         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10.5, fontWeight: 700, color: 'var(--wk-green, #00a25b)', background: 'var(--wk-green-bg, rgba(0,162,91,.1))', borderRadius: 999, padding: '2px 7px' }}>
                           <Check size={10} /> Added

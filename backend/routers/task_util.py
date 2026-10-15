@@ -64,9 +64,29 @@ def fire_task_event(task_id: str = "", kind: str = "") -> None:
 
 
 # ── Notifications (module's own bell → task_notifications) ───────────────────
+# What also rings the shared Nexus bell (Neil, Oct 14 2026): assignments,
+# @mentions (call sites pass main_bell=True) and approvals - something that
+# needs YOU. Comments, status moves, due-date changes and the rest stay in
+# the Tasks / Tickets module's own bell, so the main bell is not a second
+# copy of every task event.
+MAIN_BELL_KINDS = frozenset({
+    # assigned to you / put on it
+    "task_assigned", "ticket_assigned", "ticket_collaborator",
+    # a decision or answer is needed, or one was made on your request
+    "ticket_needs_approval", "ticket_approved", "ticket_rejected", "ticket_needs_assignment",
+    "ticket_escalated",
+    "task_due_extension_requested", "task_due_proposed", "task_due_answered",
+    "member_request", "request_approved", "request_rejected",
+    "team_approval_requested", "team_approval_decided",
+    # a property manager: a ticket or a service due at their property
+    "ticket_property",
+})
+
+
 def task_notify(db: Session, *, kind: str, for_email: str, title: str, body: str = "",
                 task_id: str = "", ticket_id: str = "", department_id: str = "",
-                request_id: str = "", nexus_action: dict | None = None) -> None:
+                request_id: str = "", nexus_action: dict | None = None,
+                main_bell: bool | None = None) -> None:
     """Create one in-app notification. `for_email` is a specific address or the
     literal "admins" to fan out to every administrator (resolved client-side).
     Server-side only - employees can't POST notifications directly.
@@ -96,6 +116,19 @@ def task_notify(db: Session, *, kind: str, for_email: str, title: str, body: str
         request_id=request_id or ticket_id, department_id=department_id, task_id=task_id,
         read=False, created_at=now_iso(),
     ))
+    if main_bell is None:
+        main_bell = kind in MAIN_BELL_KINDS
+        # The person who RAISED a ticket hears every update on it in the main
+        # bell (Charmi, Oct 1: requesters are often employees with no Tickets
+        # screen, so the module's own bell would leave them hearing nothing).
+        if not main_bell and ticket_id and kind.startswith("ticket") and target != "admins":
+            from models import TaskTicket
+            # A ticket made in this same request is not flushed yet (autoflush is off).
+            t = next((o for o in db.new if isinstance(o, TaskTicket) and o.id == ticket_id), None) \
+                or db.get(TaskTicket, ticket_id)
+            main_bell = bool(t and (t.requester_email or "").strip().lower() == target)
+    if not main_bell:
+        return
     recipients = admin_emails(db) if target == "admins" else [target]
     action = dict(nexus_action) if nexus_action else None
     if action and task_id and not action.get("taskId"):
@@ -616,7 +649,7 @@ def create_comment(db: Session, task, *, actor_email: str, author_email: str = "
                         title="New reply in your thread", body=f"{task.title}", task_id=task.id,
                         nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
         if assignee and assignee != actor:
-            task_notify(db, kind="task_activity", for_email=assignee,
+            task_notify(db, kind="task_activity", for_email=assignee, main_bell=True,
                         title="A comment was assigned to you", body=f"{task.title}", task_id=task.id,
                         nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
     db.commit()
@@ -638,7 +671,7 @@ def create_comment(db: Session, task, *, actor_email: str, author_email: str = "
         mentioned = [e for e in extract_mentions(text) if e != actor and e != assignee]
         if mentioned:
             for who in mentioned:
-                task_notify(db, kind="task_activity", for_email=who,
+                task_notify(db, kind="task_activity", for_email=who, main_bell=True,
                             title="You were mentioned in a comment",
                             body=f"{task.title}", task_id=task.id,
                             nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})

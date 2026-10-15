@@ -11,7 +11,7 @@
 import {
   Bell, Search, LayoutDashboard, Contact, CheckSquare, BookOpen, Package,
   HelpCircle, LogIn, Coffee, ShoppingCart, PenTool, Users, Ticket,
-  Plus, Star, Sparkles, ClipboardList,
+  Plus, Star, Sparkles, ClipboardList, CircleHelp, GraduationCap,
 } from 'lucide-react';
 
 const BRAND = 'var(--wk-brand, #2b45e1)';
@@ -333,9 +333,9 @@ const SHOTS = {
   support: {
     legend: ['Submit a Ticket - help from any team', 'Open Tickets - click a row to follow up', 'Documentation tab - this guide'],
     render: () => (
-      <Frame title="Support" tabs={['Help Center', 'Documentation']} active="Help Center" activeRail={5} tabMark={3} markedTab="Documentation">
+      <Frame title="Help Center" tabs={['Help Center', 'Documentation']} active="Help Center" activeRail={5} tabMark={3} markedTab="Documentation">
         <Row style={{ alignItems: 'stretch' }} gap={10}>
-          {[[Ticket, 'Submit a Ticket'], [Users, 'Contact Directory'], [ClipboardList, 'Property Walkthrough'], [BookOpen, 'Documentation']].map(([I, t], i) => {
+          {[[Ticket, 'Submit a Ticket'], [CircleHelp, 'Assistant'], [BookOpen, 'Documentation'], [GraduationCap, 'Knowledge Base & Training']].map(([I, t], i) => {
             const card = (
               <Card style={{ padding: 8, width: '100%', boxSizing: 'border-box' }}>
                 <span style={{ width: 22, height: 22, borderRadius: 6, background: 'var(--mist)', border: '1px solid var(--line)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 6 }}><I size={12} style={{ color: 'var(--ink)' }} /></span>

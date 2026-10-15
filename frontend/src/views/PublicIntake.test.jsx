@@ -26,7 +26,7 @@ describe('PublicIntake', () => {
     fireEvent.change(screen.getByLabelText('Phone *'), { target: { value: '555-0100' } });
     fireEvent.change(screen.getByLabelText('Current Address *'), { target: { value: '12 Pine St' } });
     fireEvent.click(screen.getByText('Send To HR'));
-    await waitFor(() => expect(screen.getByText('Thank You')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/^Thank You/)).toBeTruthy());
     expect(submit.mock.calls[0][1]).toMatchObject({ first_name: 'Jen', phone: '555-0100', address: '12 Pine St' });
   });
 
@@ -46,8 +46,28 @@ describe('PublicIntake', () => {
     fireEvent.change(screen.getByLabelText('PAN Number *'), { target: { value: 'ABCDE1234F' } });
     fireEvent.change(screen.getByLabelText('Account Type'), { target: { value: 'Current' } });
     fireEvent.click(screen.getByText('Send To HR'));
-    await waitFor(() => expect(screen.getByText('Thank You')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/^Thank You/)).toBeTruthy());
     expect(submit.mock.calls[0][1].answers).toEqual({ pan_number: 'ABCDE1234F', account_type: 'Current' });
+  });
+
+  it('after a signed offer: prefilled, in sections, private questions marked, no login', async () => {
+    page = { ...page, state: 'open', afterOffer: true, prefill: { address: '12 Pine St' }, form: [
+      { key: 'pan_number', label: 'PAN Number', type: 'text', required: true, sensitive: true, fromTemplate: 'Onboarding Requirements' },
+    ] };
+    submit.mockClear();
+    render(<PublicIntake token="tok" />);
+    await waitFor(() => expect(screen.getByText('Your Onboarding Details')).toBeTruthy());
+    expect(screen.getByText('About You')).toBeTruthy();
+    expect(screen.getByText('For Your Documents')).toBeTruthy();
+    expect(screen.getByText(/Private - only the payroll team sees it/)).toBeTruthy();
+    expect(screen.getByLabelText('Current Address *').value).toBe('12 Pine St');
+    expect(screen.queryByLabelText('Permanent Address')).toBeNull();          // "the same" is ticked
+    fireEvent.change(screen.getByLabelText('Phone *'), { target: { value: '555-0100' } });
+    fireEvent.change(screen.getByLabelText('PAN Number *'), { target: { value: 'ABCDE1234F' } });
+    fireEvent.click(screen.getByText('Send - Prepare My Documents'));
+    await waitFor(() => expect(screen.getByText(/no account or password needed/)).toBeTruthy());
+    expect(submit.mock.calls[0][1]).toMatchObject({ address: '12 Pine St', permanent_address: '12 Pine St',
+      answers: { pan_number: 'ABCDE1234F' } });
   });
 
   it('says when the link has expired', async () => {

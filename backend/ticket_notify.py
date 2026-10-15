@@ -260,7 +260,10 @@ def _recipients_for(db: Session, t: models.TaskTicket, event_type: str, cfg: dic
         # department at all) falls back to the desk so it's never silent.
         dept = (db.query(models.TicketDepartment).filter(models.TicketDepartment.id == t.hr_department_id).first()
                 if t.hr_department_id else None)
-        heads = [e for e in [(dept.lead_email if dept else ""), (dept.backup_email if dept else "")] if e]
+        # The head is the department's own (one head everywhere, Oct 15 2026); the backup is the desk's.
+        live = (db.query(models.HrDepartment).filter(models.HrDepartment.id == t.hr_department_id).first()
+                if t.hr_department_id else None)
+        heads = [e for e in [(live.lead_email if live else ""), (dept.backup_email if dept else "")] if e]
         if heads:
             for h in heads:
                 add(h, "dept_head")

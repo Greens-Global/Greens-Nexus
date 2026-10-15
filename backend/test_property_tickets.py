@@ -331,8 +331,33 @@ class PropertyTicketTests(unittest.TestCase):
             ticket_notify.graph_mail.send_mail = real
         to = sorted(r for kw in sent for r in kw["to"])
         self.assertEqual(to, sorted({MANAGER, ADMIN["email"], DESK2}))
-        self.assertTrue(all(kw["subject"] == "5 new tickets at Greens Storage Temecula - Property Walkthrough"
+        self.assertTrue(all(kw["subject"] == "5 new tickets at Greens Storage Temecula - Batch Create"
                             for kw in sent))
+
+    # ── Batch Create (Oct 13 2026): the property is optional. The email test
+    # is named to run after the code tests - email logs seed the code counter. ──
+    def test_a_batch_without_a_property_files_for_any_team(self):
+        out, _ = self._walk([self._line("New laptop", "Hardware"), self._line("VPN down", "Network")],
+                            prop="", dept="d-hr")                # not a building team: fine with no property
+        self.assertEqual(len(out["tickets"]), 2)
+        self.assertTrue(all(t["propertyAssetId"] is None for t in out["tickets"]))
+        self.assertEqual(out["property"], {"id": "", "name": ""})
+        self.assertEqual(self._bells(MANAGER), [])                # no property, no asset manager to tell
+        desk_bell = self._bells(ADMIN["email"], "ticket_needs_assignment")[0]
+        self.assertEqual(desk_bell.title, "Batch: 2 new tickets")
+
+    def test_the_batch_email_without_a_property_names_none(self):
+        import ticket_notify
+        sent = []
+        real = ticket_notify.graph_mail.send_mail
+        ticket_notify.graph_mail.send_mail = lambda **kw: sent.append(kw) or {}
+        try:
+            out, _ = self._walk([self._line("A"), self._line("B")], prop="")
+            ticket_notify.notify_walkthrough(out["batchId"], WALKER["email"])
+        finally:
+            ticket_notify.graph_mail.send_mail = real
+        self.assertTrue(sent)
+        self.assertTrue(all(kw["subject"] == "2 new tickets - Batch Create" for kw in sent))
 
     # ── Asset Management: a property's tickets ──
     def test_open_history_and_closed_without_work(self):

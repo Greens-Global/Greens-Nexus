@@ -46,9 +46,9 @@ describe('WordTemplateWizard', () => {
     // a blank Nexus could not know about: HR adds it from the text
     fireEvent.change(screen.getByLabelText('Text to turn into a variable'), { target: { value: 'Hyderabad' } });
     expect(screen.getByText('Found in 1 place')).toBeTruthy();
-    fireEvent.change(screen.getByLabelText('Label for the new variable'), { target: { value: 'Work Location' } });
+    fireEvent.change(screen.getByLabelText('Label for the new variable'), { target: { value: 'Office City' } });
     fireEvent.click(screen.getByText('Add', { selector: 'button' }));
-    expect(screen.getByText('{{work_location}}')).toBeTruthy();
+    expect(screen.getByText('{{office_city}}')).toBeTruthy();
     expect(screen.getByText('Blanks (4)')).toBeTruthy();
 
     fireEvent.click(screen.getByText('Create And Publish'));
@@ -62,8 +62,8 @@ describe('WordTemplateWizard', () => {
     expect(json).not.toContain('pan_number');                    // left blank
     expect(json).toContain('"type":"signatureBlock"');
     expect(body.fieldDefs).toEqual([expect.objectContaining({ token: 'client_name', default: 'Greens Global LLC' }),
-      expect.objectContaining({ token: 'work_location', label: 'Work Location' })]);
-    expect(json).toContain('"token":"work_location"');
+      expect.objectContaining({ token: 'office_city', label: 'Office City' })]);
+    expect(json).toContain('"token":"office_city"');
     expect(publishDocTemplate).toHaveBeenCalledWith('t-new', expect.stringContaining('Admin_Associate Package.docx'));
     fireEvent.click(screen.getByText('Open In Editor'));
     expect(onOpen).toHaveBeenCalledWith('t-new');

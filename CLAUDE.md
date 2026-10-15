@@ -139,6 +139,13 @@ keep the diff minimal.
 - Cross-view navigation uses the `nexus:navigate` window event
   (`window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view, sub } }))`).
 - Tab strips use the `.scroll-tabs` class (hidden scrollbars, mobile swipe).
+- **Popups cover 60% of the screen** (Pranshu, Oct 15 2026): every modal /
+  dialog / popup panel is `width: 60vw` and `min-height: 60vh` (at least
+  ~420px wide, never wider than the viewport, `max-height: 85vh` with its
+  body scrolling). Never a small fixed-width box that floats mid-page with
+  empty space around it. Phones keep the full-screen sheet. The shared
+  `Modal` in `tasks/components.jsx` is already 60vw wide; match it in any
+  hand-rolled overlay.
 - Match the existing inline-style idiom and Inter font; reuse `TYPE_META` /
   status-badge patterns rather than inventing new chip styles.
 
@@ -227,6 +234,43 @@ keep the diff minimal.
   email goes to every grant holder with people in scope.
   The screen and the email are built by the same `build_report` - never add a
   second calculation path.
+
+- **Shifts (Oct 14-15 2026, PRs #589-#594, plan https://claude.ai/artifact/1cU9Zec3fXwyWUrEEAadbN).**
+  ONE expected-start / Late rule: `backend/shift_expect.py` (earliest live
+  placement for the day - a weather-cancelled day is none, never the preset;
+  else the usual-hours preset on its working days; grace from the shift type,
+  else the company's `defaultGraceMin`; zone placement -> shift type -> the
+  company's team zone). `timeclock._shift_start_for`, My Team, the Workforce
+  Scorecard and the no-show scan all read it - never add a second rule.
+  Shift settings are PER COMPANY (`routers/shift_requests.get_settings(db,
+  company_id)` = defaults <- tenant row <- sparse company override;
+  `settings_for(db, email)` for a person) and shift types / groups carry
+  `company_id` ('' = shared); writes go through `_require_company_manage`.
+  Trading (swaps, offers, open-shift requests), releasing a shift to the open
+  pool and cross-team open shifts are OFF by default (Neil) - switches in
+  Global Settings > Shifts, per company. `shift_attendance.py`: the no-show
+  scan (every minute, in a thread; one rollup bell per team and day to the
+  manager, backup manager and group schedulers, one email, resolved in
+  place; `noShowAlertMin`, 0 = off) and `actuals()` (On Time / Late / Left
+  Early / No-Show / Excused per person-day, from `_day_summaries`; a Sick/PTO
+  punch is not a clock-in; non-managers get status words only).
+  `shift_rules.py`: rest, days in a row, daily OT (people on the CA rule),
+  weekly OT on the PAYROLL week (Sunday), week caps on the display week;
+  rules WARN, never block; Share runs `_publish_review` first and a reason
+  is required (per the warned person's company) only for rule warnings and
+  approved-off / holiday conflicts - the reason is stored only on the warned
+  shifts' `shift_change_log` rows and never shown to staff. Every schedule
+  write records to `shift_change_log` through `shift_log.record`.
+  `shift_calendar.py` writes shared shifts to Outlook (Graph app-only
+  Calendars.ReadWrite, `docs/Outlook-Calendar-Setup.md`; waits quietly until
+  consent is granted) - OFF by default (Neil, Oct 15: an event filled the
+  whole working day): a company turns `outlookCalendarOn` on, and every tick
+  `queue_switched_off` takes events off calendars whose company or person
+  has it off. Never rename the key back to `outlookCalendar` (every settings
+  save stored that one as true), `routers/shift_ical.py` is the signed personal feed,
+  `shift_confirm.py` the confirm-my-schedule ask and nudge,
+  `shift_offboard.py` clears a leaver's future shifts. New shift tables rely
+  on `_enable_rls_everywhere`; run `get_advisors` after each release.
 
 ## Asana — removed (Sep 2026)
 

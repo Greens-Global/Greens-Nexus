@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render, cleanup, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 // Workday Overview with the Time Clock folded in (Neil, Oct 1: "is there a
 // need for the clock to be its own screen? ... it should be a widget and it
@@ -84,16 +84,15 @@ describe('Workday Overview with the Time Clock', () => {
     expect(await screen.findByText('Paystub 09-30-2026.pdf')).toBeTruthy();
   }, SLOW);
 
-  it('lists what is coming up under Time Off and its button opens the tab', async () => {
+  it('has no Time Off card (10/15); the Time Off This Year tile opens the tab', async () => {
     globalThis.__answers.timeOffMine = [
       { id: 't1', type: 'Medical Appointment', startDate: '2099-03-02', endDate: '2099-03-02', status: 'pending' },
-      { id: 't2', type: 'vacation', startDate: '2001-01-02', endDate: '2001-01-03', status: 'approved' },
     ];
     await renderWorkday('overview');
-    expect(await screen.findByText('Medical Appointment')).toBeTruthy();
-    expect(screen.getByText('03/02/2099')).toBeTruthy();
-    expect(screen.queryByText('01/02/2001 - 01/03/2001')).toBeNull();   // over - not coming up
-    fireEvent.click(screen.getByRole('button', { name: /Request Time Off/ }));
+    expect(await screen.findByText('My Schedule')).toBeTruthy();
+    expect(screen.queryByText('Medical Appointment')).toBeNull();
+    expect(screen.queryByRole('button', { name: /Request Time Off/ })).toBeNull();
+    fireEvent.click(screen.getByText('Time Off This Year'));
     expect(await screen.findByRole('button', { name: 'Reason: Personal' })).toBeTruthy();
   }, SLOW);
 
@@ -102,12 +101,12 @@ describe('Workday Overview with the Time Clock', () => {
     const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     globalThis.__answers.timeMySchedule = { scheduled: [{ id: 's1', date: today, start: '09:00', end: '17:30', label: 'Front Desk' }] };
     await renderWorkday('overview');
-    // Today's shift sits in the Hours tile, beside this week's hours.
-    expect(await screen.findByText('9:00 AM - 5:30 PM')).toBeTruthy();
+    // Today's shift is in My Schedule now, not the hero (Oct 15).
+    await screen.findByText('Amy Test');
     expect(screen.queryByText(/^Good (Morning|Afternoon|Evening), Amy$/)).toBeNull();   // no greeting (Oct 14)
     expect(screen.queryByText('Your clock, hours, documents and time off - only you see this')).toBeNull();   // no header band
-    expect(screen.getByText('Front Desk')).toBeTruthy();
-    expect(screen.getByText("Today's Shift")).toBeTruthy();
+    expect(await screen.findByText('Front Desk')).toBeTruthy();          // in the My Schedule card
+    expect(screen.queryByText("Today's Shift")).toBeNull();
   }, SLOW);
 
   it('shows hours in the clock card behind a Today / This Week / Pay Period switch', async () => {
@@ -117,6 +116,7 @@ describe('Workday Overview with the Time Clock', () => {
     const clock = screen.getByRole('region', { name: 'Time Clock' });
     const tabs = within(clock).getAllByRole('tab').map((t) => t.textContent);
     expect(tabs).toEqual(['Today', 'This Week', 'Pay Period']);
+    expect(within(clock).getByText('Worked today')).toBeTruthy();           // Today by default (Neil, Oct 14)
     // The week: seven days against the 8-hour line.
     fireEvent.click(within(clock).getByRole('tab', { name: 'This Week' }));
     expect(within(clock).getAllByRole('listitem').length).toBe(7);
@@ -129,28 +129,61 @@ describe('Workday Overview with the Time Clock', () => {
     expect(screen.queryByText('My Hours')).toBeNull();                   // no separate card
   }, SLOW);
 
-  it('says No Shift Today when nothing is scheduled, and has no My Documents tile', async () => {
+  it('has no Today\'s Shift half on the hero, and no My Documents tile', async () => {
     globalThis.__answers.timeMySchedule = { scheduled: [] };
     await renderWorkday('overview');
-    expect(await screen.findByText('No Shift Today')).toBeTruthy();
+    await screen.findByText('Amy Test');
+    expect(screen.queryByText('No Shift Today')).toBeNull();
     expect(screen.queryByText('Signed, filed and paystubs')).toBeNull();
   }, SLOW);
 
-  it("opens Shifts > My Shifts from today's shift, and the Time Sheet from the hours", async () => {
+  // Shifts Phase 3a + Oct 15: a "confirm your schedule" bell or email is your
+  // own week, which lives on Workday's My Schedule card - the share it names
+  // is the banner in front, and the address goes back to plain Overview.
+  it('a confirm-your-schedule link opens My Schedule on that share', async () => {
     globalThis.__answers.timeMySchedule = { scheduled: [] };
-    const nav = vi.fn();
-    window.addEventListener('nexus:navigate', nav);
+    globalThis.__answers.timeMyConfirmations = { pending: [
+      { publishId: 'pub-6', at: '2026-10-14T10:00:00Z', changes: 1 },
+      { publishId: 'pub-7', at: '2026-10-15T10:00:00Z', changes: 2 }] };
+    const onSubChange = await renderWorkday('shifts:confirm:pub-7');
+    const banner = await waitFor(() => { const el = document.querySelector('[data-confirm-banner]'); expect(el).toBeTruthy(); return el; });
+    expect(banner.getAttribute('data-confirm-banner')).toBe('pub-7');
+    await waitFor(() => expect(onSubChange).toHaveBeenCalledWith('overview'));
+  }, SLOW);
+
+  it('opens the Time Sheet from the hours', async () => {
+    globalThis.__answers.timeMySchedule = { scheduled: [] };
     await renderWorkday('overview');
-    fireEvent.click(await screen.findByRole('button', { name: /No Shift Today/ }));
-    expect(nav.mock.calls.at(-1)[0].detail).toEqual({ view: 'shifts', sub: 'mine' });
-    window.removeEventListener('nexus:navigate', nav);
+    expect(await screen.findByText('My Schedule')).toBeTruthy();
     fireEvent.click(screen.getByText('Hours · This Week'));
     expect(await screen.findByText('Timecard')).toBeTruthy();   // the Time Sheet tab
   }, SLOW);
 
-  it('opens the Ask HR form only on New Request', async () => {
+  it('dots the Ask HR button when HR answered, marks the request, and clears once seen', async () => {
+    try { localStorage.removeItem('nexus:askhr-seen'); } catch { /* ignore */ }
+    globalThis.__answers.myHrRequests = [
+      { id: 'r1', type: 'document', message: 'Update my visa', status: 'resolved', response: 'Done - filed.', resolvedAt: '2026-10-14T10:00:00Z', createdAt: '2026-10-10T10:00:00Z' },
+      { id: 'r2', type: 'question', message: 'Leave policy?', status: 'open', response: '', resolvedAt: '', createdAt: '2026-10-12T10:00:00Z' },
+    ];
+    await renderWorkday('overview');
+    const btn = await screen.findByRole('button', { name: 'Ask HR, 1 update from HR' });
+    expect(btn.querySelector('[data-askhr-dot]')).toBeTruthy();
+    fireEvent.click(btn);
+    const dialog = screen.getByRole('dialog', { name: 'Ask HR' });
+    expect(dialog.querySelectorAll('[data-ask-fresh]')).toHaveLength(1);        // only the answered one
+    expect(within(dialog).getByText('Updated by HR')).toBeTruthy();
+    expect(within(dialog).getByText('Leave policy?')).toBeTruthy();              // old requests are listed too
+    cleanup();
+    await renderWorkday('overview');
+    expect(await screen.findByRole('button', { name: 'Ask HR' })).toBeTruthy();   // seen: no dot
+  }, SLOW);
+
+  it('opens Ask HR from the button in the top row, and its form only on New Request', async () => {
     await renderWorkday('overview');
     await screen.findByText('Amy Test');
+    expect(screen.queryByRole('dialog', { name: 'Ask HR' })).toBeNull();     // no card on the page (Oct 15)
+    fireEvent.click(screen.getByRole('button', { name: 'Ask HR' }));
+    expect(screen.getByRole('dialog', { name: 'Ask HR' })).toBeTruthy();
     expect(screen.queryByText('What do you need?')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: /New Request/ }));
     expect(screen.getByText('What do you need?')).toBeTruthy();

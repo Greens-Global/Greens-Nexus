@@ -41,7 +41,7 @@ export default function GuidedTour({ steps, onClose }) {
   // against it, not against the layout viewport.
   const [vvTick, setVvTick] = useState(0);
 
-  const locate = useCallback(() => {
+  const locate = useCallback((scroll = true) => {
     if (!step?.target) { setRect(null); return; }
     const el = document.querySelector(`[data-tour="${step.target}"]`);
     if (!el) {
@@ -50,14 +50,29 @@ export default function GuidedTour({ steps, onClose }) {
       else setRect(null);
       return;
     }
-    el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    if (scroll !== false) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
     // Normalize into the INNER coordinate space at measurement time, so the
     // spotlight ring and popover below - both plain CSS lengths - line up with
     // the element they're highlighting under <html>'s CSS zoom. See rootZoom.
     const z = rootZoom();
     const r = el.getBoundingClientRect();
-    setRect({ top: r.top / z, left: r.left / z, width: r.width / z, height: r.height / z });
+    const next = { top: r.top / z, left: r.left / z, width: r.width / z, height: r.height / z };
+    // Only a real move re-renders (keeps the settle checks below cheap).
+    setRect((cur) => (cur && Math.abs(cur.top - next.top) < 0.5 && Math.abs(cur.left - next.left) < 0.5
+      && Math.abs(cur.width - next.width) < 0.5 && Math.abs(cur.height - next.height) < 0.5 ? cur : next));
   }, [step]);
+
+  // The page can still be moving when a step lands - the smooth scroll
+  // above, a panel closing, the sidebar sliding shut - and none of that is a
+  // resize or a scroll of the window. Look again as it settles, so the
+  // spotlight sits on the thing, not where it was (Oct 14 2026: it sat a
+  // card's margin to the right of an Item Management card).
+  useEffect(() => {
+    if (!step?.target) return undefined;
+    // Measure only - scrolling again would snap back a person scrolling.
+    const timers = [180, 420, 800].map((ms) => setTimeout(() => locate(false), ms));
+    return () => timers.forEach(clearTimeout);
+  }, [i, step, locate]);
 
   useLayoutEffect(() => {
     findTries.current = 0;
@@ -73,7 +88,7 @@ export default function GuidedTour({ steps, onClose }) {
       if (e.key === 'ArrowRight' && i < steps.length - 1) setI(i + 1);
       if (e.key === 'ArrowLeft' && i > 0) setI(i - 1);
     };
-    const reflow = () => locate();
+    const reflow = () => locate(false);   // measure only - never fight the person scrolling
     window.addEventListener('keydown', onKey);
     window.addEventListener('resize', reflow);
     window.addEventListener('scroll', reflow, true);
@@ -87,7 +102,7 @@ export default function GuidedTour({ steps, onClose }) {
   useEffect(() => {
     const vv = typeof window !== 'undefined' ? window.visualViewport : null;
     if (!compact || !vv) return undefined;
-    const bump = () => { setVvTick((n) => n + 1); locate(); };
+    const bump = () => { setVvTick((n) => n + 1); locate(false); };
     vv.addEventListener('resize', bump);
     vv.addEventListener('scroll', bump);
     return () => { vv.removeEventListener('resize', bump); vv.removeEventListener('scroll', bump); };

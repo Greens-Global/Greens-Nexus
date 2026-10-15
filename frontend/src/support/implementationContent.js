@@ -392,7 +392,7 @@ export const IMPL_PHASES = [
         'Shift Types: name, code, color and times.',
         'Groups: members and schedulers. Leave Teams binding to the job roles; a group binding is only the fallback.',
       ]},
-      { title: 'Build and publish the first schedule', where: 'Shifts > Schedule', view: 'shifts', sub: 'schedule', items: [
+      { title: 'Build and publish the first schedule', where: 'Team > Schedule', view: 'shifts', sub: 'schedule', items: [
         'Fill a week per group, copy it forward, and publish.',
       ]},
       { title: 'Test day messages', where: 'Workday (as a test person)', view: 'myhr', items: [
@@ -489,7 +489,7 @@ export const IMPL_PHASES = [
       { title: 'The rest', items: [
         'Credential Vault: Batch Import shared passwords and set owners.',
         'Marketing: connect Google Business Profile and Google Ads; set lead goals and budgets per property.',
-        'Investor Relations, Construction, Operations, IT and Business Intelligence: give the grants to their owners and load their records.',
+        'Investor Relations, Construction, Operations, IT and Insights: give the grants to their owners and load their records.',
       ]},
     ],
     checks: [
@@ -553,14 +553,14 @@ export const IMPL_PHASES = [
     steps: [
       { title: 'Announce and train', items: [
         'Send the go-live announcement with the sign-in link and the date the old tools stop.',
-        'Everyone: Workday, punching in, time off, Support and Help with This Page.',
+        'Everyone: Workday, punching in, time off, Help Center and Help with This Page.',
         'Managers: People (their team), approvals, the Action Log, Shifts.',
         'HR: People, Checklists, Pay & Benefits, timesheet signing.',
         'Admins: Settings, Access, Act As, Logs - and this guide.',
       ]},
       { title: 'Watch the first weeks', items: [
         'Watch the first pay period closely: the Action Log daily, missing punches, unsigned timesheets.',
-        'Collect feedback through Support tickets; publish fixes in What’s New.',
+        'Collect feedback through Help Center tickets; publish fixes in What’s New.',
       ]},
     ],
     checks: [

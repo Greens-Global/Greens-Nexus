@@ -11,8 +11,11 @@ import { Chip } from './LoanSetupDialog';
 import { Dialog } from './LoanDialogs';
 import { notAvailable } from './LoansTab';
 
-// Accounting -> Reporting -> AMA, Asset Management Agreements (Priyanka,
-// Oct 7: "We still need to build AMA"). The old mock (the "AMA Entity Billing
+// Accounting -> Reporting -> Management Fees, the Asset Management Agreements
+// (Priyanka, Oct 7: "We still need to build AMA"). Oct 15 (Neil): AMA means
+// Ask My Accountant (AskAccountantTab.jsx), so this screen is "Management
+// Fees" in the menu and its title; its sub key, its API (/accounting/ama/*)
+// and its saved column widths ('ama') did not move, so no data changed. The old mock (the "AMA Entity Billing
 // Tracker", removed in 78bf25db) listed entity, status, fee rate, billed YTD,
 // next billing and the agreement; this is the real version, kept simple and
 // editable:
@@ -230,7 +233,7 @@ export function AgreementDialog({ agreement = null, entities, showHistorical = f
 
 const thisYear = () => new Date().getFullYear();
 
-export default function AmaTab({ canEdit = false }) {
+export default function ManagementFeesTab({ canEdit = false }) {
   const custom = useCustomizePrefs(['density', 'pageSize', 'historicalEntities']);
   const py = DENSITIES.find((x) => x.key === custom.density)?.py || '5px';
   const cw = useColumnWidths('ama');
@@ -277,9 +280,9 @@ export default function AmaTab({ canEdit = false }) {
     <div style={{ display: 'grid', gap: 10 }}>
       <style>{`.acct-ama tbody > tr > td { padding-top: var(--ama-py, 5px); padding-bottom: var(--ama-py, 5px); }`}</style>
       <div>
-        <h3 style={{ margin: 0, fontSize: '1rem' }}>Asset Management Agreements</h3>
+        <h3 style={{ margin: 0, fontSize: '1rem' }}>Management Fees</h3>
         <p style={{ margin: '2px 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-          The fee each managed entity owes under its agreement, with what was billed this year read from the ledger.
+          Asset management agreements: the fee each managed entity owes, with what was billed this year read from the ledger.
         </p>
       </div>
 
@@ -314,7 +317,7 @@ export default function AmaTab({ canEdit = false }) {
 
       {error && (unavailable ? (
         <div style={{ ...card, padding: 18, fontSize: '0.86rem', color: 'var(--text-secondary)' }}>
-          <strong style={{ color: 'var(--text-primary)' }}>Asset Management Agreements are not available here.</strong> The accounting service is not connected on this environment.
+          <strong style={{ color: 'var(--text-primary)' }}>Management Fees are not available here.</strong> The accounting service is not connected on this environment.
         </div>
       ) : (
         <div style={{ ...bad, display: 'flex', alignItems: 'center', gap: 10 }}>

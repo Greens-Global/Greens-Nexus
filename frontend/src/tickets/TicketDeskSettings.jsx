@@ -155,6 +155,7 @@ function DepartmentHeads({ companyId, companyName, depts, people, onSetHead, onS
               );
             }} />
           <div style={{ fontSize: 11, color: NX.faint, marginTop: 6, lineHeight: 1.5 }}>
+            The department head is the same one set under People &gt; Companies &gt; Departments - changing it here changes it everywhere.
             A ticket filed against a department with no head falls back to this company's ticket agents when escalated.
             Tickets already filed against a department that is off keep it.
           </div>

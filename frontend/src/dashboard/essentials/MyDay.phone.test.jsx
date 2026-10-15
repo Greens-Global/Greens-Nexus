@@ -57,8 +57,18 @@ describe('My Day on a phone', () => {
     expect(title.style.overflow).toBe('hidden');
     // The row's text column may shrink, so the ellipsis can apply.
     expect(title.parentElement.style.minWidth).toMatch(/^0(px)?$/);
-    expect(screen.queryByText('Overdue')).toBeNull();
-    expect(screen.queryByText('Due Today')).toBeNull();
+    // The status column is gone; a compact cue leads the meta line instead.
+    const overdue = screen.getByText('Overdue');
+    expect(overdue.parentElement.textContent).toMatch(/^Overdue · Pay period ending/);
+    expect(screen.getByText('Due Today').parentElement.textContent).toMatch(/^Due Today · Due today/);
+  });
+
+  it('the grid\'s phone prop gives the phone sizing even on a wide viewport', async () => {
+    setViewport(false);
+    apiMock.getMyBriefing.mockResolvedValue(briefing(rows));
+    render(<MyDay phone />);
+    await screen.findByText('3 things need you');
+    expect(screen.getByRole('button', { name: 'Approve' }).style.minHeight).toBe('44px');
   });
 
   it('shows the status word again on a desktop', async () => {

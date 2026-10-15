@@ -1,5 +1,5 @@
-// Cross-view jump to one person's card in the Contact Directory (Support >
-// Contact Directory, Oct 2026) - the header search's People results and any
+// Cross-view jump to one person's card in the Contact Directory (Team >
+// Contact since Oct 13 2026) - the header search's People results and any
 // "contact this person" link land here.
 //
 // Same two-channel handoff as lib/personNav.js: the email is written down for
@@ -15,6 +15,6 @@ export function openContact(email) {
   const em = (email || '').trim().toLowerCase();
   if (!em) return;
   setPendingOpen(CONTACT_OPEN_KIND, em);
-  window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'directory' } }));
+  window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'shifts', sub: 'contact' } }));
   window.dispatchEvent(new CustomEvent(CONTACT_EVENT, { detail: { email: em } }));
 }

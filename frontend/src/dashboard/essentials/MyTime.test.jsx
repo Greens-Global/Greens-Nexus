@@ -4,14 +4,15 @@
 // beginning-of-day gate, the feedback line and the card click that opens
 // Workday. A crash here would blank a saved dashboard view.
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 
 const apiMock = vi.hoisted(() => ({ timeStatus: vi.fn(), timeBodRecord: vi.fn() }));
 const punchMock = vi.hoisted(() => ({ punchDurable: vi.fn(), replayPending: vi.fn(), readPending: vi.fn() }));
 const pairMock = vi.hoisted(() => ({ pairLocalAgent: vi.fn(async () => '') }));
 vi.mock('../../api', () => ({ api: apiMock }));
 vi.mock('../../lib/punchQueue', () => punchMock);
-vi.mock('../../lib/geoPosition', () => ({ punchPosition: vi.fn(async () => ({ lat: 1, lng: 2, accuracy_m: 5 })) }));
+const geoMock = vi.hoisted(() => ({ punchPosition: vi.fn(async () => ({ lat: 1, lng: 2, accuracy_m: 5 })) }));
+vi.mock('../../lib/geoPosition', () => geoMock);
 vi.mock('../../lib/agentPair', () => pairMock);
 vi.mock('../../components/BodModal', () => ({
   default: ({ mode, onSent, onSkip, onClose }) => (
@@ -25,6 +26,7 @@ vi.mock('@azure/msal-react', () => ({ useMsal: () => ({ accounts: [{ name: 'Neil
 vi.mock('../../contexts/NotificationContext.jsx', () => ({ useNotifications: () => ({ openPanel: vi.fn() }) }));
 
 import MyTime, { deriveMyTime } from './MyTime.jsx';
+import { queryClient } from '../../lib/queryClient';
 
 // Fixed "now": Thursday 10/08/2026 10:30 local.
 const NOW = new Date(2026, 9, 8, 10, 30);
@@ -112,6 +114,8 @@ describe('<MyTime /> render', () => {
     apiMock.timeBodRecord.mockResolvedValue({});
     pairMock.pairLocalAgent.mockResolvedValue('');
     delete window.__nexusCapture;
+    // The tile reads the shared /timeclock/status query - start each test cold.
+    queryClient.clear();
   });
   afterEach(() => { vi.useRealTimers(); delete window.__nexusCapture; });
 
@@ -129,18 +133,74 @@ describe('<MyTime /> render', () => {
     expect(screen.queryByText(/This Week|Pay Period|Next Shift|Request Time Off|Coming Up/)).toBeNull();
   });
 
-  it('Start Break punches through the durable queue and says what it did', async () => {
+  it('Start Break asks for the reason first (the Time Clock screen\'s prompt), then punches and says what it did', async () => {
     apiMock.timeStatus.mockResolvedValue(clockedInStatus());
     punchMock.punchDurable.mockResolvedValue({ ok: true, punch: { kind: 'break_start', at: stamp(NOW), geoStatus: 'in_fence', workSiteName: 'Escondido North' }, result: {} });
     render(<MyTime />);
     const changed = vi.fn();
     window.addEventListener('nexus:timeclock-changed', changed);
+    geoMock.punchPosition.mockClear();
     fireEvent.click(await screen.findByRole('button', { name: /Start Break/ }));
+    expect(await screen.findByTestId('bod-modal')).toHaveTextContent('break');
+    expect(punchMock.punchDurable).not.toHaveBeenCalled();
+    expect(geoMock.punchPosition).toHaveBeenCalledWith('break_start');   // the fix runs under the prompt, not after it
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     await waitFor(() => expect(punchMock.punchDurable).toHaveBeenCalledTimes(1));
     expect(punchMock.punchDurable.mock.calls[0][0]).toMatchObject({ kind: 'break_start', pos: { lat: 1, lng: 2 } });
+    expect(geoMock.punchPosition).toHaveBeenCalledTimes(1);               // a fix in hand is not asked for twice
+    expect(punchMock.punchDurable.mock.calls[0][0].clickedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);   // the moment the button was pressed
+    expect(screen.queryByTestId('bod-modal')).toBeNull();
     expect(await screen.findByRole('status')).toHaveTextContent('Break started at 10:30 AM at Escondido North.');
     await waitFor(() => expect(changed).toHaveBeenCalled());
     window.removeEventListener('nexus:timeclock-changed', changed);
+  });
+
+  it('closing the break prompt cancels the punch and frees the button; End Break gets the resuming-work prompt', async () => {
+    const punches = [
+      { kind: 'in', at: stamp(minsAgo(120)), localDate: TODAY },
+      { kind: 'break_start', at: stamp(minsAgo(30)), localDate: TODAY },
+    ];
+    apiMock.timeStatus.mockResolvedValueOnce(clockedInStatus())
+      .mockResolvedValue(clockedInStatus({ lastPunch: punches[1], allowed: ['break_end', 'out'], days: { [TODAY]: { workedMin: 0, flags: ['missing_out'], punches } } }));
+    punchMock.punchDurable.mockResolvedValue({ ok: true, punch: { kind: 'break_end', at: stamp(NOW) }, result: {} });
+    render(<MyTime />);
+    fireEvent.click(await screen.findByRole('button', { name: /Start Break/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Close' }));
+    expect(screen.queryByTestId('bod-modal')).toBeNull();
+    expect(punchMock.punchDurable).not.toHaveBeenCalled();
+    // The second read says the break started elsewhere: the next punch is End Break.
+    act(() => { window.dispatchEvent(new CustomEvent('nexus:timeclock-changed')); });
+    fireEvent.click(await screen.findByRole('button', { name: /End Break/ }));
+    expect(await screen.findByTestId('bod-modal')).toHaveTextContent('break_end');
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(punchMock.punchDurable).toHaveBeenCalledTimes(1));
+    expect(punchMock.punchDurable.mock.calls[0][0].kind).toBe('break_end');
+  });
+
+  it('a break the server refuses after the prompt: the words show, the button works again, the stamp does not carry over', async () => {
+    apiMock.timeStatus.mockResolvedValue(clockedInStatus());
+    punchMock.punchDurable.mockResolvedValueOnce({ ok: false, error: { status: 409, message: 'Already on a break.' } });
+    render(<MyTime />);
+    fireEvent.click(await screen.findByRole('button', { name: /Start Break/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Send' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Already on a break.');
+    expect(punchMock.punchDurable.mock.calls[0][0].clickedAt).toMatch(/^\d{4}/);
+    // Released: the next tap prompts again and sends a stamp of its own.
+    punchMock.punchDurable.mockResolvedValueOnce({ ok: true, punch: { kind: 'break_start', at: stamp(NOW) }, result: {} });
+    fireEvent.click(screen.getByRole('button', { name: /Start Break/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(punchMock.punchDurable).toHaveBeenCalledTimes(2));
+    expect(punchMock.punchDurable.mock.calls[1][0].clickedAt).toMatch(/^\d{4}/);
+  });
+
+  it('a role-flagged person (bodExempt) starts the break with no prompt', async () => {
+    apiMock.timeStatus.mockResolvedValue(clockedInStatus({ bodExempt: true }));
+    punchMock.punchDurable.mockResolvedValue({ ok: true, punch: { kind: 'break_start', at: stamp(NOW) }, result: {} });
+    render(<MyTime />);
+    fireEvent.click(await screen.findByRole('button', { name: /Start Break/ }));
+    await waitFor(() => expect(punchMock.punchDurable).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId('bod-modal')).toBeNull();
+    expect(punchMock.punchDurable.mock.calls[0][0].clickedAt).toBeUndefined();
   });
 
   it('clocked out: Punch In punches right here, with the shared-PC pairing, when no message is owed', async () => {
@@ -226,7 +286,7 @@ describe('<MyTime /> render', () => {
   });
 
   it('a refused punch shows the server\'s words inline; an unreachable one says it is parked', async () => {
-    apiMock.timeStatus.mockResolvedValue(clockedInStatus());
+    apiMock.timeStatus.mockResolvedValue(clockedInStatus({ bodExempt: true }));
     punchMock.punchDurable.mockResolvedValueOnce({ ok: false, error: { status: 409, message: 'Already on a break.' } });
     render(<MyTime />);
     fireEvent.click(await screen.findByRole('button', { name: /Start Break/ }));
@@ -237,7 +297,7 @@ describe('<MyTime /> render', () => {
   });
 
   it('the card opens Workday; its buttons do not', async () => {
-    apiMock.timeStatus.mockResolvedValue(clockedInStatus());
+    apiMock.timeStatus.mockResolvedValue(clockedInStatus({ bodExempt: true }));
     punchMock.punchDurable.mockResolvedValue({ ok: true, punch: { kind: 'break_start', at: stamp(NOW) }, result: {} });
     render(<MyTime />);
     await screen.findByText('Clocked In');
@@ -261,5 +321,48 @@ describe('<MyTime /> render', () => {
     apiMock.timeStatus.mockResolvedValue(clockedInStatus());
     fireEvent.click(screen.getByRole('button', { name: /Try Again/ }));
     expect(await screen.findByText('Clocked In')).toBeTruthy();
+  });
+
+  it('the monitoring notice is checked before the screen picker opens', async () => {
+    const start = vi.fn(async () => true);
+    window.__nexusCapture = { start, stop: vi.fn() };
+    apiMock.timeStatus.mockResolvedValue(clockedOutStatus({ monitoring: { consentRequired: true } }));
+    render(<MyTime />);
+    fireEvent.click(await screen.findByRole('button', { name: /Punch In/ }));
+    expect(await screen.findByText(/monitoring notice needs your acknowledgment/)).toBeTruthy();
+    expect(start).not.toHaveBeenCalled();
+    expect(punchMock.punchDurable).not.toHaveBeenCalled();
+  });
+
+  it('closing the beginning-of-day prompt stops the screen share started for the clock-in', async () => {
+    const stopCap = vi.fn();
+    window.__nexusCapture = { start: async () => true, stop: stopCap };
+    apiMock.timeStatus.mockResolvedValue(clockedOutStatus({ bodRequired: true }));
+    render(<MyTime />);
+    fireEvent.click(await screen.findByRole('button', { name: /Punch In/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Close' }));
+    expect(stopCap).toHaveBeenCalledTimes(1);
+    expect(punchMock.punchDurable).not.toHaveBeenCalled();
+  });
+
+  it('a refused clock-in stops the share; a state clash (409) and a parked one keep it', async () => {
+    const stopCap = vi.fn();
+    window.__nexusCapture = { start: async () => true, stop: stopCap };
+    apiMock.timeStatus.mockResolvedValue(clockedOutStatus());
+    punchMock.punchDurable.mockResolvedValueOnce({ ok: false, error: { status: 400, message: 'Outside the work site.' } });
+    render(<MyTime />);
+    fireEvent.click(await screen.findByRole('button', { name: /Punch In/ }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Outside the work site.');
+    expect(stopCap).toHaveBeenCalledTimes(1);
+    // Already clocked in on another device: the person may be on the clock,
+    // so the share stays up.
+    punchMock.punchDurable.mockResolvedValueOnce({ ok: false, error: { status: 409, message: 'Duplicate punch.' } });
+    fireEvent.click(screen.getByRole('button', { name: /Punch In/ }));
+    expect(await screen.findByText('Duplicate punch.')).toBeTruthy();
+    expect(stopCap).toHaveBeenCalledTimes(1);
+    punchMock.punchDurable.mockResolvedValueOnce({ ok: false, unreachable: true, queued: true, error: {} });
+    fireEvent.click(screen.getByRole('button', { name: /Punch In/ }));
+    expect(await screen.findByText(/saved on this device/)).toBeTruthy();
+    expect(stopCap).toHaveBeenCalledTimes(1);
   });
 });

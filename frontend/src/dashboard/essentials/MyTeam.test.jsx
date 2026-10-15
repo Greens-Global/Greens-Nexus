@@ -158,11 +158,26 @@ describe('My Team tile', () => {
     apiMock.getMyTeamToday.mockRejectedValue(new Error('offline'));
     apiMock.getMyTeamOverdue.mockRejectedValue(new Error('offline'));
     render(<MyTeam />);
-    expect(await screen.findByText('offline')).toBeTruthy();
+    expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't load who is in today.");
     apiMock.getMyTeamToday.mockResolvedValue(TODAY);
     apiMock.getMyTeamOverdue.mockResolvedValue({ people: [] });
-    fireEvent.click(screen.getByText('Retry'));
+    fireEvent.click(screen.getByRole('button', { name: 'Try Again' }));
     expect(await screen.findByRole('button', { name: 'In: 1' })).toBeTruthy();
+  });
+
+  it('a failed today read is an error, not an empty team, even when overdue work loads', async () => {
+    apiMock.getMyTeamToday.mockRejectedValue(new Error('offline'));
+    apiMock.getMyTeamOverdue.mockResolvedValue({ people: [person(1)], total: 1 });
+    render(<MyTeam />);
+    expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't load who is in today.");
+    expect(screen.queryByText('No one reports to you in People yet.')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'In: 0' })).toBeNull();
+    // Who needs a push still shows - that read did land.
+    expect(screen.getByText('Person 1')).toBeTruthy();
+    apiMock.getMyTeamToday.mockResolvedValue(TODAY);
+    fireEvent.click(screen.getByRole('button', { name: 'Try Again' }));
+    expect(await screen.findByRole('button', { name: 'In: 1' })).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 
   it('tells a supervisor with no reports so', async () => {

@@ -311,28 +311,17 @@ export default function ImplementationGuide({ toastErr }) {
   const allDone = IMPL_CHECK_IDS.filter((id) => done[id]).length;
 
   return (
-    <div ref={topRef} style={{ display: 'flex', flexDirection: 'column', gap: 20, scrollMarginTop: 80 }}>
-      <div className="docs-hero">
-        <div style={{ flex: 1, minWidth: 240 }}>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, fontWeight: 700, color: BRAND, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 999, padding: '3px 10px', marginBottom: 10 }}>
-            <Rocket size={12} /> {IMPL_INTRO.title}
-          </div>
-          <h2 style={{ margin: '0 0 6px', fontSize: 22, fontWeight: 800, color: 'var(--ink)', letterSpacing: '-0.02em' }}>From Signed Contract to Live Organization</h2>
-          <p style={{ margin: 0, fontSize: 14, color: 'var(--muted)', lineHeight: 1.55, maxWidth: 600 }}>
-            {IMPL_PHASES.length} phases in the order they must happen, each with the decisions to make, the steps (with a link to each screen) and the checks that prove it is done.
-          </p>
-        </div>
-        <div style={{ width: 260, maxWidth: '100%', alignSelf: 'flex-end' }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', marginBottom: 6 }}>
-            {loadErr ? <span style={{ color: '#b45309' }}>{loadErr} <button type="button" onClick={load} style={{ border: 'none', background: 'none', color: BRAND, fontWeight: 700, cursor: 'pointer', padding: 0 }}>Retry</button></span>
-              : `${allDone} of ${IMPL_CHECK_IDS.length} checks done`}
-          </div>
-          <Bar done={allDone} total={IMPL_CHECK_IDS.length} height={8} />
-        </div>
-      </div>
-
-      <div className="docs-layout">
+    <div ref={topRef} style={{ display: 'flex', flexDirection: 'column', gap: 16, scrollMarginTop: 80 }}>
+      <div className="docs-layout docs-layout--guide">
         <aside className="docs-index" aria-label="Implementation guide sections">
+          {/* Overall progress (Oct 15 2026: was a hero card above the guide). */}
+          <div style={{ padding: '4px 10px 12px', marginBottom: 8, borderBottom: '1px solid var(--line)' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', marginBottom: 6 }}>
+              {loadErr ? <span style={{ color: '#b45309' }}>{loadErr} <button type="button" onClick={load} style={{ border: 'none', background: 'none', color: BRAND, fontWeight: 700, cursor: 'pointer', padding: 0 }}>Retry</button></span>
+                : `${allDone} of ${IMPL_CHECK_IDS.length} checks done`}
+            </div>
+            <Bar done={allDone} total={IMPL_CHECK_IDS.length} height={6} />
+          </div>
           {GROUPS.map((g) => (
             <div key={g} style={{ marginBottom: 12 }}>
               <div style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.07em', padding: '0 10px 5px' }}>{g}</div>

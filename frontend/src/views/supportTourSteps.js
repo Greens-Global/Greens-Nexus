@@ -1,4 +1,4 @@
-// Support page guided tour - same shape and purpose as the Task and Ticket
+// Help Center (was Support) page guided tour - same shape and purpose as the Task and Ticket
 // modules' own (tasks/taskTourSteps.js, tickets/ticketTourSteps.js).
 //
 // Rendered by GuidedTour (components/GuidedTour.jsx) via Support.jsx, which
@@ -17,8 +17,8 @@ export function buildSupportTourSteps() {
   return [
     {
       target: 'support-options',
-      title: 'Five shortcuts, one page',
-      body: 'Everything you might need help with starts from one of these cards. The one you will use most is Submit a Ticket - the rest jump to the Contact Directory, Privacy Policy, Terms and the Documentation guide.',
+      title: 'Four shortcuts, one page',
+      body: 'Everything you might need help with or want to learn starts from one of these cards. The one you will use most is Submit a Ticket - the rest open the Assistant (search and ask), the Documentation guide and the Knowledge Base & Training.',
     },
     {
       target: 'support-submit-ticket',
@@ -28,7 +28,7 @@ export function buildSupportTourSteps() {
     {
       target: 'support-documentation',
       title: 'Documentation',
-      body: 'A plain-English guide to every Nexus module - what it is for, how to use it step by step, and what managers get extra. Back to Support returns you to these cards.',
+      body: 'A plain-English guide to every Nexus module - what it is for, how to use it step by step, and what managers get extra. Back to Help Center returns you to these cards.',
     },
     {
       target: 'support-open-tickets',

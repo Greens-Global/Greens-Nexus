@@ -15,18 +15,18 @@ const DEFAULT_PERSONAL = [
   { i: 'd4', type: 'kpi',           x: 3, y: 0, w: 3, h: 2, config: { metric: 'my_checkouts' } },
   { i: 'd5', type: 'kpi',           x: 6, y: 0, w: 3, h: 2, config: { metric: 'my_assignments' } },
   { i: 'd6', type: 'kpi',           x: 9, y: 0, w: 3, h: 2, config: { metric: 'unread_notifications' } },
-  { i: 'd7', type: 'notifications', x: 0, y: 2, w: 6, h: 5 },
-  { i: 'd9', type: 'kpi-bar',       x: 6, y: 2, w: 3, h: 5 },
-  // A bare icon dock (Oct 13): 3x2 = six cells for the five default actions,
-  // one row on a phone. It used to be a 3x6 list that sat mostly empty.
-  { i: 'd2', type: 'quick-actions', x: 9, y: 2, w: 3, h: 2, config: { style: 'icons' } },
+  // w8: takes the space At a Glance had (retired - Neil, Oct 13 2026).
+  { i: 'd7', type: 'notifications', x: 0, y: 2, w: 8, h: 5 },
+  // A bare icon dock (Oct 13): 4x2 for the five default actions, one row on
+  // a phone. It used to be a 3x6 list that sat mostly empty.
+  { i: 'd2', type: 'quick-actions', x: 8, y: 2, w: 4, h: 2, config: { style: 'icons' } },
   // Calendar + My Agenda, merged (Outlook/Teams). Shows a quiet explainer for
   // non-M365 accounts. w8 so the month grid and the agenda list sit side by
   // side by default instead of wrapping to stacked.
   { i: 'd10', type: 'calendar',     x: 0, y: 7, w: 8, h: 5 },
   // h5: six link rows + header need ~260px - at h4 the last row clipped.
   // y4: straight under the dock, so the right column has no hole.
-  { i: 'd8', type: 'links',         x: 9, y: 4, w: 3, h: 5 },
+  { i: 'd8', type: 'links',         x: 8, y: 4, w: 4, h: 5 },
 ];
 
 // Role-tiered starting extras (Sep 4, Pranshu: "give a few default widgets" so
@@ -103,6 +103,34 @@ export function firstFreeSpot(items, it, fromY = 0) {
   return { ...it, x: 0, y: items.reduce((m, p) => Math.max(m, p.y + p.h), 0), w, h };   // unreachable backstop
 }
 
+// Collisions (Oct 14). The board used to save whatever a drop or a resize
+// left behind, so a tile dropped on another sat on top of it - and on a phone
+// the two overlapping tiles then stacked in an arbitrary order. This settles
+// the board the way a drag should feel: the tiles named in `first` (the one
+// being dragged / resized / reconfigured) keep their spot, and everything
+// else, in reading order, slides straight down only as far as it must to
+// clear what is already settled. Tiles nothing touched never move, so a
+// board without overlaps comes back unchanged (same objects).
+export function resolveCollisions(items, first = []) {
+  const firstSet = new Set(Array.isArray(first) ? first : [first]);
+  const order = [
+    ...readingOrder(items.filter(it => firstSet.has(it.i))),
+    ...readingOrder(items.filter(it => !firstSet.has(it.i))),
+  ];
+  const settled = [];
+  const moved = new Map();
+  for (const it of order) {
+    let y = Math.max(0, it.y);
+    if (!firstSet.has(it.i)) {
+      while (settled.some(p => collides({ ...it, y }, p))) y++;
+    }
+    const placed = y === it.y ? it : { ...it, y };
+    if (placed !== it) moved.set(it.i, placed);
+    settled.push(placed);
+  }
+  return moved.size ? items.map(it => moved.get(it.i) || it) : items;
+}
+
 // Reading order: the order a phone stacks widgets in (DashboardGrid's
 // single column) - top to bottom, then left to right.
 export const readingOrder = (items) => [...items].sort((a, b) => (a.y - b.y) || (a.x - b.x));
@@ -174,6 +202,11 @@ export function useDashboards(widgetTier) {
   const [editing, setEditing] = useState(false);
   const layoutRef = useRef(layout);
   useEffect(() => { layoutRef.current = layout; }, [layout]);
+  // The layout as the server has it (what a widget's own save patches), and
+  // the chain those saves run on - one at a time, so two Notes tiles saving
+  // together can't overwrite each other, nor an old reply land last.
+  const savedLayoutRef = useRef(null);
+  const saveChain = useRef(Promise.resolve());
 
   const applyView = useCallback((view) => {
     // clampToLimits normalizes layouts saved before per-widget size caps existed
@@ -181,7 +214,10 @@ export function useDashboards(widgetTier) {
     const items = (view && Array.isArray(view.layout) && view.layout.length)
       ? view.layout : defaultLayoutFor(widgetTier);
     setActiveId(view?.id ?? null);
-    setLayoutState(items.map(clampToLimits));
+    savedLayoutRef.current = (view && Array.isArray(view.layout) && view.layout.length) ? view.layout : null;
+    // Clamping can grow a tile into its neighbor, and boards saved before
+    // collisions were settled may already overlap - settle on load.
+    setLayoutState(resolveCollisions(items.map(clampToLimits)));
     setDirty(false);
   }, [widgetTier]);
 
@@ -233,11 +269,59 @@ export function useDashboards(widgetTier) {
     setLayout([...cur, firstFreeSpot(cur, copy, src.y)]);
   };
   const autoFit = () => setLayout(compactLayout(layoutRef.current));
-  const moveWidget = (i, dir) => setLayout(moveInOrder(layoutRef.current, i, dir));
+  // `hidden`: tiles not shown to this person (a punch tile for a salaried
+  // person). The arrows reorder what they can SEE - a swap with an invisible
+  // tile used to look like the button did nothing - and the hidden tiles are
+  // then settled around the result.
+  const moveWidget = (i, dir, hidden = []) => {
+    const hiddenIds = new Set(hidden.map(h => h.i));
+    const cur = layoutRef.current;
+    const shown = cur.filter(w => !hiddenIds.has(w.i));
+    const next = moveInOrder(shown, i, dir);
+    if (!hiddenIds.size) { setLayout(next); return; }
+    setLayout(resolveCollisions([...next, ...cur.filter(w => hiddenIds.has(w.i))], next.map(w => w.i)));
+  };
   // The merged config may change the tile's bounds (a Quick Actions style
   // does), so the tile is clamped to them right away rather than on the
   // next drag.
-  const updateWidgetConfig = (i, patch) => setLayout(layout.map(w => w.i === i ? clampToLimits({ ...w, config: { ...(w.config || {}), ...patch } }) : w));
+  // ...and then the board is settled around it, since a bigger style can
+  // grow it into the tile below.
+  const updateWidgetConfig = (i, patch) => setLayout(resolveCollisions(
+    layoutRef.current.map(w => w.i === i ? clampToLimits({ ...w, config: { ...(w.config || {}), ...patch } }) : w), [i]));
+
+  // A widget's own content changed outside Customize (the Notes text, the
+  // Weather tile's city) - saved straight to the view, never through the
+  // layout's unsaved-changes flag (Oct 14: outside Customize there is no Save
+  // button, so a note was lost on reload). In Customize it rides along with
+  // the layout's Save like any other edit. Resolves { deferred } when it is
+  // waiting on that Save, { local } when this person may not change the view.
+  const canSaveInPlace = !!activeView && (activeView.scope === 'personal' || (activeView.scope === 'department' && canPublish));
+  const saveWidgetConfig = (i, patch) => {
+    const apply = (w) => (w.i === i ? { ...w, config: { ...(w.config || {}), ...patch } } : w);
+    const next = layoutRef.current.map(apply);
+    if (editing) { setLayout(next); return Promise.resolve({ deferred: true }); }
+    setLayoutState(next);
+    layoutRef.current = next;
+    if (!canSaveInPlace) return Promise.resolve({ local: true });
+    // Patch the SAVED layout, so a board normalized on load (clamped,
+    // settled) is not saved behind the person's back by typing a note.
+    const base = savedLayoutRef.current;
+    const body = base && base.some(w => w.i === i) ? base.map(apply) : next;
+    savedLayoutRef.current = body;
+    const viewId = activeId;
+    const run = saveChain.current.then(() => api.dashUpdateView(viewId, { layout: body }))
+      .then((updated) => { setViews(vs => vs.map(v => v.id === updated.id ? updated : v)); return { saved: true }; });
+    saveChain.current = run.catch(() => {});
+    return run;
+  };
+
+  // Done (leaving Customize without saving): put back the view being edited.
+  // It used to reload everything, which re-picked the DEFAULT view - editing
+  // "Ops" and pressing Done (even with no changes) jumped to another board.
+  const cancelEdit = () => {
+    applyView(views.find(v => v.id === activeId) || null);
+    setEditing(false);
+  };
 
   const switchView = (id) => {
     const v = views.find(x => x.id === id);
@@ -251,6 +335,7 @@ export function useDashboards(widgetTier) {
   // unless you're editing the dept template as a manager).
   const save = async () => {
     const cur = layoutRef.current;
+    savedLayoutRef.current = cur;
     if (isOwnPersonal) {
       const updated = await api.dashUpdateView(activeId, { layout: cur });
       setViews(vs => vs.map(v => v.id === updated.id ? updated : v));
@@ -258,7 +343,7 @@ export function useDashboards(widgetTier) {
       const updated = await api.dashUpdateView(activeId, { layout: cur });
       setViews(vs => vs.map(v => v.id === updated.id ? updated : v));
     } else {
-      const created = await api.dashCreateView({ target: TARGET, name: 'My view', layout: cur, is_default: true });
+      const created = await api.dashCreateView({ target: TARGET, name: 'My View', layout: cur, is_default: true });
       setViews(vs => [...vs, created]);
       setActiveId(created.id);
     }
@@ -270,6 +355,7 @@ export function useDashboards(widgetTier) {
     const created = await api.dashCreateView({ target: TARGET, name: name || 'New view', layout: layoutRef.current });
     setViews(vs => [...vs, created]);
     setActiveId(created.id);
+    savedLayoutRef.current = layoutRef.current;
     setDirty(false);
     return created;
   };
@@ -318,7 +404,7 @@ export function useDashboards(widgetTier) {
 
   return {
     views, activeId, activeView, layout, kpis, department, canPublish, dirty, loading, editing,
-    setEditing, setLayout, addWidget, removeWidget, duplicateWidget, autoFit, moveWidget, updateWidgetConfig,
+    setEditing, setLayout, addWidget, removeWidget, duplicateWidget, autoFit, moveWidget, updateWidgetConfig, saveWidgetConfig, canSaveInPlace, cancelEdit,
     switchView, save, saveAsNew, createNewView, publishDepartment, setDefaultView, clearDefaultView, removeView, renameView, reload: load,
   };
 }

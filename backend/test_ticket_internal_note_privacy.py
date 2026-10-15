@@ -89,8 +89,9 @@ class InternalNotePrivacyTests(unittest.TestCase):
         return out
 
     def _bells(self, who):
-        return (self.db.query(models.NexusNotification)
-                .filter(models.NexusNotification.recipient == who).all())
+        # The Tickets bell carries every ticket notice (the main bell copies
+        # only some since Oct 14 2026), so a leak would show here first.
+        return self.db.query(models.TaskNotification).filter(models.TaskNotification.for_email == who).all()
 
     def _both(self):
         self._comment(f"<p>{PUBLIC}</p>")

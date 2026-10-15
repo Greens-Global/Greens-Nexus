@@ -117,7 +117,11 @@ class RequesterBellTests(unittest.TestCase):
         t.status, t.assignee_email = "in_progress", OTHER
         self.db.commit()
         self._save(AGENT, status="pending")
-        self.assertEqual([b.title for b in self._bells(OTHER)], ["Ticket moved to Pending"])
+        # The assignee hears in the Tickets bell; the main bell carries a
+        # ticket's updates only to the person who raised it (Oct 14 2026).
+        self.assertEqual([b.title for b in self.db.query(models.TaskNotification)
+                          .filter(models.TaskNotification.for_email == OTHER).all()], ["Ticket moved to Pending"])
+        self.assertEqual(self._bells(OTHER), [])
         self.assertEqual(len(self._bells()), 1)
 
     def test_a_file_attached_by_the_desk_bells_the_requester(self):

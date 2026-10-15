@@ -8,10 +8,20 @@
 // shrinks with the block (container units) before anything is cut.
 // Time off is ITS OWN soft rose block beside the shift, never in its place.
 // An open shift is the same block with a hollow (double) bar and a ×N.
+// Actuals (Phase 1, Oct 14): a past or running shift wears ONE thin bar
+// under the time line in the status color (on time green, late / left
+// early orange, no-show red, in progress its own color breathing, excused
+// grey); what the clock said is the hover title, never a text line. A
+// one-letter badge at the right end of the time line (L / E / N / check)
+// says it without the color (Oct 15), and on a touch screen - or always,
+// with `tapActual` (My Shifts) - a tap on the badge or bar opens a small
+// sheet with the hover lines, since a phone has no hover.
+import { useEffect, useState } from 'react';
 import { Lock } from 'lucide-react';
 import { formatDate } from '../../lib/datetime';
 import { timeOffLabel } from '../shiftScheduleLib';
-import { alpha, DEFAULT_SHIFT_COLOR, OPEN_SHIFT_COLOR, shiftState, shiftTimeText, shiftShortText, unpaidLabel, timeOffWhen, timeOffShort, isApprovedOff, isAllDayOff, zoneDiffers } from './shiftLib';
+import { alpha, DEFAULT_SHIFT_COLOR, OPEN_SHIFT_COLOR, shiftState, shiftTimeText, shiftShortText, unpaidLabel, timeOffWhen, timeOffShort, isApprovedOff, isAllDayOff, zoneDiffers, actualLabel, actualColor, actualWord, actualLetter } from './shiftLib';
+import { useReducedMotion } from './motion';
 import { zoneOptionLabel, tzAbbrev } from '../../lib/worldClockZones';
 
 // The time shrinks from 12px toward 9px as the block narrows (a share of
@@ -23,9 +33,18 @@ import { zoneOptionLabel, tzAbbrev } from '../../lib/worldClockZones';
 const fit = (share, max = 12) => `clamp(8.5px, ${share}cqi, ${max}px)`;
 const LINE = { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 };
 
+const coarsePointer = () => typeof window !== 'undefined' && !!window.matchMedia?.('(pointer: coarse)')?.matches;
+
 export function ShiftBlock({ shift: s, open = false, compact = false, teamZone = '', onOpen, onContextMenu, dragProps = {},
-  tabIndex, showConflicts = true, dragging = false, className = '', children, style, ...rest }) {
+  tabIndex, showConflicts = true, dragging = false, className = '', actual = null, tapActual = null, children, style, ...rest }) {
+  const reduce = useReducedMotion();
   const color = s.color || (open ? OPEN_SHIFT_COLOR : DEFAULT_SHIFT_COLOR);
+  const act = actual && actual.status && actual.status !== 'upcoming' ? actual : null;
+  const actText = act ? actualLabel(act) : '';
+  const letter = act ? actualLetter(act.status) : '';
+  const tappable = !!act && (tapActual ?? coarsePointer());
+  const [sheet, setSheet] = useState(null);   // { x, y } while the actual sheet is open
+  const showSheet = (e) => { e.stopPropagation(); e.preventDefault(); setSheet({ x: e.clientX, y: e.clientY }); };
   const st = shiftState(s);
   const zone = s.timeZone || s.timezone || '';
   const otherZone = zoneDiffers(zone, teamZone);
@@ -42,7 +61,7 @@ export function ShiftBlock({ shift: s, open = false, compact = false, teamZone =
   const weather = s.weatherStatus === 'cancelled' ? 'Cancelled for weather (unpaid)' : s.weatherStatus === 'delayed' ? 'Start delayed for weather'
     : s.weatherStatus === 'shortened' ? 'Ending early for weather' : s.weatherStatus === 'moved' ? 'Moved for weather' : s.weatherStatus === 'kept' ? 'Weather call: going ahead' : '';
   const cancelled = s.weatherStatus === 'cancelled';
-  const title = [`${shiftTimeText(s)}${code ? ` · ${code}` : ''}${label ? ` · ${label}` : ''}`, weather, st.title, unpaid, s.note,
+  const title = [`${shiftTimeText(s)}${code ? ` · ${code}` : ''}${label ? ` · ${label}` : ''}`, actText, weather, st.title, unpaid, s.note,
     ...(s.activities || []).map((a) => `${a.start && a.end ? `${shiftTimeText(a)} ` : ''}${a.label || 'Activity'}${a.paid === false ? ' (unpaid)' : ''}`),
     otherZone ? `Times in ${zoneOptionLabel(zone)}` : '', ...(s.conflicts || [])].filter(Boolean).join('\n');
   const interactive = !!onOpen;
@@ -51,14 +70,14 @@ export function ShiftBlock({ shift: s, open = false, compact = false, teamZone =
   const share = (compact ? 11 : 9.5) - (slots ? 1.3 : 0) - (otherZone ? 1.3 : 0);
   return (
     <div data-shift={s.id} data-conflict={warn ? '' : undefined} data-weather-status={s.weatherStatus || undefined} role={interactive ? 'button' : undefined} tabIndex={interactive ? (tabIndex ?? 0) : undefined}
-      aria-label={interactive ? `${open ? 'Open shift' : 'Shift'} ${shiftTimeText(s)}${code ? ` ${code}` : ''}${label ? ` ${label}` : ''}${st.tag ? `, ${st.tag}` : ''}${weather ? `, ${weather.toLowerCase()}` : ''}` : undefined}
+      aria-label={interactive ? `${open ? 'Open shift' : 'Shift'} ${shiftTimeText(s)}${code ? ` ${code}` : ''}${label ? ` ${label}` : ''}${st.tag ? `, ${st.tag}` : ''}${act ? `, ${actualWord(act.status)}` : ''}${weather ? `, ${weather.toLowerCase()}` : ''}` : undefined}
       title={title} className={`sched-chip${className ? ` ${className}` : ''}`}
       onClick={interactive ? (e) => { e.stopPropagation(); onOpen(e, s); } : undefined}
       onKeyDown={interactive ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onOpen(e, s); } } : undefined}
       onContextMenu={onContextMenu}
       {...dragProps} {...rest}
       style={{ position: 'relative', containerType: 'inline-size', background: alpha(color, open ? 0.08 : 0.12), borderRadius: 6,
-        border: `1px ${draft ? 'dashed' : 'solid'} ${draft ? color : 'transparent'}`, borderLeft: `3px ${open ? 'double' : 'solid'} ${color}`,
+        border: `1px ${draft ? 'dashed' : 'solid'} ${draft ? color : open ? alpha(color, 0.45) : 'transparent'}`,
         padding: compact ? '2px 4px' : '4px 8px', marginBottom: 3, minWidth: 0, overflow: 'hidden',
         cursor: interactive ? 'pointer' : 'default', userSelect: 'none', color: 'var(--ink)', fontFamily: 'inherit', textAlign: 'left',
         opacity: dragging ? 0.4 : s.pendingDelete || cancelled ? 0.55 : 1, textDecoration: s.pendingDelete ? 'line-through' : 'none', ...style }}>
@@ -74,10 +93,50 @@ export function ShiftBlock({ shift: s, open = false, compact = false, teamZone =
         {code && <span style={{ ...LINE, color, fontSize: '0.85em', fontWeight: 800, letterSpacing: '.02em', flexShrink: 1 }}>{code}</span>}
         {slots > 0 && <span style={{ fontSize: '0.75em', fontWeight: 800, background: color, color: '#fff', borderRadius: 10, padding: '0 4px', flexShrink: 0, alignSelf: 'center' }}>×{slots}</span>}
         {otherZone && <span title={`Times in ${zoneOptionLabel(zone)}`} style={{ fontSize: '0.78em', fontWeight: 700, color: 'var(--muted)', border: '1px solid var(--line)', borderRadius: 4, padding: '0 3px', flexShrink: 0, alignSelf: 'center' }}>{tzAbbrev(zone)}</span>}
+        {letter && (
+          <span data-actual-badge={act.status} aria-hidden="true" title={actText} onClick={tappable ? showSheet : undefined}
+            style={{ marginLeft: 'auto', fontSize: '0.78em', fontWeight: 800, lineHeight: 1.2, minWidth: 13, textAlign: 'center', borderRadius: 4, padding: '0 3px', flexShrink: 0, alignSelf: 'center',
+              color: actualColor(act.status, color), border: `1px solid ${actualColor(act.status, color)}`, cursor: tappable ? 'pointer' : 'default' }}>{letter}</span>
+        )}
       </div>
+      {act && (
+        <span data-actual={act.status} aria-hidden="true" onClick={tappable ? showSheet : undefined}
+          style={{ display: 'block', height: tappable ? 6 : 3, borderRadius: 2, marginTop: 3, marginLeft: compact ? -4 : -8, marginRight: compact ? -4 : -8, background: actualColor(act.status, color),
+            cursor: tappable ? 'pointer' : undefined, animation: act.status === 'in_progress' && !reduce ? 'pulse 2.4s ease-in-out infinite' : undefined }} />
+      )}
+      {sheet && act && <ActualSheet at={sheet} shift={s} actual={act} text={actText} onClose={() => setSheet(null)} />}
       {label && !compact && <div style={{ ...LINE, fontSize: 10.5, color: 'var(--muted)', lineHeight: 1.3, textDecoration: cancelled ? 'line-through' : undefined }}>{label}</div>}
       {cancelled && !compact && <div style={{ ...LINE, fontSize: 10, fontWeight: 700, color: 'hsl(var(--color-orange))', lineHeight: 1.3 }}>Weather - unpaid</div>}
       {children}
+    </div>
+  );
+}
+
+// The actual, readable without a hover (a phone): a small fixed card by
+// the tap with the status word and the hover lines, closed by a tap
+// anywhere else or Escape.
+export function ActualSheet({ at, shift: s, actual: a, text, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    const onDown = () => onClose();
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('pointerdown', onDown);
+    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('pointerdown', onDown); };
+  }, [onClose]);
+  const w = 240;
+  const left = Math.max(8, Math.min(at.x - w / 2, (window.innerWidth || 1000) - w - 8));
+  const top = Math.max(8, Math.min(at.y + 12, (window.innerHeight || 800) - 160));
+  const lines = String(text || '').split('\n').filter(Boolean);
+  return (
+    <div role="dialog" aria-label={`${actualWord(a.status)} - ${shiftTimeText(s)}`} data-actual-sheet={a.status} onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}
+      style={{ position: 'fixed', left, top, width: w, zIndex: 1500, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.18)', padding: '10px 12px', fontFamily: 'inherit', textAlign: 'left', cursor: 'default', whiteSpace: 'normal' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+        <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: '50%', background: actualColor(a.status, s.color || DEFAULT_SHIFT_COLOR), flexShrink: 0 }} />
+        <span style={{ fontSize: 12.5, fontWeight: 800, color: 'var(--ink)' }}>{actualWord(a.status)}</span>
+        <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 'auto' }}>{shiftTimeText(s)}</span>
+      </div>
+      {lines.map((ln, i) => <div key={i} style={{ fontSize: 12, color: 'var(--ink)', lineHeight: 1.4 }}>{ln}</div>)}
+      <button type="button" onClick={onClose} style={{ marginTop: 8, fontSize: 11.5, fontWeight: 700, color: 'var(--wk-brand)', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontFamily: 'inherit' }}>Close</button>
     </div>
   );
 }

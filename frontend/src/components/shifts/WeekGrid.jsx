@@ -22,14 +22,14 @@
 // the My Shifts group grid (TeamShiftGrid.jsx). Everything it does goes
 // through `on`; without `on` the grid is read-only.
 import { Fragment } from 'react';
-import { Plus, AlertTriangle, Lock, ChevronDown, ChevronRight, ChevronLeft, CalendarRange, CalendarDays, StickyNote, MoreHorizontal } from 'lucide-react';
+import { Plus, AlertTriangle, Lock, ChevronDown, ChevronRight, ChevronLeft, CalendarRange, CalendarDays, StickyNote, MoreHorizontal, CircleCheck, Circle } from 'lucide-react';
 import WeatherChip from './WeatherChip';
 import { formatDate, formatMonthDay } from '../../lib/datetime';
 import { Avatar } from '../ShiftScheduleExtras';
 import { TeamMenu } from '../ShiftTeams';
 import { timeOffLabel, availText } from '../shiftScheduleLib';
 import { ShiftBlock, TimeOffBlock, HolidayBlock } from './ShiftBlock';
-import { isoDate, dayShort, fmtHrs, todayIso, planMinutes, counts, isAllDayOff, isApprovedOff, shiftShortText, parseIso, sectionKey } from './shiftLib';
+import { isoDate, dayShort, fmtHrs, todayIso, planMinutes, counts, isAllDayOff, isApprovedOff, shiftShortText, parseIso, sectionKey, actualFor } from './shiftLib';
 
 export const PERSON_W = 200;
 const ROW_MIN = 52;
@@ -79,12 +79,29 @@ export function gridKeys(e, on) {
 // signed-in person (and a 3px brand bar on the left - never a row tint),
 // "9 Hrs" muted ("48 Hrs · over 40" in amber), and their usual hours as one
 // muted line. Day view uses it too.
-export function PersonCell({ emp, isMe = false, hrs, over = [], viewOnly = false, photos = true, onNow = false, usual = null, tools, style, ...rest }) {
-  const limited = emp.availability?.length > 0;
+// `confirm` (Phase 3a): 'all' = every schedule shared in view is confirmed
+// (a 12px green check after the name), 'some' = one is not yet (a hollow
+// mark), null = no share in view asked them - nothing.
+// `prefs` (Phase 3b): the person's preferred / most hours a week - one tiny
+// muted line, "prefers 24h · max 30h", only when they set one. The grid's
+// availability list carries them as its last row, `{kind: 'prefs', ...}`
+// (routers/timeclock.py `_availability`); `emp.prefs` and a `{days, dates,
+// prefs}` payload are read too.
+const hoursPrefsText = (emp) => {
+  const list = Array.isArray(emp.availability) ? emp.availability : null;
+  const p = emp.prefs || list?.find((a) => a?.kind === 'prefs') || (emp.availability && !list ? emp.availability.prefs : null) || null;
+  const bits = [];
+  if (Number(p?.preferredHoursWeek) > 0) bits.push(`prefers ${Number(p.preferredHoursWeek)}h`);
+  if (Number(p?.maxHoursWeek) > 0) bits.push(`max ${Number(p.maxHoursWeek)}h`);
+  return bits.join(' · ');
+};
+export function PersonCell({ emp, isMe = false, hrs, over = [], viewOnly = false, photos = true, onNow = false, usual = null, confirm = null, tools, style, ...rest }) {
+  const availRows = (Array.isArray(emp.availability) ? emp.availability : emp.availability?.days || []).filter((a) => a && a.kind !== 'prefs' && a.weekday !== undefined && a.weekday !== null && !a.date);
+  const limited = availRows.length > 0;
+  const prefsText = hoursPrefsText(emp);
   return (
     <div {...rest} className="sched-person"
-      style={{ padding: `${PAD + 2}px ${tools ? 30 : 10}px ${PAD}px 14px`, display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0, position: 'relative',
-        boxShadow: isMe ? 'inset 3px 0 0 var(--wk-brand)' : 'none', ...style }}>
+      style={{ padding: `${PAD + 2}px ${tools ? 30 : 10}px ${PAD}px 14px`, display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0, position: 'relative', ...style }}>
       {photos && (
         <span style={{ position: 'relative', flexShrink: 0, display: 'flex' }}>
           <Avatar name={emp.name} photoUrl={emp.photoUrl} size={32} />
@@ -94,6 +111,8 @@ export function PersonCell({ emp, isMe = false, hrs, over = [], viewOnly = false
       <span style={{ minWidth: 0, flex: 1, lineHeight: 1.35 }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, minWidth: 0 }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', ...ELLIPSIS }}>{emp.name}</span>
+          {confirm === 'all' && <span data-confirm="all" title="Confirmed the shared schedule" aria-label="Confirmed the shared schedule" style={{ display: 'inline-flex', color: 'hsl(var(--color-green))', flexShrink: 0, alignSelf: 'center' }}><CircleCheck size={12} /></span>}
+          {confirm === 'some' && <span data-confirm="some" title="Has not confirmed the shared schedule yet" aria-label="Has not confirmed the shared schedule yet" style={{ display: 'inline-flex', color: 'var(--muted)', flexShrink: 0, alignSelf: 'center' }}><Circle size={12} /></span>}
           {isMe && <span style={{ fontWeight: 600, color: 'var(--wk-brand)', fontSize: 12, flexShrink: 0 }}>You</span>}
         </div>
         <div style={{ fontSize: 11.5, color: over.length ? 'hsl(var(--color-orange))' : 'var(--muted)', fontWeight: over.length ? 700 : 500, display: 'flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}
@@ -102,13 +121,16 @@ export function PersonCell({ emp, isMe = false, hrs, over = [], viewOnly = false
           {fmtHrs(hrs)}{over.length > 0 && ' · over 40'}
           {viewOnly && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, marginLeft: 4 }}><Lock size={10} /> View Only</span>}
         </div>
+        {prefsText && (
+          <div data-hours-prefs title="Their preferred and most hours a week (My Availability). A guide, never a block." style={{ fontSize: 10.5, color: 'var(--muted)', ...ELLIPSIS }}>{prefsText}</div>
+        )}
         {usual && (
           <div title="Their usual hours (shift type). Fill From Usual Hours places them." style={{ fontSize: 11, color: 'var(--muted)', ...ELLIPSIS }}>
             Usual {shiftShortText(usual)}
           </div>
         )}
         {limited && (
-          <div title={`Availability: ${availText(emp.availability)}`} style={{ fontSize: 11, color: 'hsl(var(--color-orange))', fontWeight: 600, ...ELLIPSIS }}>Limited Availability</div>
+          <div title={`Availability: ${availText(availRows)}`} style={{ fontSize: 11, color: 'hsl(var(--color-orange))', fontWeight: 600, ...ELLIPSIS }}>Limited Availability</div>
         )}
       </span>
       {tools && <span style={{ position: 'absolute', right: 6, top: PAD + 2, display: 'inline-flex' }}>{tools}</span>}
@@ -256,7 +278,8 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
   hoverCell = () => ({}), hoverShift = () => ({}), clickable = (fn) => fn, onNowOf = () => false, blockChildren = null,
   ariaRole = 'grid', ariaLabel = 'Schedule', notesRow = false, maxHeight = 'calc(100vh - 150px)',
   single = false, emptyNote = null, cornerTools = null, ghostOf = () => null, blockClass = () => '', motion = true, glowToday = false,
-  personFill = null, usualCan = () => false, coverageOf = null, onCoverage = null, pulseCells = null, conflictCount = 0, onConflicts = null }) {
+  personFill = null, usualCan = () => false, coverageOf = null, onCoverage = null, pulseCells = null, conflictCount = 0, onConflicts = null,
+  conflictWord = 'conflict', actualOf = null, adherence = null, confirmOf = null }) {
   const today = todayIso();
   const n = days.length;
   const coarse = typeof window !== 'undefined' && window.matchMedia?.('(pointer: coarse)')?.matches;
@@ -271,9 +294,11 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
     background: colBg(d, today), padding: compact ? 3 : PAD, display: 'flex', flexDirection: 'column', gap: 4, ...extra });
   const stickyLeft = (row, extra) => ({ gridRow: row, gridColumn: 1, position: 'sticky', left: 0, zIndex: 2, background: 'var(--card)', borderRight: LINE, borderBottom: LINE, minWidth: 0, ...extra });
 
-  const block = (s, email, ds, groupId) => (
+  // Actuals (Phase 1): the cell's clock result, for the shift it names (or
+  // the only shift in the cell).
+  const block = (s, email, ds, groupId, sole = false) => (
     <ShiftBlock key={s.id} shift={s} open={!email} compact={compact} teamZone={teamZone} tabIndex={-1} dragging={dragId === s.id} className={blockClass(s)}
-      showConflicts={prefs.conflicts !== false} style={{ marginBottom: 0 }}
+      showConflicts={prefs.conflicts !== false} style={{ marginBottom: 0 }} actual={actualOf && email ? actualFor(actualOf(email, ds), s, sole) : null} tapActual={coarse}
       {...(on ? {
         onOpen: (e) => on.openShift(e, s, email, ds),
         dragProps: dragProps(s), ...hoverShift(s),
@@ -301,11 +326,10 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
         className={`sched-cell${pulseCells?.has(`${email}|${ds}`) ? ' m-pulse-cell' : ''}`} {...handlers}
         style={cellStyle(row, c, d, { cursor: on && !items.length && editable ? 'pointer' : 'default', paddingTop: (compact ? 3 : PAD) + top, ...(on ? dropStyle(email, ds) : {}) })}>
         {inner}
-        {items.map((s) => block(s, email, ds, groupId))}
+        {items.map((s) => block(s, email, ds, groupId, items.length === 1))}
         {!items.length && editable && on && (ghost ? (
           <div className="sched-add" data-ghost="" aria-hidden="true" style={{ position: 'absolute', left: compact ? 3 : PAD, right: compact ? 3 : PAD, top: (compact ? 3 : PAD) + top, opacity: 0, pointerEvents: 'none' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: compact ? '2px 4px' : '4px 8px', borderRadius: 6, border: `1px dashed ${ghost.color || 'var(--wk-line2, var(--line))'}`,
-              borderLeft: `3px solid ${ghost.color || 'var(--muted)'}`, background: 'color-mix(in srgb, var(--card) 70%, transparent)', color: 'var(--muted)', fontSize: compact ? 10 : 11.5, fontWeight: 700, ...ELLIPSIS, opacity: 0.85 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: compact ? '2px 4px' : '4px 8px', borderRadius: 6, border: `1px dashed ${ghost.color || 'var(--wk-line2, var(--line))'}`, background: 'color-mix(in srgb, var(--card) 70%, transparent)', color: 'var(--muted)', fontSize: compact ? 10 : 11.5, fontWeight: 700, ...ELLIPSIS, opacity: 0.85 }}>
               <Plus size={11} style={{ flexShrink: 0 }} />
               <span style={ELLIPSIS}>{shiftShortText(ghost)}{ghost.code ? <span style={{ color: ghost.color || 'var(--muted)', marginLeft: 4 }}>{ghost.code}</span> : null}</span>
             </div>
@@ -333,7 +357,7 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
               style={{ alignSelf: 'flex-start', border: 'none', background: 'hsla(var(--color-orange),0.12)', color: 'hsl(var(--color-orange))', borderRadius: 999, padding: '1px 8px',
                 fontFamily: 'inherit', fontSize: 11, fontWeight: 700, cursor: onConflicts ? 'pointer' : 'default', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
               <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: '50%', background: 'hsl(var(--color-orange))' }} />
-              {conflictCount} conflict{conflictCount === 1 ? '' : 's'}
+              {conflictCount} {conflictWord}{conflictCount === 1 ? '' : 's'}
             </button>
           )}
           <span title="Paid hours of the people shown. Open shifts are counted on their own row.">Week · {fmtHrs(weekMin)}</span>
@@ -486,10 +510,10 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
         <Fragment key={`p-${key}-${emp.email}`}>
           <div role="row" data-member={emp.email} aria-current={isMe ? 'true' : undefined} data-ri={r} style={{ display: 'contents', '--ri': r }}>
             <PersonCell role="rowheader" emp={{ ...emp, availability: prefs.availability !== false ? emp.availability : [] }} isMe={isMe} hrs={empWeekMin(emp.email)} over={overWeeks(emp.email)}
-              data-person={emp.email} usual={usualOf(emp.email)} onNow={onNowOf(emp.email)}
+              data-person={emp.email} usual={usualOf(emp.email)} onNow={onNowOf(emp.email)} confirm={confirmOf ? confirmOf(emp.email) : null}
               viewOnly={!editable && canManage} photos={prefs.photos !== false}
               {...pdp}
-              style={{ ...stickyLeft(row), boxShadow: isMe ? 'inset 3px 0 0 var(--wk-brand)' : 'none', ...(pdp.style || {}) }}
+              style={{ ...stickyLeft(row), ...(pdp.style || {}) }}
               tools={on && canManage && editable ? (
                 <span className="person-tools" style={{ display: 'inline-flex', flexDirection: 'column', gap: 4, opacity: coarse ? 1 : 0 }}>
                   <button type="button" aria-label={`Options for ${emp.name}`} title="Options"
@@ -511,7 +535,7 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
               const inner = (
                 <>
                   {av?.kind === 'unavailable' && !offHere.length && !hol && (
-                    <div title={`${emp.name} is unavailable on ${DAY_LONG[(d.getDay() + 6) % 7]}s`} aria-label="Unavailable"
+                    <div title={`${emp.name} is unavailable on ${av.date ? formatDate(av.date) : `${DAY_LONG[(d.getDay() + 6) % 7]}s`}`} aria-label="Unavailable"
                       style={{ position: 'absolute', inset: 0, background: 'repeating-linear-gradient(135deg, hsla(var(--color-orange),0.10) 0 6px, transparent 6px 12px)', pointerEvents: 'none' }} />
                   )}
                   {hol && <HolidayBlock holiday={hol} compact={compact} style={{ marginBottom: 0 }} />}
@@ -529,14 +553,29 @@ export default function WeekGrid({ days, compact = false, sections, byCell, open
   });
 
   return (
-    <div role={ariaRole} aria-label={ariaLabel} onKeyDown={on ? (e) => gridKeys(e, on) : undefined} onDragStart={(e) => e.preventDefault()}
-      className={`week-grid${motion ? ' m-stagger' : ''}${glowToday && motion ? ' m-today-glow' : ''}`}
-      style={{ overflow: 'auto', border: LINE, borderRadius: 12, maxHeight, userSelect: on ? 'none' : undefined, WebkitUserSelect: on ? 'none' : undefined, background: 'var(--card)', position: 'relative' }}>
-      <div data-week-grid="" style={{ display: 'grid', gridTemplateColumns: `${PERSON_W}px repeat(${n}, minmax(0, 1fr))`, gridTemplateRows: rows.join(' '),
-        minWidth: PERSON_W + n * (compact ? 62 : 120) }}>
-        {out}
+    <>
+      {adherence && <AdherenceLine text={adherence} />}
+      <div role={ariaRole} aria-label={ariaLabel} onKeyDown={on ? (e) => gridKeys(e, on) : undefined} onDragStart={(e) => e.preventDefault()}
+        className={`week-grid${motion ? ' m-stagger' : ''}${glowToday && motion ? ' m-today-glow' : ''}`}
+        style={{ overflow: 'auto', border: LINE, borderRadius: 12, maxHeight, userSelect: on ? 'none' : undefined, WebkitUserSelect: on ? 'none' : undefined, background: 'var(--card)', position: 'relative' }}>
+        <div data-week-grid="" style={{ display: 'grid', gridTemplateColumns: `${PERSON_W}px repeat(${n}, minmax(0, 1fr))`, gridTemplateRows: rows.join(' '),
+          minWidth: PERSON_W + n * (compact ? 62 : 120) }}>
+          {out}
+        </div>
+        {copied && <span aria-live="polite" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>A shift is copied. Press Enter on an empty day to place it.</span>}
       </div>
-      {copied && <span aria-live="polite" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>A shift is copied. Press Enter on an empty day to place it.</span>}
+    </>
+  );
+}
+
+// The week's adherence (Phase 1): "Scheduled 312h 30m · Worked 298h 05m ·
+// 4 Late · 1 No-Show · 2 Left Early" for the people on screen, past and
+// running days only. One muted line above the grid; shared with the phone.
+export function AdherenceLine({ text, style }) {
+  return (
+    <div role="status" aria-label="Week adherence" data-adherence="" title="Scheduled against what the clock recorded, for the people shown - past and running days only."
+      style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600, marginBottom: 8, ...ELLIPSIS, ...style }}>
+      {text}
     </div>
   );
 }

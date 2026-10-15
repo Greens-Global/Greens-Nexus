@@ -68,7 +68,9 @@ _ISO = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _MONTH = re.compile(r"^\d{4}-\d{2}$")
 STATUSES = ("active", "ended", "vacant")
 # Oct 7 (Charmi): MRI is one list of every recurring income source.
-INCOME_TYPES = ("lease", "interest", "loan_payment", "other")
+# Oct 14 (Priyanka): CAM (common area maintenance) is a type of its own -
+# a tenant, a space and lease dates, like a lease.
+INCOME_TYPES = ("lease", "interest", "loan_payment", "other", "cam")
 DEFAULT_INCOME_ACCOUNTS = ["41101"]
 _PAID_WITHIN = 0.5   # dollars: a payment this close to what was expected is paid in full
 
@@ -89,6 +91,88 @@ def _d(s: str) -> Optional[date]:
 
 
 # ── Shapes ───────────────────────────────────────────────────────────────────
+# Oct 15 (Charmi + Neil): the lease term is a pick - Annual, Month to Month or
+# Custom with a whole number of months - never free text a typo can break.
+TERM_TYPES = ("annual", "month_to_month", "custom")
+TERM_MAX_MONTHS = 600
+_TERM_MONTHS = re.compile(r"^(\d{1,3}) ?(?:months?|mos?|mths?)(?: lease| term)?$")
+_TERM_YEARS = re.compile(r"^(\d{1,2}|one|two|three|four|five) ?(?:years?|yrs?)(?: lease| term)?$")
+_WORD_NUM = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5}
+
+
+def parse_term(text: str) -> Optional[tuple[str, Optional[int]]]:
+    """The old free-text Lease Terms read as a term, best-effort: "Annual",
+    "12 months", "1 year" -> annual; "Month to month", "MTM" -> month to
+    month; "18 months", "2 years" -> custom. None when it cannot be read."""
+    s = " ".join(re.sub(r"[^a-z0-9.]+", " ", (text or "").lower()).split()).strip(" .")
+    if not s:
+        return None
+    if s in ("annual", "annually", "yearly", "annual lease", "annual term", "annual renewal"):
+        return ("annual", 12)
+    if s in ("mtm", "m2m", "month to month", "monthly", "month to month lease"):
+        return ("month_to_month", None)
+    m = _TERM_MONTHS.match(s)
+    if m:
+        n = int(m.group(1))
+        if n == 12:
+            return ("annual", 12)
+        return ("custom", n) if 0 < n <= TERM_MAX_MONTHS else None
+    m = _TERM_YEARS.match(s)
+    if m:
+        y = _WORD_NUM.get(m.group(1)) or int(m.group(1))
+        if y == 1:
+            return ("annual", 12)
+        return ("custom", y * 12) if 0 < y * 12 <= TERM_MAX_MONTHS else None
+    return None
+
+
+def term_label(kind: str, months: Optional[int]) -> str:
+    if kind == "annual":
+        return "Annual"
+    if kind == "month_to_month":
+        return "Month to Month"
+    if kind == "custom" and months:
+        return f"Custom - {months} Months"
+    return ""
+
+
+def _term_out(l: models.Lease) -> dict:
+    """The lease's term: the pick when one was saved, else the old free text
+    read best-effort. Text that cannot be read is handed back as-is
+    (termLegacy) so nothing is lost and the form asks for a pick."""
+    kind = getattr(l, "term_type", "") or ""
+    months = getattr(l, "term_months", None)
+    legacy = ""
+    if kind not in TERM_TYPES:
+        kind, months = "", None
+        parsed = parse_term(l.lease_terms or "")
+        if parsed:
+            kind, months = parsed
+        else:
+            legacy = (l.lease_terms or "").strip()
+    if kind == "annual":
+        months = 12
+    elif kind == "month_to_month":
+        months = None
+    return {"termType": kind, "termMonths": months, "termLabel": term_label(kind, months) or legacy, "termLegacy": legacy}
+
+
+def _clean_term(body) -> dict:
+    kind = (body.termType or "").strip()
+    if not kind:
+        return {"term_type": "", "term_months": None}
+    if kind not in TERM_TYPES:
+        raise HTTPException(status_code=400, detail="Pick a lease term: Annual, Month to Month or Custom.")
+    if kind == "annual":
+        return {"term_type": kind, "term_months": 12}
+    if kind == "month_to_month":
+        return {"term_type": kind, "term_months": None}
+    n = body.termMonths
+    if n is None or isinstance(n, bool) or int(n) != n or not 1 <= int(n) <= TERM_MAX_MONTHS:
+        raise HTTPException(status_code=400, detail=f"A custom lease term is a whole number of months, 1 to {TERM_MAX_MONTHS}.")
+    return {"term_type": kind, "term_months": int(n)}
+
+
 def _rate_out(r: models.LeaseRate) -> dict:
     return {"id": r.id, "startDate": r.start_date, "rent": _r2(r.rent), "cam": _r2(r.cam), "other": _r2(r.other), "note": r.note or ""}
 
@@ -108,6 +192,7 @@ def _lease_out(l: models.Lease, rates: list[models.LeaseRate], names: Optional[d
         "teamNote": {"text": getattr(l, "team_note", "") or "", "by": by, "byName": (names or {}).get(by, by), "at": getattr(l, "team_note_at", "") or ""},
         "linkSource": getattr(l, "link_source", "") or "",
         "incomeType": (getattr(l, "income_type", "") or "lease") if (getattr(l, "income_type", "") or "lease") in INCOME_TYPES else "lease",
+        **_term_out(l),
     }
 
 
@@ -143,6 +228,8 @@ class LeaseBody(BaseModel):
     notes: Optional[str] = ""
     rates: Optional[list[RateBody]] = None
     incomeType: Optional[str] = "lease"
+    termType: Optional[str] = ""
+    termMonths: Optional[float] = None   # checked to be a whole number in _clean_term
 
 
 def _clean(body: LeaseBody) -> dict:
@@ -157,7 +244,7 @@ def _clean(body: LeaseBody) -> dict:
     status = body.status if body.status in STATUSES else "active"
     kind = body.incomeType if body.incomeType in INCOME_TYPES else "lease"
     if status != "vacant" and not (body.tenantName or "").strip():
-        raise HTTPException(status_code=400, detail="Name the tenant, or mark the space vacant." if kind == "lease" else "Name who pays it.")
+        raise HTTPException(status_code=400, detail="Name the tenant, or mark the space vacant." if kind in ("lease", "cam") else "Name who pays it.")
     due = int(body.dueDay or 1)
     if not 1 <= due <= 28:
         raise HTTPException(status_code=400, detail="The due day is between 1 and 28.")
@@ -171,6 +258,7 @@ def _clean(body: LeaseBody) -> dict:
         "security_deposit": float(body.securityDeposit or 0), "lease_terms": (body.leaseTerms or "")[:200], "late_fee": float(body.lateFee or 0),
         "due_day": due, "grace_days": max(0, min(int(body.graceDays if body.graceDays is not None else 5), 60)),
         "status": status, "notes": (body.notes or "")[:1000], "income_type": kind,
+        **_clean_term(body),
     }
 
 
@@ -576,7 +664,28 @@ async def customers(scope: dict = Depends(entity_scope)):
         leases, _, _ = await asyncio.to_thread(_load_all)
         mine = {l.customer_id for l in _visible(leases, reach) if l.customer_id}
         data = {"values": [v for v in data.get("values") or [] if v.get("code") in mine]}
-    return {"customers": [{"code": v["code"], "name": v.get("name") or "", "status": v.get("status") or "", "active": customer_active(v.get("status"))} for v in data.get("values") or []]}
+    contacts = await _partner_contacts()
+    return {"customers": [{"code": v["code"], "name": v.get("name") or "", "status": v.get("status") or "", "active": customer_active(v.get("status")),
+                           **contacts.get(v["code"], {"phone": "", "email": "", "address": ""})} for v in data.get("values") or []]}
+
+
+async def _partner_contacts() -> dict[str, dict]:
+    """code -> {phone, email, address} from Intacct's customer records (Charmi,
+    Oct 15: picking the tenant fills the lease form's empty contact fields).
+    Read-only, through the same cached partners read as the customer card;
+    the accounting app sends no contact person, so Primary Contact is not
+    filled. Down or not shipped: no contacts, never an error."""
+    if _PARTNERS_DOWN.get("until", 0) > time.monotonic():
+        return {}
+    out: dict[str, dict] = {}
+    try:
+        for r in await _partner_customers():
+            code = (r.get("id") or "").strip()
+            if code:
+                out[code] = {"phone": r.get("phone") or "", "email": r.get("email") or "", "address": _address_text(r.get("address"))}
+    except Exception:  # noqa: BLE001 - names and codes still come from the ledger
+        _PARTNERS_DOWN["until"] = time.monotonic() + _PARTNERS_RETRY
+    return out
 
 
 @router.get("/customers/{code}")

@@ -34,6 +34,9 @@ export const FIELD_TYPE_LABEL = Object.fromEntries(FIELD_TYPES.map((t) => [t.val
 // fast-follow (v1 shows a placeholder in the generated document instead).
 export const RESERVED_TYPES = ['signature', 'initials', 'image', 'file'];
 export const OPTION_TYPES = ['dropdown', 'radio'];
+// Who fills a variable when the template is part of an HR packet (Oct 14):
+// the person on their own form (no login), or HR when they make the offer.
+export const FIELD_SOURCES = [['', 'Typed Each Time'], ['person', 'Ask The Person'], ['hr', 'HR Answers At Offer']];
 
 // Which validation keys apply to which type - drives which validation
 // sub-fields the Define Merge Field modal shows.

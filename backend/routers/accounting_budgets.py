@@ -96,8 +96,13 @@ def _shape(data: dict) -> dict:
     for r in data.get("rows") or []:
         months = list(r.get("months") or [])[:12]
         months += [0] * (12 - len(months))
-        rows.append({"accountNo": r.get("accountNo") or r.get("account_no") or "", "title": r.get("title") or "",
-                     "months": [round(float(m or 0), 2) for m in months]})
+        row = {"accountNo": r.get("accountNo") or r.get("account_no") or "", "title": r.get("title") or "",
+               "months": [round(float(m or 0), 2) for m in months]}
+        # The income statement section (revenue, expense ...), when the app
+        # names it: Actual vs Budget places each budget line under it (10/15).
+        if r.get("section"):
+            row["section"] = str(r["section"])
+        rows.append(row)
     return {"location": data.get("location") or "", "year": data.get("year"), "source": data.get("source") or "none",
             "updatedAt": data.get("updatedAt") or data.get("updated_at") or "", "updatedBy": data.get("updatedBy") or data.get("updated_by") or "",
             "rows": rows}

@@ -27,6 +27,7 @@ import {
 import { api } from '../api';
 import { SkeletonBlocks, LoadingState } from '../components/AsyncState';
 import { navigate } from './widgets.jsx';
+import { MoreRow } from './listParts.jsx';
 import { formatTime } from '../lib/datetime';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import {
@@ -41,6 +42,10 @@ const toneColor = (tone) => C(TONE_COLOR[tone] || 'blue');
 const valueColor = (tone) => (tone === 'critical' || tone === 'warning' ? toneColor(tone) : 'var(--ink)');
 const REFRESH_MS = 30000;
 const ATTENTION_SHOWN = 8;
+const TABLE_SHOWN = 12;
+// en-US grouping on purpose: a bare toLocaleString() groups by the viewer's
+// locale, which reads 1,23,456 for India staff.
+const count = (n) => n.toLocaleString('en-US');
 
 function downloadCsv(name, rows) {
   const blob = new Blob(['\ufeff' + csvText(rows)], { type: 'text/csv;charset=utf-8' });
@@ -92,7 +97,7 @@ function AttentionStrip({ rows, onDrill }) {
                 <span className="bi-alert-tone">{TONE_LABEL[r.tone]}</span>
                 <ArrowUpRight size={14} className="bi-alert-arrow" />
               </span>
-              <span className="bi-alert-num">{r.value.toLocaleString()}</span>
+              <span className="bi-alert-num">{typeof r.value === 'number' ? count(r.value) : r.value}</span>
               <span className="bi-alert-label">{r.label}</span>
               <span className="bi-alert-mod">{r.moduleLabel}</span>
             </button>
@@ -178,17 +183,18 @@ function Stages({ rows, label }) {
   );
 }
 
-function SmallTable({ rows }) {
+function SmallTable({ rows, onMore }) {
   return (
     <div className="bi-shape">
       <div className="bi-table">
-        {rows.slice(0, 12).map((r, i) => (
+        {rows.slice(0, TABLE_SHOWN).map((r, i) => (
           <div key={i} className="bi-table-row">
             <span>{r.employee ?? r.label}</span>
             <span>{r.device ?? r.value ?? r.detail}</span>
           </div>
         ))}
       </div>
+      <MoreRow count={rows.length - TABLE_SHOWN} onClick={onMore} />
     </div>
   );
 }
@@ -239,7 +245,7 @@ function ModuleCard({ mod, stats, shapes, onDrill }) {
                   <span className="bi-stat-text">{s.label}</span>
                 </span>
                 <span className="bi-stat-value" style={{ color: typeof s.value === 'number' && s.value > 0 ? valueColor(s.tone) : 'var(--muted)' }}>
-                  {typeof s.value === 'number' ? s.value.toLocaleString() : s.value}
+                  {typeof s.value === 'number' ? count(s.value) : s.value}
                 </span>
                 {drillable && <ChevronRight size={14} className="bi-stat-chev" />}
               </Row>
@@ -251,7 +257,7 @@ function ModuleCard({ mod, stats, shapes, onDrill }) {
       {shapes && mod.breakdown?.length > 0 && <Breakdown rows={mod.breakdown} />}
       {shapes && mod.trend?.length > 0 && <Trend rows={mod.trend} label="Clocked in, last 7 days" />}
       {shapes && mod.funnel?.length > 0 && <Stages rows={mod.funnel} label="Hiring pipeline by stage" />}
-      {shapes && mod.table?.length > 0 && <SmallTable rows={mod.table} />}
+      {shapes && mod.table?.length > 0 && <SmallTable rows={mod.table} onMore={mod.nav ? open : undefined} />}
     </section>
   );
 }
@@ -421,7 +427,7 @@ export default function BiInsights() {
     <div className="bi-root">
       <div className="bi-head">
         <div>
-          <h2 className="bi-title">Business Intelligence</h2>
+          <h2 className="bi-title">Insights</h2>
           <p className="bi-sub">
             Company-wide numbers from every module, as each module counts them.
             {state.at && formatTime(state.at) && <> Updated {formatTime(state.at)}, refreshes every 30 seconds.</>}
@@ -440,7 +446,7 @@ export default function BiInsights() {
         <div className="bi-calm bi-calm--error">
           <AlertTriangle size={18} />
           <div>
-            <div style={{ fontWeight: 600 }}>The board could not load</div>
+            <div style={{ fontWeight: 600 }}>The Board Could Not Load</div>
             <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>{state.error}</div>
           </div>
           <button type="button" className="secondary-btn" onClick={load} style={{ marginLeft: 'auto' }}>Try Again</button>

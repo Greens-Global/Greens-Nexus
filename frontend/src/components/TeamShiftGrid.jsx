@@ -33,7 +33,16 @@ export default function TeamShiftGrid({ teams, team, onPickTeam, days, rows, onN
   const openOn = (key) => openShifts.filter((s) => s.date === key);
   const isOn = (r) => onNow.some((o) => o.email === r.email);
 
-  const openExtra = (s, key) => (
+  // Phase 3b: which team the slot belongs to, and an "Other Team" chip when
+  // it is one the person is not on (openShiftsAcrossTeams) - the same words
+  // the request dialog uses, from the same /shift-requests/mine payload.
+  const openTeam = (s) => (s.team || s.crossTeam) && (
+    <span style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', fontSize: 10.5, color: 'var(--muted)' }}>
+      {s.team && <span>{s.team}</span>}
+      {s.crossTeam && <span data-cross-team title="A shift of another team. Your company lets open shifts be claimed across teams." style={{ fontSize: 10, fontWeight: 700, color: 'hsl(var(--color-blue))', border: '1px solid hsla(var(--color-blue),0.4)', borderRadius: 5, padding: '0 5px', lineHeight: 1.5 }}>Other Team</span>}
+    </span>
+  );
+  const openAction = (s, key) => (
     s.requested
         ? <span style={{ fontSize: 10.5, fontWeight: 700, color: 'hsl(var(--color-orange))' }}>Requested</span>
         : onRequestOpen && key >= today && (
@@ -43,6 +52,12 @@ export default function TeamShiftGrid({ teams, team, onPickTeam, days, rows, onN
             <Hand size={10} /> Request
           </button>
         )
+  );
+  const openExtra = (s, key) => (
+    <>
+      {openTeam(s)}
+      {openAction(s, key)}
+    </>
   );
   const openBlock = (s, key) => <ShiftBlock key={s.id} shift={s} open teamZone={teamZone}>{openExtra(s, key)}</ShiftBlock>;
   const cellBody = (d) => (

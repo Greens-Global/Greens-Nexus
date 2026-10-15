@@ -44,4 +44,26 @@ describe('Announcements tile on a phone', () => {
     expect(form.style.padding).toBe('10px 0px 14px');
     expect(within(form).getByText('Post Announcement').style.minHeight).toBe('44px');
   });
+
+  it('gives the admin links 36px targets, 16px fields, and wraps a long URL in the body', async () => {
+    const url = 'https://example.com/' + 'x'.repeat(200);
+    apiMock.getAnnouncements.mockResolvedValue([{
+      id: 'a2', title: 'Link', body: url, author_email: 'ada@x.com', author_name: 'Ada Admin', audience: 'company',
+      created_at: '2026-10-07T15:00:00+00:00', read_at: '2026-10-07T16:00:00+00:00', read_count: 3, ack_count: 0,
+    }]);
+    render(<Announcements />);
+    fireEvent.click(await screen.findByRole('button', { name: /Link/ }));
+    for (const text of ['Read by 3', 'Edit', 'Delete']) {
+      expect(screen.getByText(text).closest('button').style.minHeight).toBe('36px');
+    }
+    expect(screen.getByText(url).style.overflowWrap).toBe('anywhere');
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    try {
+      fireEvent.click(screen.getByText('Edit'));
+      const form = screen.getByRole('form', { name: 'Edit Announcement' });
+      expect(scroll).toHaveBeenCalled();                     // the form comes into view
+      expect(within(form).getByDisplayValue('Link').style.fontSize).toBe('16px');
+    } finally { delete Element.prototype.scrollIntoView; }
+  });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup, within } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, within, act } from '@testing-library/react';
 import ClockChip from './ClockChip';
 
 // The time clock chip (Oct 14 2026): a dial and a transport - Play, Pause,
@@ -33,16 +33,16 @@ describe('ClockChip', () => {
     expect(vm.actions.punchOut).toHaveBeenCalledTimes(1);
     fireEvent.click(container.querySelector('.sbclock-head'));
     expect(vm.actions.openClock).toHaveBeenCalledTimes(1);
-    expect(container.querySelector('.sbtr-lit').style.transform).toBe('translateX(0%)');
+    expect(container.querySelector('.sbtr-lit').style.getPropertyValue('--sb-lit')).toBe('0');
   });
 
-  it('on break: Pause is lit, Play resumes and the outline has slid to Pause; amber dial', () => {
+  it('on break: Pause is lit, Play is End Break and the outline has slid to Pause; amber dial', () => {
     const vm = working({ state: 'break', timer: '0:14' });
     const { container } = render(<ClockChip vm={vm} />);
     expect(container.querySelector('.sbclock--break .sbring--break')).toBeTruthy();
     expect(btn('On Break').getAttribute('aria-pressed')).toBe('true');
-    expect(container.querySelector('.sbtr-lit').style.transform).toBe('translateX(100%)');
-    fireEvent.click(btn('Resume'));
+    expect(container.querySelector('.sbtr-lit').style.getPropertyValue('--sb-lit')).toBe('1');
+    fireEvent.click(btn('End Break'));
     expect(vm.actions.toggleBreak).toHaveBeenCalledTimes(1);
   });
 
@@ -58,19 +58,70 @@ describe('ClockChip', () => {
     expect(screen.queryByText('2:10')).toBeNull();
   });
 
-  it('a break starting lifts the coffee cup; a resume sweeps the dial', () => {
+  // Each accepted punch has its own flourish, drawn in a layer on the page
+  // (outside the chip) so it can travel right, clear of the tooltip.
+  const fx = () => document.querySelector('[data-flourish]')?.getAttribute('data-flourish') || '';
+  it('a break starting lifts the coffee cup with steam; nothing on first paint', () => {
     const { container, rerender } = render(<ClockChip vm={working()} />);
-    expect(container.querySelector('.sbtr-coffee')).toBeNull();
+    expect(fx()).toBe('');
     rerender(<ClockChip vm={working({ state: 'break', timer: '0:00' })} />);
-    expect(container.querySelector('.sbtr-coffee')).toBeTruthy();
+    expect(fx()).toBe('coffee');
+    expect(document.querySelectorAll('.sbfx-steam path')).toHaveLength(3);
+    expect(container.querySelector('[data-flourish]')).toBeNull();          // not inside the chip
+  });
+
+  it('a flourish clears itself once it has played', () => {
+    vi.useFakeTimers();
+    try {
+      const { rerender } = render(<ClockChip vm={working()} />);
+      rerender(<ClockChip vm={working({ state: 'break', timer: '0:00' })} />);
+      expect(fx()).toBe('coffee');
+      act(() => { vi.advanceTimersByTime(2700); });
+      expect(fx()).toBe('');
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('End Break draws a check and sweeps the dial', () => {
+    const { container, rerender } = render(<ClockChip vm={working({ state: 'break', timer: '0:00' })} />);
     rerender(<ClockChip vm={working()} />);
+    expect(fx()).toBe('check');
+    expect(document.querySelector('.sbfx-check [data-fx=tick]')).toBeTruthy();
     expect(container.querySelector('.sbring-sweep')).toBeTruthy();
   });
 
-  it('tooltips name the action and what it does', () => {
-    render(<ClockChip vm={working()} />);
-    const tips = screen.getAllByRole('tooltip').map((t) => t.textContent);
-    expect(tips).toEqual(['Clocked InYou are on the clock', 'Start BreakYour working time pauses', 'Punch OutEnds your shift']);
+  it('Punch In bursts stars and sweeps; Punch Out fans stars, from either working state', () => {
+    const { container, rerender } = render(<ClockChip vm={working({ state: 'out' })} />);
+    rerender(<ClockChip vm={working()} />);
+    expect(fx()).toBe('in');
+    expect(document.querySelectorAll('.sbfx-star')).toHaveLength(6);
+    expect(container.querySelector('.sbring-sweep')).toBeTruthy();
+    rerender(<ClockChip vm={working({ state: 'out' })} />);
+    expect(fx()).toBe('out');
+    rerender(<ClockChip vm={working()} />);
+    rerender(<ClockChip vm={working({ state: 'break' })} />);
+    rerender(<ClockChip vm={working({ state: 'out' })} />);
+    expect(fx()).toBe('out');
+  });
+
+  it('tooltips name the action; only a button you cannot press says why (Neil, Oct 14 2026)', () => {
+    vi.useFakeTimers();
+    try {
+      render(<ClockChip vm={working()} />);
+      const tipFor = (name) => {
+        fireEvent.pointerEnter(btn(name));
+        act(() => { vi.advanceTimersByTime(300); });
+        const t = screen.getByRole('tooltip');
+        const out = [t.querySelector('.navtip-label').textContent, t.querySelector('.navtip-detail')?.textContent || ''];
+        fireEvent.pointerLeave(btn(name));
+        act(() => { vi.advanceTimersByTime(5000); });
+        return out;
+      };
+      expect(tipFor('Clocked In')).toEqual(['Clocked In', 'You are on the clock']);   // inert: says why
+      expect(tipFor('Start Break')).toEqual(['Start Break', '']);
+      expect(tipFor('Punch Out')).toEqual(['Punch Out', '']);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('shows the engine\'s note (a declined screen share) as its own line under the head', () => {
@@ -109,7 +160,9 @@ describe('ClockChip', () => {
     expect(vm.actions.startCapture).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole('button', { name: /Screen sharing stopped/ }));
     expect(vm.actions.openClock).toHaveBeenCalledTimes(1);
-    expect(container.querySelector('.sbclock-rail .sbtt[title]')).toBeTruthy();   // the rail uses native titles (ours would clip)
+    // The rail uses the same tooltip as the open sidebar now - drawn on the
+    // page, so the folded sidebar cannot clip it - never the browser's own.
+    expect(container.querySelector('[title]')).toBeNull();
   });
 
   it('onAfterAction fires once the punch resolved, and not when the engine blocked it', async () => {

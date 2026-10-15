@@ -266,10 +266,10 @@ function BuildForm({ loan, initial, busy, onCancel, onSave }) {
         {!ok ? <div style={warn}>{result.errors.join(' ')}</div> : (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18, fontSize: '0.8rem', fontVariantNumeric: 'tabular-nums' }}>
             {result.ioPayment > 0 && <span>Interest-Only Payment <strong><Amount value={result.ioPayment} /></strong></span>}
-            <span>Monthly P&I <strong><Amount value={result.payment} /></strong></span>
+            <span>Monthly Payment <strong><Amount value={result.payment} /></strong></span>
             <span>Total Interest <strong><Amount value={result.totalInterest} /></strong></span>
             <span>Balloon at Maturity <strong>{result.balloon ? <Amount value={result.balloon} /> : 'None'}</strong></span>
-            {loan.monthlyPi != null && Math.abs(loan.monthlyPi - result.payment) >= 1 && <span style={{ color: '#92400e' }}>Monthly P&I on file: <Amount value={loan.monthlyPi} /></span>}
+            {loan.monthlyPi != null && Math.abs(loan.monthlyPi - result.payment) >= 1 && <span style={{ color: '#92400e' }}>Monthly payment on file: <Amount value={loan.monthlyPi} /></span>}
           </div>
         )}
       </div>

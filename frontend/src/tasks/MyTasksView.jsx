@@ -83,7 +83,7 @@ const LIST_COLS = [
   { key: 'title', label: 'Name', template: 'minmax(220px,1fr)' },
   { key: 'dueOn', label: 'Due Date', width: 118 },
   { key: 'collaborators', label: 'Collaborators', width: 132 },
-  { key: 'project', label: 'Projects', width: 150 },
+  { key: 'project', label: 'Project', width: 150 },
 ];
 
 const dueColor = (iso, completed) => {
@@ -186,7 +186,7 @@ const ROW_GRID = '16px var(--nx-grid)';
 
 // `band` = this row sits on an odd index inside its group, so it gets the
 // zebra tint. Banding is what lets the eye follow a row all the way out to the
-// Collaborators/Projects columns on a wide screen.
+// Collaborators/Project columns on a wide screen.
 function TaskRow({ t, people, projects, store, onOpen, band = false, cols = LIST_COLS, isMobilePortrait = false, selected = false, onPick }) {
   // A subtask's project is its parent's; the project cell then names the parent
   // (click-through) rather than offering a select that would re-home the subtask.
@@ -221,7 +221,7 @@ function TaskRow({ t, people, projects, store, onOpen, band = false, cols = LIST
       </div>
     ),
     dueOn: (
-      // Portrait phones drop Collaborators/Projects (see baseCols in
+      // Portrait phones drop Collaborators/Project (see baseCols in
       // MyTasksView), which leaves Due Date as the last column - flush it to
       // the row's right edge instead of the left-aligned default, so it isn't
       // stranded in a sea of empty space between it and the name column.
@@ -295,7 +295,7 @@ export default function MyTasksView({ onNavigate }) {
   const [sort, setSort] = useTableValue('mytasks', 'sort', DEFAULT_SORT);
   // Portrait phones only - landscape still has the room for all four. Only
   // Name/Due Date fit without every row wrapping or Name shrinking to
-  // nothing, so Collaborators/Projects drop rather than squeeze.
+  // nothing, so Collaborators/Project drop rather than squeeze.
   const isMobilePortrait = useIsMobile('(max-width: 640px) and (orientation: portrait)');
   // Room for the "Ext 3x" badge beside the date, only when one of my tasks
   // has one (a width dragged by hand still wins - useTableColumns).
@@ -478,7 +478,7 @@ export default function MyTasksView({ onNavigate }) {
       <div className="nx-scroll nx-gutter" style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: view === 'list' ? 16 : 0, paddingBottom: isMobile ? 88 : 76 }}>
         {view === 'list' ? (
           <div className={isMobile ? 'nx-edge-card' : undefined} style={{ border: `1px solid ${NX.border}`, borderRadius: 12, overflow: 'hidden', background: NX.surface }}>
-            {/* Fixed-width columns (Due date/Collaborators/Projects) don't shrink
+            {/* Fixed-width columns (Due date/Collaborators/Project) don't shrink
                 below their content size - scroll horizontally on narrow
                 viewports instead of getting clipped by the card's rounded corners.
                 Portrait phones drop to just Name/Due Date (see baseCols above),

@@ -33,12 +33,20 @@ const lineStyle = { display: 'flex', alignItems: 'flex-start', gap: 7, fontSize:
 const linkBtn = { border: 'none', background: 'none', padding: 0, color: 'var(--wk-brand, hsl(var(--color-blue)))', fontWeight: 600, fontSize: 12.5, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4, fontFamily: 'inherit' };
 const stop = (e) => e.stopPropagation();
 
-export default function MyTime() {
-  const isMobile = useIsMobile();
+export default function MyTime({ phone }) {
+  // The grid says when the board is a phone stack; outside it, the viewport.
+  const isMobileViewport = useIsMobile();
+  const isMobile = phone ?? isMobileViewport;
   const { status, vm, busy, busyLabel, note, act, loadStatus, modals } = usePunchClock();
   const go = () => navigate('timeclock', 'overview');
 
-  const btnBase = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, minHeight: isMobile ? 44 : 34, padding: isMobile ? '0 14px' : '0 14px', fontSize: 13, flex: 1 };
+  // Side by side on ONE row, always: at the default 3x3 (a ~230px-wide body)
+  // "Punch Out" + "Start Break" used to wrap, and the second row was cut in
+  // half by the card's 202px height. Each button takes half the row and
+  // shrinks (tighter padding, then an ellipsis) instead of wrapping.
+  // Height budget at 3x3: 162px inside the padding - header ~49 (66 with a
+  // two-line note) + state row 41 + gap 8 + buttons 36 = 134 (151).
+  const btnBase = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5, minHeight: isMobile ? 44 : 36, padding: '0 8px', fontSize: 12.5, flex: '1 1 0', minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden' };
   const stateColor = vm.state === 'break' ? 'hsl(var(--color-orange))' : vm.state === 'in' ? 'hsl(var(--color-green))' : 'var(--muted)';
   // The line under the title: what the last punch did (or why it did not),
   // else since when the state holds. It lives up here, not as a row of its
@@ -46,7 +54,9 @@ export default function MyTime() {
   const subtitle = note ? (
     <span role={note.ok ? 'status' : 'alert'} style={{ display: 'inline-flex', alignItems: 'flex-start', gap: 5, color: note.ok ? 'hsl(var(--color-green))' : 'hsl(var(--color-red))', fontWeight: 600 }}>
       {note.ok ? <CheckCircle2 size={13} style={{ flexShrink: 0, marginTop: 2 }} /> : <AlertTriangle size={13} style={{ flexShrink: 0, marginTop: 2 }} />}
-      <span>{note.text}</span>
+      {/* Two lines at most on a desktop card (its height is fixed); a phone
+          card grows, so the whole note shows there. */}
+      <span title={note.text} style={isMobile ? undefined : { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{note.text}</span>
     </span>
   ) : !status || status.error || vm.exempt ? undefined
     : vm.sinceLabel ? vm.sinceLabel.charAt(0).toUpperCase() + vm.sinceLabel.slice(1)
@@ -60,7 +70,7 @@ export default function MyTime() {
       ) : vm.exempt ? (
         <div style={{ ...noteStyle, padding: '6px 0', textAlign: 'left' }}>Time tracking is not required for your role.</div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {status.error ? (
             <div style={{ ...lineStyle, color: 'hsl(var(--color-red))' }}>
               <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1 }} />
@@ -82,13 +92,14 @@ export default function MyTime() {
 
               {/* The punches the clock accepts next. The buttons are the tile's
                   own targets - the card around them opens Workday. */}
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }} onClick={stop}>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'nowrap' }} onClick={stop}>
                 {vm.actions.map(a => {
                   const I = ACTION_ICON[a.kind] || Clock;
                   return (
                     <button key={a.kind} type="button" className={a.primary ? 'primary-btn' : 'secondary-btn'} style={btnBase}
                       disabled={!!busy} aria-busy={busy === a.kind || busy === `share:${a.kind}` || undefined} onClick={() => act(a.kind)}>
-                      <I size={14} /> {busyLabel(a.kind) || a.label}
+                      <I size={14} style={{ flexShrink: 0 }} />
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{busyLabel(a.kind) || a.label}</span>
                     </button>
                   );
                 })}

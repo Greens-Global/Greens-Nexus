@@ -486,7 +486,7 @@ class CallTests(unittest.TestCase):
         self.assertEqual(self.client.post("/weather-call/ack", data={"t": token}).status_code, 410)
 
     def test_a_cancelled_day_is_never_late(self):
-        from routers import my_team, timeclock
+        from routers import timeclock
         day = datetime.strptime(DAY, "%Y-%m-%d").date()
         # A preset that works that weekday too - it must not stand in.
         self.db.add(models.Shift(id="p-day", name="Day", start_hhmm="07:00", end_hhmm="15:30", days=str(day.isoweekday())))
@@ -497,9 +497,10 @@ class CallTests(unittest.TestCase):
         self.db.expire_all()
         self.assertIsNone(timeclock._shift_start_for(self.db, ANN, day))
         self.assertIsNotNone(timeclock._shift_start_for(self.db, BOB, day), "Bob still works")
-        starts = my_team._shift_starts(self.db, [ANN, BOB], DAY, "America/Los_Angeles")["starts"]
-        self.assertNotIn(ANN, starts)
-        self.assertIn(BOB, starts)
+        import shift_expect
+        starts = shift_expect.expected_starts(self.db, [ANN, BOB], day)
+        self.assertIsNone(starts[ANN])
+        self.assertIsNotNone(starts[BOB])
 
     def test_my_prefs(self):
         self._as(ANN)
