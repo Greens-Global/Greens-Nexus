@@ -125,7 +125,8 @@ def _deliver(db: Session, *, sender: str, to: str, rows: list, audience: str,
     task_notify(db, kind="ticket_overdue", for_email=to, title=heading,
                 body=", ".join(f"{ticket_no(r['code'])} {r['subject']}" for r in rows)[:300],
                 ticket_id=rows[0]["id"] if len(rows) == 1 else "",
-                nexus_action={"view": "tickets", "label": "View Tickets"})
+                nexus_action={"view": "tickets", "label": "View Tickets"},
+                main_bell=True)   # it needs them (task_util.MAIN_BELL_KINDS)
     db.commit()
     return _send_teams(db, sender, to, html, rows[0]["id"])
 
