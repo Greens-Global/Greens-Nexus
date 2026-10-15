@@ -1736,7 +1736,7 @@ def finalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrat
         _ft = _fixed_card(db, email, body.start).get("totals", {})
         worked = _ft.get("workedMin", 0)   # unrounded - matches the fixed card + the sign
         _fixed_snap = {k: _ft.get(k) for k in ("totalPay", "deduction", "weekendBonus",
-                       "missedFullDays", "missedHalfDays", "weekendDaysWorked")}
+                       "missedFullDays", "missedHalfDays", "weekendDaysWorked", "missedReasons")}
     else:
         worked = sum(v["workedMin"] for k, v in _day_summaries(
             _live_punches(db, email, body.start, _end_nx), _round_min(db),
@@ -8122,7 +8122,7 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
                 _salary_on = lambda ds, _s=salary: _s   # noqa: E731 - pinned to the snapshot
                 if _sn.get("totalPay") is not None:
                     _frozen = {k: _sn.get(k) for k in ("totalPay", "deduction", "weekendBonus",
-                               "missedFullDays", "missedHalfDays", "weekendDaysWorked")}
+                               "missedFullDays", "missedHalfDays", "weekendDaysWorked", "missedReasons")}
         except Exception:   # noqa: BLE001 - a bad snapshot must not break the card
             pass
 
@@ -8172,6 +8172,26 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
     holidays = _company_holidays_for_employee(db, em, m_start, m_end)
     missed_full = missed_half = weekend_worked = 0
     leave_days = {"sick": 0, "vacation": 0, "personal": 0}
+    # Why each deducted day was missed (Charmi, Oct 15 2026: "Missed days (3
+    # full)" says nothing - "Sick x2, Personal x8" does). A leave punch names
+    # its own type; otherwise approved FULL-day time off covering the day does
+    # (requests are not auto-punched); otherwise it is plain Absent / Half Day.
+    timeoff_by_day = {}
+    for _t in (db.query(TimeOffRequest)
+               .filter(TimeOffRequest.employee_email == em, TimeOffRequest.status == "approved",
+                       TimeOffRequest.start_date <= m_end, TimeOffRequest.end_date >= m_start).all()):
+        if (_t.start_time or "") or (_t.end_time or ""):
+            continue   # a partial day off does not explain a whole missed day
+        _d = date.fromisoformat(max(_t.start_date, m_start))
+        _last = date.fromisoformat(min(_t.end_date, m_end))
+        while _d <= _last:
+            timeoff_by_day.setdefault(_d.isoformat(), (_t.type or "other").strip().lower() or "other")
+            _d += timedelta(days=1)
+    missed_reasons = {}   # reason -> {"full": n, "half": n}
+
+    def _missed(reason: str, half: bool = False) -> None:
+        r = missed_reasons.setdefault(reason, {"full": 0, "half": 0})
+        r["half" if half else "full"] += 1
     deduction = base_pay = weekend_bonus = 0.0
     fixed_days = []
     for i in range(days_in_month):
@@ -8202,6 +8222,7 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
                 status = "holiday_half_worked"     # worked their half - full pay
             elif ds < today:
                 status = "holiday_half"; deduct = daily_d / 2.0   # day's over, no work at all
+                _missed(timeoff_by_day.get(ds, "holiday_half"), half=True)
             elif ds > today:
                 status = "upcoming"
             else:   # today, in progress - never deduct before the day is over
@@ -8214,9 +8235,9 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
             if work_min >= FULL_MIN:
                 deduct = 0.0
             elif work_min >= HALF_MIN:
-                deduct = daily_d / 2.0; missed_half += 1
+                deduct = daily_d / 2.0; missed_half += 1; _missed(leave_cls, half=True)
             else:
-                deduct = daily_d; missed_full += 1
+                deduct = daily_d; missed_full += 1; _missed(leave_cls)
         elif is_weekend:
             if work_min > 0 or has_open:
                 # A5: calculated from the day's rate and the hours actually
@@ -8240,8 +8261,10 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
             status = "working" if wm > 0 else ("late" if late_today else "upcoming")
         elif wm >= HALF_MIN:
             status = "half"; deduct = daily_d / 2.0; missed_half += 1   # past day, 4h up to a full day
+            _missed(timeoff_by_day.get(ds, "half_day"), half=True)
         else:
             status = "absent"; deduct = daily_d; missed_full += 1       # past day, under 4h
+            _missed(timeoff_by_day.get(ds, "absent"))
         deduction += deduct
         weekend_bonus += bonus
         fixed_days.append({"date": ds, "workedMin": wm, "isWeekend": is_weekend,
@@ -8263,6 +8286,8 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
         total_pay = _frozen.get("totalPay", total_pay)
         missed_full = _frozen.get("missedFullDays", missed_full)
         missed_half = _frozen.get("missedHalfDays", missed_half)
+        if _frozen.get("missedReasons") is not None:
+            missed_reasons = _frozen["missedReasons"]
         weekend_worked = _frozen.get("weekendDaysWorked", weekend_worked)
     # "Through 10/14 at X · From 10/15 at Y" when the salary changed mid-month.
     _cal = [(first + timedelta(days=i)).isoformat() for i in range(days_in_month)]
@@ -8285,6 +8310,8 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
                       "daysInMonth": days_in_month, "dailyRate": round(daily, 2),
                       "workingDaysInYear": working_days,
                       "missedFullDays": missed_full, "missedHalfDays": missed_half,
+                      # [{reason, label, full, half}], most days first.
+                      "missedReasons": _missed_reason_list(missed_reasons),
                       "weekendDaysWorked": weekend_worked,
                       "sickDays": leave_days["sick"], "vacationDays": leave_days["vacation"],
                       "personalDays": leave_days["personal"],
@@ -8559,6 +8586,20 @@ _LEAVE_CLASSES = (
 )
 
 
+_MISSED_LABELS = {"sick": "Sick", "vacation": "Vacation", "personal": "Personal", "unpaid": "Unpaid Leave",
+                  "other": "Other Leave", "absent": "Absent", "half_day": "Half Day", "holiday_half": "Half Holiday"}
+
+
+def _missed_reason_list(reasons) -> list:
+    """{reason: {full, half}} (or an already-built list from a finalized
+    snapshot) -> [{reason, label, full, half}], most missed first."""
+    if isinstance(reasons, list):
+        return reasons
+    out = [{"reason": k, "label": _MISSED_LABELS.get(k, k.replace("_", " ").title()),
+            "full": v.get("full", 0), "half": v.get("half", 0)} for k, v in (reasons or {}).items()]
+    return sorted(out, key=lambda r: (-(r["full"] + r["half"] / 2), r["label"]))
+
+
 def _leave_class(category: str) -> str:
     """'' for worked time, else 'sick' / 'vacation' / 'personal'."""
     c = (category or "").strip()
@@ -8667,8 +8708,9 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
     open_in_pend = open_in_estat = open_in_ereason = open_in_adjnote = ""
     open_break = None
     open_break_at = ""
+    open_break_id = ""   # the break_start punch - Delete This Break voids it (Oct 15 2026)
     brk = 0.0
-    seg_breaks = []   # this segment's break windows: {start, end, min, implicit}
+    seg_breaks = []   # this segment's break windows: {start, end, min, implicit, startId, endId}
     sflags = set()
 
     def _flush_missing():
@@ -8703,7 +8745,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
             open_in_pend, open_in_estat, open_in_ereason = (p.pending_at or ""), (p.edit_status or ""), (p.edit_reason or "")
             open_in_adjnote = (p.adjust_note or "")
             open_break, brk, sflags = None, 0.0, set()
-            open_break_at, seg_breaks = "", []
+            open_break_at, open_break_id, seg_breaks = "", "", []
             if open_in_geo == "out_of_fence":
                 sflags.add("out_of_fence")
             if p.source in ("manual", "self_manual"):
@@ -8719,7 +8761,8 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
                 # hours into unpaid break with nothing visible on the card
                 # (Charmi, Aug 21) - flag them loudly for correction.
                 seg_breaks.append({"start": open_break_at, "end": p.at,
-                                   "min": int(round(_bm)), "implicit": True})
+                                   "min": int(round(_bm)), "implicit": True,
+                                   "startId": open_break_id, "endId": ""})
                 if _bm > _long_min:
                     sflags.add("missing_break_end")
                 open_break = None
@@ -8803,13 +8846,14 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
                 missing_punches += 1
         elif p.kind == "break_start":
             if open_break is None and open_in is not None:
-                open_break, open_break_at = t, p.at
+                open_break, open_break_at, open_break_id = t, p.at, p.id
         elif p.kind == "break_end":
             if open_break is not None:
                 _bm = (t - open_break).total_seconds() / 60
                 brk += _bm
                 seg_breaks.append({"start": open_break_at, "end": p.at,
-                                   "min": int(round(_bm)), "implicit": False})
+                                   "min": int(round(_bm)), "implicit": False,
+                                   "startId": open_break_id, "endId": p.id})
                 if _bm > _long_min:
                     sflags.add("long_break")
                 open_break = None
