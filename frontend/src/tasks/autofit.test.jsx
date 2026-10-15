@@ -247,3 +247,164 @@ describe('a press that never moved', () => {
     expect(api.saveTaskTablePrefs).toHaveBeenCalledWith('t', { widths: { name: 230 } });  // 150 + 80
   });
 });
+
+// ── The Task List's leading checkbox, room, and the column that fills ───────
+// The rows of the Task List (MyTasksView) are '16px var(--nx-grid)': a select
+// checkbox, then the shared columns. Autofit read children[idx], so every fit
+// there measured the column to the LEFT - Project sized from the avatars,
+// Name from the 16px checkbox.
+
+const tracksOf = (tpl) => {
+  const out = []; let cur = '', depth = 0;
+  for (const ch of tpl) {
+    if (ch === '(') depth += 1;
+    if (ch === ')') depth -= 1;
+    if (ch === ' ' && depth === 0) { if (cur) out.push(cur); cur = ''; } else cur += ch;
+  }
+  if (cur) out.push(cur);
+  return out;
+};
+
+function CheckboxHarness({ cols = COLS }) {
+  const { cols: ordered, template, widths, startResize, autofitWidth, wrapRef } =
+    useTableColumns({ table: 't', cols });
+  const grid = '16px var(--nx-grid)';
+  return (
+    <div ref={wrapRef} style={{ '--nx-grid': template }} data-testid="wrap">
+      <div style={{ display: 'grid', gridTemplateColumns: grid }} data-testid="header">
+        <span>☐</span>
+        {ordered.map((c) => (
+          <TableHead key={c.key} label={c.label}
+            onResizeStart={startResize(c.key, widths[c.key] ?? c.width ?? 150)}
+            onResizeAutofit={() => autofitWidth(c.key)} />
+        ))}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: grid }} data-testid="row0">
+        <span>☐</span>
+        {ordered.map((c) => <div key={c.key}>{c.key}</div>)}
+      </div>
+    </div>
+  );
+}
+
+describe('rows with their own tracks in front of the shared ones', () => {
+  it('measures the cell after the checkbox, not the one before it', () => {
+    render(<CheckboxHarness />);
+    // children: [checkbox, name, owner, due] - widths per child index
+    const header = [16, 40, 50, 30], row = [16, 300, 180, 90];
+    Array.from(screen.getByTestId('header').children).forEach((cell, i) => { cell.getBoundingClientRect = () => ({ width: header[i] }); });
+    Array.from(screen.getByTestId('row0').children).forEach((cell, i) => { cell.getBoundingClientRect = () => ({ width: row[i] }); });
+
+    dblClickEdge(1);   // Owner
+
+    expect(api.saveTaskTablePrefs).toHaveBeenCalledWith('t', { widths: { owner: 196 } });   // 180 + 16, not the name's 300
+  });
+});
+
+// A fake layout for the header row: the container is `room` wide, the filler
+// column never goes below `fillMin`, and the grid overflows by whatever the
+// tracks need past that. Cell widths follow the current template too, so the
+// filler's share and the max-content probe each read what a browser would.
+function fakeLayout({ room, fillMin, content }) {
+  const wrap = screen.getByTestId('wrap');
+  const tracks = () => tracksOf(wrap.style.getPropertyValue('--nx-grid'));
+  const px = (t) => (t.endsWith('px') ? parseFloat(t) : 0);
+  const fixedSum = (ts) => ts.reduce((s, t) => s + (t.startsWith('minmax') ? 0 : px(t)), 0);
+  const header = screen.getByTestId('header');
+  Object.defineProperty(header, 'clientWidth', { configurable: true, get: () => room });
+  Object.defineProperty(header, 'scrollWidth', {
+    configurable: true,
+    get: () => { const ts = tracks(); return Math.max(room, fixedSum(ts) + (ts.some((t) => t.startsWith('minmax')) ? fillMin : 0)); },
+  });
+  ['header', 'row0', 'row1'].forEach((id, ri) => {
+    Array.from(screen.getByTestId(id).children).forEach((cell, ci) => {
+      cell.getBoundingClientRect = () => {
+        const t = tracks()[ci];
+        if (t === 'max-content') return { width: content[`${ri}:${ci}`] ?? 0 };
+        if (t.startsWith('minmax')) { const ts = tracks(); return { width: Math.max(fillMin, room - fixedSum(ts)) }; }
+        return { width: px(t) };
+      };
+    });
+  });
+}
+
+const FILL_COLS = [
+  { key: 'name', label: 'Name', template: 'minmax(220px,1fr)' },
+  { key: 'owner', label: 'Owner', width: 150 },
+  { key: 'due', label: 'Due', width: 118 },
+];
+
+describe('fitting within the room the table has', () => {
+  it('caps a column so a table that fits its container still fits', () => {
+    render(<Harness cols={FILL_COLS} />);
+    // 700 wide: Name keeps 220 and Due 118, which leaves Owner 362
+    fakeLayout({ room: 700, fillMin: 220, content: { '0:1': 50, '1:1': 520 } });
+
+    dblClickEdge(1);
+
+    expect(api.saveTaskTablePrefs).toHaveBeenCalledWith('t', { widths: { owner: 362 } });
+  });
+
+  it('takes the full fit when there is room for it', () => {
+    render(<Harness cols={FILL_COLS} />);
+    fakeLayout({ room: 1400, fillMin: 220, content: { '0:1': 50, '1:1': 520 } });
+
+    dblClickEdge(1);
+
+    expect(api.saveTaskTablePrefs).toHaveBeenCalledWith('t', { widths: { owner: 536 } });
+  });
+
+  it('does not cap a table that scrolls sideways anyway', () => {
+    render(<Harness cols={FILL_COLS} />);
+    // 300 wide: even with Owner at its minimum the table overflows
+    fakeLayout({ room: 300, fillMin: 220, content: { '1:1': 520 } });
+
+    dblClickEdge(1);
+
+    expect(api.saveTaskTablePrefs).toHaveBeenCalledWith('t', { widths: { owner: 536 } });
+  });
+
+  it('never caps below the header label', () => {
+    render(<Harness cols={FILL_COLS} />);
+    // only 400 for Owner+Due+Name's 220: the label (90 + 16) still wins
+    fakeLayout({ room: 400, fillMin: 220, content: { '0:1': 90, '1:1': 520 } });
+
+    dblClickEdge(1);
+
+    expect(api.saveTaskTablePrefs).toHaveBeenCalledWith('t', { widths: { owner: 106 } });
+  });
+});
+
+describe('the column that fills the row', () => {
+  it('goes back to filling when its content fits the share it gets', () => {
+    act(() => __setTablePrefsCache({ t: { widths: { name: 260, owner: 200 } } }));
+    render(<Harness cols={FILL_COLS} />);
+    // 1000 wide: as a filler Name gets 1000 - 200 - 118 = 682 > 400 + 16
+    fakeLayout({ room: 1000, fillMin: 220, content: { '1:0': 400 } });
+
+    dblClickEdge(0);
+    dblClickEdge(0);   // a second run lands on the same answer
+
+    expect(api.saveTaskTablePrefs).toHaveBeenCalledTimes(1);   // already filling the second time
+    expect(api.saveTaskTablePrefs).toHaveBeenCalledWith('t', { widths: { owner: 200 } });
+  });
+
+  it('writes nothing when it is already filling and its content fits', () => {
+    render(<Harness cols={FILL_COLS} />);
+    fakeLayout({ room: 1000, fillMin: 220, content: { '1:0': 400 } });
+
+    dblClickEdge(0);
+
+    expect(api.saveTaskTablePrefs).not.toHaveBeenCalled();
+  });
+
+  it('pins to its content when that is wider than its share', () => {
+    render(<Harness cols={FILL_COLS} />);
+    // as a filler Name gets 600 - 150 - 118 = 332 < 500 + 16
+    fakeLayout({ room: 600, fillMin: 220, content: { '1:0': 500 } });
+
+    dblClickEdge(0);
+
+    expect(api.saveTaskTablePrefs).toHaveBeenCalledWith('t', { widths: { name: 516 } });
+  });
+});
