@@ -471,9 +471,10 @@ export function ShiftTypesPanel({ toastOk, toastErr }) {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 10 }}>
           {shifts?.length === 0 && <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No shift types yet.</div>}
           {(shifts || []).map((s) => (
-            <div key={s.id} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px', borderLeft: `4px solid ${s.color || DEFAULT_SHIFT_COLOR}` }}>
+            <div key={s.id} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '12px 14px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                 {s.code && <span style={{ fontSize: 10.5, fontWeight: 800, color: 'var(--ink)', background: alpha(s.color || DEFAULT_SHIFT_COLOR, 0.14), borderRadius: 5, padding: '2px 6px', flexShrink: 0 }}>{s.code}</span>}
+                {!s.code && <span aria-hidden="true" style={{ width: 9, height: 9, borderRadius: '50%', background: s.color || DEFAULT_SHIFT_COLOR, flexShrink: 0 }} />}
                 <span style={{ fontSize: 13, fontWeight: 800, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name}</span>
                 {canManage && <button type="button" onClick={() => setForm({ ...s, start_hhmm: s.start, end_hhmm: s.end, grace_min: s.graceMin, break_min: s.breakMin || 0, company_id: s.companyId || '' })} aria-label={`Edit shift type ${s.name}`} title="Edit" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex' }}><Pencil size={12} /></button>}
                 {canManage && <button type="button" onClick={() => remove(s)} aria-label={`Delete shift type ${s.name}`} title="Delete" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'hsl(var(--color-red))', display: 'flex' }}><Trash2 size={12} /></button>}

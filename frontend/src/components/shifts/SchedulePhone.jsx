@@ -47,7 +47,7 @@ export function DayStrip({ days, value, onChange, countOf, noteOn, hoursOf }) {
 export function PhoneRow({ avatar, name, sub, sub2, isMe = false, onTap, children, style, ...rest }) {
   return (
     <div {...rest} onClick={onTap} style={{ display: 'grid', gridTemplateColumns: '124px minmax(0, 1fr)', gap: 8, alignItems: 'center', padding: '7px 10px', borderBottom: '1px solid var(--line)',
-      background: isMe ? 'var(--wk-brand-tint)' : undefined, boxShadow: isMe ? 'inset 3px 0 0 var(--wk-brand)' : 'none', cursor: onTap ? 'pointer' : 'default', ...style }}>
+      background: isMe ? 'var(--wk-brand-tint)' : undefined, cursor: onTap ? 'pointer' : 'default', ...style }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
         {avatar}
         <span style={{ minWidth: 0 }}>

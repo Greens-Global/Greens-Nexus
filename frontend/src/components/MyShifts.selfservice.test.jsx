@@ -144,7 +144,8 @@ describe('MyShifts week and group grid', () => {
     expect(block.textContent).toBe('9:00a - 5:00pGSTFront Desk');       // one line, the code in color, the label under it
     expect(block.getAttribute('title')).toContain('Lunch 30m');          // the lunch is the hover title
     expect(block.textContent).not.toMatch(/PDT|PST/);                    // same zone as the team: no chip
-    expect(block.style.borderLeft).toContain('3px solid');
+    expect(block.getAttribute('style')).not.toMatch(/border-left|inset/);          // no colored edge stripe (Neil, Oct 14): the tint carries the color
+    expect(block.style.background).toMatch(/rgba|color-mix|#/);
     const grid = screen.getByRole('table', { name: 'Store schedule' });
     expect(grid.textContent).toContain('Week · 15.5 Hrs');
     expect(grid.textContent).not.toContain('Times in');
@@ -153,11 +154,11 @@ describe('MyShifts week and group grid', () => {
     expect(grid.textContent).toContain('Inventory day');
     expect(grid.textContent).not.toContain('Open Shifts');              // only when there are open shifts
     expect(grid.querySelector('[data-team]')).toBeNull();                 // one team: no group header row (the heading names it)
-    // The same one-grid engine as the manager's Schedule: me marked with a bar and "You", no row tint.
+    // The same one-grid engine as the manager's Schedule: me marked with "You" only: no edge bar, no row tint.
     expect(grid.querySelectorAll('[data-week-grid]')).toHaveLength(1);
     const mePerson = me.querySelector('[data-person]');
     expect(mePerson.textContent).toContain('You');
-    expect(mePerson.style.boxShadow).toContain('inset 3px 0 0');
+    expect(mePerson.style.boxShadow).not.toContain('inset');
     me.querySelectorAll('[data-cell]').forEach((c) => expect(c.style.gridRow).toBe(mePerson.style.gridRow));
     const header = within(grid).getAllByRole('columnheader')[0];
     expect(header.textContent).toMatch(/^[A-Z][a-z]{2} \d{1,2}[A-Z][a-z]{2}/);   // "Mon 28" with the month said once

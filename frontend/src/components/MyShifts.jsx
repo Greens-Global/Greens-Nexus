@@ -383,7 +383,7 @@ export default function MyShifts({ part: partProp = 'mine', embedded = false, fo
                 );
               })}
               {!d.shifts.length && !d.holiday && !d.timeoff.length && d.usual && (
-                <div title="Your regular hours. No shift is shared for this day yet." style={{ marginTop: 'auto', borderLeft: '3px dotted var(--wk-line2)', paddingLeft: 8 }}>
+                <div title="Your regular hours. No shift is shared for this day yet." style={{ marginTop: 'auto', border: '1px dashed var(--wk-line2, var(--line))', borderRadius: 6, padding: '4px 8px' }}>
                   <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--muted)' }}>Usual Hours</div>
                   <div style={{ fontSize: 12, color: 'var(--muted)' }}>{formatHHMM(d.usual.start)} - {formatHHMM(d.usual.end)}</div>
                 </div>
