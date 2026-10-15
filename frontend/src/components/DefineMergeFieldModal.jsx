@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { X, Plus, Trash2 } from 'lucide-react';
 import TypedFieldInput from './TypedFieldInput';
-import { FIELD_TYPES, VALIDATION_KEYS, OPTION_TYPES, slugifyToken, isValidToken } from '../lib/mergeFieldTypes';
+import { FIELD_SOURCES, FIELD_TYPES, VALIDATION_KEYS, OPTION_TYPES, slugifyToken, isValidToken } from '../lib/mergeFieldTypes';
 
 const overlayStyle = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 };
 const cardStyle = { background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 440, maxHeight: '86vh', overflowY: 'auto', boxShadow: 'var(--shadow-lg)' };
@@ -25,6 +25,11 @@ export default function DefineMergeFieldModal({ initialLabel = '', existingDef =
   const [options, setOptions] = useState(existingDef?.options || []);
   const [optionDraft, setOptionDraft] = useState('');
   const [validation, setValidation] = useState(existingDef?.validation || {});
+  // HR packets (Oct 14): who fills it, and whether the answer is private / pay.
+  const [source, setSource] = useState(existingDef?.source || '');
+  const [sensitive, setSensitive] = useState(!!existingDef?.sensitive);
+  const [last4, setLast4] = useState(!!existingDef?.last4);
+  const [pay, setPay] = useState(!!existingDef?.pay);
 
   const onLabelChange = (v) => {
     setLabelText(v);
@@ -50,6 +55,7 @@ export default function DefineMergeFieldModal({ initialLabel = '', existingDef =
       token, label: labelText.trim(), type, required, default: defaultValue,
       options: OPTION_TYPES.includes(type) ? options : undefined,
       validation: Object.fromEntries(vKeys.map((k) => [k, validation[k]]).filter(([, v]) => v !== undefined && v !== '')),
+      source, sensitive: source === 'person' && sensitive, last4: source === 'person' && last4, pay,
     });
   };
 
@@ -87,6 +93,34 @@ export default function DefineMergeFieldModal({ initialLabel = '', existingDef =
           <label style={{ fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', marginBottom: 14 }}>
             <input type="checkbox" checked={required} onChange={(e) => setRequired(e.target.checked)} /> Required
           </label>
+          <div style={field}>
+            <label style={label}>Who Fills It In An HR Packet</label>
+            <select className="form-input" style={{ width: '100%' }} value={source} onChange={(e) => setSource(e.target.value)} aria-label="Who fills it">
+              {FIELD_SOURCES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+            <p style={{ fontSize: 11, color: 'var(--muted)', margin: '4px 0 0' }}>
+              {source === 'person' ? 'Asked of the person on their own form - on their phone, no login. Asked once, however many documents print it.'
+                : source === 'hr' ? 'Asked of HR when they make the offer (or start the packet). Only HR knows it, and it changes per hire.'
+                  : 'Nexus fills it if it can; otherwise it is typed each time, or the Default Value prints.'}
+            </p>
+            {source === 'person' && (
+              <div style={{ display: 'flex', gap: 14, marginTop: 8, flexWrap: 'wrap' }}>
+                <label style={{ fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={sensitive} onChange={(e) => setSensitive(e.target.checked)} /> Private (Pay &amp; Benefits only)
+                </label>
+                {['text', 'number'].includes(type) && (
+                  <label style={{ fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={last4} onChange={(e) => setLast4(e.target.checked)} /> Keep Last 4 Only
+                  </label>
+                )}
+              </div>
+            )}
+            {source !== 'person' && (
+              <label style={{ fontSize: 12.5, display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', marginTop: 8 }}>
+                <input type="checkbox" checked={pay || type === 'currency'} disabled={type === 'currency'} onChange={(e) => setPay(e.target.checked)} /> This Is Pay (Pay &amp; Benefits only)
+              </label>
+            )}
+          </div>
 
           {OPTION_TYPES.includes(type) && (
             <div style={field}>

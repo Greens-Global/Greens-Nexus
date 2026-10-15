@@ -10,13 +10,13 @@ import { api } from '../api';
 import { importDocumentFile } from '../lib/docBuilderImport';
 import { repairDocJson } from '../lib/docBuilderSchema';
 import { uploadToSupabase } from '../lib/docBuilderUpload';
-import { NEXUS_FIELDS, applyBlanks, findBlanks, findText, splitPages, tokensFor } from '../lib/wordBlanks';
+import { NEXUS_FIELDS, applyBlanks, findBlanks, findText, guessPay, guessPrivate, splitPages, tokensFor } from '../lib/wordBlanks';
 import { Spinner } from './AsyncState';
 
 const lbl = { fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', margin: '14px 0 5px', textTransform: 'uppercase', letterSpacing: '.04em' };
 const th = { fontSize: 10.5, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', textAlign: 'left', padding: '7px 8px', borderBottom: '1px solid var(--line)', position: 'sticky', top: 0, background: 'var(--card)' };
 const td = { fontSize: 12.5, padding: '7px 8px', borderBottom: '1px solid var(--line)', verticalAlign: 'middle' };
-const FILL_LABEL = { nexus: 'Nexus Fills It', ask: 'Ask The Person', same: 'Same For Everyone', leave: 'Left Blank' };
+const FILL_LABEL = { nexus: 'Nexus Fills It', ask: 'Ask The Person', hr: 'HR Answers At Offer', same: 'Same For Everyone', leave: 'Left Blank' };
 
 const valueOf = (b) => (b.fill === 'nexus' ? `nexus:${b.token}` : b.fill);
 
@@ -28,6 +28,7 @@ function FillSelect({ value, onChange, label }) {
         {NEXUS_FIELDS.map(([k, l]) => <option key={k} value={`nexus:${k}`}>{l}</option>)}
       </optgroup>
       <option value="ask">Ask The Person</option>
+      <option value="hr">HR Answers At Offer</option>
       <option value="same">Same For Everyone</option>
       <option value="leave">Leave Blank</option>
     </select>
@@ -203,7 +204,7 @@ export default function WordTemplateWizard({ categories, onClose, onOpen, toastE
           {step === 'review' && (
             <>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '12px 0 4px' }}>
-                {['nexus', 'ask', 'same', 'leave'].map(k => (
+                {['nexus', 'ask', 'hr', 'same', 'leave'].map(k => (
                   <span key={k} style={{ fontSize: 11.5, fontWeight: 700, padding: '3px 10px', borderRadius: 12, background: 'var(--mist)' }}>
                     {FILL_LABEL[k]}: {counts[k] || 0}
                   </span>
@@ -213,8 +214,8 @@ export default function WordTemplateWizard({ categories, onClose, onOpen, toastE
                 </span>
               </div>
               <div style={{ fontSize: 11.5, color: 'var(--muted)', lineHeight: 1.5 }}>
-                <b>Nexus fills it</b> - from the hire (name, company, start date, pay...). <b>Ask the person</b> - their own details (ID numbers, bank...); a packet asks for them on its Details Form.
-                {' '}<b>Same for everyone</b> - typed once here (a client's name). <b>Left blank</b> - stays as it is, filled by hand.
+                <b>Nexus fills it</b> - from the hire and the offer (name, company, start date, pay, work location...). <b>Ask the person</b> - their own details (ID numbers, bank...), asked on their phone form with no login; tick <b>Private</b> for anything only Pay &amp; Benefits should see.
+                {' '}<b>HR answers at offer</b> - only HR knows it and it changes per hire (probation, a bonus...); asked when HR makes the offer. <b>Same for everyone</b> - typed once here (a client's name). <b>Left blank</b> - stays as it is, filled by hand.
               </div>
 
               {sigs.length > 0 && (
@@ -264,6 +265,20 @@ export default function WordTemplateWizard({ categories, onClose, onOpen, toastE
                             <input className="form-input" style={{ width: '100%', fontSize: 12.5, marginTop: 5 }} placeholder="Type it once - e.g. the client's name"
                               value={b.value || ''} onChange={e => setBlank(b.id, { value: e.target.value })} aria-label={`Value for ${b.label}`} />
                           )}
+                          {b.fill === 'ask' && (
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, marginTop: 5, cursor: 'pointer' }}>
+                              <input type="checkbox" checked={b.private ?? guessPrivate(b.label)} style={{ accentColor: 'var(--pine)' }}
+                                onChange={e => setBlank(b.id, { private: e.target.checked })} aria-label={`${b.label} is private`} />
+                              Private - only Pay &amp; Benefits sees it
+                            </label>
+                          )}
+                          {b.fill === 'hr' && (
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, marginTop: 5, cursor: 'pointer' }}>
+                              <input type="checkbox" checked={b.pay ?? guessPay(b.label)} style={{ accentColor: 'var(--pine)' }}
+                                onChange={e => setBlank(b.id, { pay: e.target.checked })} aria-label={`${b.label} is pay`} />
+                              This is pay - only Pay &amp; Benefits enters it
+                            </label>
+                          )}
                         </td>
                         <td style={{ ...td, fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{tokenById[b.id] ? `{{${tokenById[b.id]}}}` : '-'}</td>
                       </tr>
@@ -289,7 +304,7 @@ export default function WordTemplateWizard({ categories, onClose, onOpen, toastE
                 Published v{created.version} - {created.variables} variable{created.variables === 1 ? '' : 's'}, {created.signatures} signature spot{created.signatures === 1 ? '' : 's'}.
               </div>
               <div style={{ fontSize: 12.5, marginTop: 14, lineHeight: 1.6, textAlign: 'left', background: 'var(--mist)', borderRadius: 12, padding: '10px 14px' }}>
-                Next: add it to a packet in <b>People &gt; Hiring &gt; Packets</b>. The packet's <b>Ready To Send</b> checklist offers to put every "Ask the person" field on its Details Form in one click.
+                Next: add it to a packet in <b>People &gt; Hiring &gt; Packets</b> - an <b>Offer Letter</b> for the offer, or a hiring packet. Every "Ask the person" question goes on the person's form by itself, and every "HR answers" question is asked when HR makes the offer.
               </div>
             </div>
           )}

@@ -1032,6 +1032,10 @@ def _run_migrations():
             # Packet Details Form + Signs Once (Oct 14). models.HrPacketSetting.
             "ALTER TABLE hr_packet_settings ADD COLUMN details_form JSON DEFAULT '[]'",
             "ALTER TABLE hr_packet_settings ADD COLUMN saved_signatures JSON DEFAULT '[]'",
+            # Offer letters and packets picked by where the person works (Oct 14).
+            "ALTER TABLE hr_packet_settings ADD COLUMN country VARCHAR DEFAULT ''",
+            # Packets assembled from building blocks: a team's / role's documents (Oct 14).
+            "ALTER TABLE hr_packet_settings ADD COLUMN extra_docs JSON DEFAULT '[]'",
             # Tasks from tickets (Oct 14 2026). models.Task.source_ticket_id.
             "ALTER TABLE tasks ADD COLUMN source_ticket_id VARCHAR DEFAULT ''",
             "CREATE INDEX IF NOT EXISTS ix_tasks_source_ticket_id ON tasks (source_ticket_id)",
@@ -1066,6 +1070,14 @@ def _run_migrations():
             "ALTER TABLE nexus_person_prefs ADD COLUMN ical_salt VARCHAR DEFAULT ''",
             # Shifts Phase 3a review (Oct 15): failed sync tries per queued row. models.ShiftCalendarEvent.
             "ALTER TABLE shift_calendar_events ADD COLUMN attempts INTEGER DEFAULT 0",
+            # Hiring board (Neil, Oct 14): expected interview date, rejected -> inactive.
+            "ALTER TABLE hr_candidates ADD COLUMN expected_interview_on VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_candidates ADD COLUMN rejected_at VARCHAR DEFAULT ''",
+            "ALTER TABLE hr_candidates ADD COLUMN inactive_at VARCHAR DEFAULT ''",
+            # One notes timeline per candidate (Oct 14): plain notes in hr_stage_events.
+            "ALTER TABLE hr_stage_events ADD COLUMN kind VARCHAR DEFAULT ''",
+            # The screening task per candidate (Oct 14). models.HrCandidate.screen_task_id.
+            "ALTER TABLE hr_candidates ADD COLUMN screen_task_id VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2324,6 +2336,10 @@ def _run_migrations():
         # Packet Details Form + Signs Once (Oct 14). models.HrPacketSetting.
         "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS details_form JSONB DEFAULT '[]'::jsonb",
         "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS saved_signatures JSONB DEFAULT '[]'::jsonb",
+        # Offer letters and packets picked by where the person works (Oct 14).
+        "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS country VARCHAR DEFAULT ''",
+        # Packets assembled from building blocks: a team's / role's documents (Oct 14).
+        "ALTER TABLE hr_packet_settings ADD COLUMN IF NOT EXISTS extra_docs JSONB DEFAULT '[]'::jsonb",
         # Tasks from tickets (Oct 14 2026). models.Task.source_ticket_id.
         "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS source_ticket_id VARCHAR DEFAULT ''",
         "CREATE INDEX IF NOT EXISTS ix_tasks_source_ticket_id ON tasks (source_ticket_id)",
@@ -2377,6 +2393,14 @@ def _run_migrations():
         "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS ical_salt VARCHAR DEFAULT ''",
         # Shifts Phase 3a review (Oct 15): failed sync tries per queued row. models.ShiftCalendarEvent.
         "ALTER TABLE shift_calendar_events ADD COLUMN IF NOT EXISTS attempts INTEGER DEFAULT 0",
+        # Hiring board (Neil, Oct 14): expected interview date, rejected -> inactive.
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS expected_interview_on VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS rejected_at VARCHAR DEFAULT ''",
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS inactive_at VARCHAR DEFAULT ''",
+        # One notes timeline per candidate (Oct 14): plain notes in hr_stage_events.
+        "ALTER TABLE hr_stage_events ADD COLUMN IF NOT EXISTS kind VARCHAR DEFAULT ''",
+        # The screening task per candidate (Oct 14). models.HrCandidate.screen_task_id.
+        "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS screen_task_id VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

@@ -1128,16 +1128,21 @@ export const DOCS = [
         title: 'Move a Candidate Through Hiring',
         steps: [
           'Click the Hiring tab, then Add Candidate.',
-          'Pick the hiring company, then the role: the list shows that company\'s own roles under its name, then Shared Roles (the ones every company uses). Other is for a role that does not exist yet: type its title and department and, on save, it becomes a real role of that company (with no access until an administrator sets it). The Packets button then shows a count until that role has a hiring packet - open it and click Add Packet beside the role.',
-          'Move them through Screening, Interview and Offer as things progress.',
-          'At Offer, click Send Hiring Packet (see Send a Hiring Packet below). When they sign it they are hired automatically.',
-          'Only for an offer signed on paper: Mark Hired By Hand. Nothing is sent or filed that way.',
+          'Pick the hiring company, then the role: the list shows that company\'s own roles under its name, then Shared Roles (the ones every company uses). Other is for a role that does not exist yet: type its title and department and, on save, it becomes a real role of that company (with no access until an administrator sets it). The Hiring Setup button then shows a count until that role has hiring documents - open it and click Add Packet beside the role.',
+          "Last name, personal email and phone are required on a new candidate - the interview invite and the offer go there. Expected Interview Date (five business days out to start with) is when the interview should happen; screening is due the business day before it, and the card shows it until an interview is booked.",
+          "Move them through Screening, Interview and Offer as things progress - with the buttons on the card, or by dragging the card to another lane on the board. Dragging to Interview opens Schedule Interview (Interview always means a booked interview); dragging back to an earlier stage asks first; Hired is final.",
+          "Hired and Rejected always show on the board. Open a rejected candidate and click Remove From Board to take them off it - anyone rejected more than 90 days ago leaves it by itself. Show Inactive lists them; Reopen brings one back.",
+          "After the interview, click Move To Offer: Make An Offer opens (see Make an Offer below). The offer letter goes first; when the company and the candidate have both signed it, they are hired and their hiring packet goes out to them by itself.",
+          'Only for an offer signed on paper: Mark Hired By Hand, which asks why. Nothing is sent or filed that way.',
+          "Screening: when a candidate is added, the head of the role's department (the department's lead in Company Settings > Departments, else the role's default manager) and everyone above them in the reporting line get a bell and ONE task, Screen <name>, assigned to all of them. It is due the business day before the interview - the expected date at first, then the interview once it is booked or moved. The resume is attached to the task, and every comment they write on the task goes straight onto the candidate's notes - so a manager needs no Hiring access. Marking the task complete means they have screened them; rejecting or hiring the candidate closes it. With no department head set up, it goes to the company's HR contact.",
+          "Notes And History on the candidate is one list, newest first: every note, every move with its note, and every interview that finished with its score - each with who and when. Anyone who can see the candidate can add a note; a note still in the box goes along with the next move you make from the card. The Interview Room shows the same notes at the top, so the interviewer reads everyone's screening notes first.",
         ],
       },
       {
         title: 'Interview a Candidate',
         steps: [
           'From Screening, click Schedule Interview: pick the date, time, who interviews, and the questionnaire (the role\'s own, or General). The candidate and the interviewers get a Teams invite.',
+          "Questionnaires (Settings > Hiring > Interview Questionnaires) are written under the three things an interview checks: Character, Competence and Availability. The Interview Room shows the questions grouped the same way, with everyone's notes so far at the top. The transcript and scoring tools stay folded under Transcript And Scoring until the interview is over.",
           'The Teams meeting is set to record and transcribe itself from the moment it starts - nobody needs to press Record. The round shows "Auto-recording on"; if Teams refused (a permission is missing), it says so and the interviewer records by hand.',
           'When they join, open the Interview Room: the questions are on screen, Start Interview marks it live, and you type what you want. End Interview hands the rest to Nexus.',
           'Nexus pulls the Teams transcript, fills the answers nobody typed, scores the round, and keeps pulling the recording until Teams publishes it (up to a few hours). Play Recording and Transcript appear on the round, on the candidate, and in the room. Pull Recording retries by hand.',
@@ -1145,10 +1150,31 @@ export const DOCS = [
         ],
       },
       {
+        title: 'Make an Offer',
+        steps: [
+          "Open the candidate and click Move To Offer (or Make Offer at the Offer stage, or Offer in the Interview Room). Make An Offer opens.",
+          "1. Who you are hiring: pick Employee (then Full-Time, Part-Time or Intern) or Contractor, and where they work. Nexus never guesses this - the same role can be either - and it decides which offer letter goes. A contractor's letter never says employment.",
+          "Nexus shows the offer letter it picked for that kind of hire (for example US Employee Offer, or India Contractor Offer) and the hiring packet that will follow it. If none is set up, it says so - add one under Settings > Hiring > Hiring Documents > Offer Letter.",
+          "2. The offer: their legal name, the start date, when the offer expires, the supervisor and the pay (Pay & Benefits access needed; a contractor's pay is their fee). The form asks only what the letter and the packet print - their address, the work location, the work hours - and every question the documents mark HR Answers At Offer (a probation period, a bonus). Answer once: the hiring packet reuses all of it.",
+          "Click Create Offer Letter. The candidate moves to Offer and the filled-in letter opens for review. The verifier checks it and clicks Verify And Send - the company signs, then the candidate gets an email and signs with no Nexus login.",
+          "When both have signed, they are hired: People record, pay from the start date, onboarding checklist. Their hiring packet then starts by itself: they get a second email with a link to a short form on their phone (no login), the documents fill themselves in from their answers, HR verifies them and they sign. Their profile shows Onboarding Paperwork Not Complete - hold their first paycheck - until the packet is signed.",
+          "If they decline the offer or it expires, nothing else goes out: change what is needed and make the offer again, or reject them. If no hiring packet was set up when they signed, the offer card says so - set one up and click Start Hiring Packet there.",
+        ],
+      },
+      {
+        title: 'Set Up an Offer Letter',
+        steps: [
+          "Write the offer letter once in Documents > Templates with the category Offer Letter - From Word File is the quickest. One letter per kind of hire: a US employee, a US contractor, an India contractor...",
+          "Mark each blank: Nexus Fills It (name, company, role, start date, pay, work location, hired as), HR Answers At Offer (only HR knows it, it changes per hire), or Same For Everyone. The letter needs a signature spot for the Company and one for the Employee.",
+          "In Settings > Hiring > Hiring Documents open the Offer Letter tab, click Add Packet, pick the letter, and set Hired As (employees or contractors) and Works In (the country). Nexus picks the letter from what HR answers on Make An Offer: the role's own letter first, then this worker type and country, then Any.",
+          "The signing order is the company (often Authorized Signatory or HR, which can Sign Once), then The Person - who signs last.",
+        ],
+      },
+      {
         title: 'Set Up a Hiring Packet',
         steps: [
           'First write each document once in Documents > Templates - the offer letter, the NDA, each addendum, a Job Description per role - each its own template. Use variables for whatever changes per person ({{first_name}}, {{job_title}}, {{salary}}, {{start_date}}, {{work_schedule}}...), insert a Signature Block wherever someone signs (Company, Employee...), and click Publish.',
-          'In People > Hiring, click Packets. Pick the company, or leave All Companies to add one that every company shares. Under Hiring Packet click Add Packet.',
+          'Open Settings > Hiring > Hiring Documents (or Hiring Setup on the Hiring board). Pick the company, or leave All Companies to add one that every company shares. Under Hiring Packet click Add Packet.',
           'Name the packet and pick the job role it is for - IT gets one packet, Accounting another. A packet made for a role is always used for that role; "Every role" covers the roles that have no packet of their own. A role can be in one packet only.',
           'Add the documents from the template list, in order. Preview shows each one filled with a sample person; Open In Documents takes you to the wording. A template must be published to be used, and the packet always prints its published version - edit and Publish Changes in Documents, and every packet that has not been sent yet updates.',
           'Check the Signing Order. Each signer named by the signature blocks in the documents gets a step, set by ROLE: HR, Manager, Authorized Signatory, IT, Payroll... - the same roles People > Checklists uses - with who holds it today shown beside it. The new hire signs last. A step can also Approve or just Get A Copy.',
@@ -1158,6 +1184,10 @@ export const DOCS = [
           'Signs Once: tick it on a company step (HR, Authorized Signatory...) and the company signs the packet only once. Save the packet; whoever holds that role clicks Sign Once (in the packet, or on the first packet\'s review), adopts their signature and enters the one-time code emailed to them. From then on Verify And Send puts that signature on every packet by itself - the candidate is emailed straight away. If someone else becomes the company\'s HR contact (or signatory), the old signature stops counting and the new person signs once before the next packet can go.',
           'Details Form (hiring packets): name, phone, address and emergency contact are always asked. Add any other field the documents need - any country: an ID number, date of birth, bank details. Each field has a label, a type (text, number, date, email, phone, yes / no, dropdown), and can be Required, Sensitive (only people with Pay & Benefits access see it, and the documents that print it) or Last 4 Only (only the last 4 characters are kept and printed, e.g. XXXX 1234). Section headings group them.',
           'Each field is a variable: "PAN Number" fills {{pan_number}} - the editor shows it beside the field. Put the same variable in the template. When a document prints a variable nothing fills yet, the editor lists it with a button to add it to the form. Something the same for every hire (a client\'s name) does not belong on the form: give the variable a Default Value in the template instead.',
+          "Easier: mark the variable in the template itself (From Word File, Template Fields or the variable's own editor) as Ask The Person - it goes on their form by itself, asked once however many documents print it, and Private keeps it to Pay & Benefits. HR Answers At Offer variables are asked on Make An Offer. The packet lists both under its documents.",
+          "Hired As and Works In pick the packet the same way as an offer letter - for example one packet for India contractors, one for US employees.",
+          "Added For A Team Or Role: the documents that change by team - each team's own confidentiality agreement - go here, so one packet covers every role. Pick Team (department) or Role, then the documents; they are added only for people in that team or role.",
+          "Where an offer letter is set up, the hiring packet is never sent at Offer: it starts by itself once the offer is signed (Make an Offer above).",
         ],
       },
       {
@@ -1167,14 +1197,16 @@ export const DOCS = [
           'Nexus lists every blank it found - empty boxes beside a label in a table, "Label:" lines, [      ] brackets, "Rs.      per month" gaps - with what it thinks fills each one: Nexus Fills It (the person\'s name, the company, the start date, the pay...), Ask The Person (their own details: ID numbers, bank details), Same For Everyone (type it once - a client\'s name) or Leave Blank (filled by hand, like a notary page). Most are right already - change only the ones that are wrong. The Variable column shows the {{name}} each blank becomes.',
           'Missed one? In the box under the table, type any text from the document - a blank Nexus did not catch (____) or real text that changes per hire (Hyderabad, 6:00 PM). Every place it appears is listed; untick any to keep, give it a label, pick what fills it and click Add. Each variable has one fixed source: Salary is always the pay on the offer, Company Legal Name the hiring company\'s, Start Date the offer\'s - the guessing happens only here, never when a packet goes out.',
           'It also lists every signature line with who signs it - The Person or The Company. The Date and Name lines under a signature are drawn by the signature spot itself, so they go.',
+          "HR Answers At Offer is a fifth choice: something only HR knows that changes per hire (a probation period, a bonus) - it is asked on Make An Offer. Ask The Person blanks have a Private tick (ID and account numbers are ticked for you): only Pay & Benefits sees the answer. HR Answers blanks have a This Is Pay tick.",
           'Click Create And Publish. The template is published (v1) with every variable and signature spot in place. Preview With Sample Person shows it filled in; Open In Editor if you want to change any wording.',
-          'Add it to a packet in People > Hiring > Packets. The packet\'s Ready To Send checklist offers to put every Ask The Person field on its Details Form in one click, and warns if anything is still missing.',
+          'Add it to a packet in Settings > Hiring > Hiring Documents. The packet\'s Ready To Send checklist offers to put every Ask The Person field on its Details Form in one click, and warns if anything is still missing.',
           'Splitting a big Word file: if parts of it are shared by many roles (an agreement, an NDA) and one part is per role (a scope of work), save them as separate Word files first and make a template from each - each role\'s packet then reuses the shared ones.',
         ],
       },
       {
         title: 'Start a Hiring Packet',
         steps: [
+          "Where the company has an offer letter, you never start the packet by hand - it starts by itself when the offer is signed (see Make an Offer). This is for companies with no offer letter yet.",
           'Move the candidate to Offer and open them. When their company and role have a packet built from Documents, the button reads Start Hiring Packet.',
           'Pick the four things that change per person: the Role (job title), the Pay (Pay & Benefits access needed - or write it out, e.g. "$22.00 per hour plus commission"), the Timings (start and end time and the work days, or a description), and the Job Description. Add the start date and the date the offer expires, and the supervisor.',
           'Choose who fills in their details. "They Fill Them In" emails the candidate a link (no login needed) to enter their legal name, address, phone, an emergency contact and everything on the packet\'s Details Form; the documents are generated the moment they send it. "I Will" lets you type the details now.',
@@ -1210,7 +1242,7 @@ export const DOCS = [
       {
         title: "Promote or Change Someone's Role",
         steps: [
-          'Set up the letter once in People > Hiring > Packets under Promotion Letter: Add Packet, upload the letter PDF (or type it), place the signature boxes for the employee and the manager (employee first), and save. A packet can be for every role or for particular roles.',
+          'Set up the letter once in Settings > Hiring > Hiring Documents under Promotion Letter: Add Packet, upload the letter PDF (or type it), place the signature boxes for the employee and the manager (employee first), and save. A packet can be for every role or for particular roles.',
           'In People: open the person, click Change Role and choose Role Change Without Promotion. Pick the new role, add a reason if you like, and click Change Role. It takes effect right away - no approval. Their manager and the employee get a bell.',
           'In Settings > Access: pick the person and click Change Role. There is no promotion here. Pick the new role, write the reason (required), and click Send For Approval. Nothing changes yet.',
           "Their manager and their company's HR contact each get a Nexus notification (on the yellow bar) and an email with the reason. Either one approves or declines - from the notification or email (Review Request opens the decision), from the person's Access tab, or from the orange hourglass next to their name in the People list. The person who asked never approves their own request.",
@@ -1227,7 +1259,7 @@ export const DOCS = [
       {
         title: 'Offboard Someone',
         steps: [
-          "Set up the separation package once in People > Hiring > Packets under Separation Package: Add Packet, upload the documents, place the signature boxes (the company first, the employee last), and save.",
+          "Set up the separation package once in Settings > Hiring > Hiring Documents under Separation Package: Add Packet, upload the documents, place the signature boxes (the company first, the employee last), and save.",
           'Open the person in People and click Offboard.',
           'Enter their last day and why they are leaving. Choose what happens to their mailbox, who gets their tasks (blank = their supervisor), and whether to export their mailbox and start the offboarding checklist.',
           'Click Review. If the last day is today, their access ends as soon as you confirm and the paperwork goes to their personal email. If it is later, the paperwork goes to their work email; they keep their access through their last day and Nexus marks them Left the morning after by itself.',

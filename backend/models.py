@@ -977,6 +977,17 @@ class HrCandidate(Base):
     resume_url     = Column(String, default="")               # hr-docs storage path (private; signed URL to view)
     notes          = Column(String, default="")
     employee_id    = Column(String, default="")               # set when hired
+    # Neil, Oct 14: the interview is expected by this day - screening has to be
+    # done one business day before it.
+    expected_interview_on = Column(String, default="")        # ISO date
+    # A rejected candidate leaves the board: Remove, or 90 days after the
+    # rejection (Neil, Oct 14: "after 90 days it gets taken out and gets moved
+    # to like inactive"). Reopen brings them back.
+    rejected_at    = Column(String, default="")               # ISO datetime of the rejection
+    inactive_at    = Column(String, default="")               # ISO datetime removed from the board
+    # The "Screen <name>" task for the department head and up (Oct 14,
+    # hiring_screening.py) - its due date follows the interview.
+    screen_task_id = Column(String, default="")               # Task.id
     created_by     = Column(String, default="")
     created_at     = Column(String, default="")
     updated_at     = Column(String, default="")
@@ -991,6 +1002,9 @@ class HrStageEvent(Base):
     note         = Column(String, default="")
     by_email     = Column(String, default="")
     created_at   = Column(String, default="")
+    # Neil, Oct 14: one Notes section, "consolidated with time and date and
+    # person who put it in" - a plain note is a row here too ('' = a stage move).
+    kind         = Column(String, default="")               # '' (move) | note
 
 
 class HrLeaveRequest(Base):
@@ -5821,7 +5835,7 @@ class HrPacketSetting(Base):
     __tablename__ = "hr_packet_settings"
     id               = Column(String, primary_key=True)           # uuid
     entity_id        = Column(String, default="", index=True)     # HrEntity.id ('' = every company)
-    event            = Column(String, nullable=False)             # hire | promotion | separation
+    event            = Column(String, nullable=False)             # offer | hire | promotion | separation
     worker_type      = Column(String, default="any")              # any | employee | contractor
     template_id      = Column(String, default="")                 # HrSignTemplate.id
     subject_role     = Column(String, default="employee")         # template role the person signs as
@@ -5861,6 +5875,14 @@ class HrPacketSetting(Base):
     # consentVersion, otpChallengeId, ip, userAgent, replacedAt}] - never
     # deleted; a new holder's adoption marks the old one replaced.
     saved_signatures = Column(JSON, default=list)
+    # Offer letters (event 'offer', Oct 14) and hiring packets are also picked
+    # by where the person works - "if it's an Indian contractor, it needs a
+    # different document" (Neil): ISO country code, '' = any country.
+    country          = Column(String, default="")
+    # Building blocks (Oct 14): documents added for a team or a role on top
+    # of doc_template_ids - "there's a different confidentiality agreement for
+    # each team" (Neil). [{match: department | role, value, templateIds: []}]
+    extra_docs       = Column(JSON, default=list)
 
 
 class HrLifeEvent(Base):
@@ -5872,7 +5894,7 @@ class HrLifeEvent(Base):
     New table - RLS per CLAUDE.md (main.py list + the startup sweep)."""
     __tablename__ = "hr_life_events"
     id              = Column(String, primary_key=True)            # uuid
-    kind            = Column(String, nullable=False, index=True)  # hire | promotion | separation
+    kind            = Column(String, nullable=False, index=True)  # offer | hire | promotion | separation
     status          = Column(String, default="awaiting_sender")   # awaiting_sender | sent | completed | declined | voided | expired
     entity_id       = Column(String, default="", index=True)      # HrEntity.id
     candidate_id    = Column(String, default="", index=True)      # hire: HrCandidate.id

@@ -4,6 +4,7 @@ import {
   CheckCircle, Play, ClipboardList, RefreshCw, Save, ChevronRight, XCircle, CalendarDays, Clock, AlertTriangle,
 } from 'lucide-react';
 import { api } from '../api';
+import CandidateNotes from './CandidateNotes';
 import { dialog } from '../ui/dialog';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
@@ -16,7 +17,7 @@ import { Spinner } from './AsyncState';
 const Overlay = ({ children, onClose, wide }) => (
   <div onClick={e => e.target === e.currentTarget && onClose()}
     style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1250, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-    <div style={{ background: 'var(--card)', borderRadius: 16, width: '100%', maxWidth: 'clamp(560px, 60vw, 1100px)', maxHeight: 'min(92dvh, 780px)', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
+    <div style={{ background: 'var(--card)', borderRadius: 16, width: 'max(min(100%, 560px), 60vw)', maxWidth: '100%', minHeight: 'min(60vh, 90dvh)', maxHeight: '90dvh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-lg)', fontFamily: 'Inter,sans-serif' }}>
       {children}
     </div>
   </div>
@@ -122,6 +123,14 @@ export function EmployeeInterviews({ employeeId, toastErr }) {
 }
 
 // ── Questionnaire templates ───────────────────────────────────────────────────
+// Neil, Oct 14: "we're checking person's character, we're checking their
+// competence ... and availability. Everything else is later." Every question
+// goes under one of the three; the Interview Room shows them grouped so.
+export const GROUPS = [['character', 'Character', 'Who they are - honesty, attitude, how they treat people'],
+  ['competence', 'Competence', 'Can they do the job - skills, experience, judgment'],
+  ['availability', 'Availability', 'Start date, hours, location, notice period']];
+const byGroup = (questions) => Object.fromEntries(GROUPS.map(([g]) => [g, (questions || []).filter(q => (q.group || 'competence') === g).map(q => q.q).join('\n')]));
+
 export function QuestionnairesModal({ onClose, toastOk, toastErr }) {
   const [tpls, setTpls] = useState(null);
   const [editing, setEditing] = useState(null);   // {id?, name, text, roleIds, isGeneral}
@@ -132,7 +141,7 @@ export function QuestionnairesModal({ onClose, toastOk, toastErr }) {
   const roleName = id => { const r = roles.find(x => x.id === id); return r ? r.name + (r.companyName ? ` (${r.companyName})` : '') : 'A removed role'; };
 
   const save = async () => {
-    const questions = editing.text.split('\n').map(s => s.trim()).filter(Boolean);
+    const questions = GROUPS.flatMap(([g]) => (editing.text[g] || '').split('\n').map(s => s.trim()).filter(Boolean).map(q => ({ q, group: g })));
     if (!editing.name.trim() || !questions.length) return;
     setBusy(true);
     try {
@@ -147,7 +156,7 @@ export function QuestionnairesModal({ onClose, toastOk, toastErr }) {
     finally { setBusy(false); }
   };
 
-  const dirty = !!(editing && (editing.name.trim() || editing.text.trim()));
+  const dirty = !!(editing && (editing.name.trim() || Object.values(editing.text || {}).some(t => t.trim())));
   const guard = useUnsavedGuard(dirty, onClose, save);
 
   return (
@@ -178,10 +187,15 @@ export function QuestionnairesModal({ onClose, toastOk, toastErr }) {
                   );
                 })}
             </div>
-            <label style={lbl}>Questions - one per line</label>
-            <textarea className="form-input" rows={10} style={{ width: '100%', resize: 'vertical', fontSize: 13, lineHeight: 1.6 }}
-              value={editing.text} onChange={e => setEditing(ed => ({ ...ed, text: e.target.value }))}
-              placeholder={'Walk me through your last role.\nHow would you handle an overdue vendor?\n…'} />
+            {GROUPS.map(([g, label, help]) => (
+              <div key={g}>
+                <label style={lbl}>{label} - one question per line</label>
+                <div style={{ fontSize: 11.5, color: 'var(--muted)', margin: '-2px 0 6px' }}>{help}</div>
+                <textarea className="form-input" rows={4} style={{ width: '100%', resize: 'vertical', fontSize: 13, lineHeight: 1.6 }}
+                  value={editing.text[g] || ''} onChange={e => setEditing(ed => ({ ...ed, text: { ...ed.text, [g]: e.target.value } }))}
+                  placeholder={g === 'character' ? 'Tell me about a time you disagreed with your manager.' : g === 'competence' ? 'Walk me through your last role.' : 'When can you start? What hours work for you?'} />
+              </div>
+            ))}
             <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'flex-end' }}>
               <button className="secondary-btn" onClick={() => setEditing(null)}>Cancel</button>
               <button className="primary-btn" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save Questionnaire'}</button>
@@ -203,7 +217,7 @@ export function QuestionnairesModal({ onClose, toastOk, toastErr }) {
                     </div>
                   </div>
                   <button className="secondary-btn" style={{ fontSize: 12, padding: '4px 12px' }}
-                    onClick={() => setEditing({ id: t.id, name: t.name, text: t.questions.map(q => q.q).join('\n'), roleIds: t.roleIds || [], isGeneral: !!t.isGeneral })}>Edit</button>
+                    onClick={() => setEditing({ id: t.id, name: t.name, text: byGroup(t.questions), roleIds: t.roleIds || [], isGeneral: !!t.isGeneral })}>Edit</button>
                   <button onClick={async () => {
                       if (!await dialog.confirm(`Delete "${t.name}"?`, { title: 'Delete template', confirmText: 'Delete', danger: true })) return;
                       try { await api.ivTemplateDelete(t.id); setTpls(ts => ts.filter(x => x.id !== t.id)); toastOk?.('Template deleted.'); }
@@ -213,7 +227,7 @@ export function QuestionnairesModal({ onClose, toastOk, toastErr }) {
                 </div>
               ))}
             <button className="primary-btn" style={{ marginTop: 14, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}
-              onClick={() => setEditing({ name: '', text: '', roleIds: [], isGeneral: false })}>
+              onClick={() => setEditing({ name: '', text: {}, roleIds: [], isGeneral: false })}>
               <Plus size={14} /> New Questionnaire
             </button>
           </>
@@ -295,13 +309,21 @@ export function InterviewPanel({ candidate: c, onClose, onDecision, toastOk, toa
 
   return (
     <Overlay onClose={guard.requestClose} wide>
-      <Head title={`Interviews - ${c.firstName} ${c.lastName || ''}`} sub={c.roleTitle || c.department || ''} onClose={guard.requestClose} />
-      <div style={{ overflowY: 'auto', padding: '14px 22px', flex: 1 }}>
+      <Head title={`Interview Room - ${c.firstName} ${c.lastName || ''}`}
+        sub={[c.roleTitle || c.department, sel ? (sel.status === 'live' ? 'In progress' : sel.status === 'scored' ? `Scored ${Math.round(sel.totalScore)}/100` : sel.status === 'completed' ? 'Finished - scoring next' : sel.at ? `Scheduled ${formatDateTime(sel.at)}` : '') : ''].filter(Boolean).join(' · ')}
+        onClose={guard.requestClose} />
+      <div style={{ overflowY: 'auto', padding: '14px 28px 20px', flex: 1 }}>
 
-        {/* Rounds */}
+        {/* Everyone's notes so far - in front of the interviewer before it starts (Neil, Oct 14). */}
+        <details open={!sel || sel.status === 'scheduled'} style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '8px 12px', marginBottom: 12 }}>
+          <summary style={{ cursor: 'pointer', fontSize: 12.5, fontWeight: 800 }}>Notes So Far</summary>
+          <div style={{ marginTop: 8 }}><CandidateNotes candidateId={c.id} compact toastErr={toastErr} /></div>
+        </details>
+
+        {/* Rounds - only when there is more than one to choose between */}
         {list === null ? <Spinner size={16} /> : list.length === 0 ? (
           <div style={{ fontSize: 13, color: 'var(--muted)', padding: '24px 0', textAlign: 'center' }}>No interview scheduled yet - schedule it from the candidate.</div>
-        ) : (
+        ) : list.length === 1 ? null : (
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
             {list.map(iv => (
               <button key={iv.id} onClick={() => setSel(iv)}
@@ -350,9 +372,11 @@ export function InterviewPanel({ candidate: c, onClose, onDecision, toastOk, toa
               </div>
             )}
 
-            {/* Transcript + AI actions */}
+            {/* Transcript + AI actions - folded until the interview is over */}
             {(sel.status === 'completed' || sel.status === 'scored') && (
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+              <details style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '8px 12px', marginBottom: 12 }}>
+              <summary style={{ cursor: 'pointer', fontSize: 12.5, fontWeight: 800 }}>Transcript And Scoring</summary>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '10px 0 4px' }}>
                 <button className="secondary-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }} disabled={!!busy}
                   onClick={run('pull', async () => { await api.ivPullTranscript(sel.id); refreshSel({ ...sel, hasTranscript: true }); }, 'Transcript pulled from Teams')}>
                   {busy === 'pull' ? <Spinner size={13} /> : <RefreshCw size={13} />} Pull Teams Transcript
@@ -370,9 +394,8 @@ export function InterviewPanel({ candidate: c, onClose, onDecision, toastOk, toa
                   {busy === 'cal' ? <Spinner size={13} /> : <Trophy size={13} />} Calibrate Score
                 </button>
               </div>
-            )}
-            {showPaste && (
-              <div style={{ marginBottom: 12 }}>
+              {showPaste && (
+              <div style={{ marginBottom: 8 }}>
                 <textarea className="form-input" rows={5} style={{ width: '100%', fontSize: 12, resize: 'vertical' }} value={paste}
                   placeholder="Paste the Teams transcript here (Meeting → … → View transcript → copy)" onChange={e => setPaste(e.target.value)} />
                 <button className="secondary-btn" style={{ marginTop: 6, fontSize: 12 }} disabled={!paste.trim() || !!busy}
@@ -380,24 +403,36 @@ export function InterviewPanel({ candidate: c, onClose, onDecision, toastOk, toa
                   Save transcript
                 </button>
               </div>
+              )}
+              </details>
             )}
 
-            {/* Questionnaire */}
-            {sel.answers?.length ? sel.answers.map((a, i) => (
-              <div key={a.qid} style={{ marginBottom: 12, border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px' }}>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
-                  <span style={{ fontSize: 12.5, fontWeight: 700, flex: 1 }}>{i + 1}. {a.q}</span>
-                  {a.score !== null && a.score !== undefined && (
-                    <span style={{ fontSize: 12, fontWeight: 800, color: a.score >= 7 ? 'hsl(var(--color-green))' : a.score >= 4 ? 'hsl(var(--color-orange))' : 'hsl(var(--color-red))', flexShrink: 0 }}>{a.score}/10</span>
-                  )}
+            {/* The questions, under the three things an interview checks (Neil, Oct 14). */}
+            {sel.answers?.length ? GROUPS.map(([g, label, help]) => {
+              const qs = sel.answers.filter(a => (a.group || 'competence') === g);
+              if (!qs.length) return null;
+              return (
+                <div key={g} style={{ marginBottom: 18 }}>
+                  <div style={{ fontSize: 14, fontWeight: 800, margin: '6px 0 2px' }}>{label}</div>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>{help}</div>
+                  {qs.map(a => (
+                    <div key={a.qid} style={{ marginBottom: 8, border: '1px solid var(--line)', borderRadius: 12, padding: '10px 14px' }}>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
+                        <span style={{ fontSize: 13.5, fontWeight: 700, flex: 1 }}>{a.q}</span>
+                        {a.score !== null && a.score !== undefined && (
+                          <span style={{ fontSize: 12.5, fontWeight: 800, color: a.score >= 7 ? 'hsl(var(--color-green))' : a.score >= 4 ? 'hsl(var(--color-orange))' : 'hsl(var(--color-red))', flexShrink: 0 }}>{a.score}/10</span>
+                        )}
+                      </div>
+                      <textarea className="form-input" rows={2} style={{ width: '100%', marginTop: 8, fontSize: 13, resize: 'vertical' }}
+                        value={a.answer || ''} placeholder="Their answer"
+                        onChange={e => setAnswer(a.qid, e.target.value)}
+                        onBlur={() => { if (sel.status !== 'live') api.ivPatch(sel.id, { answers: sel.answers }).then(() => setTyped(false)).catch(() => {}); }} />
+                      {a.rationale && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 5 }}><Sparkles size={10} style={{ verticalAlign: 'middle', marginRight: 4 }} />{a.rationale}</div>}
+                    </div>
+                  ))}
                 </div>
-                <textarea className="form-input" rows={2} style={{ width: '100%', marginTop: 6, fontSize: 12.5, resize: 'vertical' }}
-                  value={a.answer || ''} placeholder="Their answer - type it, or let AI fill it from the transcript"
-                  onChange={e => setAnswer(a.qid, e.target.value)}
-                  onBlur={() => { if (sel.status !== 'live') api.ivPatch(sel.id, { answers: sel.answers }).then(() => setTyped(false)).catch(() => {}); }} />
-                {a.rationale && <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}><Sparkles size={10} style={{ verticalAlign: 'middle', marginRight: 4 }} />{a.rationale}</div>}
-              </div>
-            )) : <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>No questionnaire attached to this round.</div>}
+              );
+            }) : <div style={{ fontSize: 13, color: 'var(--muted)' }}>No questionnaire attached to this round.</div>}
 
             {sel.summary && (
               <div style={{ background: 'hsla(var(--color-green),0.06)', border: '1px solid hsla(var(--color-green),0.25)', borderRadius: 10, padding: '10px 12px', fontSize: 12.5 }}>
