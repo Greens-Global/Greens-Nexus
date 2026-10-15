@@ -1,7 +1,7 @@
 // Task Emails (Sept 2026) - each person's own control over task emails: when
 // reminders arrive, how often overdue ones repeat, one email per task or one
 // daily summary, which instant emails they get, and muted tasks/projects.
-// Shown by the header menu's "Email Settings" (components/EmailSettingsModal.jsx),
+// Shown as the Email Settings section of Profile (components/MyProfileModal.jsx),
 // which the "Email Settings" link in every task email also opens.
 // Company settings (Manage -> Notifications) stay the default; anything left on
 // "Company default" here follows them. The backend is the real boundary

@@ -3,6 +3,7 @@ open-shift requests, swaps and offers, the manager inbox and its switches.
 
     python -m unittest test_shift_requests
 """
+import json
 import os
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -26,6 +27,8 @@ with database.engine.connect() as _c:
                  "ALTER TABLE scheduled_shifts ADD COLUMN pending_json TEXT DEFAULT ''",
                  "ALTER TABLE scheduled_shifts ADD COLUMN pending_delete INTEGER DEFAULT 0",
                  "ALTER TABLE shifts ADD COLUMN break_min INTEGER DEFAULT 0",
+                 "ALTER TABLE shifts ADD COLUMN company_id VARCHAR DEFAULT ''",
+                 "ALTER TABLE shift_groups ADD COLUMN company_id VARCHAR DEFAULT ''",
                  "ALTER TABLE scheduled_shifts ADD COLUMN break_min INTEGER DEFAULT 0",
                  "ALTER TABLE scheduled_shifts ADD COLUMN activities_json TEXT DEFAULT ''",
                  "ALTER TABLE scheduled_shifts ADD COLUMN color TEXT DEFAULT ''",
@@ -69,6 +72,10 @@ class ShiftRequestTests(unittest.TestCase):
             db.add(models.ShiftGroup(id="group-sreq-other", name="Other Store"))
             db.add(models.ShiftGroupMember(id="sgm-sreq-a", group_id=GROUP, employee_email=A))
             db.add(models.ShiftGroupMember(id="sgm-sreq-b", group_id=GROUP, employee_email=B))
+            # Trading is OFF by default since Oct 14 2026 (Shifts Phase 0); these
+            # tests exercise the switches ON, as the tenant used to be.
+            db.add(models.NexusSetting(key="shift_requests_config",
+                                       value=json.dumps({"openShifts": True, "swaps": True, "offers": True})))
             db.commit()
         finally:
             db.close()

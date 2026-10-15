@@ -50,7 +50,7 @@ describe('Support documentation', () => {
     as({});
     const { container } = render(<SupportDocs />);
     const names = indexButtons(container).map((b) => b.textContent);
-    for (const n of ['Getting Started', 'Dashboard', 'Workday', 'Shifts', 'Knowledge Base', 'Item Management', 'Construction', 'Support']) {
+    for (const n of ['Getting Started', 'Dashboard', 'Workday', 'Team', 'Knowledge Base', 'Item Management', 'Construction', 'Help Center']) {
       expect(names).toContain(n);
     }
     for (const n of ['Tasks', 'Tickets', 'People', 'Accounting', 'Investor Relations', 'Credential Vault', 'Settings', 'Workforce Analytics']) {
@@ -112,6 +112,22 @@ describe('Support documentation', () => {
       window.dispatchEvent(new CustomEvent('nexus:docs-open', { detail: { docId: 'item-management', anchor: null } }));
     });
     expect(screen.getByRole('heading', { level: 2, name: 'Item Management' })).toBeTruthy();
+  });
+
+  it('gives administrators an Implementation Guide tab, and nobody else', async () => {
+    as({});
+    const { unmount } = render(<SupportDocs canImplement={false} />);
+    expect(screen.queryByRole('tab', { name: /Implementation Guide/ })).toBeNull();
+    unmount();
+    as({ admin: true });
+    render(<SupportDocs canImplement />);
+    expect(screen.getByRole('tab', { name: /Module Guides/ }).getAttribute('aria-selected')).toBe('true');
+    fireEvent.click(screen.getByRole('tab', { name: /Implementation Guide/ }));
+    expect(screen.getByRole('tab', { name: /Implementation Guide/ }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.queryByRole('navigation', { name: 'On this page' })).toBeNull();      // the module layout gives way to the guide
+    expect(screen.queryByLabelText('Search the documentation')).toBeNull();   // the module search is for module guides
+    fireEvent.click(screen.getByRole('tab', { name: /Module Guides/ }));
+    expect(screen.getByLabelText('Search the documentation')).toBeTruthy();
   });
 
   it('opens the page named in a ?doc= link, then drops it from the URL', () => {

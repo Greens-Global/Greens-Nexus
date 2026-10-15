@@ -377,19 +377,59 @@ def compose(kind: str, *, stage: str, role: str, first_name: str, company: str, 
     d = inputs or {}
     first = escape(first_name or "there")
 
-    if kind == "hire":
+    if kind in ("offer", "hire"):
         title = d.get("job_title") or "your new role"
         start = _long(d.get("start_date"))
+        # A contractor is engaged, never employed (Neil, Oct 14: "the moment you
+        # say employment..."): their email never calls it employment.
+        contractor = d.get("worker_type") == "contractor" or d.get("employment_type") == "contractor"
         offer = _card("Your offer at a glance", [
             ("Position", escape(title)),
             ("Team", escape(d.get("department") or "")),
             ("Company", escape(company)),
             ("Start date", escape(start)),
             ("Reports to", escape(manager)),
-            ("Employment", escape(EMPLOYMENT.get(d.get("employment_type") or "", ""))),
-            ("Base pay", escape(_pay_line(pay) or d.get("salary_text") or "")),
-            ("Location", escape(location)),
+            (("Engagement", "Independent Contractor") if contractor else
+             ("Employment", escape(EMPLOYMENT.get(d.get("employment_type") or "", "")))),
+            ("Fee" if contractor else "Base pay", escape(_pay_line(pay) or d.get("salary_text") or "")),
+            ("Location", escape(d.get("work_location") or location)),
         ], green)
+        if kind == "offer" and stage == "completed":
+            return (f"Your offer is signed - welcome to {company} 🎉",
+                    _shell(preheader="Your offer is signed. Next: a short form for your onboarding paperwork.",
+                           company=company, accent=green, hero_bg="#14532d", hero_emoji="&#127881;",
+                           hero_title=f"Welcome aboard, {first}!",
+                           hero_sub=f"Your offer for <strong>{escape(title)}</strong> is signed by you and {escape(company)}.",
+                           sections=[
+                               _p("A signed copy of your offer letter is attached to this email for your records."),
+                               _steps("What happens next", [
+                                   ("Your details", "We'll email you a short form for your onboarding paperwork - "
+                                                    "it works on your phone, no account needed."),
+                                   ("Your documents", "Your onboarding documents fill themselves in from your answers "
+                                                      "and come to you to sign."),
+                                   ("Your first day", f"{start or 'Your start date'} - "
+                                                      f"{escape(manager) + ' will meet you.' if manager else 'your manager will meet you.'}"),
+                               ], green),
+                               offer, _contact(sender, green)],
+                           party=party, req=req, sender=sender, security=False))
+        if kind == "hire" and d.get("after_offer") and stage != "completed":
+            # The paperwork after a signed offer - not a second offer.
+            return (f"{company} - your onboarding documents are ready to sign",
+                    _shell(preheader="Your documents are filled in from your details - review and sign.",
+                           company=company, accent=green, hero_bg="#14532d", hero_emoji="&#9997;",
+                           hero_title=f"Almost done, {first}",
+                           hero_sub=f"Your onboarding documents for <strong>{escape(title)}</strong> are ready.",
+                           sections=[
+                               _p(f"Hi {first},<br><br>Thank you for sending your details. Your onboarding documents "
+                                  f"are filled in from them and ready for your signature."),
+                               _note(note, sender, green),
+                               _docs(docs, green) + _signed_line(signed_by or [], company, green),
+                               _button("Review &amp; Sign", link, green)
+                               + f'<div style="font-family:{FONT};font-size:13px;color:{MUTED};margin-top:10px">'
+                                 f'Works on your phone - no account or password needed. '
+                                 f'{_after_me(after_me or [], "")}</div>',
+                               _contact(sender, green)],
+                           party=party, req=req, sender=sender))
         if stage == "completed":
             return (f"You're officially part of {company} 🎉",
                     _shell(preheader=f"Everything is signed - here is what happens before {_short(d.get('start_date'))}.",
@@ -431,8 +471,10 @@ def compose(kind: str, *, stage: str, role: str, first_name: str, company: str, 
                                  f"On behalf of everyone at {escape(company)}, we're excited to offer "
                                  f"you the role of <strong>{escape(title)}</strong>. We were impressed throughout the "
                                  f"process and think you'll be a great addition to the team. ")
-                              + "The details of your offer are below, and your offer letter and onboarding documents "
-                                "are ready for your signature."),
+                              + ("The details of your offer are below, and your offer letter is ready for your signature."
+                                 if kind == "offer" else
+                                 "The details of your offer are below, and your offer letter and onboarding documents "
+                                 "are ready for your signature.")),
                            offer,
                            _note(note, sender, green),
                            _docs(docs, green) + _signed_line(signed_by or [], company, green),
@@ -441,10 +483,15 @@ def compose(kind: str, *, stage: str, role: str, first_name: str, company: str, 
                              f'Takes about 10 minutes and works on your phone. Signing is how you accept the offer.</div>'
                            + sign_by,
                            _steps("What happens next", [
-                               ("Sign your offer", "Open the link, confirm the one-time code we email you, and sign each document."),
-                               ("We get you set up", "Your work email and accounts are created before your first day."),
+                               ("Sign your offer", "Open the link, confirm the one-time code we email you, and sign. "
+                                                   "No account or password needed."),
+                               (("Your onboarding paperwork", "Once you sign, we email you a short form - your "
+                                                              "documents fill themselves in from it.")
+                                if kind == "offer" else
+                                ("We get you set up", "Your work email and accounts are created before your first day.")),
                                ("Day one", f"{start or 'Your start date'} - bring a government-issued photo ID for your "
-                                           "employment paperwork; we'll have everything else ready."),
+                                           f"{'onboarding' if contractor else 'employment'} paperwork; we'll have "
+                                           "everything else ready."),
                            ], green),
                            _contact(sender, green)],
                        party=party, req=req, sender=sender))
@@ -592,13 +639,24 @@ def intake_email(db: Session, ev: HrLifeEvent, link: str) -> tuple:
     role = escape((ev.inputs or {}).get("job_title") or "your new role")
     expires = _long((ev.intake_expires_on or "")[:10])
     accent = "#15803d"
+    if (ev.inputs or {}).get("after_offer"):
+        # The offer is signed (Oct 14) - this is the onboarding paperwork.
+        head = _heading(f"Welcome aboard, {first}!", accent)
+        intro = _p(f"Thank you for accepting your offer for <b>{role}</b> at {escape(company)}. The next step is "
+                   f"your onboarding paperwork: tell us your details once - your legal name, address, an emergency "
+                   f"contact and the few things your documents ask for - and every document fills itself in.")
+        after = ("It takes a few minutes and works on your phone - no account or password needed. Your documents "
+                 "then come to you to sign in a separate email.")
+    else:
+        head = _heading(f"Hi {first}, almost there", accent)
+        intro = _p(f"{escape(company)} is preparing your hiring documents for <b>{role}</b>. Please confirm your "
+                   f"details - your legal name, address, phone and an emergency contact - so they come out right.")
+        after = ("It takes about two minutes. You will receive the documents to sign in a separate email once HR "
+                 "has prepared them.")
     body = "".join([
-        _heading(f"Hi {first}, almost there", accent),
-        _p(f"{escape(company)} is preparing your hiring documents for <b>{role}</b>. Please confirm your "
-           f"details - your legal name, address, phone and an emergency contact - so they come out right."),
+        head, intro,
         f'<div style="margin:26px 0">{_button("Complete Your Details", link, accent)}</div>',
-        _p("It takes about two minutes. You will receive the documents to sign in a separate email once HR "
-           "has prepared them." + (f" This link works through {expires}." if expires else "")),
+        _p(after + (f" This link works through {expires}." if expires else "")),
         _p('<span style="font-size:13px;color:#6b7280">&#128274; This link is unique to you - please do not '
            'forward this email.</span>'),
     ])
@@ -663,6 +721,7 @@ SAMPLE = {
                   {"base": 8000, "payBasis": "salary", "frequency": "monthly", "currency": "USD"}),
     "separation": ({"last_day": "2026-10-31", "job_title": "Senior Analyst"}, {}),
 }
+SAMPLE["offer"] = SAMPLE["hire"]
 
 
 def preview(db: Session, user: dict, event: str, entity_id: str, template_name: str, note: str,
@@ -692,7 +751,7 @@ def preview(db: Session, user: dict, event: str, entity_id: str, template_name: 
         fake_party.kind = "internal"          # an employee signs behind their Nexus login
     # The sample envelope: the company (the sender) has signed a hire or
     # separation before the person sees it; a promotion goes to the manager next.
-    signed_by = [(sender.get("name") or "HR", now)] if event in ("hire", "separation") else []
+    signed_by = [(sender.get("name") or "HR", now)] if event in ("offer", "hire", "separation") else []
     after_me = ["Max Manager"] if event == "promotion" else []
     return compose(event, stage=stage, role=role, first_name="Jane" if role == "subject" else "Max", company=company,
                    location=location, inputs=inputs, pay=pay, manager="Max Manager", note=note,

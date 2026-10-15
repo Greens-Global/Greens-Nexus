@@ -127,14 +127,30 @@ describe('applyBlanks', () => {
     const places = findText(doc, 'hyderabad');
     expect(places).toHaveLength(3);
     expect(places[1].context).toContain('Hyderabad office');
-    const blank = { kind: 'text', match: 'Hyderabad', places: [places[0], places[1]], label: 'Work Location', fill: 'same', value: 'Hyderabad' };
+    const blank = { kind: 'text', match: 'Hyderabad', places: [places[0], places[1]], label: 'Office City', fill: 'same', value: 'Hyderabad' };
     const { doc: out, fieldDefs } = applyBlanks(doc, [blank]);
     const json = JSON.stringify(out);
-    expect(json.match(/"token":"work_location"/g)).toHaveLength(2);
+    expect(json.match(/"token":"office_city"/g)).toHaveLength(2);
     expect(json).toContain('Travel to Hyderabad is not required.');      // the unticked place stays
     expect(json).not.toContain('Hyde"');                                  // the split run was replaced whole
-    expect(fieldDefs).toEqual([expect.objectContaining({ token: 'work_location', default: 'Hyderabad' })]);
+    expect(fieldDefs).toEqual([expect.objectContaining({ token: 'office_city', default: 'Hyderabad' })]);
     expect(findText(doc, 'x')).toEqual([]);                               // too short to search
+  });
+
+  it('says who fills each variable - the person (private when it is an ID) or HR on the offer', () => {
+    const doc = { type: 'doc', content: [p('PAN Number:   '), p('Bank Name:   '), p('Probation Period:   '), p('Joining Bonus:   '), p('Work Location:   ')] };
+    const blanks = findBlanks(doc);
+    expect(by(blanks, 'Probation Period')).toMatchObject({ fill: 'hr' });
+    expect(by(blanks, 'Work Location')).toMatchObject({ fill: 'nexus', token: 'work_location' });
+    const { fieldDefs } = applyBlanks(doc, blanks);
+    const def = (t) => fieldDefs.find(f => f.token === t);
+    expect(def('pan_number')).toMatchObject({ source: 'person', sensitive: true });
+    expect(def('bank_name')).toMatchObject({ source: 'person', sensitive: false });
+    expect(def('probation_period')).toMatchObject({ source: 'hr', pay: false });
+    expect(def('joining_bonus')).toMatchObject({ source: 'hr', pay: true });
+    // HR's own choice wins over the guess
+    const changed = blanks.map(b => (b.label === 'Bank Name' ? { ...b, private: true } : b));
+    expect(applyBlanks(doc, changed).fieldDefs.find(f => f.token === 'bank_name').sensitive).toBe(true);
   });
 
   it('guesses by label', () => {

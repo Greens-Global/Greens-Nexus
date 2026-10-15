@@ -487,23 +487,25 @@ def assignment_teams_dm_html(*, code: str, subject: str, link: str,
 
 def walkthrough_email(*, property_name: str, property_id: str, actor_name: str, rows: list, audience: str,
                       base_url: str, logo_url: str) -> tuple[str, str]:
-    """One email for a whole Property Walkthrough (Neil, 10/05): a table of its
-    tickets instead of one email per ticket. Requesters open theirs through
+    """One email for a whole batch (Property Walkthrough, Neil 10/05; Batch
+    Create since Oct 13 2026, when the property became optional): a table of
+    its tickets instead of one email per ticket. Requesters open theirs through
     Support (see _ticket_url); the asset manager is sent to the property's
     Open Tickets in Asset Management, which they can open without the Tickets
     grant."""
     n = len(rows)
     s = "s" if n != 1 else ""
     who = actor_name or "A colleague"
+    at = f" at {property_name}" if property_name else ""
     heading, intro = {
-        "requester": (f"Your {n} ticket{s} at {property_name} were submitted",
-                      f"{who} filed these in one walkthrough. Each is its own ticket, and you will hear about each one as it is worked."),
-        "assignee": (f"You were assigned {n} ticket{s} at {property_name}",
-                     f"Assigned during a walkthrough by {who}."),
-        "asset_manager": (f"{n} new ticket{s} at {property_name}",
-                          f"{who} walked the property and filed these. They show under the property's Maintenance > Open Tickets."),
-    }.get(audience, (f"{n} new ticket{s} at {property_name} to assign",
-                     f"Filed in one walkthrough by {who}. Each needs an owner."))
+        "requester": (f"Your {n} ticket{s}{at} were submitted",
+                      f"{who} filed these in one batch. Each is its own ticket, and you will hear about each one as it is worked."),
+        "assignee": (f"You were assigned {n} ticket{s}{at}",
+                     f"Assigned in a batch by {who}."),
+        "asset_manager": (f"{n} new ticket{s}{at}",
+                          f"{who} filed these for the property. They show under the property's Maintenance > Open Tickets."),
+    }.get(audience, (f"{n} new ticket{s}{at} to assign",
+                     f"Filed in one batch by {who}. Each needs an owner."))
     th = email_theme.current()
     base = (base_url or "").rstrip("/")
     for_req = audience == "requester"
@@ -530,7 +532,7 @@ def walkthrough_email(*, property_name: str, property_id: str, actor_name: str, 
   <table align="center" width="580" cellpadding="0" cellspacing="0" style="max-width:580px;width:100%;background:#ffffff;border-radius:14px;border:1px solid #e5e7eb;border-collapse:separate;overflow:hidden">
     <tr><td style="background:{th.color('#0f3d2e')};padding:18px 28px">{th.logo_block(logo_url)}</td></tr>
     <tr><td style="padding:26px 28px 8px">
-      <div style="font-size:11.5px;color:#9ca3af;font-weight:700;letter-spacing:.04em;text-transform:uppercase;margin-bottom:6px">Property Walkthrough</div>
+      <div style="font-size:11.5px;color:#9ca3af;font-weight:700;letter-spacing:.04em;text-transform:uppercase;margin-bottom:6px">Batch Create</div>
       <h2 style="margin:0 0 10px;font-size:19px;color:#111827;line-height:1.35">{escape(heading)}</h2>
       <p style="margin:0;font-size:13.5px;line-height:1.6;color:#374151">{escape(intro)}</p>
       <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:14px 0 8px">{trs}</table>
@@ -544,4 +546,4 @@ def walkthrough_email(*, property_name: str, property_id: str, actor_name: str, 
     </td></tr>
   </table>
 </div>"""
-    return f"{n} new ticket{s} at {property_name} - Property Walkthrough", html
+    return f"{n} new ticket{s}{at} - Batch Create", html

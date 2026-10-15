@@ -1280,6 +1280,8 @@ export const api = {
   // HR - hiring pipeline
   getCandidates:       ()         => req('/hr/candidates'),
   getCandidateHistory: (id)       => req(`/hr/candidates/${id}/history`),
+  // One notes timeline (Oct 14): add a note - who and when are recorded.
+  addCandidateNote:    (id, note) => req(`/hr/candidates/${id}/notes`, { method: 'POST', body: JSON.stringify({ note }) }),
   createCandidate:     (data)     => req('/hr/candidates', { method: 'POST', body: JSON.stringify(data) }),
   updateCandidate:     (id, data) => req(`/hr/candidates/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   candidateResumeUpload: (id, form) => req(`/hr/candidates/${id}/resume`, { method: 'POST', body: form }),
@@ -2320,6 +2322,47 @@ export const api = {
   // Operations: the Cubby -> database sync (10/15). Refresh starts one; the screen polls the status.
   getCubbySync: () => req('/facility-ops/sync'),
   startCubbySync: () => req('/facility-ops/sync', { method: 'POST' }),
+  // Shifts Phase 0 (Oct 14): shift settings and shift types per company. No
+  // company = the tenant defaults / every shift type; a company id = that
+  // company's own settings (PUT saves its override, DELETE drops it) and the
+  // shift types it can use.
+  timeShiftsFor:              (company = '') => req(`/timeclock/shifts${company ? `?company=${encodeURIComponent(company)}` : ''}`),
+  shiftRequestSettingsGetFor: (company = '') => req(`/timeclock/shift-requests/settings${company ? `?company=${encodeURIComponent(company)}` : ''}`),
+  shiftRequestSettingsSaveFor: (data, company = '') => req(`/timeclock/shift-requests/settings${company ? `?company=${encodeURIComponent(company)}` : ''}`, { method: 'PUT', body: JSON.stringify(data) }),
+  shiftRequestSettingsReset:  (company) => req(`/timeclock/shift-requests/settings?company=${encodeURIComponent(company)}`, { method: 'DELETE' }),
+  // Shifts Phase 1 (Oct 14): what the clock says against the schedule - one
+  // cell per person and day (status, punches, late / early minutes), per-
+  // person and overall totals. Someone who cannot manage shifts gets their own.
+  timeSchedActuals:           (start, end) => req(`/timeclock/schedule/actuals?start=${start}&end=${end}`),
+  // Shifts Phase 2 (Oct 2026): rules before publish. The review takes the
+  // same params the publish does (start, end, group_id, emails); a shift's
+  // history is newest first.
+  timeSchedPublishReview:     (params) => req(`/timeclock/schedule/publish/review?${new URLSearchParams(params).toString()}`),
+  timeSchedHistory:           (id) => req(`/timeclock/schedule/${id}/history`),
+  // Hardening pass (Oct 15): the history an empty cell still has, and the
+  // shares made with warnings for the Share dialog's Recent Shares.
+  timeSchedCellHistory:       (email, date) => req(`/timeclock/schedule/history?email=${encodeURIComponent(email)}&date=${date}`),
+  timeSchedShares:            (params = {}) => req(`/timeclock/schedule/shares${Object.keys(params).length ? `?${new URLSearchParams(params).toString()}` : ''}`),
+  // Shifts Phase 3a (Oct 14): the schedule comes to people. My own
+  // preferences (the Outlook calendar opt-out), the administrator's calendar
+  // sync status, my iCal subscription link (rotate = a new link, the old one
+  // stops working), the shared schedules I have not confirmed and the
+  // confirm, and for a manager who has confirmed in a range plus a nudge.
+  timeMyPrefsGet:             () => req('/timeclock/my-prefs'),
+  timeMyPrefsSet:             (data) => req('/timeclock/my-prefs', { method: 'PUT', body: JSON.stringify(data) }),
+  timeCalendarSyncStatus:     () => req('/timeclock/calendar-sync/status'),
+  timeMyIcalLink:             () => req('/timeclock/my-schedule/ical-link'),
+  timeMyIcalRotate:           () => req('/timeclock/my-schedule/ical-link/rotate', { method: 'POST' }),
+  timeMyConfirmations:        () => req('/timeclock/my-schedule/confirmations'),
+  timeSchedConfirm:           (publishId) => req(`/timeclock/schedule/confirm/${encodeURIComponent(publishId)}`, { method: 'POST' }),
+  timeSchedConfirmations:     (start, end) => req(`/timeclock/schedule/confirmations?start=${start}&end=${end}`),
+  timeSchedNudge:             (data) => req('/timeclock/schedule/nudge', { method: 'POST', body: JSON.stringify(data) }),
+  // The offer letter first, then the hiring packet (Neil, Oct 14). Options: which
+  // letter this kind of hire gets and what it asks of HR; start: generated and
+  // sent to the verifier; after-offer: start the packet when it could not start itself.
+  offerOptions:        (cid, params = {}) => req(`/hr/candidates/${cid}/offer/options?${new URLSearchParams(params)}`),
+  startOffer:          (cid, data) => req(`/hr/candidates/${cid}/offer/start`, { method: 'POST', body: JSON.stringify(data) }),
+  startPacketAfterOffer: (cid) => req(`/hr/candidates/${cid}/hiring-packet/after-offer`, { method: 'POST' }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

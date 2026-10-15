@@ -75,7 +75,7 @@ export default function TicketDeflection({ subject, description, onSolved }) {
   if (dismissed || results.length === 0) return null;
 
   const solved = () => {
-    showHelpToast('Ticket not submitted. You can open one any time from Support.');
+    showHelpToast('Ticket not submitted. You can open one any time from Help Center.');
     onSolved?.();
   };
 

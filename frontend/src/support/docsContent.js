@@ -1,4 +1,4 @@
-// Support -> Documentation: the written guide to every Nexus module.
+// Help Center -> Documentation: the written guide to every Nexus module.
 //
 // One entry per left-nav module (plus Getting Started), in the same order and
 // grouping as Sidebar.jsx's NAV, so a new person reads it in the order they
@@ -27,7 +27,7 @@
 export const DOC_GROUPS = ['Start Here', 'My Desk', 'Work', 'Modules', 'System'];
 
 export const ROLE_TIERS = [
-  { name: 'Employee', desc: 'Everyone starts here. Use the everyday screens: Dashboard, Workday, Knowledge Base, Item Management and Support.' },
+  { name: 'Employee', desc: 'Everyone starts here. Use the everyday screens: Dashboard, Workday, Team, Item Management and Help Center (with the Knowledge Base).' },
   { name: 'Supervisor', desc: 'Can hand over items and handle returns, plus any modules their job role or an Access Group grants.' },
   { name: 'Manager', desc: 'Approves requests (items, time off, documents) and sees team widgets and reports. Cannot grant access or delete core records.' },
   { name: 'IT Admin', desc: 'Sees every module, manages settings and item catalogs, and can grant access up to Manager.' },
@@ -86,8 +86,8 @@ export const DOCS = [
         title: 'Set Up Your Profile',
         steps: [
           'Click your photo or initials in the top-right corner.',
-          'Click My Profile to check your details, photo, Dark Mode and theme.',
-          'Click Email Settings to choose which emails Nexus sends you.',
+          'Click Profile to check your details, photo, signature, Dark Mode and theme.',
+          'Scroll to Email Settings in Profile to choose which emails Nexus sends you.',
         ],
       },
     ],
@@ -97,8 +97,8 @@ export const DOCS = [
       { name: 'Search (Ctrl+K)', desc: 'Searches pages, people, tasks, projects, portfolios and teams from anywhere.' },
       { name: 'Notification Bell', desc: 'Every alert meant for you: approvals, handovers, ticket updates, reminders. Click to open the item.' },
       { name: 'Page Help (?)', desc: 'The "?" in the header opens a short guide for the page you are on.' },
-      { name: 'Profile Menu', desc: 'My Profile, Email Settings, Tour and Sign Out.' },
-      { name: 'Tour', desc: 'Tasks, Tickets and Support have a guided tour. It runs once on your first visit, and you can replay it from the profile menu.' },
+      { name: 'Profile Menu', desc: 'Profile (your photo, signature, appearance, world clock and Email Settings - everything that is only about you), What\'s New, Legal and Sign Out.' },
+      { name: 'Tour', desc: 'Tasks, Tickets and Help Center have a guided tour. It runs once on your first visit, and you can replay it from the ? help panel (Take the Tour).' },
       { name: 'Phone Friendly', desc: 'Nexus works in your phone browser. The left menu becomes a menu button, and tabs become swipeable.' },
     ],
     manager: {
@@ -113,7 +113,7 @@ export const DOCS = [
     tips: [
       'Cannot see a module a colleague uses? It is not broken. You just have not been granted it yet. Ask your manager or raise a ticket.',
       'Dates show as MM/DD/YYYY and times as 12-hour AM/PM everywhere in Nexus.',
-      'Stuck? Support > Submit a Ticket reaches a real person.',
+      'Stuck? Help Center > Submit a Ticket reaches a real person.',
     ],
   },
 
@@ -164,7 +164,7 @@ export const DOCS = [
       { name: 'View Picker', desc: 'Switch between Home, your own saved views and department views.' },
       { name: 'Customize', desc: 'Edit mode: Add Widget, drag to arrange, resize, Auto-fit, Save and Done.' },
       { name: '"..." View Menu', tour: 'View options', desc: 'Rename View, Set as My Default, Make Home My Default, Save as New View, Publish to Department, Delete View.' },
-      { name: 'Widget Gallery', desc: 'Metrics (KPI Stat, KPI Bar Chart), Navigation (Shortcut Tile, Quick Links, Links Folder, Quick Actions), Live (Notifications, Calendar, Announcements), Utility (Clock, Notes), Workday (My Day, My Work, My Time), plus Team widgets.' },
+      { name: 'Widget Gallery', desc: 'Metrics (KPI Stat), Navigation (Shortcut Tile, Quick Links, Links Folder, Quick Actions), Live (Notifications, Calendar, Announcements), Utility (Clock, Notes), Workday (My Day, My Work, My Time), plus Team widgets.' },
       { name: 'Links Tab', desc: 'Every company and personal web link. Search, filter by category, department or company, pin, favorite, sort into folders, and switch between tile and list view.' },
       { name: 'Personal Links', desc: 'A link you add is visible only to you. Company-wide links are managed by admins through Manage Links.' },
     ],
@@ -186,7 +186,7 @@ export const DOCS = [
     tagline: 'Clock in and out, check your hours and request time off.',
     where: 'Left menu > Workday',
     access: 'Everyone (employees)',
-    purpose: 'Workday is everything about your own time and HR record in one place. Overview opens with the Time Clock, so you punch in and out (with breaks) from the page you land on; below it are your hours, documents, upcoming time off and profile. Check your time sheet for the pay period (your schedule is in Shifts), request time off, and keep your contact and emergency details up to date. Only you see your own Workday.',
+    purpose: 'Workday is everything about your own time and HR record in one place. Overview opens with the Time Clock, so you punch in and out (with breaks) from the page you land on; below it are your hours, documents, upcoming time off and profile. My Schedule on the Overview shows your week of shifts and the time off coming up. Check your time sheet for the pay period, request time off, and keep your contact and emergency details up to date. Only you see your own Workday.',
     gains: [
       'Get paid correctly. Every punch is timestamped and tagged with where it happened.',
       'See your hours for this pay period, day by day, before payroll does.',
@@ -229,8 +229,9 @@ export const DOCS = [
       },
     ],
     features: [
-      { name: 'Overview', desc: 'Opens with a greeting and three tiles: Hours This Week with your shift for today beside it (from Shifts - or No Shift Today), Time Off This Year (approved working days, Monday to Friday, a partial day counted as its share of 8 hours) and Time With Us (from the start date on your HR record - ask HR if it is wrong). Then the Time Clock, then your profile, contact and emergency details, assigned equipment and checkouts, My Documents (signed documents, the files HR keeps for you and your paystubs, by folder), upcoming time off, and Ask HR (New Request opens the form; your requests and the answers from HR are listed). Only you see this page.' },
+      { name: 'Overview', desc: 'Opens with one row of tiles: Hours This Week, Time Off This Year (approved working days, Monday to Friday, a partial day counted as its share of 8 hours), Time With Us (from the start date on your HR record - ask HR if it is wrong) and Ask HR at the right end - it opens New Request and every request you have sent with the answer from HR, and a red dot on it means HR has updated one you have not looked at yet (the request is marked Updated by HR). Then the Time Clock, then your profile, contact and emergency details, assigned equipment and checkouts, My Schedule and My Documents (signed documents, the files HR keeps for you and your paystubs, by folder). Only you see this page.' },
       { name: 'Time Clock', desc: 'On Overview: Punch In, Start Break, End Break and Punch Out with a live dial for the shift you are on and where the punch was recorded. Beside it, your hours with a Today / This Week / Pay Period switch - the total, days worked, daily average and breaks, then the punches of the day on a timeline or daily bars against an 8-hour line. Time Sheet opens every punch, day by day.' },
+      { name: 'My Schedule', desc: 'On the Overview (your own shifts moved here from the Shifts module on 10/13/2026): a line that sums the week up - shifts, paid hours, time off and your next shift - then your days one by one; Request under a shift asks to swap or offer it, weather calls on your days wait here for you to acknowledge, and My Availability opens under the week. The My Week | Team switch shows your group\'s week in the same card (it is also Team > Shifts).' },
       { name: 'Time Sheet', desc: 'Your hours this pay period, day by day. Sick, vacation and personal hours show on their own lines. To ask for missing time, click + add on the day, pick its Type - Regular, Break, Sick, Vacation or Personal - set the start and end, and give a reason. Times are in your own timezone. The request shows on its day as Not Yet Approved, with your reason, until your approver decides - it is not in your hours until then. The Notes column is yours: click a day to leave a note for your manager (they see it on your timecard; their own notes on your days are never shown to you).' },
       { name: 'Time Off', desc: 'Request time off: a Reason (Personal, Sick, Vacation or Medical Appointment), the dates, and an optional Note. Keep this confidential shows your team only that you are out and the reason, never the note. Every request you have made is listed under My Requests as Pending, Approved, Rejected or Cancelled, and you can cancel one that is pending or approved.' },
       { name: 'Location Tag', desc: 'Each punch shows the location you were at when you punched, judged by where the punch was made, even if you move between several locations in a day. A punch inside any of your company locations shows that site; a punch away from all of them shows Out of Location, and that time is never billed to the nearest site. A punch from a device with no GPS (a desktop) often gets only a rough location and shows Approx. Location, because it is too rough to tell which site you were at - punch from your phone for a precise one. A rough location that is nowhere near any site still shows Out of Location. Remote staff can punch from anywhere, and their location is still recorded. Click a location on the timecard to see the punches of that shift on the map; a manager can also change the location of the punch from there.' },
@@ -239,7 +240,7 @@ export const DOCS = [
       title: 'Managers & Admins',
       points: [
         'Time-off requests route to your approver. Managers review them from the Dashboard (Time Off to Review) and the bell.',
-        'Team hours, punch fixes and payroll time cards live in People > Time. The schedule itself is built in Shifts.',
+        'Team hours, punch fixes and payroll time cards live in People > Time. The schedule itself is built in Team > Schedule.',
         'HR sets locations (the geofence used for on-site checks) and holiday calendars in People.',
       ],
     },
@@ -311,13 +312,14 @@ export const DOCS = [
     ],
   },
   {
-    id: 'shifts', name: 'Shifts', group: 'My Desk', icon: 'CalendarClock', view: 'shifts',
-    tagline: 'See your shifts and your group\'s; managers build and share the schedule.',
-    where: 'Left menu > Shifts (managers: Schedule and Requests tabs)',
-    access: 'Everyone sees My Shifts. Managers and above also get Schedule (the grid) and Requests (the inbox). Shift types and groups are in Settings > Global Settings > Shifts; staff ask for swaps, offers and open shifts in Workday > Time Off.',
-    purpose: 'Shifts is where you see when you work and where the team schedule is made. Everyone opens on My Shifts: your next shift, this week\'s hours and time off at a glance, your week, then your team\'s shifts with you pinned at the top. Managers open Schedule to place shifts on a weekly grid, fill a whole group from a shift type in one go, post open shifts and Share when it is ready. Nothing reaches the team until it is shared.',
+    id: 'shifts', name: 'Team', group: 'My Desk', icon: 'Users', view: 'shifts',
+    tagline: 'Reach anyone in the company and see your group\'s shifts; managers build and share the schedule.',
+    where: 'Left menu > Team (managers: Schedule and Requests tabs)',
+    access: 'Everyone sees Contact and Shifts. Managers and above also get Schedule (the grid) and Requests (the inbox). Your own shifts are in Workday > My Schedule. Shift types and groups are in Settings > Global Settings > Shifts; staff ask for swaps, offers and open shifts in Workday > Time Off.',
+    purpose: 'Team is everything about the people you work with. Contact is the company directory: find anyone, see who is on shift or off today, and reach them on Teams, by phone or by email. Shifts is your group\'s week, with you pinned at the top. Managers open Schedule to place shifts on a weekly grid, fill a whole group from a shift type in one go, post open shifts and Share when it is ready. Nothing reaches the team until it is shared.',
     gains: [
-      'See your next shift and this week\'s hours without opening a calendar.',
+      'Find and reach anyone in the company, with who is in and who is off today.',
+      'See who else is on this week without messaging your manager.',
       'Ask for an open shift, or swap or offer a shift, without messaging your manager.',
       'Managers: plan the week on one grid, with daily and weekly hour totals as you go.',
       'Fill a group\'s schedule across a date range in one step instead of shift by shift.',
@@ -328,15 +330,23 @@ export const DOCS = [
       {
         title: 'Check When You Work',
         steps: [
-          'Open Shifts from the left menu. You land on My Shifts.',
+          'Open Workday from the left menu and find My Schedule on the Overview.',
           'Read your next shift and this week\'s hours at the top, then your week day by day.',
-          'Scroll to Team Shifts to see who else is on. You are pinned at the top, and a green dot marks who is on shift now.',
+          'To see who else is on, open Team and click Shifts. You are pinned at the top, and a green dot marks who is on shift now.',
+        ],
+      },
+      {
+        title: 'Reach a Colleague',
+        steps: [
+          'Open Team from the left menu and click the Contact tab (the last one).',
+          'Search a name, or browse by Departments, Reporting Line or Org Chart.',
+          'Click the person, then Chat, Call or Email.',
         ],
       },
       {
         title: 'Swap or Offer a Shift',
         steps: [
-          'On My Shifts, open one of your shifts and pick Swap or Offer.',
+          'In Workday > My Schedule, click Request under one of your shifts and pick Swap or Offer.',
           'Pick the teammate (and, for a swap, one of their shifts).',
           'Send it. Once your teammate accepts, it goes to a manager to approve.',
         ],
@@ -371,7 +381,7 @@ export const DOCS = [
         steps: [
           'Click Publish. The button counts the changes waiting.',
           'Choose who hears about it: only people whose shifts changed, or the whole team.',
-          'Click Publish. Staff see the shifts in Shifts > My Shifts.',
+          'Click Publish. Staff see the shifts in Workday > My Schedule.',
         ],
       },
       {
@@ -384,8 +394,9 @@ export const DOCS = [
       },
     ],
     features: [
-      { name: 'My Shifts', desc: 'Everyone: your next shift (or the one you are on now), this week\'s paid hours and time off, your week, then Team Shifts with you pinned at the top.' },
-      { name: 'Requests From Staff', desc: 'In Workday > Time Off > Shift Requests: ask for an open shift, swap or offer a shift to a teammate. My Availability is on My Shifts. Every request goes to a manager.' },
+      { name: 'Contact', desc: 'Reach anyone in the company (moved here from Support on 10/13/2026): Teams chat, call or video, email (opens Outlook in a new tab), phone numbers and who they report to. Every person shows whether they are on shift (On Shift, On Break, Off Shift, Off Today) and their Teams status (Available, Busy, On a Call, Away, Out of Office, Offline). Three lenses on the same people - Departments (A-Z, across every company), Reporting Line, and Org Chart (the company as a tree of cards you pan and zoom). Export PDF prints the people shown as a contact sheet with the reporting line. HR and administrators get a Manage button that shows what is still missing (managers, titles, photos, phones).' },
+      { name: 'Shifts', desc: 'Everyone: your group\'s week, with you pinned at the top and open shifts you can ask to take. Your own week is Workday > My Schedule.' },
+      { name: 'Requests From Staff', desc: 'In Workday > Time Off > Shift Requests: ask for an open shift, swap or offer a shift to a teammate. My Availability is on Workday > My Schedule. Every request goes to a manager.' },
       { name: 'Add', desc: 'Managers and above: one button on the Schedule for a shift, an open shift, time off or a day note. Editing opens a panel on the right so the grid stays in view.' },
       { name: 'Schedule', desc: 'The grid: one row per person, grouped by shift group, with Day, Week and Month views, Today and the arrows to move around.' },
       { name: 'Open Shifts', desc: 'A row of shifts nobody holds yet, with how many spots each needs. Staff can ask to take one.' },
@@ -404,7 +415,7 @@ export const DOCS = [
     manager: {
       title: 'Who Can Do What',
       points: [
-        'Everyone sees their own shifts and their team\'s. The schedule itself is read-only for them.',
+        'Everyone sees their own shifts (Workday > My Schedule) and their group\'s (Team > Shifts). The schedule itself is read-only for them.',
         'Managers and above see Schedule and Requests, and build and share schedules there.',
         'Request settings (under Requests) decide whether staff can request open shifts, swap, offer shifts, see teammates\' shifts and request time off.',
       ],
@@ -413,7 +424,7 @@ export const DOCS = [
       'A star on a shift means it is a draft the team cannot see yet.',
       'Scheduled hours leave out the unpaid break, so a 9:00 AM to 5:00 PM shift with a 30-minute lunch counts as 7.5 hours.',
       'Ctrl+C over a shift and Ctrl+V over a day copies it, like in Teams.',
-      'Shifts used to be a tab under People > Time and under Workday. Since 09/29/2026 it is one module, and old links open My Shifts.',
+      'Shifts became its own module on 09/29/2026 and part of Team on 10/13/2026, when your own shifts moved to Workday > My Schedule. Old Shifts and Contact Directory links still land in the right place.',
     ],
   },
 
@@ -544,9 +555,9 @@ export const DOCS = [
   {
     id: 'tickets', name: 'Tickets', group: 'Work', icon: 'Ticket', view: 'tickets',
     tagline: 'The service desk queue: route, work and resolve requests from across the company.',
-    where: 'Left menu > Tickets (agents). Everyone raises tickets from Support.',
-    access: 'Desk agents with the Tickets grant. Anyone can raise a ticket from Support.',
-    purpose: 'Tickets is the agent side of the help desk. Requests for IT, HR, facilities, finance apps and more arrive here with the right questions already answered. Each ticket has a type, priority, SLA due time, assignee and full thread. If you only need to ask for help, use Support instead. You do not need this module for that.',
+    where: 'Left menu > Tickets (agents). Everyone raises tickets from Help Center.',
+    access: 'Desk agents with the Tickets grant. Anyone can raise a ticket from Help Center.',
+    purpose: 'Tickets is the agent side of the help desk. Requests for IT, HR, facilities, finance apps and more arrive here with the right questions already answered. Each ticket has a type, priority, SLA due time, assignee and full thread. If you only need to ask for help, use Help Center instead. You do not need this module for that.',
     gains: [
       'Every request is in one queue, with nothing lost in email or chat.',
       'SLA timers show what is about to breach.',
@@ -617,7 +628,7 @@ export const DOCS = [
   {
     id: 'knowledge-base', name: 'Knowledge Base', group: 'Work', icon: 'BookOpen', view: 'sop',
     tagline: 'Every SOP, policy and guide, plus your training courses.',
-    where: 'Left menu > Knowledge Base',
+    where: 'Help Center > Knowledge Base & Training',
     access: 'Everyone',
     purpose: 'The Knowledge Base is how Greens does things, written down. The Playbook holds every approved SOP, manual and guide. Learn holds training courses with quizzes and certificates. Policies that need your acknowledgement ask you to read and e-sign them.',
     gains: [
@@ -631,7 +642,7 @@ export const DOCS = [
       {
         title: 'Find an Answer',
         steps: [
-          'Open Knowledge Base. You land on the Playbook.',
+          'Open Help Center and click Knowledge Base & Training. You land on the Playbook.',
           'Type in the big search box (or press "/") to filter the library live.',
           'Press Enter (or click Ask AI) to ask it as a question. The answer cites the SOPs it came from.',
         ],
@@ -977,8 +988,8 @@ export const DOCS = [
         steps: [
           'Open the property and go to Maintenance.',
           'Click Create New Ticket for one issue, or Start Walkthrough to log several line by line. The property is filled in and cannot be changed, and only building and site teams are offered.',
-          'Open Tickets lists everything still being worked at the property, including tickets raised from Support or Tickets for it. Closed Tickets is its maintenance history.',
-          'The property stays fixed on those tickets - in Support and Tickets too.',
+          'Open Tickets lists everything still being worked at the property, including tickets raised from Help Center or Tickets for it. Closed Tickets is its maintenance history.',
+          'The property stays fixed on those tickets - in Help Center and Tickets too.',
         ],
       },
       {
@@ -1007,7 +1018,7 @@ export const DOCS = [
     manager: {
       title: 'Asset Managers',
       points: [
-        'Each property has a PM / Asset Manager who gets its reminders, and one bell (and email) for every new ticket or walkthrough at the property.',
+        'Each property has a PM / Asset Manager who gets its reminders, and one bell (and email) for every new ticket or batch at the property.',
         'Link a property to another (for example, a parcel to its project).',
       ],
     },
@@ -1128,16 +1139,21 @@ export const DOCS = [
         title: 'Move a Candidate Through Hiring',
         steps: [
           'Click the Hiring tab, then Add Candidate.',
-          'Pick the hiring company, then the role: the list shows that company\'s own roles under its name, then Shared Roles (the ones every company uses). Other is for a role that does not exist yet: type its title and department and, on save, it becomes a real role of that company (with no access until an administrator sets it). The Packets button then shows a count until that role has a hiring packet - open it and click Add Packet beside the role.',
-          'Move them through Screening, Interview and Offer as things progress.',
-          'At Offer, click Send Hiring Packet (see Send a Hiring Packet below). When they sign it they are hired automatically.',
-          'Only for an offer signed on paper: Mark Hired By Hand. Nothing is sent or filed that way.',
+          'Pick the hiring company, then the role: the list shows that company\'s own roles under its name, then Shared Roles (the ones every company uses). Other is for a role that does not exist yet: type its title and department and, on save, it becomes a real role of that company (with no access until an administrator sets it). The Hiring Setup button then shows a count until that role has hiring documents - open it and click Add Packet beside the role.',
+          "Last name, personal email and phone are required on a new candidate - the interview invite and the offer go there. Expected Interview Date (five business days out to start with) is when the interview should happen; screening is due the business day before it, and the card shows it until an interview is booked.",
+          "Move them through Screening, Interview and Offer as things progress - with the buttons on the card, or by dragging the card to another lane on the board. Dragging to Interview opens Schedule Interview (Interview always means a booked interview); dragging back to an earlier stage asks first; Hired is final.",
+          "Hired and Rejected always show on the board. Open a rejected candidate and click Remove From Board to take them off it - anyone rejected more than 90 days ago leaves it by itself. Show Inactive lists them; Reopen brings one back.",
+          "After the interview, click Move To Offer: Make An Offer opens (see Make an Offer below). The offer letter goes first; when the company and the candidate have both signed it, they are hired and their hiring packet goes out to them by itself.",
+          'Only for an offer signed on paper: Mark Hired By Hand, which asks why. Nothing is sent or filed that way.',
+          "Screening: when a candidate is added, the head of the role's department (the department's lead in Company Settings > Departments, else the role's default manager) and everyone above them in the reporting line get a bell and ONE task, Screen <name>, assigned to all of them. It is due the business day before the interview - the expected date at first, then the interview once it is booked or moved. The resume is attached to the task, and every comment they write on the task goes straight onto the candidate's notes - so a manager needs no Hiring access. Marking the task complete means they have screened them; rejecting or hiring the candidate closes it. With no department head set up, it goes to the company's HR contact.",
+          "Notes And History on the candidate is one list, newest first: every note, every move with its note, and every interview that finished with its score - each with who and when. Anyone who can see the candidate can add a note; a note still in the box goes along with the next move you make from the card. The Interview Room shows the same notes at the top, so the interviewer reads everyone's screening notes first.",
         ],
       },
       {
         title: 'Interview a Candidate',
         steps: [
           'From Screening, click Schedule Interview: pick the date, time, who interviews, and the questionnaire (the role\'s own, or General). The candidate and the interviewers get a Teams invite.',
+          "Questionnaires (Settings > Hiring > Interview Questionnaires) are written under the three things an interview checks: Character, Competence and Availability. The Interview Room shows the questions grouped the same way, with everyone's notes so far at the top. The transcript and scoring tools stay folded under Transcript And Scoring until the interview is over.",
           'The Teams meeting is set to record and transcribe itself from the moment it starts - nobody needs to press Record. The round shows "Auto-recording on"; if Teams refused (a permission is missing), it says so and the interviewer records by hand.',
           'When they join, open the Interview Room: the questions are on screen, Start Interview marks it live, and you type what you want. End Interview hands the rest to Nexus.',
           'Nexus pulls the Teams transcript, fills the answers nobody typed, scores the round, and keeps pulling the recording until Teams publishes it (up to a few hours). Play Recording and Transcript appear on the round, on the candidate, and in the room. Pull Recording retries by hand.',
@@ -1145,10 +1161,32 @@ export const DOCS = [
         ],
       },
       {
+        title: 'Make an Offer',
+        steps: [
+          "Open the candidate and click Move To Offer (or Make Offer at the Offer stage, or Offer in the Interview Room). Make An Offer opens. If no offer letter is set up for that company yet, Nexus says so and links to Settings > Hiring > Hiring Documents > Offer Letter - the offer comes first.",
+          "Follow it on the Offer & Documents tab: Offer Progress shows each step with its time - prepared, checked by HR, signed by the company, signed by the candidate, hiring packet sent. Send Hiring Packet stays greyed out until both have signed; the packet then goes out by itself.",
+          "1. Who you are hiring: pick Employee (then Full-Time, Part-Time or Intern) or Contractor, and where they work. Nexus never guesses this - the same role can be either - and it decides which offer letter goes. A contractor's letter never says employment.",
+          "Nexus shows the offer letter it picked for that kind of hire (for example US Employee Offer, or India Contractor Offer) and the hiring packet that will follow it. If none is set up, it says so - add one under Settings > Hiring > Hiring Documents > Offer Letter.",
+          "2. The offer: their legal name, the start date, when the offer expires, the supervisor and the pay (Pay & Benefits access needed; a contractor's pay is their fee). The form asks only what the letter and the packet print - their address, the work location, the work hours - and every question the documents mark HR Answers At Offer (a probation period, a bonus). Answer once: the hiring packet reuses all of it.",
+          "Click Create Offer Letter. The candidate moves to Offer and the filled-in letter opens for review. The verifier checks it and clicks Verify And Send - the company signs, then the candidate gets an email and signs with no Nexus login.",
+          "When both have signed, they are hired: People record, pay from the start date, onboarding checklist. Their hiring packet then starts by itself: they get a second email with a link to a short form on their phone (no login), the documents fill themselves in from their answers, HR verifies them and they sign. Their profile shows Onboarding Paperwork Not Complete - hold their first paycheck - until the packet is signed.",
+          "If they decline the offer or it expires, nothing else goes out: change what is needed and make the offer again, or reject them. If no hiring packet was set up when they signed, the offer card says so - set one up and click Start Hiring Packet there.",
+        ],
+      },
+      {
+        title: 'Set Up an Offer Letter',
+        steps: [
+          "Write the offer letter once in Documents > Templates with the category Offer Letter - From Word File is the quickest. One letter per kind of hire: a US employee, a US contractor, an India contractor...",
+          "Mark each blank: Nexus Fills It (name, company, role, start date, pay, work location, hired as), HR Answers At Offer (only HR knows it, it changes per hire), or Same For Everyone. The letter needs a signature spot for the Company and one for the Employee.",
+          "In Settings > Hiring > Hiring Documents open the Offer Letter tab, click Add Packet, pick the letter, and set Hired As (employees or contractors) and Works In (the country). Nexus picks the letter from what HR answers on Make An Offer: the role's own letter first, then this worker type and country, then Any.",
+          "The signing order is the company (often Authorized Signatory or HR, which can Sign Once), then The Person - who signs last.",
+        ],
+      },
+      {
         title: 'Set Up a Hiring Packet',
         steps: [
           'First write each document once in Documents > Templates - the offer letter, the NDA, each addendum, a Job Description per role - each its own template. Use variables for whatever changes per person ({{first_name}}, {{job_title}}, {{salary}}, {{start_date}}, {{work_schedule}}...), insert a Signature Block wherever someone signs (Company, Employee...), and click Publish.',
-          'In People > Hiring, click Packets. Pick the company, or leave All Companies to add one that every company shares. Under Hiring Packet click Add Packet.',
+          'Open Settings > Hiring > Hiring Documents (or Hiring Setup on the Hiring board). Pick the company, or leave All Companies to add one that every company shares. Under Hiring Packet click Add Packet.',
           'Name the packet and pick the job role it is for - IT gets one packet, Accounting another. A packet made for a role is always used for that role; "Every role" covers the roles that have no packet of their own. A role can be in one packet only.',
           'Add the documents from the template list, in order. Preview shows each one filled with a sample person; Open In Documents takes you to the wording. A template must be published to be used, and the packet always prints its published version - edit and Publish Changes in Documents, and every packet that has not been sent yet updates.',
           'Check the Signing Order. Each signer named by the signature blocks in the documents gets a step, set by ROLE: HR, Manager, Authorized Signatory, IT, Payroll... - the same roles People > Checklists uses - with who holds it today shown beside it. The new hire signs last. A step can also Approve or just Get A Copy.',
@@ -1158,6 +1196,10 @@ export const DOCS = [
           'Signs Once: tick it on a company step (HR, Authorized Signatory...) and the company signs the packet only once. Save the packet; whoever holds that role clicks Sign Once (in the packet, or on the first packet\'s review), adopts their signature and enters the one-time code emailed to them. From then on Verify And Send puts that signature on every packet by itself - the candidate is emailed straight away. If someone else becomes the company\'s HR contact (or signatory), the old signature stops counting and the new person signs once before the next packet can go.',
           'Details Form (hiring packets): name, phone, address and emergency contact are always asked. Add any other field the documents need - any country: an ID number, date of birth, bank details. Each field has a label, a type (text, number, date, email, phone, yes / no, dropdown), and can be Required, Sensitive (only people with Pay & Benefits access see it, and the documents that print it) or Last 4 Only (only the last 4 characters are kept and printed, e.g. XXXX 1234). Section headings group them.',
           'Each field is a variable: "PAN Number" fills {{pan_number}} - the editor shows it beside the field. Put the same variable in the template. When a document prints a variable nothing fills yet, the editor lists it with a button to add it to the form. Something the same for every hire (a client\'s name) does not belong on the form: give the variable a Default Value in the template instead.',
+          "Easier: mark the variable in the template itself (From Word File, Template Fields or the variable's own editor) as Ask The Person - it goes on their form by itself, asked once however many documents print it, and Private keeps it to Pay & Benefits. HR Answers At Offer variables are asked on Make An Offer. The packet lists both under its documents.",
+          "Hired As and Works In pick the packet the same way as an offer letter - for example one packet for India contractors, one for US employees.",
+          "Added For A Team Or Role: the documents that change by team - each team's own confidentiality agreement - go here, so one packet covers every role. Pick Team (department) or Role, then the documents; they are added only for people in that team or role.",
+          "Where an offer letter is set up, the hiring packet is never sent at Offer: it starts by itself once the offer is signed (Make an Offer above).",
         ],
       },
       {
@@ -1167,14 +1209,16 @@ export const DOCS = [
           'Nexus lists every blank it found - empty boxes beside a label in a table, "Label:" lines, [      ] brackets, "Rs.      per month" gaps - with what it thinks fills each one: Nexus Fills It (the person\'s name, the company, the start date, the pay...), Ask The Person (their own details: ID numbers, bank details), Same For Everyone (type it once - a client\'s name) or Leave Blank (filled by hand, like a notary page). Most are right already - change only the ones that are wrong. The Variable column shows the {{name}} each blank becomes.',
           'Missed one? In the box under the table, type any text from the document - a blank Nexus did not catch (____) or real text that changes per hire (Hyderabad, 6:00 PM). Every place it appears is listed; untick any to keep, give it a label, pick what fills it and click Add. Each variable has one fixed source: Salary is always the pay on the offer, Company Legal Name the hiring company\'s, Start Date the offer\'s - the guessing happens only here, never when a packet goes out.',
           'It also lists every signature line with who signs it - The Person or The Company. The Date and Name lines under a signature are drawn by the signature spot itself, so they go.',
+          "HR Answers At Offer is a fifth choice: something only HR knows that changes per hire (a probation period, a bonus) - it is asked on Make An Offer. Ask The Person blanks have a Private tick (ID and account numbers are ticked for you): only Pay & Benefits sees the answer. HR Answers blanks have a This Is Pay tick.",
           'Click Create And Publish. The template is published (v1) with every variable and signature spot in place. Preview With Sample Person shows it filled in; Open In Editor if you want to change any wording.',
-          'Add it to a packet in People > Hiring > Packets. The packet\'s Ready To Send checklist offers to put every Ask The Person field on its Details Form in one click, and warns if anything is still missing.',
+          'Add it to a packet in Settings > Hiring > Hiring Documents. The packet\'s Ready To Send checklist offers to put every Ask The Person field on its Details Form in one click, and warns if anything is still missing.',
           'Splitting a big Word file: if parts of it are shared by many roles (an agreement, an NDA) and one part is per role (a scope of work), save them as separate Word files first and make a template from each - each role\'s packet then reuses the shared ones.',
         ],
       },
       {
         title: 'Start a Hiring Packet',
         steps: [
+          "Where the company has an offer letter, you never start the packet by hand - it starts by itself when the offer is signed (see Make an Offer). This is for companies with no offer letter yet.",
           'Move the candidate to Offer and open them. When their company and role have a packet built from Documents, the button reads Start Hiring Packet.',
           'Pick the four things that change per person: the Role (job title), the Pay (Pay & Benefits access needed - or write it out, e.g. "$22.00 per hour plus commission"), the Timings (start and end time and the work days, or a description), and the Job Description. Add the start date and the date the offer expires, and the supervisor.',
           'Choose who fills in their details. "They Fill Them In" emails the candidate a link (no login needed) to enter their legal name, address, phone, an emergency contact and everything on the packet\'s Details Form; the documents are generated the moment they send it. "I Will" lets you type the details now.',
@@ -1210,7 +1254,7 @@ export const DOCS = [
       {
         title: "Promote or Change Someone's Role",
         steps: [
-          'Set up the letter once in People > Hiring > Packets under Promotion Letter: Add Packet, upload the letter PDF (or type it), place the signature boxes for the employee and the manager (employee first), and save. A packet can be for every role or for particular roles.',
+          'Set up the letter once in Settings > Hiring > Hiring Documents under Promotion Letter: Add Packet, upload the letter PDF (or type it), place the signature boxes for the employee and the manager (employee first), and save. A packet can be for every role or for particular roles.',
           'In People: open the person, click Change Role and choose Role Change Without Promotion. Pick the new role, add a reason if you like, and click Change Role. It takes effect right away - no approval. Their manager and the employee get a bell.',
           'In Settings > Access: pick the person and click Change Role. There is no promotion here. Pick the new role, write the reason (required), and click Send For Approval. Nothing changes yet.',
           "Their manager and their company's HR contact each get a Nexus notification (on the yellow bar) and an email with the reason. Either one approves or declines - from the notification or email (Review Request opens the decision), from the person's Access tab, or from the orange hourglass next to their name in the People list. The person who asked never approves their own request.",
@@ -1227,7 +1271,7 @@ export const DOCS = [
       {
         title: 'Offboard Someone',
         steps: [
-          "Set up the separation package once in People > Hiring > Packets under Separation Package: Add Packet, upload the documents, place the signature boxes (the company first, the employee last), and save.",
+          "Set up the separation package once in Settings > Hiring > Hiring Documents under Separation Package: Add Packet, upload the documents, place the signature boxes (the company first, the employee last), and save.",
           'Open the person in People and click Offboard.',
           'Enter their last day and why they are leaving. Choose what happens to their mailbox, who gets their tasks (blank = their supervisor), and whether to export their mailbox and start the offboarding checklist.',
           'Click Review. If the last day is today, their access ends as soon as you confirm and the paperwork goes to their personal email. If it is later, the paperwork goes to their work email; they keep their access through their last day and Nexus marks them Left the morning after by itself.',
@@ -1269,9 +1313,9 @@ export const DOCS = [
       { name: 'Employee Record', desc: 'Job, reporting line, contact, emergency contact, documents with expiry dates, and history. Reports To can be a Nexus person or an External User (listed in their own group) - a contractor or client-side lead someone answers to. Backup Manager covers the person when their manager is out and has the same rights over them as the manager: timesheets, punches, time off and approvals. It covers that person only - the people who report to them have backups of their own. Leave it on Default and it is the manager of their manager, or the HR contact of their company when there is none.' },
       { name: 'Office & Contact', desc: 'Office, mobile phone, office phone, street address, city, state, ZIP and country or region - the contact info Microsoft 365 shows in Outlook and Teams. It is kept in step both ways: edit it here (Edit on the profile) and Microsoft 365 updates when you save; a change made in the Microsoft 365 admin center comes into Nexus within 15 minutes, or straight away with Sync Now. If both sides changed the same field, the Nexus value wins. Job title and department sync the same way. Only production writes to Microsoft 365.' },
       { name: 'Hiring', desc: 'Candidates through Screening, Interview, Offer, Hired and Onboarding, with interview scores.' },
-      { name: 'Org Chart', desc: 'Reporting lines as a tree of cards you pan and zoom, colored by division. Drag a card onto a manager to move someone; drop it in open space to clear their reporting line. Everyone can see the same chart, read-only, under Support > Contact Directory > Org Chart.' },
+      { name: 'Org Chart', desc: 'Reporting lines as a tree of cards you pan and zoom, colored by division. Drag a card onto a manager to move someone; drop it in open space to clear their reporting line. Everyone can see the same chart, read-only, under Team > Contact > Org Chart.' },
       { name: 'Leave', desc: 'Time-off requests, approvals and the holiday calendar.' },
-      { name: 'Time', desc: 'Team punches, time cards and payroll hours. The time card has a Notes column for managers and HR: click a day\'s cell to write a note (the employee does not see it); a note the employee left on that day reads underneath it. The pencil on a row edits the punch - change the in or out time, the location or the Type, or delete the in-punch, the out-punch or both (a deleted punch comes out of the hours; the audit record keeps it with who deleted it). The plus on a day adds time for someone, on any pay type: pick the Type - Regular, Break, Sick, Vacation or Personal - and set its start and end. A Break has to fall inside a shift that day. Sick can be part of a day, for example one hour. On an hourly card leave pays the base rate; on a fixed-salary card a leave day is deducted like an absence unless hours were also worked. Add a Break under a day opens the same form with Break picked; Fix a Break Punch adds the start or end of a break that never recorded, or deletes a break that should not be there (pick Delete a break, choose which one, give a reason - its punches come off the card and the audit record keeps them). On a fixed-salary card the Missed days line also says why each day was missed - for example Sick ×2 · Personal ×8 · Absent ×1 - from the leave entered on the day or the approved time off that covers it. A punch the employee asked for shows on its day as Not Yet Approved, with their reason, and Approve and Reject right there. Three tabs: Payroll, Action Log and Time Off. The Action Log is one list per person of everything that stands between a timecard and payroll - punch requests to approve or reject (tick several to decide them together) and missing punches to fix on the timecard (Fix on Timecard opens the right pay period). Filter it by department, by name, or to just requests or just missing punches; you only see the people you manage. Someone still on the clock is not listed as missing a clock-out. Who is on or off today is in Shifts > Schedule, and screenshots and hours by location are in Workforce Analytics. The tiles on top open what they count: Team Hours (hours by person and day) and Timesheets to Review. In the Time Sheet, type in the person picker to filter the list to matching names, then press Enter or click one.' },
+      { name: 'Time', desc: 'Team punches, time cards and payroll hours. The time card has a Notes column for managers and HR: click a day\'s cell to write a note (the employee does not see it); a note the employee left on that day reads underneath it. The pencil on a row edits the punch - change the in or out time, the location or the Type, or delete the in-punch, the out-punch or both (a deleted punch comes out of the hours; the audit record keeps it with who deleted it). The plus on a day adds time for someone, on any pay type: pick the Type - Regular, Break, Sick, Vacation or Personal - and set its start and end. A Break has to fall inside a shift that day. Sick can be part of a day, for example one hour. On an hourly card leave pays the base rate; on a fixed-salary card a leave day is deducted like an absence unless hours were also worked. Add a Break under a day opens the same form with Break picked; Fix a Break Punch adds the start or end of a break that never recorded, or deletes a break that should not be there (pick Delete a break, choose which one, give a reason - its punches come off the card and the audit record keeps them). On a fixed-salary card the Missed days line also says why each day was missed - for example Sick ×2 · Personal ×8 · Absent ×1 - from the leave entered on the day or the approved time off that covers it. A punch the employee asked for shows on its day as Not Yet Approved, with their reason, and Approve and Reject right there. Three tabs: Payroll, Action Log and Time Off. The Action Log is one list per person of everything that stands between a timecard and payroll - punch requests to approve or reject (tick several to decide them together) and missing punches to fix on the timecard (Fix on Timecard opens the right pay period). Filter it by department, by name, or to just requests or just missing punches; you only see the people you manage. Someone still on the clock is not listed as missing a clock-out. Who is on or off today is in Team > Schedule, and screenshots and hours by location are in Workforce Analytics. The tiles on top open what they count: Team Hours (hours by person and day) and Timesheets to Review. In the Time Sheet, type in the person picker to filter the list to matching names, then press Enter or click one.' },
       { name: 'Company Editor', desc: 'Open a company to manage its Overview, Departments, Locations (the clock geofences), Holiday Calendar and Workforce Analytics Policy. A location is placed one way: its Google Maps link. In Google Maps click the building so a red pin shows, click Share - Copy link, and paste it into the Google Maps Link box (coordinates copied from a right-click work too). Nexus reads the exact point of the place from the link - a link that only shows a map view is flagged - and fills in the address from the same link, written the US way (25260 N Centre City Pkwy, Escondido, CA 92026), plus the name when the link is a business and the Name is empty. If the link has no address, or you need to change it, click Enter Manually and type it. The map on the right jumps to the location; drag the pin (or click the map) onto the exact building, and a pin moved far from the link point is flagged. Set the radius in feet with the slider (330-1,000 ft suits most locations; under 330 ft, phone GPS drift flags people who are on-site). Distances everywhere read in miles and feet. In the Location Library, the Companies dropdown sets who punches in there: tick All, or tick the companies that use it. The radius slider sits under the map. Show Punches Here (off unless you turn it on) shows the last 30 days of punches as green (inside) and red (outside) dots, and warns if a change would turn punches that were on-site into Out of Location. A location marked Verify Location was placed with the old map pin: edit it and paste its Google Maps link once.' },
       { name: 'Checklists', desc: 'Onboarding, offboarding and leave checklists per person, on the Checklist tab of their profile. Steps are grouped by phase, each with an owner and a due date counted from the start date, the exit date or the leave start. Business-day steps skip weekends and the company\'s holidays; a date that lands on a weekend moves to the Friday before; a step whose date has already passed when the checklist starts is due that day. When the start date on the profile changes, open dates move with it. Which steps a person gets depends on their worker type and country (an I-9 for US employees, PF for India, a W-9 for contractors) and, for offboarding, the exit type. Owners get one bell reminder per checklist when steps are due tomorrow or overdue, and see their steps under My Checklist Steps on My HR, where they can tick them without People access. Starting an offboarding checklist changes nothing in Microsoft 365 - Left still happens from Change Status.' },
       { name: 'Checklists Overview', desc: 'People > Checklists > Overview: everyone with an open onboarding, offboarding or leave checklist in one list, most urgent first. Tiles count Onboarding, Offboarding, On Leave, Steps Overdue and Waiting On You; click one to filter. Each row shows the person, the checklist and its date (for example Starts 11/02/2026 - in 12 days), progress, and the next step with its owner and due date. Click a row to open that person on their Checklist tab. People with an open checklist also show a small progress chip in the directory and next to their status on the profile.' },
@@ -1447,22 +1491,23 @@ export const DOCS = [
 
   // ───────────────────────────── System ─────────────────────────────
   {
-    id: 'support', name: 'Support', group: 'System', icon: 'HelpCircle', view: 'support',
-    tagline: 'Get help: raise a ticket or report a bug, and read this guide.',
-    where: 'Left menu > Support',
+    id: 'support', name: 'Help Center', group: 'System', icon: 'HelpCircle', view: 'support',
+    tagline: 'Get help and learn: raise a ticket, read this guide, take your training.',
+    where: 'Left menu > Help Center',
     access: 'Everyone',
-    purpose: 'Support is where anyone goes for help. Submit a ticket to IT, HR, facilities or any other team, report something broken in Nexus, find a colleague, and track everything you have raised. You do not need access to the Tickets module to use it.',
+    purpose: 'Help Center (Support until 10/13/2026) is where anyone goes for help or to learn. Submit a ticket to IT, HR, facilities or any other team - one ticket or a whole batch - report something broken in Nexus, and track everything you have raised. Documentation and the Knowledge Base & Training are here too. You do not need access to the Tickets module to use it.',
     gains: [
       'Help from the right team, with the right questions asked up front.',
       'Live status of everything you have raised.',
-      'This Documentation (the Documentation card on Support), for learning any module.',
+      'This Documentation (the Documentation card on Help Center), for learning any module.',
+      'SOPs and your training courses, one click away.',
     ],
     shot: 'support',
     walkthroughs: [
       {
         title: 'Submit a Ticket',
         steps: [
-          'Open Support and click Submit a Ticket.',
+          'Open Help Center and click Submit a Ticket.',
           'Give it a title. Requester is you - pick a colleague instead if you are raising it on their behalf.',
           'Describe the problem. Format it with the toolbar, and record your screen, upload a file or paste a screenshot with Ctrl+V right under it.',
           'Pick the department - the team that needs to help you - then what you need help with. If it is not listed, pick Other and name it in a few words. If a Which One? list appears (for example Outlook or Teams), pick the one it is about - it is optional.',
@@ -1470,12 +1515,12 @@ export const DOCS = [
         ],
       },
       {
-        title: 'Log a Property Walkthrough',
+        title: 'Batch Create Tickets',
         steps: [
-          'Walking a property and finding several issues? Click Property Walkthrough (the service desk, the Asset Management team and administrators see it). From Asset Management, open the property and use Start Walkthrough instead - the property is then filled in and fixed.',
-          'Pick the property and the team (only building and site teams are offered).',
-          'Type the first issue and press Enter to start the next line. For each line pick what it is (HVAC, Plumbing, Painting...), the priority and a location, and take a photo or paste one with Ctrl+V.',
-          'Click Create Tickets. Every line becomes its own ticket on that property, all at once - if one line needs fixing, nothing is filed until it is. Each person involved gets one notification for the whole walkthrough.',
+          'Found several issues at once - walking a property, setting up a new office? Click Submit a Ticket, then the Batch Create tab at the top (the service desk, the Asset Management team and administrators see it; it was Property Walkthrough until 10/13/2026). From Asset Management, open the property and use Start Walkthrough instead - the property is then filled in and fixed.',
+          'Pick the team. For a building or site team, a Property field appears - pick one to link every ticket to it, or leave it empty.',
+          'Type the first issue and press Enter to start the next line. For each line pick what it is, the priority and a location, and take a photo or paste one with Ctrl+V.',
+          'Click Create Tickets. Every line becomes its own ticket, all at once - if one line needs fixing, nothing is filed until it is. Each person involved gets one notification for the whole batch.',
           'No signal? Your lines are kept on this device. If the submit could not be confirmed, the lines lock and Try Again sends exactly the same lines - nothing is ever filed twice.',
         ],
       },
@@ -1501,15 +1546,16 @@ export const DOCS = [
       { name: 'Submit a Ticket', desc: 'The same form the Tickets module uses, with routing and due dates set automatically.' },
       { name: 'Bug Report', desc: 'A ticket type in Submit a Ticket, for anything broken in Nexus itself.' },
       { name: 'On Behalf Of', desc: 'Raise a ticket for a colleague by picking them as the Requester. They get the updates; you can still see it.' },
-      { name: 'Contact Directory', desc: 'Reach anyone in the company: Teams chat, call or video, email (opens Outlook in a new tab), phone numbers and who they report to. Every person shows whether they are on shift (On Shift, On Break, Off Shift, Off Today) and their Teams status (Available, Busy, On a Call, Away, Out of Office, Offline). Three lenses on the same people - Departments (A-Z, across every company), Reporting Line, and Org Chart (the company as a tree of cards you pan and zoom). Export PDF prints the people shown as a contact sheet with the reporting line. HR and administrators get a Manage button that shows what is still missing (managers, titles, photos, phones).' },
-      { name: 'Help Center', desc: 'The card with the question mark: opens the same help panel as the ? at the top of every page - search for help, ask a question, What\'s New, and help for the page you are on.' },
+      { name: 'Batch Create', desc: 'The second tab of Submit a Ticket: many tickets at once, one per line, for any team - with a property when a building or site team takes them.' },
+      { name: 'Assistant', desc: 'The card with the question mark: opens the same help panel as the ? at the top of every page - search for help, ask a question, What\'s New, and help for the page you are on.' },
+      { name: 'Knowledge Base & Training', desc: 'Opens the Knowledge Base: every SOP and guide, and your training courses.' },
       { name: 'Legal', desc: 'The Privacy Policy and Terms & Conditions, one page with a tab each. Open it from Legal in the menu under your name (top right), or Legal in the phone menu.' },
-      { name: 'Implementation Guide', desc: 'For administrators: how to set Nexus up for an organization, in 15 phases - Microsoft 365, branding, companies, job roles, people, time and pay, shifts, checklists, the modules, notifications, verification, go-live and running it after. Each phase has the decisions to make, steps with an Open button to each screen, checks that every administrator ticks off together, and pitfalls. Open it from Support or from the menu under your name.' },
+      { name: 'Implementation Guide', desc: 'For administrators: how to set Nexus up for an organization, in 15 phases - Microsoft 365, branding, companies, job roles, people, time and pay, shifts, checklists, the modules, notifications, verification, go-live and running it after. Each phase has the decisions to make, steps with an Open button to each screen, checks that every administrator ticks off together, and pitfalls. Open it from the Implementation Guide tab at the top of Documentation.' },
       { name: 'Open Tickets', desc: 'Everything you raised that is not closed yet, with when it was last updated and the latest comment. Sort, search and page through it, or mark one Resolved yourself.' },
       { name: 'Closed Tickets', desc: 'Your finished tickets, for reference. If the same problem comes back, submit a new ticket.' },
-      { name: 'Documentation', desc: 'This guide.' },
+      { name: 'Documentation', desc: 'This guide. Administrators also get an Implementation Guide tab at the top.' },
     ],
-    manager: { title: 'Note', points: ['Ticket agents work the queue from the Tickets module. Support is the requester\'s side.'] },
+    manager: { title: 'Note', points: ['Ticket agents work the queue from the Tickets module. Help Center is the requester\'s side.'] },
     tips: ['Email and bell updates about your ticket open it right here.'],
   },
   {

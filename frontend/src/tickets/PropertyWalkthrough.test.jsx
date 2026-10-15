@@ -39,7 +39,7 @@ afterEach(() => { cleanup(); createTicketWalkthrough.mockClear(); });
 // Fill line n: a title and a topic picked from the building team's list.
 const fill = async (n, title, topic = 'Painting') => {
   fireEvent.change(await screen.findByLabelText(`Issue ${n}`), { target: { value: title } });
-  fireEvent.click(screen.getAllByText('HVAC, Plumbing, Painting…')[0]);
+  fireEvent.click(screen.getAllByText('Pick what it is…')[0]);
   // The open menu renders last; a line that already picked this topic shows it too.
   fireEvent.click((await screen.findAllByText(topic)).at(-1));
 };
@@ -112,9 +112,41 @@ describe('Property Walkthrough', () => {
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Create 2 Tickets/ })); });
     expect(await screen.findByText(/1 line was added or changed/)).toBeTruthy();
     const firstId = createTicketWalkthrough.mock.calls[0][0].batch_id;
-    fireEvent.click(screen.getByRole('button', { name: /Start a Walkthrough With the 1 Unfiled Line/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Start a Batch With the 1 Unfiled Line/ }));
     expect(screen.getByLabelText('Issue 1').value).toBe('Exit sign out');
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Create 1 Ticket/ })); });
     expect(createTicketWalkthrough.mock.calls[1][0].batch_id).not.toBe(firstId);   // a NEW batch
+  });
+});
+
+// Batch Create (Neil, Oct 13 2026): the same form, opened from Submit a
+// Ticket - any team, and the property only for a building or site team.
+describe('Batch Create', () => {
+  it('offers every team, asks no property of a non-building team, and files without one', async () => {
+    render(<PropertyWalkthrough onClose={vi.fn()} />);
+    fireEvent.click(await screen.findByText('Select team'));
+    fireEvent.click(await screen.findByText('Human Resources'));
+    expect(screen.queryByText('Select property')).toBeNull();          // no Property field for HR
+    await fill(1, 'New hire laptop', 'Benefits');
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Create 1 Ticket/ })); });
+    expect(createTicketWalkthrough.mock.calls[0][0]).toMatchObject({ property_asset_id: '', hr_department_id: 'd-hr' });
+  });
+
+  it('shows the Property field, optional, for a building team', async () => {
+    render(<PropertyWalkthrough onClose={vi.fn()} />);
+    fireEvent.click(await screen.findByText('Select team'));
+    fireEvent.click(await screen.findByText('Facilities'));
+    expect(await screen.findByText('Property')).toBeTruthy();
+    await fill(1, 'Repaint door');
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Create 1 Ticket/ })); });
+    expect(createTicketWalkthrough).toHaveBeenCalledTimes(1);             // no property picked: still files
+  });
+
+  it('switches back to one ticket from its tab', async () => {
+    const onSingle = vi.fn();
+    render(<PropertyWalkthrough onClose={vi.fn()} onSingle={onSingle} />);
+    expect((await screen.findByRole('tab', { name: 'Batch Create' })).getAttribute('aria-selected')).toBe('true');
+    fireEvent.click(screen.getByRole('tab', { name: 'Create a Ticket' }));
+    expect(onSingle).toHaveBeenCalledTimes(1);
   });
 });
