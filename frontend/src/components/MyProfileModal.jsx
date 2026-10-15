@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, Camera, Sun, Moon, Palette, Check, PanelLeft, Globe2, Signature, Copy, Mail } from 'lucide-react';
+import { X, Camera, Sun, Moon, Palette, Check, PanelLeft, Globe2, Signature, Copy, Mail, ChevronDown, ChevronUp } from 'lucide-react';
 import { api } from '../api';
 import PhotoEditorModal from './PhotoEditorModal';
 import { refreshPhotoMap } from '../lib/peoplePhotos';
@@ -30,6 +30,8 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
   // The settings API answers 403 for an account with no Task module access -
   // say so plainly instead of showing controls that cannot be saved.
   const [emailUnavailable, setEmailUnavailable] = useState(false);
+  // Collapsed unless a task email's "Email Settings" link opened Profile (Oct 15 2026).
+  const [emailOpen, setEmailOpen] = useState(focusEmail);
   const emailRef = useRef(null);
   const [profile, setProfile] = useState(null);
   const [signature, setSignature] = useState(null);
@@ -327,15 +329,25 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
         {/* Email Settings (Neil, Oct 13 2026: "no need to have this as a
             separate pop-up") - your own task email preferences. */}
         <div ref={emailRef} style={{ borderTop: '1px solid var(--line)', padding: '14px 18px 18px', fontFamily: 'Inter, sans-serif', scrollMarginTop: 8 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 8 }}>
+          {/* Collapsible (Pranshu, Oct 15 2026): the task email settings are a
+              long form - closed, Profile stays short. */}
+          <button type="button" onClick={() => setEmailOpen((v) => !v)} aria-expanded={emailOpen} aria-controls="profile-email-settings"
+            style={{ display: 'flex', alignItems: 'center', gap: 5, width: '100%', padding: 0, border: 'none', background: 'none', cursor: 'pointer', fontFamily: 'inherit',
+              fontSize: 10, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: emailOpen ? 8 : 0, textAlign: 'left' }}>
             <Mail size={11} /> Email Settings
-          </div>
-          {emailUnavailable ? (
+            <span style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: 4, textTransform: 'none', letterSpacing: 0, fontSize: 12, fontWeight: 600, color: 'var(--ink)' }}>
+              {emailOpen ? 'Hide' : 'Show'} {emailOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            </span>
+          </button>
+          {!emailOpen && (
+            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Which task emails you get, and when.</div>
+          )}
+          {!emailOpen ? null : emailUnavailable ? (
             <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>
               Task email settings aren&apos;t available for your account because you don&apos;t have access to the Tasks module.
             </p>
           ) : (
-            <EmailSettingsPanel onUnavailable={() => setEmailUnavailable(true)} />
+            <div id="profile-email-settings"><EmailSettingsPanel onUnavailable={() => setEmailUnavailable(true)} /></div>
           )}
         </div>
         </div>
