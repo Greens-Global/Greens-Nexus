@@ -1709,7 +1709,6 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               <th style={gh}>Out</th>
               <th style={gh}>Category</th>
               <th title="Hours paid for the shift - clock-in to clock-out, minus its breaks" style={gh}>Total Hours</th>
-              <th title="Breaks taken in the day - a 60 min allowance" style={gh}>Break</th>
               <th style={gh}>{showPay ? 'Effect on Pay' : ''}</th>
               <th title="What was planned, done, and left pending that day" style={gh}>Log</th>
             </tr>
@@ -1727,21 +1726,6 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               const band = fi % 2 === 1;
               const rowCls = `pr-day-row${band ? ' pr-band' : ''}${onLeave ? ' pr-leave' : ''}`;
 
-              // Break = the day's Start / End Break windows plus short gaps between
-              // sessions (stepping away, up to 90 min). A gap longer than that is
-              // time off the clock, never a break.
-              const BREAK_MAX = 90;
-              let gapBreak = 0;
-              for (let i = 1; i < segs.length; i++) {
-                const pOut = segs[i - 1].out, tIn = segs[i].in;
-                if (pOut && tIn) {
-                  const m = Math.round((new Date(tIn + 'Z') - new Date(pOut + 'Z')) / 60000);
-                  if (m > 0 && m <= BREAK_MAX) gapBreak += m;
-                }
-              }
-              const dayBreak = (d?.breakMin || 0) + gapBreak;
-              const overBreak = dayBreak > 60;             // 60 min/day allowance
-              const breakFg = dayBreak <= 0 ? undefined : overBreak ? '#b91c1c' : 'hsl(var(--color-green))';
               const formal = segs.flatMap(s => s.breaks || []);
               const dayRows = segs.length + formal.length;   // the shift rows and their Break rows
               const locateEmail = (!self || isAdmin) ? (data.email || '') : '';
@@ -1786,9 +1770,6 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               );
               const tailCells = (
                 <>
-                  <td rowSpan={dayRows || 1} style={{ ...gc, color: breakFg, fontWeight: dayBreak > 0 ? 700 : 400 }} title={overBreak ? 'Over the 60 min daily allowance' : undefined}>
-                    {dayBreak > 0 ? <>{hhmm(dayBreak)}{overBreak && <AlertTriangle size={11} style={{ marginLeft: 4, verticalAlign: 'middle' }} />}</> : '-'}
-                  </td>
                   <td rowSpan={dayRows || 1} style={{ ...gc, textAlign: 'right' }}>{showPay ? effect(fd) : ''}</td>
                   <td rowSpan={dayRows || 1} style={gc}><WorkLogButton onClick={() => setWorkLogDay(fd.date)} title={`View the Work Log for ${dow(fd.date)}`} /></td>
                 </>
@@ -1848,7 +1829,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               //    the hourly card gets, so 'Absent' / 0 hours never reads as unexplained ──
               if (segs.some(s => (s.flags || []).includes('auto_clock_out'))) rows.push(
                 <tr key={fd.date + '-auto'} className={rowCls}>
-                  <td colSpan={10} style={{ ...gc, textAlign: 'left', color: '#b91c1c', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
+                  <td colSpan={9} style={{ ...gc, textAlign: 'left', color: '#b91c1c', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
                     <AlertTriangle size={11} style={{ marginRight: 5, verticalAlign: 'middle' }} />
                     Auto-closed at end of day - no clock-out was recorded. The day is held until the real Out time is set{self ? ' - tap the Out time to propose the real end of your shift.' : '.'}
                   </td>
@@ -1858,7 +1839,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               // ── The note line: the employee's note, HR's, what is on the punches ──
               if (notes.length || hrNote || (!self && note?.employeeNote)) rows.push(
                 <tr key={fd.date + '-notes'} className={rowCls}>
-                  <td colSpan={10} style={{ ...gc, textAlign: 'left', whiteSpace: 'normal', fontSize: 12, paddingLeft: 26 }}>
+                  <td colSpan={9} style={{ ...gc, textAlign: 'left', whiteSpace: 'normal', fontSize: 12, paddingLeft: 26 }}>
                     <div style={{ display: 'grid', gap: 2, minWidth: 0 }}>
                       {!self && note?.employeeNote && (
                         <span title={note.employeeNoteAt ? `Written ${formatDate(note.employeeNoteAt)}` : undefined} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -1885,7 +1866,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                   : `Add ${PR_KIND_LABEL[r.punchKind] || r.punchKind}${r.category ? ` as ${r.category}` : ''}`;
                 rows.push(
                   <tr key={fd.date + '-req-' + r.id} style={{ background: 'rgba(180,83,9,0.07)' }}>
-                    <td colSpan={10} style={{ ...gc, textAlign: 'left', whiteSpace: 'normal', fontSize: 12 }}>
+                    <td colSpan={9} style={{ ...gc, textAlign: 'left', whiteSpace: 'normal', fontSize: 12 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                         <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', padding: '2px 8px', borderRadius: 999, background: 'rgba(180,83,9,0.16)', color: '#b45309', display: 'inline-flex', alignItems: 'center', gap: 4 }}><AlertTriangle size={10} /> Not Yet Approved</span>
                         <span style={{ color: '#b45309', fontWeight: 700 }}>{kindLabel}{r.action === 'add' && r.at ? ` at ${t12(r.at)}` : ''}</span>
