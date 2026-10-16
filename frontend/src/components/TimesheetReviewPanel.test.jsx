@@ -73,18 +73,23 @@ describe('TimesheetReviewPanel', () => {
     expect(screen.getByText(/Agree & Send for Signature/).closest('button')).toBeDisabled();
   });
 
-  it('shows who has signed and opens Nexus Sign for my turn', () => {
-    render(<TimesheetReviewPanel {...props} self={false} review={{ ...base, status: 'signing', turn: 'manager', myPartyId: 'p-mgr',
+  it('shows the approval and opens Nexus Sign for the employee, the only signer (Oct 16)', () => {
+    render(<TimesheetReviewPanel {...props} review={{ ...base, status: 'signing', turn: 'employee', myPartyId: 'p-emp',
       agreedBy: 'mgr@x.com', agreedAt: '2026-09-20T10:00:00Z',
-      parties: [
-        { role: 'employee', name: 'Erin', status: 'signed', signedAt: '2026-09-20T11:00:00Z', signatureKind: 'paper' },
-        { role: 'manager', name: 'Max', status: 'notified' },
-        { role: 'hr', name: 'Hana', status: 'waiting' },
-      ] }} />);
+      parties: [{ role: 'employee', name: 'Erin', status: 'notified' }] }} />);
+    expect(screen.getByText('Approval')).toBeInTheDocument();
+    expect(screen.getByText(/Waiting for Erin/)).toBeInTheDocument();
+    expect(screen.queryByText(/Manager Signature/)).toBeNull();
+    fireEvent.click(screen.getByText('Sign & Submit'));
+    expect(screen.getByTestId('sign-modal')).toHaveTextContent('p-emp');
+  });
+
+  it('shows a paper signature once the employee has signed', () => {
+    render(<TimesheetReviewPanel {...props} self={false} review={{ ...base, status: 'completed',
+      agreedBy: 'mgr@x.com', agreedAt: '2026-09-20T10:00:00Z',
+      parties: [{ role: 'employee', name: 'Erin', status: 'signed', signedAt: '2026-09-20T11:00:00Z', signatureKind: 'paper' }] }} />);
     expect(screen.getByText('On paper')).toBeInTheDocument();
-    expect(screen.getByText(/Waiting for Max/)).toBeInTheDocument();
-    fireEvent.click(screen.getByText('Review & Sign'));
-    expect(screen.getByTestId('sign-modal')).toHaveTextContent('p-mgr');
+    expect(screen.getByText(/finalized for payroll/)).toBeInTheDocument();
   });
 
   it('says so when it is finalized', () => {

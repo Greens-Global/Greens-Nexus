@@ -53,7 +53,10 @@ def waiting(user: dict = Depends(get_current_user), db: Session = Depends(get_db
     """Timesheets submitted to the caller for review - the list at the top of
     People > Time (Sep 29). Empty for anyone nobody reports to."""
     me = (user.get("email") or "").lower()
-    return {"reviews": [tsr.queue_row(db, r) for r in tsr.waiting_on(db, me)]}
+    return {"reviews": [tsr.queue_row(db, r) for r in tsr.waiting_on(db, me)],
+            # ...and the agreed timesheets waiting on the caller's SIGNATURE
+            # (manager or HR turn), signed in place from the same card (Oct 16).
+            "toSign": tsr.to_sign(db, me)}
 
 
 @router.post("/submit")

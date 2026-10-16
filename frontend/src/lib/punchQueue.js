@@ -1,4 +1,5 @@
 import { api } from '../api';
+import { replayPendingBods } from './bodQueue';
 
 // ── A punch must never be lost ────────────────────────────────────────────────
 // The day-message gate posts to Teams BEFORE the punch (BodModal.send() ->
@@ -134,6 +135,9 @@ async function _replayPending() {
     clearPending();
     return { dropped: true, entry: p, stale: true };
   }
+  // The day message parked with it goes FIRST: the server refuses a clock-in /
+  // clock-out whose Beginning / End-of-day message is not on record (Oct 16).
+  await replayPendingBods().catch(() => {});
   // CLAIM it before sending, and write it back only if the send ends unknown.
   // Another TAB could otherwise replay the same punch, and the self_manual
   // backfill below has no server-side duplicate guard to catch that.
@@ -159,6 +163,10 @@ async function _replayPending() {
     return { restored: true, backfilled: true, punch, entry: p };
   } catch (e) {
     if (isUnknownOutcome(e)) { writePending(p); return null; }   // unreachable again - next load
+    // The server wants the day message first (Oct 16: BOD / EOD are policy,
+    // checked server-side). The punch did NOT land - keep it parked; the
+    // next attempt replays the parked message first and the gate reopens.
+    if (e.status === 409 && ['bod_required', 'eod_required'].includes(e.detail?.code)) { writePending(p); return null; }
     // A 409 here means it landed after all (the retry raced its own first send),
     // or the sequence moved on: either way it is no longer ours to carry.
     if (e.status === 409) return { dropped: true, entry: p, stale: true };
