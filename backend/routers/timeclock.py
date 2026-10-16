@@ -37,6 +37,7 @@ from fastapi.responses import StreamingResponse, PlainTextResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import func
+from sqlalchemy import text as _sa_text
 from sqlalchemy.exc import IntegrityError
 
 from database import get_db
@@ -188,6 +189,15 @@ def _visible_emails(db: Session, user: dict):
     import backup_manager
     directs = backup_manager.managed_directly(db, user["email"])
     directs.add(user["email"])
+    # A company's HR contact is the lead approver for its people who have NO
+    # manager on file (Neil, Oct 16: HR and the Global Admins decide then,
+    # never "any manager") - their requests already reach the HR contact.
+    from models import HrEntity
+    _me = (user["email"] or "").lower()
+    for ent in db.query(HrEntity).filter(func.lower(HrEntity.hr_contact_email) == _me).all():
+        directs |= {(e.work_email or "").lower() for e in db.query(NexusEmployee)
+                    .filter(NexusEmployee.company == ent.id, NexusEmployee.status.in_(["active", "onboarding"])).all()
+                    if e.work_email and not (e.manager_email or "").strip()}
     if _module_level(user["email"], "hr", db) >= 1:
         scope = hr_scope(user, db)
         if scope is None:
@@ -824,8 +834,16 @@ def my_status(tz_offset_min: int = 0, user: dict = Depends(get_current_user), db
     pol = _get_policy(db, _company_of(db, email))
     _rr = db.query(PayrollRate).filter(PayrollRate.employee_email == email).first()
     _bod_ex = _is_bod_exempt(db, email)
+    # End-of-day message owed before the clock-out: a shift is open and no EOD
+    # was posted for its day (Oct 16: every surface gates on this, and POST
+    # /punch refuses an "out" without it for non-exempt roles).
+    _open = bool(last) and last.kind != "out" and not _stale_open_shift(last)
+    has_eod = (db.query(TimeBod)
+               .filter(TimeBod.employee_email == email, TimeBod.kind == "eod",
+                       TimeBod.local_date == local_today).first()) if _open else None
     return {
         "lastPunch": _serialize(last) if last else None,
+        "eodRequired": _open and has_eod is None and not _bod_ex,
         "allowed": _allowed_kinds(_effective_last_kind(last)),
         # The open shift is too old to close by punching - it shows as Missing
         # and needs a punch-fix request; the UI offers Clock In instead.
@@ -900,12 +918,30 @@ def _handover_shared_pc(db: Session, dev, tz_offset_min: int) -> None:
                      created_by="system", created_at=now))
 
 
+def _lock_person(db: Session, email: str) -> None:
+    """Serialize one person's punch writes for this transaction (Oct 16): two
+    taps, a phone and a shared PC, or a timed-out request replayed by the
+    client both read the same "last punch" and both insert, leaving two
+    clock-ins seconds apart and a Missing day that blocks sign-off. A
+    transaction-scoped advisory lock (never a session lock - the 6543 pooler
+    would hold that forever) makes the second wait for the first's commit and
+    then read the row it wrote. SQLite is single-writer, so nothing to do."""
+    try:
+        dialect = db.get_bind().dialect.name
+    except Exception:
+        dialect = ""
+    if dialect == "postgresql":
+        db.execute(_sa_text("select pg_advisory_xact_lock(hashtext(:k))"),
+                   {"k": f"punch:{(email or '').lower()}"})
+
+
 @router.post("/punch")
 def punch(body: PunchIn, request: Request,
           user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     if body.kind not in KINDS:
         raise HTTPException(400, f"kind must be one of {KINDS}")
     email = user["email"]
+    _lock_person(db, email)
     last = (db.query(TimePunch)
             .filter(TimePunch.employee_email == email, TimePunch.voided == 0)
             .order_by(TimePunch.at.desc()).first())
@@ -915,13 +951,40 @@ def punch(body: PunchIn, request: Request,
         if stale and body.kind in ("out", "break_start", "break_end"):
             ld = (last.local_date or "")
             when = f"{ld[5:7]}/{ld[8:10]}/{ld[0:4]}" if len(ld) == 10 else "earlier"
-            raise HTTPException(409, {
-                "code": "stale_open_shift",
-                "text": f"Your clock-in from {when} was never closed and is more than 16 hours old, "
-                        f"so that shift shows as Missing. Submit a Missed Punch request with the real "
-                        f"clock-out time, and clock in to start today.",
-            })
+            _msg = (f"Your clock-in from {when} was never closed and is more than 16 hours old, "
+                    f"so that shift shows as Missing. Submit a Missed Punch request with the real "
+                    f"clock-out time, and clock in to start today.")
+            # "message" is the key api.js turns into the toast (Oct 16: the
+            # instruction used to surface as a bare "API error 409"); "text"
+            # stays for older clients.
+            raise HTTPException(409, {"code": "stale_open_shift", "message": _msg, "text": _msg})
         raise HTTPException(409, f"Can't punch '{body.kind}' right now - allowed: {', '.join(allowed)}")
+    # Beginning / End-of-day messages are POLICY, enforced here for every
+    # surface (Neil, Oct 16: "enforced per policy everywhere based on roles"),
+    # not only by whichever screen the person punched from. Roles flagged
+    # bod_exempt skip both. The first clock-in of the workday needs a BOD on
+    # record (a real post or the "already sent elsewhere" marker); the
+    # clock-out needs an EOD for the shift's day. The clients post the message
+    # first and punch second, so a refusal here means a client that skipped.
+    if body.kind in ("in", "out") and not _is_bod_exempt(db, email):
+        _day = _shift_day(db, email, _now_iso(), body.tz_offset_min or 0)
+        if body.kind == "in":
+            _has_bod = (db.query(TimeBod)
+                        .filter(TimeBod.employee_email == email, TimeBod.kind == "bod",
+                                TimeBod.local_date == _day).first())
+            _has_in = (db.query(TimePunch)
+                       .filter(TimePunch.employee_email == email, TimePunch.kind == "in",
+                               TimePunch.local_date == _day, TimePunch.voided == 0).first())
+            if _has_bod is None and _has_in is None:
+                _m = "Post your Beginning of Day message before you clock in."
+                raise HTTPException(409, {"code": "bod_required", "message": _m})
+        else:
+            _has_eod = (db.query(TimeBod)
+                        .filter(TimeBod.employee_email == email, TimeBod.kind == "eod",
+                                TimeBod.local_date == _day).first())
+            if _has_eod is None:
+                _m = "Post your End of Day message before you clock out."
+                raise HTTPException(409, {"code": "eod_required", "message": _m})
     # Shared-PC: resolve the device the local agent claimed (via /agent/pair).
     # A successful pairing means THIS employee is physically at that PC's agent,
     # so if it is still bound to someone else, that person LEFT the shared PC
@@ -1046,6 +1109,7 @@ def self_manual_punch(body: SelfPunchIn, user: dict = Depends(get_current_user),
         raise HTTPException(400, "Older than 7 days - ask a manager to add it.")
     if not (body.note or "").strip():
         raise HTTPException(400, "Add a short note explaining the missed punch.")
+    _guard_not_finalized(db, user["email"], _local_date(body.at, body.tz_offset_min or 0))
     _guard_review(db, user["email"], _local_date(body.at, body.tz_offset_min or 0), user["email"])
     _guard_punch_order(db, user["email"], kind=body.kind, at=body.at,
                        local_date=_local_date(body.at, body.tz_offset_min or 0))
@@ -1084,8 +1148,14 @@ def _team_rows(db: Session, start: str, end: str, only_emails=None, include_fixe
     by_emp = {}
     for p in q.order_by(TimePunch.at).all():
         by_emp.setdefault(p.employee_email, []).append(p)
-    names = {e.work_email: f"{e.first_name} {e.last_name}".strip()
-             for e in db.query(NexusEmployee).all() if e.work_email}
+    from models import HrEntity
+    _emps = [e for e in db.query(NexusEmployee).all() if e.work_email]
+    names = {e.work_email: f"{e.first_name} {e.last_name}".strip() for e in _emps}
+    # Company and department ride on each row so the Payroll list can be
+    # filtered by either (Neil, Oct 16).
+    _ents = {x.id: x.name or "" for x in db.query(HrEntity).all()}
+    depts = {e.work_email: e.department or "" for e in _emps}
+    companies = {e.work_email: _ents.get(e.company or "", "") for e in _emps}
     # Break policy per employee (the paid rest-break credit is CA-rule only) -
     # bulk-load rules so this stays one query, not one per person.
     _bp = _breakpolicy_cfg(db)
@@ -1133,6 +1203,7 @@ def _team_rows(db: Session, start: str, end: str, only_emails=None, include_fixe
         rows.append({
             "email": email,
             "name": names.get(email) or email.split("@")[0].replace(".", " ").title(),
+            "department": depts.get(email, ""), "company": companies.get(email, ""),
             "workedMin": sum(d["workedMin"] for d in days.values()),
             "breakMin": sum(d["breakMin"] for d in days.values()),
             "flagCount": sum(len(d["flags"]) for d in days.values()),
@@ -1304,6 +1375,20 @@ def _inverted_days(punches: list, days: set) -> set:
     return out
 
 
+def _break_outside_shift(punches: list, new_id: str) -> bool:
+    """True when the break punch `new_id` lands while no clock-in is open -
+    exactly the case _compute_timecard drops from the card."""
+    open_in = False
+    for p in sorted(punches, key=lambda p: p.at or ""):
+        if p.kind == "in":
+            open_in = True
+        elif p.kind == "out":
+            open_in = False
+        elif p.id == new_id:
+            return not open_in
+    return False
+
+
 def _guard_punch_order(db: Session, email: str, *, kind: str, at: str, local_date: str,
                        punch_id: str = "", extra: list = None) -> None:
     """Refuse a change that would put a clock-out before its clock-in (Oct 1:
@@ -1313,7 +1398,7 @@ def _guard_punch_order(db: Session, email: str, *, kind: str, at: str, local_dat
     unrelated fix. `punch_id` = the punch being moved (edit), else a new punch;
     `extra` = punches not yet real (an employee's pending add requests)."""
     from types import SimpleNamespace
-    if kind not in ("in", "out") or not at or not local_date:
+    if kind not in KINDS or not at or not local_date:
         return
     try:
         d = date.fromisoformat(local_date[:10])
@@ -1325,7 +1410,17 @@ def _guard_punch_order(db: Session, email: str, *, kind: str, at: str, local_dat
            for p in _live_punches(db, email, min(days), max(days))]
     now += list(extra or [])
     after = [p for p in now if not (punch_id and p.id == punch_id)]
-    after.append(SimpleNamespace(id=punch_id or "new", kind=kind, at=at[:19], local_date=local_date[:10]))
+    new_id = punch_id or "new"
+    after.append(SimpleNamespace(id=new_id, kind=kind, at=at[:19], local_date=local_date[:10]))
+    if kind in ("break_start", "break_end"):
+        # A break outside a clock-in / clock-out pair was accepted and then
+        # silently skipped by the timecard pairing (Charmi, Oct 16: "I added the
+        # break, I still do not see it"). Refuse it with the reason instead.
+        if _break_outside_shift(after, new_id):
+            when = d.strftime("%m/%d/%Y")
+            raise HTTPException(400, f"A break has to fall inside a clock-in / clock-out on {when}. "
+                                     "Add or fix the shift first, then the break.")
+        return
     new_bad = _inverted_days(after, days) - _inverted_days(now, days)
     if new_bad:
         when = datetime.strptime(min(new_bad), "%Y-%m-%d").strftime("%m/%d/%Y")
@@ -1782,9 +1877,9 @@ def finalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrat
         _sig(None, "finalized by", user["email"], row.approved_at),
     ])
     _hr_notify(db, email, "Timecard finalized",
-               f"Your timecard {body.start} – {body.end} is finalized for payroll "
+               f"Your timecard {_us_span(body.start, body.end)} is finalized for payroll "
                f"({worked // 60}h {worked % 60:02d}m) and locked. Signatures: {_sigs}.",
-               action={"view": "timeclock", "sub": "timecard"})
+               action={"view": "timeclock", "sub": "timesheet"})
     db.commit()
     return {"finalized": {"by": row.approved_by, "at": row.approved_at, "workedMin": worked}}
 
@@ -1802,6 +1897,20 @@ def unfinalize_timecard(body: FinalizeIn, user: dict = Depends(require_administr
         raise HTTPException(404, "No finalization found for this period")
     row.revoked = 1
     row.revoked_by = user["email"]
+    # A period signed through Nexus Sign keeps its review row as "completed",
+    # which refused every new submission - so an unlocked period could never be
+    # re-agreed or re-signed (Oct 16). Close that review out as "unlocked"; the
+    # employee's next Submit starts a fresh round and a fresh envelope.
+    import timesheet_review as _tsr
+    _rv = _tsr.active_review(db, email, body.start)
+    if _rv is not None and _rv.status == "completed":
+        _rv.status = "unlocked"
+        _tsr._round(db, _rv, by=user["email"], action="unlocked",
+                    note="Period unlocked by HR for corrections - submit it again when the hours are right")
+        _hr_notify(db, email, "Timecard unlocked",
+                   f"HR unlocked your timecard for {_us_span(body.start, body.end)} for corrections. "
+                   f"Once the hours are right, submit it again for review and signatures.",
+                   action={"view": "timeclock", "sub": "timesheet"})
     db.commit()
     return {"unfinalized": True}
 
@@ -1951,12 +2060,19 @@ def adjust_punch(punch_id: str, body: PunchAdjust,
         t = _parse_iso(body.at)
         if t is None:
             raise HTTPException(400, "at must be an ISO timestamp")
+        _new_day = _local_date(body.at[:19], row.tz_offset_min or 0)
+        if _new_day != row.local_date:
+            # The day the punch LANDS on is locked the same way as the day it
+            # leaves (Oct 16): an overnight clock-out moved back across a
+            # period boundary could land inside a finalized or signing period.
+            _guard_not_finalized(db, row.employee_email, _new_day)
+            _guard_review(db, row.employee_email, _new_day, user["email"])
         _guard_punch_order(db, row.employee_email, kind=row.kind, at=body.at, punch_id=row.id,
-                           local_date=_local_date(body.at[:19], row.tz_offset_min or 0))
+                           local_date=_new_day)
         if not row.original_at:            # freeze the original exactly once
             row.original_at = row.at
         row.at = body.at[:19]
-        row.local_date = _local_date(row.at, row.tz_offset_min or 0)
+        row.local_date = _new_day
     if body.work_site_id is not None:
         # Reassign the punch's location to a curated work site (manager correction).
         wsid = body.work_site_id.strip()
@@ -2902,6 +3018,7 @@ def create_punch_request(body: PunchRequestIn, user: dict = Depends(get_current_
         if not tp:
             raise HTTPException(404, "That punch isn't yours or no longer exists.")
         local_date = tp.local_date
+    _guard_not_finalized(db, email, local_date)
     _guard_review(db, email, local_date, email)
     if action == "add":
         # The same fix asked for twice (same punch, same minute) is one fix:
@@ -3194,7 +3311,7 @@ def _apply_add_chain(db: Session, reqs: list, user: dict, now: str) -> list:
         pick.voided = 1
         pick.adjusted_by, pick.adjusted_at = user["email"], now
         pick.adjust_note = ("Replaced by an approved punch fix: " + ", ".join(
-            f"{_kind_label(q.punch_kind)} at {_punch_when(q)[0]}" for q in reqs) + f" (approved by {user['email']}).")
+            f"{_kind_label(q.punch_kind)} at {_punch_when(q)[0]}" for q in reqs) + f" (approved by {_display_name(db, user['email'])}).")
         replaced.append(f"the {_kind_label(pick.kind)} at {_punch_when(pick)[0]}")
         db.flush()
     # A break punch the fix makes redundant - the old break end pressed at
@@ -3213,7 +3330,7 @@ def _apply_add_chain(db: Session, reqs: list, user: dict, now: str) -> list:
                 row.voided = 1
                 row.adjusted_by, row.adjusted_at = user["email"], now
                 row.adjust_note = (f"No longer needed: the approved punch fix set this {_kind_label(c.kind)} "
-                                   f"at {_punch_when(final[i - 1])[0]} (approved by {user['email']}).")
+                                   f"at {_punch_when(final[i - 1])[0]} (approved by {_display_name(db, user['email'])}).")
                 replaced.append(f"the extra {_kind_label(c.kind)} at {_punch_when(c)[0]}")
                 gone.add(c.id)
     db.flush()
@@ -3223,7 +3340,7 @@ def _apply_add_chain(db: Session, reqs: list, user: dict, now: str) -> list:
                        geo_status="no_location", source="manual", note=(q.reason or "")[:300],
                        category=(q.category or "") if q.punch_kind == "in" else "",
                        created_by=user["email"], created_at=now,
-                       adjust_note=f"Approved punch-fix request by {user['email']}")
+                       adjust_note=f"Approved punch-fix request by {_display_name(db, user['email'])}")
         db.add(tp)
         db.flush()
         q.applied_punch_id = tp.id
@@ -3295,6 +3412,9 @@ def decide_punch_request(req_id: str, body: PunchRequestDecision,
     if not decision:
         raise HTTPException(400, "status must be approved or rejected")
     if decision == "approved":
+        # Approving writes a punch, so a finalized (paid) period refuses it the
+        # same way a direct edit does (Oct 16) - rejecting is always allowed.
+        _guard_not_finalized(db, r.employee_email, r.local_date)
         _recall_signing_for_fix(db, r.employee_email, r.local_date, user["email"],
                                 f"punch fix approved: {_kind_label(r.punch_kind)} punch "
                                 f"{'added' if r.action == 'add' else 'removed'} on {_us_day(r.local_date)}")
@@ -3441,8 +3561,11 @@ def request_punch_edit(body: PunchEditIn, user: dict = Depends(get_current_user)
     _tz = t if t.tzinfo else t.replace(tzinfo=timezone.utc)
     if _tz > datetime.now(timezone.utc) + timedelta(minutes=5):
         raise HTTPException(400, "You can't set a punch time in the future.")
-    _guard_punch_order(db, email, kind=row.kind, at=at, punch_id=row.id,
-                       local_date=_local_date(at[:19], row.tz_offset_min or 0))
+    _new_day = _local_date(at[:19], row.tz_offset_min or 0)
+    if _new_day != row.local_date:
+        _guard_not_finalized(db, row.employee_email, _new_day)
+        _guard_review(db, row.employee_email, _new_day, email)
+    _guard_punch_order(db, email, kind=row.kind, at=at, punch_id=row.id, local_date=_new_day)
     row.pending_at = at[:19]
     row.edit_reason = (body.reason or "").strip()[:300]
     row.edited_by, row.edited_at, row.edit_status = email, _now_iso(), "pending"
@@ -3489,12 +3612,19 @@ def decide_punch_edit(punch_id: str, body: PunchEditDecision,
     now = _now_iso()
     note = (body.note or "").strip()
     if decision == "approved":
+        _new_day = _local_date(row.pending_at[:19], row.tz_offset_min or 0)
+        if _new_day != row.local_date:
+            # The day the punch LANDS on is locked the same way as the day it
+            # leaves (Oct 16): an overnight clock-out moved back across a
+            # period boundary could land inside a finalized or signing period.
+            _guard_not_finalized(db, row.employee_email, _new_day)
+            _guard_review(db, row.employee_email, _new_day, user["email"], employee_request=True)
         _guard_punch_order(db, row.employee_email, kind=row.kind, at=row.pending_at, punch_id=row.id,
-                           local_date=_local_date(row.pending_at[:19], row.tz_offset_min or 0))
+                           local_date=_new_day)
         if not row.original_at:            # freeze the pre-edit value once
             row.original_at = row.at
         row.at = row.pending_at[:19]
-        row.local_date = _local_date(row.at, row.tz_offset_min or 0)
+        row.local_date = _new_day
         # Stamp the change time so any day/period approval or employee signature on
         # this day goes STALE - team_timesheet keys staleness on
         # max(created_at, adjusted_at); without this, an approved edit silently
@@ -8278,6 +8408,9 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
                            "future": ds > today,   # can't add a punch for a day that hasn't happened
                            "status": status, "deduct": round(deduct, 2), "bonus": round(bonus, 2),
                            "leaveClass": leave_cls, "leaveMin": leave_min_by_day.get(ds, 0),
+                           # approved full-day time off covering the day, so the row names it
+                           "timeOff": (_MISSED_LABELS.get(timeoff_by_day[ds], timeoff_by_day[ds].replace("_", " ").title())
+                                       if ds in timeoff_by_day else ""),
                            "dailyRate": round(daily_d, 2),
                            "holidayName": (hol or {}).get("name", "")})
 
@@ -9085,9 +9218,27 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
                          "targetPunchId": r.target_punch_id, "employeeName": r.employee_name,
                          "createdAt": r.created_at} for r in preqs]
 
+    # Punch History on hover (Neil, Oct 16 - SwipeClock's popup): where each
+    # punch came from, its exact time, and who entered or changed it. A manual
+    # or changed punch reads bold on the card.
+    _src = {"web": "Web browser", "mobile": "Mobile app", "manual": "Entered by a manager",
+            "self_manual": "Missed punch entered by the employee", "auto_eod": "Auto clock-out at end of day"}
+    _names = {}
+
+    def _who(e):
+        if e and e not in _names:
+            _names[e] = _display_name(db, e)
+        return _names.get(e, "")
+    punch_meta = {p.id: {"kind": p.kind, "at": p.at, "originalAt": p.original_at or "",
+                         "source": _src.get(p.source or "", p.source or ""), "ip": p.ip or "",
+                         "site": p.work_site_name or "", "manual": p.source in ("manual", "self_manual"),
+                         "createdBy": _who(p.created_by), "createdAt": p.created_at or "",
+                         "adjustedBy": _who(p.adjusted_by), "adjustedAt": p.adjusted_at or "",
+                         "adjustNote": p.adjust_note or ""} for p in punches}
+
     return {"email": em, "start": start, "end": end, "rate": rate, "rateSet": rate_row is not None,
             "rateSplits": rate_splits,   # >1 entry = the rate changed inside this period
-            "dept": dept, "overtimeRule": rule, "days": days_out,
+            "dept": dept, "overtimeRule": rule, "days": days_out, "punchMeta": punch_meta,
             "rounding": {"enabled": _rnd["enabled"], "nearestMin": _rnd["nearestMin"]},
             "autoLunch": {"enabled": al["enabled"], "afterMin": al["afterMin"], "deductMin": al["deductMin"]},
             "breakPolicy": _bp,

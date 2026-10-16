@@ -158,7 +158,9 @@ class ReviewLoopTests(ReviewCase):
             tsr.guard_edit(self.db, EMP, self.start, MGR)
 
     def test_no_manager_means_nobody_to_submit_to(self):
+        # No manager, no company manager AND no HR contact (the Oct 16 fallback).
         self.db.query(models.NexusEmployee).filter_by(work_email=EMP).update({"manager_email": ""})
+        self.db.query(models.HrEntity).update({"hr_contact_email": ""})
         self.db.commit()
         with self.assertRaises(HTTPException) as e:
             tsr.submit(self.db, EMP, ANCHOR)
@@ -185,13 +187,34 @@ class ReviewLoopTests(ReviewCase):
         r = tsr.submit(self.db, EMP, ANCHOR)
         self.assertEqual(r.status, "with_manager")
 
-    def test_agreeing_needs_an_hr_contact(self):
+    def test_agreeing_without_an_hr_contact_still_sends_the_envelope(self):
+        # Oct 16: HR no longer signs, so a company with no HR contact closes too.
         self.db.query(models.HrEntity).update({"hr_contact_email": ""})
         self.db.commit()
         r = tsr.submit(self.db, EMP, ANCHOR)
-        with self.assertRaises(HTTPException) as e:
-            tsr.agree(self.db, r, MGR)
-        self.assertIn("HR contact", e.exception.detail)
+        tsr.agree(self.db, r, MGR)
+        self.db.expire_all()
+        r = self._r()
+        self.assertEqual((r.status, r.hr_email or ""), ("signing", ""))
+
+    def test_no_manager_falls_back_to_the_hr_contact(self):
+        # Nobody set as manager: the company's HR contact is the lead approver
+        # (Neil, Oct 16 - HR and Global Admins, never "any manager").
+        self.db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == EMP).update({"manager_email": ""})
+        self.db.commit()
+        # Only an HR contact who can act (manager level or an HR editor grant).
+        import auth
+        auth.invalidate_role_cache()
+        self.assertEqual(tsr.manager_of(self.db, EMP), "")
+        self.db.add(models.NexusRole(email=HR, role="manager", assigned_by="test"))
+        self.db.commit()
+        auth.invalidate_role_cache()
+        self.assertEqual(tsr.manager_of(self.db, EMP), HR)
+        r = tsr.submit(self.db, EMP, ANCHOR)
+        self.assertEqual((r.status, r.manager_email), ("with_manager", HR))
+        self.db.query(models.NexusRole).filter(models.NexusRole.email == HR).delete()
+        self.db.commit()
+        auth.invalidate_role_cache()
 
     def test_fixed_salary_month_goes_through_the_same_review(self):
         # A salaried (monthly) employee reviews the calendar month, not the
@@ -229,25 +252,27 @@ class SigningTests(ReviewCase):
         req = self.db.get(models.HrSignRequest, r.sign_request_id)
         self.assertEqual((req.link_kind, req.link_id, req.status), ("timesheet", r.id, "pending"))
         p = self._parties(r.sign_request_id)
-        self.assertEqual([(k, p[k].email, p[k].ordinal) for k in ("employee", "manager", "hr")],
-                         [("employee", EMP, 1), ("manager", MGR, 2), ("hr", HR, 3)])
+        # Only the employee signs (Oct 16); the approver's Agree is the approval.
+        self.assertEqual([(k, p[k].email, p[k].ordinal) for k in p], [("employee", EMP, 1)])
         self.assertEqual(req.current_order, 1)
         with self.assertRaises(HTTPException):     # locked for everyone while signing
             tsr.guard_edit(self.db, EMP, self.start, MGR)
 
-    def test_everyone_signs_and_the_period_is_finalized(self):
+    def test_the_employee_signs_and_the_period_is_finalized(self):
         r = self._to_signing()
         rid = r.sign_request_id
-        for role in ("employee", "manager", "hr"):
-            self._sign(self._parties(rid)[role])
+        self._sign(self._parties(rid)["employee"])
         r = self._r()
         self.assertEqual(r.status, "completed")
         self.assertEqual(self.db.get(models.HrSignRequest, rid).status, "completed")
-        kinds = {a.kind for a in self.db.query(models.TimeApproval).filter_by(employee_email=EMP, revoked=0)}
-        self.assertEqual(kinds, {"employee_sign", "manager", "final"})
+        rows = {a.kind: a for a in self.db.query(models.TimeApproval).filter_by(employee_email=EMP, revoked=0)}
+        self.assertEqual(set(rows), {"employee_sign", "manager", "final"})
+        # The approver's Agree is the manager approval and the finalization
+        # (Oct 16: the approver does not sign).
+        self.assertEqual((rows["manager"].approved_by, rows["final"].approved_by), (MGR, MGR))
         self.assertTrue(timeclock._finalized_row(self.db, EMP, self.start, self.end))
         actions = [e["action"] for e in r.rounds]
-        self.assertEqual(actions[-4:], ["signed_employee", "signed_manager", "signed_hr", "completed"])
+        self.assertEqual(actions[-2:], ["signed_employee", "completed"])
 
     def test_employee_declining_hands_it_back_to_them(self):
         r = self._to_signing()
@@ -256,15 +281,15 @@ class SigningTests(ReviewCase):
         self.assertEqual((r.status, r.sign_request_id), ("with_employee", ""))
         self.assertEqual(r.rounds[-1]["note"], "Friday is wrong")
 
-    def test_hr_returning_it_goes_to_the_manager(self):
+    def test_the_document_names_the_approver_instead_of_a_signature_row(self):
         r = self._to_signing()
-        p = self._parties(r.sign_request_id)
-        self._sign(p["employee"])
-        self._sign(self._parties(r.sign_request_id)["manager"])
-        self._decline(self._parties(r.sign_request_id)["hr"], "OT looks off")
-        r = self._r()
-        self.assertEqual((r.status, r.rounds[-1]["action"]), ("with_manager", "returned"))
-        self.assertFalse(timeclock._finalized_row(self.db, EMP, self.start, self.end))
+        pdf, last = tsr.build_pdf(self.db, r)
+        from pypdf import PdfReader
+        import io
+        text = " ".join(p.extract_text() for p in PdfReader(io.BytesIO(pdf)).pages)
+        self.assertIn("Approved by Max Test", text)
+        self.assertNotIn("Manager\nSignature", text)
+        self.assertEqual(len(tsr._sig_fields(last)), 2)   # one signature + one date: the employee's
 
     def test_voiding_the_envelope_returns_it_to_the_manager(self):
         r = self._to_signing()
@@ -394,6 +419,20 @@ class SubmitBlockTests(ReviewCase):
         self._punch(self._day(4), "in", "11:00:00")
         self.db.commit()
         self._guard(kind="out", at=f"{self._day(4)}T19:00:00", local_date=self._day(4))
+
+    # ── a break only inside a shift (Oct 16) ────────────────────────────
+    def test_a_break_inside_the_shift_passes(self):
+        self._guard(kind="break_start", at=f"{self.start}T18:00:00", local_date=self.start)
+        self._guard(kind="break_end", at=f"{self.start}T18:30:00", local_date=self.start)
+
+    def test_a_break_outside_any_shift_is_refused(self):
+        for kind, hhmm in (("break_start", "10:00:00"), ("break_end", "23:30:00")):
+            with self.assertRaises(HTTPException) as e:
+                self._guard(kind=kind, at=f"{self.start}T{hhmm}", local_date=self.start)
+            self.assertEqual(e.exception.status_code, 400)
+            self.assertIn("inside a clock-in / clock-out", e.exception.detail)
+        with self.assertRaises(HTTPException):     # a day with no shift at all
+            self._guard(kind="break_start", at=f"{self._day(2)}T12:00:00", local_date=self._day(2))
 
     def test_a_pending_clock_in_request_counts_for_the_requested_clock_out(self):
         from types import SimpleNamespace

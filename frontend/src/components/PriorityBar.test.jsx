@@ -55,6 +55,29 @@ describe('PriorityBar', () => {
     expect(dismiss).toHaveBeenCalledWith('b');
   });
 
+  it('Show All lists every notice, then Clear All closes them all (Pranshu, Oct 16)', () => {
+    notifications = [
+      { id: 'a', priority: 1, read: false, actioned: false, title: 'Sign your timecard', body: '', action: { view: 'timeclock' } },
+      { id: 'b', priority: 1, read: false, actioned: false, title: 'Time-off request', body: '', action: { view: 'hr' } },
+    ];
+    dismiss.mockClear();
+    render(<PriorityBar />);
+    expect(screen.queryByText('Time-off request')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Show All' }));
+    expect(screen.getByText('Sign your timecard')).toBeTruthy();
+    expect(screen.getByText('Time-off request')).toBeTruthy();
+    expect(screen.getAllByRole('button', { name: 'Open' })).toHaveLength(2);
+    expect(screen.queryByRole('button', { name: 'Show All' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Clear All' }));
+    expect(dismiss.mock.calls.map((c) => c[0])).toEqual(['a', 'b']);
+  });
+
+  it('has no Show All for a single notice', () => {
+    notifications = [{ id: 'a', priority: 1, read: false, actioned: false, title: 'Owed', body: '', action: { view: 'hr' } }];
+    render(<PriorityBar />);
+    expect(screen.queryByRole('button', { name: 'Show All' })).toBeNull();
+  });
+
   it('sticks to the top and shows nothing when nothing is owed', () => {
     notifications = [{ id: 'a', priority: 1, read: false, actioned: false, title: 'Owed', body: '', action: null }];
     const { unmount } = render(<PriorityBar />);

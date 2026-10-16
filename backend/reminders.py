@@ -367,35 +367,41 @@ def run_daily_scan() -> int:
         starter_cfg, doc_cfg = rcfg["newStarter"], rcfg["documentExpiry"]
         esx_cfg = rcfg["esignExpiring"]
 
-        # Timecard sign reminder: one day before the bi-weekly pay period ends,
-        # nudge each employee to review + sign their timecard so payroll can close
-        # on time. Skips anyone who already signed the period.
-        from routers.timeclock import _pay_period
-        from models import TimeApproval
+        # Timesheet reminder: on the LAST day of the bi-weekly pay period, nudge
+        # each hourly employee who has not submitted the period for review yet
+        # (the Nexus Sign flow, Sep 2026 - until Oct 16 this still said "sign
+        # your timecard", fired the day before and skipped nobody, because the
+        # one-click signature it checked for is retired).
+        from routers.timeclock import _pay_period, _pay_type
+        from models import TimesheetReview
         _today = datetime.now(timezone.utc).date()
         _pstart, _pend = _pay_period(_today.isoformat())
-        _sign_due = _today == (datetime.strptime(_pend, "%Y-%m-%d").date() - timedelta(days=1))
-        _signed = set()
+        _sign_due = _today == datetime.strptime(_pend, "%Y-%m-%d").date()
+        _submitted = set()
         # Exempt from time tracking = no clock and no timesheet, so never a
-        # "Sign your timecard" nudge (Visesh, 10/02). Set on the role.
+        # timesheet nudge (Visesh, 10/02). Set on the role.
         from routers.timeclock import time_tracking_exempt_emails
         _exempt = time_tracking_exempt_emails(db)
         if _sign_due:
-            _signed = {a.employee_email for a in db.query(TimeApproval).filter(
-                TimeApproval.kind == "employee_sign", TimeApproval.period_start == _pstart,
-                TimeApproval.period_end == _pend, TimeApproval.revoked == 0).all()}
+            _submitted = {r.employee_email for r in db.query(TimesheetReview).filter(
+                TimesheetReview.period_start == _pstart,
+                TimesheetReview.status.in_(["with_manager", "with_employee", "signing", "completed"])).all()}
+        _us = lambda iso: datetime.strptime(iso, "%Y-%m-%d").strftime("%m/%d/%Y")  # noqa: E731
 
         for e in employees:
             name = f"{e.first_name} {e.last_name}".strip()
 
-            # 0. Timecard sign reminder (one day before the current period ends)
-            if _sign_due and e.work_email and e.work_email.lower() not in _signed and e.work_email.lower() not in _exempt:
+            # 0. Timesheet reminder (the last day of the current hourly period;
+            #    salaried people are on the calendar month and get none here)
+            if (_sign_due and e.work_email and e.work_email.lower() not in _submitted
+                    and e.work_email.lower() not in _exempt
+                    and _pay_type(db, e.work_email.lower()) != "fixed"):
                 sent += _notify(
                     db, "timecard_sign", e.work_email,
-                    "Sign your timecard",
-                    f"Your timecard for {_pstart} to {_pend} is due tomorrow. "
-                    f"Please review your hours and sign it.",
-                    ref_id=_pstart, action={"view": "timeclock", "sub": "timecard"}, priority=1,
+                    "Submit Your Timesheet",
+                    f"Your timesheet for {_us(_pstart)} - {_us(_pend)} closes today. "
+                    f"Review your hours and submit it to your manager for review.",
+                    ref_id=_pstart, action={"view": "timeclock", "sub": "timesheet"}, priority=1,
                 )
 
             # 1. Right-to-work / visa doc expiry (compliance.expiryDate)

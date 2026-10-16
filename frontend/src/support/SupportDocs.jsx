@@ -13,7 +13,7 @@ import {
   ShieldCheck, Lightbulb, MapPin, UserCheck, BookOpen, X, Rocket,
   Sparkles, LayoutDashboard, Contact, MonitorDot, CalendarClock, CheckSquare, HardDrive, Ticket,
   FileText, Monitor, HardHat, Store, Package, Home, Calculator, Landmark, Users,
-  Megaphone, Gauge, KeyRound, HelpCircle, Settings,
+  Megaphone, Gauge, KeyRound, HelpCircle, Settings, Handshake,
 } from 'lucide-react';
 import { DOCS, DOC_GROUPS, ROLE_TIERS, ACCESS_LEVELS } from './docsContent';
 import DocShot, { shotLegend } from './DocShots';
@@ -33,7 +33,7 @@ const ImplementationGuide = lazy(() => import('./ImplementationGuide'));
 const ICONS = {
   Sparkles, LayoutDashboard, Contact, MonitorDot, CalendarClock, CheckSquare, HardDrive, Ticket,
   BookOpen, FileText, Monitor, HardHat, Store, Package, Home, Calculator, Landmark,
-  Users, Megaphone, Gauge, KeyRound, HelpCircle, Settings,
+  Users, Megaphone, Gauge, KeyRound, HelpCircle, Settings, Handshake,
 };
 
 const BRAND = 'var(--wk-brand, #2b45e1)';
