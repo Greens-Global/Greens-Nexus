@@ -286,9 +286,9 @@ function SideAvatar({ name, email, photos }) {
 // is removed. The manager/HR note is never shown on the employee's own
 // timecard; the employee's OWN note (Neil, Oct 12) uses the same cell with
 // `placeholder` / `addLabel` set, and the manager sees it under theirs.
-function NoteCell({ date, note, onSave, locked, placeholder = 'Add a note', addLabel = '+ Add Note' }) {
+function NoteCell({ date, note, onSave, locked, placeholder = 'Add a note', addLabel = '+ Add Note', autoEdit = false }) {
   const saved = note?.note || '';
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(!!autoEdit && !locked);
   const [text, setText] = useState(saved);
   const [busy, setBusy] = useState(false);
   // One save at a time: Enter saves, and the box then losing focus fired a
@@ -647,8 +647,12 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // (Pranshu, Oct 12) - the pr-leave class, styled in style.css.
   // Numeric columns (Hours, OT, Wage) are right-aligned
   // with tabular numerals so figures line up column by column (Charmi, Sep 30).
-  const th = { fontSize: 11.5, fontWeight: 600, color: 'var(--wk-dim)', padding: '8px 10px', textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' };
-  const td = { fontSize: 12.5, padding: '6px 10px', textAlign: 'right', borderTop: '1px solid var(--line)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' };
+  // The SwipeClock grid (Oct 16): every cell ruled, tight rows, centered text.
+  const gh = { fontSize: 12, fontWeight: 700, padding: '5px 8px', textAlign: 'center', border: '1px solid var(--line)', background: 'var(--wk-hover)', whiteSpace: 'nowrap' };
+  const gc = { fontSize: 12.5, padding: '3px 8px', textAlign: 'center', border: '1px solid var(--line)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', verticalAlign: 'middle' };
+  // The day whose note line is open from the pencil in its Date cell.
+  const [noteOpen, setNoteOpen] = useState('');
+  const noteOf = (ds) => self ? myNote(ds)?.note : notes[ds]?.note;
 
   // Day notes: the manager/HR note (Charmi, Sep 29) rides only on the team
   // timecard; the employee's OWN note (Neil, Oct 12) is the one thing the
@@ -705,9 +709,14 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const rows = [];
   let prevWeek = null;
   let dayIdx = 0;   // zebra banding alternates per DATE, not per punch row
+  // A day with no punches has no weekStart from the server: its Sunday is
+  // formatted from the LOCAL date (isoDate goes through UTC, which for a
+  // viewer east of UTC named the Saturday before and drew a second "week
+  // of" line between the served days).
+  const localIso = (x) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
   dates.forEach(ds => {
     const d = byDate[ds];
-    const wk = d?.weekStart || (() => { const x = new Date(ds + 'T00:00'); x.setDate(x.getDate() - x.getDay()); return isoDate(x); })();
+    const wk = d?.weekStart || (() => { const x = new Date(ds + 'T00:00'); x.setDate(x.getDate() - x.getDay()); return localIso(x); })();
     if (prevWeek && wk !== prevWeek) rows.push({ type: 'wk', week: prevWeek });
     prevWeek = wk;
     const band = (dayIdx++ % 2) === 1;
@@ -860,9 +869,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // on the day's last row adds another block of time: Regular, Break, Sick,
   // Vacation or Personal (Neil, Aug 3: "no option to just add a punch"). An
   // employee's Add and break fix go to their approver as requests.
-  const btn = { border: '1px solid var(--wk-line2)', borderRadius: 6, padding: '2px 8px', background: 'var(--card)', color: 'var(--ink)', font: 'inherit', fontSize: 11, fontWeight: 700, cursor: 'pointer', lineHeight: 1.4 };
+  const btn = { border: '1px solid var(--line-strong,var(--line))', borderRadius: 3, padding: '0 5px', background: 'var(--wk-hover)', color: 'var(--ink)', font: 'inherit', fontSize: 11, fontWeight: 700, cursor: 'pointer', lineHeight: 1.6 };
   const hEdit = (r) => !fin && (
-    <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+    <span style={{ display: 'inline-flex', gap: 3, alignItems: 'center' }}>
       {r.seg && (!self || isBreakRow(r)) && (
         <button type="button" onClick={() => editRow(r)} style={btn}
           title={isBreakRow(r) ? (self ? 'Ask your approver to fix or remove this break' : 'Fix the start or end of this break, or delete it')
@@ -1170,131 +1179,139 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       ) : phone ? (
         hourlyPhoneDays()
       ) : (
-        <div data-tour="pr-table" style={{ overflowX: 'auto', border: '1px solid var(--wk-line2)', borderRadius: 14, background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }}>
-          {/* SwipeClock's card, line by line (Neil, Oct 16): Date, Edit / Add,
-              In, Out, Deducted Time, Category, Hours, Hrs/day, OT, Loc, Pay
-              Rate, Wage. One row per stretch of work, so a lunch reads as its
-              own In / Out line; Hrs/day points down to the day's total on its
-              last row. Notes and the Work Log ride on the pencil line under
-              the day. Non-OT, Amount and Department stay off (Pranshu). */}
+        <div data-tour="pr-table" style={{ overflowX: 'auto', border: '1px solid var(--wk-line2)', borderRadius: 8, background: 'var(--card)' }}>
+          {/* SwipeClock's card, cell for cell (Neil / Pranshu, Oct 16): a tight
+              bordered grid - Date, Edit / Add, In, Out, Deducted Time, Category,
+              Hours, Hrs/day, OT, Loc, Pay Rate, Wage. One row per stretch of
+              work, so a lunch reads as its own In / Out line; Hrs/day points
+              down to the day's total on its last row. The note pencil and the
+              Work Log sit in the Date cell; a note line appears under the day
+              only when there is a note. Nothing else rides under a day. */}
           <table style={{ width: '100%', minWidth: 900, borderCollapse: 'collapse' }}>
             <thead>
-              <tr style={{ background: 'var(--wk-hover)' }}>
-                <th style={{ ...th, textAlign: 'left' }}>Date</th>
-                <th data-tour="pr-edit" style={{ ...th, textAlign: 'left' }}>Edit</th>
-                <th style={{ ...th, textAlign: 'left' }}>In</th>
-                <th style={{ ...th, textAlign: 'left' }}>Out</th>
-                <th title="Lunch taken out of a long shift that recorded no break" style={th}>Deducted Time</th>
-                <th style={{ ...th, textAlign: 'left' }}>Category</th>
-                <th title="Hours in this stretch of work" style={th}>Hours</th>
-                <th title="The day's total, on its last row" style={th}>Hrs/day</th>
-                <th title="Overtime in this shift - 1.5× and, in California past 12 hours, 2×" style={th}>OT</th>
-                <th style={{ ...th, textAlign: 'left' }}>Loc</th>
-                {showPay && <th title="The rate in effect that day" style={th}>Pay Rate</th>}
-                {showPay && <th style={th}>Wage</th>}
+              <tr>
+                <th style={{ ...gh, textAlign: 'left' }}>Date</th>
+                <th data-tour="pr-edit" style={gh}>Edit</th>
+                <th style={gh}>In</th>
+                <th style={gh}>Out</th>
+                <th title="Lunch taken out of a long shift that recorded no break" style={gh}>Deducted Time</th>
+                <th style={gh}>Category</th>
+                <th title="Hours in this stretch of work" style={gh}>Hours</th>
+                <th title="The day's total, on its last row" style={gh}>Hrs/day</th>
+                <th title="Overtime in this shift - 1.5× and, in California past 12 hours, 2×" style={gh}>OT</th>
+                <th style={gh}>Loc</th>
+                {showPay && <th title="The rate in effect that day" style={gh}>Pay Rate</th>}
+                {showPay && <th style={gh}>Wage</th>}
               </tr>
             </thead>
             <tbody>
               {rows.map((r, i) => r.type === 'wk' ? (
-                <tr key={i} style={{ background: 'var(--wk-brand-tint)' }}>
-                  <td colSpan={span} style={{ ...td, textAlign: 'center', fontWeight: 700, color: 'var(--wk-brand)', fontSize: 12 }}>
+                <tr key={i}>
+                  <td colSpan={span} style={{ ...gc, background: 'var(--wk-hover)', fontWeight: 700, fontSize: 12 }}>
                     Total hours clocked for week of {new Date(r.week + 'T00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })} to {new Date(new Date(r.week + 'T00:00').getTime() + 6 * DAY).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })}: {hhmm(weekTotals[r.week]?.min || 0)}
                   </td>
                 </tr>
               ) : r.type === 'auto' ? (
                 <tr key={i}>
-                  <td colSpan={span} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, color: '#b91c1c', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
+                  <td colSpan={span} style={{ ...gc, textAlign: 'left', color: '#b91c1c', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
                     {hAuto()}
                   </td>
                 </tr>
               ) : r.type === 'holiday' ? (
                 <tr key={i} style={{ background: 'rgba(37,99,235,0.06)' }}>
-                  <td colSpan={span} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, color: '#2563eb', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
+                  <td colSpan={span} style={{ ...gc, textAlign: 'left', color: '#2563eb', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
                     {hHoliday(r)}
                   </td>
                 </tr>
               ) : r.type === 'req' ? (
                 <tr key={i} style={{ background: 'rgba(180,83,9,0.07)' }}>
-                  <td colSpan={span} style={{ ...td, textAlign: 'left', whiteSpace: 'normal', fontSize: 12 }}>
+                  <td colSpan={span} style={{ ...gc, textAlign: 'left', whiteSpace: 'normal', fontSize: 12 }}>
                     {hReq(r)}
                   </td>
                 </tr>
               ) : r.type === 'note' ? (
-                /* The pencil line under a worked day: the day note (and the
-                   employee's own under it), the punch reasons, the Work Log. */
-                <tr key={i}>
-                  <td colSpan={span} style={{ ...td, textAlign: 'left', borderTop: 'none', paddingTop: 0, fontSize: 11.5, whiteSpace: 'normal' }}>
-                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                      <Pencil size={10} style={{ marginTop: 4, flexShrink: 0, color: 'var(--muted)' }} />
-                      <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'flex-start', gap: 14, flexWrap: 'wrap' }}>
-                        <div style={{ minWidth: 150, maxWidth: 360 }}>
-                          {self
-                            ? <NoteCell date={r.ds} note={myNote(r.ds)} onSave={saveMyNote} placeholder="Add a note for your manager" />
-                            : <><NoteCell date={r.ds} note={notes[r.ds]} onSave={saveNote} /><EmployeeNoteLine note={notes[r.ds]} /></>}
+                /* SwipeClock's pencil line under a day ("Took lunch from
+                   12:05-1:05"): only when there is a note, an employee note,
+                   a punch reason, or the pencil in the Date cell was clicked. */
+                (r.text || noteOf(r.ds) || notes[r.ds]?.employeeNote || noteOpen === r.ds) ? (
+                  <tr key={i}>
+                    <td colSpan={span} style={{ ...gc, textAlign: 'left', whiteSpace: 'normal', fontSize: 12 }}>
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                        <Pencil size={11} style={{ marginTop: 3, flexShrink: 0, color: 'var(--muted)' }} />
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap', minWidth: 0 }}>
+                          {(noteOf(r.ds) || noteOpen === r.ds) && (
+                            <span style={{ minWidth: 150, maxWidth: 420 }}>
+                              {self
+                                ? <NoteCell key={noteOpen === r.ds ? 'open' : 'n'} date={r.ds} note={myNote(r.ds)} onSave={saveMyNote} placeholder="Add a note for your manager" autoEdit={noteOpen === r.ds && !noteOf(r.ds)} />
+                                : <NoteCell key={noteOpen === r.ds ? 'open' : 'n'} date={r.ds} note={notes[r.ds]} onSave={saveNote} autoEdit={noteOpen === r.ds && !noteOf(r.ds)} />}
+                            </span>
+                          )}
+                          {!self && <EmployeeNoteLine note={notes[r.ds]} />}
+                          {r.text && <span style={{ color: 'var(--muted)', fontStyle: 'italic' }}>{r.text}</span>}
                         </div>
-                        {r.text && <span style={{ color: 'var(--muted)', fontStyle: 'italic', paddingTop: 1 }}>{r.text}</span>}
                       </div>
-                      <WorkLogButton onClick={() => setWorkLogDay(r.ds)} title={`View the Work Log for ${dow(r.ds)}`} />
-                    </div>
-                  </td>
-                </tr>
+                    </td>
+                  </tr>
+                ) : null
               ) : (
-                <tr key={i} className={`pr-row pr-day-row${r.band ? ' pr-band' : ''}${r.seg?.payClass ? ' pr-leave' : ''}`}
+                <tr key={i} className={`pr-row pr-day-row${r.seg?.payClass ? ' pr-leave' : ''}`}
                   title={r.seg?.payClass ? `${{ sick: 'Sick', vacation: 'Vacation', personal: 'Personal' }[r.seg.payClass] || 'Leave'} day` : undefined}>
-                  <td style={{ ...td, textAlign: 'left', fontWeight: r.first === undefined ? 400 : 700, color: r.seg?.payClass ? '#b91c1c' : r.seg ? 'var(--ink)' : 'var(--muted)' }}>
-                    {r.first === false ? '' : dow(r.ds)}
+                  <td style={{ ...gc, textAlign: 'left', fontWeight: 600, color: r.seg?.payClass ? '#b91c1c' : r.seg ? 'var(--wk-brand)' : 'var(--muted)' }}>
+                    {r.first !== false && (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        {dow(r.ds)}
+                        {!fin && (
+                          <button type="button" onClick={() => setNoteOpen(r.ds)} title={self ? 'Add a note for your manager on this day' : 'Add a note on this day - seen by managers and HR, not the employee'}
+                            aria-label={`Add a note on ${dow(r.ds)}`}
+                            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--muted)', display: 'inline-flex' }}>
+                            <Pencil size={12} />
+                          </button>
+                        )}
+                        <WorkLogButton onClick={() => setWorkLogDay(r.ds)} title={`View the Work Log for ${dow(r.ds)}`} />
+                      </span>
+                    )}
                   </td>
-                  <td style={{ ...td, textAlign: 'left' }}>{hEdit(r)}</td>
+                  <td style={gc}>{hEdit(r)}</td>
                   {r.seg ? (
                     <>
-                      <td style={{ ...td, textAlign: 'left' }}>{hIn(r)}</td>
-                      <td style={{ ...td, textAlign: 'left' }}>{hOut(r)}</td>
-                      <td style={{ ...td, color: r.seg.deductedMin ? '#b45309' : 'var(--muted)' }}>{r.seg.deductedMin ? `−${r.seg.deductedMin}m` : '-'}</td>
-                      <td style={{ ...td, textAlign: 'left', color: r.seg.category ? 'var(--ink)' : 'var(--muted)' }}>{hCategory(r)}</td>
-                      <td style={td}>{hhmm(r.seg.workedMin)}</td>
-                      <td style={{ ...td, fontWeight: 700 }}>
+                      <td style={gc}>{hIn(r)}</td>
+                      <td style={gc}>{hOut(r)}</td>
+                      <td style={{ ...gc, color: r.seg.deductedMin ? '#b45309' : undefined }}>{r.seg.deductedMin ? `−${r.seg.deductedMin}m` : '-'}</td>
+                      <td style={gc}>{r.seg.category || '-'}</td>
+                      <td style={gc}>{hhmm(r.seg.workedMin)}</td>
+                      <td style={gc}>
                         {r.last ? hhmm(byDate[r.ds]?.workedMin ?? r.seg.workedMin)
                           : <ArrowDown size={12} aria-label="continues below" style={{ color: 'var(--muted)', verticalAlign: 'middle' }} />}
                       </td>
-                      <td style={{ ...td, color: r.seg.dtMin ? '#b91c1c' : r.seg.otMin ? '#b45309' : 'var(--muted)', fontWeight: (r.seg.otMin || r.seg.dtMin) ? 700 : 400 }}>
+                      <td style={{ ...gc, color: r.seg.dtMin ? '#b91c1c' : r.seg.otMin ? '#b45309' : undefined, fontWeight: (r.seg.otMin || r.seg.dtMin) ? 700 : 400 }}>
                         {(r.seg.otMin || r.seg.dtMin)
                           ? [r.seg.otMin ? hhmm(r.seg.otMin) : '', r.seg.dtMin ? `${hhmm(r.seg.dtMin)} 2×` : ''].filter(Boolean).join(' · ')
                           : '-'}
                       </td>
-                      <td style={{ ...td, textAlign: 'left' }}>
-                        <LocCell seg={r.seg.inKind === 'in' ? r.base : null} onOpen={(seg) => { setGeoFocus({ seg, date: r.ds }); setGeoMap(data?.email || email || myEmail || ''); }} />
+                      <td style={gc}>
+                        {r.base?.geo && r.base.geo !== 'no_location'
+                          ? <LocCell seg={r.base} onOpen={(seg) => { setGeoFocus({ seg, date: r.ds }); setGeoMap(data?.email || email || myEmail || ''); }} />
+                          : '-'}
                       </td>
-                      {showPay && <td style={{ ...td, color: 'var(--muted)' }}>{fmtM(byDate[r.ds]?.rate ?? rate)}/hr</td>}
-                      {showPay && <td style={{ ...td, fontWeight: 700 }}>{r.segLast ? fmtM(r.seg.amount) : ''}</td>}
+                      {showPay && <td style={{ ...gc, textAlign: 'right' }}>{fmtM(byDate[r.ds]?.rate ?? rate)}/hr</td>}
+                      {showPay && <td style={{ ...gc, textAlign: 'right', fontWeight: 700 }}>{r.segLast ? fmtM(r.seg.amount) : ''}</td>}
                     </>
-                  ) : (
-                    /* A day with no punches: its note and Work Log on the one line. */
-                    <td colSpan={span - 2} style={{ ...td, textAlign: 'left', whiteSpace: 'normal' }}>
-                      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14 }}>
-                        <div style={{ flex: 1, minWidth: 0, maxWidth: 360 }}>
-                          {self
-                            ? <NoteCell date={r.ds} note={myNote(r.ds)} onSave={saveMyNote} placeholder="Add a note for your manager" />
-                            : <><NoteCell date={r.ds} note={notes[r.ds]} onSave={saveNote} /><EmployeeNoteLine note={notes[r.ds]} /></>}
-                        </div>
-                        <WorkLogButton onClick={() => setWorkLogDay(r.ds)} title={`View the Work Log for ${dow(r.ds)}`} />
-                      </div>
-                    </td>
-                  )}
+                  ) : Array.from({ length: span - 2 }, (_, k) => <td key={k} style={gc}>-</td>)}
                 </tr>
               ))}
             </tbody>
             {T && (
               <tfoot>
                 <tr style={{ background: 'var(--wk-hover)', fontWeight: 700 }}>
-                  <td colSpan={4} style={{ ...td, textAlign: 'left' }}>Totals</td>
-                  <td style={{ ...td, color: T.deductedMin ? '#b45309' : 'var(--muted)' }}>{T.deductedMin ? `−${T.deductedMin}m` : '-'}</td>
-                  <td style={td}></td>
-                  <td style={td}></td>
-                  <td style={td}>{hhmm(T.workedMin ?? (T.regMin + T.otMin + (T.dtMin || 0)))}</td>
-                  <td style={td}>{(T.otMin || T.dtMin) ? [T.otMin ? hhmm(T.otMin) : '', T.dtMin ? `${hhmm(T.dtMin)} 2×` : ''].filter(Boolean).join(' · ') : '-'}</td>
-                  <td style={td}></td>
-                  {showPay && <td style={td}></td>}
-                  {showPay && <td style={td}>{fmtM(T.totalPay)}</td>}
+                  <td colSpan={4} style={{ ...gc, textAlign: 'left' }}>Totals</td>
+                  <td style={{ ...gc, color: T.deductedMin ? '#b45309' : undefined }}>{T.deductedMin ? `−${T.deductedMin}m` : '-'}</td>
+                  <td style={gc}></td>
+                  <td style={gc}></td>
+                  <td style={gc}>{hhmm(T.workedMin ?? (T.regMin + T.otMin + (T.dtMin || 0)))}</td>
+                  <td style={gc}>{(T.otMin || T.dtMin) ? [T.otMin ? hhmm(T.otMin) : '', T.dtMin ? `${hhmm(T.dtMin)} 2×` : ''].filter(Boolean).join(' · ') : '-'}</td>
+                  <td style={gc}></td>
+                  {showPay && <td style={gc}></td>}
+                  {showPay && <td style={{ ...gc, textAlign: 'right' }}>{fmtM(T.totalPay)}</td>}
                 </tr>
               </tfoot>
             )}
@@ -2053,7 +2070,7 @@ function InlineTime({ seg, k, meta, showRaw, locked, onSaved, toastErr, self, lo
   const dotTitle = (geo === 'in_fence' ? `On site${siteName ? ` - ${siteName}` : ''}` : geo === 'out_of_fence' ? `Out of Location${siteName ? ` - nearest ${siteName}` : ''}` : geo === 'no_site' ? 'No location mapped' : geo === 'low_accuracy' ? 'Approx. location - no GPS, too rough to tell which site' : geo === 'remote' ? 'Remote' : geo === 'no_location' ? 'No location shared' : 'GPS only');
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-      {geo && (locateEmail
+      {geo && geo !== 'no_location' && (locateEmail
         ? <button onClick={openMap} aria-label="Open the geofence punch map" title={`${dotTitle} - click for the punch map`}
             style={{ width: 10, height: 10, borderRadius: '50%', flexShrink: 0, padding: 0, cursor: 'pointer', border: 'none', background: dotColor, boxShadow: `0 0 0 2px var(--card), 0 0 0 3px ${dotColor}` }} />
         : <span title={dotTitle}

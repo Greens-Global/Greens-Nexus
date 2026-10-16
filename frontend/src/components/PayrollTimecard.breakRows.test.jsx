@@ -49,7 +49,7 @@ describe('a shift with a break on the Time Sheet', () => {
     await screen.findByText('Hrs/day');
     const heads = [...container.querySelectorAll('thead th')].map(th => th.textContent);
     expect(heads).toEqual(['Date', 'Edit', 'In', 'Out', 'Deducted Time', 'Category', 'Hours', 'Hrs/day', 'OT', 'Loc', 'Pay Rate', 'Wage']);
-    const worked = [...container.querySelectorAll('tr.pr-day-row')].filter(tr => tr.querySelectorAll('td').length === 12);
+    const worked = [...container.querySelectorAll('tr.pr-day-row')].filter(tr => tr.querySelectorAll('td')[6]?.textContent.trim() !== '-');
     expect(worked).toHaveLength(2);
     const cells = (tr) => [...tr.querySelectorAll('td')].map(td => td.textContent.trim());
     // Row 1: clock-in to the break start, 3:30 worked, Hrs/day points down.
