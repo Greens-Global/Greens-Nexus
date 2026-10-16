@@ -1178,7 +1178,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
             <tbody>
               {rows.map((r, i) => r.type === 'wk' ? (
                 <tr key={i}>
-                  <td colSpan={span} style={{ ...gc, background: 'var(--wk-hover)', fontWeight: 700, fontSize: 12 }}>
+                  {/* The week's total stands out in a yellow tint (Pranshu, Oct 16). */}
+                  <td colSpan={span} style={{ ...gc, background: 'rgba(234,179,8,0.18)', fontWeight: 700, fontSize: 12 }}>
                     Total hours clocked for week of {new Date(r.week + 'T00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })} to {new Date(new Date(r.week + 'T00:00').getTime() + 6 * DAY).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })}: {hhmm(weekTotals[r.week]?.min || 0)}
                   </td>
                 </tr>
