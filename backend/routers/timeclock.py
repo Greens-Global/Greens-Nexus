@@ -8278,6 +8278,9 @@ def _fixed_card(db: Session, em: str, anchor: str) -> dict:
                            "future": ds > today,   # can't add a punch for a day that hasn't happened
                            "status": status, "deduct": round(deduct, 2), "bonus": round(bonus, 2),
                            "leaveClass": leave_cls, "leaveMin": leave_min_by_day.get(ds, 0),
+                           # approved full-day time off covering the day, so the row names it
+                           "timeOff": (_MISSED_LABELS.get(timeoff_by_day[ds], timeoff_by_day[ds].replace("_", " ").title())
+                                       if ds in timeoff_by_day else ""),
                            "dailyRate": round(daily_d, 2),
                            "holidayName": (hol or {}).get("name", "")})
 
