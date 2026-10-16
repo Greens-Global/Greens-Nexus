@@ -1270,7 +1270,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   ) : (
                     /* A day with no punches: its note and Work Log on the one line. */
                     <td colSpan={span - 2} style={{ ...td, textAlign: 'left', whiteSpace: 'normal' }}>
-                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+                      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14 }}>
                         <div style={{ flex: 1, minWidth: 0, maxWidth: 360 }}>
                           {self
                             ? <NoteCell date={r.ds} note={myNote(r.ds)} onSave={saveMyNote} placeholder="Add a note for your manager" />
