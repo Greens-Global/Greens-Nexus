@@ -712,7 +712,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       // `base` is the shift a Break row belongs to (what its Edit fixes).
       segs.forEach((seg, i) => {
         rows.push({ type: 'day', ds, seg, base: seg, band, first: i === 0, last: i === segs.length - 1, segLast: true });
-        (seg.breaks || []).forEach(b => rows.push({ type: 'break', ds, seg: breakSeg(b), brk: b, base: seg, first: false }));
+        (seg.breaks || []).forEach(b => rows.push({ type: 'break', ds, seg: breakSeg(b), brk: b, base: seg, band, first: false }));
       });
       // A shift Nexus auto-closed at end of day (no clock-out was recorded):
       // one loud line under the day - the segment above pays 0 until fixed.
@@ -727,7 +727,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       if (d?.holidayPay) rows.push({ type: 'holiday', ds, name: d.holidayName, pay: d.holidayPay, holidayType: d.holidayType, worked: true });
       // The day's note line (SwipeClock's pencil line under the day): the
       // manager / employee note, the punch reasons, and the Work Log.
-      rows.push({ type: 'note', ds, text: notes.join('  ·  ') });
+      rows.push({ type: 'note', ds, band, text: notes.join('  ·  ') });
     }
     (reqsByDate[ds] || []).forEach(q => rows.push({ type: 'req', ds, req: q }));
   });
@@ -1205,7 +1205,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                    12:05-1:05"): only when there is a note, an employee note,
                    a punch reason, or the pencil in the Date cell was clicked. */
                 (r.text || noteOf(r.ds) || notes[r.ds]?.employeeNote || noteOpen === r.ds) ? (
-                  <tr key={i}>
+                  <tr key={i} className={`pr-day-row${r.band ? ' pr-band' : ''}`}>
                     <td colSpan={span} style={{ ...gc, textAlign: 'left', whiteSpace: 'normal', fontSize: 12 }}>
                       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
                         <Pencil size={11} style={{ marginTop: 3, flexShrink: 0, color: 'var(--muted)' }} />
@@ -1236,7 +1236,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 ) : null
               ) : r.type === 'break' ? (
                 /* The break the person punched, under its shift: start, end, length. */
-                <tr key={i} className="pr-row pr-day-row">
+                <tr key={i} className={`pr-row pr-day-row${r.band ? ' pr-band' : ''}`}>
                   <td style={{ ...gc, textAlign: 'left', paddingLeft: 26, color: 'var(--muted)', fontStyle: 'italic' }}>Break</td>
                   <td style={gc}>{hEdit(r)}</td>
                   <td style={gc}>{hIn(r)}</td>
@@ -1251,7 +1251,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   <td style={gc}></td>
                 </tr>
               ) : (
-                <tr key={i} className={`pr-row pr-day-row${r.seg?.payClass ? ' pr-leave' : ''}`}
+                /* Alternate days, not rows (Pranshu, Oct 16): the shift, its
+                   breaks and its note line read as one block. */
+                <tr key={i} className={`pr-row pr-day-row${r.band ? ' pr-band' : ''}${r.seg?.payClass ? ' pr-leave' : ''}`}
                   title={r.seg?.payClass ? `${{ sick: 'Sick', vacation: 'Vacation', personal: 'Personal' }[r.seg.payClass] || 'Leave'} day` : undefined}>
                   <td style={{ ...gc, textAlign: 'left', fontWeight: 600, color: r.seg?.payClass ? '#b91c1c' : r.seg ? 'var(--wk-brand)' : 'var(--muted)' }}>
                     {r.first !== false && (
