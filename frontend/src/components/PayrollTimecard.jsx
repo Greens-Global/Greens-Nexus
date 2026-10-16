@@ -346,6 +346,11 @@ function EmployeeNoteLine({ note }) {
 // cached card instantly and refreshes in the background - no loader flash, no snap.
 const _timecardCache = new Map();
 const _tcKey = (self, email, start, end) => self ? `self:${start}` : (email ? `${email}:${start}:${end}` : '');
+// A reload lands back on the same card (Charmi, Oct 16: "it took me back to
+// Aarav Mehta's time card"): the last employee and period opened, kept for
+// this browser tab. A deep link (?timecard=) still wins over it.
+const _LAST_KEY = 'nexus.payroll.last';
+const _lastOpened = () => { try { return JSON.parse(sessionStorage.getItem(_LAST_KEY) || 'null') || {}; } catch { return {}; } };
 
 // The period anchor for a review's period start (Sep 29): a salaried month
 // anchors mid-month (the same UTC-drift-safe day the month snap uses), an
@@ -359,18 +364,21 @@ function anchorForStart(startIso, payType) {
 export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, initialEmail = '', initialStart = '', initialPayType = '' }) {
   const self = selfMode;   // employee viewing their OWN timecard (from /my-payroll)
   const [people, setPeople] = useState([]);
-  const [email, setEmail] = useState(initialEmail);
+  const last = useMemo(() => (selfMode || initialEmail) ? {} : _lastOpened(), [selfMode, initialEmail]);
+  const [email, setEmail] = useState(initialEmail || last.email || '');
   // Jump to a specific employee when the caller changes initialEmail (e.g. the
   // "N to review" badge in TimeAdmin opens that person's card).
   useEffect(() => { if (initialEmail) setEmail(initialEmail); }, [initialEmail]);
   // Opened on a specific period (Timesheets to Review, the bell, the briefing
-  // link): start there, and don't let the first-load snaps move it.
-  const seeded = useRef(!selfMode && !!anchorForStart(initialStart, initialPayType));
-  const [pStart, setPStart] = useState(() => (!selfMode && anchorForStart(initialStart, initialPayType)) || periodStartFor(new Date()));
+  // link, the card open before a reload): start there, and don't let the
+  // first-load snaps move it.
+  const seedStart = initialStart || last.start, seedType = initialPayType || last.payType;
+  const seeded = useRef(!selfMode && !!anchorForStart(seedStart, seedType));
+  const [pStart, setPStart] = useState(() => (!selfMode && anchorForStart(seedStart, seedType)) || periodStartFor(new Date()));
   // Seed from the module cache so a reopen renders the last card immediately (no loader).
   const [data, setData] = useState(() => {
     const s = isoDate(pStart), e = isoDate(pStart.getTime() + 13 * DAY);
-    return _timecardCache.get(_tcKey(selfMode, initialEmail, s, e)) || null;
+    return _timecardCache.get(_tcKey(selfMode, email, s, e)) || null;
   });
   // No pay or OT controls on the timecard (Charmi, Sep 30): the rate and the
   // OT rule are READ here and written only on Pay & Benefits.
@@ -417,10 +425,17 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     api.timeTeam(start, end).then(r => {
       const list = (r.rows || []).map(x => ({ email: x.email, name: x.name || x.email, pendingEdits: x.pendingEdits || 0 }));
       setPeople(list);
-      setEmail(e => e || list[0]?.email || '');
+      // Someone remembered from before a reload who is no longer in scope
+      // falls back to the first person, like an empty start.
+      setEmail(e => (e && (initialEmail === e || list.some(p => p.email === e))) ? e : list[0]?.email || '');
     }).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+  useEffect(() => {
+    if (self || !email) return;
+    try { sessionStorage.setItem(_LAST_KEY, JSON.stringify({ email, start: isoDate(pStart), payType: data?.payType || '' })); }
+    catch { /* per-tab convenience only */ }
+  }, [self, email, pStart, data?.payType]);
   // Per-employee missing/exception counts for the sidebar (re-loads per period).
   useEffect(() => {
     if (self) return;
