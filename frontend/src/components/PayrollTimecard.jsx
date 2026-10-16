@@ -1585,7 +1585,11 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
             {fixedDays.map((fd, fi) => {
               const d = byDate[fd.date];
               const segs = d?.segments || [];
-              const st = STATUS[fd.status] || STATUS.upcoming;
+              const baseSt = STATUS[fd.status] || STATUS.upcoming;
+              // A missed day covered by approved time off is named after it ("Personal",
+              // "Personal · Half Day") - requests are not punched, so it would read Absent.
+              const timeOffDay = fd.timeOff && (fd.status === 'absent' || fd.status === 'half');
+              const st = timeOffDay ? { ...STATUS.personal, label: fd.status === 'half' ? `${fd.timeOff} · Half Day` : fd.timeOff } : baseSt;
               const multi = segs.length > 1;               // collapse only when there's more than one punch pair
               const punchesOpen = !!openPunches[fd.date];
               const breaksOpen = !!openBreaks[fd.date];
@@ -1655,7 +1659,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                     : <button onClick={() => !fin && setEditDay({ date: fd.date, seg })} title={fin ? 'Locked' : 'Add the missing clock-out'} style={{ background: 'none', border: 'none', padding: 0, cursor: fin ? 'default' : 'pointer', color: '#b91c1c', fontWeight: 700, font: 'inherit' }}>Missing</button>;
               const addBtn = <button onClick={() => setEditDay({ date: fd.date, seg: null })} title={self ? 'Add a missing punch for this day - goes to your approver' : 'Add a punch for this day'} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--wk-brand)', fontWeight: 600, font: 'inherit', opacity: 0.85 }}>+ add</button>;
               const onLeave = !!fd.leaveClass;
-              const statusPill = <span title={onLeave ? 'Leave - the day is deducted unless hours were also worked' : (fd.holidayName || undefined)} style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 999, background: st.bg, color: st.fg }}>{st.label}</span>;
+              const statusPill = <span title={onLeave ? 'Leave - the day is deducted unless hours were also worked' : timeOffDay ? `Approved time off (${fd.timeOff}) - the missed time is deducted` : (fd.holidayName || undefined)} style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 999, background: st.bg, color: st.fg }}>{st.label}</span>;
               const breakCell = (
                 <td className="fx-break" style={{ ...td, textAlign: 'right' }}>
                   {dayBreak > 0
