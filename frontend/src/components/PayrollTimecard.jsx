@@ -664,7 +664,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // Numeric columns (Hours, OT, Wage) are right-aligned
   // with tabular numerals so figures line up column by column (Charmi, Sep 30).
   // The SwipeClock grid (Oct 16): every cell ruled, tight rows, centered text.
-  const gh = { fontSize: 12, fontWeight: 700, padding: '5px 8px', textAlign: 'center', border: '1px solid var(--line)', background: 'var(--wk-hover)', whiteSpace: 'nowrap' };
+  const gh = { fontSize: 12, fontWeight: 700, padding: '6px 8px', textAlign: 'center', border: '1px solid var(--line)', background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', whiteSpace: 'nowrap' };
   const gc = { fontSize: 12.5, padding: '3px 8px', textAlign: 'center', border: '1px solid var(--line)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', verticalAlign: 'middle' };
   // Add Note in the toolbar (Pranshu, Oct 16): pick the day, write the note.
   const [noteModal, setNoteModal] = useState(false);
