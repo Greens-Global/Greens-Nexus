@@ -872,7 +872,7 @@ export default function TicketsView() {
   // Compact controls for the floating bulk-action pill - smaller than the
   // standard form idiom so a handful of them fit in one tight row.
   const compactSelStyle = { ...inputStyle, width: 'auto', cursor: 'pointer', appearance: 'auto', color: NX.ink, fontSize: 12.5, padding: '5px 8px', borderRadius: 8 };
-  const compactBtnStyle = { ...btn('ghost'), color: '#fff', background: 'rgba(255,255,255,0.14)', fontSize: 12.5, padding: '5px 9px', gap: 5 };
+  const compactBtnStyle = { ...btn('ghost'), color: NX.surface, background: 'color-mix(in srgb, var(--nx-surface) 14%, transparent)', fontSize: 12.5, padding: '5px 9px', gap: 5 };
   const toggleBtn = (on) => ({ ...btn('ghost'), padding: '6px 10px', borderRadius: 7, gap: 6, background: on ? NX.surface : 'transparent', color: on ? NX.ink : NX.dim, boxShadow: on ? '0 1px 2px rgba(0,0,0,0.08)' : 'none' });
 
   // Bulk selection (list view only). Selection is cleared when it no longer matches.
@@ -1244,7 +1244,7 @@ export default function TicketsView() {
           position: 'absolute', bottom: 16, left: '50%', transform: 'translateX(-50%)', zIndex: 5,
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, flexWrap: 'wrap',
           maxWidth: 'calc(100% - 32px)', padding: '7px 10px', borderRadius: 12,
-          background: NX.ink, color: '#fff', boxShadow: '0 10px 28px rgba(0,0,0,0.28)',
+          background: NX.ink, color: NX.surface, boxShadow: '0 10px 28px rgba(0,0,0,0.28)',   // inverse of the page in either theme - #fff text vanished on dark mode's light pill
         }}>
           <span style={{ fontSize: 12.5, fontWeight: 700, whiteSpace: 'nowrap', padding: '0 2px' }}>{selIds.length} selected</span>
           <TicketSelect command placeholder="Set status…" options={statusOptions()} style={compactSelStyle}
