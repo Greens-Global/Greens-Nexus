@@ -1749,55 +1749,59 @@ def _apply_hire(db: Session, ev: HrLifeEvent, req: HrSignRequest) -> None:
         _notify(db, to, title, body, ev)
 
 
-# Details Form answers that have a home on the profile (Pranshu, Oct 15 2026:
-# "pull those values and store here in People"). Matched on the variable name,
-# first match wins; anything unmatched still shows under Hiring Details.
+# Details Form answers that have a home on Personal Details. Only these reach
+# People (Pranshu, Oct 16 2026: bank, PAN, nationality and the rest stay on
+# the packet and in the signed documents, never on the profile). Matched on
+# the variable name or its label, first match wins.
 _PROFILE_KEYS = {"dob": ("date_of_birth", "dob", "birth_date"), "gender": ("gender", "sex"),
-                 "nationalId": ("national_id", "aadhaar_number", "aadhar_number", "aadhaar", "ssn",
-                                "social_security_number")}
+                 "nationalId": ("national_id", "aadhaar_number", "aadhar_number", "aadhaar", "aadhaar_card_number",
+                                "ssn", "social_security_number")}
+# ...and the bank account, which goes to Pay & Benefits > Bank Accounts.
 _BANK_KEYS = {"number": ("bank_account_number", "account_number"),
               "routingOrIfsc": ("ifsc_code", "ifsc", "routing_number", "bank_routing_number"),
-              "bankName": ("bank_name",), "holder": ("account_holder_name", "bank_account_holder"),
+              "bankName": ("bank_name",),
+              "holder": ("account_holder_name", "bank_account_holder", "account_holder_name_as_per_bank_records"),
               "type": ("account_type", "type_of_account", "bank_account_type")}
 _GENDERS = ("Male", "Female", "Other", "Prefer not to say")
 
 
-def _first(answers: dict, keys: tuple) -> tuple:
-    return next(((k, str(answers[k]).strip()) for k in keys if str(answers.get(k) or "").strip()), ("", ""))
+def _slug(s) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", str(s or "").lower()).strip("_")
 
 
-def _profile_from_answers(fields: list, answers: dict, personal: dict, bank: list, holder: str) -> set:
+def _named(fields: list, answers: dict, skip: set) -> dict:
+    """Answers by variable name and by label slug ("Date of Birth" matches
+    whatever the variable is called), leaving out the keys in skip."""
+    out = {k: str(v or "").strip() for k, v in answers.items() if k not in skip}
+    for f in fields:
+        if f["key"] not in skip:
+            out.setdefault(_slug(f.get("label")), str(answers.get(f["key"]) or "").strip())
+    return out
+
+
+def _profile_from_answers(fields: list, answers: dict, personal: dict, bank: list, holder: str) -> None:
     """Fill Personal Details and Bank Accounts from the person's own answers.
     A Sensitive answer only goes where Pay & Benefits guards it (the bank
-    account), never onto Personal Details. Returns the keys used."""
-    sensitive = {f["key"] for f in fields if f.get("sensitive")}
-    used = set()
+    account), never onto Personal Details."""
+    named = _named(fields, answers, {f["key"] for f in fields if f.get("sensitive")})
     for field, keys in _PROFILE_KEYS.items():
-        k, v = _first({k: v for k, v in answers.items() if k not in sensitive}, keys)
-        if not k:
+        v = next((named[k] for k in keys if named.get(k)), "")
+        if not v:
             continue
         if field == "dob" and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", v):
             continue                                       # the profile keeps a real date or nothing
         if field == "gender":
             v = next((g for g in _GENDERS if g.lower() == v.lower()), v)
         personal[field] = v[:120]
-        used.add(k)
-    acc = {}
-    for field, keys in _BANK_KEYS.items():
-        k, v = _first(answers, keys)
-        if k:
-            acc[field] = v[:120]
-            used.add(k)
-    if acc.get("number"):
-        t = (acc.get("type") or "").lower()
-        acc["type"] = next((x for x in ("savings", "current", "checking") if x in t), "checking")
-        acc.setdefault("holder", holder)
-        acc = {"holder": "", "bankName": "", "routingOrIfsc": "", **acc}
-        if not any(str(b.get("number") or "") == acc["number"] for b in bank if isinstance(b, dict)):
-            bank.append(acc)
-    else:
-        used -= {k for keys in _BANK_KEYS.values() for k in keys}    # no account number - nothing to file
-    return used
+    named = _named(fields, answers, set())
+    acc = {field: v[:120] for field, keys in _BANK_KEYS.items() if (v := next((named[k] for k in keys if named.get(k)), ""))}
+    if not acc.get("number"):
+        return                                             # no account number - nothing to file
+    t = (acc.get("type") or "").lower()
+    acc["type"] = next((x for x in ("savings", "current", "checking") if x in t), "checking")
+    acc = {"holder": holder, "bankName": "", "routingOrIfsc": "", **acc}
+    if not any(str(b.get("number") or "") == acc["number"] for b in bank if isinstance(b, dict)):
+        bank.append(acc)
 
 
 def _apply_hire_details(db: Session, ev: HrLifeEvent, emp: NexusEmployee) -> None:
@@ -1818,19 +1822,15 @@ def _apply_hire_details(db: Session, ev: HrLifeEvent, emp: NexusEmployee) -> Non
                                  "name": str(i.get("emergency_name") or "").strip(),
                                  "relationship": str(i.get("emergency_relationship") or "").strip(),
                                  "phone": str(i.get("emergency_phone") or "").strip()}
-    # The packet's Details Form (Oct 14): every answer that is not Sensitive
-    # lands on the profile under Hiring Details. Sensitive ones (a bank
-    # account, an ID number) stay on the packet and in the signed documents.
+    # The packet's Details Form: date of birth, gender and national ID reach
+    # Personal Details, the bank account Pay & Benefits; every other answer
+    # stays on the packet.
     import hr_packet_docs as hpd
     form = hpd.event_form(db, ev, hpd.event_setting(db, ev))
-    plain = hpd.answer_values(form, hpd.event_answers(ev))[0]            # as printed: dates MM/DD/YYYY
     bank = [dict(b) for b in (emp.bank or [])]
-    used = _profile_from_answers(hpd.form_fields(form), hpd.event_answers(ev), personal, bank, ev.subject_name or "")
+    _profile_from_answers(hpd.form_fields(form), hpd.event_answers(ev), personal, bank, ev.subject_name or "")
     emp.bank = bank
-    rows = [{"label": f["label"], "value": plain[f["key"]]}
-            for f in hpd.form_fields(form) if not f.get("sensitive") and plain.get(f["key"]) and f["key"] not in used]
-    if rows:
-        personal["packetDetails"] = rows
+    personal.pop("packetDetails", None)                   # the old Hiring Details rows (Oct 14-16)
     emp.personal = personal
     if str(i.get("phone") or "").strip():
         emp.phone = str(i["phone"]).strip()

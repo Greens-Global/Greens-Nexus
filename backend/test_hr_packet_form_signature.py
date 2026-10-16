@@ -165,7 +165,7 @@ class DetailsFormTests(FormCase):
         self.assertFalse(review["canVerify"])
         self.assertTrue(any("PAN Number" in p for p in review["problems"]), review["problems"])
 
-    def test_answers_that_are_not_sensitive_land_on_people(self):
+    def test_only_personal_details_land_on_people(self):
         eid = self._start_with()["id"]
         self.assertEqual(self._verify(eid).status_code, 200)
         req = self._ev(eid).sign_request_id
@@ -175,10 +175,9 @@ class DetailsFormTests(FormCase):
         self.assertEqual(ev.status, "completed", ev.apply_note)
         cand = self.db.query(models.HrCandidate).filter_by(id="cand-1").first()
         emp = self.db.query(models.NexusEmployee).filter_by(id=cand.employee_id).first()
-        rows = {r["label"]: r["value"] for r in emp.personal["packetDetails"]}
-        # Oct 15: answers with a home on the profile fill it instead of repeating under Hiring Details;
-        # an account type with no account number has nowhere to go
-        self.assertEqual(rows, {"Account Type": "Savings"})
+        # Oct 16: date of birth and the ID fill Personal Details; the other answers (account type, PAN)
+        # stay on the packet - no Hiring Details rows
+        self.assertNotIn("packetDetails", emp.personal)
         self.assertEqual((emp.personal["dob"], emp.personal["nationalId"]), ("1990-01-31", "XXXX 9012"))
         self.assertEqual(emp.bank or [], [])
 
@@ -305,26 +304,38 @@ if __name__ == "__main__":
 
 
 class ProfileFromAnswers(unittest.TestCase):
-    """Pranshu, Oct 15: what the person typed on their form fills People."""
+    """Pranshu, Oct 16: the person's form fills Personal Details and the bank
+    account on Pay & Benefits - nothing else reaches People."""
 
     FIELDS = [{"key": "gender"}, {"key": "aadhaar_number", "sensitive": True}, {"key": "bank_account_number", "sensitive": True}]
 
     def test_personal_details_and_a_bank_account(self):
         import hr_life_events as hle
         personal, bank = {}, [{"number": "999", "bankName": "Old"}]
-        used = hle._profile_from_answers(self.FIELDS, {
+        hle._profile_from_answers(self.FIELDS, {
             "date_of_birth": "1990-01-31", "gender": "prefer not to say", "aadhaar_number": "1234 5678 9012",
             "bank_account_number": "50100", "ifsc_code": "HDFC0001", "bank_name": "HDFC",
-            "account_type": "Savings Account", "bank_branch": "Park Street"}, personal, bank, "Jane Doe")
+            "account_type": "Savings Account", "pan_number": "ABCDE1234F"}, personal, bank, "Jane Doe")
         self.assertEqual(personal, {"dob": "1990-01-31", "gender": "Prefer not to say"})    # Sensitive ID stays off
         self.assertEqual(bank[1], {"holder": "Jane Doe", "bankName": "HDFC", "routingOrIfsc": "HDFC0001",
                                    "number": "50100", "type": "savings"})
-        self.assertEqual(used, {"date_of_birth", "gender", "bank_account_number", "ifsc_code", "bank_name", "account_type"})
         hle._profile_from_answers(self.FIELDS, {"bank_account_number": "50100"}, personal, bank, "Jane Doe")
         self.assertEqual(len(bank), 2)                                                      # same account never twice
+
+    def test_matched_by_label_too(self):
+        import hr_life_events as hle
+        personal, bank = {}, []
+        hle._profile_from_answers([{"key": "q1", "label": "Date of Birth"}, {"key": "q2", "label": "Aadhaar Number"},
+                                   {"key": "q3", "label": "Bank Account Number"},
+                                   {"key": "q4", "label": "Account Holder Name (as per bank records)"},
+                                   {"key": "q5", "label": "Nationality"}],
+                                  {"q1": "1990-01-31", "q2": "XXXX 9012", "q3": "7729", "q4": "MANNY", "q5": "Indian"},
+                                  personal, bank, "Jane Doe")
+        self.assertEqual(personal, {"dob": "1990-01-31", "nationalId": "XXXX 9012"})
+        self.assertEqual(bank, [{"holder": "MANNY", "bankName": "", "routingOrIfsc": "", "number": "7729", "type": "checking"}])
 
     def test_a_date_that_is_not_a_date_stays_off(self):
         import hr_life_events as hle
         personal = {}
-        self.assertEqual(hle._profile_from_answers([], {"dob": "31st Jan"}, personal, [], ""), set())
+        hle._profile_from_answers([], {"dob": "31st Jan"}, personal, [], "")
         self.assertEqual(personal, {})
