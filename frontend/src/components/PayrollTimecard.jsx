@@ -1337,18 +1337,34 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
               ); })())}
             </tbody>
             {T && (
+              /* Totals (Pranshu, Oct 16): the hours worked on their own line,
+                 then each kind of time off taken with its hours and pay. */
               <tfoot>
                 <tr style={{ background: 'var(--wk-hover)', fontWeight: 700 }}>
-                  <td colSpan={4} style={{ ...gc, textAlign: 'left' }}>Totals</td>
+                  <td colSpan={4} style={{ ...gc, textAlign: 'left' }}>Total Worked</td>
                   <td style={{ ...gc, color: T.deductedMin ? '#b45309' : undefined }}>{T.deductedMin ? `−${T.deductedMin}m` : '-'}</td>
                   <td style={gc}></td>
-                  <td style={gc}>{hhmm(T.workedMin ?? (T.regMin + T.otMin + (T.dtMin || 0)))}</td>
+                  <td style={gc}>{hhmm((T.regMin || 0) + (T.otMin || 0) + (T.dtMin || 0))}</td>
                   <td style={gc}>{(T.otMin || T.dtMin) ? [T.otMin ? hhmm(T.otMin) : '', T.dtMin ? `${hhmm(T.dtMin)} 2×` : ''].filter(Boolean).join(' · ') : '-'}</td>
                   <td style={gc}></td>
                   {showPay && <td style={gc}></td>}
-                  {showPay && <td style={{ ...gc, textAlign: 'right' }}>{fmtM(T.totalPay)}</td>}
+                  {showPay && <td style={{ ...gc, textAlign: 'right' }}>{fmtM((T.regPay || 0) + (T.otPay || 0) + (T.dtPay || 0))}</td>}
                   <td style={gc}></td>
                 </tr>
+                {[['Sick', T.sickMin, T.sickPay], ['Vacation', T.vacationMin, T.vacationPay], ['Personal', T.personalMin, T.personalPay]]
+                  .filter(([, min]) => min > 0).map(([label, min, pay]) => (
+                  <tr key={label} style={{ background: 'var(--wk-hover)', fontWeight: 600 }}>
+                    <td colSpan={4} style={{ ...gc, textAlign: 'left', color: '#b91c1c' }}>Time Off - {label}</td>
+                    <td style={gc}></td>
+                    <td style={gc}>{label}</td>
+                    <td style={gc}>{hhmm(min)}</td>
+                    <td style={gc}></td>
+                    <td style={gc}></td>
+                    {showPay && <td style={gc}></td>}
+                    {showPay && <td style={{ ...gc, textAlign: 'right' }}>{fmtM(pay)}</td>}
+                    <td style={gc}></td>
+                  </tr>
+                ))}
               </tfoot>
             )}
           </table>
