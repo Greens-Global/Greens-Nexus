@@ -1148,8 +1148,14 @@ def _team_rows(db: Session, start: str, end: str, only_emails=None, include_fixe
     by_emp = {}
     for p in q.order_by(TimePunch.at).all():
         by_emp.setdefault(p.employee_email, []).append(p)
-    names = {e.work_email: f"{e.first_name} {e.last_name}".strip()
-             for e in db.query(NexusEmployee).all() if e.work_email}
+    from models import HrEntity
+    _emps = [e for e in db.query(NexusEmployee).all() if e.work_email]
+    names = {e.work_email: f"{e.first_name} {e.last_name}".strip() for e in _emps}
+    # Company and department ride on each row so the Payroll list can be
+    # filtered by either (Neil, Oct 16).
+    _ents = {x.id: x.name or "" for x in db.query(HrEntity).all()}
+    depts = {e.work_email: e.department or "" for e in _emps}
+    companies = {e.work_email: _ents.get(e.company or "", "") for e in _emps}
     # Break policy per employee (the paid rest-break credit is CA-rule only) -
     # bulk-load rules so this stays one query, not one per person.
     _bp = _breakpolicy_cfg(db)
@@ -1197,6 +1203,7 @@ def _team_rows(db: Session, start: str, end: str, only_emails=None, include_fixe
         rows.append({
             "email": email,
             "name": names.get(email) or email.split("@")[0].replace(".", " ").title(),
+            "department": depts.get(email, ""), "company": companies.get(email, ""),
             "workedMin": sum(d["workedMin"] for d in days.values()),
             "breakMin": sum(d["breakMin"] for d in days.values()),
             "flagCount": sum(len(d["flags"]) for d in days.values()),
@@ -1368,6 +1375,20 @@ def _inverted_days(punches: list, days: set) -> set:
     return out
 
 
+def _break_outside_shift(punches: list, new_id: str) -> bool:
+    """True when the break punch `new_id` lands while no clock-in is open -
+    exactly the case _compute_timecard drops from the card."""
+    open_in = False
+    for p in sorted(punches, key=lambda p: p.at or ""):
+        if p.kind == "in":
+            open_in = True
+        elif p.kind == "out":
+            open_in = False
+        elif p.id == new_id:
+            return not open_in
+    return False
+
+
 def _guard_punch_order(db: Session, email: str, *, kind: str, at: str, local_date: str,
                        punch_id: str = "", extra: list = None) -> None:
     """Refuse a change that would put a clock-out before its clock-in (Oct 1:
@@ -1377,7 +1398,7 @@ def _guard_punch_order(db: Session, email: str, *, kind: str, at: str, local_dat
     unrelated fix. `punch_id` = the punch being moved (edit), else a new punch;
     `extra` = punches not yet real (an employee's pending add requests)."""
     from types import SimpleNamespace
-    if kind not in ("in", "out") or not at or not local_date:
+    if kind not in KINDS or not at or not local_date:
         return
     try:
         d = date.fromisoformat(local_date[:10])
@@ -1389,7 +1410,17 @@ def _guard_punch_order(db: Session, email: str, *, kind: str, at: str, local_dat
            for p in _live_punches(db, email, min(days), max(days))]
     now += list(extra or [])
     after = [p for p in now if not (punch_id and p.id == punch_id)]
-    after.append(SimpleNamespace(id=punch_id or "new", kind=kind, at=at[:19], local_date=local_date[:10]))
+    new_id = punch_id or "new"
+    after.append(SimpleNamespace(id=new_id, kind=kind, at=at[:19], local_date=local_date[:10]))
+    if kind in ("break_start", "break_end"):
+        # A break outside a clock-in / clock-out pair was accepted and then
+        # silently skipped by the timecard pairing (Charmi, Oct 16: "I added the
+        # break, I still do not see it"). Refuse it with the reason instead.
+        if _break_outside_shift(after, new_id):
+            when = d.strftime("%m/%d/%Y")
+            raise HTTPException(400, f"A break has to fall inside a clock-in / clock-out on {when}. "
+                                     "Add or fix the shift first, then the break.")
+        return
     new_bad = _inverted_days(after, days) - _inverted_days(now, days)
     if new_bad:
         when = datetime.strptime(min(new_bad), "%Y-%m-%d").strftime("%m/%d/%Y")
@@ -9187,9 +9218,27 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
                          "targetPunchId": r.target_punch_id, "employeeName": r.employee_name,
                          "createdAt": r.created_at} for r in preqs]
 
+    # Punch History on hover (Neil, Oct 16 - SwipeClock's popup): where each
+    # punch came from, its exact time, and who entered or changed it. A manual
+    # or changed punch reads bold on the card.
+    _src = {"web": "Web browser", "mobile": "Mobile app", "manual": "Entered by a manager",
+            "self_manual": "Missed punch entered by the employee", "auto_eod": "Auto clock-out at end of day"}
+    _names = {}
+
+    def _who(e):
+        if e and e not in _names:
+            _names[e] = _display_name(db, e)
+        return _names.get(e, "")
+    punch_meta = {p.id: {"kind": p.kind, "at": p.at, "originalAt": p.original_at or "",
+                         "source": _src.get(p.source or "", p.source or ""), "ip": p.ip or "",
+                         "site": p.work_site_name or "", "manual": p.source in ("manual", "self_manual"),
+                         "createdBy": _who(p.created_by), "createdAt": p.created_at or "",
+                         "adjustedBy": _who(p.adjusted_by), "adjustedAt": p.adjusted_at or "",
+                         "adjustNote": p.adjust_note or ""} for p in punches}
+
     return {"email": em, "start": start, "end": end, "rate": rate, "rateSet": rate_row is not None,
             "rateSplits": rate_splits,   # >1 entry = the rate changed inside this period
-            "dept": dept, "overtimeRule": rule, "days": days_out,
+            "dept": dept, "overtimeRule": rule, "days": days_out, "punchMeta": punch_meta,
             "rounding": {"enabled": _rnd["enabled"], "nearestMin": _rnd["nearestMin"]},
             "autoLunch": {"enabled": al["enabled"], "afterMin": al["afterMin"], "deductMin": al["deductMin"]},
             "breakPolicy": _bp,
