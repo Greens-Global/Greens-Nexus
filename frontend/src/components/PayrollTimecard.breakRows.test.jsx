@@ -48,18 +48,19 @@ describe('a shift with a break on the Time Sheet', () => {
     </QueryClientProvider>);
     await screen.findByText('Deducted Time');
     const heads = [...container.querySelectorAll('thead th')].map(th => th.textContent);
-    expect(heads).toEqual(['Date', 'Edit', 'In', 'Out', 'Deducted Time', 'Category', 'Hours', 'OT', 'Loc', 'Pay Rate', 'Wage', 'Log']);
+    expect(heads).toEqual(['Date', 'Edit', 'In', 'Out', 'Deducted Time', 'Category', 'Total Hours', 'OT', 'Loc', 'Pay Rate', 'Wage', 'Log']);
     const cells = (tr) => [...tr.querySelectorAll('td')].map(td => td.textContent.trim());
     const worked = [...container.querySelectorAll('tr.pr-day-row')].filter(tr => cells(tr)[6] !== '-');
     expect(worked).toHaveLength(2);
-    // The shift: clock-in to clock-out, 7:55 worked, and the wage.
+    // The shift: clock-in to clock-out, 7:55 paid (8:00 minus the 1:05 break,
+    // as the server computed it) and the wage - each cell merged down over
+    // the break row.
     expect(cells(worked[0])[6]).toBe('7:55');
     expect(cells(worked[0])[10]).toBe('$197.92');
-    // The break under it: start, end and its length; nothing in the pay columns.
+    expect(worked[0].querySelectorAll('td')[6].getAttribute('rowspan')).toBe('2');
+    // The break under it: just its start and end; the shift's columns span over it.
+    expect(cells(worked[1])).toHaveLength(4);
     expect(cells(worked[1])[0]).toBe('Break');
-    expect(cells(worked[1])[6]).toBe('1:05');
-    expect(cells(worked[1])[7]).toBe('-');
-    expect(cells(worked[1])[10]).toBe('');
     expect(screen.queryByText(/Coffee/)).toBeNull();
     // The manager-entered break end reads bold, and the clock-in's hover says where it came from.
     const times = [...container.querySelectorAll('tr.pr-day-row button[title*="Clock-in at"], tr.pr-day-row button[title*="Break end at"]')];

@@ -608,7 +608,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const T = data?.totals;
   const fin = data?.finalized;         // HR finalization - the period is LOCKED
   // Full-width rows across the hourly table: Date, Edit, In, Out, Deducted
-  // Time, Category, Hours, OT, Loc, [Pay Rate], [Wage] - SwipeClock's
+  // Time, Category, Total Hours, OT, Loc, [Pay Rate], [Wage] - SwipeClock's
   // order (Neil, Oct 16): the actions up front, the outputs at the end.
   const span = 12 - (showPay ? 0 : 2);
   const mgrAp = data?.approval;        // manager approval (step 1 of 2)
@@ -755,7 +755,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       // the person punched (Pranshu, Oct 16) - not a chip under the day.
       // `base` is the shift a Break row belongs to (what its Edit fixes).
       segs.forEach((seg, i) => {
-        rows.push({ type: 'day', ds, seg, base: seg, band, first: i === 0, last: i === segs.length - 1, segLast: true });
+        rows.push({ type: 'day', ds, seg, base: seg, band, first: i === 0, last: i === segs.length - 1, segLast: true, brkCount: (seg.breaks || []).length });
         (seg.breaks || []).forEach(b => rows.push({ type: 'break', ds, seg: breakSeg(b), brk: b, base: seg, band, first: false }));
       });
       // A shift Nexus auto-closed at end of day (no clock-out was recorded):
@@ -1223,7 +1223,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 <th style={gh}>Out</th>
                 <th title="Lunch taken out of a long shift that recorded no break" style={gh}>Deducted Time</th>
                 <th style={gh}>Category</th>
-                <th title="Hours in this stretch of work" style={gh}>Hours</th>
+                <th title="Hours paid for the shift - the time between clock-in and clock-out, minus its breaks" style={gh}>Total Hours</th>
                 <th title="Overtime in this shift - 1.5× and, in California past 12 hours, 2×" style={gh}>OT</th>
                 <th style={gh}>Loc</th>
                 {showPay && <th title="The rate in effect that day" style={gh}>Pay Rate</th>}
@@ -1296,17 +1296,10 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   <td style={{ ...gc, textAlign: 'left', paddingLeft: 26, color: 'var(--muted)', fontStyle: 'italic' }}>Break</td>
                   <td style={gc}>{hEdit(r)}</td>
                   <td style={gc}>{hIn(r)}</td>
-                  <td style={gc}>{hOut(r)}</td>
-                  <td style={gc}>-</td>
-                  <td style={gc}>-</td>
-                  <td style={{ ...gc, color: 'var(--muted)' }}>{hhmm(r.brk.min)}{r.brk.paidMin > 0 ? ` (${r.brk.paidMin}m paid)` : ''}</td>
-                  <td style={gc}>-</td>
-                  <td style={gc}>-</td>
-                  {showPay && <td style={gc}></td>}
-                  {showPay && <td style={gc}></td>}
-                  <td style={gc}></td>
+                  <td style={gc} title={`${hhmm(r.brk.min)} break${r.brk.paidMin > 0 ? ` - ${r.brk.paidMin}m of it paid` : ''}`}>{hOut(r)}</td>
+                  {/* The columns from Deducted Time on are the shift's, merged down over its breaks. */}
                 </tr>
-              ) : (
+              ) : (() => { const rs = 1 + (r.brkCount || 0); return (
                 /* Alternate days, not rows (Pranshu, Oct 16): the shift, its
                    breaks and its note line read as one block. */
                 <tr key={i} className={`pr-row pr-day-row${r.band ? ' pr-band' : ''}${r.seg?.payClass ? ' pr-leave' : ''}`}
@@ -1319,27 +1312,29 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                     <>
                       <td style={gc}>{hIn(r)}</td>
                       <td style={gc}>{hOut(r)}</td>
-                      <td style={{ ...gc, color: r.seg.deductedMin ? '#b45309' : undefined }}>{r.seg.deductedMin ? `−${r.seg.deductedMin}m` : '-'}</td>
-                      <td style={gc}>{r.seg.category || '-'}</td>
-                      <td style={gc}>{hhmm(r.seg.workedMin)}</td>
-                      <td style={{ ...gc, color: r.seg.dtMin ? '#b91c1c' : r.seg.otMin ? '#b45309' : undefined, fontWeight: (r.seg.otMin || r.seg.dtMin) ? 700 : 400 }}>
+                      {/* Merged down over the shift's Break rows (Pranshu, Oct 16):
+                          Total Hours is the shift minus its breaks, as paid. */}
+                      <td rowSpan={rs} style={{ ...gc, color: r.seg.deductedMin ? '#b45309' : undefined }}>{r.seg.deductedMin ? `−${r.seg.deductedMin}m` : '-'}</td>
+                      <td rowSpan={rs} style={gc}>{r.seg.category || '-'}</td>
+                      <td rowSpan={rs} style={{ ...gc, fontWeight: 700 }}>{hhmm(r.seg.workedMin)}</td>
+                      <td rowSpan={rs} style={{ ...gc, color: r.seg.dtMin ? '#b91c1c' : r.seg.otMin ? '#b45309' : undefined, fontWeight: (r.seg.otMin || r.seg.dtMin) ? 700 : 400 }}>
                         {(r.seg.otMin || r.seg.dtMin)
                           ? [r.seg.otMin ? hhmm(r.seg.otMin) : '', r.seg.dtMin ? `${hhmm(r.seg.dtMin)} 2×` : ''].filter(Boolean).join(' · ')
                           : '-'}
                       </td>
-                      <td style={gc}>
+                      <td rowSpan={rs} style={gc}>
                         {r.base?.geo && r.base.geo !== 'no_location'
                           ? <LocCell seg={r.base} onOpen={(seg) => { setGeoFocus({ seg, date: r.ds }); setGeoMap(data?.email || email || myEmail || ''); }} />
                           : '-'}
                       </td>
-                      {showPay && <td style={{ ...gc, textAlign: 'right' }}>{fmtM(byDate[r.ds]?.rate ?? rate)}/hr</td>}
-                      {showPay && <td style={{ ...gc, textAlign: 'right', fontWeight: 700 }}>{r.segLast ? fmtM(r.seg.amount) : ''}</td>}
+                      {showPay && <td rowSpan={rs} style={{ ...gc, textAlign: 'right' }}>{fmtM(byDate[r.ds]?.rate ?? rate)}/hr</td>}
+                      {showPay && <td rowSpan={rs} style={{ ...gc, textAlign: 'right', fontWeight: 700 }}>{r.segLast ? fmtM(r.seg.amount) : ''}</td>}
                     </>
                   ) : Array.from({ length: span - 3 }, (_, k) => <td key={k} style={gc}>-</td>)}
                   {/* The Work Log, at the far right of the day's first row (Pranshu, Oct 16). */}
-                  <td style={gc}>{r.first !== false && <WorkLogButton onClick={() => setWorkLogDay(r.ds)} title={`View the Work Log for ${dow(r.ds)}`} />}</td>
+                  <td rowSpan={rs} style={gc}>{r.first !== false && <WorkLogButton onClick={() => setWorkLogDay(r.ds)} title={`View the Work Log for ${dow(r.ds)}`} />}</td>
                 </tr>
-              ))}
+              ); })())}
             </tbody>
             {T && (
               <tfoot>
@@ -1522,7 +1517,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         { target: 'pr-period', title: 'The pay period',
           body: 'Bi-weekly, Sunday to Saturday - the SAME calendar as SwipeClock (current period 7/26–8/8), so the two cards always cover identical days. Arrows move one period.' },
         { target: 'pr-table', title: 'The time card - same columns as SwipeClock',
-          body: 'Date, Edit, In, Out, Deducted Time, Category, Hours, OT (1.5× and, past 12 hours in California, 2×), Loc, Pay Rate and Wage. Each break the person punched is its own Break line under the shift, with its start, end and length. Hover a time for its punch history - where it came from, the exact time, who entered or changed it. Add Note in the toolbar leaves a note on a day; it reads on the line under that day. Weekly total rows appear after each week.' },
+          body: 'Date, Edit, In, Out, Deducted Time, Category, Total Hours, OT (1.5× and, past 12 hours in California, 2×), Loc, Pay Rate and Wage. Each break the person punched is its own Break line under the shift, with its start, end and length. Hover a time for its punch history - where it came from, the exact time, who entered or changed it. Add Note in the toolbar leaves a note on a day; it reads on the line under that day. Weekly total rows appear after each week.' },
         { target: 'pr-rounding', title: 'Options: rounded vs raw times',
           body: 'SwipeClock computes pay from rounded times but keeps the raw punch - so does Nexus. Open Options to peek at raw times, switch the timezone, or change a pay rule. During the comparison week, leave the rounding setting ON so the numbers can match 1:1.' },
         { target: 'pr-edit', title: 'Fix punches here',
