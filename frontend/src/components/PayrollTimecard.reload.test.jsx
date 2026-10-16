@@ -34,7 +34,7 @@ describe('the Payroll view after a reload', () => {
     await mount();
     await waitFor(() => expect(timePayroll).toHaveBeenCalled());
     expect(timePayroll.mock.calls[0].slice(0, 2)).toEqual(['amy@x.com', '2026-09-20']);
-    expect(await screen.findByText('Hrs/day')).toBeTruthy();
+    expect(await screen.findByText('Deducted Time')).toBeTruthy();
     // Someone no longer on the list is not kept.
     cleanup();
     sessionStorage.setItem('nexus.payroll.last', JSON.stringify({ email: 'gone@x.com', start: '2026-09-23', payType: 'hourly' }));

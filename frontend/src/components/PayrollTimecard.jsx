@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowRight, ArrowDown, Pencil, Plus, X, CheckCircle, Download, AlertTriangle, MapPin, MapPinOff, PlayCircle, Info, SlidersHorizontal } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ChevronDown, ChevronUp, ArrowRight, Pencil, Plus, X, CheckCircle, Download, AlertTriangle, MapPin, MapPinOff, PlayCircle, Info, SlidersHorizontal } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import { TZ_OPTIONS, useDisplayTz, setDisplayTz, formatTimeTz, utcToInputTz, inputToUtcTz, tzOffsetForInput, useOwnZone } from '../lib/displayTz';
@@ -264,7 +264,7 @@ function SideAvatar({ name, email, photos }) {
 // is removed. The manager/HR note is never shown on the employee's own
 // timecard; the employee's OWN note (Neil, Oct 12) uses the same cell with
 // `placeholder` / `addLabel` set, and the manager sees it under theirs.
-function NoteCell({ date, note, onSave, locked, placeholder = 'Add a note', addLabel = '+ Add Note', autoEdit = false }) {
+function NoteCell({ date, note, onSave, locked, placeholder = 'Add a note', addLabel = '+ Add Note', autoEdit = false, lines = 2, maxWidth = 220 }) {
   const saved = note?.note || '';
   const [editing, setEditing] = useState(!!autoEdit && !locked);
   const [text, setText] = useState(saved);
@@ -300,7 +300,7 @@ function NoteCell({ date, note, onSave, locked, placeholder = 'Add a note', addL
       title={saved ? `${saved}${who}` : (locked ? '' : placeholder)}
       style={{ background: 'none', border: 'none', padding: 0, cursor: locked ? 'default' : 'pointer', textAlign: 'left',
         fontFamily: 'inherit', fontSize: 12, lineHeight: 1.35, color: saved ? 'var(--ink)' : 'var(--muted)', opacity: saved ? 1 : 0.6,
-        width: '100%', maxWidth: 220, overflow: 'hidden', whiteSpace: 'normal', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', wordBreak: 'break-word' }}>
+        width: '100%', maxWidth, overflow: 'hidden', whiteSpace: 'normal', display: '-webkit-box', WebkitLineClamp: lines, WebkitBoxOrient: 'vertical', wordBreak: 'break-word' }}>
       {saved || (locked ? '-' : addLabel)}
     </button>
   );
@@ -564,9 +564,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const T = data?.totals;
   const fin = data?.finalized;         // HR finalization - the period is LOCKED
   // Full-width rows across the hourly table: Date, Edit, In, Out, Deducted
-  // Time, Category, Hours, Hrs/day, OT, Loc, [Pay Rate], [Wage] - SwipeClock's
+  // Time, Category, Hours, OT, Loc, [Pay Rate], [Wage] - SwipeClock's
   // order (Neil, Oct 16): the actions up front, the outputs at the end.
-  const span = 13 - (showPay ? 0 : 2);
+  const span = 12 - (showPay ? 0 : 2);
   const mgrAp = data?.approval;        // manager approval (step 1 of 2)
   // Never surface a raw email - fall back to a name formatted from the local-part.
   const nameFor = (em) => people.find(p => p.email === (em || '').toLowerCase())?.name
@@ -1154,11 +1154,10 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         <div data-tour="pr-table" style={{ overflowX: 'auto', border: '1px solid var(--wk-line2)', borderRadius: 8, background: 'var(--card)' }}>
           {/* SwipeClock's card, cell for cell (Neil / Pranshu, Oct 16): a tight
               bordered grid - Date, Edit / Add, In, Out, Deducted Time, Category,
-              Hours, Hrs/day, OT, Loc, Pay Rate, Wage. One row per stretch of
-              work, so a lunch reads as its own In / Out line; Hrs/day points
-              down to the day's total on its last row. The note pencil and the
-              Work Log sit in the Date cell; a note line appears under the day
-              only when there is a note. Nothing else rides under a day. */}
+              Hours, OT, Loc, Pay Rate, Wage, Log. One row per shift, then a
+              Break row for each break punched. The note pencil sits in the
+              Date cell; a note line appears under the day only when there is
+              a note. Nothing else rides under a day. */}
           <table style={{ width: '100%', minWidth: 900, borderCollapse: 'collapse' }}>
             <thead>
               <tr>
@@ -1169,7 +1168,6 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 <th title="Lunch taken out of a long shift that recorded no break" style={gh}>Deducted Time</th>
                 <th style={gh}>Category</th>
                 <th title="Hours in this stretch of work" style={gh}>Hours</th>
-                <th title="The day's total, on its last row" style={gh}>Hrs/day</th>
                 <th title="Overtime in this shift - 1.5× and, in California past 12 hours, 2×" style={gh}>OT</th>
                 <th style={gh}>Loc</th>
                 {showPay && <th title="The rate in effect that day" style={gh}>Pay Rate</th>}
@@ -1217,16 +1215,17 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                             (the who and when stay on hover). */}
                         <div style={{ display: 'grid', gap: 2, minWidth: 0 }}>
                           {!self && notes[r.ds]?.employeeNote && (
-                            <span title={`${nameFor(email)}${notes[r.ds].employeeNoteAt ? `, ${formatDate(notes[r.ds].employeeNoteAt)}` : ''}`}>
+                            <span title={`${nameFor(email)}${notes[r.ds].employeeNoteAt ? `, ${formatDate(notes[r.ds].employeeNoteAt)}` : ''}`}
+                              style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                               <strong>Note by employee:</strong> {notes[r.ds].employeeNote}
                             </span>
                           )}
                           {(noteOf(r.ds) || noteOpen === r.ds) && (
-                            <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 6, minWidth: 150, maxWidth: 460 }}>
+                            <span style={{ display: 'flex', alignItems: 'baseline', gap: 6, minWidth: 0 }}>
                               <strong style={{ whiteSpace: 'nowrap' }}>{self ? 'Your note' : 'Note by HR'}:</strong>
                               {self
-                                ? <NoteCell key={noteOpen === r.ds ? 'open' : 'n'} date={r.ds} note={myNote(r.ds)} onSave={saveMyNote} placeholder="Add a note for your manager" autoEdit={noteOpen === r.ds && !noteOf(r.ds)} />
-                                : <NoteCell key={noteOpen === r.ds ? 'open' : 'n'} date={r.ds} note={notes[r.ds]} onSave={saveNote} autoEdit={noteOpen === r.ds && !noteOf(r.ds)} />}
+                                ? <NoteCell key={noteOpen === r.ds ? 'open' : 'n'} date={r.ds} note={myNote(r.ds)} onSave={saveMyNote} placeholder="Add a note for your manager" autoEdit={noteOpen === r.ds && !noteOf(r.ds)} lines={1} maxWidth="none" />
+                                : <NoteCell key={noteOpen === r.ds ? 'open' : 'n'} date={r.ds} note={notes[r.ds]} onSave={saveNote} autoEdit={noteOpen === r.ds && !noteOf(r.ds)} lines={1} maxWidth="none" />}
                             </span>
                           )}
                           {r.text && <span><strong>On the punches:</strong> <span style={{ color: 'var(--muted)', fontStyle: 'italic' }}>{r.text}</span></span>}
@@ -1245,7 +1244,6 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   <td style={gc}>-</td>
                   <td style={gc}>-</td>
                   <td style={{ ...gc, color: 'var(--muted)' }}>{hhmm(r.brk.min)}{r.brk.paidMin > 0 ? ` (${r.brk.paidMin}m paid)` : ''}</td>
-                  <td style={gc}>-</td>
                   <td style={gc}>-</td>
                   <td style={gc}>-</td>
                   {showPay && <td style={gc}></td>}
@@ -1277,10 +1275,6 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                       <td style={{ ...gc, color: r.seg.deductedMin ? '#b45309' : undefined }}>{r.seg.deductedMin ? `−${r.seg.deductedMin}m` : '-'}</td>
                       <td style={gc}>{r.seg.category || '-'}</td>
                       <td style={gc}>{hhmm(r.seg.workedMin)}</td>
-                      <td style={gc}>
-                        {r.last ? hhmm(byDate[r.ds]?.workedMin ?? r.seg.workedMin)
-                          : <ArrowDown size={12} aria-label="continues below" style={{ color: 'var(--muted)', verticalAlign: 'middle' }} />}
-                      </td>
                       <td style={{ ...gc, color: r.seg.dtMin ? '#b91c1c' : r.seg.otMin ? '#b45309' : undefined, fontWeight: (r.seg.otMin || r.seg.dtMin) ? 700 : 400 }}>
                         {(r.seg.otMin || r.seg.dtMin)
                           ? [r.seg.otMin ? hhmm(r.seg.otMin) : '', r.seg.dtMin ? `${hhmm(r.seg.dtMin)} 2×` : ''].filter(Boolean).join(' · ')
@@ -1305,7 +1299,6 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 <tr style={{ background: 'var(--wk-hover)', fontWeight: 700 }}>
                   <td colSpan={4} style={{ ...gc, textAlign: 'left' }}>Totals</td>
                   <td style={{ ...gc, color: T.deductedMin ? '#b45309' : undefined }}>{T.deductedMin ? `−${T.deductedMin}m` : '-'}</td>
-                  <td style={gc}></td>
                   <td style={gc}></td>
                   <td style={gc}>{hhmm(T.workedMin ?? (T.regMin + T.otMin + (T.dtMin || 0)))}</td>
                   <td style={gc}>{(T.otMin || T.dtMin) ? [T.otMin ? hhmm(T.otMin) : '', T.dtMin ? `${hhmm(T.dtMin)} 2×` : ''].filter(Boolean).join(' · ') : '-'}</td>
@@ -1476,7 +1469,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         { target: 'pr-period', title: 'The pay period',
           body: 'Bi-weekly, Sunday to Saturday - the SAME calendar as SwipeClock (current period 7/26–8/8), so the two cards always cover identical days. Arrows move one period.' },
         { target: 'pr-table', title: 'The time card - same columns as SwipeClock',
-          body: 'Date, Edit, In, Out, Deducted Time, Category, Hours, Hrs/day, OT (1.5× and, past 12 hours in California, 2×), Loc, Pay Rate and Wage. Each break the person punched is its own Break line under the shift, with its start, end and length; Hrs/day shows the day\'s total. Hover a time for its punch history - where it came from, the exact time, who entered or changed it. Notes ride on the pencil line under the day; weekly total rows appear after each week.' },
+          body: 'Date, Edit, In, Out, Deducted Time, Category, Hours, OT (1.5× and, past 12 hours in California, 2×), Loc, Pay Rate and Wage. Each break the person punched is its own Break line under the shift, with its start, end and length. Hover a time for its punch history - where it came from, the exact time, who entered or changed it. Notes ride on the pencil line under the day; weekly total rows appear after each week.' },
         { target: 'pr-rounding', title: 'Options: rounded vs raw times',
           body: 'SwipeClock computes pay from rounded times but keeps the raw punch - so does Nexus. Open Options to peek at raw times, switch the timezone, or change a pay rule. During the comparison week, leave the rounding setting ON so the numbers can match 1:1.' },
         { target: 'pr-edit', title: 'Fix punches here',
