@@ -26,6 +26,10 @@ import { usePhotoMap } from '../lib/peoplePhotos';
 import { moneyPrefix } from '../asset/lib/currency';
 import { registerTour } from '../lib/tours';
 
+// Launch (Neil, 10/16): the only sign-off is review + Nexus Sign, so the HR
+// "Finalize Without Signatures" override is hidden. Flip to true to show it.
+const LEGACY_FINALIZE = false;
+
 // ── Payroll timecard (SwipeClock 1:1, manager-editable) ───────────────────────
 // One employee, one pay period (biweekly, SUNDAY-anchored on SwipeClock's real
 // payroll calendar - site 47239: 7/26/26–8/8/26). Same column order as the
@@ -380,6 +384,7 @@ function anchorForStart(startIso, payType) {
 export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, initialEmail = '', initialStart = '', initialPayType = '' }) {
   const self = selfMode;   // employee viewing their OWN timecard (from /my-payroll)
   const [people, setPeople] = useState([]);
+  const [peopleLoaded, setPeopleLoaded] = useState(false);   // the team list answered (even empty)
   const last = useMemo(() => (selfMode || initialEmail) ? {} : _lastOpened(), [selfMode, initialEmail]);
   const [email, setEmail] = useState(initialEmail || last.email || '');
   // Jump to a specific employee when the caller changes initialEmail (e.g. the
@@ -441,10 +446,11 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     api.timeTeam(start, end).then(r => {
       const list = (r.rows || []).map(x => ({ email: x.email, name: x.name || x.email, pendingEdits: x.pendingEdits || 0, department: x.department || '', company: x.company || '' }));
       setPeople(list);
+      setPeopleLoaded(true);
       // Someone remembered from before a reload who is no longer in scope
       // falls back to the first person, like an empty start.
       setEmail(e => (e && (initialEmail === e || list.some(p => p.email === e))) ? e : list[0]?.email || '');
-    }).catch(() => {});
+    }).catch(() => setPeopleLoaded(true));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
@@ -1103,7 +1109,13 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // before the data reveals whether this employee is hourly or salaried. The HR
   // sidebar stays so switching employees doesn't rearrange the screen.
   if (data === null && !stepLocked) {
-    const spinner = (
+    // Team mode with nobody in scope: say so instead of spinning forever
+    // (Oct 16: a manager with no reports yet saw an endless loader).
+    const spinner = (!self && !email && peopleLoaded && people.length === 0) ? (
+      <div style={{ fontFamily: 'var(--wk-font)', padding: '52px 0', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
+        No one on your team yet. People whose manager is you, or who you back up, show here.
+      </div>
+    ) : (
       <div style={{ fontFamily: 'var(--wk-font)', padding: '52px 0', textAlign: 'center', color: 'var(--muted)' }}>
         <Spinner size="section" />
       </div>
@@ -1446,13 +1458,16 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 </form>
               )}
               {/* Approving is now "Agree" in the review panel below; HR's
-                  signature there finalizes. Unlock / Finalize stay as the HR
-                  override for a period that never went through review. */}
-              {isAdmin && (fin
-                ? <button className="secondary-btn" onClick={unfinalize} disabled={busy} title="HR: unlock this finalized period for corrections"
-                    style={{ fontSize: 12.5 }}>Unlock</button>
-                : <button className="secondary-btn" onClick={finalize} disabled={busy} title="HR override: finalize for payroll without the review and signatures"
-                    style={{ fontSize: 12.5 }}>Finalize Without Signatures</button>)}
+                  signature there finalizes. Finalize Without Signatures is
+                  hidden for launch (Neil, 10/16: review + Nexus Sign is the
+                  only sign-off) - LEGACY_FINALIZE brings it back. Unlock stays
+                  as HR's correction path for a signed period. */}
+              {isAdmin && fin && (
+                <button className="secondary-btn" onClick={unfinalize} disabled={busy} title="HR: unlock this finalized period for corrections"
+                  style={{ fontSize: 12.5 }}>Unlock</button>)}
+              {isAdmin && !fin && LEGACY_FINALIZE && (
+                <button className="secondary-btn" onClick={finalize} disabled={busy} title="HR override: finalize for payroll without the review and signatures"
+                  style={{ fontSize: 12.5 }}>Finalize Without Signatures</button>)}
             </div>
             )}
           </div>
@@ -1514,8 +1529,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           body: 'Edit on a row opens that shift - set the real in/out, location and Type, or delete a punch; on a Break line it fixes or deletes the break. Add on a day adds Regular, Break, Sick, Vacation or Personal time for someone. Originals stay on record with who changed what, like SwipeClock\'s audit log.' },
         { target: 'pr-summary', title: 'Totals, in both formats',
           body: 'Regular, overtime (1.5×), and double-time (2×) hours with wages - shown as clock time AND decimal ("58:30 (58.50)"), matching SwipeClock\'s summary, so payroll can key either format.' },
-        { target: 'pr-approve', title: 'Two-step sign-off',
-          body: 'Step 1 - the manager presses Approve when their person\'s card is right. Step 2 - HR presses Finalize: the period locks (no more edits, like SwipeClock\'s "finalized" periods) and payroll runs from it. Unlock reopens it if a correction is truly needed. CSV exports the punches for records.' },
+        { target: 'pr-approve', title: 'Review and sign',
+          body: 'The employee submits the period, their approver sends it back or agrees, then the employee signs it in Nexus Sign. That signature locks the period (no more edits, like SwipeClock\'s "finalized" periods) and payroll runs from it. Unlock reopens it if a correction is truly needed. CSV exports the punches for records.' },
       // On a phone there is no employee list and no edit column (the day
       // cards replace the table), so those two steps would point at nothing.
       ].filter(st => !phone || (st.target !== 'pr-sidebar' && st.target !== 'pr-edit'))} />}
@@ -2009,10 +2024,11 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
           )}
           {!self && (
             <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-              {isAdmin && (fin
-                ? <button className="secondary-btn" onClick={onUnfinalize} disabled={busy} style={{ fontSize: 12.5 }}>Unlock</button>
-                : <button className="secondary-btn" onClick={onFinalize} disabled={busy} title="HR override: finalize for payroll without the review and signatures"
-                    style={{ fontSize: 12.5 }}>Finalize Without Signatures</button>)}
+              {isAdmin && fin && (
+                <button className="secondary-btn" onClick={onUnfinalize} disabled={busy} style={{ fontSize: 12.5 }}>Unlock</button>)}
+              {isAdmin && !fin && LEGACY_FINALIZE && (
+                <button className="secondary-btn" onClick={onFinalize} disabled={busy} title="HR override: finalize for payroll without the review and signatures"
+                  style={{ fontSize: 12.5 }}>Finalize Without Signatures</button>)}
             </div>
           )}
         </div>
