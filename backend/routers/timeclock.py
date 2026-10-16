@@ -3311,7 +3311,7 @@ def _apply_add_chain(db: Session, reqs: list, user: dict, now: str) -> list:
         pick.voided = 1
         pick.adjusted_by, pick.adjusted_at = user["email"], now
         pick.adjust_note = ("Replaced by an approved punch fix: " + ", ".join(
-            f"{_kind_label(q.punch_kind)} at {_punch_when(q)[0]}" for q in reqs) + f" (approved by {user['email']}).")
+            f"{_kind_label(q.punch_kind)} at {_punch_when(q)[0]}" for q in reqs) + f" (approved by {_display_name(db, user['email'])}).")
         replaced.append(f"the {_kind_label(pick.kind)} at {_punch_when(pick)[0]}")
         db.flush()
     # A break punch the fix makes redundant - the old break end pressed at
@@ -3330,7 +3330,7 @@ def _apply_add_chain(db: Session, reqs: list, user: dict, now: str) -> list:
                 row.voided = 1
                 row.adjusted_by, row.adjusted_at = user["email"], now
                 row.adjust_note = (f"No longer needed: the approved punch fix set this {_kind_label(c.kind)} "
-                                   f"at {_punch_when(final[i - 1])[0]} (approved by {user['email']}).")
+                                   f"at {_punch_when(final[i - 1])[0]} (approved by {_display_name(db, user['email'])}).")
                 replaced.append(f"the extra {_kind_label(c.kind)} at {_punch_when(c)[0]}")
                 gone.add(c.id)
     db.flush()
@@ -3340,7 +3340,7 @@ def _apply_add_chain(db: Session, reqs: list, user: dict, now: str) -> list:
                        geo_status="no_location", source="manual", note=(q.reason or "")[:300],
                        category=(q.category or "") if q.punch_kind == "in" else "",
                        created_by=user["email"], created_at=now,
-                       adjust_note=f"Approved punch-fix request by {user['email']}")
+                       adjust_note=f"Approved punch-fix request by {_display_name(db, user['email'])}")
         db.add(tp)
         db.flush()
         q.applied_punch_id = tp.id

@@ -135,11 +135,18 @@ const _INTERNAL_NOTES = new Set(['payroll edit']);
 const cleanNote = (n) => { const t = (n || '').trim(); return t && !_INTERNAL_NOTES.has(t.toLowerCase()) ? t : ''; };
 // The human reason(s) attached to a segment's punches: a pending employee edit,
 // an HR adjust note, or a punch note - minus internal markers. Empty = not edited.
+// A note the server wrote with an email in it ("approved by x@y.com") reads
+// with the person's name (Pranshu, Oct 17); new notes carry the name already.
+const namesIn = (text, nameFor) => String(text || '').replace(/[\w.+-]+@[\w-]+(\.[\w-]+)+/g, (m) => nameFor(m) || m);
+
+// The in and the out punch usually carry the SAME note (an approved fix
+// stamps both; a note written on a shift lands on both), so each distinct
+// text reads once (Pranshu, Oct 17: "why is it coming 2 times?").
 const segReasons = (s) => {
   const out = [];
   if (s.inEditStatus === 'pending' && s.inEditReason) out.push(`Proposed in-time: ${s.inEditReason}`);
   if (s.outEditStatus === 'pending' && s.outEditReason) out.push(`Proposed out-time: ${s.outEditReason}`);
-  [s.inAdjustNote, s.outAdjustNote, s.note].forEach(n => { const c = cleanNote(n); if (c) out.push(c); });
+  [s.inAdjustNote, s.outAdjustNote, ...String(s.note || '').split(' · ')].forEach(n => { const c = cleanNote(n); if (c && !out.includes(c)) out.push(c); });
   return out;
 };
 
@@ -1284,7 +1291,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                                 : <NoteCell date={r.ds} note={notes[r.ds]} onSave={saveNote} lines={1} maxWidth="none" />}
                             </span>
                           )}
-                          {r.text && <span><strong>On the punches:</strong> <span style={{ color: 'var(--muted)', fontStyle: 'italic' }}>{r.text}</span></span>}
+                          {r.text && <span><strong>On the punches:</strong> <span style={{ color: 'var(--muted)', fontStyle: 'italic' }}>{namesIn(r.text, nameFor)}</span></span>}
                         </div>
                       </div>
                     </td>
@@ -1854,7 +1861,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                             : <NoteCell date={fd.date} note={note} onSave={saveNote} lines={1} maxWidth="none" />}
                         </span>
                       )}
-                      {notes.length > 0 && <span><strong>On the punches:</strong> <span style={{ color: 'var(--muted)', fontStyle: 'italic' }}>{notes.join('  ·  ')}</span></span>}
+                      {notes.length > 0 && <span><strong>On the punches:</strong> <span style={{ color: 'var(--muted)', fontStyle: 'italic' }}>{namesIn(notes.join('  ·  '), nameFor)}</span></span>}
                     </div>
                   </td>
                 </tr>
