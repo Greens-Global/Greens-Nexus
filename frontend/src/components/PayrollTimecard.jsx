@@ -588,7 +588,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // Full-width rows across the hourly table: Date, Edit, In, Out, Deducted
   // Time, Category, Hours, Hrs/day, OT, Loc, [Pay Rate], [Wage] - SwipeClock's
   // order (Neil, Oct 16): the actions up front, the outputs at the end.
-  const span = 12 - (showPay ? 0 : 2);
+  const span = 13 - (showPay ? 0 : 2);
   const mgrAp = data?.approval;        // manager approval (step 1 of 2)
   // Never surface a raw email - fall back to a name formatted from the local-part.
   const nameFor = (em) => people.find(p => p.email === (em || '').toLowerCase())?.name
@@ -1202,6 +1202,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 <th style={gh}>Loc</th>
                 {showPay && <th title="The rate in effect that day" style={gh}>Pay Rate</th>}
                 {showPay && <th style={gh}>Wage</th>}
+                <th title="What was planned, done, and left pending that day" style={gh}>Log</th>
               </tr>
             </thead>
             <tbody>
@@ -1238,16 +1239,26 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                     <td colSpan={span} style={{ ...gc, textAlign: 'left', whiteSpace: 'normal', fontSize: 12 }}>
                       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
                         <Pencil size={11} style={{ marginTop: 3, flexShrink: 0, color: 'var(--muted)' }} />
-                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 14, flexWrap: 'wrap', minWidth: 0 }}>
+                        {/* Every note says who wrote it (Pranshu, Oct 16): the
+                            manager's / HR's by name and date, the employee's by
+                            name, and what was written on the punches themselves. */}
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 18, flexWrap: 'wrap', minWidth: 0 }}>
                           {(noteOf(r.ds) || noteOpen === r.ds) && (
-                            <span style={{ minWidth: 150, maxWidth: 420 }}>
+                            <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 6, minWidth: 150, maxWidth: 460 }}>
+                              <strong style={{ whiteSpace: 'nowrap' }}>
+                                {self ? 'Your note' : `Note by ${nameFor(notes[r.ds]?.by) || 'HR'}`}{!self && notes[r.ds]?.at ? ` (${formatDate(notes[r.ds].at)})` : ''}:
+                              </strong>
                               {self
                                 ? <NoteCell key={noteOpen === r.ds ? 'open' : 'n'} date={r.ds} note={myNote(r.ds)} onSave={saveMyNote} placeholder="Add a note for your manager" autoEdit={noteOpen === r.ds && !noteOf(r.ds)} />
                                 : <NoteCell key={noteOpen === r.ds ? 'open' : 'n'} date={r.ds} note={notes[r.ds]} onSave={saveNote} autoEdit={noteOpen === r.ds && !noteOf(r.ds)} />}
                             </span>
                           )}
-                          {!self && <EmployeeNoteLine note={notes[r.ds]} />}
-                          {r.text && <span style={{ color: 'var(--muted)', fontStyle: 'italic' }}>{r.text}</span>}
+                          {!self && notes[r.ds]?.employeeNote && (
+                            <span title={notes[r.ds].employeeNoteAt ? `Written ${formatDate(notes[r.ds].employeeNoteAt)}` : undefined}>
+                              <strong>Note by {nameFor(email)} (employee){notes[r.ds].employeeNoteAt ? ` (${formatDate(notes[r.ds].employeeNoteAt)})` : ''}:</strong> {notes[r.ds].employeeNote}
+                            </span>
+                          )}
+                          {r.text && <span><strong>On the punches:</strong> <span style={{ color: 'var(--muted)', fontStyle: 'italic' }}>{r.text}</span></span>}
                         </div>
                       </div>
                     </td>
@@ -1267,7 +1278,6 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                             <Pencil size={12} />
                           </button>
                         )}
-                        <WorkLogButton onClick={() => setWorkLogDay(r.ds)} title={`View the Work Log for ${dow(r.ds)}`} />
                       </span>
                     )}
                   </td>
@@ -1296,7 +1306,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                       {showPay && <td style={{ ...gc, textAlign: 'right' }}>{fmtM(byDate[r.ds]?.rate ?? rate)}/hr</td>}
                       {showPay && <td style={{ ...gc, textAlign: 'right', fontWeight: 700 }}>{r.segLast ? fmtM(r.seg.amount) : ''}</td>}
                     </>
-                  ) : Array.from({ length: span - 2 }, (_, k) => <td key={k} style={gc}>-</td>)}
+                  ) : Array.from({ length: span - 3 }, (_, k) => <td key={k} style={gc}>-</td>)}
+                  {/* The Work Log, at the far right of the day's first row (Pranshu, Oct 16). */}
+                  <td style={gc}>{r.first !== false && <WorkLogButton onClick={() => setWorkLogDay(r.ds)} title={`View the Work Log for ${dow(r.ds)}`} />}</td>
                 </tr>
               ))}
             </tbody>
@@ -1312,6 +1324,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   <td style={gc}></td>
                   {showPay && <td style={gc}></td>}
                   {showPay && <td style={{ ...gc, textAlign: 'right' }}>{fmtM(T.totalPay)}</td>}
+                  <td style={gc}></td>
                 </tr>
               </tfoot>
             )}
