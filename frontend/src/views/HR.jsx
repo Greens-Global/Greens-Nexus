@@ -1,5 +1,5 @@
 /* eslint-disable react-hooks/refs -- the org-chart canvas reads container/zoom refs during render for pan-zoom fit-to-view; safe intentional reads the React-Compiler rule flags */
-import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense, Fragment } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react';
 import { InterviewPanel, LeaderboardModal, EmployeeInterviews } from '../components/Interviews';
 import { SendHiringPacketModal, PacketSigner, PersonLifeEvents, PaperworkStatus, usDay } from '../components/HiringPacket';
 import PacketReview from '../components/PacketReview';
@@ -2015,9 +2015,6 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
               {row(MapPinned, 'Current address', e.personal?.currentAddress)}
               {row(MapPinned, 'Permanent address', e.personal?.permanentAddress)}
               {row(Heart, 'Emergency contact', e.personal?.emergency?.name ? [e.personal.emergency.name, e.personal.emergency.relationship && `(${e.personal.emergency.relationship})`, e.personal.emergency.phone, e.personal.emergency.email].filter(Boolean).join(' · ') : '')}
-              {/* What they filled in on their hiring packet's Details Form
-                  (Oct 14) - Sensitive answers stay on the packet. */}
-              {(e.personal?.packetDetails || []).map(d => <Fragment key={d.label}>{row(FileText, d.label, d.value)}</Fragment>)}
             </div>
           </>
         )}
