@@ -31,9 +31,11 @@ const ICON = { border: 'none', background: 'none', padding: 3, cursor: 'pointer'
 export default function PriorityBar({ onNavigate }) {
   const ctx = useNotifications();
   const [at, setAt] = useState(0);
+  const [showAll, setShowAll] = useState(false);
   const open = useMemo(() => (ctx?.notifications || []).filter((n) => n.priority === 1 && !n.closed && !n.actioned), [ctx?.notifications]);
   if (!ctx) return null;
   const n = open[Math.min(at, Math.max(0, open.length - 1))];
+  const all = showAll && open.length > 1;
   // Clicked off: closed for this person, kept under the bell's Closed list.
   const close = (item) => { ctx.dismiss(item.id); setAt(0); };
   const go = (item) => {
@@ -48,22 +50,42 @@ export default function PriorityBar({ onNavigate }) {
     setAt(0);
   };
   if (!n) return null;
-  return (
-    <div role="alert" aria-label="Priority notice" style={BAR}>
+  // Every open notice closed at once - each still restorable from the bell's Closed list.
+  const clearAll = () => { open.forEach((item) => ctx.dismiss(item.id)); setAt(0); setShowAll(false); };
+  // One notice line. `extra` sits right beside Open: Show All on the single
+  // view, Clear All on the first line of the full list (Pranshu, Oct 16).
+  const line = (item, extra, pager) => (
+    <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
       <AlertTriangle size={16} style={{ flexShrink: 0 }} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <strong>{n.title}</strong>
-        {n.body && <span style={{ marginLeft: 8, color: '#6b5200' }}>{n.body}</span>}
+        <strong>{item.title}</strong>
+        {item.body && <span style={{ marginLeft: 8, color: '#6b5200' }}>{item.body}</span>}
       </div>
-      {open.length > 1 && (
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: '0.74rem', whiteSpace: 'nowrap' }}>
-          <button type="button" style={ICON} aria-label="Previous notice" disabled={at === 0} onClick={() => setAt((a) => Math.max(0, a - 1))}><ChevronLeft size={14} /></button>
-          {Math.min(at, open.length - 1) + 1} of {open.length}
-          <button type="button" style={ICON} aria-label="Next notice" disabled={at >= open.length - 1} onClick={() => setAt((a) => Math.min(open.length - 1, a + 1))}><ChevronRight size={14} /></button>
-        </span>
-      )}
-      {n.action?.view && <button type="button" style={BTN} onClick={() => go(n)}>Open</button>}
-      <button type="button" style={ICON} onClick={() => close(n)} title="Close this notice (it stays in the bell under Closed for 30 days)" aria-label="Close notice"><X size={16} /></button>
+      {pager}
+      {item.action?.view && <button type="button" style={BTN} onClick={() => go(item)}>Open</button>}
+      {extra}
+      <button type="button" style={ICON} onClick={() => close(item)} title="Close this notice (it stays in the bell under Closed for 30 days)" aria-label="Close notice"><X size={16} /></button>
+    </div>
+  );
+  if (all) {
+    const clearBtn = <button type="button" style={BTN} onClick={clearAll} title="Close every notice (they stay in the bell under Closed for 30 days)">Clear All</button>;
+    return (
+      <div role="alert" aria-label="Priority notice" style={{ ...BAR, flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
+        {open.map((item, i) => line(item, i === 0 ? clearBtn : null))}
+      </div>
+    );
+  }
+  const pager = open.length > 1 && (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 2, fontSize: '0.74rem', whiteSpace: 'nowrap' }}>
+      <button type="button" style={ICON} aria-label="Previous notice" disabled={at === 0} onClick={() => setAt((a) => Math.max(0, a - 1))}><ChevronLeft size={14} /></button>
+      {Math.min(at, open.length - 1) + 1} of {open.length}
+      <button type="button" style={ICON} aria-label="Next notice" disabled={at >= open.length - 1} onClick={() => setAt((a) => Math.min(open.length - 1, a + 1))}><ChevronRight size={14} /></button>
+    </span>
+  );
+  const showAllBtn = open.length > 1 && <button type="button" style={BTN} onClick={() => setShowAll(true)}>Show All</button>;
+  return (
+    <div role="alert" aria-label="Priority notice" style={{ ...BAR, display: 'block' }}>
+      {line(n, showAllBtn, pager)}
     </div>
   );
 }
