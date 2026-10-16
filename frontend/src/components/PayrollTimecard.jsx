@@ -18,6 +18,7 @@ import GeofencePunchModal from './GeofencePunchModal';
 import AddTimeModal from './AddTimeModal';
 import AnchoredMenu from './AnchoredMenu';
 import { Spinner } from './AsyncState';
+import { Modal } from '../tasks/components';
 import EmployeeCombobox from './EmployeeCombobox';
 import { downloadBlob } from './accounting/reportModel';
 import { formatDistance } from '../lib/distance';
@@ -264,9 +265,9 @@ function SideAvatar({ name, email, photos }) {
 // is removed. The manager/HR note is never shown on the employee's own
 // timecard; the employee's OWN note (Neil, Oct 12) uses the same cell with
 // `placeholder` / `addLabel` set, and the manager sees it under theirs.
-function NoteCell({ date, note, onSave, locked, placeholder = 'Add a note', addLabel = '+ Add Note', autoEdit = false, lines = 2, maxWidth = 220 }) {
+function NoteCell({ date, note, onSave, locked, placeholder = 'Add a note', addLabel = '+ Add Note', lines = 2, maxWidth = 220 }) {
   const saved = note?.note || '';
-  const [editing, setEditing] = useState(!!autoEdit && !locked);
+  const [editing, setEditing] = useState(false);
   const [text, setText] = useState(saved);
   const [busy, setBusy] = useState(false);
   // One save at a time: Enter saves, and the box then losing focus fired a
@@ -303,6 +304,43 @@ function NoteCell({ date, note, onSave, locked, placeholder = 'Add a note', addL
         width: '100%', maxWidth, overflow: 'hidden', whiteSpace: 'normal', display: '-webkit-box', WebkitLineClamp: lines, WebkitBoxOrient: 'vertical', wordBreak: 'break-word' }}>
       {saved || (locked ? '-' : addLabel)}
     </button>
+  );
+}
+
+// Add Note from the toolbar (Pranshu, Oct 16 - the per-day pencils cluttered
+// the grid): pick the day, write (or rewrite, or clear) its note.
+function NoteModal({ dates, dow, self, noteFor, onSave, onClose, toastOk }) {
+  const [date, setDate] = useState(dates[0]);
+  const [text, setText] = useState(() => noteFor(dates[0]));
+  const [busy, setBusy] = useState(false);
+  const pick = (d) => { setDate(d); setText(noteFor(d)); };
+  const save = async () => {
+    setBusy(true);
+    const ok = await onSave(date, text.trim());
+    setBusy(false);
+    if (ok) { toastOk?.(text.trim() ? 'Note saved.' : 'Note removed.'); onClose(); }
+  };
+  const pill = { borderRadius: 999, padding: '6px 16px', cursor: 'pointer', font: 'inherit', fontSize: 12.5, fontWeight: 700 };
+  return (
+    <Modal title={self ? 'Add a Note for Your Manager' : 'Add a Note'} onClose={onClose} isDirty={text !== noteFor(date)} onSave={save}
+      footer={<>
+        <button type="button" onClick={onClose} style={{ ...pill, border: '1px solid var(--wk-line2)', background: 'var(--card)', color: 'var(--ink)' }}>Cancel</button>
+        <button type="button" onClick={save} disabled={busy} style={{ ...pill, border: 'none', background: 'var(--wk-brand)', color: '#fff' }}>Save Note</button>
+      </>}>
+      <div style={{ display: 'grid', gap: 14 }}>
+        <label style={{ display: 'grid', gap: 5, fontSize: 12.5, fontWeight: 600 }}>Day
+          <select className="form-input" value={date} onChange={e => pick(e.target.value)} style={{ fontWeight: 400 }}>
+            {dates.map(d => <option key={d} value={d}>{dow(d)}{noteFor(d) ? ' - has a note' : ''}</option>)}
+          </select>
+        </label>
+        <label style={{ display: 'grid', gap: 5, fontSize: 12.5, fontWeight: 600 }}>Note
+          <textarea className="form-input" rows={4} autoFocus value={text} onChange={e => setText(e.target.value)}
+            placeholder={self ? 'Seen by your manager on your timecard' : 'Seen by managers and HR, not by the employee'}
+            style={{ fontWeight: 400, resize: 'vertical', fontFamily: 'inherit' }} />
+        </label>
+        <div style={{ fontSize: 12, color: 'var(--muted)' }}>It shows on its day under the time rows. Save an empty note to remove it.</div>
+      </div>
+    </Modal>
   );
 }
 
@@ -628,9 +666,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // The SwipeClock grid (Oct 16): every cell ruled, tight rows, centered text.
   const gh = { fontSize: 12, fontWeight: 700, padding: '5px 8px', textAlign: 'center', border: '1px solid var(--line)', background: 'var(--wk-hover)', whiteSpace: 'nowrap' };
   const gc = { fontSize: 12.5, padding: '3px 8px', textAlign: 'center', border: '1px solid var(--line)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', verticalAlign: 'middle' };
-  // The day whose note line is open from the pencil in its Date cell.
-  const [noteOpen, setNoteOpen] = useState('');
-  const noteOf = (ds) => self ? myNote(ds)?.note : notes[ds]?.note;
+  // Add Note in the toolbar (Pranshu, Oct 16): pick the day, write the note.
+  const [noteModal, setNoteModal] = useState(false);
+  const noteOf = (ds) => (self ? myNote(ds)?.note : notes[ds]?.note) || '';
 
   // Day notes: the manager/HR note (Charmi, Sep 29) rides only on the team
   // timecard; the employee's OWN note (Neil, Oct 12) is the one thing the
@@ -1107,6 +1145,12 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           <Plus size={14} /> Add Time
         </button>
         )}
+        {!fin && (self || email) && (
+        <button onClick={() => setNoteModal(true)} title={self ? 'Leave a note on a day for your manager' : 'Leave a note on a day - seen by managers and HR, not the employee'}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--wk-line2)', borderRadius: 999, padding: '5px 12px', fontFamily: 'var(--wk-font)', fontSize: 12, fontWeight: 700, color: 'var(--ink)', cursor: 'pointer' }}>
+          <Pencil size={13} /> Add Note
+        </button>
+        )}
         <div style={{ flex: 1 }} />
         {/* Options holds only display choices now: the timezone and unrounded
             times. The pay rules that used to sit here (rounding, auto-lunch,
@@ -1202,14 +1246,13 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   </td>
                 </tr>
               ) : r.type === 'note' ? (
-                /* SwipeClock's pencil line under a day ("Took lunch from
-                   12:05-1:05"): only when there is a note, an employee note,
-                   a punch reason, or the pencil in the Date cell was clicked. */
-                (r.text || noteOf(r.ds) || notes[r.ds]?.employeeNote || noteOpen === r.ds) ? (
+                /* SwipeClock's note line under a day ("Took lunch from
+                   12:05-1:05"): only when there is a note, an employee note
+                   or a punch reason. */
+                (r.text || noteOf(r.ds) || notes[r.ds]?.employeeNote) ? (
                   <tr key={i} className={`pr-day-row${r.band ? ' pr-band' : ''}`}>
-                    <td colSpan={span} style={{ ...gc, textAlign: 'left', whiteSpace: 'normal', fontSize: 12 }}>
+                    <td colSpan={span} style={{ ...gc, textAlign: 'left', whiteSpace: 'normal', fontSize: 12, paddingLeft: 26 }}>
                       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                        <Pencil size={11} style={{ marginTop: 3, flexShrink: 0, color: 'var(--muted)' }} />
                         {/* One line each (Pranshu, Oct 16): the employee's note,
                             then HR's, then what was written on the punches - just
                             "Note by employee" / "Note by HR", no name, no date
@@ -1221,12 +1264,12 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                               <strong>Note by employee:</strong> {notes[r.ds].employeeNote}
                             </span>
                           )}
-                          {(noteOf(r.ds) || noteOpen === r.ds) && (
+                          {noteOf(r.ds) && (
                             <span style={{ display: 'flex', alignItems: 'baseline', gap: 6, minWidth: 0 }}>
                               <strong style={{ whiteSpace: 'nowrap' }}>{self ? 'Your note' : 'Note by HR'}:</strong>
                               {self
-                                ? <NoteCell key={noteOpen === r.ds ? 'open' : 'n'} date={r.ds} note={myNote(r.ds)} onSave={saveMyNote} placeholder="Add a note for your manager" autoEdit={noteOpen === r.ds && !noteOf(r.ds)} lines={1} maxWidth="none" />
-                                : <NoteCell key={noteOpen === r.ds ? 'open' : 'n'} date={r.ds} note={notes[r.ds]} onSave={saveNote} autoEdit={noteOpen === r.ds && !noteOf(r.ds)} lines={1} maxWidth="none" />}
+                                ? <NoteCell date={r.ds} note={myNote(r.ds)} onSave={saveMyNote} placeholder="Add a note for your manager" lines={1} maxWidth="none" />
+                                : <NoteCell date={r.ds} note={notes[r.ds]} onSave={saveNote} lines={1} maxWidth="none" />}
                             </span>
                           )}
                           {r.text && <span><strong>On the punches:</strong> <span style={{ color: 'var(--muted)', fontStyle: 'italic' }}>{r.text}</span></span>}
@@ -1257,18 +1300,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 <tr key={i} className={`pr-row pr-day-row${r.band ? ' pr-band' : ''}${r.seg?.payClass ? ' pr-leave' : ''}`}
                   title={r.seg?.payClass ? `${{ sick: 'Sick', vacation: 'Vacation', personal: 'Personal' }[r.seg.payClass] || 'Leave'} day` : undefined}>
                   <td style={{ ...gc, textAlign: 'left', fontWeight: 600, color: r.seg?.payClass ? '#b91c1c' : r.seg ? 'var(--wk-brand)' : 'var(--muted)' }}>
-                    {r.first !== false && (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                        {dow(r.ds)}
-                        {!fin && (
-                          <button type="button" onClick={() => setNoteOpen(r.ds)} title={self ? 'Add a note for your manager on this day' : 'Add a note on this day - seen by managers and HR, not the employee'}
-                            aria-label={`Add a note on ${dow(r.ds)}`}
-                            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--muted)', display: 'inline-flex' }}>
-                            <Pencil size={12} />
-                          </button>
-                        )}
-                      </span>
-                    )}
+                    {r.first !== false && dow(r.ds)}
                   </td>
                   <td style={gc}>{hEdit(r)}</td>
                   {r.seg ? (
@@ -1441,6 +1473,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           nameFor={nameFor} onChanged={load} toastOk={toastOk} toastErr={toastErr} />
       )}
 
+      {noteModal && (
+        <NoteModal dates={dates} dow={dow} self={self} noteFor={noteOf} onSave={self ? saveMyNote : saveNote} toastOk={toastOk} onClose={() => setNoteModal(false)} />
+      )}
       {addTime && !self && email && (
         <AddTimeModal email={email} name={nameFor(email)} start={start} end={end} onClose={() => setAddTime(false)}
           onDone={() => { _timecardCache.clear(); load(); }} toastOk={toastOk} toastErr={toastErr} />
@@ -1472,7 +1507,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         { target: 'pr-period', title: 'The pay period',
           body: 'Bi-weekly, Sunday to Saturday - the SAME calendar as SwipeClock (current period 7/26–8/8), so the two cards always cover identical days. Arrows move one period.' },
         { target: 'pr-table', title: 'The time card - same columns as SwipeClock',
-          body: 'Date, Edit, In, Out, Deducted Time, Category, Hours, OT (1.5× and, past 12 hours in California, 2×), Loc, Pay Rate and Wage. Each break the person punched is its own Break line under the shift, with its start, end and length. Hover a time for its punch history - where it came from, the exact time, who entered or changed it. Notes ride on the pencil line under the day; weekly total rows appear after each week.' },
+          body: 'Date, Edit, In, Out, Deducted Time, Category, Hours, OT (1.5× and, past 12 hours in California, 2×), Loc, Pay Rate and Wage. Each break the person punched is its own Break line under the shift, with its start, end and length. Hover a time for its punch history - where it came from, the exact time, who entered or changed it. Add Note in the toolbar leaves a note on a day; it reads on the line under that day. Weekly total rows appear after each week.' },
         { target: 'pr-rounding', title: 'Options: rounded vs raw times',
           body: 'SwipeClock computes pay from rounded times but keeps the raw punch - so does Nexus. Open Options to peek at raw times, switch the timezone, or change a pay rule. During the comparison week, leave the rounding setting ON so the numbers can match 1:1.' },
         { target: 'pr-edit', title: 'Fix punches here',
