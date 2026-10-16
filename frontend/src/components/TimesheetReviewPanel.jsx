@@ -24,15 +24,18 @@ const ACTION_LABEL = {
   signed_employee: 'signed as the employee', signed_manager: 'signed as the manager',
   signed_hr: 'signed for HR', completed: 'finalized it for payroll',
 };
+// Oct 16 (Neil): only the employee signs. The lead approver - the manager, or
+// the company's HR contact / a Global Admin when nobody is set - approves by
+// clicking Agree; the employee's signature finalizes the period.
 const STEPS = [
   { key: 'review', label: 'Review' }, { key: 'employee', label: 'Employee Signs' },
-  { key: 'manager', label: 'Manager Signs' }, { key: 'hr', label: 'HR Signs' },
+  { key: 'done', label: 'Finalized' },
 ];
 const hm = (m) => `${Math.floor((m || 0) / 60)}h ${String((m || 0) % 60).padStart(2, '0')}m`;
 
 function stepIndex(r) {
   if (!r || ['not_submitted', 'with_manager', 'with_employee'].includes(r.status)) return 0;
-  if (r.status === 'completed') return 4;
+  if (r.status === 'completed') return STEPS.length;
   return Math.max(1, STEPS.findIndex((s) => s.key === r.turn));
 }
 
@@ -199,19 +202,26 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
     <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
       <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 8 }}>Timesheet Review &amp; Signatures</div>
       <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '0 0 10px' }}>
-        The employee and manager agree the hours, then the employee, manager and HR sign in Nexus Sign (electronically or on paper). HR's signature finalizes it for payroll. Period: {periodLabel}.
+        The employee and their approver agree the hours, then the employee signs in Nexus Sign (electronically or on paper). That signature finalizes the period for payroll. Period: {periodLabel}.
       </p>
       <Stepper review={r} />
       {body}
       {signingView && (
         <>
           {r.status === 'completed'
-            ? <p style={{ fontSize: 13, margin: '0 0 10px', color: 'hsl(var(--color-green))', fontWeight: 700 }}><CheckCircle size={13} style={{ verticalAlign: '-2px' }} /> Signed by everyone and finalized for payroll. The sealed copy is in Documents.</p>
+            ? <p style={{ fontSize: 13, margin: '0 0 10px', color: 'hsl(var(--color-green))', fontWeight: 700 }}><CheckCircle size={13} style={{ verticalAlign: '-2px' }} /> Approved and signed - finalized for payroll. The sealed copy is in Documents.</p>
             : <p style={{ fontSize: 13, margin: '0 0 10px' }}>Agreed by {name(r.agreedBy)} on {formatDate(r.agreedAt)}. Hours are locked while it is signed - to change them, decline in Nexus Sign with a reason.</p>}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12 }}>
+            <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: 14, background: 'var(--card)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--muted)' }}>Approval</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 13.5, fontWeight: 700, color: 'hsl(var(--color-green))', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                  <CheckCircle size={14} /> {name(r.agreedBy) || 'Approver'}
+                </span>
+                <span style={{ fontSize: 11, color: 'var(--muted)' }}>agreed {formatDate(r.agreedAt)}</span>
+              </div>
+            </div>
             <SigCard label="Employee" party={parties.employee} waiting={r.turn === 'employee'} />
-            <SigCard label="Manager" party={parties.manager} waiting={r.turn === 'manager'} />
-            <SigCard label="HR" party={parties.hr} waiting={r.turn === 'hr'} />
           </div>
           {r.myPartyId && (
             <button className="primary-btn" onClick={() => setSigning(r.myPartyId)}

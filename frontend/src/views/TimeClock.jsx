@@ -17,7 +17,7 @@ import PayrollTimecard from '../components/PayrollTimecard';
 import BodModal from '../components/BodModal';
 import { useTimeStatus, patchTimeStatus } from '../lib/useTimeStatus';
 import { punchDurable, replayPending, readPending, utcStamp } from '../lib/punchQueue';
-import { replayPendingBods } from '../lib/bodQueue';
+import { replayPendingBods, bodDurable } from '../lib/bodQueue';
 import { formatTime, formatDate, formatWeekday, formatHHMM, formatMonthDay } from '../lib/datetime';
 import { getPosition, punchPosition } from '../lib/geoPosition';
 import { MyHROverview } from './MyHR';
@@ -747,8 +747,10 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   }
 
   // Record a "already sent elsewhere" marker so the prompt doesn't nag again today.
+  // Durable (Oct 16): offline, the marker parks and replays before the parked
+  // punch, which the server refuses without it.
   function bodMarker(kind) {
-    return api.timeBodRecord({ kind, message: '(sent outside Nexus)', sent: false,
+    return bodDurable({ kind, message: '(sent outside Nexus)', sent: false,
       tz_offset_min: new Date().getTimezoneOffset() }).catch(() => {});
   }
 
@@ -1517,8 +1519,11 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
           : bodMode === 'break-end-gate' ? () => { setBodMode(null); actualPunch('break_end'); }
           : bodMode === 'eod-gate' ? () => { setBodMode(null); actualPunch('out'); }
           : () => setBodMode(null);
-        const onSkip = bodMode === 'bod-gate' ? () => { bodMarker('bod'); proceed(); }
-          : bodMode === 'eod-gate' ? () => { bodMarker('eod'); proceed(); }
+        // The "already sent" marker must LAND before the punch: the server
+        // refuses a first clock-in / clock-out with no message on record
+        // (Oct 16), so a fire-and-forget marker raced the punch.
+        const onSkip = bodMode === 'bod-gate' ? async () => { await bodMarker('bod'); proceed(); }
+          : bodMode === 'eod-gate' ? async () => { await bodMarker('eod'); proceed(); }
           : proceed;
         return <BodModal mode={modalMode} required onSent={proceed} onSkip={onSkip}
           onClose={() => { gateClickRef.current = ''; setBodMode(null); }}

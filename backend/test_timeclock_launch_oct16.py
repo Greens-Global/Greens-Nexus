@@ -53,6 +53,7 @@ class LaunchCase(unittest.TestCase):
     def setUp(self):
         self._skip, auth.SKIP_AUTH = auth.SKIP_AUTH, True
         self._prev = os.environ.get("NEXUS_DEV_EMAIL")
+        auth.invalidate_role_cache()
         self.db = database.SessionLocal()
         for m in (models.TimesheetReview, models.TimePunch, models.TimeApproval, models.PunchRequest,
                   models.NexusEmployee, models.HrEntity, models.PayrollRate, models.NexusRole):
@@ -207,6 +208,77 @@ class LaunchCase(unittest.TestCase):
         d = r.json()["detail"]
         self.assertEqual(d["code"], "stale_open_shift")
         self.assertIn("Missed Punch", d["message"])
+
+
+    # ── Beginning / End-of-day enforced by the server (Neil, Oct 16) ──────
+
+    def _bod(self, kind, day):
+        self.db.add(models.TimeBod(id=f"bod-{kind}-{day}", employee_email=EMP, kind=kind, local_date=day,
+                                   message="(sent outside Nexus)", created_at=f"{day}T00:00:00"))
+        self.db.commit()
+
+    def test_first_clock_in_needs_a_bod_and_clock_out_needs_an_eod(self):
+        self._as(EMP)
+        r = self.client.post("/timeclock/punch", json={"kind": "in", "tz_offset_min": 0})
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertEqual(r.json()["detail"]["code"], "bod_required")
+        self._bod("bod", TODAY)
+        r = self.client.post("/timeclock/punch", json={"kind": "in", "tz_offset_min": 0})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertTrue(self.client.get("/timeclock/status").json()["eodRequired"])
+        # Punch times are second-resolution: the clock-out lands in the next
+        # second so it is unambiguously the "last punch".
+        import time
+        time.sleep(1.1)
+        r = self.client.post("/timeclock/punch", json={"kind": "out", "tz_offset_min": 0})
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertEqual(r.json()["detail"]["code"], "eod_required")
+        self._bod("eod", TODAY)
+        self.assertFalse(self.client.get("/timeclock/status").json()["eodRequired"])
+        r = self.client.post("/timeclock/punch", json={"kind": "out", "tz_offset_min": 0})
+        self.assertEqual(r.status_code, 200, r.text)
+        # A second clock-in the same day needs no second message.
+        time.sleep(1.1)
+        r = self.client.post("/timeclock/punch", json={"kind": "in", "tz_offset_min": 0})
+        self.assertEqual(r.status_code, 200, r.text + " " + str(self.client.get("/timeclock/status").json()["lastPunch"]))
+
+    def test_an_exempt_role_punches_straight_through(self):
+        self.db.add(models.NexusGroup(id="g-l16", name="Field", allowed_modules="", bod_exempt=1))
+        self.db.add(models.NexusGroupMember(group_id="g-l16", email=EMP))
+        self.db.commit()
+        try:
+            self._as(EMP)
+            self.assertEqual(self.client.post("/timeclock/punch", json={"kind": "in", "tz_offset_min": 0}).status_code, 200)
+            self.assertEqual(self.client.post("/timeclock/punch", json={"kind": "out", "tz_offset_min": 0}).status_code, 200)
+        finally:
+            self.db.query(models.NexusGroupMember).filter(models.NexusGroupMember.group_id == "g-l16").delete()
+            self.db.query(models.NexusGroup).filter(models.NexusGroup.id == "g-l16").delete()
+            self.db.commit()
+
+    # ── no manager: the HR contact decides ────────────────────────────────
+
+    def test_hr_contact_decides_for_people_with_no_manager(self):
+        # A manager-tier HR contact (no People grant) of a company whose
+        # employee has nobody set as manager.
+        HR2 = "hr2.l16@greensglobal.com"
+        self.db.add(models.NexusEmployee(id="id-Hal", work_email=HR2, first_name="Hal", last_name="Test",
+                                         company=ENTITY, manager_email="", status="active"))
+        self.db.add(models.NexusRole(email=HR2, role="manager", assigned_by="test"))
+        self.db.query(models.HrEntity).filter(models.HrEntity.id == ENTITY).update({"hr_contact_email": HR2})
+        self.db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == EMP).update({"manager_email": ""})
+        self.db.commit()
+        HR = HR2  # noqa: N806 - the approver for the rest of this test
+        self._punch(self.start, "in", "16:00:00")
+        self._as(EMP)
+        r = self.client.post("/timeclock/punch-requests", json={
+            "action": "add", "punch_kind": "out", "at": f"{self.start}T23:00:00",
+            "tz_offset_min": 0, "reason": "forgot"})
+        self.assertEqual(r.status_code, 200, r.text)
+        rid = r.json()["id"]
+        self._as(HR)                     # a manager-tier HR contact, no People grant
+        self.assertIn(EMP, timeclock._visible_emails(self.db, {"email": HR, "level": 3}))
+        r = self.client.patch(f"/timeclock/punch-requests/{rid}", json={"status": "approved"})
+        self.assertEqual(r.status_code, 200, r.text)
 
 
 if __name__ == "__main__":

@@ -14,9 +14,9 @@
 // click opens Workday does not fire under the modal.
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { api } from '../../api';
 import BodModal from '../../components/BodModal';
 import { punchDurable, replayPending, readPending } from '../../lib/punchQueue';
+import { bodDurable } from '../../lib/bodQueue';
 import { punchPosition } from '../../lib/geoPosition';
 import { applyPunch, useTimeStatus, refetchTimeStatusFresh } from '../../lib/useTimeStatus';
 import { pairLocalAgent } from '../../lib/agentPair';
@@ -190,6 +190,14 @@ export function usePunchClock() {
       // this tap), so closing the prompt stops it again (see `modals`).
       if (status?.bodRequired && !status?.bodExempt) { setGate('bod'); return true; }
     }
+    // End-of-day message BEFORE the clock-out (Oct 16: policy, enforced by
+    // the server for every surface - it refuses an "out" with no EOD on
+    // record). Sent or acknowledged, then the punch records.
+    if (kind === 'out' && status?.eodRequired && !status?.bodExempt) {
+      clickedAt.current = new Date().toISOString().slice(0, 19);
+      setGate('eod');
+      return true;
+    }
     // A break asks for its reason on the way out and offers a note on the way
     // back, posted to the person's chat - the same prompts the Time Clock
     // screen holds the punch behind (the sidebar chip skipped them: Neil,
@@ -270,6 +278,11 @@ export function usePunchClock() {
         res.queued ? 'Offline - saved, records later.' : 'Offline - not recorded.');
       } else if (kind === 'in' && (res.error?.detail?.code === 'monitoring_consent_required' || /monitoring_consent_required/i.test(res.error?.message || ''))) {
         say(false, CONSENT_TEXT, CONSENT_SHORT);
+      } else if (res.error?.detail?.code === 'bod_required' || res.error?.detail?.code === 'eod_required') {
+        // The server holds the policy: a stale status let the punch go out
+        // without its message - open the prompt and the punch follows it.
+        setGate(res.error.detail.code === 'bod_required' ? 'bod' : 'eod');
+        return;
       } else {
         say(false, res.error?.message || 'Punch failed.');
       }
@@ -282,7 +295,8 @@ export function usePunchClock() {
   }
 
   // "Already sent elsewhere" marker, so the gate does not ask again today.
-  const bodMarker = () => api.timeBodRecord({ kind: 'bod', message: '(sent outside Nexus)', sent: false, tz_offset_min: new Date().getTimezoneOffset() }).catch(() => {});
+  // Awaited before the punch: the server wants it on record first (Oct 16).
+  const bodMarker = (kind = 'bod') => bodDurable({ kind, message: '(sent outside Nexus)', sent: false, tz_offset_min: new Date().getTimezoneOffset() }).catch(() => {});
 
   const stop = (e) => e.stopPropagation();
   const modals = (
@@ -291,9 +305,17 @@ export function usePunchClock() {
         <div onClick={stop}>
           <BodModal mode="bod" required
             onSent={() => { setGate(null); punch('in').finally(() => { inFlight.current = false; }); }}
-            onSkip={() => { bodMarker(); setGate(null); punch('in').finally(() => { inFlight.current = false; }); }}
+            onSkip={async () => { await bodMarker('bod'); setGate(null); punch('in').finally(() => { inFlight.current = false; }); }}
             // Closed without sending: no clock-in, so no screen share either.
             onClose={() => { dropCapture(); clickedAt.current = ''; inFlight.current = false; setGate(null); }}
+            toastOk={(t) => say(true, t)} toastErr={(t) => say(false, t)} />
+        </div>, document.body)}
+      {gate === 'eod' && createPortal(
+        <div onClick={stop}>
+          <BodModal mode="eod" required
+            onSent={() => { setGate(null); punch('out').finally(() => { inFlight.current = false; }); }}
+            onSkip={async () => { await bodMarker('eod'); setGate(null); punch('out').finally(() => { inFlight.current = false; }); }}
+            onClose={() => { clickedAt.current = ''; inFlight.current = false; setGate(null); }}
             toastOk={(t) => say(true, t)} toastErr={(t) => say(false, t)} />
         </div>, document.body)}
       {(gate === 'break' || gate === 'break_end') && createPortal(

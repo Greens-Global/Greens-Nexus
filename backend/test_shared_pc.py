@@ -58,6 +58,11 @@ class SharedPcTests(unittest.TestCase):
             # admin can read the devices view
             db.add(models.NexusGroup(id=GROUP, name="SharedPc Admin", allowed_modules="employee-tracking:full"))
             db.add(models.NexusGroupMember(group_id=GROUP, email=ADMIN))
+            # Front-desk staff are message-exempt: these tests are about the
+            # shared PC, not the Beginning/End-of-day gate (server-side, Oct 16).
+            db.add(models.NexusGroup(id=GROUP + "-field", name="Front Desk", allowed_modules="", bod_exempt=1))
+            for em in (OWNER, A, B):
+                db.add(models.NexusGroupMember(group_id=GROUP + "-field", email=em))
             db.commit()
         finally:
             db.close()
@@ -80,8 +85,8 @@ class SharedPcTests(unittest.TestCase):
             db.query(models.AgentDevice).filter(models.AgentDevice.id == DEV_ID).delete(synchronize_session=False)
             db.query(models.AgentPairing).filter(models.AgentPairing.employee_email.like("sharedpc.%")).delete(synchronize_session=False)
             db.query(models.TimePunch).filter(models.TimePunch.employee_email.like("sharedpc.%")).delete(synchronize_session=False)
-            db.query(models.NexusGroup).filter(models.NexusGroup.id == GROUP).delete(synchronize_session=False)
-            db.query(models.NexusGroupMember).filter(models.NexusGroupMember.group_id == GROUP).delete(synchronize_session=False)
+            db.query(models.NexusGroup).filter(models.NexusGroup.id.in_([GROUP, GROUP + "-field"])).delete(synchronize_session=False)
+            db.query(models.NexusGroupMember).filter(models.NexusGroupMember.group_id.in_([GROUP, GROUP + "-field"])).delete(synchronize_session=False)
             db.commit()
         finally:
             db.close()

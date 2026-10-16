@@ -7,7 +7,7 @@ import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { useTimeStatus, applyPunch } from '../lib/useTimeStatus';
 import { punchDurable, replayPending, readPending } from '../lib/punchQueue';
 import { punchPosition, keepPositionWarm } from '../lib/geoPosition';
-import { replayPendingBods } from '../lib/bodQueue';
+import { replayPendingBods, bodDurable } from '../lib/bodQueue';
 import { useRole } from '../contexts/RoleContext';
 import { rememberTimeExempt } from '../lib/timeTracking';
 import { publishTimeclock, useTimeclockClaimed, fmtHM, openTimeClock } from '../lib/timeclockStore';
@@ -69,6 +69,10 @@ export default function TimeclockWidget() {
   const [capturing, setCapturing] = useState(0);   // number of screens being captured
   const [busy, setBusy] = useState(false);
   const [eodOpen, setEodOpen] = useState(false);   // end-of-day message after punch-out
+  // End-of-day message BEFORE the punch-out (Oct 16: policy, enforced by the
+  // server for every surface). The ack lets the retried punch-out pass the gate.
+  const [eodGate, setEodGate] = useState(false);
+  const eodAckRef = useRef(false);
   const [lostOut, setLostOut] = useState(false);   // the quick punch-out did not record
   const [expanded, setExpanded] = useState(false); // capsule collapsed by default; expands upward
   const [localAgent, setLocalAgent] = useState(false); // /nexus/ping answered on THIS machine
@@ -457,6 +461,11 @@ export default function TimeclockWidget() {
     // Durable: a dropped punch-out used to be swallowed here entirely, leaving
     // the shift open with nobody told. Now it retries, parks for replay, and -
     // since this capsule is the only surface the person is looking at - says so.
+    if (status?.eodRequired && !status?.bodExempt && !eodAckRef.current) {
+      setEodGate(true); setBusy(false);
+      return false;
+    }
+    eodAckRef.current = false;
     const pos = await punchPosition('out');   // short budget: the punch landing comes first
     const res = await punchDurable({ kind: 'out', tzOffsetMin: new Date().getTimezoneOffset(), pos });
     if (res.ok) {
@@ -468,6 +477,8 @@ export default function TimeclockWidget() {
     } else if (res.unreachable) {
       setLostOut(true);
       setExpanded(true);   // never leave this hiding inside a collapsed capsule
+    } else if (res.error?.detail?.code === 'eod_required') {
+      setEodGate(true);    // a stale status let it go out without its message
     } else {
       say(res.error?.message || 'Punch failed.');
     }
@@ -549,6 +560,16 @@ export default function TimeclockWidget() {
       onClose={() => { breakClickRef.current = ''; breakPosRef.current = null; setBreakGate(null); setBreakBusy(false); punchFlight.current = false; }}
       toastOk={() => {}} toastErr={say} />
   ) : null;
+  const eodGateModal = eodGate ? (
+    <BodModal mode="eod" required
+      onSent={() => { setEodGate(false); eodAckRef.current = true; quickPunchOut(); }}
+      onSkip={async () => {
+        await bodDurable({ kind: 'eod', message: '(sent outside Nexus)', sent: false, tz_offset_min: new Date().getTimezoneOffset() }).catch(() => {});
+        setEodGate(false); eodAckRef.current = true; quickPunchOut();
+      }}
+      onClose={() => setEodGate(false)}
+      toastOk={() => {}} toastErr={say} />
+  ) : null;
 
   // Salaried/exempt people are never time-tracked - no floating timer for them
   // (Charmi, Aug 21) - unless one is still clocked in (flag set mid-shift):
@@ -561,7 +582,7 @@ export default function TimeclockWidget() {
   }
   // The sidebar chip is on screen: it draws the shift, this engine keeps
   // running underneath (capture, replay, polling) with nothing to show.
-  if (claimed) return breakModal;
+  if (claimed) return <>{breakModal}{eodGateModal}</>;
 
   // Lift the capsule clear of any bottom save bar (asset detail edit) so the
   // Save/Discard buttons underneath are never covered. editGuard.dirty is the
@@ -580,6 +601,7 @@ export default function TimeclockWidget() {
   // asset "Save before you leave" bar).
   return (<>
     {breakModal}
+    {eodGateModal}
     <div ref={wrapRef} className="tc-capsule" style={{ position: 'fixed', bottom, right, zIndex: 1190, display: 'flex',
       flexDirection: 'column', alignItems: 'flex-end', gap: 8, fontFamily: 'var(--wk-font)', transition: 'bottom .18s ease' }}>
       {expanded && (

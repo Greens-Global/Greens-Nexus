@@ -189,6 +189,15 @@ def _visible_emails(db: Session, user: dict):
     import backup_manager
     directs = backup_manager.managed_directly(db, user["email"])
     directs.add(user["email"])
+    # A company's HR contact is the lead approver for its people who have NO
+    # manager on file (Neil, Oct 16: HR and the Global Admins decide then,
+    # never "any manager") - their requests already reach the HR contact.
+    from models import HrEntity
+    _me = (user["email"] or "").lower()
+    for ent in db.query(HrEntity).filter(func.lower(HrEntity.hr_contact_email) == _me).all():
+        directs |= {(e.work_email or "").lower() for e in db.query(NexusEmployee)
+                    .filter(NexusEmployee.company == ent.id, NexusEmployee.status.in_(["active", "onboarding"])).all()
+                    if e.work_email and not (e.manager_email or "").strip()}
     if _module_level(user["email"], "hr", db) >= 1:
         scope = hr_scope(user, db)
         if scope is None:
@@ -825,8 +834,16 @@ def my_status(tz_offset_min: int = 0, user: dict = Depends(get_current_user), db
     pol = _get_policy(db, _company_of(db, email))
     _rr = db.query(PayrollRate).filter(PayrollRate.employee_email == email).first()
     _bod_ex = _is_bod_exempt(db, email)
+    # End-of-day message owed before the clock-out: a shift is open and no EOD
+    # was posted for its day (Oct 16: every surface gates on this, and POST
+    # /punch refuses an "out" without it for non-exempt roles).
+    _open = bool(last) and last.kind != "out" and not _stale_open_shift(last)
+    has_eod = (db.query(TimeBod)
+               .filter(TimeBod.employee_email == email, TimeBod.kind == "eod",
+                       TimeBod.local_date == local_today).first()) if _open else None
     return {
         "lastPunch": _serialize(last) if last else None,
+        "eodRequired": _open and has_eod is None and not _bod_ex,
         "allowed": _allowed_kinds(_effective_last_kind(last)),
         # The open shift is too old to close by punching - it shows as Missing
         # and needs a punch-fix request; the UI offers Clock In instead.
@@ -942,6 +959,32 @@ def punch(body: PunchIn, request: Request,
             # stays for older clients.
             raise HTTPException(409, {"code": "stale_open_shift", "message": _msg, "text": _msg})
         raise HTTPException(409, f"Can't punch '{body.kind}' right now - allowed: {', '.join(allowed)}")
+    # Beginning / End-of-day messages are POLICY, enforced here for every
+    # surface (Neil, Oct 16: "enforced per policy everywhere based on roles"),
+    # not only by whichever screen the person punched from. Roles flagged
+    # bod_exempt skip both. The first clock-in of the workday needs a BOD on
+    # record (a real post or the "already sent elsewhere" marker); the
+    # clock-out needs an EOD for the shift's day. The clients post the message
+    # first and punch second, so a refusal here means a client that skipped.
+    if body.kind in ("in", "out") and not _is_bod_exempt(db, email):
+        _day = _shift_day(db, email, _now_iso(), body.tz_offset_min or 0)
+        if body.kind == "in":
+            _has_bod = (db.query(TimeBod)
+                        .filter(TimeBod.employee_email == email, TimeBod.kind == "bod",
+                                TimeBod.local_date == _day).first())
+            _has_in = (db.query(TimePunch)
+                       .filter(TimePunch.employee_email == email, TimePunch.kind == "in",
+                               TimePunch.local_date == _day, TimePunch.voided == 0).first())
+            if _has_bod is None and _has_in is None:
+                _m = "Post your Beginning of Day message before you clock in."
+                raise HTTPException(409, {"code": "bod_required", "message": _m})
+        else:
+            _has_eod = (db.query(TimeBod)
+                        .filter(TimeBod.employee_email == email, TimeBod.kind == "eod",
+                                TimeBod.local_date == _day).first())
+            if _has_eod is None:
+                _m = "Post your End of Day message before you clock out."
+                raise HTTPException(409, {"code": "eod_required", "message": _m})
     # Shared-PC: resolve the device the local agent claimed (via /agent/pair).
     # A successful pairing means THIS employee is physically at that PC's agent,
     # so if it is still bound to someone else, that person LEFT the shared PC
