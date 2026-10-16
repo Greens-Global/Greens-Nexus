@@ -135,11 +135,14 @@ const _INTERNAL_NOTES = new Set(['payroll edit']);
 const cleanNote = (n) => { const t = (n || '').trim(); return t && !_INTERNAL_NOTES.has(t.toLowerCase()) ? t : ''; };
 // The human reason(s) attached to a segment's punches: a pending employee edit,
 // an HR adjust note, or a punch note - minus internal markers. Empty = not edited.
+// The in and the out punch usually carry the SAME note (an approved fix
+// stamps both; a note written on a shift lands on both), so each distinct
+// text reads once (Pranshu, Oct 17: "why is it coming 2 times?").
 const segReasons = (s) => {
   const out = [];
   if (s.inEditStatus === 'pending' && s.inEditReason) out.push(`Proposed in-time: ${s.inEditReason}`);
   if (s.outEditStatus === 'pending' && s.outEditReason) out.push(`Proposed out-time: ${s.outEditReason}`);
-  [s.inAdjustNote, s.outAdjustNote, s.note].forEach(n => { const c = cleanNote(n); if (c) out.push(c); });
+  [s.inAdjustNote, s.outAdjustNote, ...String(s.note || '').split(' · ')].forEach(n => { const c = cleanNote(n); if (c && !out.includes(c)) out.push(c); });
   return out;
 };
 
