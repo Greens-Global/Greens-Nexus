@@ -188,7 +188,8 @@ def attach_resume(db: Session, cand: models.HrCandidate, name: str, raw: bytes, 
 def note_from_comment(db: Session, task_id: str, author: str, body: str) -> bool:
     """A comment on a screening task is a screening note: it goes on the
     candidate's timeline with who wrote it. The caller commits."""
-    text = (body or "").strip()
+    from task_mail_actions import _plain
+    text = _plain(body, 4000)                         # comments are HTML; the timeline shows text
     if not task_id or not text:
         return False
     cand = db.query(models.HrCandidate).filter(models.HrCandidate.screen_task_id == task_id).first()

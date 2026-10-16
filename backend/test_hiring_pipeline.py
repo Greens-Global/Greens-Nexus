@@ -419,11 +419,14 @@ class ScreeningTaskTests(PipelineCase):
         task = self.db.query(models.Task).filter_by(id=cand.screen_task_id).one()
         self.assertIn(att[0].id, task.attachment_ids)
         # a manager's comment lands on the candidate's notes, with who wrote it
-        self.assertTrue(hiring_screening.note_from_comment(self.db, cand.screen_task_id, "head@greensglobal.com", "Strong resume, call them"))
+        # comments are HTML (a mention is a link) - the note is the text (Oct 16)
+        self.assertTrue(hiring_screening.note_from_comment(
+            self.db, cand.screen_task_id, "head@greensglobal.com",
+            '<p><a target="_blank" href="mailto:hr@greensglobal.com">@Pranshu Pandey</a> Strong resume, call them</p><p></p>'))
         self.db.commit()
         rows = hr.candidate_history(c["id"], user=HR_USER, db=self.db)
         note = [r for r in rows if r["kind"] == "note"][-1]
-        self.assertEqual((note["note"], note["byEmail"]), ("Strong resume, call them", "head@greensglobal.com"))
+        self.assertEqual((note["note"], note["byEmail"]), ("@Pranshu Pandey Strong resume, call them", "head@greensglobal.com"))
         self.assertFalse(hiring_screening.note_from_comment(self.db, "not-a-screening-task", "x@y.com", "hi"))
 
     def test_no_department_head_falls_back_to_the_hr_contact(self):
