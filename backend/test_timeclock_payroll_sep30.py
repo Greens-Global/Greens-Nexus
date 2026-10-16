@@ -173,6 +173,11 @@ class FixedCardTests(unittest.TestCase):
         self.assertEqual(sum(r["full"] for r in T["missedReasons"]), T["missedFullDays"])
         self.assertEqual(sum(r["half"] for r in T["missedReasons"]), T["missedHalfDays"])
         self.assertEqual(T["missedReasons"][0]["reason"], "absent")   # most missed first
+        # Each covered day names its time off on the row; partial / rejected ones do not.
+        day = {d["date"]: d for d in card["fixedDays"]}
+        self.assertEqual(day["2026-09-14"]["timeOff"], "Personal")
+        self.assertEqual(day["2026-09-16"]["timeOff"], "")
+        self.assertEqual(day["2026-09-17"]["timeOff"], "")
 
     def test_daily_rate_bands_and_weekend_pay(self):
         db = database.SessionLocal()
