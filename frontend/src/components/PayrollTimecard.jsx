@@ -423,7 +423,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   useEffect(() => {
     if (self) return;   // employee self-view has no picker / team list
     api.timeTeam(start, end).then(r => {
-      const list = (r.rows || []).map(x => ({ email: x.email, name: x.name || x.email, pendingEdits: x.pendingEdits || 0 }));
+      const list = (r.rows || []).map(x => ({ email: x.email, name: x.name || x.email, pendingEdits: x.pendingEdits || 0, department: x.department || '', company: x.company || '' }));
       setPeople(list);
       // Someone remembered from before a reload who is no longer in scope
       // falls back to the first person, like an empty start.
@@ -1000,7 +1000,24 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   };
 
   const exByEmail = Object.fromEntries(exceptions.map(e => [e.email, e]));
-  const sidebar = (exceptions.length ? exceptions : people.map(p => ({ ...p, missing: 0, exceptions: 0 })));
+  // Filter the list by company and by department (Neil, Oct 16) - the picker
+  // above the card follows the same filter. Each select shows only when there
+  // is more than one value to choose from.
+  const [company, setCompany] = useState('');
+  const [dept, setDept] = useState('');
+  const byEmail = Object.fromEntries(people.map(p => [p.email, p]));
+  const inFilter = (em) => (!company || byEmail[em]?.company === company) && (!dept || byEmail[em]?.department === dept);
+  const companies = [...new Set(people.map(p => p.company).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const depts = [...new Set(people.filter(p => !company || p.company === company).map(p => p.department).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const pickable = people.filter(p => inFilter(p.email));
+  const sidebar = (exceptions.length ? exceptions : people.map(p => ({ ...p, missing: 0, exceptions: 0 }))).filter(p => inFilter(p.email));
+  const filterSel = (value, onChange, label, options) => options.length > 1 && (
+    <select className="form-input" value={value} onChange={e => onChange(e.target.value)} aria-label={label}
+      style={{ fontSize: 12, padding: '4px 6px', width: '100%' }}>
+      <option value="">All {label === 'Company' ? 'companies' : 'departments'}</option>
+      {options.map(o => <option key={o} value={o}>{o}</option>)}
+    </select>
+  );
 
   // The employee master-detail list - shared by the hourly and fixed-salary views
   // so switching between them never rearranges the screen (hidden in self mode).
@@ -1008,9 +1025,16 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // card still switches people.
   const employeeSidebar = (!self && !phone) ? (
     <div data-tour="pr-sidebar" style={{ width: 210, flexShrink: 0, border: '1px solid var(--wk-line2)', borderRadius: 14, overflow: 'hidden', maxHeight: 620, overflowY: 'auto', background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }} className="pr-sidebar">
+      {(companies.length > 1 || depts.length > 1) && (
+        <div style={{ padding: '8px 10px 6px', display: 'grid', gap: 5, borderBottom: '1px solid var(--line)' }}>
+          {filterSel(company, (v) => { setCompany(v); setDept(''); }, 'Company', companies)}
+          {filterSel(dept, setDept, 'Department', depts)}
+        </div>
+      )}
       <div style={{ padding: '9px 12px', background: 'var(--wk-hover)', fontSize: 12, fontWeight: 500, color: 'var(--wk-dim)', display: 'flex' }}>
         <span style={{ flex: 1 }}>Employee</span><span title="Missing punches">M</span><span style={{ width: 22, textAlign: 'right' }} title="Exceptions">E</span>
       </div>
+      {!sidebar.length && <div style={{ padding: '12px', fontSize: 12, color: 'var(--muted)' }}>Nobody matches this filter.</div>}
       {sidebar.map(p => {
         const sel = p.email === email;
         return (
@@ -1083,7 +1107,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
         {self
           ? <span style={{ fontSize: 15, fontWeight: 800, minWidth: 180 }}>My Timesheet</span>
-          : <EmployeeCombobox people={people} value={email} onChange={setEmail} title="Also selectable from the sidebar"
+          : <EmployeeCombobox people={pickable} value={email} onChange={setEmail} title="Also selectable from the sidebar"
               labelFor={p => `${p.name}${p.pendingEdits ? ` (${p.pendingEdits} to review)` : exByEmail[p.email]?.missing ? ` (${exByEmail[p.email].missing} missing)` : ''}`} />}
         <div data-tour="pr-period" style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <button className="icon-btn" onClick={() => shift(-1)} style={{ padding: 6 }}><ChevronLeft size={16} /></button>

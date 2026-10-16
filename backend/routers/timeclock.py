@@ -1084,8 +1084,14 @@ def _team_rows(db: Session, start: str, end: str, only_emails=None, include_fixe
     by_emp = {}
     for p in q.order_by(TimePunch.at).all():
         by_emp.setdefault(p.employee_email, []).append(p)
-    names = {e.work_email: f"{e.first_name} {e.last_name}".strip()
-             for e in db.query(NexusEmployee).all() if e.work_email}
+    from models import HrEntity
+    _emps = [e for e in db.query(NexusEmployee).all() if e.work_email]
+    names = {e.work_email: f"{e.first_name} {e.last_name}".strip() for e in _emps}
+    # Company and department ride on each row so the Payroll list can be
+    # filtered by either (Neil, Oct 16).
+    _ents = {x.id: x.name or "" for x in db.query(HrEntity).all()}
+    depts = {e.work_email: e.department or "" for e in _emps}
+    companies = {e.work_email: _ents.get(e.company or "", "") for e in _emps}
     # Break policy per employee (the paid rest-break credit is CA-rule only) -
     # bulk-load rules so this stays one query, not one per person.
     _bp = _breakpolicy_cfg(db)
@@ -1133,6 +1139,7 @@ def _team_rows(db: Session, start: str, end: str, only_emails=None, include_fixe
         rows.append({
             "email": email,
             "name": names.get(email) or email.split("@")[0].replace(".", " ").title(),
+            "department": depts.get(email, ""), "company": companies.get(email, ""),
             "workedMin": sum(d["workedMin"] for d in days.values()),
             "breakMin": sum(d["breakMin"] for d in days.values()),
             "flagCount": sum(len(d["flags"]) for d in days.values()),
