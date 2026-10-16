@@ -312,7 +312,7 @@ export const DOCS = [
     ],
   },
   {
-    id: 'shifts', name: 'Team', group: 'My Desk', icon: 'Users', view: 'shifts',
+    id: 'shifts', name: 'Team', group: 'My Desk', icon: 'Handshake', view: 'shifts',
     tagline: 'Reach anyone in the company and see your group\'s shifts; managers build and share the schedule.',
     where: 'Left menu > Team (managers: Schedule and Requests tabs)',
     access: 'Everyone sees Contact and Shifts. Managers and above also get Schedule (the grid) and Requests (the inbox). Your own shifts are in Workday > My Schedule. Shift types and groups are in Settings > Global Settings > Shifts; staff ask for swaps, offers and open shifts in Workday > Time Off.',
