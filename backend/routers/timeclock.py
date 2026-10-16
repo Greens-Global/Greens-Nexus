@@ -9112,9 +9112,27 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
                          "targetPunchId": r.target_punch_id, "employeeName": r.employee_name,
                          "createdAt": r.created_at} for r in preqs]
 
+    # Punch History on hover (Neil, Oct 16 - SwipeClock's popup): where each
+    # punch came from, its exact time, and who entered or changed it. A manual
+    # or changed punch reads bold on the card.
+    _src = {"web": "Web browser", "mobile": "Mobile app", "manual": "Entered by a manager",
+            "self_manual": "Missed punch entered by the employee", "auto_eod": "Auto clock-out at end of day"}
+    _names = {}
+
+    def _who(e):
+        if e and e not in _names:
+            _names[e] = _display_name(db, e)
+        return _names.get(e, "")
+    punch_meta = {p.id: {"kind": p.kind, "at": p.at, "originalAt": p.original_at or "",
+                         "source": _src.get(p.source or "", p.source or ""), "ip": p.ip or "",
+                         "site": p.work_site_name or "", "manual": p.source in ("manual", "self_manual"),
+                         "createdBy": _who(p.created_by), "createdAt": p.created_at or "",
+                         "adjustedBy": _who(p.adjusted_by), "adjustedAt": p.adjusted_at or "",
+                         "adjustNote": p.adjust_note or ""} for p in punches}
+
     return {"email": em, "start": start, "end": end, "rate": rate, "rateSet": rate_row is not None,
             "rateSplits": rate_splits,   # >1 entry = the rate changed inside this period
-            "dept": dept, "overtimeRule": rule, "days": days_out,
+            "dept": dept, "overtimeRule": rule, "days": days_out, "punchMeta": punch_meta,
             "rounding": {"enabled": _rnd["enabled"], "nearestMin": _rnd["nearestMin"]},
             "autoLunch": {"enabled": al["enabled"], "afterMin": al["afterMin"], "deductMin": al["deductMin"]},
             "breakPolicy": _bp,
