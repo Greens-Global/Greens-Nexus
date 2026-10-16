@@ -445,6 +445,12 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [self, email, start, end]);
   useEffect(load, [load]);
+  // Any punch change made elsewhere (the clock widget, My Time, another card)
+  // refreshes this card too - no manual reload (Neil, Oct 16).
+  useEffect(() => {
+    window.addEventListener('nexus:timeclock-changed', load);
+    return () => window.removeEventListener('nexus:timeclock-changed', load);
+  }, [load]);
 
   // Fixed employees are paid by MONTH, but the default period anchor is the
   // bi-weekly Sunday (which can fall in the previous month). On the first fixed

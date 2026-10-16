@@ -1304,6 +1304,20 @@ def _inverted_days(punches: list, days: set) -> set:
     return out
 
 
+def _break_outside_shift(punches: list, new_id: str) -> bool:
+    """True when the break punch `new_id` lands while no clock-in is open -
+    exactly the case _compute_timecard drops from the card."""
+    open_in = False
+    for p in sorted(punches, key=lambda p: p.at or ""):
+        if p.kind == "in":
+            open_in = True
+        elif p.kind == "out":
+            open_in = False
+        elif p.id == new_id:
+            return not open_in
+    return False
+
+
 def _guard_punch_order(db: Session, email: str, *, kind: str, at: str, local_date: str,
                        punch_id: str = "", extra: list = None) -> None:
     """Refuse a change that would put a clock-out before its clock-in (Oct 1:
@@ -1313,7 +1327,7 @@ def _guard_punch_order(db: Session, email: str, *, kind: str, at: str, local_dat
     unrelated fix. `punch_id` = the punch being moved (edit), else a new punch;
     `extra` = punches not yet real (an employee's pending add requests)."""
     from types import SimpleNamespace
-    if kind not in ("in", "out") or not at or not local_date:
+    if kind not in KINDS or not at or not local_date:
         return
     try:
         d = date.fromisoformat(local_date[:10])
@@ -1325,7 +1339,17 @@ def _guard_punch_order(db: Session, email: str, *, kind: str, at: str, local_dat
            for p in _live_punches(db, email, min(days), max(days))]
     now += list(extra or [])
     after = [p for p in now if not (punch_id and p.id == punch_id)]
-    after.append(SimpleNamespace(id=punch_id or "new", kind=kind, at=at[:19], local_date=local_date[:10]))
+    new_id = punch_id or "new"
+    after.append(SimpleNamespace(id=new_id, kind=kind, at=at[:19], local_date=local_date[:10]))
+    if kind in ("break_start", "break_end"):
+        # A break outside a clock-in / clock-out pair was accepted and then
+        # silently skipped by the timecard pairing (Charmi, Oct 16: "I added the
+        # break, I still do not see it"). Refuse it with the reason instead.
+        if _break_outside_shift(after, new_id):
+            when = d.strftime("%m/%d/%Y")
+            raise HTTPException(400, f"A break has to fall inside a clock-in / clock-out on {when}. "
+                                     "Add or fix the shift first, then the break.")
+        return
     new_bad = _inverted_days(after, days) - _inverted_days(now, days)
     if new_bad:
         when = datetime.strptime(min(new_bad), "%Y-%m-%d").strftime("%m/%d/%Y")

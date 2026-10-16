@@ -395,6 +395,20 @@ class SubmitBlockTests(ReviewCase):
         self.db.commit()
         self._guard(kind="out", at=f"{self._day(4)}T19:00:00", local_date=self._day(4))
 
+    # ── a break only inside a shift (Oct 16) ────────────────────────────
+    def test_a_break_inside_the_shift_passes(self):
+        self._guard(kind="break_start", at=f"{self.start}T18:00:00", local_date=self.start)
+        self._guard(kind="break_end", at=f"{self.start}T18:30:00", local_date=self.start)
+
+    def test_a_break_outside_any_shift_is_refused(self):
+        for kind, hhmm in (("break_start", "10:00:00"), ("break_end", "23:30:00")):
+            with self.assertRaises(HTTPException) as e:
+                self._guard(kind=kind, at=f"{self.start}T{hhmm}", local_date=self.start)
+            self.assertEqual(e.exception.status_code, 400)
+            self.assertIn("inside a clock-in / clock-out", e.exception.detail)
+        with self.assertRaises(HTTPException):     # a day with no shift at all
+            self._guard(kind="break_start", at=f"{self._day(2)}T12:00:00", local_date=self._day(2))
+
     def test_a_pending_clock_in_request_counts_for_the_requested_clock_out(self):
         from types import SimpleNamespace
         pending = [SimpleNamespace(id="req-in", kind="in", at=f"{self._day(5)}T09:00:00", local_date=self._day(5))]
