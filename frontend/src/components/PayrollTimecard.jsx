@@ -1239,23 +1239,22 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                     <td colSpan={span} style={{ ...gc, textAlign: 'left', whiteSpace: 'normal', fontSize: 12 }}>
                       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
                         <Pencil size={11} style={{ marginTop: 3, flexShrink: 0, color: 'var(--muted)' }} />
-                        {/* Every note says who wrote it (Pranshu, Oct 16): the
-                            manager's / HR's by name and date, the employee's by
-                            name, and what was written on the punches themselves. */}
-                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 18, flexWrap: 'wrap', minWidth: 0 }}>
+                        {/* One line each (Pranshu, Oct 16): the employee's note,
+                            then HR's, then what was written on the punches - just
+                            "Note by employee" / "Note by HR", no name, no date
+                            (the who and when stay on hover). */}
+                        <div style={{ display: 'grid', gap: 2, minWidth: 0 }}>
+                          {!self && notes[r.ds]?.employeeNote && (
+                            <span title={`${nameFor(email)}${notes[r.ds].employeeNoteAt ? `, ${formatDate(notes[r.ds].employeeNoteAt)}` : ''}`}>
+                              <strong>Note by employee:</strong> {notes[r.ds].employeeNote}
+                            </span>
+                          )}
                           {(noteOf(r.ds) || noteOpen === r.ds) && (
                             <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 6, minWidth: 150, maxWidth: 460 }}>
-                              <strong style={{ whiteSpace: 'nowrap' }}>
-                                {self ? 'Your note' : `Note by ${nameFor(notes[r.ds]?.by) || 'HR'}`}{!self && notes[r.ds]?.at ? ` (${formatDate(notes[r.ds].at)})` : ''}:
-                              </strong>
+                              <strong style={{ whiteSpace: 'nowrap' }}>{self ? 'Your note' : 'Note by HR'}:</strong>
                               {self
                                 ? <NoteCell key={noteOpen === r.ds ? 'open' : 'n'} date={r.ds} note={myNote(r.ds)} onSave={saveMyNote} placeholder="Add a note for your manager" autoEdit={noteOpen === r.ds && !noteOf(r.ds)} />
                                 : <NoteCell key={noteOpen === r.ds ? 'open' : 'n'} date={r.ds} note={notes[r.ds]} onSave={saveNote} autoEdit={noteOpen === r.ds && !noteOf(r.ds)} />}
-                            </span>
-                          )}
-                          {!self && notes[r.ds]?.employeeNote && (
-                            <span title={notes[r.ds].employeeNoteAt ? `Written ${formatDate(notes[r.ds].employeeNoteAt)}` : undefined}>
-                              <strong>Note by {nameFor(email)} (employee){notes[r.ds].employeeNoteAt ? ` (${formatDate(notes[r.ds].employeeNoteAt)})` : ''}:</strong> {notes[r.ds].employeeNote}
                             </span>
                           )}
                           {r.text && <span><strong>On the punches:</strong> <span style={{ color: 'var(--muted)', fontStyle: 'italic' }}>{r.text}</span></span>}
