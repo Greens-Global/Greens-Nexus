@@ -34,7 +34,7 @@ import hashlib
 import io
 import json
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -250,6 +250,12 @@ def submit_blocker(db: Session, email: str, start: str, end: str) -> str:
     Judged as if the employee's own pending punch fixes were approved: their
     fixes ARE requests, and the manager approves them during review."""
     tc = _tc()
+    # Not before the period's last day (Oct 16): a timesheet submitted on day
+    # one sat with the manager for two weeks, during which the employee could
+    # no longer file punch fixes and the manager could not agree.
+    if tc._employee_today(db, email) < end:
+        return (f"This period runs through {us_date(end)}. Submit it on that day, once your "
+                "last shift is in, or any day after.")
     exc = tc._blocking_exceptions(db, email, start, end, with_pending=True)
     if not exc:
         return ""
@@ -262,7 +268,9 @@ def agree_blocker(db: Session, r: TimesheetReview) -> str:
     go through. The same checks agree() makes, so the screen can say so up
     front instead of after the click (Sep 29)."""
     tc = _tc()
-    if tc._employee_today(db, r.employee_email) < r.period_end:
+    # "<=": on the last day itself a shift may still be ahead - the gate used
+    # to open at midnight of the last day (Oct 16).
+    if tc._employee_today(db, r.employee_email) <= r.period_end:
         return (f"This period runs to {us_date(r.period_end)}. You can agree to it after that day, "
                 "once every day is in.")
     exc = tc._blocking_exceptions(db, r.employee_email, r.period_start, r.period_end)
@@ -294,6 +302,35 @@ def waiting_on(db: Session, reviewer: str) -> list:
                  .filter(TimesheetReview.status == "with_manager",
                          TimesheetReview.employee_email.in_(sorted(backed))).all() if r.id not in seen]
     return sorted(rows, key=lambda r: (r.updated_at or "", r.period_start))
+
+
+def to_sign(db: Session, signer: str) -> list:
+    """Timesheet envelopes waiting on `signer`'s signature right now (their
+    turn in Nexus Sign), as rows for the Workday > Time Sheet card (Oct 16).
+    Managers reach the People and Documents screens only through an Access
+    Group grant, so without one the bell and the email link both landed on
+    Access Restricted and the manager could never sign; this card signs in
+    place, the same way the employee does on their own timecard."""
+    me = (signer or "").lower()
+    if not me:
+        return []
+    out = []
+    parties = (db.query(HrSignParty)
+               .filter(HrSignParty.email == me, HrSignParty.status.in_(["waiting", "notified", "viewed"])).all())
+    for p in parties:
+        req = db.query(HrSignRequest).filter(HrSignRequest.id == p.request_id).first()
+        if not req or req.status != "pending" or req.current_order != p.ordinal:
+            continue
+        if (getattr(req, "link_kind", "") or "") != LINK_KIND:
+            continue
+        r = db.query(TimesheetReview).filter(TimesheetReview.id == req.link_id).first()
+        if not r or r.status != "signing" or r.employee_email == me:
+            continue   # the employee signs from their own timecard
+        out.append({"id": r.id, "partyId": p.id, "role": p.role_key, "employeeEmail": r.employee_email,
+                    "name": display_name(db, r.employee_email), "periodStart": r.period_start,
+                    "periodEnd": r.period_end, "payType": r.pay_type, "agreedAt": r.agreed_at or "",
+                    "agreedBy": display_name(db, r.agreed_by) if r.agreed_by else ""})
+    return sorted(out, key=lambda x: (x["agreedAt"], x["periodStart"]))
 
 
 def queue_row(db: Session, r: TimesheetReview) -> dict:
@@ -370,7 +407,7 @@ def agree(db: Session, r: TimesheetReview, actor: str, note: str = "", *, ip: st
     if r.status != "with_manager":
         raise HTTPException(409, "Only a timesheet that is with the manager can be agreed.")
     today = tc._employee_today(db, r.employee_email)
-    if today < r.period_end:
+    if today <= r.period_end:
         raise HTTPException(409, f"This period runs to {us_date(r.period_end)}. Agree to it after the "
                                  "last day, so every day is in before it is signed.")
     exc = tc._blocking_exceptions(db, r.employee_email, r.period_start, r.period_end)
@@ -425,13 +462,21 @@ def build_pdf(db: Session, r: TimesheetReview) -> tuple[bytes, int]:
     card = card_for(db, r.employee_email, r.period_start, r.period_end, r.pay_type)
     emp = _employee(db, r.employee_email)
     ent = db.query(HrEntity).filter(HrEntity.id == (emp.company if emp else "")).first() if emp else None
-    offset = 0
+    # Every punch prints in the zone it was recorded in (its own tz_offset_min),
+    # not the zone of the person's latest punch: a period agreed after the US
+    # DST change would otherwise show every clock time an hour off (Oct 16).
+    # Through the day AFTER the period: an overnight shift that starts on the
+    # last day clocks out with local_date = end + 1 and still prints here.
+    _end_nx = (date.fromisoformat(r.period_end) + timedelta(days=1)).isoformat()
+    _rows = (db.query(TimePunch).filter(TimePunch.employee_email == r.employee_email,
+                                        TimePunch.local_date >= r.period_start,
+                                        TimePunch.local_date <= _end_nx).all())
+    offsets = {p.id: (p.tz_offset_min or 0) for p in _rows}
     last = (db.query(TimePunch).filter(TimePunch.employee_email == r.employee_email)
             .order_by(TimePunch.at.desc()).first())
-    if last:
-        offset = last.tz_offset_min or 0
+    default_offset = (last.tz_offset_min or 0) if last else 0
 
-    def local_time(iso: str) -> str:
+    def local_time(iso: str, punch_id: str = "") -> str:
         if not iso:
             return "-"
         try:
@@ -439,7 +484,7 @@ def build_pdf(db: Session, r: TimesheetReview) -> tuple[bytes, int]:
         except ValueError:
             return "-"
         from datetime import timedelta
-        t = t - timedelta(minutes=offset)
+        t = t - timedelta(minutes=offsets.get(punch_id, default_offset))
         return t.strftime("%I:%M %p").lstrip("0")
 
     buf = io.BytesIO()
@@ -486,7 +531,8 @@ def build_pdf(db: Session, r: TimesheetReview) -> tuple[bytes, int]:
             new_page()
         d = by_date.get(ds) or {}
         segs = d.get("segments") or []
-        spans = ", ".join(f"{local_time(s.get('in'))} - {local_time(s.get('out'))}" for s in segs) or "-"
+        spans = ", ".join(f"{local_time(s.get('in'), s.get('inId') or '')} - "
+                          f"{local_time(s.get('out'), s.get('outId') or '')}" for s in segs) or "-"
         if d.get("isHoliday"):
             spans = f"Holiday: {d.get('holidayName') or ''}".strip()
         text(cols[0], date.fromisoformat(ds).strftime("%a %m/%d/%Y"), 8.5)

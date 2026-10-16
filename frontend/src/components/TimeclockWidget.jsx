@@ -551,8 +551,9 @@ export default function TimeclockWidget() {
   ) : null;
 
   // Salaried/exempt people are never time-tracked - no floating timer for them
-  // (Charmi, Aug 21).
-  if (status?.timeTrackingExempt) return null;
+  // (Charmi, Aug 21) - unless one is still clocked in (flag set mid-shift):
+  // keep the timer until they punch out (Oct 16).
+  if (status?.timeTrackingExempt && !clockedIn) return null;
   // Keep rendering while the EOD modal is up, even though the shift just ended.
   if (!clockedIn) {
     return eodOpen ? <BodModal mode="eod" onClose={() => setEodOpen(false)}

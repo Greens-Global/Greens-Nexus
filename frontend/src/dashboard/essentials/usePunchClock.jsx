@@ -42,10 +42,14 @@ const PUNCH_DONE = { in: 'Clocked in', out: 'Clocked out', break_start: 'Break s
  * A null status (not loaded / failed) gives an 'unknown' state, never throws.
  */
 export function deriveMyTime({ status, now = new Date() }) {
-  const exempt = !!status?.timeTrackingExempt;
   const last = status?.lastPunch;
   const stale = !!status?.staleOpenShift;
-  const clockedIn = !exempt && !!(last && last.kind !== 'out') && !stale;
+  const open = !!(last && last.kind !== 'out') && !stale;
+  // Exempt people have no clock - unless one is still clocked in (the flag was
+  // set mid-shift): the surface stays until they punch out, or the shift would
+  // age into a Missing day nobody can close (Oct 16).
+  const exempt = !!status?.timeTrackingExempt && !open;
+  const clockedIn = !exempt && open;
   const onBreak = clockedIn && last?.kind === 'break_start';
   const state = exempt ? 'exempt' : !status ? 'unknown' : onBreak ? 'break' : clockedIn ? 'in' : 'out';
   const stateLabel = { exempt: 'Time Tracking Not Required', unknown: '', break: 'On Break', in: 'Clocked In', out: 'Clocked Out' }[state];

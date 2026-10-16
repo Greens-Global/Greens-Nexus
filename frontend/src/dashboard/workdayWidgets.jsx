@@ -114,7 +114,9 @@ export function TimeClockWidget() {
   const cta = !status || status.error ? 'Open Time Clock' : clockedIn || stale ? 'Open Time Clock' : 'Punch In';
   const go = () => navigate('timeclock', 'overview');
 
-  if (status?.timeTrackingExempt) {
+  // Exempt with a shift still open (the flag was set mid-shift): keep the
+  // live tile so they can still punch out (Oct 16).
+  if (status?.timeTrackingExempt && !clockedIn && !stale) {
     return (
       <div className="dk-stat" role="button" onClick={go} style={{ height: '100%', boxSizing: 'border-box', justifyContent: 'center' }}>
         <span className="dk-stat-top"><span className="dk-chip dk-chip--green"><Clock /></span><ArrowUpRight size={15} className="dk-stat-arrow" /></span>

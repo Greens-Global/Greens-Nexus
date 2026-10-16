@@ -66,7 +66,11 @@ const TAB_META = {
 // (Neil, Oct 13 2026: "the personal shift data should move into your
 // Workday" - the My Schedule card on Overview, MyHR.jsx) - a bookmark, a
 // bell or an email that still says 'clock' or 'shifts' lands there.
-const tabFor = (sub) => (sub === 'clock' || /^shifts(:|$)/.test(sub || '') ? 'overview' : sub);
+// 'timecard' is what the timesheet review bells (sent back, finalized,
+// unlocked) carry for the employee - that is the Time Sheet tab (Oct 16: it
+// used to fall through to Overview).
+const tabFor = (sub) => (sub === 'clock' || /^shifts(:|$)/.test(sub || '') ? 'overview'
+  : sub === 'timecard' ? 'timesheet' : sub);
 // "shifts:confirm:<publish id>" (Shifts Phase 3a): a schedule to confirm - My Schedule shows its banner.
 const confirmOf = (sub) => (String(sub || '').match(/^shifts:confirm:(.+)$/) || [])[1] || '';
 // Work OS card-header title (sentence case, no uppercase tracking).
@@ -935,7 +939,9 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   useEffect(() => {
     let live = true;
     const load = () => api.timesheetReviewWaiting()
-      .then(r => { if (live) setToReview(Array.isArray(r?.reviews) ? r.reviews.length : 0); })
+      // Reviews waiting on me plus envelopes waiting on my signature (Oct 16) -
+      // the same count the Timesheets to Review / to Sign card shows.
+      .then(r => { if (live) setToReview((Array.isArray(r?.reviews) ? r.reviews.length : 0) + (Array.isArray(r?.toSign) ? r.toSign.length : 0)); })
       .catch(() => {});
     load();
     window.addEventListener('nexus:timesheet-review-changed', load);
@@ -1051,7 +1057,9 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   // old "Time Tracking Is Off for You" note was a card about nothing. Not
   // even its loading skeleton (10/08): the remembered answer decides before
   // the status comes back.
-  const clockCard = () => exemptKnown ? null : (
+  // An exempt person still clocked in (the flag was set mid-shift) keeps the
+  // card until they punch out (Oct 16).
+  const clockCard = () => (exemptKnown && !clockedIn) ? null : (
     <div className="wd-clock-wrap" style={{ marginBottom: 18 }}>
       {showLongBanner && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 12, padding: '12px 16px', borderRadius: 12, background: 'rgba(180,83,9,0.09)', border: '1.5px solid rgba(180,83,9,0.4)' }}>
