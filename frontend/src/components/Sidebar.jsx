@@ -9,7 +9,7 @@ import {
   Monitor, Wifi, Home, LayoutGrid, FileText,
   ClipboardCheck, Calculator,
   FileSpreadsheet, Landmark, BarChart3,
-  Users, LogIn, PenTool, Files, Megaphone, ExternalLink,
+  Users, LogIn, PenTool, Files, Megaphone, ExternalLink, Handshake,
   Settings, ChevronLeft, ChevronRight,
   HelpCircle, Store, Calendar, Package, Contact, HandCoins, Warehouse, ListChecks, Scale,
   FlaskConical,
@@ -69,7 +69,7 @@ export const NAV = [
   // Schedule and Requests; the backend enforces the same line
   // (routers/timeclock.py require_shift_manage).
   {
-    view: "shifts", code: "TEAM", label: "Team", icon: Users,
+    view: "shifts", code: "TEAM", label: "Team", icon: Handshake,
     sub: [
       { subview: "shifts",   label: "Shifts",           icon: CalendarClock },
       { subview: "schedule", label: "Schedule",         icon: Calendar,      minRole: 'manager' },

@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
-import { CalendarClock, CalendarDays, Contact, Inbox, Users } from 'lucide-react';
+import { CalendarClock, CalendarDays, Contact, Inbox, Handshake } from 'lucide-react';
 import { useRole } from '../contexts/RoleContext';
 import MyShifts from '../components/MyShifts';
 import { SkeletonBlocks } from '../components/AsyncState';
@@ -74,7 +74,7 @@ export default function Shifts({ activeSub, onSubChange }) {
       <div className="view-header" style={{ marginBottom: 14, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0, flex: 1 }}>
           <span style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <Users size={19} />
+            <Handshake size={19} />
           </span>
           <div className="view-title-group">
             <h2 style={{ fontFamily: 'var(--wk-font)' }}>Team</h2>
