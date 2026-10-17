@@ -3,16 +3,17 @@
 //
 // Oct 16 2026 (Neil, Charmi - call): ONLY THE EMPLOYEE SIGNS. Backend:
 // timesheet_review.py.
-//   Review  - the manager clicks Review & Approve ("I have looked at this, this
-//             time is accurate") - no signature, no code, and the employee
-//             need not have submitted first. Or Send Back with a note; back
-//             and forth until they approve. One side edits at a time.
-//   Sign    - the employee clicks Approve & Sign once for the whole period and
-//             signs in Nexus Sign (consent, code, draw / type / paper). Their
-//             signature finalizes it; the PDF logs who approved it and when.
+//   Review  - the approver (the manager, or the HR contact when nobody is set)
+//             clicks Review & Approve / Agree - no signature, no code, and the
+//             employee need not have submitted first. Or Send Back with a
+//             note; back and forth until they approve. One side edits at a time.
+//   Sign    - the approval sends the envelope straight to the employee, the
+//             only signer (consent, code, draw / type / paper). Their signature
+//             finalizes it; the PDF logs who approved it and when.
 //   A change after approval (the employee asks for a punch fix, the manager
 //   edits) sends it back to the manager. HR may change it at any point
-//   without approval; the employee then signs the changed card.
+//   without approval; the employee then signs the updated card (Sign
+//   Updated Timesheet - the 'approved' state).
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { CheckCircle, Clock, FileSignature, Send, Undo2, ChevronRight, Lock, ShieldCheck } from 'lucide-react';
@@ -30,8 +31,11 @@ const ACTION_LABEL = {
   signed_employee: 'signed as the employee', signed_manager: 'signed as the manager',
   signed_hr: 'signed for HR', completed: 'finalized it for payroll',
 };
+// Oct 16 (Neil): only the employee signs. The lead approver - the manager, or
+// the company's HR contact / a Global Admin when nobody is set - approves by
+// clicking Agree; the employee's signature finalizes the period.
 const STEPS = [
-  { key: 'review', label: 'Manager Reviews' }, { key: 'sign', label: 'Employee Approves & Signs' },
+  { key: 'review', label: 'Review' }, { key: 'employee', label: 'Employee Signs' },
   { key: 'done', label: 'Finalized' },
 ];
 const hm = (m) => `${Math.floor((m || 0) / 60)}h ${String((m || 0) % 60).padStart(2, '0')}m`;
@@ -158,7 +162,7 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
 
   // Approve & Sign: the envelope goes out and the signing screen opens on it.
   async function approveAndSign() {
-    const out = await run(() => api.timesheetReviewSign(r.id), 'Approved - sign it to finalize.');
+    const out = await run(() => api.timesheetReviewSign(r.id), 'Sign it to finalize.');
     if (out?.myPartyId) setSigning(out.myPartyId);
   }
 
@@ -240,7 +244,7 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
     body = r.canEmployeeApprove ? (
       <>
         <p style={{ fontSize: 13, margin: '0 0 8px' }}>
-          {name(r.agreedBy) || mgr} reviewed and approved your hours{r.agreedAt ? ` on ${formatDateTime(r.agreedAt)}` : ''}. If they are right, approve and sign - once for the whole period. If not, ask for a punch fix above, or tell them what is wrong. Either way it goes back to them.
+          HR changed your hours after {name(r.agreedBy) || mgr} approved them{r.agreedAt ? ` on ${formatDateTime(r.agreedAt)}` : ''}. Check them above, then sign the updated timesheet. If something is wrong, ask for a punch fix or tell {mgr} what - it goes back to them.
         </p>
         {noteBox('What is wrong? (required to send it back)')}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -248,12 +252,12 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
             onClick={() => run(() => api.timesheetReviewSubmit(anchor, note.trim()), 'Sent back to your manager.')}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}><Undo2 size={13} /> Not Right - Send Back</button>
           <button className="primary-btn" disabled={busy} onClick={approveAndSign}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}><FileSignature size={13} /> Approve &amp; Sign</button>
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}><FileSignature size={13} /> Sign Updated Timesheet</button>
         </div>
       </>
     ) : (
       <p style={{ fontSize: 13, margin: 0 }}>
-        Approved by {name(r.agreedBy) || mgr}{r.agreedAt ? ` on ${formatDateTime(r.agreedAt)}` : ''}. Waiting for {name(r.employeeEmail) || 'the employee'} to approve and sign.
+        Approved by {name(r.agreedBy) || mgr}{r.agreedAt ? ` on ${formatDateTime(r.agreedAt)}` : ''}. HR changed the hours since, so it is waiting for {name(r.employeeEmail) || 'the employee'} to sign the updated timesheet.
       </p>
     );
   }
@@ -265,7 +269,7 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
     <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
       <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 8 }}>Timesheet Review &amp; Signature</div>
       <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '0 0 10px' }}>
-        The manager reviews and approves the hours, then the employee approves and signs them in Nexus Sign (electronically or on paper). The employee's signature finalizes it for payroll. Period: {periodLabel}.
+        The employee and their approver agree the hours, then the employee signs in Nexus Sign (electronically or on paper). That signature finalizes the period for payroll. Period: {periodLabel}.
       </p>
       {r.isHr && (
         <p data-hr-override style={{ fontSize: 12, margin: '0 0 10px', color: 'var(--ink)', background: 'var(--mist)', borderRadius: 8, padding: '6px 10px' }}>
@@ -277,13 +281,19 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
       {signingView && (
         <>
           {r.status === 'completed'
-            ? <p style={{ fontSize: 13, margin: '0 0 10px', color: 'hsl(var(--color-green))', fontWeight: 700 }}><CheckCircle size={13} style={{ verticalAlign: '-2px' }} /> Signed and finalized for payroll. The sealed copy is in Documents.</p>
-            : <p style={{ fontSize: 13, margin: '0 0 10px' }}>Approved by {name(r.agreedBy)} on {formatDate(r.agreedAt)} and out for {self ? 'your' : `${name(r.employeeEmail) || 'the employee'}'s`} signature. Asking for a change sends it back to the manager.</p>}
+            ? <p style={{ fontSize: 13, margin: '0 0 10px', color: 'hsl(var(--color-green))', fontWeight: 700 }}><CheckCircle size={13} style={{ verticalAlign: '-2px' }} /> Approved and signed - finalized for payroll. The sealed copy is in Documents.</p>
+            : <p style={{ fontSize: 13, margin: '0 0 10px' }}>Agreed by {name(r.agreedBy)} on {formatDate(r.agreedAt)}. To change the hours, ask for a punch fix or decline in Nexus Sign with a reason - either way it goes back to the manager.</p>}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12 }}>
+            <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: 14, background: 'var(--card)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.07em', textTransform: 'uppercase', color: 'var(--muted)' }}>Approval</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 13.5, fontWeight: 700, color: 'hsl(var(--color-green))', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                  <CheckCircle size={14} /> {name(r.agreedBy) || 'Approver'}
+                </span>
+                <span style={{ fontSize: 11, color: 'var(--muted)' }}>agreed {formatDate(r.agreedAt)}</span>
+              </div>
+            </div>
             <SigCard label="Employee" party={parties.employee} waiting={r.turn === 'employee'} />
-            {/* Envelopes from before Oct 16 also carried the manager and HR. */}
-            {parties.manager && <SigCard label="Manager" party={parties.manager} waiting={r.turn === 'manager'} />}
-            {parties.hr && <SigCard label="HR" party={parties.hr} waiting={r.turn === 'hr'} />}
           </div>
           {r.myPartyId && (
             <button className="primary-btn" onClick={() => setSigning(r.myPartyId)}

@@ -122,8 +122,7 @@ class ReviewCase(unittest.TestCase):
 
     def _to_signing(self):
         r = tsr.submit(self.db, EMP, ANCHOR, "All in")
-        tsr.approve(self.db, r, MGR, "Looks right")
-        tsr.employee_approve(self.db, self._r(), EMP)
+        tsr.approve(self.db, r, MGR, "Looks right")     # Agree: straight to the employee to sign
         return self._r()
 
 
@@ -160,7 +159,9 @@ class ReviewLoopTests(ReviewCase):
             tsr.guard_edit(self.db, EMP, self.start, MGR)
 
     def test_no_manager_means_nobody_to_submit_to(self):
+        # No manager, no company manager AND no HR contact (the Oct 16 fallback).
         self.db.query(models.NexusEmployee).filter_by(work_email=EMP).update({"manager_email": ""})
+        self.db.query(models.HrEntity).update({"hr_contact_email": ""})
         self.db.commit()
         with self.assertRaises(HTTPException) as e:
             tsr.submit(self.db, EMP, ANCHOR)
@@ -187,14 +188,34 @@ class ReviewLoopTests(ReviewCase):
         r = tsr.submit(self.db, EMP, ANCHOR)
         self.assertEqual(r.status, "with_manager")
 
-    def test_approving_no_longer_needs_an_hr_contact(self):
-        # HR does not sign since Oct 16, so a company without an HR contact
-        # can still get its timesheets approved and signed.
+    def test_agreeing_without_an_hr_contact_still_sends_the_envelope(self):
+        # Oct 16: HR no longer signs, so a company with no HR contact closes too.
         self.db.query(models.HrEntity).update({"hr_contact_email": ""})
         self.db.commit()
         r = tsr.submit(self.db, EMP, ANCHOR)
-        tsr.approve(self.db, r, MGR)
-        self.assertEqual(self._r().status, "approved")
+        tsr.agree(self.db, r, MGR)
+        self.db.expire_all()
+        r = self._r()
+        self.assertEqual((r.status, r.hr_email or ""), ("signing", ""))
+
+    def test_no_manager_falls_back_to_the_hr_contact(self):
+        # Nobody set as manager: the company's HR contact is the lead approver
+        # (Neil, Oct 16 - HR and Global Admins, never "any manager").
+        self.db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == EMP).update({"manager_email": ""})
+        self.db.commit()
+        # Only an HR contact who can act (manager level or an HR editor grant).
+        import auth
+        auth.invalidate_role_cache()
+        self.assertEqual(tsr.manager_of(self.db, EMP), "")
+        self.db.add(models.NexusRole(email=HR, role="manager", assigned_by="test"))
+        self.db.commit()
+        auth.invalidate_role_cache()
+        self.assertEqual(tsr.manager_of(self.db, EMP), HR)
+        r = tsr.submit(self.db, EMP, ANCHOR)
+        self.assertEqual((r.status, r.manager_email), ("with_manager", HR))
+        self.db.query(models.NexusRole).filter(models.NexusRole.email == HR).delete()
+        self.db.commit()
+        auth.invalidate_role_cache()
 
     def test_fixed_salary_month_goes_through_the_same_review(self):
         # A salaried (monthly) employee reviews the calendar month, not the
@@ -217,10 +238,6 @@ class ReviewLoopTests(ReviewCase):
         self.assertEqual((r.status, r.period_start, r.period_end, r.pay_type), ("with_manager", start, end, "fixed"))
         tsr.approve(self.db, r, MGR, "Agreed")
         self.db.expire_all()
-        r = tsr.active_review(self.db, EMP, start)
-        self.assertEqual(r.status, "approved")
-        tsr.employee_approve(self.db, r, EMP)
-        self.db.expire_all()
         self.assertEqual(tsr.active_review(self.db, EMP, start).status, "signing")
 
     def test_the_old_one_click_sign_is_retired(self):
@@ -236,19 +253,10 @@ class SigningTests(ReviewCase):
         req = self.db.get(models.HrSignRequest, r.sign_request_id)
         self.assertEqual((req.link_kind, req.link_id, req.status), ("timesheet", r.id, "pending"))
         p = self._parties(r.sign_request_id)
-        self.assertEqual([(k, v.email, v.ordinal) for k, v in p.items()], [("employee", EMP, 1)])
+        # Only the employee signs (Oct 16); the approver's Agree is the approval.
+        self.assertEqual([(k, p[k].email, p[k].ordinal) for k in p], [("employee", EMP, 1)])
         self.assertEqual(req.current_order, 1)
         self.assertTrue(all(f["role"] == "employee" for f in tsr._sig_fields(1)))
-
-    def test_the_employee_cannot_sign_before_the_manager_approves(self):
-        r = tsr.submit(self.db, EMP, ANCHOR)
-        with self.assertRaises(HTTPException) as e:
-            tsr.employee_approve(self.db, r, EMP)
-        self.assertEqual(e.exception.status_code, 409)
-        self.assertIn("has not approved", e.exception.detail)
-        tsr.approve(self.db, r, MGR)
-        with self.assertRaises(HTTPException):          # nobody else signs it for them
-            tsr.employee_approve(self.db, self._r(), MGR)
 
     def test_the_employee_signs_and_the_period_is_finalized(self):
         r = self._to_signing()
@@ -257,13 +265,14 @@ class SigningTests(ReviewCase):
         r = self._r()
         self.assertEqual(r.status, "completed")
         self.assertEqual(self.db.get(models.HrSignRequest, rid).status, "completed")
-        apps = {a.kind: a for a in self.db.query(models.TimeApproval).filter_by(employee_email=EMP, revoked=0)}
-        self.assertEqual(set(apps), {"employee_sign", "manager", "final"})
-        # The manager's approval is recorded at the moment they clicked it.
-        self.assertEqual((apps["manager"].approved_by, apps["manager"].approved_at), (MGR, r.agreed_at))
+        rows = {a.kind: a for a in self.db.query(models.TimeApproval).filter_by(employee_email=EMP, revoked=0)}
+        self.assertEqual(set(rows), {"employee_sign", "manager", "final"})
+        # The approver's Agree is the manager approval and the finalization
+        # (Oct 16: the approver does not sign).
+        self.assertEqual((rows["manager"].approved_by, rows["final"].approved_by), (MGR, MGR))
         self.assertTrue(timeclock._finalized_row(self.db, EMP, self.start, self.end))
         actions = [e["action"] for e in r.rounds]
-        self.assertEqual(actions[-4:], ["approved", "employee_approved", "signed_employee", "completed"])
+        self.assertEqual(actions[-2:], ["signed_employee", "completed"])
 
     def test_employee_declining_sends_it_back_to_the_manager(self):
         r = self._to_signing()
@@ -272,28 +281,15 @@ class SigningTests(ReviewCase):
         self.assertEqual((r.status, r.sign_request_id), ("with_manager", ""))
         self.assertEqual(r.rounds[-1]["note"], "Friday is wrong")
 
-    def test_an_older_three_signer_envelope_still_completes(self):
-        """Envelopes sent before Oct 16 (employee -> manager -> HR) finish as
-        they were: HR's signature finalizes, HR's decline goes to the manager."""
-        real = tsr.ROLES
-        tsr.ROLES = (("employee", "Employee"), ("manager", "Manager"), ("hr", "HR"))
-        try:
-            r = tsr.submit(self.db, EMP, ANCHOR)
-            tsr.approve(self.db, r, MGR)
-            r = self._r()
-            r.hr_email = HR
-            self.db.commit()
-            tsr.employee_approve(self.db, r, EMP)
-        finally:
-            tsr.ROLES = real
-        rid = self._r().sign_request_id
-        self.assertEqual(set(self._parties(rid)), {"employee", "manager", "hr"})
-        self._sign(self._parties(rid)["employee"])
-        self._sign(self._parties(rid)["manager"])
-        self._sign(self._parties(rid)["hr"])
-        r = self._r()
-        self.assertEqual(r.status, "completed")
-        self.assertTrue(timeclock._finalized_row(self.db, EMP, self.start, self.end))
+    def test_the_document_names_the_approver_instead_of_a_signature_row(self):
+        r = self._to_signing()
+        pdf, last = tsr.build_pdf(self.db, r)
+        from pypdf import PdfReader
+        import io
+        text = " ".join(p.extract_text() for p in PdfReader(io.BytesIO(pdf)).pages)
+        self.assertIn("Approved by Max Test", text)
+        self.assertNotIn("Manager\nSignature", text)
+        self.assertEqual(len(tsr._sig_fields(last)), 2)   # one signature + one date: the employee's
 
     def test_voiding_the_envelope_returns_it_to_the_manager(self):
         r = self._to_signing()
@@ -320,15 +316,15 @@ class SigningTests(ReviewCase):
         tsr.approve(self.db, r, MGR, "Checked")
         r = self._r()
         r.agreed_at = "2026-10-16T21:15:00+00:00"
-        r.rounds = [dict(e, at=r.agreed_at) if e["action"] == "approved" else e for e in r.rounds]
+        r.rounds = [dict(e, at=r.agreed_at) if e["action"] == "agreed" else e for e in r.rounds]
         log = tsr.approval_log(self.db, r, 420)      # PDT
-        self.assertEqual(log, ['Reviewed and approved by Max Test (manager) on 10/16/2026 at 2:15 PM - "Checked"'])
+        self.assertEqual(log, ['Approved by Max Test (manager) on 10/16/2026 at 2:15 PM - "Checked"'])
         pdf, last = tsr.build_pdf(self.db, r)
         from pypdf import PdfReader
         import io
         text = PdfReader(io.BytesIO(pdf)).pages[last].extract_text()
         self.assertIn("Approval log", text)
-        self.assertIn("Reviewed and approved by Max Test (manager)", text)
+        self.assertIn("Approved by Max Test (manager)", text)
         self.assertNotIn("Manager\n", text)
 
     def test_the_employee_attests_above_their_signature(self):
@@ -361,15 +357,14 @@ class StateTests(ReviewCase):
         self.assertFalse(emp_view["canSubmit"])
         self.assertTrue(mgr_view["canAgree"] and mgr_view["canSendBack"])
 
-    def test_after_approval_only_the_employee_may_approve_and_sign(self):
+    def test_after_agree_only_the_employee_signs_and_both_see_the_log(self):
         tsr.approve(self.db, tsr.submit(self.db, EMP, ANCHOR), MGR)
         emp_view = tsr.state_for(self.db, EMP, self.start, EMP, False)
         mgr_view = tsr.state_for(self.db, EMP, self.start, MGR, True)
-        self.assertEqual(emp_view["status"], "approved")
-        self.assertTrue(emp_view["canEmployeeApprove"])
-        self.assertTrue(emp_view["canSubmit"])          # "not right?" - back to the manager
-        self.assertFalse(mgr_view["canEmployeeApprove"] or mgr_view["canApprove"])
-        self.assertIn("Reviewed and approved by Max Test", emp_view["approvalLog"][0])
+        self.assertEqual((emp_view["status"], emp_view["turn"]), ("signing", "employee"))
+        self.assertTrue(emp_view["myPartyId"])
+        self.assertFalse(mgr_view["myPartyId"] or mgr_view["canApprove"])
+        self.assertIn("Approved by Max Test (manager)", mgr_view["approvalLog"][0])
 
     def test_the_signer_whose_turn_it_is_gets_their_party(self):
         self._to_signing()
@@ -539,7 +534,7 @@ class FixAndResubmitFlowTests(ReviewCase):
         self.assertIn("waiting for your approval", r.json()["detail"]["message"])   # ...and it says why
         self._approve_all()
         self._agree()
-        self.assertEqual(self._r().status, "approved")
+        self.assertEqual(self._r().status, "signing")
 
     def test_back_with_the_employee_the_manager_can_still_approve_their_fix(self):
         """The screenshot: sent back, the employee requests the clock-in, the
@@ -560,7 +555,7 @@ class FixAndResubmitFlowTests(ReviewCase):
         self.assertEqual(self._r().status, "with_employee")   # approving does not take it back
         self._submit()
         self._agree()
-        self.assertEqual(self._r().status, "approved")
+        self.assertEqual(self._r().status, "signing")
 
     def test_the_employee_may_resubmit_before_the_manager_approves(self):
         self.db.query(models.TimePunch).filter(models.TimePunch.local_date.in_([self.day_a, self.day_b]))             .update({"voided": 1}, synchronize_session=False)

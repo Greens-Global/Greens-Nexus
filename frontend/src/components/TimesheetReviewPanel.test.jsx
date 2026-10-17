@@ -86,14 +86,14 @@ describe('TimesheetReviewPanel', () => {
     expect(screen.getByText('Review & Approve').closest('button')).toBeDisabled();
   });
 
-  it('after approval the employee approves and signs, and the signing screen opens', async () => {
+  it('after HR changed the hours the employee signs the updated timesheet', async () => {
     render(<TimesheetReviewPanel {...props} review={{ ...base, status: 'approved', canEmployeeApprove: true, canSubmit: true,
       agreedBy: 'mgr@x.com', agreedAt: '2026-09-20T17:00:00Z',
-      approvalLog: ['Reviewed and approved by Max (manager) on 09/20/2026 at 10:00 AM'] }} />);
-    expect(screen.getByText(/Max reviewed and approved your hours/)).toBeInTheDocument();
-    expect(screen.getByText('Reviewed and approved by Max (manager) on 09/20/2026 at 10:00 AM')).toBeInTheDocument();
+      approvalLog: ['Approved by Max (manager) on 09/20/2026 at 10:00 AM', 'Hours changed by Hana (HR) on 09/21/2026 at 9:00 AM'] }} />);
+    expect(screen.getByText(/HR changed your hours after Max approved them/)).toBeInTheDocument();
+    expect(screen.getByText('Hours changed by Hana (HR) on 09/21/2026 at 9:00 AM')).toBeInTheDocument();
     expect(screen.getByText('Not Right - Send Back').closest('button')).toBeDisabled();   // needs a note
-    fireEvent.click(screen.getByText('Approve & Sign'));
+    fireEvent.click(screen.getByText('Sign Updated Timesheet'));
     await waitFor(() => expect(sign).toHaveBeenCalledWith('r1'));
     expect(await screen.findByTestId('sign-modal')).toHaveTextContent('p-emp');
   });
@@ -105,36 +105,30 @@ describe('TimesheetReviewPanel', () => {
     await waitFor(() => expect(submit).toHaveBeenCalledWith('2026-09-06', 'Tuesday is short'));
   });
 
-  it('the manager waits for the employee once approved, and HR is told about the override', () => {
+  it('others wait for the employee, and HR is told about the override', () => {
     render(<TimesheetReviewPanel {...props} self={false} review={{ ...base, status: 'approved', isHr: true, agreedBy: 'mgr@x.com' }} />);
-    expect(screen.getByText(/Waiting for Erin to approve and sign/)).toBeInTheDocument();
+    expect(screen.getByText(/waiting for Erin to sign the updated timesheet/)).toBeInTheDocument();
     expect(screen.getByText(/As HR you can change these hours at any point/)).toBeInTheDocument();
-    expect(screen.queryByText('Approve & Sign')).toBeNull();
+    expect(screen.queryByText('Sign Updated Timesheet')).toBeNull();
   });
 
-  it('shows the employee signature only, and opens Nexus Sign for my turn', () => {
+  it('shows the approval and opens Nexus Sign for the employee, the only signer (Oct 16)', () => {
     render(<TimesheetReviewPanel {...props} review={{ ...base, status: 'signing', turn: 'employee', myPartyId: 'p-emp',
       agreedBy: 'mgr@x.com', agreedAt: '2026-09-20T10:00:00Z',
       parties: [{ role: 'employee', name: 'Erin', status: 'notified' }] }} />);
-    expect(screen.getByText('Employee Signature')).toBeInTheDocument();
-    expect(screen.queryByText('Manager Signature')).toBeNull();
-    expect(screen.queryByText('HR Signature')).toBeNull();
+    expect(screen.getByText('Approval')).toBeInTheDocument();
+    expect(screen.getByText(/Waiting for Erin/)).toBeInTheDocument();
+    expect(screen.queryByText(/Manager Signature/)).toBeNull();
     fireEvent.click(screen.getByText('Sign & Submit'));
     expect(screen.getByTestId('sign-modal')).toHaveTextContent('p-emp');
   });
 
-  it('still shows an older three-signer envelope as it was', () => {
-    render(<TimesheetReviewPanel {...props} self={false} review={{ ...base, status: 'signing', turn: 'manager', myPartyId: 'p-mgr',
+  it('shows a paper signature once the employee has signed', () => {
+    render(<TimesheetReviewPanel {...props} self={false} review={{ ...base, status: 'completed',
       agreedBy: 'mgr@x.com', agreedAt: '2026-09-20T10:00:00Z',
-      parties: [
-        { role: 'employee', name: 'Erin', status: 'signed', signedAt: '2026-09-20T11:00:00Z', signatureKind: 'paper' },
-        { role: 'manager', name: 'Max', status: 'notified' },
-        { role: 'hr', name: 'Hana', status: 'waiting' },
-      ] }} />);
+      parties: [{ role: 'employee', name: 'Erin', status: 'signed', signedAt: '2026-09-20T11:00:00Z', signatureKind: 'paper' }] }} />);
     expect(screen.getByText('On Paper')).toBeInTheDocument();
-    expect(screen.getByText(/Waiting for Max/)).toBeInTheDocument();
-    fireEvent.click(screen.getByText('Review & Sign'));
-    expect(screen.getByTestId('sign-modal')).toHaveTextContent('p-mgr');
+    expect(screen.getByText(/finalized for payroll/)).toBeInTheDocument();
   });
 
   it('says so when it is finalized', () => {

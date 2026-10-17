@@ -16,7 +16,6 @@ throwaway database):
 
     python -m unittest test_timesheet_review_oct16
 """
-import json
 import os
 import unittest
 
@@ -56,19 +55,18 @@ class Oct16Case(ReviewCase):
         self.db.expire_all()
         return self.db.query(models.NexusNotification).filter(models.NexusNotification.recipient == to).all()
 
-    def _approved(self):
+    def _agreed(self):
         tsr.approve_period(self.db, EMP, ANCHOR, MGR, "Looks right")
         return self._r()
 
 
 class ManagerFirstTests(Oct16Case):
     def test_the_manager_approves_without_a_submission(self):
-        r = self._approved()
-        self.assertEqual((r.status, r.agreed_by, r.manager_email), ("approved", MGR, MGR))
-        self.assertEqual([e["action"] for e in r.rounds], ["approved"])
-        bell = self._bells(EMP)[-1]
-        self.assertEqual(bell.title, "Timesheet approved - sign it")
-        self.assertEqual(json.loads(bell.action)["sub"], "timecard")
+        r = self._agreed()
+        # Neil's flow: the approval sends the envelope straight to the employee.
+        self.assertEqual((r.status, r.agreed_by, r.manager_email), ("signing", MGR, MGR))
+        self.assertTrue(r.sign_request_id)
+        self.assertEqual([e["action"] for e in r.rounds], ["agreed"])
         with self.assertRaises(HTTPException):              # not twice
             tsr.approve_period(self.db, EMP, ANCHOR, MGR)
 
@@ -79,7 +77,7 @@ class ManagerFirstTests(Oct16Case):
         self._as(MGR)
         r = self.client.post("/timesheet-review/approve", json={"email": EMP, "start": ANCHOR, "note": "ok"})
         self.assertEqual(r.status_code, 200, r.text)
-        self.assertEqual(r.json()["status"], "approved")
+        self.assertEqual(r.json()["status"], "signing")
         self.assertFalse(r.json()["canApprove"])
 
     def test_the_panel_offers_approve_before_any_submission(self):
@@ -116,38 +114,28 @@ class ManagerFirstTests(Oct16Case):
             tsr.approve_period(self.db, EMP, ANCHOR, MGR)
         self.assertEqual(e.exception.status_code, 409)
 
-    def test_the_employee_who_disagrees_sends_it_back_to_the_manager(self):
-        self._approved()
-        r = tsr.submit(self.db, EMP, ANCHOR, "Tuesday is short")
-        self.assertEqual((r.status, r.rounds[-1]["action"]), ("with_manager", "resubmitted"))
-        with self.assertRaises(HTTPException):
-            tsr.employee_approve(self.db, self._r(), EMP)
+    def test_out_for_signature_the_employee_declines_rather_than_resubmits(self):
+        self._agreed()
+        with self.assertRaises(HTTPException) as e:
+            tsr.submit(self.db, EMP, ANCHOR, "Tuesday is short")
+        self.assertIn("decline it", e.exception.detail)
 
 
 class ReopenTests(Oct16Case):
-    def test_a_manager_edit_after_approval_reopens_it(self):
-        self._approved()
+    def test_a_manager_edit_after_agreeing_reopens_it_and_pulls_the_envelope(self):
+        rid = self._agreed().sign_request_id
         tsr.guard_edit(self.db, EMP, self.start, MGR)
         self.db.commit()
         r = self._r()
-        self.assertEqual((r.status, r.rounds[-1]["action"]), ("with_manager", "reopened"))
+        self.assertEqual((r.status, r.sign_request_id, r.rounds[-1]["action"]), ("with_manager", "", "reopened"))
+        self.assertEqual(self.db.get(models.HrSignRequest, rid).status, "voided")
         self.assertEqual(self._bells(EMP)[-1].title, "Timesheet back for review")
 
     def test_a_dry_run_changes_nothing(self):
-        self._approved()
+        self._agreed()
         tsr.guard_edit(self.db, EMP, self.start, MGR, dry_run=True)
         self.db.commit()
-        self.assertEqual(self._r().status, "approved")
-
-    def test_a_change_the_review_never_saw_sends_it_back_at_signing(self):
-        self._approved()
-        self._punch(self.end, "in", "16:00:00")          # straight into the table, no guard
-        self._punch(self.end, "out", "18:00:00")
-        self.db.commit()
-        with self.assertRaises(HTTPException) as e:
-            tsr.employee_approve(self.db, self._r(), EMP)
-        self.assertIn("changed after your manager approved", e.exception.detail)
-        self.assertEqual(self._r().status, "with_manager")
+        self.assertEqual(self._r().status, "signing")
 
 
 class HrOverrideTests(Oct16Case):
@@ -159,32 +147,30 @@ class HrOverrideTests(Oct16Case):
         self.db.commit()
         self.assertTrue(tsr.is_hr(self.db, TOP, EMP))
 
-    def test_hr_edits_an_approved_timesheet_without_reopening_it(self):
-        self._approved()
+    def test_hr_editing_while_out_for_signature_asks_the_employee_to_sign_again(self):
+        rid = self._agreed().sign_request_id
         tsr.guard_edit(self.db, EMP, self.start, HR)
         tsr.guard_edit(self.db, EMP, self.start, HR)         # a second punch: still one line
         self.db.commit()
         r = self._r()
-        self.assertEqual(r.status, "approved")
-        self.assertEqual([e["action"] for e in r.rounds], ["approved", "hr_edited"])
-        self.assertEqual(r.agreed_fingerprint, "")           # signing takes HR's version
-        self.assertEqual([b.title for b in self._bells(EMP)].count("Timesheet updated by HR"), 1)
-        tsr.employee_approve(self.db, r, EMP)                # the employee signs the edited card
-        self.assertEqual(self._r().status, "signing")
-        self.assertTrue(any("Hours changed by Hana Test (HR)" in x for x in tsr.approval_log(self.db, self._r())))
-
-    def test_hr_editing_while_out_for_signature_asks_the_employee_again(self):
-        r = tsr.submit(self.db, EMP, ANCHOR)
-        tsr.approve(self.db, r, MGR)
-        tsr.employee_approve(self.db, self._r(), EMP)
-        rid = self._r().sign_request_id
-        tsr.guard_edit(self.db, EMP, self.start, HR)
-        self.db.commit()
-        r = self._r()
+        # No re-approval: it waits for the employee's signature on HR's version.
         self.assertEqual((r.status, r.sign_request_id), ("approved", ""))
+        self.assertEqual([e["action"] for e in r.rounds], ["agreed", "hr_edited"])
         self.assertEqual(self.db.get(models.HrSignRequest, rid).status, "voided")
-        tsr.employee_approve(self.db, r, EMP)
-        self.assertNotEqual(self._r().sign_request_id, rid)
+        self.assertEqual([b.title for b in self._bells(EMP)].count("Timesheet updated by HR"), 1)
+        view = tsr.state_for(self.db, EMP, self.start, EMP, False)
+        self.assertTrue(view["canEmployeeApprove"])
+        tsr.employee_approve(self.db, r, EMP)                # a fresh envelope of the edited card
+        r = self._r()
+        self.assertEqual(r.status, "signing")
+        self.assertNotEqual(r.sign_request_id, rid)
+        self.assertTrue(any("Hours changed by Hana Test (HR)" in x for x in tsr.approval_log(self.db, r)))
+
+    def test_only_an_hr_edited_timesheet_is_signed_this_way(self):
+        r = tsr.submit(self.db, EMP, ANCHOR)
+        with self.assertRaises(HTTPException) as e:
+            tsr.employee_approve(self.db, r, EMP)
+        self.assertEqual(e.exception.status_code, 409)
 
     def test_hr_may_edit_while_it_is_back_with_the_employee(self):
         r = tsr.submit(self.db, EMP, ANCHOR)
@@ -194,17 +180,19 @@ class HrOverrideTests(Oct16Case):
             tsr.guard_edit(self.db, EMP, self.start, MGR)    # the manager still waits
         self.assertEqual(self._r().status, "with_employee")
 
-    def test_unlocking_a_signed_period_asks_the_employee_to_sign_again(self):
-        r = tsr.submit(self.db, EMP, ANCHOR)
-        tsr.approve(self.db, r, MGR)
-        tsr.employee_approve(self.db, self._r(), EMP)
-        self._sign(self._parties(self._r().sign_request_id)["employee"])
+    def test_an_unlocked_period_is_reviewable_again(self):
+        """Neil's Unlock closes the signed review out as "unlocked"; the
+        manager's list offers the period again and a new round signs it."""
+        r = self._agreed()
+        self._sign(self._parties(r.sign_request_id)["employee"])
         self.assertTrue(timeclock._finalized_row(self.db, EMP, self.start, self.end))
         timeclock.unfinalize_timecard(timeclock.FinalizeIn(email=EMP, start=self.start, end=self.end),
                                       user={"email": HR, "level": 4}, db=self.db)
-        r = self._r()
-        self.assertEqual((r.status, r.rounds[-1]["action"]), ("approved", "unlocked"))
-        self.assertTrue(tsr.state_for(self.db, EMP, self.start, EMP, False)["canEmployeeApprove"])
+        self.db.expire_all()
+        old = self.db.get(models.TimesheetReview, r.id)
+        self.assertEqual(old.status, "unlocked")
+        tsr.approve_period(self.db, EMP, ANCHOR, MGR, "Corrected")
+        self.assertEqual(self._r().status, "signing")
 
 
 class PopUpTests(Oct16Case):
@@ -250,7 +238,6 @@ class EgnyteFilingTests(Oct16Case):
     def _signing_request(self):
         r = tsr.submit(self.db, EMP, ANCHOR)
         tsr.approve(self.db, r, MGR)
-        tsr.employee_approve(self.db, self._r(), EMP)
         return self.db.get(models.HrSignRequest, self._r().sign_request_id)
 
     def test_it_files_in_the_employees_timesheets_folder(self):

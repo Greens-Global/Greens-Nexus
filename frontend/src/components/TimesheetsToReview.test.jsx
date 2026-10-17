@@ -42,7 +42,7 @@ describe('TimesheetsToReview', () => {
     expect(screen.getByText('"All in"')).toBeTruthy();
     fireEvent.click(screen.getByText('Approve'));
     await waitFor(() => expect(approve).toHaveBeenCalledWith('r1', ''));
-    expect(toastOk).toHaveBeenCalledWith('Approved - Erin Test is asked to sign.');
+    expect(toastOk).toHaveBeenCalledWith('Approved - sent to Erin Test to sign.');
     await waitFor(() => expect(waiting).toHaveBeenCalledTimes(2));   // refreshed after deciding
   });
 

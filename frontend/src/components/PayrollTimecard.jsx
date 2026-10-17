@@ -25,6 +25,10 @@ import { usePhotoMap } from '../lib/peoplePhotos';
 import { moneyPrefix } from '../asset/lib/currency';
 import { registerTour } from '../lib/tours';
 
+// Launch (Neil, 10/16): the only sign-off is review + Nexus Sign, so the HR
+// "Finalize Without Signatures" override is hidden. Flip to true to show it.
+const LEGACY_FINALIZE = false;
+
 // ── Payroll timecard (SwipeClock 1:1, manager-editable) ───────────────────────
 // One employee, one pay period (biweekly, SUNDAY-anchored on SwipeClock's real
 // payroll calendar - site 47239: 7/26/26–8/8/26). Same column order as the
@@ -331,6 +335,7 @@ function anchorForStart(startIso, payType) {
 export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, initialEmail = '', initialStart = '', initialPayType = '' }) {
   const self = selfMode;   // employee viewing their OWN timecard (from /my-payroll)
   const [people, setPeople] = useState([]);
+  const [peopleLoaded, setPeopleLoaded] = useState(false);   // the team list answered (even empty)
   const [email, setEmail] = useState(initialEmail);
   // Jump to a specific employee when the caller changes initialEmail (e.g. the
   // "N to review" badge in TimeAdmin opens that person's card).
@@ -390,8 +395,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       const list = (r.rows || []).map(x => ({ email: x.email, name: x.name || x.email, pendingEdits: x.pendingEdits || 0,
         company: x.company || '', companyName: x.companyName || '', dept: x.dept || '' }));
       setPeople(list);
+      setPeopleLoaded(true);
       setEmail(e => e || list[0]?.email || '');
-    }).catch(() => {});
+    }).catch(() => setPeopleLoaded(true));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   // Per-employee missing/exception counts for the sidebar (re-loads per period).
@@ -492,6 +498,28 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const rateSplitText = (splits, key, fmt) => (splits || []).length > 1
     ? splits.map((s, i) => i === 0 ? `Through ${formatDate(s.through)} at ${fmt(s[key])}` : `From ${formatDate(s.from)} at ${fmt(s[key])}`).join(' · ')
     : '';
+  // Approve + finalize share the SwipeClock exception gate: a period with a
+  // missing or unmatched punch is blocked (the paired total would be wrong), with
+  // an explicit "sign off anyway" override - the sign-off is on record either way.
+  async function signOff(call, verb, okMsg) {
+    setBusy(true);
+    try { await call(false); toastOk?.(okMsg); load(); }
+    catch (e) {
+      if (e?.detail?.code === 'unresolved_exceptions') {
+        setBusy(false);
+        const go = await dialog.confirm(e.detail.message,
+          { title: 'Unresolved punch exceptions', confirmText: `${verb} anyway`, danger: true });
+        if (!go) return;
+        setBusy(true);
+        try { await call(true); toastOk?.(`${okMsg} (exceptions overridden).`); load(); }
+        catch (e2) { toastErr?.(e2?.message || `Could not ${verb.toLowerCase()}.`); }
+      } else {
+        toastErr?.(e?.message || `Could not ${verb.toLowerCase()}.`);
+      }
+    }
+    setBusy(false);
+  }
+
   // Hourly nav MUST stay Sunday-anchored (SwipeClock parity). Step in whole
   // periods on the UTC series - snapPeriodUTC first, so a pStart left
   // off-series by a fixed employee's month snap re-aligns. Never route the
@@ -524,10 +552,11 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const nameFor = (em) => people.find(p => p.email === (em || '').toLowerCase())?.name
     || (em ? em.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '');
 
-  // "Finalize Without Signatures" left (Neil, Oct 16 - "I don't even know
-  // what that means"): the manager's Review & Approve and the employee's
-  // signature finalize a period. HR keeps Unlock for corrections; the
-  // employee then signs the corrected card again.
+  async function finalize() {
+    if (!await dialog.confirm(`Finalize ${nameFor(email)}'s timecard for ${periodLabel}? This locks all time records for the period - edits will need an unlock.`, { title: 'Finalize timecard', confirmText: 'Finalize', danger: true })) return;
+    await signOff((allow) => api.timeFinalize({ email, start: perStart, end: perEnd, allow_exceptions: allow }),
+      'Finalize', 'Timecard finalized - the period is locked.');
+  }
   async function unfinalize() {
     if (!await dialog.confirm(`Unlock ${nameFor(email)}'s finalized timecard for ${periodLabel}? Edits become possible again, and ${nameFor(email)} signs the corrected card again.`, { title: 'Unlock period', confirmText: 'Unlock' })) return;
     setBusy(true);
@@ -1034,7 +1063,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         nameFor={nameFor} cur={cur} fmtM={fmtM} showRaw={showRaw} setShowRaw={setShowRaw}
         isAdmin={isAdmin} busy={busy} setBusy={setBusy}
         onPrev={() => shiftMonth(-1)} onNext={() => shiftMonth(1)}
-        onUnfinalize={unfinalize}
+        onFinalize={finalize} onUnfinalize={unfinalize}
         editDay={editDay} setEditDay={setEditDay} load={load} toastOk={toastOk} toastErr={toastErr}
         setWorkLogDay={setWorkLogDay} dayNotes={notes} saveNote={saveNote} saveMyNote={saveMyNote} myNote={myNote} />
     );
@@ -1059,7 +1088,13 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // before the data reveals whether this employee is hourly or salaried. The HR
   // sidebar stays so switching employees doesn't rearrange the screen.
   if (data === null && !stepLocked) {
-    const spinner = (
+    // Team mode with nobody in scope: say so instead of spinning forever
+    // (Oct 16: a manager with no reports yet saw an endless loader).
+    const spinner = (!self && !email && peopleLoaded && people.length === 0) ? (
+      <div style={{ fontFamily: 'var(--wk-font)', padding: '52px 0', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
+        No one on your team yet. People whose manager is you, or who you back up, show here.
+      </div>
+    ) : (
       <div style={{ fontFamily: 'var(--wk-font)', padding: '52px 0', textAlign: 'center', color: 'var(--muted)' }}>
         <Spinner size="section" />
       </div>
@@ -1367,12 +1402,17 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   <span style={{ fontSize: 11, color: 'var(--muted)', flexBasis: '100%' }}>One entry for {formatDate(perStart)} to {formatDate(perEnd)}: a debit per employee per pay class, one credit per employee to the clearing account. Blank accounts are left for Intacct to ask.</span>
                 </form>
               )}
-              {/* Approving is Review & Approve in the review panel below; the
-                  employee's signature there finalizes (Oct 16). Unlock stays
-                  for HR's corrections. */}
+              {/* Approving is now "Agree" in the review panel below; HR's
+                  signature there finalizes. Finalize Without Signatures is
+                  hidden for launch (Neil, 10/16: review + Nexus Sign is the
+                  only sign-off) - LEGACY_FINALIZE brings it back. Unlock stays
+                  as HR's correction path for a signed period. */}
               {isAdmin && fin && (
-                <button className="secondary-btn" onClick={unfinalize} disabled={busy} title="HR: unlock this finalized period for corrections - the employee signs again"
+                <button className="secondary-btn" onClick={unfinalize} disabled={busy} title="HR: unlock this finalized period for corrections"
                   style={{ fontSize: 12.5 }}>Unlock</button>)}
+              {isAdmin && !fin && LEGACY_FINALIZE && (
+                <button className="secondary-btn" onClick={finalize} disabled={busy} title="HR override: finalize for payroll without the review and signatures"
+                  style={{ fontSize: 12.5 }}>Finalize Without Signatures</button>)}
             </div>
             )}
           </div>
@@ -1431,8 +1471,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           body: 'The pencil on any row edits that punch (or adds one on an empty day) - set the real in/out, location, and job category, delete a punch, or add a Break, Sick, Vacation or Personal time for someone. Originals stay on record with who changed what, like SwipeClock\'s audit log.' },
         { target: 'pr-summary', title: 'Totals, in both formats',
           body: 'Regular, overtime (1.5×), and double-time (2×) hours with wages - shown as clock time AND decimal ("58:30 (58.50)"), matching SwipeClock\'s summary, so payroll can key either format.' },
-        { target: 'pr-approve', title: 'Two-step sign-off',
-          body: 'Step 1 - the manager presses Approve when their person\'s card is right. Step 2 - HR presses Finalize: the period locks (no more edits, like SwipeClock\'s "finalized" periods) and payroll runs from it. Unlock reopens it if a correction is truly needed. CSV exports the punches for records.' },
+        { target: 'pr-approve', title: 'Review and sign',
+          body: 'The employee submits the period, their approver sends it back or agrees, then the employee signs it in Nexus Sign. That signature locks the period (no more edits, like SwipeClock\'s "finalized" periods) and payroll runs from it. Unlock reopens it if a correction is truly needed. CSV exports the punches for records.' },
       // On a phone there is no employee list and no edit column (the day
       // cards replace the table), so those two steps would point at nothing.
       ].filter(st => !phone || (st.target !== 'pr-sidebar' && st.target !== 'pr-edit'))} />}
@@ -1460,7 +1500,7 @@ const t12s = (iso) => iso ? formatTimeTz(iso, { seconds: true }) : '';
 // Monthly card for a FIXED-salary employee. Same day grid + inline edit/add +
 // signatures as the hourly card, but the pay math is the fixed model: salary,
 // per-day present/half/absent/weekend status, deductions and weekend overtime.
-function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM, showRaw, setShowRaw, isAdmin, busy, setBusy, onPrev, onNext, onUnfinalize, editDay, setEditDay, load, toastOk, toastErr, setWorkLogDay, dayNotes = {}, saveNote, saveMyNote, myNote = () => null }) {
+function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM, showRaw, setShowRaw, isAdmin, busy, setBusy, onPrev, onNext, onFinalize, onUnfinalize, editDay, setEditDay, load, toastOk, toastErr, setWorkLogDay, dayNotes = {}, saveNote, saveMyNote, myNote = () => null }) {
   const showPay = !data.payHidden;   // the manager tier never sees pay
   const [geoMap, setGeoMap] = useState('');   // email whose Geofence Punch view is open
   useDisplayTz();   // re-render this card (and its time cells) when the tz switch flips
@@ -1598,7 +1638,11 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
             {fixedDays.map((fd, fi) => {
               const d = byDate[fd.date];
               const segs = d?.segments || [];
-              const st = STATUS[fd.status] || STATUS.upcoming;
+              const baseSt = STATUS[fd.status] || STATUS.upcoming;
+              // A missed day covered by approved time off is named after it ("Personal",
+              // "Personal · Half Day") - requests are not punched, so it would read Absent.
+              const timeOffDay = fd.timeOff && (fd.status === 'absent' || fd.status === 'half');
+              const st = timeOffDay ? { ...STATUS.personal, label: fd.status === 'half' ? `${fd.timeOff} · Half Day` : fd.timeOff } : baseSt;
               const multi = segs.length > 1;               // collapse only when there's more than one punch pair
               const punchesOpen = !!openPunches[fd.date];
               const breaksOpen = !!openBreaks[fd.date];
@@ -1668,7 +1712,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                     : <button onClick={() => !fin && setEditDay({ date: fd.date, seg })} title={fin ? 'Locked' : 'Add the missing clock-out'} style={{ background: 'none', border: 'none', padding: 0, cursor: fin ? 'default' : 'pointer', color: '#b91c1c', fontWeight: 700, font: 'inherit' }}>Missing</button>;
               const addBtn = <button onClick={() => setEditDay({ date: fd.date, seg: null })} title={self ? 'Add a missing punch for this day - goes to your approver' : 'Add a punch for this day'} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--wk-brand)', fontWeight: 600, font: 'inherit', opacity: 0.85 }}>+ add</button>;
               const onLeave = !!fd.leaveClass;
-              const statusPill = <span title={onLeave ? 'Leave - the day is deducted unless hours were also worked' : (fd.holidayName || undefined)} style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 999, background: st.bg, color: st.fg }}>{st.label}</span>;
+              const statusPill = <span title={onLeave ? 'Leave - the day is deducted unless hours were also worked' : timeOffDay ? `Approved time off (${fd.timeOff}) - the missed time is deducted` : (fd.holidayName || undefined)} style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 999, background: st.bg, color: st.fg }}>{st.label}</span>;
               const breakCell = (
                 <td className="fx-break" style={{ ...td, textAlign: 'right' }}>
                   {dayBreak > 0
@@ -1922,10 +1966,13 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               <span>Pending edits</span><span>{T.pendingEdits}</span>
             </div>
           )}
-          {!self && isAdmin && fin && (
+          {!self && isAdmin && (fin || LEGACY_FINALIZE) && (
             <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-              <button className="secondary-btn" onClick={onUnfinalize} disabled={busy} title="HR: unlock this finalized month for corrections - the employee signs again"
-                style={{ fontSize: 12.5 }}>Unlock</button>
+              {isAdmin && fin && (
+                <button className="secondary-btn" onClick={onUnfinalize} disabled={busy} style={{ fontSize: 12.5 }}>Unlock</button>)}
+              {isAdmin && !fin && LEGACY_FINALIZE && (
+                <button className="secondary-btn" onClick={onFinalize} disabled={busy} title="HR override: finalize for payroll without the review and signatures"
+                  style={{ fontSize: 12.5 }}>Finalize Without Signatures</button>)}
             </div>
           )}
         </div>

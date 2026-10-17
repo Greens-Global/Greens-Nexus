@@ -25,6 +25,11 @@ import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import { formatDistance, formatAccuracy } from '../lib/distance';
 import { useRole } from '../contexts/RoleContext';
 
+// Launch (Neil, 10/16): timecards are approved by Agree in the timesheet
+// review and signed in Nexus Sign, so the per-day / per-period Approve
+// buttons (POST /timeclock/approvals) are hidden. Flip to true to show them.
+const LEGACY_APPROVE = false;
+
 // Confidential time off (Sep 29): the server blanks the note for anyone but
 // the requester and approver ("redacted"); the type still shows (Neil, Sep
 // 30: "Time off - Medical", never the detail).
@@ -47,7 +52,9 @@ function ConfidentialMark() {
 const KIND_LABEL = { in: 'In', out: 'Out', break_start: 'Break start', break_end: 'Break end' };
 const localTime = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : '-';
 const fmtMin = (m) => `${Math.floor((m || 0) / 60)}h ${String((m || 0) % 60).padStart(2, '0')}m`;
-const isoDate = (d) => d.toISOString().slice(0, 10);
+// The viewer's LOCAL calendar date - toISOString is UTC, which after 5 PM
+// Pacific made "This week" run Tuesday to Monday (Oct 16).
+const isoDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 // One day inside the person drawer - click to reveal the working/idle
 // breakdown and the desktop agent's app/window log for that day.
@@ -60,7 +67,7 @@ function AdminDayRow({ date, email, d, approval, onApprove }) {
         <span style={{ fontSize: 12, fontWeight: 700, width: 92, flexShrink: 0, color: 'var(--ink)' }}>{new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
         <DayTimeline punches={d.punches} height={18} date={date} />
         {d.flags.length > 0 && <AlertTriangle size={12} style={{ color: '#b45309', flexShrink: 0 }} />}
-        {onApprove && (
+        {onApprove && LEGACY_APPROVE && (
           approval && !approval.stale ? (
             <span title={`Approved by ${approval.by} · ${(approval.at || '').slice(0, 16).replace('T', ' ')}`}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10.5, fontWeight: 700, color: 'hsl(var(--color-green))', background: 'hsla(var(--color-green),0.1)', padding: '2px 9px', borderRadius: 999, flexShrink: 0 }}>
@@ -618,7 +625,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
               </button>
             )}
             {r.breakMin > 0 && <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{r.breakMin}m break</span>}
-            {isRowApproved(r) ? (
+            {!LEGACY_APPROVE ? null : isRowApproved(r) ? (
               <span title="Every worked day in this period is signed off and unchanged since"
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, color: 'hsl(var(--color-green))', background: 'hsla(var(--color-green),0.1)', padding: '3px 9px', borderRadius: 999 }}>
                 <CheckCircle size={11} /> Approved
@@ -1062,7 +1069,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                   <div style={{ fontSize: 15, fontWeight: 800 }}>{p.name}</div>
                   <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{p.email} · {start} → {end}</div>
                 </div>
-                {(() => {
+                {LEGACY_APPROVE && (() => {
                   const dk = Object.keys(p.days || {});
                   if (isRowApproved(p)) {
                     return <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, fontWeight: 700, color: 'hsl(var(--color-green))', background: 'hsla(var(--color-green),0.1)', padding: '4px 11px', borderRadius: 999 }}><CheckCircle size={12} /> Approved</span>;

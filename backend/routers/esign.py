@@ -1113,14 +1113,20 @@ def _sign_email_html(party: HrSignParty, req: HrSignRequest, sender: dict, link:
 </div>"""
 
 
-def _sign_link(party: HrSignParty) -> str:
+def _sign_link(party: HrSignParty, req: Optional[HrSignRequest] = None) -> str:
     # Straight to THIS request's signing page - never to a list the signer then
     # has to search. The token identifies the envelope, so there is no "which
     # document was I asked about?" step. A teammate signs behind their Nexus
     # login; ?sign=<party> opens their signing screen as soon as they are in
     # (ESign.jsx reads it once), so the inbox is not a list to search either.
-    return (f"{_app_url_fn()}/sign/{party.token}" if party.kind == "external"
-            else f"{_app_url_fn()}/documents/documents-esign?sign={party.id}")
+    if party.kind == "external":
+        return f"{_app_url_fn()}/sign/{party.token}"
+    # A timesheet's manager / HR signer lands on Workday > Time Sheet, where the
+    # Timesheets to Sign card signs in place - Documents needs a grant a plain
+    # manager may not hold (Oct 16).
+    if (getattr(req, "link_kind", "") or "") == "timesheet":
+        return f"{_app_url_fn()}/workday/timesheet"
+    return f"{_app_url_fn()}/documents/documents-esign?sign={party.id}"
 
 
 def _send_sign_email(party: HrSignParty, req: HrSignRequest, sender: dict, custom: Optional[tuple] = None) -> tuple:
@@ -1129,7 +1135,7 @@ def _send_sign_email(party: HrSignParty, req: HrSignRequest, sender: dict, custo
     from_addr = os.getenv("NEXUS_FROM_EMAIL", "")
     if not (party.email and from_addr):
         return False, "no recipient email" if not party.email else "NEXUS_FROM_EMAIL not set"
-    link = _sign_link(party)
+    link = _sign_link(party, req)
     if custom:
         return _graph_send_mail(from_addr=from_addr, display_name=_from_display(sender.get("name") or ""),
                                 to_email=party.email, subject=custom[0], html=custom[1],
@@ -1238,7 +1244,15 @@ def _notify_party(db: Session, party: HrSignParty, req: HrSignRequest, sender_na
     """Tell a party it's their turn. Bell for internal, email for both (best-effort -
     an email hiccup must never lose the envelope; the event log records it)."""
     sender = _sender_identity(db, req)
-    if party.kind == "internal":
+    if party.kind == "internal" and (getattr(req, "link_kind", "") or "") == "timesheet":
+        # A timesheet is signed from Workday > Time Sheet (Timesheets to Sign),
+        # which every manager can open - Documents needs an Access Group grant
+        # a plain manager may not hold (Oct 16).
+        _hr_notify(db, party.email, f"Signature required: {req.title}",
+                   f"\"{req.title}\" is ready for your signature. Open Workday > Time Sheet to review and sign it.",
+                   ref_id=req.id, requested_by=sender_name,
+                   action={"view": "timeclock", "sub": "timesheet"}, priority=1)
+    elif party.kind == "internal":
         _hr_notify(db, party.email, f"Signature required: {req.title}",
                    f"{sender['name']} sent you \"{req.title}\" to sign. Open Documents → Nexus Sign.",
                    ref_id=req.id, requested_by=sender_name,

@@ -31,18 +31,19 @@ so a problem here can never break a signature.
 OCT 16 2026 (Neil, Charmi, Pranshu, Sagar - call): the chain above is
 replaced. ONLY THE EMPLOYEE SIGNS - "who gets hurt if there's a mistake?
 The employee" - so:
-    manager clicks Review & Approve (no signature, no code; the employee
-    need not have submitted first)  ->  "approved"
-    employee clicks Approve & Sign once  ->  Nexus Sign, the employee alone
+    the manager (or the HR contact when nobody is set) clicks Agree / Review
+    & Approve - no signature, no code; the employee need not have submitted
+    first - and the envelope goes straight to the employee, its only signer
     ->  their signature finalizes the period; the PDF carries a timestamped
-    log of who approved it ("Approved by Max Test on 10/16/2026 at 2:15 PM").
-The employee cannot sign before the manager approves. Any change after the
-manager approved - the employee asking for a punch fix, the manager editing -
-reopens it: back with the manager to approve again (envelope voided if out).
-HR is the one override: HR may edit at any point without anyone's approval
-and the review stays approved; a card out for signature is pulled back so
-the employee signs the edited version (is_hr / _hr_override). Envelopes sent
-before Oct 16 (employee -> manager -> HR) finish as they were.
+    log of who approved it ("Approved by Max Test (manager) on 10/16/2026 at
+    2:15 PM").
+Any change after the manager approved - the employee asking for a punch fix,
+the manager editing - reopens it: back with the manager to approve again
+(the envelope is voided). HR is the one override: HR may edit at any point
+without anyone's approval; a card out for signature is pulled back and waits
+as "approved" until the employee signs the edited version (is_hr /
+_hr_override / employee_approve). HR's Unlock of a finalized period starts a
+new round (status "unlocked").
 """
 from __future__ import annotations
 
@@ -50,7 +51,7 @@ import hashlib
 import io
 import json
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -60,8 +61,11 @@ from models import (HrEntity, HrSignParty, HrSignRequest, NexusEmployee, PunchRe
 
 ACTIVE = ("with_manager", "with_employee", "approved", "signing")
 LINK_KIND = "timesheet"
-# Nexus Sign role keys, in signing order: the employee alone (Oct 16). The
-# manager's approval is a click, logged on the PDF; HR does not sign.
+# Nexus Sign role keys, in signing order. Only the EMPLOYEE signs (Neil, Oct
+# 16): the lead approver - their manager, or the company's HR contact / a
+# Global Admin when nobody is set - approves by clicking Agree, and the
+# employee's signature finalizes the period. The manager and HR rows are gone
+# from the envelope; the approval is printed on the document instead.
 ROLES = (("employee", "Employee"),)
 # Display order of the parties of any envelope, old three-signer ones included.
 _PARTY_ORDER = {"employee": 0, "manager": 1, "hr": 2}
@@ -120,6 +124,17 @@ def manager_of(db: Session, email: str) -> str:
     for m in ((ent.manager_emails or []) if ent else []):
         if (m or "").lower() not in ("", email):
             return m.lower()
+    # Nobody set: the company's HR contact is the lead approver (Neil, Oct 16 -
+    # HR and the Global Admins decide when there is no manager, never "any
+    # manager").
+    hr = ((ent.hr_contact_email if ent else "") or "").strip().lower()
+    if not hr or hr == email:
+        return ""
+    # Only someone who can actually act on it: manager level or an HR editor
+    # grant (what Agree / Send Back require) - else "nobody to review".
+    from auth import _module_level, _role_for
+    if _role_for(hr, db)[1] >= 3 or _module_level(hr, "hr", db) >= 2:
+        return hr
     return ""
 
 
@@ -358,19 +373,6 @@ def _hr_override(db: Session, r: TimesheetReview, actor: str, note: str = "") ->
             "then approve and sign it.", r)
 
 
-def on_unlocked(db: Session, email: str, start: str, end: str, actor: str) -> None:
-    """HR unlocked a finalized period: a signed review goes back to approved,
-    so the employee signs the corrected card again (Neil: "he still has to
-    sign off on that final card")."""
-    r = (db.query(TimesheetReview)
-         .filter(TimesheetReview.employee_email == (email or "").lower(), TimesheetReview.period_start == start,
-                 TimesheetReview.period_end == end, TimesheetReview.status == "completed").first())
-    if not r:
-        return
-    r.status, r.sign_request_id, r.agreed_fingerprint = "approved", "", ""
-    _round(db, r, by=actor, action="unlocked", note="Unlocked for corrections - the employee signs again.")
-
-
 # ── Waiting on a reviewer ────────────────────────────────────────────────────
 
 def submit_blocker(db: Session, email: str, start: str, end: str) -> str:
@@ -381,6 +383,12 @@ def submit_blocker(db: Session, email: str, start: str, end: str) -> str:
     Judged as if the employee's own pending punch fixes were approved: their
     fixes ARE requests, and the manager approves them during review."""
     tc = _tc()
+    # Not before the period's last day (Oct 16): a timesheet submitted on day
+    # one sat with the manager for two weeks, during which the employee could
+    # no longer file punch fixes and the manager could not agree.
+    if tc._employee_today(db, email) < end:
+        return (f"This period runs through {us_date(end)}. Submit it on that day, once your "
+                "last shift is in, or any day after.")
     exc = tc._blocking_exceptions(db, email, start, end, with_pending=True)
     if not exc:
         return ""
@@ -393,7 +401,9 @@ def approve_blocker(db: Session, email: str, start: str, end: str) -> str:
     words; '' when it would go through. The same checks approve() makes, so
     the screen can say so up front instead of after the click (Sep 29)."""
     tc = _tc()
-    if tc._employee_today(db, email) < end:
+    # "<=": on the last day itself a shift may still be ahead - the gate used
+    # to open at midnight of the last day (Oct 16).
+    if tc._employee_today(db, email) <= end:
         return (f"This period runs to {us_date(end)}. You can approve it after that day, "
                 "once every day is in.")
     exc = tc._blocking_exceptions(db, email, start, end)
@@ -436,6 +446,38 @@ def waiting_on(db: Session, reviewer: str) -> list:
     return sorted(rows, key=lambda r: (r.updated_at or "", r.period_start))
 
 
+def to_sign(db: Session, signer: str) -> list:
+    """Timesheet envelopes waiting on `signer`'s signature right now (their
+    turn in Nexus Sign), as rows for the Workday > Time Sheet card (Oct 16).
+    Managers reach the People and Documents screens only through an Access
+    Group grant, so without one the bell and the email link both landed on
+    Access Restricted and the manager could never sign; this card signs in
+    place, the same way the employee does on their own timecard."""
+    me = (signer or "").lower()
+    if not me:
+        return []
+    out = []
+    parties = (db.query(HrSignParty)
+               .filter(HrSignParty.email == me, HrSignParty.status.in_(["waiting", "notified", "viewed"])).all())
+    for p in parties:
+        req = db.query(HrSignRequest).filter(HrSignRequest.id == p.request_id).first()
+        if not req or req.status != "pending" or req.current_order != p.ordinal:
+            continue
+        if (getattr(req, "link_kind", "") or "") != LINK_KIND:
+            continue
+        r = db.query(TimesheetReview).filter(TimesheetReview.id == req.link_id).first()
+        if not r or r.status != "signing":
+            continue
+        # The employee's own envelope is listed too: their Time Sheet opens on
+        # the CURRENT period while the envelope is for the one just closed, so
+        # the card signs it in place from any period (Oct 16).
+        out.append({"id": r.id, "partyId": p.id, "role": p.role_key, "employeeEmail": r.employee_email,
+                    "name": display_name(db, r.employee_email), "periodStart": r.period_start,
+                    "periodEnd": r.period_end, "payType": r.pay_type, "agreedAt": r.agreed_at or "",
+                    "agreedBy": display_name(db, r.agreed_by) if r.agreed_by else ""})
+    return sorted(out, key=lambda x: (x["agreedAt"], x["periodStart"]))
+
+
 def queue_row(db: Session, r: TimesheetReview) -> dict:
     """One line of the reviewer's list: who, which period, the hours as last
     submitted, when, their note, and whether Agree would go through now."""
@@ -471,7 +513,8 @@ def not_reviewed(db: Session, reviewer: str) -> list:
             continue
         start, end, pay_type = last_closed_period(db, em)
         if db.query(TimesheetReview).filter(TimesheetReview.employee_email == em,
-                                            TimesheetReview.period_start == start).first():
+                                            TimesheetReview.period_start == start,
+                                            TimesheetReview.status != "unlocked").first():
             continue
         if tc._finalized_row(db, em, start, end):
             continue
@@ -549,15 +592,17 @@ def send_back(db: Session, r: TimesheetReview, actor: str, note: str) -> Timeshe
     return r
 
 
-def approve(db: Session, r: TimesheetReview, actor: str, note: str = "", **_meta) -> TimesheetReview:
-    """The manager's Review & Approve (Oct 16): "I have looked at this, this
-    time is accurate". No signature and no code - a timestamped click, logged
-    on the signed PDF. The employee may then approve and sign."""
+def approve(db: Session, r: TimesheetReview, actor: str, note: str = "", *, ip: str = "",
+            user_agent: str = "") -> TimesheetReview:
+    """The manager's Agree / Review & Approve (Oct 16): "I have looked at this,
+    this time is accurate". No signature and no code - a timestamped click,
+    logged on the PDF - and it sends the envelope straight to the employee,
+    the only signer (Neil's flow); their signature finalizes the period."""
     tc = _tc()
     if r.status != "with_manager":
         raise HTTPException(409, "Only a timesheet waiting on the manager's review can be approved.")
     today = tc._employee_today(db, r.employee_email)
-    if today < r.period_end:
+    if today <= r.period_end:
         raise HTTPException(409, f"This period runs to {us_date(r.period_end)}. Approve it after the "
                                  "last day, so every day is in before it is signed.")
     exc = tc._blocking_exceptions(db, r.employee_email, r.period_start, r.period_end)
@@ -572,14 +617,12 @@ def approve(db: Session, r: TimesheetReview, actor: str, note: str = "", **_meta
     if blocker:
         raise HTTPException(409, blocker)       # changes still waiting on a decision
     r.agreed_fingerprint = fingerprint(db, r.employee_email, r.period_start, r.period_end)
+    # The HR contact no longer signs (Oct 16) - kept on the review for the
+    # record and for the finalize notice; a company without one still closes.
     r.agreed_at, r.agreed_by, r.hr_email = _now(), actor.lower(), hr_of(db, r.employee_email)
-    _round(db, r, by=actor, action="approved", note=note, with_changes=True)
-    r.status = "approved"
-    who = display_name(db, actor)
-    _notify(db, r.employee_email, "Timesheet approved - sign it",
-            f"{who} reviewed and approved your timesheet for {_label(r)}. If the hours are right, approve "
-            f"and sign it. If not, ask for a change and it goes back to {who}."
-            + (f' "{note.strip()[:200]}"' if (note or "").strip() else ""), r)
+    _round(db, r, by=actor, action="agreed", note=note, with_changes=True)
+    r.sign_request_id = _send_envelope(db, r, actor, ip=ip, user_agent=user_agent)
+    r.status = "signing"
     db.commit()
     return r
 
@@ -604,7 +647,7 @@ def approve_period(db: Session, employee_email: str, anchor: str, actor: str, no
                             rounds=[], last_snapshot={}, status="with_manager", created_at=_now())
         db.add(r)
     elif r.status == "approved":
-        raise HTTPException(409, "You already approved this timesheet. It is waiting for the employee to sign.")
+        raise HTTPException(409, "This timesheet is approved and waiting for the employee to sign HR's changes.")
     elif r.status == "with_employee":
         raise HTTPException(409, "This timesheet is back with the employee for changes.")
     elif r.status in ("signing", "completed"):
@@ -614,25 +657,19 @@ def approve_period(db: Session, employee_email: str, anchor: str, actor: str, no
 
 def employee_approve(db: Session, r: TimesheetReview, actor: str, *, ip: str = "",
                      user_agent: str = "") -> TimesheetReview:
-    """The employee's Approve & Sign (Oct 16): once for the whole card, only
-    after the manager approved. Sends the Nexus Sign envelope with the
-    employee as its only signer; their signature finalizes it."""
+    """The employee signs again after HR changed an approved timesheet that
+    was out for their signature (_hr_override pulled that envelope back): a
+    fresh envelope of the edited card, the employee its only signer. The
+    manager's own approval sends the first envelope (approve)."""
     actor = (actor or "").lower()
     if actor != r.employee_email:
         raise HTTPException(403, "Only the employee signs their own timesheet.")
     if r.status == "signing":
         return r                               # already out - the panel opens it
     if r.status != "approved":
-        raise HTTPException(409, "Your manager has not approved this timesheet yet. You can approve and "
-                                 "sign it once they have.")
-    fp = fingerprint(db, r.employee_email, r.period_start, r.period_end)
-    if r.agreed_fingerprint and fp != r.agreed_fingerprint:
-        # Changed after the manager approved, by a path that did not reopen it.
-        reopen(db, r, actor, "found the hours changed since they were approved")
-        db.commit()
-        raise HTTPException(409, "The hours changed after your manager approved them, so it went back to "
-                                 "them to approve again.")
-    r.agreed_fingerprint = fp
+        raise HTTPException(409, "There is nothing for you to sign yet - your manager's approval sends "
+                                 "the timesheet to you to sign.")
+    r.agreed_fingerprint = fingerprint(db, r.employee_email, r.period_start, r.period_end)
     _round(db, r, by=actor, action="employee_approved")
     r.sign_request_id = _send_envelope(db, r, actor, ip=ip, user_agent=user_agent)
     r.status = "signing"
@@ -671,9 +708,22 @@ def build_pdf(db: Session, r: TimesheetReview) -> tuple[bytes, int]:
     card = card_for(db, r.employee_email, r.period_start, r.period_end, r.pay_type)
     emp = _employee(db, r.employee_email)
     ent = db.query(HrEntity).filter(HrEntity.id == (emp.company if emp else "")).first() if emp else None
-    offset = _offset(db, r.employee_email)
+    # Every punch prints in the zone it was recorded in (its own tz_offset_min),
+    # not the zone of the person's latest punch: a period agreed after the US
+    # DST change would otherwise show every clock time an hour off (Oct 16).
+    # Through the day AFTER the period: an overnight shift that starts on the
+    # last day clocks out with local_date = end + 1 and still prints here.
+    _end_nx = (date.fromisoformat(r.period_end) + timedelta(days=1)).isoformat()
+    _rows = (db.query(TimePunch).filter(TimePunch.employee_email == r.employee_email,
+                                        TimePunch.local_date >= r.period_start,
+                                        TimePunch.local_date <= _end_nx).all())
+    offsets = {p.id: (p.tz_offset_min or 0) for p in _rows}
+    last = (db.query(TimePunch).filter(TimePunch.employee_email == r.employee_email)
+            .order_by(TimePunch.at.desc()).first())
+    default_offset = (last.tz_offset_min or 0) if last else 0
+    offset = default_offset      # the approval log's times
 
-    def local_time(iso: str) -> str:
+    def local_time(iso: str, punch_id: str = "") -> str:
         if not iso:
             return "-"
         try:
@@ -681,7 +731,7 @@ def build_pdf(db: Session, r: TimesheetReview) -> tuple[bytes, int]:
         except ValueError:
             return "-"
         from datetime import timedelta
-        t = t - timedelta(minutes=offset)
+        t = t - timedelta(minutes=offsets.get(punch_id, default_offset))
         return t.strftime("%I:%M %p").lstrip("0")
 
     buf = io.BytesIO()
@@ -707,7 +757,7 @@ def build_pdf(db: Session, r: TimesheetReview) -> tuple[bytes, int]:
     text(margin, f"{(ent.name if ent else '') or ''}   Pay period {_label(r)}   "
                  f"{'Salaried (monthly)' if r.pay_type == 'fixed' else 'Hourly (bi-weekly)'}", 9)
     y -= 14
-    text(margin, f"Reviewed and approved by {display_name(db, r.agreed_by)} on "
+    text(margin, f"Approved by {display_name(db, r.agreed_by)} on "
                  f"{us_datetime(r.agreed_at, offset) or us_date(r.agreed_at)}. "
                  f"Version {(r.agreed_fingerprint or '')[:12]}", 8, color=(0.4, 0.4, 0.45))
     y -= 22
@@ -729,7 +779,8 @@ def build_pdf(db: Session, r: TimesheetReview) -> tuple[bytes, int]:
             new_page()
         d = by_date.get(ds) or {}
         segs = d.get("segments") or []
-        spans = ", ".join(f"{local_time(s.get('in'))} - {local_time(s.get('out'))}" for s in segs) or "-"
+        spans = ", ".join(f"{local_time(s.get('in'), s.get('inId') or '')} - "
+                          f"{local_time(s.get('out'), s.get('outId') or '')}" for s in segs) or "-"
         if d.get("isHoliday"):
             spans = f"Holiday: {d.get('holidayName') or ''}".strip()
         text(cols[0], date.fromisoformat(ds).strftime("%a %m/%d/%Y"), 8.5)
@@ -795,8 +846,10 @@ def build_pdf(db: Session, r: TimesheetReview) -> tuple[bytes, int]:
     y = H - margin
     text(margin, "Signatures", 12, True)
     y -= 16
-    text(margin, "The employee signs this timesheet. The manager's review and approval, and any HR "
-                 "change, are logged below.", 9)
+    text(margin, "By signing, the employee attests that the hours on this timesheet are accurate "
+                 "for the pay period shown.", 9)
+    y -= 14
+    text(margin, "The approver does not sign - the approval, and any change HR made, are logged below.", 9)
     # The employee's attestation, boxed just above their signature line. Drawn
     # in the free space above the first row, so no signature / date field moves
     # (_sig_fields places them at the same fixed positions).
@@ -847,8 +900,8 @@ def approval_log(db: Session, r: TimesheetReview, offset: int = 0) -> list:
     (an earlier approval that was reopened no longer stands)."""
     rounds = list(r.rounds or [])
     start = max([i for i, e in enumerate(rounds) if e.get("action") in ("approved", "agreed")] or [0])
-    words = {"approved": "Reviewed and approved by {who} (manager) on {when}",
-             "agreed": "Reviewed and approved by {who} (manager) on {when}",
+    words = {"approved": "Approved by {who} (manager) on {when}",
+             "agreed": "Approved by {who} (manager) on {when}",
              "hr_edited": "Hours changed by {who} (HR) on {when}",
              "employee_approved": "Approved for signature by {who} (employee) on {when}"}
     out = []
@@ -871,7 +924,7 @@ def _send_envelope(db: Session, r: TimesheetReview, actor: str, *, ip: str, user
     up = esign._storage_put(esign._DOC_BUCKET, path, pdf, "application/pdf")
     if not up.is_success:
         raise HTTPException(502, "The timesheet could not be stored for signing. Try again.")
-    who = {"employee": r.employee_email, "manager": (r.agreed_by or r.manager_email or "").lower(), "hr": r.hr_email}
+    who = {"employee": r.employee_email}
     parties = [esign.PartyIn(role_key=role, name=display_name(db, who[role]), email=who[role],
                              kind="internal", ordinal=i + 1, party_role="signer")
                for i, (role, _l) in enumerate(ROLES)]
@@ -1009,27 +1062,23 @@ def on_completed(db: Session, req) -> None:
                             TimeApproval.period_start == r.period_start, TimeApproval.period_end == r.period_end,
                             TimeApproval.kind == kind).all()):
             old.revoked = 1
-    e, m = parties.get("employee"), parties.get("manager")
+    e = parties.get("employee")
     if e:
         db.add(TimeApproval(id=str(uuid.uuid4()), approved_by=e.email, approved_at=e.signed_at or _now(),
                             kind="employee_sign", note=e.name or display_name(db, e.email), **base))
-    if m:            # an envelope from before Oct 16 that the manager signed
-        db.add(TimeApproval(id=str(uuid.uuid4()), approved_by=m.email, approved_at=m.signed_at or _now(),
-                            kind="manager", note=f"Nexus Sign {req.id}", **base))
-    elif r.agreed_by:  # Oct 16: the manager's Review & Approve, at the time they clicked it
-        db.add(TimeApproval(id=str(uuid.uuid4()), approved_by=r.agreed_by, approved_at=r.agreed_at or _now(),
-                            kind="manager", note=f"Approved in review {r.id}", **base))
+    # The approver's "Agree" is the manager approval (Oct 16: approvers do not
+    # sign); the row the timecard badges, exports and briefings read.
+    approver = (r.agreed_by or r.manager_email or "").lower()
+    if approver:
+        db.add(TimeApproval(id=str(uuid.uuid4()), approved_by=approver, approved_at=r.agreed_at or _now(),
+                            kind="manager", note=f"Agreed in review; Nexus Sign {req.id}", **base))
     r.status = "completed"
-    hr = parties.get("hr")
-    _round(db, r, by=(hr.email if hr else r.employee_email), action="completed")
+    _round(db, r, by=approver or r.hr_email, action="completed")
     db.flush()
     if not tc._finalized_row(db, r.employee_email, r.period_start, r.period_end):
-        # The employee's signature finalizes it; the finalizer of record is the
-        # approving manager (or HR on an older envelope HR signed).
         tc.finalize_timecard(tc.FinalizeIn(email=r.employee_email, start=r.period_start, end=r.period_end,
                                            allow_exceptions=True),
-                             user={"email": (hr.email if hr else (r.agreed_by or r.manager_email)), "level": 4},
-                             db=db)
+                             user={"email": approver or r.hr_email, "level": 4}, db=db)
 
 
 def safe(fn, *a, **kw) -> None:
