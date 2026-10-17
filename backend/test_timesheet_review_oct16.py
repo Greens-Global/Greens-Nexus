@@ -282,7 +282,9 @@ class PayrollExportTests(Oct16Case):
         self.db.commit()
         out = timeclock.team_timesheet(start=self.start, end=self.end, user={"email": HR, "level": 5}, db=self.db)
         row = next(r for r in out["rows"] if r["email"] == EMP)
-        self.assertEqual((row["company"], row["companyName"], row["dept"]), (ENTITY, "Greens Test Co", "Field Ops"))
+        # Pranshu's filter fields (the company's name, the department) plus the
+        # company id the per-company IIF asks for.
+        self.assertEqual((row["company"], row["department"], row["companyId"]), ("Greens Test Co", "Field Ops", ENTITY))
 
 
 if __name__ == "__main__":

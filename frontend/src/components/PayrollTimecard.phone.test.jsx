@@ -58,7 +58,7 @@ describe('the Time Sheet on a phone', () => {
   it('keeps the table on a desktop', async () => {
     PHONE = false;
     const { container } = await mount();
-    await screen.findByText('Deducted time');
+    await screen.findByText('Deducted Time');
     expect(container.querySelector('.pr-days')).toBeNull();
   }, 20000);
 });
