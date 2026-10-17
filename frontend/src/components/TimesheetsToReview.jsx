@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ClipboardCheck, FileSignature, Undo2, ChevronRight, PenLine } from 'lucide-react';
+import { ClipboardCheck, CheckCircle, FileSignature, Undo2, ChevronRight, PenLine } from 'lucide-react';
 import { api } from '../api';
 import { formatDate } from '../lib/datetime';
 import { SignModal } from './ESign';
@@ -22,6 +22,14 @@ import { SignModal } from './ESign';
 //
 // Refreshes on `nexus:timesheet-review-changed`, which the review panel on the
 // timecard fires after any decision, so the two never disagree.
+//
+// Oct 16 (Neil): the manager reviews first, so the list also carries the
+// closed periods of your people that nobody submitted (notSubmitted, no review
+// id yet) - Approve works on them too; Send Back needs a submission to answer.
+// Approve is the manager's "these hours are accurate" - no signature; it
+// sends the timesheet straight to the employee to sign.
+
+const rowKey = (r) => r.id || `${r.employeeEmail}|${r.periodStart}`;
 
 const hm = (m) => `${Math.floor((m || 0) / 60)}h ${String((m || 0) % 60).padStart(2, '0')}m`;
 const ROLE_WORD = { manager: 'as the manager', hr: 'for HR', employee: 'as the employee' };
@@ -53,13 +61,23 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount 
   }, [load]);
 
   async function run(r, call, done) {
-    setBusyId(r.id);
+    setBusyId(rowKey(r));
     try {
       await call();
       toastOk?.(done);
       setBackFor(''); setNote('');
       window.dispatchEvent(new CustomEvent('nexus:timesheet-review-changed'));
     } catch (e) { toastErr?.(e?.message || 'Could not save that.'); }
+    setBusyId('');
+  }
+
+  async function resign(s) {
+    setBusyId(`resign-${s.id}`);
+    try {
+      const out = await api.timesheetReviewSign(s.id);
+      if (out?.myPartyId) setSigning(out.myPartyId);
+      window.dispatchEvent(new CustomEvent('nexus:timesheet-review-changed'));
+    } catch (e) { toastErr?.(e?.message || 'Could not open the timesheet to sign.'); }
     setBusyId('');
   }
 
@@ -83,14 +101,14 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount 
           </div>
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {rows.map(r => (
-              <div key={r.id} data-review={r.employeeEmail} style={{ borderTop: '1px solid var(--line)', padding: '10px 0' }}>
+              <div key={rowKey(r)} data-review={r.employeeEmail} style={{ borderTop: '1px solid var(--line)', padding: '10px 0' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                   <div style={{ flex: 1, minWidth: 220 }}>
                     <div style={{ fontSize: 13, fontWeight: 700 }}>
                       {r.name}{r.resubmitted && <span style={{ fontSize: 11, fontWeight: 700, color: '#b45309', marginLeft: 6 }}>Resubmitted</span>}
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                      {formatDate(r.periodStart)} - {formatDate(r.periodEnd)} · {hm(r.workedMin)} · submitted {formatDate(r.submittedAt)}
+                      {formatDate(r.periodStart)} - {formatDate(r.periodEnd)} · {hm(r.workedMin)} · {r.notSubmitted ? 'not submitted - period closed' : `submitted ${formatDate(r.submittedAt)}`}
                     </div>
                     {r.note && <div style={{ fontSize: 12, marginTop: 2 }}>"{r.note}"</div>}
                     {r.agreeBlocker && <div style={{ fontSize: 11.5, color: '#b45309', marginTop: 2 }}>{r.agreeBlocker}</div>}
@@ -101,14 +119,18 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount 
                     <button type="button" className="secondary-btn" onClick={() => onOpen(r)}
                       style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 4 }}>Review <ChevronRight size={13} /></button>
                   )}
-                  <button type="button" className="secondary-btn" disabled={busyId === r.id}
-                    onClick={() => { setBackFor(backFor === r.id ? '' : r.id); setNote(''); }}
-                    style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Undo2 size={13} /> Send Back</button>
-                  <button type="button" className="primary-btn" disabled={busyId === r.id || !!r.agreeBlocker}
-                    title={r.agreeBlocker || 'Agree to these hours and send them for signature'}
-                    onClick={() => run(r, () => api.timesheetReviewAgree(r.id, ''), `Agreed - sent to ${r.name} to sign.`)}
+                  {!r.notSubmitted && (
+                    <button type="button" className="secondary-btn" disabled={busyId === rowKey(r)}
+                      onClick={() => { setBackFor(backFor === r.id ? '' : r.id); setNote(''); }}
+                      style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Undo2 size={13} /> Send Back</button>
+                  )}
+                  <button type="button" className="primary-btn" disabled={busyId === rowKey(r) || !!r.agreeBlocker}
+                    title={r.agreeBlocker || 'These hours are accurate - it goes to the employee to sign'}
+                    onClick={() => run(r, () => (r.notSubmitted
+                      ? api.timesheetReviewApprovePeriod(r.employeeEmail, r.periodStart, '')
+                      : api.timesheetReviewApprove(r.id, '')), `Approved - sent to ${r.name} to sign.`)}
                     style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5, opacity: r.agreeBlocker ? 0.55 : 1 }}>
-                    <FileSignature size={13} /> Agree
+                    <CheckCircle size={13} /> Approve
                   </button>
                 </div>
                 {backFor === r.id && (
@@ -134,18 +156,22 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount 
           </div>
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {toSign.map(s => (
-              <div key={s.partyId} data-sign={s.employeeEmail} style={{ borderTop: '1px solid var(--line)', padding: '10px 0', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <div key={s.partyId || `resign-${s.id}`} data-sign={s.employeeEmail} style={{ borderTop: '1px solid var(--line)', padding: '10px 0', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                 <div style={{ flex: 1, minWidth: 220 }}>
                   <div style={{ fontSize: 13, fontWeight: 700 }}>{s.role === 'employee' ? 'Your timesheet' : s.name}</div>
                   <div style={{ fontSize: 12, color: 'var(--muted)' }}>
                     {formatDate(s.periodStart)} - {formatDate(s.periodEnd)}
                     {s.agreedBy ? ` · agreed by ${s.agreedBy}${s.agreedAt ? ` on ${formatDate(s.agreedAt)}` : ''}` : ''}
                     {` · you sign ${ROLE_WORD[s.role] || ''}`.replace(/ $/, '')}
+                    {s.needsResign ? ' · HR changed the hours - sign the updated timesheet' : ''}
                   </div>
                 </div>
-                <button type="button" className="primary-btn" onClick={() => setSigning(s.partyId)}
+                {/* needsResign (Oct 17): HR changed it while it was out for signature -
+                    the click sends the fresh envelope, then opens it. */}
+                <button type="button" className="primary-btn" disabled={busyId === `resign-${s.id}`}
+                  onClick={() => (s.needsResign ? resign(s) : setSigning(s.partyId))}
                   style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                  <FileSignature size={13} /> {s.role === 'employee' ? 'Sign & Submit' : 'Review & Sign'}
+                  <FileSignature size={13} /> {s.needsResign ? 'Sign Updated Timesheet' : s.role === 'employee' ? 'Sign & Submit' : 'Review & Sign'}
                 </button>
               </div>
             ))}

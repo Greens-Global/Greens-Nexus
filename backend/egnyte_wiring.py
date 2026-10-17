@@ -139,6 +139,19 @@ KNOWN_SLOTS = [
         "overrides": None,
     },
     {
+        "slot": "timesheet.signed-subfolder",
+        "group": "E-Sign",
+        "label": "Signed timesheets subfolder",
+        "description": "Subfolder of the EMPLOYEE's person folder where their signed timesheet is "
+                       "filed when they sign it (Neil, Oct 16) - never the approving manager's "
+                       "folder. Created on first use. Blank files into the person folder itself.",
+        "kind": "path",
+        "placeholders": [],
+        "env": [],
+        "default": "Timesheets",
+        "overrides": None,
+    },
+    {
         "slot": "documents.import-roots",
         "group": "Documents",
         "label": "Import from Egnyte roots",

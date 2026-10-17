@@ -185,14 +185,25 @@ keep the diff minimal.
   muted rows are dropped; nothing left = nothing sent). Mentions, deletions,
   urgent tasks and tasks due today/tomorrow never wait. New task email events
   go through `notify_task_event` - never mail directly - so they batch too.
-- Timesheets are signed through review + Nexus Sign (Sep 2026,
-  `timesheet_review.py`): employee submits -> manager sends back / agrees (back
-  and forth, one side edits at a time - `guard_edit` is called from every
-  timeclock route that changes hours; add it to any new one) -> an envelope of
-  the agreed version is signed employee -> manager -> the company's HR contact
-  (`hr_entities.hr_contact_email`) -> HR's signature finalizes the period.
-  A Nexus Sign decline hands it back for another round. The old one-click
+- Timesheets are approved through review + Nexus Sign (`timesheet_review.py`;
+  ONLY THE EMPLOYEE SIGNS - Neil, Oct 16 2026). After the period's last day
+  the manager (else the company's HR contact; nobody at all = the Global
+  Admins) clicks Review & Approve - no signature, no submission needed - or
+  Send Back with a note (back and forth, one side edits at a time -
+  `guard_edit` is called from every timeclock route that changes hours; add
+  it to any new one). Approval sends an envelope to the employee, its only
+  signer; their signature finalizes the period, and the PDF carries the
+  timestamped `approval_log`. Any change after approval (punch-fix request,
+  manager edit, Nexus Sign decline) voids the envelope and reopens it to the
+  manager; HR (`is_hr`) edits at any point without approval and the employee
+  signs the updated card ("approved" state, `employee_approve`). HR's Unlock
+  starts a new round ("unlocked"). An employee who left, or has not signed an
+  approved card in `UNSIGNED_WAIT_DAYS`, is finalized by HR with a reason
+  (`finalize_unsigned`) - never by hiding the signature step. The signed copy
+  files to the employee's Egnyte folder (`egnyte_folder`). The old one-click
   `/my-timecard/sign` returns 410; never add a signing path around this.
+  `test_timesheet_review_matrix` drives every state x actor x action - keep it
+  passing so nobody gets stuck.
 - Accounting dashboard (Sep 22): the Accounting view's Overview / Cash /
   Performance / Close / Data tabs are the Nexus face of the finance dashboard
   in Nexus Accounting. Figures come ONLY through `backend/routers/

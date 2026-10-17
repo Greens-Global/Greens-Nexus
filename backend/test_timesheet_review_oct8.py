@@ -44,7 +44,7 @@ class Oct8FixTests(ReviewCase):
         self.assertTrue(self.db.query(models.TimePunch).filter(models.TimePunch.employee_email == EMP,
                                                                models.TimePunch.kind == "break_end",
                                                                models.TimePunch.voided == 0).first())
-        # The manager agrees to a fresh version and it goes out again.
+        # The manager agrees to a fresh version and it goes out to the employee again.
         tsr.agree(self.db, self._r(), MGR, "With the lunch")
         self.assertEqual(self._r().status, "signing")
 
