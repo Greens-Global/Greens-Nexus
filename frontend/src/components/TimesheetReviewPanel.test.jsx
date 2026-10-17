@@ -12,6 +12,7 @@ const sendBack = vi.fn(() => Promise.resolve({}));
 const approve = vi.fn(() => Promise.resolve({}));
 const approvePeriod = vi.fn(() => Promise.resolve({}));
 const sign = vi.fn(() => Promise.resolve({ status: 'signing', myPartyId: 'p-emp' }));
+const finalizeUnsigned = vi.fn(() => Promise.resolve({ status: 'completed' }));
 vi.mock('../api', () => ({
   api: {
     timesheetReviewSubmit: (...a) => submit(...a),
@@ -19,6 +20,7 @@ vi.mock('../api', () => ({
     timesheetReviewApprove: (...a) => approve(...a),
     timesheetReviewApprovePeriod: (...a) => approvePeriod(...a),
     timesheetReviewSign: (...a) => sign(...a),
+    timesheetReviewFinalizeUnsigned: (...a) => finalizeUnsigned(...a),
   },
 }));
 vi.mock('./ESign', () => ({ SignModal: ({ partyId }) => <div data-testid="sign-modal">{partyId}</div> }));
@@ -129,6 +131,35 @@ describe('TimesheetReviewPanel', () => {
       parties: [{ role: 'employee', name: 'Erin', status: 'signed', signedAt: '2026-09-20T11:00:00Z', signatureKind: 'paper' }] }} />);
     expect(screen.getByText('On Paper')).toBeInTheDocument();
     expect(screen.getByText(/finalized for payroll/)).toBeInTheDocument();
+  });
+
+  it('HR finalizes for someone who left, with a reason (Oct 17)', async () => {
+    render(<TimesheetReviewPanel {...props} self={false} review={{ ...base, status: 'signing', isHr: true,
+      periodStart: '2026-09-06', canFinalizeUnsigned: true, employeeLeft: true, agreedBy: 'mgr@x.com' }} />);
+    const btn = screen.getByRole('button', { name: /Finalize Without Employee Signature/ });
+    expect(btn).toBeDisabled();                      // a reason is required
+    fireEvent.change(screen.getByPlaceholderText(/finalized without their signature/), { target: { value: 'Left on 09/25' } });
+    fireEvent.click(btn);
+    await waitFor(() => expect(finalizeUnsigned).toHaveBeenCalledWith('emp@x.com', '2026-09-06', 'Left on 09/25'));
+  });
+
+  it('HR is told why it cannot be finalized unsigned yet', () => {
+    render(<TimesheetReviewPanel {...props} self={false} review={{ ...base, status: 'signing', isHr: true,
+      canFinalizeUnsigned: false, finalizeUnsignedBlocker: 'Erin has until 09/24/2026 to sign.' }} />);
+    expect(screen.getByText(/has until 09\/24\/2026/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Finalize Without/ })).toBeNull();
+  });
+
+  it('a manager never sees the unsigned finalize', () => {
+    render(<TimesheetReviewPanel {...props} self={false} review={{ ...base, status: 'signing', agreedBy: 'mgr@x.com' }} />);
+    expect(screen.queryByText(/Employee Not Signing/)).toBeNull();
+  });
+
+  it('says when HR finalized it without the signature', () => {
+    render(<TimesheetReviewPanel {...props} review={{ ...base, status: 'completed',
+      rounds: [{ at: '2026-09-25T10:00:00Z', by: 'hr@x.com', action: 'finalized_unsigned', note: 'Left' }] }} />);
+    expect(screen.getByText(/without the employee's signature\./)).toBeInTheDocument();
+    expect(screen.queryByText(/Approved and signed/)).toBeNull();
   });
 
   it('says so when it is finalized', () => {

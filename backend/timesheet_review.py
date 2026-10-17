@@ -44,6 +44,14 @@ without anyone's approval; a card out for signature is pulled back and waits
 as "approved" until the employee signs the edited version (is_hr /
 _hr_override / employee_approve). HR's Unlock of a finalized period starts a
 new round (status "unlocked").
+
+OCT 17 2026: an employee who never signs (left the company, unreachable)
+would hold the period open for good - no finalization, no manager approval
+row, so their hours were missing from the finalized-only IIF and Import Hub's
+approved-only export. HR may Finalize Without Employee Signature
+(finalize_unsigned): any time once the person is no longer active, or once an
+approved card has waited UNSIGNED_WAIT_DAYS for an active one. A reason is
+required and is logged on the review and on the approval row.
 """
 from __future__ import annotations
 
@@ -740,6 +748,102 @@ def employee_approve(db: Session, r: TimesheetReview, actor: str, *, ip: str = "
     return r
 
 
+# ── HR finalizes without the employee's signature (Oct 17) ───────────────────
+
+# How long an approved card waits on an ACTIVE employee's signature before HR
+# may finalize it without them. Someone who left may be finalized at once.
+UNSIGNED_WAIT_DAYS = 3
+
+
+def _has_left(db: Session, email: str) -> bool:
+    emp = _employee(db, email)
+    return bool(emp) and (emp.status or "active") not in ("active", "onboarding")
+
+
+def _waiting_since(r: TimesheetReview) -> str:
+    """When the card last went to the employee to sign: the newest approval,
+    HR change or re-sign round."""
+    for e in reversed(list(r.rounds or [])):
+        if e.get("action") in ("agreed", "approved", "hr_edited", "employee_approved"):
+            return e.get("at") or ""
+    return r.agreed_at or r.updated_at or ""
+
+
+def finalize_unsigned_blocker(db: Session, email: str, start: str, actor: str) -> str:
+    """Why HR's Finalize Without Employee Signature would be refused now, in
+    plain words; '' when it would go through."""
+    email, actor = (email or "").lower(), (actor or "").lower()
+    if not is_hr(db, actor, email):
+        return "Only HR can finalize a timesheet without the employee's signature."
+    s, e, _pt = period_for(db, email, start)
+    if _tc()._finalized_row(db, email, s, e):
+        return "This pay period is already finalized."
+    r = active_review(db, email, s)
+    if not _has_left(db, email):
+        if not r or r.status not in ("approved", "signing"):
+            return ("The manager approves the timesheet first. HR can finalize it without the employee's "
+                    "signature only once it has waited for their signature, or once they have left.")
+        since = _waiting_since(r)
+        try:
+            due = datetime.fromisoformat(since.replace("Z", "+00:00")) + timedelta(days=UNSIGNED_WAIT_DAYS)
+        except ValueError:
+            due = None
+        if due is not None:
+            if due.tzinfo is None:
+                due = due.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) < due:
+                return (f"{display_name(db, email)} has until {us_date(due.date().isoformat())} to sign "
+                        f"({UNSIGNED_WAIT_DAYS} days after it went to them). After that, or once they "
+                        "leave, HR can finalize it without their signature.")
+    # The hours themselves must be clean - HR can fix the punches first.
+    return approve_blocker(db, email, s, e)
+
+
+def finalize_unsigned(db: Session, email: str, start: str, actor: str, reason: str) -> TimesheetReview:
+    """HR: finalize the period with no employee signature. The envelope (if
+    any) is voided, the approval row payroll reads is written - the manager's
+    approval when there was one, else HR's - and the period is finalized, with
+    the reason on the review's history and on that row."""
+    email, actor, reason = (email or "").lower(), (actor or "").lower(), (reason or "").strip()
+    if len(reason) < 5:
+        raise HTTPException(422, "Say why it is being finalized without the employee's signature.")
+    blocker = finalize_unsigned_blocker(db, email, start, actor)
+    if blocker:
+        raise HTTPException(403 if blocker.startswith("Only HR") else 409, blocker)
+    s, e, pay_type = period_for(db, email, start)
+    r = active_review(db, email, s)
+    if r is None:
+        r = TimesheetReview(id=str(uuid.uuid4()), employee_email=email, period_start=s, period_end=e,
+                            pay_type=pay_type, manager_email=manager_of(db, email) or actor,
+                            rounds=[], last_snapshot={}, status="with_manager", created_at=_now())
+        db.add(r)
+    _void_envelope(db, r, actor, "Finalized by HR without the employee's signature")
+    tc = _tc()
+    worked = int((card_for(db, email, s, e, r.pay_type).get("totals") or {}).get("workedMin") or 0)
+    for old in (db.query(TimeApproval)
+                .filter(TimeApproval.employee_email == email, TimeApproval.revoked == 0,
+                        TimeApproval.period_start == s, TimeApproval.period_end == e,
+                        TimeApproval.kind.in_(("employee_sign", "manager"))).all()):
+        old.revoked = 1
+    approved = r.status in ("approved", "signing") and r.agreed_by
+    approver = (r.agreed_by if approved else actor).lower()
+    db.add(TimeApproval(id=str(uuid.uuid4()), employee_email=email, period_start=s, period_end=e,
+                        worked_min=worked, approved_by=approver,
+                        approved_at=(r.agreed_at if approved else "") or _now(), kind="manager",
+                        note=f"Finalized by {display_name(db, actor)} (HR) without the employee's signature: "
+                             f"{reason[:400]}"))
+    r.status = "completed"
+    _round(db, r, by=actor, action="finalized_unsigned", note=reason)
+    if r.manager_email and r.manager_email not in (actor, email):
+        _notify(db, r.manager_email, "Timesheet finalized by HR",
+                f"{display_name(db, actor)} (HR) finalized {display_name(db, email)}'s timesheet for "
+                f"{_label(r)} without their signature: \"{reason[:200]}\"", r)
+    db.flush()
+    tc.finalize_timecard(tc.FinalizeIn(email=email, start=s, end=e, allow_exceptions=True),
+                         user={"email": actor, "level": 4}, db=db)
+    return r
+
+
 # ── The document and the envelope ────────────────────────────────────────────
 
 # Signature block geometry on the LAST page, normalized from the top-left (the
@@ -966,7 +1070,8 @@ def approval_log(db: Session, r: TimesheetReview, offset: int = 0) -> list:
     words = {"approved": "Approved by {who} (manager) on {when}",
              "agreed": "Approved by {who} (manager) on {when}",
              "hr_edited": "Hours changed by {who} (HR) on {when}",
-             "employee_approved": "Approved for signature by {who} (employee) on {when}"}
+             "employee_approved": "Approved for signature by {who} (employee) on {when}",
+             "finalized_unsigned": "Finalized without the employee's signature by {who} (HR) on {when}"}
     out = []
     for e in rounds[start:]:
         w = words.get(e.get("action"))
@@ -1170,6 +1275,10 @@ def state_for(db: Session, email: str, start: str, viewer: str, viewer_team: boo
                "canApprove": manager_side and not _tc()._finalized_row(db, email, s, e),
                "agreeBlocker": approve_blocker(db, email, s, e) if manager_side else "",
                "managerEmail": manager_of(db, email)}
+        if hr_view:
+            out["finalizeUnsignedBlocker"] = finalize_unsigned_blocker(db, email, s, viewer)
+            out["canFinalizeUnsigned"] = not out["finalizeUnsignedBlocker"]
+            out["employeeLeft"] = _has_left(db, email)
         if is_self:
             out["submitBlocker"] = submit_blocker(db, email, s, e)
         return out
@@ -1184,7 +1293,12 @@ def state_for(db: Session, email: str, start: str, viewer: str, viewer_team: boo
                 my_party = p.id
             if req and req.status == "pending" and p.ordinal == req.current_order:
                 turn = p.role_key
+    unsigned_blocker = (finalize_unsigned_blocker(db, email, r.period_start, viewer)
+                        if hr_view and r.status in ACTIVE else "")
     return {
+        "canFinalizeUnsigned": hr_view and r.status in ACTIVE and not unsigned_blocker,
+        "finalizeUnsignedBlocker": unsigned_blocker,
+        "employeeLeft": _has_left(db, email) if hr_view else False,
         "id": r.id, "status": r.status, "payType": r.pay_type, "employeeEmail": r.employee_email,
         "periodStart": r.period_start, "periodEnd": r.period_end,
         "managerEmail": r.manager_email, "hrEmail": r.hr_email or hr_of(db, email),

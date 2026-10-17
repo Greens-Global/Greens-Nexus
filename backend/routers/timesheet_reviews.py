@@ -35,6 +35,12 @@ class ApprovePeriodIn(BaseModel):
     note: str = ""
 
 
+class FinalizeUnsignedIn(BaseModel):
+    email: str
+    start: str = ""      # any date in the period
+    reason: str = ""
+
+
 def _review(db: Session, rid: str) -> TimesheetReview:
     # Row-locked: the manager and the Backup Manager clicking Approve at the
     # same moment must not send two envelopes (CLAUDE.md - with_for_update).
@@ -115,6 +121,20 @@ def approve_period(body: ApprovePeriodIn, user: dict = Depends(require_team_writ
     email = (body.email or "").strip().lower()
     me = _reviewer_of(db, user, email, tsr.manager_of(db, email))
     r = tsr.approve_period(db, email, (body.start or "").strip(), me, body.note)
+    return tsr.state_for(db, r.employee_email, r.period_start, me, True)
+
+
+@router.post("/finalize-unsigned")
+def finalize_unsigned(body: FinalizeUnsignedIn, user: dict = Depends(get_current_user),
+                      db: Session = Depends(get_db)):
+    """HR: Finalize Without Employee Signature (Oct 17) - for someone who left,
+    or who has not signed an approved card in UNSIGNED_WAIT_DAYS. is_hr is
+    the gate (checked in tsr.finalize_unsigned)."""
+    email = (body.email or "").strip().lower()
+    me = (user.get("email") or "").lower()
+    if not tsr.is_hr(db, me, email):
+        raise HTTPException(403, "Only HR can finalize a timesheet without the employee's signature.")
+    r = tsr.finalize_unsigned(db, email, (body.start or "").strip(), me, body.reason)
     return tsr.state_for(db, r.employee_email, r.period_start, me, True)
 
 

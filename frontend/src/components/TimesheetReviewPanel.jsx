@@ -28,6 +28,7 @@ const ACTION_LABEL = {
   reopened: 'reopened it', hr_edited: 'changed the hours (HR)', unlocked: 'unlocked it for corrections',
   declined: 'declined to sign', returned: 'returned it', cancelled: 'cancelled signing',
   recalled: 'recalled it from signing to apply a punch fix',
+  finalized_unsigned: "finalized it without the employee's signature (HR)",
   signed_employee: 'signed as the employee', signed_manager: 'signed as the manager',
   signed_hr: 'signed for HR', completed: 'finalized it for payroll',
 };
@@ -143,6 +144,7 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [signing, setSigning] = useState(null);   // Nexus Sign party id
+  const [reason, setReason] = useState('');
   if (!review) return null;
   const r = review;
   const name = (e) => (e ? nameFor?.(e) || e : '');
@@ -264,6 +266,37 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
 
   const parties = Object.fromEntries((r.parties || []).map((p) => [p.role, p]));
   const signingView = ['signing', 'completed'].includes(r.status);
+  const unsigned = r.status === 'completed' && (r.rounds || []).at(-1)?.action === 'finalized_unsigned';
+
+  // Oct 17: an employee who never signs (left, unreachable) must not hold the
+  // period open. HR finalizes it with a reason - at once for someone who left,
+  // after the wait for anyone else (the server's finalizeUnsignedBlocker).
+  const showUnsigned = r.isHr && r.status !== 'completed'
+    && (r.canFinalizeUnsigned || ['approved', 'signing'].includes(r.status) || r.employeeLeft);
+  const unsignedBox = showUnsigned && (
+    <div data-finalize-unsigned style={{ marginTop: 12, padding: '10px 12px', border: '1px dashed var(--line)', borderRadius: 10 }}>
+      <div style={{ fontSize: 12.5, fontWeight: 700, marginBottom: 4 }}>Employee Not Signing?</div>
+      <p style={{ fontSize: 12.5, margin: '0 0 8px', color: r.canFinalizeUnsigned ? 'var(--ink)' : '#b45309' }}>
+        {r.canFinalizeUnsigned
+          ? `${r.employeeLeft ? `${name(r.employeeEmail) || 'This person'} is no longer active. ` : ''}You can finalize this period for payroll without their signature. Say why - it is logged on the timesheet.`
+          : r.finalizeUnsignedBlocker}
+      </p>
+      {r.canFinalizeUnsigned && (
+        <>
+          <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2} maxLength={400}
+            placeholder="Why it is finalized without their signature (required)" className="form-input"
+            style={{ width: '100%', resize: 'vertical', fontSize: 13, marginBottom: 8 }} />
+          <button className="secondary-btn" disabled={busy || reason.trim().length < 5}
+            onClick={async () => {
+              const out = await run(() => api.timesheetReviewFinalizeUnsigned(r.employeeEmail, r.periodStart || anchor, reason.trim()),
+                'Finalized for payroll without the employee\'s signature.');
+              if (out) setReason('');
+            }}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}><Lock size={13} /> Finalize Without Employee Signature</button>
+        </>
+      )}
+    </div>
+  );
 
   return (
     <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
@@ -280,7 +313,9 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
       {body}
       {signingView && (
         <>
-          {r.status === 'completed'
+          {unsigned
+            ? <p style={{ fontSize: 13, margin: '0 0 10px', fontWeight: 700 }}><Lock size={13} style={{ verticalAlign: '-2px' }} /> Finalized for payroll by HR without the employee's signature.</p>
+            : r.status === 'completed'
             ? <p style={{ fontSize: 13, margin: '0 0 10px', color: 'hsl(var(--color-green))', fontWeight: 700 }}><CheckCircle size={13} style={{ verticalAlign: '-2px' }} /> Approved and signed - finalized for payroll. The sealed copy is in Documents.</p>
             : <p style={{ fontSize: 13, margin: '0 0 10px' }}>Agreed by {name(r.agreedBy)} on {formatDate(r.agreedAt)}. To change the hours, ask for a punch fix or decline in Nexus Sign with a reason - either way it goes back to the manager.</p>}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12 }}>
@@ -303,6 +338,7 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
           )}
         </>
       )}
+      {unsignedBox}
       <ApprovalLog lines={r.approvalLog} />
       <History rounds={r.rounds} nameFor={name} />
       {signing && createPortal(

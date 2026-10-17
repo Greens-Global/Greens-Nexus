@@ -2372,6 +2372,8 @@ export const api = {
   timesheetReviewApprove:       (id, note = '') => req(`/timesheet-review/${id}/approve`, { method: 'POST', body: JSON.stringify({ note }) }),
   timesheetReviewApprovePeriod: (email, start, note = '') => req('/timesheet-review/approve', { method: 'POST', body: JSON.stringify({ email, start: start || '', note }) }),
   timesheetReviewSign:          (id) => req(`/timesheet-review/${id}/sign`, { method: 'POST' }),
+  // HR: Finalize Without Employee Signature (Oct 17) - left, or never signed.
+  timesheetReviewFinalizeUnsigned: (email, start, reason) => req('/timesheet-review/finalize-unsigned', { method: 'POST', body: JSON.stringify({ email, start: start || '', reason }) }),
   timeExportIifFinalized:       (start, end, company) =>
     reqBlob(`/timeclock/export.iif?start=${start || ''}&end=${end || ''}&company=${encodeURIComponent(company || '')}&finalized_only=true`, { timeoutMs: 120_000 }),
 };
