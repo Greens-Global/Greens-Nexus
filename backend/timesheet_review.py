@@ -436,14 +436,42 @@ def waiting_on(db: Session, reviewer: str) -> list:
     rows = (db.query(TimesheetReview)
             .filter(TimesheetReview.status == "with_manager",
                     TimesheetReview.manager_email == me).all())
-    # ...and those of the people `reviewer` is Backup Manager for (Neil, Oct 13).
-    backed = backup_manager.backed_up_by(db, me)
-    if backed:
+    # ...and those of everyone `reviewer` manages NOW - their direct reports
+    # and the people they are Backup Manager for (Neil, Oct 13). A review
+    # submitted before the employee's manager changed stays addressed to the
+    # old one; without this the new manager never saw it (Oct 17).
+    mine = backup_manager.managed_directly(db, me)
+    # ...and, for a Global Admin, the people nobody else can review: no
+    # manager and no HR contact who can act (Neil, Oct 16 - "HR and the
+    # Global Admins decide when there is no manager").
+    if _is_global_admin(db, me):
+        mine |= {r.employee_email for r in db.query(TimesheetReview)
+                 .filter(TimesheetReview.status == "with_manager").all()
+                 if not manager_of(db, r.employee_email)}
+    if mine:
         seen = {r.id for r in rows}
         rows += [r for r in db.query(TimesheetReview)
                  .filter(TimesheetReview.status == "with_manager",
-                         TimesheetReview.employee_email.in_(sorted(backed))).all() if r.id not in seen]
+                         TimesheetReview.employee_email.in_(sorted(mine))).all() if r.id not in seen]
+    rows = [r for r in rows if r.employee_email != me]          # never their own
     return sorted(rows, key=lambda r: (r.updated_at or "", r.period_start))
+
+
+def _is_global_admin(db: Session, email: str) -> bool:
+    from models import NexusRole
+    return bool(email) and db.query(NexusRole).filter(NexusRole.email == email,
+                                                      NexusRole.role == "owner").first() is not None
+
+
+def no_approver(db: Session) -> set:
+    """Active, time-tracked people with nobody to review their timesheet."""
+    from routers.timeclock import is_time_tracking_exempt
+    out = set()
+    for e in db.query(NexusEmployee).filter(NexusEmployee.status.in_(("active", "onboarding"))).all():
+        em = (e.work_email or "").lower()
+        if em and not manager_of(db, em) and not is_time_tracking_exempt(db, em):
+            out.add(em)
+    return out
 
 
 def to_sign(db: Session, signer: str) -> list:
@@ -475,6 +503,16 @@ def to_sign(db: Session, signer: str) -> list:
                     "name": display_name(db, r.employee_email), "periodStart": r.period_start,
                     "periodEnd": r.period_end, "payType": r.pay_type, "agreedAt": r.agreed_at or "",
                     "agreedBy": display_name(db, r.agreed_by) if r.agreed_by else ""})
+    # HR changed an agreed timesheet that was out for signature (Oct 17): its
+    # envelope was pulled back, so it has no party yet - without this row the
+    # employee had only the one bell to find it by. needsResign: the card
+    # sends the fresh envelope (POST /{id}/sign) and opens it.
+    for r in db.query(TimesheetReview).filter(TimesheetReview.employee_email == me,
+                                              TimesheetReview.status == "approved").all():
+        out.append({"id": r.id, "partyId": "", "role": "employee", "employeeEmail": r.employee_email,
+                    "name": display_name(db, r.employee_email), "periodStart": r.period_start,
+                    "periodEnd": r.period_end, "payType": r.pay_type, "agreedAt": r.agreed_at or "",
+                    "agreedBy": display_name(db, r.agreed_by) if r.agreed_by else "", "needsResign": True})
     return sorted(out, key=lambda x: (x["agreedAt"], x["periodStart"]))
 
 
@@ -491,43 +529,68 @@ def queue_row(db: Session, r: TimesheetReview) -> dict:
 
 def last_closed_period(db: Session, email: str) -> tuple[str, str, str]:
     """The person's most recent pay period that is already over."""
+    return closed_periods(db, email, 1)[0]
+
+
+# How far back the reviewer's list looks for a closed period nobody reviewed
+# (Oct 17): a period missed one cycle must not drop off the list when the next
+# one closes - but nothing from before the review + Nexus Sign launch, which
+# was signed off the old way.
+LOOKBACK_PERIODS = 3
+REVIEW_LAUNCH = "2026-10-01"
+
+
+def closed_periods(db: Session, email: str, n: int | None = None) -> list:
+    """The person's last `n` pay periods that are over (default
+    LOOKBACK_PERIODS, read at call time), newest first."""
     from datetime import timedelta
     s, _e, _pt = period_for(db, email, _tc()._employee_today(db, email))
-    prev = (date.fromisoformat(s) - timedelta(days=1)).isoformat()
-    return period_for(db, email, prev)
+    out = []
+    for _ in range(max(1, LOOKBACK_PERIODS if n is None else n)):
+        prev = (date.fromisoformat(s) - timedelta(days=1)).isoformat()
+        s, e, pt = period_for(db, email, prev)
+        out.append((s, e, pt))
+    return out
 
 
 def not_reviewed(db: Session, reviewer: str) -> list:
     """Oct 16 (Neil): the manager reviews first - the employee need not have
     submitted. So the reviewer's list also has every person they manage (or
     back up) whose last closed period has hours but no review and is not
-    finalized: a queue_row-shaped dict with no review id."""
+    finalized: a queue_row-shaped dict with no review id. The last
+    LOOKBACK_PERIODS closed periods, so one missed cycle stays on the list;
+    a Global Admin also gets the people nobody else can review."""
     import backup_manager
     tc = _tc()
     from routers.timeclock import is_time_tracking_exempt
     me = (reviewer or "").lower()
+    people = set(backup_manager.managed_directly(db, me))
+    if _is_global_admin(db, me):
+        people |= no_approver(db)
     out = []
-    for em in sorted(backup_manager.managed_directly(db, me)):
+    for em in sorted(people - {me}):
         emp = _employee(db, em)
         if not emp or (emp.status or "active") not in ("active", "onboarding") or is_time_tracking_exempt(db, em):
             continue
-        start, end, pay_type = last_closed_period(db, em)
-        if db.query(TimesheetReview).filter(TimesheetReview.employee_email == em,
-                                            TimesheetReview.period_start == start,
-                                            TimesheetReview.status != "unlocked").first():
-            continue
-        if tc._finalized_row(db, em, start, end):
-            continue
-        if not (db.query(TimePunch).filter(TimePunch.employee_email == em, TimePunch.voided == 0,
-                                           TimePunch.local_date >= start, TimePunch.local_date <= end).first()):
-            continue
-        card = card_for(db, em, start, end, pay_type)
-        out.append({"id": "", "employeeEmail": em, "name": display_name(db, em), "periodStart": start,
-                    "periodEnd": end, "payType": pay_type,
-                    "workedMin": int((card.get("totals") or {}).get("workedMin") or 0),
-                    "submittedAt": "", "resubmitted": False, "note": "",
-                    "agreeBlocker": approve_blocker(db, em, start, end), "notSubmitted": True})
-    return out
+        for start, end, pay_type in closed_periods(db, em):
+            if end < REVIEW_LAUNCH:
+                break
+            if db.query(TimesheetReview).filter(TimesheetReview.employee_email == em,
+                                                TimesheetReview.period_start == start,
+                                                TimesheetReview.status != "unlocked").first():
+                continue
+            if tc._finalized_row(db, em, start, end):
+                continue
+            if not (db.query(TimePunch).filter(TimePunch.employee_email == em, TimePunch.voided == 0,
+                                               TimePunch.local_date >= start, TimePunch.local_date <= end).first()):
+                continue
+            card = card_for(db, em, start, end, pay_type)
+            out.append({"id": "", "employeeEmail": em, "name": display_name(db, em), "periodStart": start,
+                        "periodEnd": end, "payType": pay_type,
+                        "workedMin": int((card.get("totals") or {}).get("workedMin") or 0),
+                        "submittedAt": "", "resubmitted": False, "note": "",
+                        "agreeBlocker": approve_blocker(db, em, start, end), "notSubmitted": True})
+    return sorted(out, key=lambda x: (x["periodStart"], x["name"]))
 
 
 # ── Review actions ───────────────────────────────────────────────────────────

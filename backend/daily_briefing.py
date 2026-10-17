@@ -741,6 +741,27 @@ def _timesheet_review_rows(db: Session, email: str) -> list:
             "module": "timecard",
             **_since(q.get("submittedAt")),
         })
+    # Oct 17: the manager reviews first, so a closed period nobody submitted
+    # is theirs to act on too...
+    for q in tsr.not_reviewed(db, email):
+        hours = f"{q['workedMin'] // 60}h {q['workedMin'] % 60:02d}m"
+        rows.append({
+            "title": f"Review {q['name']}'s timesheet",
+            "detail": f"{_fmt_date(q['periodStart'])} - {_fmt_date(q['periodEnd'])} - {hours} - not submitted",
+            "url": f"{app_url()}/timeclock/timesheet",
+            "module": "timecard",
+            **_since(q["periodEnd"]),
+        })
+    # ...and an employee whose timesheet HR changed signs the updated card.
+    for r in db.query(models.TimesheetReview).filter(models.TimesheetReview.employee_email == email,
+                                                     models.TimesheetReview.status == "approved").all():
+        rows.append({
+            "title": "Sign your updated timesheet",
+            "detail": f"{_fmt_date(r.period_start)} - {_fmt_date(r.period_end)} - HR changed the hours",
+            "url": f"{app_url()}/timeclock/timesheet",
+            "module": "timecard",
+            **_since(r.updated_at),
+        })
     return rows
 
 

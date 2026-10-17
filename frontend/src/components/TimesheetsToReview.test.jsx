@@ -9,14 +9,17 @@ const waiting = vi.fn();
 const approve = vi.fn();
 const approvePeriod = vi.fn();
 const sendBack = vi.fn();
+const sign = vi.fn();
 vi.mock('../api', () => ({
   api: {
     timesheetReviewWaiting: (...a) => waiting(...a),
     timesheetReviewApprove: (...a) => approve(...a),
     timesheetReviewApprovePeriod: (...a) => approvePeriod(...a),
     timesheetReviewSendBack: (...a) => sendBack(...a),
+    timesheetReviewSign: (...a) => sign(...a),
   },
 }));
+vi.mock('./ESign', () => ({ SignModal: ({ partyId }) => <div data-testid="sign-modal">{partyId}</div> }));
 
 const TimesheetsToReview = (await import('./TimesheetsToReview')).default;
 
@@ -31,6 +34,7 @@ beforeEach(() => {
   approve.mockReset().mockResolvedValue({});
   approvePeriod.mockReset().mockResolvedValue({});
   sendBack.mockReset().mockResolvedValue({});
+  sign.mockReset().mockResolvedValue({ myPartyId: 'p-new' });
 });
 
 describe('TimesheetsToReview', () => {
@@ -72,6 +76,17 @@ describe('TimesheetsToReview', () => {
     expect(screen.getByText('Approve').closest('button').disabled).toBe(true);
     fireEvent.click(screen.getByText('Review'));
     expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ employeeEmail: 'erin@x.com', periodStart: '2026-09-01', payType: 'fixed' }));
+  });
+
+  it('a timesheet HR changed is on the sign card, and signing sends the fresh copy (Oct 17)', async () => {
+    waiting.mockResolvedValue({ reviews: [], toSign: [{ id: 'r9', partyId: '', role: 'employee', employeeEmail: 'erin@x.com',
+      name: 'Erin Test', periodStart: '2026-09-20', periodEnd: '2026-10-03', agreedBy: 'Max Test', agreedAt: '2026-10-05T10:00:00Z',
+      needsResign: true }] });
+    render(<TimesheetsToReview onOpen={() => {}} />);
+    expect(await screen.findByText(/HR changed the hours - sign the updated timesheet/)).toBeTruthy();
+    fireEvent.click(screen.getByText('Sign Updated Timesheet'));
+    await waitFor(() => expect(sign).toHaveBeenCalledWith('r9'));
+    expect(await screen.findByTestId('sign-modal')).toHaveTextContent('p-new');
   });
 
   it('renders nothing when nothing is waiting', async () => {

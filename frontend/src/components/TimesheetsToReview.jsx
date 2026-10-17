@@ -71,6 +71,16 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount 
     setBusyId('');
   }
 
+  async function resign(s) {
+    setBusyId(`resign-${s.id}`);
+    try {
+      const out = await api.timesheetReviewSign(s.id);
+      if (out?.myPartyId) setSigning(out.myPartyId);
+      window.dispatchEvent(new CustomEvent('nexus:timesheet-review-changed'));
+    } catch (e) { toastErr?.(e?.message || 'Could not open the timesheet to sign.'); }
+    setBusyId('');
+  }
+
   const card = { marginBottom: 16, border: '1px solid var(--wk-line2)', background: 'var(--card)', borderRadius: 12, padding: '12px 16px', boxShadow: 'var(--wk-shadow)' };
   const signPortal = signing && createPortal(
     <div style={{ position: 'fixed', inset: 0, zIndex: 4000, background: 'var(--bg, #f4f5f7)', display: 'flex', flexDirection: 'column' }}>
@@ -146,18 +156,22 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount 
           </div>
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {toSign.map(s => (
-              <div key={s.partyId} data-sign={s.employeeEmail} style={{ borderTop: '1px solid var(--line)', padding: '10px 0', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <div key={s.partyId || `resign-${s.id}`} data-sign={s.employeeEmail} style={{ borderTop: '1px solid var(--line)', padding: '10px 0', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                 <div style={{ flex: 1, minWidth: 220 }}>
                   <div style={{ fontSize: 13, fontWeight: 700 }}>{s.role === 'employee' ? 'Your timesheet' : s.name}</div>
                   <div style={{ fontSize: 12, color: 'var(--muted)' }}>
                     {formatDate(s.periodStart)} - {formatDate(s.periodEnd)}
                     {s.agreedBy ? ` · agreed by ${s.agreedBy}${s.agreedAt ? ` on ${formatDate(s.agreedAt)}` : ''}` : ''}
                     {` · you sign ${ROLE_WORD[s.role] || ''}`.replace(/ $/, '')}
+                    {s.needsResign ? ' · HR changed the hours - sign the updated timesheet' : ''}
                   </div>
                 </div>
-                <button type="button" className="primary-btn" onClick={() => setSigning(s.partyId)}
+                {/* needsResign (Oct 17): HR changed it while it was out for signature -
+                    the click sends the fresh envelope, then opens it. */}
+                <button type="button" className="primary-btn" disabled={busyId === `resign-${s.id}`}
+                  onClick={() => (s.needsResign ? resign(s) : setSigning(s.partyId))}
                   style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                  <FileSignature size={13} /> {s.role === 'employee' ? 'Sign & Submit' : 'Review & Sign'}
+                  <FileSignature size={13} /> {s.needsResign ? 'Sign Updated Timesheet' : s.role === 'employee' ? 'Sign & Submit' : 'Review & Sign'}
                 </button>
               </div>
             ))}

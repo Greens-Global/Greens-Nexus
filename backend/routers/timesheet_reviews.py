@@ -36,7 +36,9 @@ class ApprovePeriodIn(BaseModel):
 
 
 def _review(db: Session, rid: str) -> TimesheetReview:
-    r = db.query(TimesheetReview).filter(TimesheetReview.id == rid).first()
+    # Row-locked: the manager and the Backup Manager clicking Approve at the
+    # same moment must not send two envelopes (CLAUDE.md - with_for_update).
+    r = db.query(TimesheetReview).filter(TimesheetReview.id == rid).with_for_update().first()
     if not r:
         raise HTTPException(404, "Timesheet review not found")
     return r
