@@ -44,8 +44,10 @@ class Oct8FixTests(ReviewCase):
         self.assertTrue(self.db.query(models.TimePunch).filter(models.TimePunch.employee_email == EMP,
                                                                models.TimePunch.kind == "break_end",
                                                                models.TimePunch.voided == 0).first())
-        # The manager agrees to a fresh version and it goes out again.
-        tsr.agree(self.db, self._r(), MGR, "With the lunch")
+        # The manager approves a fresh version and the employee signs it again.
+        tsr.approve(self.db, self._r(), MGR, "With the lunch")
+        self.assertEqual(self._r().status, "approved")
+        tsr.employee_approve(self.db, self._r(), EMP)
         self.assertEqual(self._r().status, "signing")
 
     def test_rejecting_a_punch_fix_never_touches_the_envelope(self):

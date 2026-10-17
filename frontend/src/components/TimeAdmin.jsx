@@ -486,8 +486,8 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
             title: `Worked hours of everyone on your team, ${rangeText}, after breaks - click to see them by person and by day`,
             go: () => setView('hours') },
           { key: 'review', label: 'Timesheets to Review', value: reviewWaiting == null ? '-' : String(reviewWaiting),
-            sub: 'Submitted to you, not decided', cls: reviewWaiting ? 'card-orange' : '', active: false,
-            title: reviewWaiting ? 'Timesheets submitted to you that you have not agreed to or sent back yet - click to jump to the list'
+            sub: 'Waiting on your review', cls: reviewWaiting ? 'card-orange' : '', active: false,
+            title: reviewWaiting ? 'Timesheets waiting on your review and approval (submitted or not) - click to jump to the list'
               : 'Nothing is waiting on you - click to open the Payroll timecards',
             go: openReviewList },
         ];

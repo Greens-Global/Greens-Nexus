@@ -2365,6 +2365,15 @@ export const api = {
   startPacketAfterOffer: (cid) => req(`/hr/candidates/${cid}/hiring-packet/after-offer`, { method: 'POST' }),
   // File Manually (Oct 15 2026): automatic Egnyte filing failed - HR names the folder.
   fileLifeEventManually: (eid, folder) => req(`/hr/life-events/${eid}/file-manually`, { method: 'POST', body: JSON.stringify({ folder }) }),
+  // Timesheets, Oct 16 (Neil): the manager's Review & Approve - a click, no
+  // signature, with or without the employee submitting first - then the
+  // employee's Approve & Sign (they are the only signer). The IIF batch is one
+  // company's finalized time cards.
+  timesheetReviewApprove:       (id, note = '') => req(`/timesheet-review/${id}/approve`, { method: 'POST', body: JSON.stringify({ note }) }),
+  timesheetReviewApprovePeriod: (email, start, note = '') => req('/timesheet-review/approve', { method: 'POST', body: JSON.stringify({ email, start: start || '', note }) }),
+  timesheetReviewSign:          (id) => req(`/timesheet-review/${id}/sign`, { method: 'POST' }),
+  timeExportIifFinalized:       (start, end, company) =>
+    reqBlob(`/timeclock/export.iif?start=${start || ''}&end=${end || ''}&company=${encodeURIComponent(company || '')}&finalized_only=true`, { timeoutMs: 120_000 }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

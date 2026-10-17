@@ -3,16 +3,22 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 // Render-smoke for the timesheet review panel (Sep 2026): the review hand-offs
-// and the Nexus Sign signatures that replaced one-click "Sign & submit".
+// and the Nexus Sign signature that replaced one-click "Sign & submit".
+// Oct 16: the manager's Review & Approve (no signature), then the employee's
+// Approve & Sign - the employee is the only signer.
 
 const submit = vi.fn(() => Promise.resolve({}));
 const sendBack = vi.fn(() => Promise.resolve({}));
-const agree = vi.fn(() => Promise.resolve({}));
+const approve = vi.fn(() => Promise.resolve({}));
+const approvePeriod = vi.fn(() => Promise.resolve({}));
+const sign = vi.fn(() => Promise.resolve({ status: 'signing', myPartyId: 'p-emp' }));
 vi.mock('../api', () => ({
   api: {
     timesheetReviewSubmit: (...a) => submit(...a),
     timesheetReviewSendBack: (...a) => sendBack(...a),
-    timesheetReviewAgree: (...a) => agree(...a),
+    timesheetReviewApprove: (...a) => approve(...a),
+    timesheetReviewApprovePeriod: (...a) => approvePeriod(...a),
+    timesheetReviewSign: (...a) => sign(...a),
   },
 }));
 vi.mock('./ESign', () => ({ SignModal: ({ partyId }) => <div data-testid="sign-modal">{partyId}</div> }));
@@ -23,18 +29,25 @@ const base = { id: 'r1', managerEmail: 'mgr@x.com', employeeEmail: 'emp@x.com', 
 const props = { self: true, anchor: '2026-09-06', periodLabel: '09/06/2026 - 09/19/2026', nameFor, onChanged: () => {} };
 
 describe('TimesheetReviewPanel', () => {
-  it('lets the employee submit a fresh timesheet', async () => {
+  it('lets the employee send a fresh timesheet to their manager', async () => {
     render(<TimesheetReviewPanel {...props} review={{ status: 'not_submitted', rounds: [], parties: [] }} />);
     fireEvent.change(screen.getByPlaceholderText(/Anything your manager/), { target: { value: 'All good' } });
-    fireEvent.click(screen.getByText('Submit for Review'));
+    fireEvent.click(screen.getByText('Send to Manager'));
     await waitFor(() => expect(submit).toHaveBeenCalledWith('2026-09-06', 'All good'));
   });
 
-  it('will not submit a timesheet with punch errors, and says why (Oct 1)', () => {
+  it('will not send a timesheet with punch errors, and says why (Oct 1)', () => {
     const why = 'Fix this on your timesheet before you submit it - 09/25/2026: no clock-out - add the out time.';
     render(<TimesheetReviewPanel {...props} review={{ status: 'not_submitted', rounds: [], parties: [], submitBlocker: why }} />);
     expect(screen.getByText(why)).toBeTruthy();
-    expect(screen.getByText('Submit for Review').closest('button')).toBeDisabled();
+    expect(screen.getByText('Send to Manager').closest('button')).toBeDisabled();
+  });
+
+  it('lets the manager approve a timesheet nobody submitted (Oct 16)', async () => {
+    render(<TimesheetReviewPanel {...props} self={false}
+      review={{ status: 'not_submitted', employeeEmail: 'emp@x.com', canApprove: true, agreeBlocker: '', rounds: [], parties: [] }} />);
+    fireEvent.click(screen.getByText('Review & Approve'));
+    await waitFor(() => expect(approvePeriod).toHaveBeenCalledWith('emp@x.com', '2026-09-06', ''));
   });
 
   it('will not resubmit with punch errors either', () => {
@@ -45,18 +58,18 @@ describe('TimesheetReviewPanel', () => {
     expect(screen.getByText('Resubmit').closest('button')).toBeDisabled();
   });
 
-  it('gives the manager Send Back (with a note) and Agree', async () => {
+  it('gives the manager Send Back (with a note) and Review & Approve', async () => {
     render(<TimesheetReviewPanel {...props} self={false}
-      review={{ ...base, status: 'with_manager', canAgree: true, canSendBack: true }} />);
+      review={{ ...base, status: 'with_manager', canAgree: true, canApprove: true, canSendBack: true }} />);
     expect(screen.getByText('Send Back').closest('button')).toBeDisabled();   // needs a note
     fireEvent.change(screen.getByPlaceholderText(/What needs changing/), { target: { value: 'Fix Tue' } });
     fireEvent.click(screen.getByText('Send Back'));
     await waitFor(() => expect(sendBack).toHaveBeenCalledWith('r1', 'Fix Tue'));
-    // The buttons stay disabled until Send Back settles; clicking Agree before
-    // that was a no-op on a slow CI runner (flaky, Sep 29).
-    await waitFor(() => expect(screen.getByText('Agree & Send for Signature').closest('button')).not.toBeDisabled());
-    fireEvent.click(screen.getByText('Agree & Send for Signature'));
-    await waitFor(() => expect(agree).toHaveBeenCalled());
+    // The buttons stay disabled until Send Back settles (flaky on a slow CI, Sep 29).
+    await waitFor(() => expect(screen.getByText('Review & Approve').closest('button')).not.toBeDisabled());
+    fireEvent.click(screen.getByText('Review & Approve'));
+    await waitFor(() => expect(approve).toHaveBeenCalledWith('r1', ''));
+    expect(screen.queryByText(/Agree & Send for Signature/)).toBeNull();
   });
 
   it('shows the employee what the manager asked for', () => {
@@ -66,14 +79,51 @@ describe('TimesheetReviewPanel', () => {
     expect(screen.getByText('Resubmit')).toBeInTheDocument();
   });
 
-  it('tells the manager up front why Agree is not available yet (Sep 29)', () => {
-    render(<TimesheetReviewPanel {...props} self={false} review={{ ...base, status: 'with_manager', canAgree: true, canSendBack: true,
-      agreeBlocker: 'This period runs to 09/30/2026. You can agree to it after that day, once every day is in.' }} />);
+  it('tells the manager up front why Approve is not available yet (Sep 29)', () => {
+    render(<TimesheetReviewPanel {...props} self={false} review={{ ...base, status: 'with_manager', canAgree: true, canApprove: true, canSendBack: true,
+      agreeBlocker: 'This period runs to 09/30/2026. You can approve it after that day, once every day is in.' }} />);
     expect(screen.getByRole('note')).toHaveTextContent('This period runs to 09/30/2026');
-    expect(screen.getByText(/Agree & Send for Signature/).closest('button')).toBeDisabled();
+    expect(screen.getByText('Review & Approve').closest('button')).toBeDisabled();
   });
 
-  it('shows who has signed and opens Nexus Sign for my turn', () => {
+  it('after approval the employee approves and signs, and the signing screen opens', async () => {
+    render(<TimesheetReviewPanel {...props} review={{ ...base, status: 'approved', canEmployeeApprove: true, canSubmit: true,
+      agreedBy: 'mgr@x.com', agreedAt: '2026-09-20T17:00:00Z',
+      approvalLog: ['Reviewed and approved by Max (manager) on 09/20/2026 at 10:00 AM'] }} />);
+    expect(screen.getByText(/Max reviewed and approved your hours/)).toBeInTheDocument();
+    expect(screen.getByText('Reviewed and approved by Max (manager) on 09/20/2026 at 10:00 AM')).toBeInTheDocument();
+    expect(screen.getByText('Not Right - Send Back').closest('button')).toBeDisabled();   // needs a note
+    fireEvent.click(screen.getByText('Approve & Sign'));
+    await waitFor(() => expect(sign).toHaveBeenCalledWith('r1'));
+    expect(await screen.findByTestId('sign-modal')).toHaveTextContent('p-emp');
+  });
+
+  it('the employee who disagrees sends it back to the manager with a note', async () => {
+    render(<TimesheetReviewPanel {...props} review={{ ...base, status: 'approved', canEmployeeApprove: true, canSubmit: true }} />);
+    fireEvent.change(screen.getByPlaceholderText(/What is wrong/), { target: { value: 'Tuesday is short' } });
+    fireEvent.click(screen.getByText('Not Right - Send Back'));
+    await waitFor(() => expect(submit).toHaveBeenCalledWith('2026-09-06', 'Tuesday is short'));
+  });
+
+  it('the manager waits for the employee once approved, and HR is told about the override', () => {
+    render(<TimesheetReviewPanel {...props} self={false} review={{ ...base, status: 'approved', isHr: true, agreedBy: 'mgr@x.com' }} />);
+    expect(screen.getByText(/Waiting for Erin to approve and sign/)).toBeInTheDocument();
+    expect(screen.getByText(/As HR you can change these hours at any point/)).toBeInTheDocument();
+    expect(screen.queryByText('Approve & Sign')).toBeNull();
+  });
+
+  it('shows the employee signature only, and opens Nexus Sign for my turn', () => {
+    render(<TimesheetReviewPanel {...props} review={{ ...base, status: 'signing', turn: 'employee', myPartyId: 'p-emp',
+      agreedBy: 'mgr@x.com', agreedAt: '2026-09-20T10:00:00Z',
+      parties: [{ role: 'employee', name: 'Erin', status: 'notified' }] }} />);
+    expect(screen.getByText('Employee Signature')).toBeInTheDocument();
+    expect(screen.queryByText('Manager Signature')).toBeNull();
+    expect(screen.queryByText('HR Signature')).toBeNull();
+    fireEvent.click(screen.getByText('Sign & Submit'));
+    expect(screen.getByTestId('sign-modal')).toHaveTextContent('p-emp');
+  });
+
+  it('still shows an older three-signer envelope as it was', () => {
     render(<TimesheetReviewPanel {...props} self={false} review={{ ...base, status: 'signing', turn: 'manager', myPartyId: 'p-mgr',
       agreedBy: 'mgr@x.com', agreedAt: '2026-09-20T10:00:00Z',
       parties: [
@@ -81,7 +131,7 @@ describe('TimesheetReviewPanel', () => {
         { role: 'manager', name: 'Max', status: 'notified' },
         { role: 'hr', name: 'Hana', status: 'waiting' },
       ] }} />);
-    expect(screen.getByText('On paper')).toBeInTheDocument();
+    expect(screen.getByText('On Paper')).toBeInTheDocument();
     expect(screen.getByText(/Waiting for Max/)).toBeInTheDocument();
     fireEvent.click(screen.getByText('Review & Sign'));
     expect(screen.getByTestId('sign-modal')).toHaveTextContent('p-mgr');

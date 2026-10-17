@@ -387,7 +387,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   useEffect(() => {
     if (self) return;   // employee self-view has no picker / team list
     api.timeTeam(start, end).then(r => {
-      const list = (r.rows || []).map(x => ({ email: x.email, name: x.name || x.email, pendingEdits: x.pendingEdits || 0 }));
+      const list = (r.rows || []).map(x => ({ email: x.email, name: x.name || x.email, pendingEdits: x.pendingEdits || 0,
+        company: x.company || '', companyName: x.companyName || '', dept: x.dept || '' }));
       setPeople(list);
       setEmail(e => e || list[0]?.email || '');
     }).catch(() => {});
@@ -491,28 +492,6 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const rateSplitText = (splits, key, fmt) => (splits || []).length > 1
     ? splits.map((s, i) => i === 0 ? `Through ${formatDate(s.through)} at ${fmt(s[key])}` : `From ${formatDate(s.from)} at ${fmt(s[key])}`).join(' · ')
     : '';
-  // Approve + finalize share the SwipeClock exception gate: a period with a
-  // missing or unmatched punch is blocked (the paired total would be wrong), with
-  // an explicit "sign off anyway" override - the sign-off is on record either way.
-  async function signOff(call, verb, okMsg) {
-    setBusy(true);
-    try { await call(false); toastOk?.(okMsg); load(); }
-    catch (e) {
-      if (e?.detail?.code === 'unresolved_exceptions') {
-        setBusy(false);
-        const go = await dialog.confirm(e.detail.message,
-          { title: 'Unresolved punch exceptions', confirmText: `${verb} anyway`, danger: true });
-        if (!go) return;
-        setBusy(true);
-        try { await call(true); toastOk?.(`${okMsg} (exceptions overridden).`); load(); }
-        catch (e2) { toastErr?.(e2?.message || `Could not ${verb.toLowerCase()}.`); }
-      } else {
-        toastErr?.(e?.message || `Could not ${verb.toLowerCase()}.`);
-      }
-    }
-    setBusy(false);
-  }
-
   // Hourly nav MUST stay Sunday-anchored (SwipeClock parity). Step in whole
   // periods on the UTC series - snapPeriodUTC first, so a pStart left
   // off-series by a fixed employee's month snap re-aligns. Never route the
@@ -545,13 +524,12 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const nameFor = (em) => people.find(p => p.email === (em || '').toLowerCase())?.name
     || (em ? em.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '');
 
-  async function finalize() {
-    if (!await dialog.confirm(`Finalize ${nameFor(email)}'s timecard for ${periodLabel}? This locks all time records for the period - edits will need an unlock.`, { title: 'Finalize timecard', confirmText: 'Finalize', danger: true })) return;
-    await signOff((allow) => api.timeFinalize({ email, start: perStart, end: perEnd, allow_exceptions: allow }),
-      'Finalize', 'Timecard finalized - the period is locked.');
-  }
+  // "Finalize Without Signatures" left (Neil, Oct 16 - "I don't even know
+  // what that means"): the manager's Review & Approve and the employee's
+  // signature finalize a period. HR keeps Unlock for corrections; the
+  // employee then signs the corrected card again.
   async function unfinalize() {
-    if (!await dialog.confirm(`Unlock ${nameFor(email)}'s finalized timecard for ${periodLabel}? Edits become possible again; re-finalize when done.`, { title: 'Unlock period', confirmText: 'Unlock' })) return;
+    if (!await dialog.confirm(`Unlock ${nameFor(email)}'s finalized timecard for ${periodLabel}? Edits become possible again, and ${nameFor(email)} signs the corrected card again.`, { title: 'Unlock period', confirmText: 'Unlock' })) return;
     setBusy(true);
     try { await api.timeUnfinalize({ email, start: perStart, end: perEnd }); toastOk?.('Period unlocked.'); load(); }
     catch (e) { toastErr?.(e?.message || 'Could not unlock.'); }
@@ -700,7 +678,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   });
   if (prevWeek) rows.push({ type: 'wk', week: prevWeek });
 
-  const dow = (ds) => new Date(ds + 'T00:00').toLocaleDateString([], { weekday: 'short', month: 'numeric', day: 'numeric' });
+  // Always US month/day (Oct 16): [] took the browser's locale, so an India-locale
+  // browser read 'Sun 11/10' for October 11.
+  const dow = (ds) => `${new Date(ds + 'T00:00').toLocaleDateString('en-US', { weekday: 'short' })} ${ds.slice(5, 7)}/${ds.slice(8, 10)}`;
 
   // ── A day's pieces, drawn by BOTH the desktop table and the phone day cards
   //    (Oct 14) - one copy of each, so the two can never disagree about what a
@@ -983,7 +963,21 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   };
 
   const exByEmail = Object.fromEntries(exceptions.map(e => [e.email, e]));
-  const sidebar = (exceptions.length ? exceptions : people.map(p => ({ ...p, missing: 0, exceptions: 0 })));
+  // Filter by company and department (Neil, Oct 16): HR works one company at a
+  // time - its people here, and its QuickBooks IIF batch below.
+  const [coFilter, setCoFilter] = useState('');
+  const [deptFilter, setDeptFilter] = useState('');
+  const personOf = Object.fromEntries(people.map(p => [p.email, p]));
+  const companyOpts = [...new Map(people.filter(p => p.company).map(p => [p.company, p.companyName || p.company])).entries()]
+    .sort((a, b) => a[1].localeCompare(b[1]));
+  const deptOpts = [...new Set(people.filter(p => !coFilter || p.company === coFilter).map(p => p.dept).filter(Boolean))].sort();
+  const keep = (em) => {
+    const p = personOf[em];
+    return (!coFilter || p?.company === coFilter) && (!deptFilter || p?.dept === deptFilter);
+  };
+  const filteredPeople = people.filter(p => keep(p.email));
+  const sidebar = (exceptions.length ? exceptions : people.map(p => ({ ...p, missing: 0, exceptions: 0 }))).filter(p => keep(p.email));
+  const coName = companyOpts.find(([id]) => id === coFilter)?.[1] || '';
 
   // The employee master-detail list - shared by the hourly and fixed-salary views
   // so switching between them never rearranges the screen (hidden in self mode).
@@ -991,6 +985,28 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // card still switches people.
   const employeeSidebar = (!self && !phone) ? (
     <div data-tour="pr-sidebar" style={{ width: 210, flexShrink: 0, border: '1px solid var(--wk-line2)', borderRadius: 14, overflow: 'hidden', maxHeight: 620, overflowY: 'auto', background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }} className="pr-sidebar">
+      {(companyOpts.length > 0 || people.some(p => p.dept)) && (
+        <div data-payroll-filters style={{ padding: '8px 10px', display: 'grid', gap: 6, borderBottom: '1px solid var(--line)' }}>
+          <select className="form-input" aria-label="Filter by company" value={coFilter}
+            onChange={e => { setCoFilter(e.target.value); setDeptFilter(''); }} style={{ fontSize: 12, padding: '4px 6px' }}>
+            <option value="">All Companies</option>
+            {companyOpts.map(([id, n]) => <option key={id} value={id}>{n}</option>)}
+          </select>
+          <select className="form-input" aria-label="Filter by department" value={deptFilter}
+            onChange={e => setDeptFilter(e.target.value)} style={{ fontSize: 12, padding: '4px 6px' }}>
+            <option value="">All Departments</option>
+            {deptOpts.map(d => <option key={d} value={d}>{d}</option>)}
+          </select>
+          {/* The pay period's QuickBooks IIF, one company per file, finalized
+              time cards only - the batch Charmi imports after the period closes. */}
+          {showPay && (
+            <button type="button" className="secondary-btn" disabled={!coFilter || exporting}
+              title={coFilter ? `QuickBooks Desktop time import (IIF) of ${coName}'s finalized time cards for ${formatDate(perStart)} - ${formatDate(perEnd)}. Employee names and the payroll items must match QuickBooks.` : 'Pick a company - QuickBooks imports one company per file'}
+              onClick={() => exportFile(() => api.timeExportIifFinalized(perStart, perEnd, coFilter), 'QuickBooks IIF')}
+              style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}><Download size={13} /> QuickBooks IIF</button>
+          )}
+        </div>
+      )}
       <div style={{ padding: '9px 12px', background: 'var(--wk-hover)', fontSize: 12, fontWeight: 500, color: 'var(--wk-dim)', display: 'flex' }}>
         <span style={{ flex: 1 }}>Employee</span><span title="Missing punches">M</span><span style={{ width: 22, textAlign: 'right' }} title="Exceptions">E</span>
       </div>
@@ -1018,7 +1034,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         nameFor={nameFor} cur={cur} fmtM={fmtM} showRaw={showRaw} setShowRaw={setShowRaw}
         isAdmin={isAdmin} busy={busy} setBusy={setBusy}
         onPrev={() => shiftMonth(-1)} onNext={() => shiftMonth(1)}
-        onFinalize={finalize} onUnfinalize={unfinalize}
+        onUnfinalize={unfinalize}
         editDay={editDay} setEditDay={setEditDay} load={load} toastOk={toastOk} toastErr={toastErr}
         setWorkLogDay={setWorkLogDay} dayNotes={notes} saveNote={saveNote} saveMyNote={saveMyNote} myNote={myNote} />
     );
@@ -1066,7 +1082,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
         {self
           ? <span style={{ fontSize: 15, fontWeight: 800, minWidth: 180 }}>My Timesheet</span>
-          : <EmployeeCombobox people={people} value={email} onChange={setEmail} title="Also selectable from the sidebar"
+          : <EmployeeCombobox people={filteredPeople} value={email} onChange={setEmail} title="Also selectable from the sidebar"
               labelFor={p => `${p.name}${p.pendingEdits ? ` (${p.pendingEdits} to review)` : exByEmail[p.email]?.missing ? ` (${exByEmail[p.email].missing} missing)` : ''}`} />}
         <div data-tour="pr-period" style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <button className="icon-btn" onClick={() => shift(-1)} style={{ padding: 6 }}><ChevronLeft size={16} /></button>
@@ -1334,9 +1350,6 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
             {!self && showPay && (
             <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
               <button className="secondary-btn" disabled={exporting} onClick={() => exportFile(() => api.timeExportCsv(start, end, 'punches'), 'CSV')} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> CSV</button>
-              <button className="secondary-btn" disabled={exporting} title="QuickBooks Desktop time import file (IIF) - import instead of keying hours by hand. Employee names and the Regular/Overtime/Double-time/Sick/Vacation payroll items must match QuickBooks."
-                onClick={() => exportFile(() => api.timeExportIif(perStart, perEnd), 'QuickBooks IIF')}
-                style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> QuickBooks IIF</button>
               <button className="secondary-btn" disabled={exporting} title="Intacct General Ledger import of this period's payroll by employee - wages by pay class, with department and entity as dimensions. Same file layout as the accounting app's bank import."
                 onClick={() => setIntacctOpen((v) => !v)} aria-expanded={intacctOpen}
                 style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> Export for Intacct</button>
@@ -1354,14 +1367,12 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   <span style={{ fontSize: 11, color: 'var(--muted)', flexBasis: '100%' }}>One entry for {formatDate(perStart)} to {formatDate(perEnd)}: a debit per employee per pay class, one credit per employee to the clearing account. Blank accounts are left for Intacct to ask.</span>
                 </form>
               )}
-              {/* Approving is now "Agree" in the review panel below; HR's
-                  signature there finalizes. Unlock / Finalize stay as the HR
-                  override for a period that never went through review. */}
-              {isAdmin && (fin
-                ? <button className="secondary-btn" onClick={unfinalize} disabled={busy} title="HR: unlock this finalized period for corrections"
-                    style={{ fontSize: 12.5 }}>Unlock</button>
-                : <button className="secondary-btn" onClick={finalize} disabled={busy} title="HR override: finalize for payroll without the review and signatures"
-                    style={{ fontSize: 12.5 }}>Finalize Without Signatures</button>)}
+              {/* Approving is Review & Approve in the review panel below; the
+                  employee's signature there finalizes (Oct 16). Unlock stays
+                  for HR's corrections. */}
+              {isAdmin && fin && (
+                <button className="secondary-btn" onClick={unfinalize} disabled={busy} title="HR: unlock this finalized period for corrections - the employee signs again"
+                  style={{ fontSize: 12.5 }}>Unlock</button>)}
             </div>
             )}
           </div>
@@ -1449,7 +1460,7 @@ const t12s = (iso) => iso ? formatTimeTz(iso, { seconds: true }) : '';
 // Monthly card for a FIXED-salary employee. Same day grid + inline edit/add +
 // signatures as the hourly card, but the pay math is the fixed model: salary,
 // per-day present/half/absent/weekend status, deductions and weekend overtime.
-function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM, showRaw, setShowRaw, isAdmin, busy, setBusy, onPrev, onNext, onFinalize, onUnfinalize, editDay, setEditDay, load, toastOk, toastErr, setWorkLogDay, dayNotes = {}, saveNote, saveMyNote, myNote = () => null }) {
+function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM, showRaw, setShowRaw, isAdmin, busy, setBusy, onPrev, onNext, onUnfinalize, editDay, setEditDay, load, toastOk, toastErr, setWorkLogDay, dayNotes = {}, saveNote, saveMyNote, myNote = () => null }) {
   const showPay = !data.payHidden;   // the manager tier never sees pay
   const [geoMap, setGeoMap] = useState('');   // email whose Geofence Punch view is open
   useDisplayTz();   // re-render this card (and its time cells) when the tz switch flips
@@ -1468,7 +1479,9 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
     ? data.rateSplits.map((s, i) => i === 0 ? `Through ${formatDate(s.through)} at ${fmtM(s.monthlySalary)}/mo` : `From ${formatDate(s.from)} at ${fmtM(s.monthlySalary)}/mo`).join(' · ')
     : '';
   const monthLabel = data.periodStart ? new Date(data.periodStart + 'T00:00').toLocaleDateString([], { month: 'long', year: 'numeric' }) : '';
-  const dow = (ds) => new Date(ds + 'T00:00').toLocaleDateString([], { weekday: 'short', month: 'numeric', day: 'numeric' });
+  // Always US month/day (Oct 16): [] took the browser's locale, so an India-locale
+  // browser read 'Sun 11/10' for October 11.
+  const dow = (ds) => `${new Date(ds + 'T00:00').toLocaleDateString('en-US', { weekday: 'short' })} ${ds.slice(5, 7)}/${ds.slice(8, 10)}`;
   const th = { fontSize: 11.5, fontWeight: 600, color: 'var(--wk-dim)', padding: '8px 10px', textAlign: 'left', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' };
   const td = { fontSize: 12.5, padding: '6px 10px', textAlign: 'left', borderTop: '1px solid var(--line)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' };
   const STATUS = {
@@ -1909,12 +1922,10 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               <span>Pending edits</span><span>{T.pendingEdits}</span>
             </div>
           )}
-          {!self && (
+          {!self && isAdmin && fin && (
             <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-              {isAdmin && (fin
-                ? <button className="secondary-btn" onClick={onUnfinalize} disabled={busy} style={{ fontSize: 12.5 }}>Unlock</button>
-                : <button className="secondary-btn" onClick={onFinalize} disabled={busy} title="HR override: finalize for payroll without the review and signatures"
-                    style={{ fontSize: 12.5 }}>Finalize Without Signatures</button>)}
+              <button className="secondary-btn" onClick={onUnfinalize} disabled={busy} title="HR: unlock this finalized month for corrections - the employee signs again"
+                style={{ fontSize: 12.5 }}>Unlock</button>
             </div>
           )}
         </div>

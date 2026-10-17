@@ -4906,6 +4906,12 @@ def _signed_folder(db: Session, req: HrSignRequest) -> str:
         # requester fallback below would drop a new hire's offer letter into
         # the HR sender's own work folder.
         return ""
+    if (getattr(req, "link_kind", "") or "") == "timesheet":
+        # The EMPLOYEE's person folder (Neil, Oct 16) - the requester is the
+        # approving manager, and a timesheet in their work folder is filed
+        # under the wrong person. '' (not filed) when it cannot be resolved.
+        import timesheet_review
+        return timesheet_review.egnyte_folder(db, req)
     try:
         import egnyte_wiring
         emp = (db.query(NexusEmployee)
