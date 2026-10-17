@@ -1264,6 +1264,12 @@ def team_timesheet(start: str = "", end: str = "",
                           "stale": any(v > (a.approved_at or "")
                                        for (em, _d), v in last_change.items() if em == r["email"])}
                          if a else None)
+    # The company's id beside its name (_team_rows' "company"): the Payroll
+    # screen's per-company QuickBooks IIF asks export.iif by id (Oct 16).
+    co_ids = {(e.work_email or "").lower(): (e.company or "")
+              for e in db.query(NexusEmployee.work_email, NexusEmployee.company).all() if e.work_email}
+    for r in rows:
+        r["companyId"] = co_ids.get(r["email"], "")
     return _no_pay(db, user, {"rows": rows})
 
 
@@ -1429,12 +1435,14 @@ def _guard_punch_order(db: Session, email: str, *, kind: str, at: str, local_dat
 
 
 def _guard_review(db: Session, email: str, local_date: str, actor_email: str, *,
-                  employee_request: bool = False) -> None:
+                  employee_request: bool = False, dry_run: bool = False) -> None:
     """Timesheet review (timesheet_review.py): one side edits at a time while a
-    timesheet is being reviewed, and nobody while it is out for signature.
-    `employee_request`: deciding the employee's own punch fix - see guard_edit."""
+    timesheet is being reviewed; a change after the manager approved reopens it,
+    except HR's (Oct 16). `employee_request`: the employee's own punch fix - see
+    guard_edit. `dry_run`: only check, change nothing."""
     import timesheet_review
-    timesheet_review.guard_edit(db, email, local_date, actor_email, employee_request=employee_request)
+    timesheet_review.guard_edit(db, email, local_date, actor_email, employee_request=employee_request,
+                                dry_run=dry_run)
 
 
 # ── Punch exceptions (SwipeClock "missing punch" model) ──────────────────────
@@ -1968,12 +1976,21 @@ def _team_alert_recipients(db: Session, employee_email: str, actor_email: str = 
 
 def _notify_team_alert(db: Session, *, employee_email: str, actor_email: str, title: str,
                        body: str, ref_id: str = "", action: Optional[dict] = None,
-                       requested_by: str = "", priority: int = 0, owners_as_fallback: bool = False) -> None:
+                       requested_by: str = "", priority: int = 0, owners_as_fallback: bool = False,
+                       extra_recipients=()) -> None:
     """One targeted bell row per recipient of _team_alert_recipients - never a
-    broadcast. priority=1 = the bar across the top until acted on."""
+    broadcast. priority=1 = the bar across the top until acted on.
+    `extra_recipients`: named people who also hear (never the actor or the
+    employee, never twice)."""
     now = _now_iso()
     company = notification_company(db, employee_email, actor_email)
-    for recipient in _team_alert_recipients(db, employee_email, actor_email, owners_as_fallback=owners_as_fallback):
+    recipients = _team_alert_recipients(db, employee_email, actor_email, owners_as_fallback=owners_as_fallback)
+    skip = {(actor_email or "").strip().lower(), (employee_email or "").strip().lower()}
+    for e in extra_recipients or ():
+        e = (e or "").strip().lower()
+        if e and e not in skip and e not in recipients:
+            recipients.append(e)
+    for recipient in recipients:
         db.add(NexusNotification(
             id=str(uuid.uuid4()), type="custom_alert", recipient=recipient,
             title=title, body=body, ref_id=ref_id, item_name="",
@@ -2290,6 +2307,7 @@ def _approved_emails(db: Session, rows: list, start: str, end: str) -> set:
 
 @router.get("/export.iif")
 def export_iif(start: str = "", end: str = "", company: str = "", approved_only: bool = False,
+               finalized_only: bool = False,
                user: dict = Depends(require_team_read_pay),
                _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
     """QuickBooks Desktop time import (IIF TIMEACT rows) - Charmi keys every
@@ -2300,12 +2318,16 @@ def export_iif(start: str = "", end: str = "", company: str = "", approved_only:
     QuickBooks; the payroll item names (Regular Pay / Overtime Pay / Double-time
     Pay / Sick Pay / Vacation Pay) must exist in QuickBooks or be mapped at import.
     `company` keeps one company's people; `approved_only` keeps the approved
-    time sheets (_approved_emails) - both optional (Import Hub, Neil 10/15)."""
+    time sheets (_approved_emails) - both optional (Import Hub, Neil 10/15).
+    `finalized_only` keeps the time cards signed and finalized for the period
+    (Oct 16: the Payroll screen's per-company batch after the period closes)."""
     scope = _export_scope(db, user, company)
     rows = _team_rows(db, start, end, only_emails=scope)
     if approved_only:
         ok = _approved_emails(db, rows, start, end)
         rows = [r for r in rows if r["email"] in ok]
+    if finalized_only:
+        rows = [r for r in rows if _finalized_row(db, r["email"], start, end)]
 
     def _mdy(ds: str) -> str:
         y, m, d = ds.split("-")
@@ -3019,7 +3041,9 @@ def create_punch_request(body: PunchRequestIn, user: dict = Depends(get_current_
             raise HTTPException(404, "That punch isn't yours or no longer exists.")
         local_date = tp.local_date
     _guard_not_finalized(db, email, local_date)
-    _guard_review(db, email, local_date, email)
+    # A request, not a change: allowed whoever holds the timesheet; one the
+    # manager already approved goes back to them (Oct 16).
+    _guard_review(db, email, local_date, email, employee_request=True)
     if action == "add":
         # The same fix asked for twice (same punch, same minute) is one fix:
         # employees re-filed when nothing seemed to happen, and every copy
@@ -3528,10 +3552,35 @@ def _notify_approvers(db: Session, *, employee_email: str, title: str, body: str
     (_team_alert_recipients) - never a broadcast to every manager. With no
     manager on file the Global Admins still get it, so it is never dropped.
     A timecard adjustment waiting on a manager is a priority notice (Neil,
-    call of 09/29)."""
+    call of 09/29).
+
+    Oct 16 (Neil): "the manager instantly gets a pop-up, HR gets a pop-up,
+    anybody manager plus plus gets a pop-up" - so the edit is handled the day
+    it happens, not at the end of the pay period. Plus everyone above the
+    manager in the employee's reporting line and their Backup Manager - never
+    unrelated managers (the Sep 25 rule stands)."""
     _notify_team_alert(db, employee_email=employee_email, actor_email=employee_email,
                        title=title, body=body, ref_id=ref_id, action=action, priority=1,
-                       requested_by=employee_email)
+                       requested_by=employee_email, extra_recipients=_reporting_line(db, employee_email))
+
+
+def _reporting_line(db: Session, employee_email: str) -> list[str]:
+    """The employee's manager, that manager's manager and on up, and their
+    Backup Manager (backup_manager.resolve)."""
+    import backup_manager
+    people, hr = backup_manager.roster(db)
+    em = (employee_email or "").strip().lower()
+    out = []
+    bk = backup_manager.resolve(em, people, hr)[0]
+    if bk:
+        out.append(bk)
+    seen, cur = {em}, people.get(em, ("", "", ""))[0]
+    while cur and cur not in seen and len(seen) < 15:
+        seen.add(cur)
+        if cur not in out:
+            out.append(cur)
+        cur = people.get(cur, ("", "", ""))[0]
+    return out
 
 
 class PunchEditIn(BaseModel):
@@ -3553,7 +3602,7 @@ def request_punch_edit(body: PunchEditIn, user: dict = Depends(get_current_user)
     if row.employee_email != email:
         raise HTTPException(403, "You can only edit your own punches.")
     _guard_not_finalized(db, row.employee_email, row.local_date)
-    _guard_review(db, row.employee_email, row.local_date, email)
+    _guard_review(db, row.employee_email, row.local_date, email, employee_request=True)
     at = (body.at or "").strip()
     t = _parse_iso(at)
     if not t:
@@ -10732,7 +10781,7 @@ def _add_time_lock(db: Session, email: str, d: str, actor: str) -> str:
     """Why this day cannot take time right now ('' when it can)."""
     try:
         _guard_not_finalized(db, email, d)
-        _guard_review(db, email, d, actor)
+        _guard_review(db, email, d, actor, dry_run=True)
     except HTTPException as e:
         return str(e.detail)
     return ""

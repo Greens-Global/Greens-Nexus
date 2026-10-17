@@ -451,7 +451,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   useEffect(() => {
     if (self) return;   // employee self-view has no picker / team list
     api.timeTeam(start, end).then(r => {
-      const list = (r.rows || []).map(x => ({ email: x.email, name: x.name || x.email, pendingEdits: x.pendingEdits || 0, department: x.department || '', company: x.company || '' }));
+      const list = (r.rows || []).map(x => ({ email: x.email, name: x.name || x.email, pendingEdits: x.pendingEdits || 0, department: x.department || '', company: x.company || '', companyId: x.companyId || '' }));
       setPeople(list);
       setPeopleLoaded(true);
       // Someone remembered from before a reload who is no longer in scope
@@ -629,7 +629,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       'Finalize', 'Timecard finalized - the period is locked.');
   }
   async function unfinalize() {
-    if (!await dialog.confirm(`Unlock ${nameFor(email)}'s finalized timecard for ${periodLabel}? Edits become possible again; re-finalize when done.`, { title: 'Unlock period', confirmText: 'Unlock' })) return;
+    if (!await dialog.confirm(`Unlock ${nameFor(email)}'s finalized timecard for ${periodLabel}? Edits become possible again, and ${nameFor(email)} signs the corrected card again.`, { title: 'Unlock period', confirmText: 'Unlock' })) return;
     setBusy(true);
     try { await api.timeUnfinalize({ email, start: perStart, end: perEnd }); toastOk?.('Period unlocked.'); load(); }
     catch (e) { toastErr?.(e?.message || 'Could not unlock.'); }
@@ -784,7 +784,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   });
   if (prevWeek) rows.push({ type: 'wk', week: prevWeek });
 
-  const dow = (ds) => new Date(ds + 'T00:00').toLocaleDateString([], { weekday: 'short', month: 'numeric', day: 'numeric' });
+  // Always US month/day (Oct 16): [] took the browser's locale, so an India-locale
+  // browser read 'Sun 11/10' for October 11.
+  const dow = (ds) => `${new Date(ds + 'T00:00').toLocaleDateString('en-US', { weekday: 'short' })} ${ds.slice(5, 7)}/${ds.slice(8, 10)}`;
   const pm = data?.punchMeta || {};
   // What a row's Edit opens: the shift's form, or the break fixer on a Break row.
   const isBreakRow = (r) => r.type === 'break';
@@ -1050,6 +1052,10 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       {options.map(o => <option key={o} value={o}>{o}</option>)}
     </select>
   );
+  // The QuickBooks IIF batch is one company's finalized time cards (Neil /
+  // Charmi, Oct 16): the company picked, or the only one in the list.
+  const iifCompany = company || (companies.length === 1 ? companies[0] : '');
+  const iifCompanyId = people.find(p => p.company === iifCompany)?.companyId || '';
 
   // The employee master-detail list - shared by the hourly and fixed-salary views
   // so switching between them never rearranges the screen (hidden in self mode).
@@ -1057,10 +1063,16 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // card still switches people.
   const employeeSidebar = (!self && !phone) ? (
     <div data-tour="pr-sidebar" style={{ width: 210, flexShrink: 0, border: '1px solid var(--wk-line2)', borderRadius: 14, overflow: 'hidden', maxHeight: 620, overflowY: 'auto', background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }} className="pr-sidebar">
-      {(companies.length > 1 || depts.length > 1) && (
+      {(companies.length > 1 || depts.length > 1 || (showPay && companies.length > 0)) && (
         <div style={{ padding: '8px 10px 6px', display: 'grid', gap: 5, borderBottom: '1px solid var(--line)' }}>
           {filterSel(company, (v) => { setCompany(v); setDept(''); }, 'Company', companies)}
           {filterSel(dept, setDept, 'Department', depts)}
+          {showPay && companies.length > 0 && (
+            <button type="button" className="secondary-btn" disabled={!iifCompanyId || exporting}
+              title={iifCompanyId ? `QuickBooks Desktop time import (IIF) of ${iifCompany}'s finalized time cards for ${formatDate(perStart)} - ${formatDate(perEnd)}. Employee names and the payroll items must match QuickBooks.` : 'Pick a company - QuickBooks imports one company per file'}
+              onClick={() => exportFile(() => api.timeExportIifFinalized(perStart, perEnd, iifCompanyId), 'QuickBooks IIF')}
+              style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}><Download size={13} /> QuickBooks IIF</button>
+          )}
         </div>
       )}
       <div style={{ padding: '9px 12px', background: 'var(--wk-hover)', fontSize: 12, fontWeight: 500, color: 'var(--wk-dim)', display: 'flex' }}>
@@ -1455,9 +1467,6 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
             {!self && showPay && (
             <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
               <button className="secondary-btn" disabled={exporting} onClick={() => exportFile(() => api.timeExportCsv(start, end, 'punches'), 'CSV')} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> CSV</button>
-              <button className="secondary-btn" disabled={exporting} title="QuickBooks Desktop time import file (IIF) - import instead of keying hours by hand. Employee names and the Regular/Overtime/Double-time/Sick/Vacation payroll items must match QuickBooks."
-                onClick={() => exportFile(() => api.timeExportIif(perStart, perEnd), 'QuickBooks IIF')}
-                style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> QuickBooks IIF</button>
               <button className="secondary-btn" disabled={exporting} title="Intacct General Ledger import of this period's payroll by employee - wages by pay class, with department and entity as dimensions. Same file layout as the accounting app's bank import."
                 onClick={() => setIntacctOpen((v) => !v)} aria-expanded={intacctOpen}
                 style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> Export for Intacct</button>
@@ -1599,7 +1608,9 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
     ? data.rateSplits.map((s, i) => i === 0 ? `Through ${formatDate(s.through)} at ${fmtM(s.monthlySalary)}/mo` : `From ${formatDate(s.from)} at ${fmtM(s.monthlySalary)}/mo`).join(' · ')
     : '';
   const monthLabel = data.periodStart ? new Date(data.periodStart + 'T00:00').toLocaleDateString([], { month: 'long', year: 'numeric' }) : '';
-  const dow = (ds) => new Date(ds + 'T00:00').toLocaleDateString([], { weekday: 'short', month: 'numeric', day: 'numeric' });
+  // Always US month/day (Oct 16): [] took the browser's locale, so an India-locale
+  // browser read 'Sun 11/10' for October 11.
+  const dow = (ds) => `${new Date(ds + 'T00:00').toLocaleDateString('en-US', { weekday: 'short' })} ${ds.slice(5, 7)}/${ds.slice(8, 10)}`;
   const STATUS = {
     working: { label: 'Working', bg: 'var(--wk-brand-tint)', fg: 'var(--wk-brand)' },
     present: { label: 'Present', bg: 'hsla(var(--color-green),0.12)', fg: 'hsl(var(--color-green))' },
@@ -1940,7 +1951,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               <span>Pending edits</span><span>{T.pendingEdits}</span>
             </div>
           )}
-          {!self && (
+          {!self && isAdmin && (fin || LEGACY_FINALIZE) && (
             <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
               {isAdmin && fin && (
                 <button className="secondary-btn" onClick={onUnfinalize} disabled={busy} style={{ fontSize: 12.5 }}>Unlock</button>)}

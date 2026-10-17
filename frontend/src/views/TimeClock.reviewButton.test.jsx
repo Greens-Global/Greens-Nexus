@@ -4,7 +4,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 // Timesheets to Review on Workday > Time Sheet (Oct 1): the list of
 // timesheets submitted to me sits on my own Time Sheet tab - where the
 // "Timesheet to review" bell lands - with a header button that jumps to it.
-// Agree / Send Back work for any reviewer; Review (the full timecard in
+// Approve / Send Back work for any reviewer; Review (the full timecard in
 // People > Time) only shows to those who can open People > Time. A
 // time-tracking-exempt reviewer gets the Time Sheet tab while something waits.
 
@@ -44,8 +44,8 @@ describe('Timesheets to Review on the Time Sheet tab', () => {
     expect(await screen.findByText('Valinda Cranfill')).toBeTruthy();
     expect(screen.getByText('2 waiting on you')).toBeTruthy();
     expect(screen.queryByRole('button', { name: /Timesheets to Review/ })).toBeNull();
-    // Agree / Send Back for a manager without the HR grant; no Review link.
-    expect(screen.getAllByRole('button', { name: /Agree/ }).length).toBe(2);
+    // Approve / Send Back for a manager without the HR grant; no Review link.
+    expect(screen.getAllByRole('button', { name: /^Approve$/ }).length).toBe(2);
     expect(screen.queryByRole('button', { name: /^Review/ })).toBeNull();
   }, SLOW);
 
