@@ -338,6 +338,21 @@ class AccountingAccessTests(unittest.TestCase):
         # Nobody lifts their own limit.
         _as(MANAGER)
         self.assertEqual(self.client.put(f"/accounting/access/{MANAGER}", json={"entities": []}).status_code, 400)
+        # A Full holder who is limited themselves manages nobody's limits (Oct
+        # 17 review) - otherwise two of them could lift each other.
+        self.client.put(f"/accounting/access/{ONE}", json={"entities": ["56000"]})
+        db = database.SessionLocal()
+        try:
+            db.add(models.NexusAccessScope(id=str(uuid.uuid4()), email=MANAGER, module_id="accounting",
+                                           scope_type="ledger", scope_id="15000"))
+            db.commit()
+        finally:
+            db.close()
+        self.assertEqual(self.client.get("/accounting/access").status_code, 403)
+        self.assertEqual(self.client.put(f"/accounting/access/{ONE}", json={"entities": []}).status_code, 403)
+        self.assertEqual(self.client.post("/accounting/access/intacct/apply", json={"emails": [ONE]}).status_code, 403)
+        _as(ONE)
+        self.assertEqual(self.client.get("/accounting/access/me").json()["entities"], ["56000"])
         db = database.SessionLocal()
         try:
             self.assertEqual(db.query(models.AuditLog).filter(models.AuditLog.action == "accounting_entity_access_set", models.AuditLog.resource_id == OPEN).count(), 2)

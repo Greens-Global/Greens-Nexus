@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Download, Save, Settings2, Trash2 } from 'lucide-react';
 import { api } from '../../api';
 import Amount from './Amount';
@@ -36,7 +36,7 @@ const monthLabel = (key) => `${MONTHS[Number(key.slice(5, 7)) - 1]} ${key.slice(
 const shiftMonth = (key, n) => { const d = new Date(Number(key.slice(0, 4)), Number(key.slice(5, 7)) - 1 + n, 1); return monthKey(d); };
 
 export default function AllocationsTab({ canEdit = false }) {
-  const [month, setMonth] = useState(() => monthKey(new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1)));
+  const [month, setMonthRaw] = useState(() => monthKey(new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1)));
   const [preview, setPreview] = useState(null);
   const [state, setState] = useState({ loading: false, error: '', stepUp: false });
   const [mapData, setMapData] = useState(null);     // { map, sites, companies }
@@ -49,10 +49,17 @@ export default function AllocationsTab({ canEdit = false }) {
   const loadRuns = useCallback(() => api.getAllocationRuns().then((d) => setRuns(d?.runs || [])).catch(() => setRuns([])), []);
   useEffect(() => { loadMap(); loadRuns(); }, [loadMap, loadRuns]);
 
+  // A month change drops the old month's preview at once, so its lines are
+  // never on screen (or kept) under the new month (Oct 17 review).
+  const setMonth = (next) => { setPreview(null); setMonthRaw(next); };
+  // Only the newest request may land (Oct 17 review): a slow answer for the
+  // month just left would otherwise replace the new month's preview.
+  const seq = useRef(0);
   const loadPreview = useCallback((m) => {
+    const mine = ++seq.current;
     setState({ loading: true, error: '', stepUp: false });
-    api.previewAllocations(m).then((d) => { setPreview(d); setState({ loading: false, error: '', stepUp: false }); })
-      .catch((e) => { setPreview(null); setState({ loading: false, error: isStepUpRequired(e) ? '' : (e?.message || 'Could not build the preview.'), stepUp: isStepUpRequired(e) }); });
+    api.previewAllocations(m).then((d) => { if (mine !== seq.current) return; setPreview(d); setState({ loading: false, error: '', stepUp: false }); })
+      .catch((e) => { if (mine !== seq.current) return; setPreview(null); setState({ loading: false, error: isStepUpRequired(e) ? '' : (e?.message || 'Could not build the preview.'), stepUp: isStepUpRequired(e) }); });
   }, []);
   useEffect(() => { loadPreview(month); }, [month, loadPreview]);
 
@@ -72,11 +79,14 @@ export default function AllocationsTab({ canEdit = false }) {
     if (unmapped) { await dialog.alert('Map every work site and company first - some lines have no entity or account.', { title: 'Keep Run' }); return; }
     setBusy('run');
     try {
-      const r = await api.saveAllocationRun({ month, entity: '', preview });
+      // The server rebuilds the run itself; the preview sent is only what the
+      // person looked at, and it is refused (409) when the figures moved.
+      const r = await api.saveAllocationRun({ month: preview?.month || month, entity: '', preview });
       loadRuns();
       return r;
     } catch (e) {
       if (isStepUpRequired(e)) { const up = await ensureStepUp(); if (up.ok) return keepRun(); }
+      else if (e?.status === 409) { loadPreview(month); await dialog.alert(e?.message || 'The figures changed - review the refreshed preview.', { title: 'Keep Run' }); }
       else await dialog.alert(e?.message || 'Could not keep the run.', { title: 'Keep Run' });
     } finally { setBusy(''); }
     return null;
@@ -113,9 +123,9 @@ export default function AllocationsTab({ canEdit = false }) {
         )}
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           {canEdit && <button type="button" className="secondary-btn" onClick={() => setMapOpen((v) => !v)} aria-expanded={mapOpen} style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Settings2 size={13} /> Account Mapping</button>}
-          {canEdit && <button type="button" className="secondary-btn" disabled={!!busy || !preview?.entries?.length || unmapped > 0} onClick={() => keepAndExport('csv')} style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> Export Intacct CSV</button>}
-          {canEdit && <button type="button" className="secondary-btn" disabled={!!busy || !preview?.entries?.length || unmapped > 0} onClick={() => keepAndExport('xlsx')} style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> Export Excel</button>}
-          {canEdit && <button type="button" className="primary-btn" disabled={!!busy || !preview?.entries?.length || unmapped > 0} onClick={keepRun} style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Save size={13} /> {busy === 'run' ? 'Keeping...' : 'Keep Run'}</button>}
+          {canEdit && <button type="button" className="secondary-btn" disabled={!!busy || state.loading || preview?.month !== month || !preview?.entries?.length || unmapped > 0} onClick={() => keepAndExport('csv')} style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> Export Intacct CSV</button>}
+          {canEdit && <button type="button" className="secondary-btn" disabled={!!busy || state.loading || preview?.month !== month || !preview?.entries?.length || unmapped > 0} onClick={() => keepAndExport('xlsx')} style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> Export Excel</button>}
+          {canEdit && <button type="button" className="primary-btn" disabled={!!busy || state.loading || preview?.month !== month || !preview?.entries?.length || unmapped > 0} onClick={keepRun} style={{ fontSize: '0.78rem', display: 'inline-flex', alignItems: 'center', gap: 5 }}><Save size={13} /> {busy === 'run' ? 'Keeping...' : 'Keep Run'}</button>}
         </div>
       </div>
 
