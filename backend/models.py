@@ -1335,7 +1335,7 @@ class PageHelp(Base):
 
 
 # ---------------------------------------------------------------------------
-# Asset Management (property portfolio) - Ankush's module.
+# Asset Management (property portfolio) - Neil's module.
 # The UI data is semi-structured: each property has a wide set of header fields
 # PLUS free-form snapshot / timeline / permit "sheets", and a handful of flat
 # child collections (warranties, inspections, documents, utilities, AHJ,
@@ -4100,7 +4100,7 @@ class IrFund(Base):
     entity_name           = Column(String, default="")   # the single-purpose LLC's legal name
     strategy              = Column(String, default="")
     property_name         = Column(String, default="")   # free text - deliberately NOT a FK into the separate Asset Management module
-    # Optional soft link to Asset Management's PropertyAsset.id (Ankush's
+    # Optional soft link to Asset Management's PropertyAsset.id (the asset
     # module - property_assets.py/PropertyAsset.jsx) for a "view this
     # property's operational record" cross-reference. Deliberately just an id
     # string, not a FK: the two modules stay independent, and a stale/deleted

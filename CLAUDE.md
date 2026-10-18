@@ -44,7 +44,7 @@ turns the request rate limiter off for pytest runs; its own tests switch it on.
 | Area | Owner | Files |
 |---|---|---|
 | Items / checkouts / assignments / notifications UI | **Visesh** | `frontend/src/views/InventoryManagement.jsx`, `frontend/src/components/Assignments.jsx`, `frontend/src/components/NotificationBell.jsx`, `frontend/src/components/NotificationToasts.jsx`, `backend/routers/items.py` |
-| Asset Management / Property Portfolio | **Ankush** | `frontend/src/views/PropertyAsset.jsx`, `backend/routers/assets.py`, property models/tables |
+| Asset Management / Property Portfolio | **Neil** | `frontend/src/views/PropertyAsset.jsx`, `backend/routers/assets.py`, property models/tables |
 
 **Do not modify the other developer's files** — ask them instead.
 Shared files (`backend/models.py`, `backend/main.py` migrations list,
@@ -303,7 +303,7 @@ lists every one and counts the archived rows. The custom-status merge that
 used to live in the sync is `backend/task_status_dedupe.py`; the API's
 public-URL helper is `app_url.public_base`.
 
-## Asset Management module — scope (Ankush)
+## Asset Management module — scope (Neil)
 
 Everything currently on the Property Portfolio screen (`PropertyAsset.jsx`) is
 **hardcoded mock data**. The job is to make it real, in roughly this order:
