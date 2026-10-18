@@ -95,7 +95,7 @@ class DailyLogNotificationTests(_Base):
         self.db.commit()
         bells = self._bells()
         self.assertEqual([b.recipient for b in bells], [MANAGER])
-        self.assertIn("ready to review", bells[0].title)
+        self.assertIn("Ready to Review", bells[0].title)
 
     def test_a_manager_filing_their_own_log_is_not_told_about_it(self):
         l = self._log()

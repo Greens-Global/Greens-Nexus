@@ -164,11 +164,14 @@ const SUPPORT_TABLE_COLUMNS = [
 //            Title / Assigned To / Latest Comment share the room elastically
 //   narrow   #, Title, Status, Last Updated; the latest comment and the row's
 //            actions move UNDER the title, so nothing is lost, just stacked
+//   phone    #, Title, Status - Last Updated joins the comment under the
+//            title (Oct 17: four fixed columns left the title ~4px on a phone)
 // Below the full tier a saved pixel width is ignored: a column dragged wide
 // on a desktop must not bring the scrollbar back on the laptop.
 const TABLE_TIER_FULL_MIN = 1180;      // the seven columns at their floors + both gutters
 const TABLE_TIER_COMPACT_MIN = 900;
-const tierFor = (w) => (!w || w >= TABLE_TIER_FULL_MIN ? 'full' : w >= TABLE_TIER_COMPACT_MIN ? 'compact' : 'narrow');
+const TABLE_TIER_NARROW_MIN = 560;
+const tierFor = (w) => (!w || w >= TABLE_TIER_FULL_MIN ? 'full' : w >= TABLE_TIER_COMPACT_MIN ? 'compact' : w >= TABLE_TIER_NARROW_MIN ? 'narrow' : 'phone');
 const pick = (keys, patch = {}) => SUPPORT_TABLE_COLUMNS.filter((c) => keys.includes(c.key)).map((c) => ({ ...c, ...(patch[c.key] || {}) }));
 const TIER_COLUMNS = {
   full: SUPPORT_TABLE_COLUMNS,
@@ -178,6 +181,9 @@ const TIER_COLUMNS = {
   }),
   narrow: pick(['ticket', 'title', 'status', 'updated'], {
     ticket: { width: 54 }, title: { template: 'minmax(0,1fr)' }, status: { width: 100 }, updated: { width: 96 },
+  }),
+  phone: pick(['ticket', 'title', 'status'], {
+    ticket: { width: 44 }, title: { template: 'minmax(0,1fr)' }, status: { width: 116 },
   }),
 };
 
@@ -292,7 +298,9 @@ export default function Support({ activeSub, onSubChange }) {
   // Saved widths and the resize handles are a full-tier thing (see TIER_COLUMNS).
   const gridTemplate = tier === 'full' ? template : cols.map((c) => c.template || `${c.width}px`).join(' ');
   const colKeys = useMemo(() => new Set(cols.map((c) => c.key)), [cols]);
-  const gutterW = tier === 'narrow' ? 34 : GUTTER_W;
+  // Narrow and phone stack the comment and actions under the title.
+  const stacked = tier === 'narrow' || tier === 'phone';
+  const gutterW = tier === 'phone' ? 24 : tier === 'narrow' ? 34 : GUTTER_W;
 
   // Deep-link support - a ticket-update email or notification points here
   // (not the gated Tickets module, which a plain requester can't open) via
@@ -499,7 +507,7 @@ export default function Support({ activeSub, onSubChange }) {
           {/* Open and Closed (Neil, Sep 30: "now I don't have any history of
               the ticket that I had... I should be able to go through and
               reopen if the same issue happened again"). */}
-          <div className="scroll-tabs" role="tablist" style={{ display: 'inline-flex', gap: 2, background: NX.border2, borderRadius: 9, padding: 2 }}>
+          <div className="scroll-tabs" role="tablist" style={{ display: 'inline-flex', gap: 2, background: NX.border2, borderRadius: 9, padding: 2, maxWidth: '100%', minWidth: 0 }}>
             {/* "Open Tickets" / "Closed Tickets" - no "My" (Neil, Oct 1): the
                 page is already only yours. */}
             {[['open', 'Open Tickets', open.length], ['following', "Tickets I'm Following", following.length], ['closed', 'Closed Tickets', closed.length]].map(([k, lab, n]) => (
@@ -514,7 +522,7 @@ export default function Support({ activeSub, onSubChange }) {
             ))}
           </div>
           {tickets !== null && listed.length > 0 && (
-            <div style={{ position: 'relative', marginLeft: 'auto', width: 220, maxWidth: '100%' }}>
+            <div style={{ position: 'relative', marginLeft: 'auto', flex: '0 1 220px', minWidth: 160, maxWidth: '100%' }}>
               <Search size={14} style={{ position: 'absolute', left: 9, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)', pointerEvents: 'none' }} />
               <input type="text" className="form-input" value={search} onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search ticket # or title…" style={{ width: '100%', paddingLeft: 28, fontSize: 13 }} />
@@ -566,7 +574,7 @@ export default function Support({ activeSub, onSubChange }) {
                   the full tier, where a person may have dragged a column
                   wider than the card. In the narrow tier the actions leave
                   the right gutter and sit under the title. */}
-              <div style={{ display: 'grid', gridTemplateColumns: `${gutterW}px minmax(0,1fr) ${hasActions && tier !== 'narrow' ? 'max-content' : '0px'}`, alignItems: 'stretch', fontFamily: FONT }}>
+              <div style={{ display: 'grid', gridTemplateColumns: `${gutterW}px minmax(0,1fr) ${hasActions && !stacked ? 'max-content' : '0px'}`, alignItems: 'stretch', fontFamily: FONT }}>
                 <div />
                 <div ref={wrapRef} style={{ '--nx-grid': gridTemplate, display: 'grid', gridTemplateColumns: 'var(--nx-grid)', minWidth: 0, background: NX.surface2, border: `1px solid ${NX.border}`, borderRadius: '10px 10px 0 0' }}>
                   {cols.map((col) => {
@@ -591,7 +599,7 @@ export default function Support({ activeSub, onSubChange }) {
                   const unread = !forOther && isUnread(t);
                   const editable = t.status === 'open' && !forOther;
                   const actions = !forOther && t.status !== 'closed' && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', paddingLeft: hasActions && tier !== 'narrow' ? 10 : 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', paddingLeft: hasActions && !stacked ? 10 : 0 }}>
                       {t.status !== 'resolved' && (
                         <button type="button" onClick={(e) => { e.stopPropagation(); setAction({ mode: resolveMode(t), ticket: t }); }}
                           style={{ ...rowBtn, color: NX.green, borderColor: 'rgba(22,163,74,0.45)' }}>
@@ -656,10 +664,15 @@ export default function Support({ activeSub, onSubChange }) {
                                 For {nameOf(t.requesterId) || t.requesterId}
                               </div>
                             )}
-                            {tier === 'narrow' && (
+                            {stacked && (
                               /* Narrow: the comment and the actions live here
                                  instead of in columns of their own. */
                               <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-start' }}>
+                                {tier === 'phone' && lastUpdated(t) && (
+                                  <span style={{ fontSize: 11.5, color: NX.faint, fontWeight: unread ? 700 : 500 }}>
+                                    Updated {formatDate(lastUpdated(t))}, {formatTime(lastUpdated(t))}
+                                  </span>
+                                )}
                                 {t.latestComment && (
                                   <LatestCommentPreview comment={t.latestComment} nameOf={nameOf} stacked
                                     onOpen={() => setViewing({ id: t.id, tab: 'conversation' })} />
@@ -684,9 +697,11 @@ export default function Support({ activeSub, onSubChange }) {
                             <DateTimeStack value={t.createdAt} />
                           </div>
                         )}
-                        <div style={{ ...cellBase, borderRight: colKeys.has('latestComment') ? `1px solid ${NX.border2}` : 'none' }}>
-                          <DateTimeStack value={lastUpdated(t)} strong={unread} />
-                        </div>
+                        {colKeys.has('updated') && (
+                          <div style={{ ...cellBase, borderRight: colKeys.has('latestComment') ? `1px solid ${NX.border2}` : 'none' }}>
+                            <DateTimeStack value={lastUpdated(t)} strong={unread} />
+                          </div>
+                        )}
                         {colKeys.has('latestComment') && (
                           <div style={{ ...cellBase, overflow: 'hidden' }}>
                             <LatestCommentPreview comment={t.latestComment} nameOf={nameOf} stacked
@@ -696,7 +711,7 @@ export default function Support({ activeSub, onSubChange }) {
                       </div>
                       {/* Right gutter: the actions, except in the narrow tier
                           where they moved under the title and this cell is 0px. */}
-                      <div style={{ display: 'flex', alignItems: 'center' }}>{tier !== 'narrow' && actions}</div>
+                      <div style={{ display: 'flex', alignItems: 'center' }}>{!stacked && actions}</div>
                     </Fragment>
                   );
                 })}

@@ -155,7 +155,7 @@ class CommentThreadTests(unittest.TestCase):
         c = self._post(AUTHOR, "<p>Please order the part</p>", assignee_email=ASSIGNEE["email"])
         self.assertEqual(c["assigneeId"], ASSIGNEE["email"])
         bells = self._bells(ASSIGNEE["email"])
-        self.assertEqual([b.title for b in bells], ["A comment was assigned to you"])
+        self.assertEqual([b.title for b in bells], ["A Comment Was Assigned to You"])
         ev = self._events("comment_assigned")
         self.assertEqual(len(ev), 1)
         self.assertEqual(ev[0][1]["comment_assignee"], ASSIGNEE["email"])
@@ -167,7 +167,7 @@ class CommentThreadTests(unittest.TestCase):
         out = edit_comment(c["id"], CommentUpdate(resolved=True), self.bg, user=ASSIGNEE, db=self.db)
         self.assertTrue(out["resolvedAt"])
         self.assertEqual(out["resolvedBy"], ASSIGNEE["email"])
-        self.assertEqual([b.title for b in self._bells(AUTHOR["email"])], ["Your comment was resolved"])
+        self.assertEqual([b.title for b in self._bells(AUTHOR["email"])], ["Your Comment Was Resolved"])
         acts = [a.type for a in self.db.query(models.TaskActivity).all()]
         self.assertIn("comment_resolved", acts)
         out = edit_comment(c["id"], CommentUpdate(resolved=False), self.bg, user=REPLIER, db=self.db)   # an editor reopens

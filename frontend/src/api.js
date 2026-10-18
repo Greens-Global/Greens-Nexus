@@ -1980,6 +1980,13 @@ export const api = {
   timeRoundingGet:     () => req('/timeclock/payroll/rounding'),
   timeAutoLunchGet:    () => req('/timeclock/payroll/autolunch'),
   timeBreakPolicyGet:  () => req('/timeclock/payroll/breakpolicy'),
+  // Payroll Export Codes (Oct 17): one company's pay item names for the
+  // QuickBooks IIF and Intacct memo; codes {} is Reset to Default.
+  timeExportCodesGet:  (company) => req(`/timeclock/payroll/export-codes?company=${encodeURIComponent(company || '')}`),
+  timeExportCodesSet:  (company, codes) => req('/timeclock/payroll/export-codes', { method: 'PUT', body: JSON.stringify({ company, codes }) }),
+  // Shift differentials + call-back pay (Oct 17): one company's rule, off by default.
+  timePremiumsGet:     (company) => req(`/timeclock/payroll/premiums?company=${encodeURIComponent(company || '')}`),
+  timePremiumsSet:     (company, cfg) => req('/timeclock/payroll/premiums', { method: 'PUT', body: JSON.stringify({ ...cfg, company }) }),
   // ── Shifts rebuild (Oct 2026, CONTRACT.md): the unshared-change count across
   //    the whole schedule, the saved group order, the request settings on
   //    their own, and the manager's time-off list over a date range ──
@@ -2409,6 +2416,44 @@ export const api = {
   timesheetReviewFinalizeUnsigned: (email, start, reason) => req('/timesheet-review/finalize-unsigned', { method: 'POST', body: JSON.stringify({ email, start: start || '', reason }) }),
   timeExportIifFinalized:       (start, end, company) =>
     reqBlob(`/timeclock/export.iif?start=${start || ''}&end=${end || ''}&company=${encodeURIComponent(company || '')}&finalized_only=true`, { timeoutMs: 120_000 }),
+  // Approve All Clean (Oct 17): items are [{id}] or [{email, start}], at most
+  // 25 per call (the screen sends 10); each builds its PDF and envelope.
+  timesheetReviewApproveBulk: (items, note = '') => req('/timesheet-review/approve-bulk', { method: 'POST', body: JSON.stringify({ items, note }), timeoutMs: 120_000 }),
+  // Retro Pay (Oct 17): finalized periods a back-dated rate change re-prices -
+  // who is owed what. Payroll guard + step-up, read only.
+  timeRetroPay: (start, end, email = '') =>
+    req(`/timeclock/retro-pay?${new URLSearchParams({ start: start || '', end: end || '', email: email || '' })}`, { timeoutMs: 120_000 }),
+  // Payroll Readiness (Oct 17): who is not ready, variance and anomalies for a
+  // pay period (step-up, like the Payroll card), and HR's per-company thresholds.
+  payrollReadiness:             (start = '', refresh = false) =>
+    req(`/payroll-readiness/report?start=${start || ''}${refresh ? '&refresh=true' : ''}`, { timeoutMs: 120_000 }),
+  // The export's warning: readiness of what an export of [start, end] carries.
+  payrollReadinessExportCheck:  (start, end) =>
+    req(`/payroll-readiness/export-check?start=${start || ''}&end=${end || ''}`, { timeoutMs: 120_000 }),
+  payrollReadinessSettings:     (company = '') => req(`/payroll-readiness/settings?company=${encodeURIComponent(company || '')}`),
+  payrollReadinessSaveSettings: (data) => req('/payroll-readiness/settings', { method: 'PUT', body: JSON.stringify(data) }),
+  // Delegate My Approvals (Oct 17): a stand-in for a date range. /mine =
+  // {canDelegate, delegations (mine), covering (naming me)}; the bare path is
+  // HR / admin - everyone's, and setting one for someone (delegator_email).
+  approvalDelegationsMine:     ()     => req('/approval-delegations/mine'),
+  approvalDelegationCreate:    (data) => req('/approval-delegations/mine', { method: 'POST', body: JSON.stringify(data) }),
+  approvalDelegationRevoke:    (id)   => req(`/approval-delegations/${encodeURIComponent(id)}/revoke`, { method: 'POST' }),
+  approvalDelegationsAll:      (includePast = false) => req(`/approval-delegations${includePast ? '?include_past=true' : ''}`),
+  approvalDelegationCreateFor: (data) => req('/approval-delegations', { method: 'POST', body: JSON.stringify(data) }),
+  // CA meal and rest breaks (Oct 17): the employee's Yes / No before signing,
+  // the manager's premium lines, HR's meal waiver (backend/ca_breaks.py).
+  timesheetBreakClaim:   (rid, data) => req(`/timesheet-review/${encodeURIComponent(rid)}/break-claim`, { method: 'POST', body: JSON.stringify(data) }),
+  breakPremiumAdd:       (data) => req('/ca-breaks/premiums', { method: 'POST', body: JSON.stringify(data) }),
+  breakPremiumRemove:    (id, reason) => req(`/ca-breaks/premiums/${encodeURIComponent(id)}/remove`, { method: 'POST', body: JSON.stringify({ reason }) }),
+  mealWaiver:            (email) => req(`/ca-breaks/waiver?email=${encodeURIComponent(email || '')}`),
+  mealWaiverSend:        (email) => req('/ca-breaks/waiver/send', { method: 'POST', body: JSON.stringify({ email }) }),
+  mealWaiverRevoke:      (email, note) => req('/ca-breaks/waiver/revoke', { method: 'POST', body: JSON.stringify({ email, note }) }),
+  // California Review (Oct 18): HR's queue of CA-rule flags (step-up, like Payroll Readiness).
+  caReview:              (start = '') => req(`/ca-review/report?start=${start || ''}`, { timeoutMs: 120_000 }),
+  caReviewResolve:       (data) => req('/ca-review/resolve', { method: 'POST', body: JSON.stringify(data) }),
+  caReviewReopen:        (data) => req('/ca-review/reopen', { method: 'POST', body: JSON.stringify(data) }),
+  caReviewSettings:      () => req('/ca-review/settings'),
+  caReviewSaveSettings:  (data) => req('/ca-review/settings', { method: 'PUT', body: JSON.stringify(data) }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

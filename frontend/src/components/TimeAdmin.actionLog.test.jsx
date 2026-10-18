@@ -49,7 +49,7 @@ describe('People > Time Action Log', () => {
     fireEvent.change(screen.getByLabelText('Department'), { target: { value: 'Construction' } });
     expect(screen.queryByText('Amy Ops')).toBeNull();
     expect(screen.getByText('Nick Build')).toBeTruthy();
-    expect(screen.getByText('Fix on Timecard')).toBeTruthy();
+    expect(screen.getByText('Fix on Time Sheet')).toBeTruthy();
 
     fireEvent.click(screen.getByText('Clear Filters'));
     const card = screen.getByText('Amy Ops').closest('div[style*="border-radius: 14px"]');

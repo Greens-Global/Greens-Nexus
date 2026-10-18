@@ -387,7 +387,7 @@ class SubmitBlockTests(ReviewCase):
         self._punch(self._day(1), "in", "16:00:00")
         self.db.commit()
         state = tsr.state_for(self.db, EMP, self.start, EMP, False)
-        self.assertIn("Fix this on your timesheet before you submit it", state["submitBlocker"])
+        self.assertIn("Fix this on your time sheet before you submit it", state["submitBlocker"])
         self.assertIn("no clock-out", state["submitBlocker"])
         with self.assertRaises(HTTPException) as e:
             tsr.submit(self.db, EMP, ANCHOR)
@@ -676,7 +676,7 @@ class WaitingOnReviewerTests(ReviewCase):
                          "08/05/2026: a break that never ended - click its Break time to set when it ended")
         with self.assertRaises(HTTPException) as e:
             tcm._exceptions_409(exc)
-        self.assertTrue(e.exception.detail["message"].startswith("Fix this on the timesheet before sign-off - 08/05/2026"))
+        self.assertTrue(e.exception.detail["message"].startswith("Fix this on the time sheet before sign-off - 08/05/2026"))
         self.assertIn("Or override to sign off anyway.", e.exception.detail["message"])
 
     def test_the_bell_takes_the_manager_to_timesheets_to_review(self):
@@ -697,7 +697,7 @@ class WaitingOnReviewerTests(ReviewCase):
         rows = [r for r in daily_briefing._red_rows(self.db, MGR, {})
                 if r["module"] == "timecard" and r["title"].startswith("Review ")]
         self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["title"], "Review Erin Test's timesheet")
+        self.assertEqual(rows[0]["title"], "Review Erin Test's Time Sheet")
         self.assertIn(f"{tsr.us_date(self.start)} - {tsr.us_date(self.end)} - 7h 00m", rows[0]["detail"])
         self.assertTrue(rows[0]["url"].endswith("/timeclock/timesheet"))
 

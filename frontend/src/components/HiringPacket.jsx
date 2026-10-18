@@ -803,8 +803,8 @@ export function LifeEventCard({ ev, onSignNow, onChanged, toastOk, toastErr, hid
         <Problem>Signed, but not applied: {failed.message}. The signatures are safe - use Retry; if it keeps failing, send this message to support.</Problem>
       )}
       {flagged && (ev.status === 'completed'
-        ? <Problem>Signed timesheets from {usDay(ev.effectiveDate)} were not repriced: {flagged.periods.map(x => x.label).join(', ')}. Review them in Time.</Problem>
-        : <Problem>The new pay starts {usDay(ev.effectiveDate)}, inside timesheets already signed ({flagged.periods.map(x => x.label).join(', ')}). They will not be repriced - review them once this is signed.</Problem>)}
+        ? <Problem>Signed time sheets from {usDay(ev.effectiveDate)} were not repriced: {flagged.periods.map(x => x.label).join(', ')}. Review them in Time.</Problem>
+        : <Problem>The new pay starts {usDay(ev.effectiveDate)}, inside time sheets already signed ({flagged.periods.map(x => x.label).join(', ')}). They will not be repriced - review them once this is signed.</Problem>)}
       {ev.status === 'completed' && (
         <div style={{ marginTop: 8, fontSize: 12, display: 'flex', gap: 6, alignItems: 'flex-start',
           color: ev.filingStatus === 'filed' ? 'hsl(var(--color-green))' : ev.filingStatus === 'failed' ? 'hsl(var(--color-red))' : 'var(--muted)' }}>

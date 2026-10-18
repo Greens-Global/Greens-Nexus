@@ -143,7 +143,7 @@ async def github_webhook(request: Request, db: Session = Depends(get_db)):
     github_notify.notify_global_admins(
         db,
         kind=f"pr_merged_{base_ref}",
-        title=f"PR merged to {label}",
+        title=f"PR Merged to {label}",
         body=f"#{number} \"{title}\" by {author} was merged into {base_ref} - "
              f"deploying to {site}.\n{url}",
         ref_id=str(number),

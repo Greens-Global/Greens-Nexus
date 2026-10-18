@@ -172,7 +172,8 @@ if (typeof document !== 'undefined' && !document.getElementById('ts-anim')) {
     .wd-askhr-cta { position: relative; z-index: 1; flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px; padding: 5px 10px; border-radius: 999px;
       font-size: 11.5px; font-weight: 700; color: #fff; background: var(--wk-brand, #2b45e1); white-space: nowrap; }
     [data-theme="dark"] .dk-stat.wd-stat.wd-askhr { background: linear-gradient(135deg, rgba(66, 86, 232, .22) 0%, rgba(22, 163, 74, .16) 100%), var(--card); border-color: rgba(120, 140, 255, .28); }
-    @media (max-width: 1200px) { .wd-askhr-cta { display: none; } }
+    /* 1440, not 1200: at a 1280 laptop the pill crushed the tile to "Ask / HR / D.." (Oct 17). */
+    @media (max-width: 1440px) { .wd-askhr-cta { display: none; } }
     .dk-stat.wd-stat.wd-hero { padding: 0; gap: 0; align-items: stretch; }
     .wd-hero-part { display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: none; border: none; color: inherit; font: inherit; text-align: left; cursor: pointer; min-width: 0; border-radius: inherit; transition: background .15s ease; }
     .wd-hero-part:first-child { flex: 1.15; }
@@ -185,7 +186,11 @@ if (typeof document !== 'undefined' && !document.getElementById('ts-anim')) {
     .wd-hero-shift-l { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600; color: rgba(255,255,255,.8); }
     .wd-hero-shift-v { font-size: 16px; font-weight: 700; color: #fff; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .wd-hero-shift-s { font-size: 11.5px; color: rgba(255,255,255,.72); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    @media (max-width: 1000px) { .wd-statgrid { grid-template-columns: 1fr 1fr; } .wd-statgrid > .wd-hero { grid-column: 1 / -1; } }
+    @media (max-width: 1000px) { .wd-statgrid { grid-template-columns: 1fr 1fr; } .wd-statgrid > .wd-hero { grid-column: 1 / -1; }
+      /* The hero spans the row, so an even child count leaves the last tile alone
+         beside an empty cell (Ask HR, cut to "Documents, profile ch...") - it takes the row. */
+      .wd-statgrid > .wd-hero ~ :last-child:nth-child(even),
+      .wd-statgrid--nohours > :last-child:nth-child(odd) { grid-column: 1 / -1; } }
     @media (max-width: 600px) {
       .wd-statgrid { grid-template-columns: 1fr 1fr; gap: 10px; }
       .wd-hero .dk-stat-sub { display: block; }
@@ -564,7 +569,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       setParked(null); setLostModal(false);
       // A stale drop is NOT a quiet success. The punch they were waiting on is
       // gone; say so, or they carry on believing it landed.
-      if (r.stale) toast(true, `Your ${(KIND_LABEL[held.kind] || 'punch').toLowerCase()} is already on your timecard - nothing left to record.`);
+      if (r.stale) toast(true, `Your ${(KIND_LABEL[held.kind] || 'punch').toLowerCase()} is already on your time sheet - nothing left to record.`);
       else toast(false, r.error?.message || 'That punch could not be added - request it from your Time Sheet.');
       load();
       return { done: true, ...r };
@@ -1061,6 +1066,41 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   // the status comes back.
   // An exempt person still clocked in (the flag was set mid-shift) keeps the
   // card until they punch out (Oct 16).
+  // The punch-owed alerts: beside the dial on a desktop, full width on a phone.
+  const clockAlerts = () => (
+    <>
+      {/* Dismissing the dialog must not leave silence - the punch is still
+          owed, and this is the line that stops them "fixing" it by
+          punching out. It clears itself the moment the punch lands. */}
+      {parked && !lostModal && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', padding: '9px 13px', borderRadius: 10,
+          background: 'hsla(var(--color-red),0.09)', color: 'hsl(var(--color-red))', fontSize: 12.5, fontWeight: 600, lineHeight: 1.5 }}>
+          <AlertTriangle size={14} style={{ flexShrink: 0 }} />
+          <span style={{ flex: 1, minWidth: 200 }}>
+            Your {(KIND_LABEL[parked.kind] || 'punch').toLowerCase()} at {localTime(parked.at)} still
+            hasn&apos;t recorded.{parked.held ? ' Nexus is still trying - it will go in at that time. Don’t punch out to fix it.' : ' Retry from this screen.'}
+          </span>
+          <button onClick={retryLostPunch} disabled={!!busy}
+            style={{ background: 'none', border: 'none', padding: 0, cursor: busy ? 'default' : 'pointer', font: 'inherit', fontWeight: 700, color: 'inherit', textDecoration: 'underline' }}>
+            Retry Now
+          </button>
+        </div>
+      )}
+      {staleShift && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '10px 14px', borderRadius: 12,
+          background: 'hsla(var(--color-red),0.09)', color: 'hsl(var(--color-red))', fontSize: 12.5, fontWeight: 600, lineHeight: 1.5 }}>
+          <AlertTriangle size={14} style={{ flexShrink: 0 }} />
+          <span style={{ flex: 1, minWidth: 200 }}>
+            Your clock-in{status.staleOpenSince ? ` at ${localTime(status.staleOpenSince)}` : ''} was never closed and is more than 16 hours old, so that shift shows as Missing.
+            Submit a Missed Punch request with the real clock-out time - and clock in to start today.
+          </span>
+          <button className="primary-btn" style={{ fontSize: 12, whiteSpace: 'nowrap' }} onClick={() => setTab('timesheet')}>
+            Fix My Punch Out
+          </button>
+        </div>
+      )}
+    </>
+  );
   const clockCard = () => (exemptKnown && !clockedIn) ? null : (
     <div className="wd-clock-wrap" style={{ marginBottom: 18 }}>
       {showLongBanner && (
@@ -1125,37 +1165,13 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
                         : `Break over by ${-breakLeftMin} min - over your 1h daily allowance`}
                   </div>
                 )}
-                {/* Dismissing the dialog must not leave silence - the punch is still
-                    owed, and this is the line that stops them "fixing" it by
-                    punching out. It clears itself the moment the punch lands. */}
-                {parked && !lostModal && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap', padding: '9px 13px', borderRadius: 10,
-                    background: 'hsla(var(--color-red),0.09)', color: 'hsl(var(--color-red))', fontSize: 12.5, fontWeight: 600, lineHeight: 1.5 }}>
-                    <AlertTriangle size={14} style={{ flexShrink: 0 }} />
-                    <span style={{ flex: 1, minWidth: 200 }}>
-                      Your {(KIND_LABEL[parked.kind] || 'punch').toLowerCase()} at {localTime(parked.at)} still
-                      hasn&apos;t recorded.{parked.held ? ' Nexus is still trying - it will go in at that time. Don’t punch out to fix it.' : ' Retry from this screen.'}
-                    </span>
-                    <button onClick={retryLostPunch} disabled={!!busy}
-                      style={{ background: 'none', border: 'none', padding: 0, cursor: busy ? 'default' : 'pointer', font: 'inherit', fontWeight: 700, color: 'inherit', textDecoration: 'underline' }}>
-                      Retry Now
-                    </button>
-                  </div>
-                )}
-                {staleShift && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', padding: '10px 14px', borderRadius: 12,
-                    background: 'hsla(var(--color-red),0.09)', color: 'hsl(var(--color-red))', fontSize: 12.5, fontWeight: 600, lineHeight: 1.5 }}>
-                    <AlertTriangle size={14} style={{ flexShrink: 0 }} />
-                    <span style={{ flex: 1, minWidth: 200 }}>
-                      Your clock-in{status.staleOpenSince ? ` at ${localTime(status.staleOpenSince)}` : ''} was never closed and is more than 16 hours old, so that shift shows as Missing.
-                      Submit a Missed Punch request with the real clock-out time - and clock in to start today.
-                    </span>
-                    <button className="primary-btn" style={{ fontSize: 12, whiteSpace: 'nowrap' }} onClick={() => setTab('timesheet')}>
-                      Fix My Punch Out
-                    </button>
-                  </div>
-                )}
+                {!phone && clockAlerts()}
               </div>
+              {/* Phone (Oct 17): the alerts take the card's full width under the
+                  dial, not a sliver of column beside it. */}
+              {phone && ((parked && !lostModal) || staleShift) && (
+                <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: 10, minWidth: 0 }}>{clockAlerts()}</div>
+              )}
               {/* The punch row is its own grid cell: under the status on a
                   desktop, the full width of the card on a phone. */}
               <div className="wd-punch-row">
@@ -1545,7 +1561,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
             </div>
             <div style={{ padding: '16px 22px', fontSize: 13, color: 'var(--ink)', lineHeight: 1.65 }}>
               Nexus couldn&apos;t reach the server, so your <b>{(KIND_LABEL[parked.kind] || 'punch').toLowerCase()}</b> at{' '}
-              <b>{localTime(parked.at)}</b> is not on your timecard yet. Your Teams message may already
+              <b>{localTime(parked.at)}</b> is not on your time sheet yet. Your Teams message may already
               have gone out - that does not record a punch.
               {parked.held ? (
                 <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 10, background: 'var(--wk-hover)', color: 'var(--ink)' }}>

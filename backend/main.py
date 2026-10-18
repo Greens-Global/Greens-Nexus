@@ -2418,6 +2418,9 @@ def _run_migrations():
         "ALTER TABLE hr_candidates ADD COLUMN IF NOT EXISTS screen_task_id VARCHAR DEFAULT ''",
         # Overdue ticket reminders (Oct 15 2026). models.TaskTicket.overdue_reminder.
         "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS overdue_reminder JSONB DEFAULT '{}'::jsonb",
+        # Approver delegation (Oct 17 2026) - a new table: explicit RLS on top
+        # of the _enable_rls_everywhere sweep. models.ApprovalDelegation.
+        "ALTER TABLE approval_delegations ENABLE ROW LEVEL SECURITY",
         # What's New replies, mentions and "since your last visit" (Oct 16 2026).
         "ALTER TABLE task_changelog_comments ADD COLUMN IF NOT EXISTS parent_id VARCHAR DEFAULT ''",
         "ALTER TABLE task_changelog_comments ADD COLUMN IF NOT EXISTS mentions JSONB DEFAULT '[]'::jsonb",
@@ -3117,6 +3120,14 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             print(f"[startup] no-show loop skipped: {e}")
         try:
+            # Live overtime alert (Oct 17 2026): every five minutes, a quiet
+            # bell to the manager when someone clocked in nears daily ('ca')
+            # or weekly overtime; per-company otAlertOn. See overtime_watch.py.
+            from overtime_watch import overtime_loop
+            _tasks.append(_a.create_task(overtime_loop()))
+        except Exception as e:
+            print(f"[startup] overtime watch loop skipped: {e}")
+        try:
             # Shifts Phase 3a (Oct 14 2026): shared shifts onto people's
             # Outlook calendars - every minute, up to 50 queued rows, Graph
             # app-only in a thread. See shift_calendar.py.
@@ -3768,6 +3779,16 @@ from routers import accounting_ask  # noqa: E402
 app.include_router(accounting_ask.router)            # Accounting > Reporting > AMA: Ask My Accountant - questions on ledger lines, the suspense account's lines (Neil, 10/15)
 from routers import shift_ical  # noqa: E402
 app.include_router(shift_ical.router)                # Shifts Phase 3a: the personal calendar subscribe feed (signed link, no login on the .ics) (Neil, 10/14)
+from routers import retro_pay  # noqa: E402
+app.include_router(retro_pay.router)                 # People > Time > Payroll > Retro Pay: back-dated raises owed on finalized periods, read only (Neil, 10/17)
+from routers import payroll_readiness as payroll_readiness_router  # noqa: E402
+app.include_router(payroll_readiness_router.router)  # People > Time > Payroll: Payroll Readiness - who is not ready, variance and anomalies for a pay period (Neil, 10/17)
+from routers import approval_delegations  # noqa: E402
+app.include_router(approval_delegations.router)      # Delegate My Approvals: a stand-in for a date range (Neil, 10/17)
+from routers import ca_breaks as ca_breaks_router  # noqa: E402
+app.include_router(ca_breaks_router.router)          # CA meal / rest premium lines + the meal waiver in Nexus Sign (Neil, 10/17)
+from routers import ca_review as ca_review_router  # noqa: E402
+app.include_router(ca_review_router.router)          # People > Time > Payroll: California Review - CA-rule flags for HR (Neil, 10/18)
 from routers import changelog_extras  # noqa: E402
 app.include_router(changelog_extras.router)          # What's New: following + digest, private RSS feed, screen hints, feedback, history, bulk, insights (Oct 16)
 from routers import changelog_lifecycle  # noqa: E402

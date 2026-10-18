@@ -243,11 +243,11 @@ class ConfirmTests(unittest.TestCase):
         # Bob: one bell + one email; Amy (confirmed): nothing new.
         self.db.expire_all()
         bobs = self.db.query(models.NexusNotification).filter(models.NexusNotification.recipient == BOB).all()
-        nudge = [n for n in bobs if n.title == "Please confirm your schedule"]
+        nudge = [n for n in bobs if n.title == "Please Confirm Your Schedule"]
         self.assertEqual(len(nudge), 1)
         self.assertEqual(json.loads(nudge[0].action), {"view": "shifts", "sub": f"mine:confirm:{pid}", "confirm": pid})
         (to, subject, html), = self.sent
-        self.assertEqual((to, subject), (BOB, "Please confirm your schedule"))
+        self.assertEqual((to, subject), (BOB, "Please Confirm Your Schedule"))
         self.assertIn("Confirm My Schedule", html)
         self.assertIn(f"/shifts/mine?confirm={pid}", html)
         self.assertIn("If the button does not work, open this link:", html)
@@ -266,7 +266,7 @@ class ConfirmTests(unittest.TestCase):
         self.db.expire_all()
         self.assertTrue(all(n.actioned for n in self.db.query(models.NexusNotification)
                             .filter(models.NexusNotification.recipient == BOB,
-                                    models.NexusNotification.title == "Please confirm your schedule").all()))
+                                    models.NexusNotification.title == "Please Confirm Your Schedule").all()))
 
     def test_nudge_respects_scope_and_the_emails_filter(self):
         pid = self._publish()

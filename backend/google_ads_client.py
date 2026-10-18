@@ -97,7 +97,7 @@ _FRIENDLY = {
                                    "access level on the Google Ads API page in Google Cloud Console."),
     "USER_PERMISSION_DENIED": ("The connected Google account cannot read this Ads account - give it access in "
                                "the manager account, or set GOOGLE_ADS_LOGIN_CUSTOMER_ID."),
-    "CUSTOMER_NOT_ENABLED": "This Google Ads account is not active (cancelled or never finished setting up).",
+    "CUSTOMER_NOT_ENABLED": "This Google Ads account is not active (canceled or never finished setting up).",
 }
 
 

@@ -112,7 +112,7 @@ def email_html(first_name: str, items: list, actor_name: str, confirm_id: str = 
     theme = email_theme.current()
     items = sorted(items, key=lambda i: (i["date"], i["start"]))
     n = len(items)
-    subject = f"Your schedule was updated - {_plural(n, 'change')}"
+    subject = f"Your Schedule Was Updated - {_plural(n, 'Change')}"
     band = theme.color("#0f3d2e")
     url = f"{app_url()}/shifts/mine"
     hello = f"Hi {escape(first_name)}," if first_name else "Hi,"
@@ -227,7 +227,7 @@ def notify_published(db: Session, changes: list, actor_email: str, d0: str, d1: 
         if ask:
             shift_confirm.ask(db, publish_id, em)
             body += " Confirm you have seen it."
-        _upsert_bell(db, em, f"schedule-publish:{d0}:{d1}", "Your schedule was updated", body, actor, now,
+        _upsert_bell(db, em, f"schedule-publish:{d0}:{d1}", "Your Schedule Was Updated", body, actor, now,
                      action=shift_confirm.confirm_action(publish_id) if ask else None)
         if emp is not None and (emp.status or "active") == "active":
             batch.append((em, *email_html((emp.first_name or "").strip(), items, actor_name,
@@ -249,7 +249,7 @@ def notify_team(db: Session, emails: set, actor_email: str, d0: str, d1: str) ->
     now = datetime.now(timezone.utc).isoformat()
     n = 0
     for em in sorted(e for e in emails if e and e != actor):
-        _upsert_bell(db, em, f"schedule-publish-team:{d0}:{d1}", "Schedule published",
+        _upsert_bell(db, em, f"schedule-publish-team:{d0}:{d1}", "Schedule Published",
                      f"The schedule for {span} was published. Open My Shifts to see yours.", actor, now)
         n += 1
     db.commit()

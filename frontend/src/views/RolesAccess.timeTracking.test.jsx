@@ -28,7 +28,7 @@ describe('Role editor - Exempt from time tracking', () => {
 
     const toggle = screen.getByRole('button', { name: /Exempt from time tracking/ });
     expect(toggle).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByText(/have no time clock and no timesheet/)).toBeInTheDocument();
+    expect(screen.getByText(/have no time clock and no time sheet/)).toBeInTheDocument();
 
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-pressed', 'false');

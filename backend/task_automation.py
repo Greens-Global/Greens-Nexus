@@ -512,12 +512,12 @@ def run_scheduled(db: Session, today_iso: str) -> int:
                     req = task_due.requester_of(t)
                     if entry and req:
                         task_notify(db, kind="task_due_changed", for_email=req,
-                                    title="Due date extended" if entry.get("extension") else "Due date changed",
+                                    title="Due Date Extended" if entry.get("extension") else "Due Date Changed",
                                     body=f"{t.title} - due {_us(t.due_on or '')}", task_id=t.id,
                                     nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
                 added = [w for w in task_assignees(t) if w not in set(before["assignees"])]
                 for who in added:
-                    task_notify(db, kind="task_assigned", for_email=who, title="You were assigned a task",
+                    task_notify(db, kind="task_assigned", for_email=who, title="You Were Assigned a Task",
                                 body=f"{t.title}", task_id=t.id,
                                 nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
                 # Logged even when nothing changed, so the dedupe holds and the

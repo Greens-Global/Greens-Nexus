@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 from database import get_db
+from task_due import us_date
 from notify_company import notification_company
 from auth import require_module_grant, hr_scope, is_team_scope, get_current_user, hr_team_limited
 from routers.stepup import require_stepup
@@ -999,7 +1000,7 @@ def update_candidate(cid: str, body: CandidateUpdate, user: dict = Depends(requi
         if row.created_by and row.created_by.lower() != user["email"].lower():
             cand_name = f"{row.first_name} {row.last_name}".strip()
             _hr_notify(db, row.created_by,
-                       f"Candidate {('hired' if body.stage == 'hired' else ('rejected' if body.stage == 'rejected' else 'moved'))}: {cand_name}",
+                       f"Candidate {('Hired' if body.stage == 'hired' else ('Rejected' if body.stage == 'rejected' else 'Moved'))}: {cand_name}",
                        f"{cand_name} ({row.role_title or row.department or 'candidate'}) is now in {body.stage.replace('_', ' ')}."
                        + (f"\nNote: {body.stage_note.strip()}" if (body.stage_note or '').strip() else ''),
                        ref_id=row.id, requested_by=user["email"],
@@ -1012,10 +1013,11 @@ def update_candidate(cid: str, body: CandidateUpdate, user: dict = Depends(requi
         if row.interview_at and row.created_by:
             cand_name = f"{row.first_name} {row.last_name}".strip()
             try:
-                pretty = datetime.fromisoformat(row.interview_at).strftime("%a, %b %d at %H:%M")
+                _iv = datetime.fromisoformat(row.interview_at)
+                pretty = f"{_iv.strftime('%a')}, {_iv.strftime('%m/%d/%Y')} at {_iv.strftime('%I:%M %p').lstrip('0')}"
             except ValueError:
                 pretty = row.interview_at
-            _hr_notify(db, row.created_by, f"Interview scheduled - {cand_name}",
+            _hr_notify(db, row.created_by, f"Interview Scheduled - {cand_name}",
                        f"{cand_name} ({row.role_title or 'candidate'}) is booked for {pretty}.",
                        ref_id=row.id, requested_by=user["email"],
                        action={"view": "hr", "sub": "hr-hiring"})
@@ -1229,9 +1231,9 @@ def create_leave(body: LeaveIn, user: dict = Depends(require_hr_write), db: Sess
     emp_name = f"{emp.first_name} {emp.last_name}".strip()
     if emp.manager_email and emp.manager_email.lower() != user["email"].lower():
         _hr_notify(db, emp.manager_email,
-                   f"Leave request: {emp_name}",
+                   f"Leave Request: {emp_name}",
                    f"{emp_name} requested {body.days} day{'s' if body.days != 1 else ''} of {body.leave_type} leave"
-                   f" starting {body.start_date}." + (f"\nReason: {body.reason.strip()}" if (body.reason or '').strip() else ''),
+                   f" starting {us_date(body.start_date)}." + (f"\nReason: {body.reason.strip()}" if (body.reason or '').strip() else ''),
                    ref_id=row.id, requested_by=user["email"])
     db.commit()
     return _ser_leave(row)
@@ -1257,8 +1259,8 @@ def decide_leave(lid: str, body: LeaveDecision, user: dict = Depends(require_hr_
     if emp and emp.work_email:
         db.add(NexusNotification(
             id=str(uuid.uuid4()), type="custom_alert", recipient=emp.work_email.lower(),
-            title=f"Leave {row.status}",
-            body=f"Your {row.leave_type} leave ({row.start_date}, {row.days} day{'s' if row.days != 1 else ''}) was {row.status}."
+            title=f"Leave {row.status.title()}",
+            body=f"Your {row.leave_type} leave ({us_date(row.start_date)}, {row.days} day{'s' if row.days != 1 else ''}) was {row.status}."
                  + (f"\n\nNote: {row.decision_note}" if row.decision_note else ""),
             ref_id=row.id, item_name="", requested_by=user["email"],
             action="", actioned=False, read_by="", company=emp.company or "", created_at=now,
@@ -1548,7 +1550,7 @@ def resolve_self_request(rid: str, body: ResolveRequestIn,
     # Tell the employee (server-side notification; shows on their bell + My HR).
     db.add(NexusNotification(
         id=str(uuid.uuid4()), type="hr_request_resolved", recipient=r.employee_email,
-        title="HR resolved your request",
+        title="HR Resolved Your Request",
         body=(r.response or "Your request to HR has been handled.")[:300],
         ref_id=r.id, action="", actioned=False, read_by="",
         company=notification_company(db, r.employee_email),
@@ -2465,7 +2467,7 @@ def _send_welcome(emp: NexusEmployee, upn: str, token: str) -> tuple:
     resp = httpx.post(f"{_GRAPH}/users/{sender}/sendMail",
                       headers={"Authorization": f"Bearer {token}"}, json={
         "message": {
-            "subject": f"Welcome aboard, {emp.first_name}!",
+            "subject": f"Welcome Aboard, {emp.first_name}!",
             "body": {"contentType": "HTML", "content": _welcome_html(emp, upn)},
             "toRecipients": [{"emailAddress": {"address": emp.personal_email}}],
         }, "saveToSentItems": False}, timeout=20)

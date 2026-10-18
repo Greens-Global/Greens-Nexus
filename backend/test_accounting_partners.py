@@ -198,7 +198,7 @@ class PartnerChangeTests(unittest.TestCase):
         bells = self._bells(REQUESTER)
         self.assertEqual(len(bells), 1)
         self.assertEqual(bells[0][0], "acct_partner_decision")
-        self.assertIn("approved", bells[0][1])
+        self.assertIn("Approved", bells[0][1])
         # Approved = the record's current values, flagged Awaiting Intacct.
         rec = next(p for p in self.client.get("/accounting/partners?kind=vendor").json()["partners"] if p["id"] == "V00012")
         self.assertTrue(rec["awaitingIntacct"])
@@ -217,7 +217,7 @@ class PartnerChangeTests(unittest.TestCase):
         self.assertEqual(r.json()["status"], "declined")
         bells = self._bells(REQUESTER)
         self.assertEqual(len(bells), 1)
-        self.assertIn("declined", bells[0][1])
+        self.assertIn("Declined", bells[0][1])
         self.assertIn("Call the vendor first", bells[0][2])
         rec = next(p for p in self.client.get("/accounting/partners?kind=vendor").json()["partners"] if p["id"] == "V00012")
         self.assertFalse(rec["awaitingIntacct"])

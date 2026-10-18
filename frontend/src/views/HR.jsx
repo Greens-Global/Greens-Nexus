@@ -49,6 +49,7 @@ import { divisionColor as divColorFor } from '../components/orgchart/tree';
 import { takePendingPerson } from '../lib/personNav';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { TaskChecklist, punchTime } from '../components/WorkLogDrawer';
+import MealWaiverCard from '../components/MealWaiverCard';
 import { COUNTRIES, countryName } from '../lib/countries';
 import WorkSiteAddressMap from '../components/WorkSiteAddressMap';
 import WorkSiteLinkPanel from '../components/WorkSiteLinkPanel';
@@ -57,6 +58,7 @@ import WorkSiteFenceCheck from '../components/WorkSiteFenceCheck';
 import AnchoredMenu from '../components/AnchoredMenu';
 import PersonSearchSelect from '../components/PersonSearchSelect';
 import { ChecklistSection, ChecklistSettings, ChecklistBoard, ChecklistChip } from '../components/HrChecklists';
+import { ApprovalDelegationsAdmin } from '../components/DelegateApprovals';
 // Workforce Analytics Policy tab (Sep 19) - lazy so TimeTrackingAdmin's chunk
 // only loads once an admin actually opens a company's policy tab.
 const MonitoringPolicy = lazy(() => import('../components/TimeTrackingAdmin').then(m => ({ default: m.MonitoringPolicy })));
@@ -412,7 +414,7 @@ function EmployeeFormModal({ employee, employees, externals = [], entities = [],
                 </>
               ) : managers.filter(m => m.workEmail !== f.manager_email).map(m => <option key={m.id} value={m.workEmail}>{fullName(m)} ({m.workEmail})</option>)}
             </select>
-            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Has the same rights over this person as their manager - timesheets, punches, time off and approvals.</div>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Has the same rights over this person as their manager - time sheets, punches, time off and approvals.</div>
           </div>
           {/* Office and contact info, kept in step with Microsoft 365 both ways
               (Neil, 10/07: HR updates these here instead of IT in the M365
@@ -547,7 +549,7 @@ function MailboxExportSection({ employee, toastOk, toastErr }) {
   const pct = active && job?.total > 0 ? Math.min(100, Math.round((job.count / job.total) * 100)) : null;
   const status = job === undefined ? '' :
     !job ? 'No export yet.' :
-    job.status === 'done' ? `Ready · ${job.message} · ${(job.updatedAt || '').slice(0, 10)}` :
+    job.status === 'done' ? `Ready · ${job.message} · ${formatDate((job.updatedAt || '').slice(0, 10))}` :
     job.status === 'error' ? `Failed · ${job.message}` :
     job.total > 0 ? `Exporting… ${job.count} of ${job.total} messages (${pct}%)` :
     job.count > 0 ? `Exporting… ${job.count} messages so far` :
@@ -1202,6 +1204,8 @@ function PayTab({ employee, reloadToken, onEdit, readOnly = false }) {
           {row2('fullday', 'Full day hours', data.payroll?.fullDayHours ? `${data.payroll.fullDayHours} h` : '')}
           {/* Read-only: set on the person's role in Settings > Access, beside the screen-share exemption (Visesh, 10/02). */}
           {row2('tracking', 'Time tracking', timeTrackingText(data.payroll))}
+          {/* CA-rule hourly staff only (Oct 17 2026): the meal period waiver in Nexus Sign. */}
+          <MealWaiverCard email={employee.workEmail} />
           {sectionLabel('Pay history')}
           {(data.rateHistory || []).length === 0
             ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>No pay recorded yet.</div>
@@ -1255,7 +1259,7 @@ function PayTab({ employee, reloadToken, onEdit, readOnly = false }) {
                 <button onClick={() => openStub(s.id)} style={{ flex: 1, textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: 'var(--ink)', fontFamily: 'Inter,sans-serif', padding: 0 }}>
                   {s.fileName}
                 </button>
-                <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{s.createdAt?.slice(0, 10)}</span>
+                <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{formatDate(s.createdAt?.slice(0, 10))}</span>
                 {!readOnly && <button onClick={() => deleteStub(s.id)} title="Delete" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}>
                   <Trash2 size={13} />
                 </button>}
@@ -1313,7 +1317,7 @@ function EmployeeRequestsPanel({ toastOk, toastErr }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <div style={{ flex: 1, minWidth: 200 }}>
                 <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{r.name}</span>
-                <span style={{ fontSize: 12, color: 'var(--muted)' }}> · {TYPE_LABEL[r.type] || r.type} · {r.createdAt?.slice(0, 10)}</span>
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}> · {TYPE_LABEL[r.type] || r.type} · {formatDate(r.createdAt?.slice(0, 10))}</span>
                 <div style={{ fontSize: 12.5, color: 'var(--ink)', marginTop: 3 }}>{r.message}</div>
                 {r.attachmentName && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 7, flexWrap: 'wrap' }}>
@@ -2041,12 +2045,12 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
                 </span>
               ) : '')}
               {row(FileText, 'Document', [DOC_TYPES.find(([v]) => v === e.compliance?.docType)?.[1], e.compliance?.docNumber].filter(Boolean).join(' · '))}
-              {row(CalendarDays, 'Issued', e.compliance?.issueDate)}
+              {row(CalendarDays, 'Issued', formatDate(e.compliance?.issueDate, e.compliance?.issueDate || ''))}
               {e.compliance?.expiryDate ? (() => {
                 const d = daysUntil(e.compliance.expiryDate); const warn = d !== null && d <= 60;
                 return row(warn ? AlertTriangle : CalendarDays, 'Doc expiry', (
                   <span style={{ color: warn ? (d < 0 ? 'hsl(var(--color-red))' : 'hsl(var(--color-orange))') : 'inherit', fontWeight: warn ? 700 : 400 }}>
-                    {e.compliance.expiryDate}{d !== null && (d < 0 ? ' · expired' : ` · in ${d}d`)}
+                    {formatDate(e.compliance.expiryDate, e.compliance.expiryDate)}{d !== null && (d < 0 ? ' · expired' : ` · in ${d}d`)}
                   </span>
                 ));
               })() : row(CalendarDays, 'Doc expiry', '')}
@@ -3746,7 +3750,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                     <option value="">- not set -</option>
                     {people.map(p => <option key={p.email} value={p.email}>{p.name} ({p.email})</option>)}
                   </select>
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Signs each employee's timesheet after the employee and manager, and finalizes it for payroll.</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Signs each employee's time sheet after the employee and manager, and finalizes it for payroll.</div>
                 </div>
                 <div style={{ gridColumn: '1 / -1' }}>{field('PHYSICAL ADDRESS', 'physical_address', { placeholder: 'search or pick a spot on the map, or type it in' })}</div>
                 <div style={{ gridColumn: '1 / -1' }}>{field('MAILING ADDRESS', 'mailing_address', { placeholder: 'if different from the physical address' })}</div>
@@ -5104,7 +5108,7 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
                 <input type="checkbox" checked={startChecklistToo} onChange={e => setStartChecklistToo(e.target.checked)} style={{ marginTop: 3, accentColor: 'var(--wk-brand)' }} />
                 <span>
                   <span style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--wk-ink)' }}>
-                    Also Start The {isLeft ? 'Offboarding' : 'Leave Or Suspension'} Checklist
+                    Also Start The {isLeft ? 'Offboarding' : 'Leave or Suspension'} Checklist
                   </span>
                   <span style={{ display: 'block', fontSize: 12, color: 'var(--wk-dim)', lineHeight: 1.5, marginTop: 2 }}>
                     {isLeft
@@ -5486,7 +5490,7 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
                   <option value="">Company default{payroll.defaultOvertimeRule ? ` (${(OT_RULES.find(([k]) => k === payroll.defaultOvertimeRule) || [])[1]?.split(' (')[0] || payroll.defaultOvertimeRule})` : ''}</option>
                   {OT_RULES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                 </select>
-                <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 4 }}>The default follows the company's country: US is California, India is None. The timecard only reads this.</div>
+                <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 4 }}>The default follows the company's country: US is California, India is None. The time sheet only reads this.</div>
               </div>
               <div>
                 <label style={FL}>FULL DAY HOURS</label>
@@ -5815,8 +5819,9 @@ function PeopleStatCards({ employees, externals = [], loading, isMobile, onStatu
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(300px, 1.05fr) 1.4fr 1.15fr', gap: 14, marginBottom: 16, alignItems: 'stretch' }}>
-      {/* 2×2 KPI tiles - solid brand hero + white siblings */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+      {/* 2×2 KPI tiles - solid brand hero + white siblings. repeat(2, ...) so
+          the phone guard on inline "1fr 1fr" keeps them 2x2 (Oct 17). */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}>
         <KpiTile solid label="Total People" value={total} loading={loading}
           delta={joined > 0 ? `↑ ${joined} this year` : undefined}
           sub={nExternal ? `+${nExternal} external` : 'no external users'}
@@ -5879,6 +5884,9 @@ function PendingRoleBadge({ req, onOpen }) {
     </span>
   );
 }
+
+// A directory filter on a phone: half the row, so four make a 2x2.
+const PHONE_FILTER = { flex: '1 1 calc(50% - 4px)', width: 'auto', minWidth: 0 };
 
 export default function HR({ activeSub, onSubChange }) {
   // Legacy subviews (hr-ms / hr-asana / …) all collapse into People for now.
@@ -6239,6 +6247,8 @@ export default function HR({ activeSub, onSubChange }) {
       )}
       {sub === 'hr-org' && <OrgChartTab employees={employees} externals={extEmployees} entities={entities} onUpdated={onSaved} toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-leave' && <LeaveTab employees={employees} toastOk={toastOk} toastErr={toastErr} />}
+      {/* Approval Delegations (Oct 17): HR sees and sets everyone's stand-ins. */}
+      {sub === 'hr-leave' && <ApprovalDelegationsAdmin toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-time' && <TimeAdmin key={activeSub} initialView={TIME_DEEP_LINKS[activeSub]} toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-checklists' && (
         <>
@@ -6296,25 +6306,26 @@ export default function HR({ activeSub, onSubChange }) {
               <span className="wkc-chip"><Users size={14} /></span>
               <span className="wkc-title">Directory</span>
               {!loading && filtered.length > 0 && <span className="dk-count">{filtered.length}</span>}
-              <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                <div className="search-bar" style={{ width: 210 }}>
+              {/* Phone (Oct 17): full-width search, then the four filters as a clean 2x2. */}
+              <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', ...(isMobile ? { width: '100%' } : {}) }}>
+                <div className="search-bar" style={{ width: isMobile ? '100%' : 210 }}>
                   <Search size={13} style={{ flexShrink: 0 }} />
                   <input placeholder="Search people…" value={search} onChange={e => setSearch(e.target.value)} />
                   {search && <button onClick={() => setSearch('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}><X size={13} /></button>}
                 </div>
                 {/* Worker-type filter (Neil, Aug 24): the directory is the master
                     list, this narrows it to a category. */}
-                <select className="form-input" value={typeF} onChange={e => { setTypeF(e.target.value); setSelectedId(null); }} style={{ width: 140, padding: '7px 10px', fontSize: 13.5, height: 38 }}>
+                <select className="form-input" value={typeF} onChange={e => { setTypeF(e.target.value); setSelectedId(null); }} style={{ ...(isMobile ? PHONE_FILTER : { width: 140 }), padding: '7px 10px', fontSize: 13.5, height: 38 }}>
                   <option value="All">All people</option>
                   <option value="employee">Employees</option>
                   <option value="contractor">Contractors</option>
                   <option value="external">External &amp; guests</option>
                 </select>
-                <select className="form-input" value={companyF} onChange={e => { setCompanyF(e.target.value); setDeptF('All'); }} style={{ width: 150, padding: '7px 10px', fontSize: 13.5, height: 38 }}>
+                <select className="form-input" value={companyF} onChange={e => { setCompanyF(e.target.value); setDeptF('All'); }} style={{ ...(isMobile ? PHONE_FILTER : { width: 150 }), padding: '7px 10px', fontSize: 13.5, height: 38 }}>
                   <option value="All">All companies</option>
                   {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
                 </select>
-                <select className="form-input" value={deptF} onChange={e => setDeptF(e.target.value)} style={{ width: 155, padding: '7px 10px', fontSize: 13.5, height: 38 }}>
+                <select className="form-input" value={deptF} onChange={e => setDeptF(e.target.value)} style={{ ...(isMobile ? PHONE_FILTER : { width: 155 }), padding: '7px 10px', fontSize: 13.5, height: 38 }}>
                   <option value="All">All departments</option>
                   {deptChoices.map(d => <option key={d}>{d}</option>)}
                 </select>
@@ -6328,7 +6339,7 @@ export default function HR({ activeSub, onSubChange }) {
                     setSelectedId(null);
                     if (next === DELETED_F) loadDeleted();
                   }}
-                  style={{ width: 135, padding: '7px 10px', fontSize: 13.5, height: 38 }}>
+                  style={{ ...(isMobile ? PHONE_FILTER : { width: 135 }), padding: '7px 10px', fontSize: 13.5, height: 38 }}>
                   <option value="All">All statuses</option>
                   {Object.entries(STATUS_META).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
                   <option value={DELETED_F}>Deleted</option>

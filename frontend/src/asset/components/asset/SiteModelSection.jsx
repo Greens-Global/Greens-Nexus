@@ -40,7 +40,7 @@ export function SiteModelSection({ p }) {
   useEffect(() => { load(); }, [load]);
   // Same fetch PropertyMaintenanceSection makes for this property - one extra
   // GET per property open, accepted over threading the tickets through the
-  // asset App (Ankush's files).
+  // asset App's files.
   const tickets = usePropertyTickets(match ? pid : null);
   const allTickets = useMemo(() => [...(tickets.data?.open || []), ...(tickets.data?.history || [])], [tickets.data]);
   if (!match) return null;

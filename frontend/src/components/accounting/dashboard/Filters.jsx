@@ -77,11 +77,14 @@ export function MonthStepper() {
           <span style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>through</span>
         </>
       ) : null}
+      {/* The stepper wraps as one piece - never "<" on one line and the month on the next (Oct 17). */}
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexWrap: 'nowrap' }}>
       <button type="button" aria-label="Previous month" style={btn} onClick={() => setPeriod(shiftKey(period, 1))}><ChevronLeft size={14} /></button>
       <select value={period} onChange={(e) => setPeriod(e.target.value)} aria-label="Month" style={{ ...input, ...(period !== lastClosed ? active : {}) }}>
         {options.map((k) => <option key={k} value={k}>{monthLong(k)}{k === lastClosed ? ' · last closed' : ''}</option>)}
       </select>
       <button type="button" aria-label="Next month" style={{ ...btn, opacity: period >= lastClosed ? 0.4 : 1 }} disabled={period >= lastClosed} onClick={() => setPeriod(shiftKey(period, -1))}><ChevronRight size={14} /></button>
+      </span>
     </div>
   );
 }

@@ -102,7 +102,7 @@ def safe(fn, *a, **kw) -> None:
                 {"code": APPLY_FAILED, "event": getattr(fn, "__name__", "")[3:], "message": msg, "at": _now()}]
             ev.apply_note = f"Nexus could not {what}: {msg}"
             ev.updated_at = _now()
-            _notify(db, ev.created_by, f"Needs attention - {EVENT_TITLES.get(ev.kind, 'packet')} for {ev.subject_name}",
+            _notify(db, ev.created_by, f"Needs Attention - {EVENT_TITLES.get(ev.kind, 'Packet')} for {ev.subject_name}",
                     f"The signatures are safe in Nexus Sign, but Nexus could not {what} ({msg}). "
                     f"Open the person and use Retry; if it keeps failing, send this message to support.",
                     ev, priority=1)
@@ -547,7 +547,7 @@ def create_company_role(db: Session, company: str, name: str, department: str, b
     admins = {r.email.lower() for r in db.query(NexusRole).filter(NexusRole.role.in_(("owner", "administrator"))).all()}
     from routers.hr import _hr_notify
     for to in admins | {by.lower()}:
-        _hr_notify(db, to, f"New role needs access - {name}",
+        _hr_notify(db, to, f"New Role Needs Access - {name}",
                    f"{by} added \"{name}\" to {entity.name if entity else 'the company'}'s roles while hiring "
                    f"{for_name}. It has no access yet - set what it can open in Settings > Access.",
                    ref_id=role.id, requested_by=by, action={"view": "admin-console", "sub": "global-access"},
@@ -1412,7 +1412,7 @@ def submit_intake(db: Session, ev: HrLifeEvent, values: dict) -> None:
             _ask_verifier(db, ev, p)
         except Exception as e:   # noqa: BLE001 - the details are kept; HR sees the problem on review
             print(f"[life-events] intake {ev.id}: documents not generated: {type(e).__name__}: {e}")
-            _notify(db, ev.created_by, f"Details received - {ev.subject_name}",
+            _notify(db, ev.created_by, f"Details Received - {ev.subject_name}",
                     "Their details are saved, but the documents could not be generated - open the packet to see why.", ev, priority=1)
     db.commit()
 
@@ -1463,14 +1463,14 @@ def card_from_intake(db: Session, ev: HrLifeEvent) -> None:
 def _ask_verifier(db: Session, ev: HrLifeEvent, p: dict) -> None:
     v = p["verifier"]
     if v.get("email"):
-        _notify(db, v["email"], f"Ready to verify - {EVENT_TITLES.get(ev.kind, 'Packet')} for {ev.subject_name}",
+        _notify(db, v["email"], f"Ready to Verify - {EVENT_TITLES.get(ev.kind, 'Packet')} for {ev.subject_name}",
                 f"The documents are generated. Check them and click Verify And Send - nothing goes to "
                 f"{ev.subject_name} until you do.", ev, priority=1)
     # Signs Once (Oct 14): a new HR contact / signatory has not signed this
     # packet yet - ask them, once.
     for s in p.get("signOnce") or []:
         if not s["signed"] and s.get("email"):
-            _notify(db, s["email"], f"Sign once - {EVENT_TITLES.get(ev.kind, 'Packet')} for {ev.subject_name}",
+            _notify(db, s["email"], f"Sign Once - {EVENT_TITLES.get(ev.kind, 'Packet')} for {ev.subject_name}",
                     f"You now sign this packet for the company ({s['roleLabel']}). Open it and click Sign Once - "
                     f"your signature then goes on every packet automatically.", ev, priority=1)
 
@@ -1650,7 +1650,7 @@ def on_declined(db: Session, req: HrSignRequest, party, reason: str = "") -> Non
     ev.updated_at = _now()
     who = getattr(party, "name", "") or "A signer"
     _stage_note(db, ev, f"{EVENT_TITLES[ev.kind]} declined by {who}" + (f": {reason}" if reason else ""))
-    _notify(db, ev.created_by, f"{EVENT_TITLES[ev.kind]} declined - {ev.subject_name}",
+    _notify(db, ev.created_by, f"{EVENT_TITLES[ev.kind]} Declined - {ev.subject_name}",
             f"{who} declined \"{req.title}\"." + (f" Reason: {reason}" if reason else "")
             + " Fix what is needed and send it again.", ev)
 
@@ -1665,7 +1665,7 @@ def on_voided(db: Session, req: HrSignRequest, actor: str = "") -> None:
     if ev.kind == "separation" and ev.apply_status == "scheduled":
         # Voiding the paperwork in Nexus Sign is not canceling the offboarding
         # - the person is still leaving on the day. Say so, in case it was.
-        _notify(db, ev.created_by, f"Separation package voided - {ev.subject_name}",
+        _notify(db, ev.created_by, f"Separation Package Voided - {ev.subject_name}",
                 f"The package was voided by {actor or 'HR'}, but the offboarding is still scheduled: "
                 f"{ev.subject_name} is marked Left after {us_date(ev.effective_date)}. If they are staying, "
                 f"use Cancel Offboarding on their profile; to send new paperwork, run Offboard again.", ev)
@@ -1681,7 +1681,7 @@ def on_expired(db: Session, req: HrSignRequest) -> None:
     ev.status = "expired"
     ev.updated_at = _now()
     _stage_note(db, ev, f"{EVENT_TITLES[ev.kind]} expired unsigned")
-    _notify(db, ev.created_by, f"{EVENT_TITLES[ev.kind]} expired - {ev.subject_name}",
+    _notify(db, ev.created_by, f"{EVENT_TITLES[ev.kind]} Expired - {ev.subject_name}",
             f"\"{req.title}\" passed its signing date without every signature. Send it again if it still stands.", ev)
 
 
@@ -1699,7 +1699,7 @@ def _apply_hire(db: Session, ev: HrLifeEvent, req: HrSignRequest) -> None:
         # out (routers/hr.py), so this is a belt for a changed record: a
         # signature must never hire someone HR closed. HR decides.
         ev.apply_note = "Signed after the candidate was rejected - NOT hired. Reopen them and Mark Hired By Hand if the offer stands."
-        _notify(db, ev.created_by, f"{ev.subject_name} signed a packet after being rejected",
+        _notify(db, ev.created_by, f"{ev.subject_name} Signed a Packet After Being Rejected",
                 "The signed packet is in Nexus Sign, but they were not hired because the candidate is Rejected. "
                 "Reopen them and Mark Hired By Hand if the offer still stands.", ev, priority=1)
         return
@@ -1735,14 +1735,14 @@ def _apply_hire(db: Session, ev: HrLifeEvent, req: HrSignRequest) -> None:
     ev.apply_note = note
     start = us_date(ev.effective_date)
     if ev.kind == "offer":
-        title, body = (f"{ev.subject_name} accepted the offer",
+        title, body = (f"{ev.subject_name} Accepted the Offer",
                        f"{ev.subject_name} signed the offer letter and is now in People as onboarding"
                        + (f", starting {start}" if start else "") + ". Their hiring packet is on its way to them.")
     elif details.get("after_offer"):
-        title, body = (f"{ev.subject_name} signed the hiring packet",
+        title, body = (f"{ev.subject_name} Signed the Hiring Packet",
                        f"{ev.subject_name} signed every onboarding document - their paperwork is complete.")
     else:
-        title, body = (f"{ev.subject_name} signed the hiring packet",
+        title, body = (f"{ev.subject_name} Signed the Hiring Packet",
                        f"{ev.subject_name} signed every document and is now in People as onboarding"
                        + (f", starting {start}" if start else "") + ".")
     for to in {ev.created_by, (cand.created_by or "").lower(), (emp.manager_email or "").lower()} - {""}:
@@ -1841,14 +1841,14 @@ def _apply_hire_details(db: Session, ev: HrLifeEvent, emp: NexusEmployee) -> Non
     if ev.pay_values and not ev.pay:
         flags.append({"code": "pay_not_recorded",
                       "message": "The offer stated pay as text only - enter it on Pay & Benefits."})
-        _notify(db, ev.verified_by or ev.created_by, f"Enter pay for {ev.subject_name}",
+        _notify(db, ev.verified_by or ev.created_by, f"Enter Pay for {ev.subject_name}",
                 f"{ev.subject_name}'s offer stated pay as text, so it was not recorded on Pay & Benefits - "
                 f"enter it on their profile.", ev, priority=1)
     printed = (ev.inputs or {}).get("employee_code") or ""
     if printed and (emp.employee_code or "") != printed:
         flags.append({"code": "employee_code_mismatch",
                       "message": f"Signed documents show {printed}; People has {emp.employee_code or 'no number'}."})
-        _notify(db, ev.verified_by or ev.created_by, f"Employee number differs - {ev.subject_name}",
+        _notify(db, ev.verified_by or ev.created_by, f"Employee Number Differs - {ev.subject_name}",
                 f"The signed documents show {printed}, but People has {emp.employee_code or 'no number'}. "
                 f"Decide whether to re-issue.", ev, priority=1)
     ev.flags = flags
@@ -1871,7 +1871,7 @@ def _apply_offer(db: Session, ev: HrLifeEvent, req: HrSignRequest) -> None:
         ev.flags = [f for f in (ev.flags or []) if f.get("code") != "packet_not_started"] + [
             {"code": "packet_not_started", "message": msg}]
         _stage_note(db, ev, f"Offer signed - the hiring packet did not start: {msg}")
-        _notify(db, ev.created_by, f"Start the hiring packet - {ev.subject_name}",
+        _notify(db, ev.created_by, f"Start the Hiring Packet - {ev.subject_name}",
                 f"{ev.subject_name} signed the offer and is hired, but the hiring packet could not start: {msg} "
                 f"Fix it, then click Start Hiring Packet on their card.", ev, priority=1)
         return
@@ -2246,16 +2246,16 @@ def _apply_promotion(db: Session, ev: HrLifeEvent, req: HrSignRequest) -> None:
     body = (f"{ev.subject_name}: {d.get('old_title') or '-'} -> {d.get('job_title')}, effective {us_date(eff)}."
             + (" The new pay is on Pay & Benefits from that date." if ev.pay else ""))
     for to in {ev.created_by, (emp.manager_email or "").lower(), hr_contact} - {"", emp.work_email.lower()}:
-        _notify(db, to, f"{title} signed - {ev.subject_name}", body, ev)
-    _notify(db, emp.work_email.lower(), f"Your {title.lower()} is official",
+        _notify(db, to, f"{title} Signed - {ev.subject_name}", body, ev)
+    _notify(db, emp.work_email.lower(), f"Your {title} Is Official",
             f"Your new role, {d.get('job_title')}, takes effect {us_date(eff)}. The signed letter is in "
             f"My HR > My Documents.", ev)
     if periods:
         labels = ", ".join(p["label"] for p in periods)
         for to in {ev.created_by, hr_contact} - {""}:
             from routers.hr import _hr_notify
-            _hr_notify(db, to, f"Review signed timesheets - {ev.subject_name}",
-                       f"The new pay starts {us_date(eff)}, inside timesheets already signed or finalized "
+            _hr_notify(db, to, f"Review Signed Time Sheets - {ev.subject_name}",
+                       f"The new pay starts {us_date(eff)}, inside time sheets already signed or finalized "
                        f"({labels}). They were NOT repriced - review and adjust them if needed.",
                        ref_id=ev.id, requested_by="nexus-sign", action={"view": "hr", "sub": "hr-time"}, priority=1)
 
@@ -2471,7 +2471,7 @@ def _package_follows_the_leaver(db: Session, ev: HrLifeEvent, emp: NexusEmployee
         # Not sent yet (Oct 14): when it is, it goes to their personal email.
         personal = (emp.personal_email or "").strip().lower()
         if not personal:
-            _notify(db, ev.created_by, f"Separation package has nowhere to go - {ev.subject_name}",
+            _notify(db, ev.created_by, f"Separation Package Has Nowhere to Go - {ev.subject_name}",
                     f"{ev.subject_name} is Left and their work email is closed. Add their personal email on "
                     f"People before the package is sent.", ev, priority=1)
             return "package not sent yet - no personal email to send it to"
@@ -2489,7 +2489,7 @@ def _package_follows_the_leaver(db: Session, ev: HrLifeEvent, emp: NexusEmployee
         return ""
     personal = (emp.personal_email or "").strip().lower()
     if not personal:
-        _notify(db, ev.created_by, f"Separation package stuck - {ev.subject_name}",
+        _notify(db, ev.created_by, f"Separation Package Stuck - {ev.subject_name}",
                 f"{ev.subject_name} is Left and can no longer sign in, and the separation package is still "
                 f"unsigned. Add their personal email on People, then correct the recipient in Nexus Sign "
                 f"(or void the package).", ev, priority=1)
@@ -2561,7 +2561,7 @@ def send_separation(db: Session, user: dict, eid: str, inputs: dict, scope, *, e
         result = apply_separation_now(db, ev)
     else:
         for to in {ev.created_by, (emp.manager_email or "").lower()} - {""}:
-            _notify(db, to, f"Offboarding scheduled - {ev.subject_name}",
+            _notify(db, to, f"Offboarding Scheduled - {ev.subject_name}",
                     f"{ev.subject_name}'s last day is {us_date(d['last_day'])}. Nexus marks them Left the morning "
                     f"after (items, tasks, Microsoft 365) by itself.", ev)
         db.commit()
@@ -2606,7 +2606,7 @@ def apply_due_separations(limit: int = 20) -> int:
                 continue
             try:
                 apply_separation_now(db, ev)
-                _notify(db, ev.created_by, f"{ev.subject_name} is now Left",
+                _notify(db, ev.created_by, f"{ev.subject_name} Is Now Left",
                         f"Their last day was {us_date(ev.effective_date)}. {ev.apply_note}.", ev)
                 db.commit()
                 n += 1
@@ -2727,7 +2727,7 @@ def run_filing(db: Session, ev: HrLifeEvent) -> None:
         ev.filing_error = msg[:500]
         if ev.filing_attempts >= len(FILING_BACKOFF_MIN):
             ev.filing_status, ev.filing_next_at = "failed", ""
-            _notify(db, ev.created_by, f"Not filed in Egnyte - {ev.subject_name}",
+            _notify(db, ev.created_by, f"Not Filed in Egnyte - {ev.subject_name}",
                     f"The signed {EVENT_TITLES.get(ev.kind, 'packet').lower()} is safe in Nexus, "
                     f"but it could not be filed in Egnyte: {msg} Fix it, then use Retry on the person.", ev)
         else:

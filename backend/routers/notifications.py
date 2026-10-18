@@ -11,6 +11,7 @@ import httpx
 from database import get_db
 from auth import get_current_user, company_of, company_scope
 from models import NexusNotification, NexusRole
+from notice_text import us_copy   # also registers the save-time listener
 
 _AZURE_TENANT_ID    = os.getenv("AZURE_TENANT_ID", "")
 _AZURE_CLIENT_ID    = os.getenv("AZURE_CLIENT_ID", "")
@@ -134,8 +135,8 @@ def get_notifications(user: dict = Depends(get_current_user), db: Session = Depe
             "id":           r.id,
             "type":         r.type,
             "recipient":    r.recipient,
-            "title":        r.title,
-            "body":         r.body,
+            "title":        us_copy(r.title),
+            "body":         us_copy(r.body),
             "ref_id":       r.ref_id,
             "item_name":    r.item_name,
             "requested_by": r.requested_by,

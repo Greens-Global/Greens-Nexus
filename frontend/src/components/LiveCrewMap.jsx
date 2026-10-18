@@ -55,7 +55,7 @@ export default function LiveCrewMap({ toastErr, employees = [] }) {
 
   const load = useCallback(() => {
     api.trackLive()
-      .then(r => { setCrew(r.crew || []); setUpdated(new Date().toLocaleTimeString()); })
+      .then(r => { setCrew(r.crew || []); setUpdated(new Date().toLocaleTimeString('en-US')); })
       .catch(e => { setCrew([]); toastErr && toastErr(e?.message || 'Could not load live locations.'); });
   }, [toastErr]);
   useEffect(() => { load(); return pollWhileVisible(load, REFRESH_MS); }, [load]);
@@ -110,7 +110,7 @@ export default function LiveCrewMap({ toastErr, employees = [] }) {
           </button>
         )}
         <button className="secondary-btn" onClick={() => setEnrol(true)} style={{ fontSize: 12 }}>
-          + Enrol phone
+          + Enroll Phone
         </button>
         <div style={{ flex: 1 }} />
         <span style={{ display: 'inline-flex', gap: 12 }}>

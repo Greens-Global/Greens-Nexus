@@ -48,7 +48,7 @@ ROLE_LABELS = {
     "hr": "HR", "manager": "Manager", "employee": "Employee", "it": "IT",
     "payroll": "Payroll", "equipment": "Equipment", "finance": "Finance",
 }
-KIND_LABELS = {"onboarding": "Onboarding", "offboarding": "Offboarding", "inactive": "Leave Or Suspension"}
+KIND_LABELS = {"onboarding": "Onboarding", "offboarding": "Offboarding", "inactive": "Leave or Suspension"}
 OWNERS_KEY = "hr_checklist_owners:"   # + entity id ('' = default) -> {"it": email, ...}
 
 

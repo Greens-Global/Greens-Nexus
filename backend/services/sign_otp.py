@@ -240,7 +240,7 @@ def _send_email(to_email: str, code: str, title: str, sender_name: str) -> str:
         try:
             graph_mail.send_mail(
                 from_email=graph_mail.DEFAULT_FROM_EMAIL, to=[to_email], cc=None,
-                subject=f"Your Nexus Sign verification code: {code}",
+                subject=f"Your Nexus Sign Verification Code: {code}",
                 html=_otp_email_html(code, title, sender_name))
         except graph_mail.GraphMailError as e:
             print(f"[nexus-sign] OTP email failed: {e}")

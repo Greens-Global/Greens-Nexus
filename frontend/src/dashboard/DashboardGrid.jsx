@@ -128,7 +128,9 @@ export default function DashboardGrid({ layout, editing, onLayoutChange, renderW
       // across the top edge) never covers the card above it. A compact tile
       // keeps its own height (a one-row pill stays a pill); everything else
       // gets at least 150px so a list never collapses to a sliver.
-      <div key={it.i} style={{ height: (rowsFor?.(it) || it.h) * ROW_H, minHeight: isCompact(it) || rowsFor?.(it) ? 0 : 150, marginTop: editing ? 16 : 0, minWidth: 0 }}>
+      // dash-stack-cell: a widget showing only its "not connected" line
+      // ([data-widget-unavailable]) shrinks to it - style.css (Oct 17).
+      <div key={it.i} className="dash-stack-cell" style={{ height: (rowsFor?.(it) || it.h) * ROW_H, minHeight: isCompact(it) || rowsFor?.(it) ? 0 : 150, marginTop: editing ? 16 : 0, minWidth: 0 }}>
         <Card it={it} editing={editing} onRemove={onRemove} onConfigure={onConfigure} onDuplicate={onDuplicate}
           renderWidget={renderWidget} startDrag={() => {}} draggable={false} canConfigure={canConfigure} stackedNow
           onMove={onMove} first={pos.get(it.i) === 0} last={pos.get(it.i) === ordered.length - 1} />
@@ -138,7 +140,10 @@ export default function DashboardGrid({ layout, editing, onLayoutChange, renderW
       <div ref={ref} className="dash-grid" style={{ display: 'flex', flexDirection: 'column', gap: GAP }}>
         {layout.length === 0 && emptyState}
         {rows.map(row => row.length === 1 ? cell(row[0]) : (
-          <div key={row[0].i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: GAP }}>
+          // repeat(2, ...) not '1fr 1fr': style.css's phone guard stacks any
+          // inline "1fr 1fr", which undid this pairing and gave every small
+          // tile a full-width row (Oct 17 mobile audit).
+          <div key={row[0].i} style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: GAP }}>
             {row.map(cell)}
           </div>
         ))}

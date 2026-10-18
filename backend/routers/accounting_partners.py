@@ -323,7 +323,7 @@ def create_change(body: ChangeRequestBody, user: dict = Depends(get_current_user
     for em in _deciders(db):
         if em == user["email"].lower():
             continue
-        _notify(db, type="acct_partner_change", recipient=em, title=f"{label} change to approve: {row.partner_name or pid}",
+        _notify(db, type="acct_partner_change", recipient=em, title=f"{label} Change to Approve: {row.partner_name or pid}",
                 body=f"{who} asked to change {fields}. Approve or decline it under Accounting > Vendors & Customers.",
                 ref_id=row.id, requested_by=user["email"])
     db.commit()
@@ -342,10 +342,10 @@ def _decide_row(db: Session, change_id: str, status: str, note: str, user: dict)
     who = _display_name(user["email"], db)
     label = "Vendor" if row.kind == "vendor" else "Customer"
     if status == "approved":
-        title = f"{label} change approved: {row.partner_name or row.partner_id}"
+        title = f"{label} Change Approved: {row.partner_name or row.partner_id}"
         body = f"{who} approved it. It shows as the record's current values until it is keyed into Intacct."
     else:
-        title = f"{label} change declined: {row.partner_name or row.partner_id}"
+        title = f"{label} Change Declined: {row.partner_name or row.partner_id}"
         body = f"{who} declined it." + (f" Note: {note[:300]}" if note else "")
     if row.requested_by and row.requested_by.lower() != user["email"].lower():
         _notify(db, type="acct_partner_decision", recipient=row.requested_by, title=title, body=body, ref_id=row.id, requested_by=user["email"])

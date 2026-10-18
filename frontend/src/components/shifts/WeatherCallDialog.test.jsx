@@ -116,7 +116,7 @@ describe('Weather Call dialog', () => {
     weatherCallScreen.mockResolvedValue(decided());
     render(<WeatherCallDialog groupId="g1" date={DAY} onClose={vi.fn()} onChanged={onChanged} toastOk={toastOk} toastErr={toastErr} />);
     const dlg = await openDialog();
-    expect(dlg.textContent).toContain('Day cancelled for weather (unpaid)');
+    expect(dlg.textContent).toContain('Day Canceled for Weather (Unpaid)');
     expect(dlg.textContent).toContain('1 of 2 acknowledged · 1 waiting');
     const ann = dlg.querySelector('[data-ack-row="ann@x.com"]');
     const cal = dlg.querySelector('[data-ack-row="cal@x.com"]');

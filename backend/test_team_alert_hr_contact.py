@@ -98,7 +98,7 @@ class HrContactTests(unittest.TestCase):
         self.assertEqual(sorted(timeclock._team_alert_recipients(self.db, EMP, EMP)), sorted([MGR, OWNER]))
 
     def test_a_punch_change_request_reaches_manager_and_hr(self):
-        timeclock._notify_approvers(self.db, employee_email=EMP, title="Timesheet fix requested", body="add an in punch")
+        timeclock._notify_approvers(self.db, employee_email=EMP, title="Time Sheet Fix Requested", body="add an in punch")
         self.db.commit()
         self.assertEqual(self._recipients(), sorted([MGR, HR, OWNER]))
 

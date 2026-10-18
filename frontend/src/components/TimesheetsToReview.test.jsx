@@ -10,6 +10,7 @@ const approve = vi.fn();
 const approvePeriod = vi.fn();
 const sendBack = vi.fn();
 const sign = vi.fn();
+const bulk = vi.fn();
 vi.mock('../api', () => ({
   api: {
     timesheetReviewWaiting: (...a) => waiting(...a),
@@ -17,7 +18,11 @@ vi.mock('../api', () => ({
     timesheetReviewApprovePeriod: (...a) => approvePeriod(...a),
     timesheetReviewSendBack: (...a) => sendBack(...a),
     timesheetReviewSign: (...a) => sign(...a),
+    timesheetReviewApproveBulk: (...a) => bulk(...a),
   },
+}));
+vi.mock('../tasks/components', () => ({
+  Modal: ({ title, children, footer }) => <div role="dialog" aria-label={title}>{children}{footer}</div>,
 }));
 vi.mock('./ESign', () => ({ SignModal: ({ partyId }) => <div data-testid="sign-modal">{partyId}</div> }));
 
@@ -26,7 +31,7 @@ const TimesheetsToReview = (await import('./TimesheetsToReview')).default;
 const row = (over) => ({
   id: 'r1', employeeEmail: 'erin@x.com', name: 'Erin Test', periodStart: '2026-09-01', periodEnd: '2026-09-30',
   payType: 'fixed', workedMin: 9630, submittedAt: '2026-09-29T10:00:00+00:00', resubmitted: false, note: 'All in',
-  agreeBlocker: '', notSubmitted: false, ...over,
+  agreeBlocker: '', reviewFlag: '', notSubmitted: false, ...over,
 });
 
 beforeEach(() => {
@@ -35,6 +40,7 @@ beforeEach(() => {
   approvePeriod.mockReset().mockResolvedValue({});
   sendBack.mockReset().mockResolvedValue({});
   sign.mockReset().mockResolvedValue({ myPartyId: 'p-new' });
+  bulk.mockReset().mockResolvedValue({ approved: 2, skipped: 0, failed: 0, results: [] });
 });
 
 describe('TimesheetsToReview', () => {
@@ -68,7 +74,7 @@ describe('TimesheetsToReview', () => {
     await waitFor(() => expect(sendBack).toHaveBeenCalledWith('r1', 'Tuesday lunch'));
   });
 
-  it('says why Approve is not available yet, and Review opens the timecard', async () => {
+  it('says why Approve is not available yet, and Review opens the time sheet', async () => {
     waiting.mockResolvedValue({ reviews: [row({ agreeBlocker: 'This period runs to 09/30/2026. You can approve it after that day, once every day is in.' })] });
     const onOpen = vi.fn();
     render(<TimesheetsToReview onOpen={onOpen} />);
@@ -78,13 +84,13 @@ describe('TimesheetsToReview', () => {
     expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ employeeEmail: 'erin@x.com', periodStart: '2026-09-01', payType: 'fixed' }));
   });
 
-  it('a timesheet HR changed is on the sign card, and signing sends the fresh copy (Oct 17)', async () => {
+  it('a time sheet HR changed is on the sign card, and signing sends the fresh copy (Oct 17)', async () => {
     waiting.mockResolvedValue({ reviews: [], toSign: [{ id: 'r9', partyId: '', role: 'employee', employeeEmail: 'erin@x.com',
       name: 'Erin Test', periodStart: '2026-09-20', periodEnd: '2026-10-03', agreedBy: 'Max Test', agreedAt: '2026-10-05T10:00:00Z',
       needsResign: true }] });
     render(<TimesheetsToReview onOpen={() => {}} />);
-    expect(await screen.findByText(/HR changed the hours - sign the updated timesheet/)).toBeTruthy();
-    fireEvent.click(screen.getByText('Sign Updated Timesheet'));
+    expect(await screen.findByText(/HR changed the hours - sign the updated time sheet/)).toBeTruthy();
+    fireEvent.click(screen.getByText('Sign Updated Time Sheet'));
     await waitFor(() => expect(sign).toHaveBeenCalledWith('r9'));
     expect(await screen.findByTestId('sign-modal')).toHaveTextContent('p-new');
   });
@@ -94,5 +100,49 @@ describe('TimesheetsToReview', () => {
     const { container } = render(<TimesheetsToReview onOpen={() => {}} />);
     await waitFor(() => expect(waiting).toHaveBeenCalled());
     expect(container.textContent).toBe('');
+  });
+
+  // Approve All Clean (Neil, Oct 17).
+  it('approves every clean one after a confirm, and says what stays', async () => {
+    waiting.mockResolvedValue({ reviews: [
+      row(),
+      row({ id: '', employeeEmail: 'ezra@x.com', name: 'Ezra Test', notSubmitted: true, submittedAt: '', note: '' }),
+      row({ id: 'r3', employeeEmail: 'olive@x.com', name: 'Olive Test',
+        reviewFlag: 'Look at this before approving - 09/03/2026: Unusually long shift (over 12h) - check for a missed punch.' }),
+      row({ id: 'r4', employeeEmail: 'max@x.com', name: 'Max Test', agreeBlocker: 'Fix this on the time sheet before you can approve - 09/04/2026: no clock-out - add the out time. Or send it back to the employee to fix.',
+        reviewFlag: 'Fix this on the time sheet before you can approve - 09/04/2026: no clock-out - add the out time. Or send it back to the employee to fix.' }),
+    ] });
+    const toastOk = vi.fn();
+    render(<TimesheetsToReview onOpen={() => {}} toastOk={toastOk} />);
+    fireEvent.click(await screen.findByText('Approve All Clean (2)'));
+    const dialog = screen.getByRole('dialog', { name: 'Approve All Clean' });
+    expect(dialog).toHaveTextContent('2 time sheets will be approved and sent to each employee to sign.');
+    expect(dialog).toHaveTextContent('2 time sheets stay here for one-by-one review');
+    expect(dialog.querySelector('[data-bulk="skipped"]')).toHaveTextContent(/Olive Test.*Unusually long shift/);
+    expect(dialog.querySelector('[data-bulk="skipped"]')).toHaveTextContent(/Max Test.*no clock-out/);
+    expect(bulk).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText('Approve 2 Time Sheets'));
+    await waitFor(() => expect(bulk).toHaveBeenCalledWith([{ id: 'r1' }, { email: 'ezra@x.com', start: '2026-09-01' }], ''));
+    await waitFor(() => expect(toastOk).toHaveBeenCalledWith('2 time sheets approved and sent to sign.'));
+    await waitFor(() => expect(waiting).toHaveBeenCalledTimes(2));   // the list refreshed
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('reports skipped and failed ones from the server', async () => {
+    bulk.mockResolvedValue({ approved: 0, skipped: 0, failed: 1, results: [{ id: 'r1', status: 'failed', error: 'Storage is down.' }] });
+    const toastErr = vi.fn();
+    render(<TimesheetsToReview onOpen={() => {}} toastErr={toastErr} />);
+    fireEvent.click(await screen.findByText('Approve All Clean (1)'));
+    fireEvent.click(screen.getByText('Approve 1 Time Sheet'));
+    await waitFor(() => expect(toastErr).toHaveBeenCalledWith('0 time sheets approved and sent to sign, 1 failed. Storage is down.'));
+  });
+
+  it('is disabled with the reason when nothing is clean', async () => {
+    waiting.mockResolvedValue({ reviews: [row({ reviewFlag: 'Look at this before approving - 09/03/2026: Unusually long shift.' })] });
+    render(<TimesheetsToReview onOpen={() => {}} />);
+    const btn = (await screen.findByText('Approve All Clean (0)')).closest('button');
+    expect(btn.disabled).toBe(true);
+    expect(screen.getByText(/Nothing to approve in one click/)).toBeTruthy();
+    expect(screen.getByText(/Unusually long shift/)).toBeTruthy();       // the row says why
   });
 });

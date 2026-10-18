@@ -7,7 +7,7 @@ import { SkeletonBlocks, Spinner, LoadingState } from '../components/AsyncState'
 import ModuleTabs from '../components/ModuleTabs';
 import DocumentBuilder from '../components/DocumentBuilder';
 import { BODY_EXTENSIONS } from '../lib/docBuilderSchema';
-import { formatDateLong } from '../lib/datetime';
+import { formatDate, formatDateLong } from '../lib/datetime';
 import { useNameResolver } from '../lib/useNameResolver';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
@@ -2857,7 +2857,7 @@ export default function SOP({ activeSub, onSubChange }) {
                 <Search size={18} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
                 <input data-slash-search={ownsSlash ? '' : undefined} ref={searchRef} type="text" className="form-input" value={search} onChange={e => setSearch(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter' && search.trim()) doAsk(search); }}
-                  placeholder="Search or ask anything… e.g. How do we hand over a unit key?"
+                  placeholder={isMobile ? 'Search or ask anything…' : 'Search or ask anything… e.g. How do we hand over a unit key?'}
                   style={{ paddingLeft: 42, paddingRight: 36, width: '100%', height: 48, fontSize: '0.95rem', borderRadius: 12 }} />
                 {!search && <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 6, padding: '1px 7px', pointerEvents: 'none' }}>/</span>}
               </div>
@@ -3225,7 +3225,7 @@ export default function SOP({ activeSub, onSubChange }) {
                       <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)' }}>{p.new_title}</div>
                       {(p.backfill?.effective_date || p.backfill?.departments) && (
                         <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: 4 }}>
-                          Will also backfill: {[p.backfill.effective_date && `effective date ${p.backfill.effective_date}`, p.backfill.departments && `department ${p.backfill.departments.join(', ')}`].filter(Boolean).join(', ')}
+                          Will also backfill: {[p.backfill.effective_date && `effective date ${formatDate(p.backfill.effective_date, p.backfill.effective_date)}`, p.backfill.departments && `department ${p.backfill.departments.join(', ')}`].filter(Boolean).join(', ')}
                         </div>
                       )}
                     </div>

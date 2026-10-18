@@ -74,6 +74,8 @@ import TicketDeskAccessSettings from '../tickets/TicketDeskAccessSettings';
 import DailyBriefingSettings from '../components/DailyBriefingSettings';
 import WeeklyDigestSettings from '../components/WeeklyDigestSettings';
 import WorkforceScorecardSettings from '../components/WorkforceScorecardSettings';
+import PayrollExportCodes from '../components/PayrollExportCodes';
+import PayPremiums from '../components/PayPremiums';
 
 // Borrowed components, lazy so their home module's chunk only loads once an
 // admin actually opens that section.
@@ -146,7 +148,7 @@ const GLOBAL_CATEGORIES = [
     desc: 'The Nexus brand color, how every Nexus email looks, and the policy everyone accepts at sign-in.' },
   // Time Clock pay rules (Charmi, Sep 30): moved off the timecard's Options popover.
   { key: 'timeclock',      label: 'Time Clock',     Icon: CalendarClock, adminOnly: true,
-    desc: 'Punch rounding, the auto-lunch deduction and California paid rest breaks - the rules every timecard is computed with.' },
+    desc: 'Punch rounding, the auto-lunch deduction and California paid rest breaks - the rules every time sheet is computed with.' },
   { key: 'hiring',         label: 'Hiring',         Icon: UserPlus,
     desc: 'What goes out when someone is hired, promoted or leaves - built from Documents - and the interview questionnaires for each role. The Hiring board itself is only for moving candidates along.' },
   { key: 'shifts',         label: 'Shifts',         Icon: CalendarClock,
@@ -213,8 +215,8 @@ const GLOBAL_SECTIONS = [
     sub: 'The questions asked in each role\'s interview - the Interview Room shows them to the interviewer.',
     keywords: 'questions interview questionnaire role character competence availability' },
   { id: 'timeclock-policy', category: 'timeclock', icon: CalendarClock, title: 'Pay Rules',
-    sub: 'Punch rounding (off by default), the auto-lunch deduction and California paid rest breaks. Applies to every timecard.',
-    keywords: 'time clock punch rounding nearest minutes swipeclock auto lunch deduction meal break paid rest break california timecard payroll' },
+    sub: 'Punch rounding (off by default), the auto-lunch deduction, California paid rest breaks, each company\'s payroll export codes, and shift differentials and call-back pay (off by default). Applies to every time sheet.',
+    keywords: 'time clock punch rounding nearest minutes swipeclock auto lunch deduction meal break paid rest break california time sheet payroll export codes earnings codes payroll items quickbooks iif intacct shift differential night weekend premium call-back callback minimum' },
   { id: 'shift-settings', category: 'shifts', icon: CalendarClock, title: 'Shift Settings',
     sub: 'What staff may request (open shifts, swaps, offers, time off) and see of their teammates, the team time zone, which day the week starts on, and the time-off reasons.',
     keywords: 'shifts schedule requests swap offer open shift time off reasons time zone week start sunday monday visibility' },
@@ -1324,10 +1326,10 @@ function TimeClockPolicyPanel({ toastOk, toastErr }) {
   return (
     <div>
       <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.5 }}>
-        These rules shape every timecard the moment they are saved. They apply to the whole tenant today; a rule per company is planned.
+        These rules shape every time sheet the moment they are saved. They apply to the whole tenant today; a rule per company is planned.
       </div>
       <PolicyCard title="Punch Rounding" busy={busy === 'rounding'} enabled={rounding.enabled}
-        desc={`Round every clock-in and clock-out to the nearest ${rounding.nearestMin || 5} minutes before computing hours (SwipeClock's model; the raw times stay on record and can be shown on the timecard). Off by default - turn it on only if the company has a rounding policy.`}
+        desc={`Round every clock-in and clock-out to the nearest ${rounding.nearestMin || 5} minutes before computing hours (SwipeClock's model; the raw times stay on record and can be shown on the time sheet). Off by default - turn it on only if the company has a rounding policy.`}
         onToggle={on => save('rounding', { enabled: on, nearestMin: rounding.nearestMin || 5 }, 'Punch rounding')}>
         <PolicyNumber label="Nearest" min={1} max={30} value={rounding.nearestMin}
           onChange={v => setCfg(c => ({ ...c, rounding: { ...c.rounding, nearestMin: v } }))} />
@@ -1356,6 +1358,8 @@ function TimeClockPolicyPanel({ toastOk, toastErr }) {
         <button type="button" className="secondary-btn" style={{ fontSize: 12 }} disabled={busy === 'breakPolicy'}
           onClick={() => save('breakPolicy', { enabled: true, paidBreakMin: num(breakPolicy.paidBreakMin, 10), restMaxMin: num(breakPolicy.restMaxMin, 20), longBreakMin: num(breakPolicy.longBreakMin, 75) }, 'CA paid breaks')}>Save</button>
       </PolicyCard>
+      <PayrollExportCodes toastOk={toastOk} toastErr={toastErr} />
+      <PayPremiums toastOk={toastOk} toastErr={toastErr} />
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 // The priority bar (Neil, call of 09/29; adjusted 10/01): a notification
 // with priority 1 sticks to the top until it is clicked off - opening the
@@ -16,14 +16,14 @@ vi.mock('../api', () => ({ api: {
   sendPriorityNotice: vi.fn(async () => ({ id: 'n1' })),
 } }));
 
-import PriorityBar, { RaiseNotice, canRaiseNotice } from './PriorityBar';
+import PriorityBar, { RaiseNotice, canRaiseNotice, noticeSummary } from './PriorityBar';
 import { takePendingOpen } from '../lib/pendingOpen';
 import { api } from '../api';
 
 describe('PriorityBar', () => {
   it('shows the open priority notices, opens one without clearing it, closes one', async () => {
     notifications = [
-      { id: 'a', priority: 1, read: false, actioned: false, title: 'Timesheet to review', body: 'Valinda, 09/01 - 09/30.', action: { view: 'hr', sub: 'hr-time', timecard: 'valinda.cranfill@greensstorage.com', start: '2026-09-01', payType: 'hourly' } },
+      { id: 'a', priority: 1, read: false, actioned: false, title: 'Time Sheet to Review', body: 'Valinda, 09/01 - 09/30.', action: { view: 'hr', sub: 'hr-time', timecard: 'valinda.cranfill@greensstorage.com', start: '2026-09-01', payType: 'hourly' } },
       { id: 'b', priority: 1, read: true, actioned: false, title: 'Punch fix waiting', body: '', action: null },
       { id: 'c', priority: 0, read: false, actioned: false, title: 'Quiet bell item', body: '', action: null },
       { id: 'd', priority: 1, read: true, actioned: false, closed: true, title: 'Clicked off', body: '', action: null },
@@ -31,7 +31,7 @@ describe('PriorityBar', () => {
     const onNavigate = vi.fn();
     render(<PriorityBar onNavigate={onNavigate} />);
     const bar = screen.getByRole('alert', { name: 'Priority notice' });
-    expect(bar.textContent).toContain('Timesheet to review');
+    expect(bar.textContent).toContain('Time Sheet to Review');
     // A read-but-not-closed notice still counts; a closed one is gone.
     expect(bar.textContent).toContain('1 of 2');
     expect(screen.queryByText('Quiet bell item')).toBeNull();
@@ -57,19 +57,40 @@ describe('PriorityBar', () => {
 
   it('Show All lists every notice, then Clear All closes them all (Pranshu, Oct 16)', () => {
     notifications = [
-      { id: 'a', priority: 1, read: false, actioned: false, title: 'Sign your timecard', body: '', action: { view: 'timeclock' } },
+      { id: 'a', priority: 1, read: false, actioned: false, title: 'Sign your time sheet', body: '', action: { view: 'timeclock' } },
       { id: 'b', priority: 1, read: false, actioned: false, title: 'Time-off request', body: '', action: { view: 'hr' } },
     ];
     dismiss.mockClear();
     render(<PriorityBar />);
     expect(screen.queryByText('Time-off request')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Show All' }));
-    expect(screen.getByText('Sign your timecard')).toBeTruthy();
-    expect(screen.getByText('Time-off request')).toBeTruthy();
-    expect(screen.getAllByRole('button', { name: 'Open' })).toHaveLength(2);
+    const list = within(screen.getByRole('dialog', { name: 'All priority notices' }));
+    expect(list.getByText('Sign your time sheet')).toBeTruthy();
+    expect(list.getByText('Time-off request')).toBeTruthy();
+    expect(list.getAllByRole('button', { name: 'Open' })).toHaveLength(2);
     expect(screen.queryByRole('button', { name: 'Show All' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Clear All' }));
+    fireEvent.click(list.getByRole('button', { name: 'Clear All' }));
     expect(dismiss.mock.calls.map((c) => c[0])).toEqual(['a', 'b']);
+  });
+
+  it('keeps the bar to a headline - the reason is read in the details layer (Neil, Oct 17)', () => {
+    notifications = [{ id: 'a', priority: 1, read: false, actioned: false, title: 'Time Sheet Fix Requested',
+      body: 'Nick Vaca asked to add a break end punch at 1:30 PM on 10/15/2026.\nReason: I clocked out instead of ending my break', action: { view: 'hr' } }];
+    render(<PriorityBar />);
+    const bar = screen.getByRole('alert', { name: 'Priority notice' });
+    expect(bar.textContent).toContain('Nick Vaca asked to add a break end punch at 1:30 PM on 10/15/2026.');
+    expect(bar.textContent).not.toContain('Reason');
+    fireEvent.click(screen.getByRole('button', { name: 'Read the full notice: Time Sheet Fix Requested' }));
+    const sheet = screen.getByRole('dialog', { name: 'Priority notice details' });
+    expect(sheet.textContent).toContain('Reason: I clocked out instead of ending my break');
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Close Notice' }));
+    expect(dismiss).toHaveBeenCalledWith('a');
+  });
+
+  it('summarizes a one-line body at its first sentence', () => {
+    expect(noticeSummary('Dan asked to add a punch on 10/15/2026. Reason: forgot')).toBe('Dan asked to add a punch on 10/15/2026.');
+    expect(noticeSummary('Valinda, 09/01 - 09/30.')).toBe('Valinda, 09/01 - 09/30.');
+    expect(noticeSummary('')).toBe('');
   });
 
   it('has no Show All for a single notice', () => {
@@ -95,10 +116,10 @@ describe('PriorityBar', () => {
     const to = await screen.findByLabelText('To');
     await waitFor(() => expect(to.options.length).toBe(2));
     fireEvent.change(to, { target: { value: 'urmi.gor@greensglobal.com' } });
-    fireEvent.change(screen.getByLabelText('What must be done'), { target: { value: 'Sign your timecard by 5 PM' } });
+    fireEvent.change(screen.getByLabelText('What must be done'), { target: { value: 'Sign your time sheet by 5 PM' } });
     fireEvent.change(screen.getByLabelText('Open takes them to'), { target: { value: 'timeclock:timecard' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send Notice' }));
     await waitFor(() => expect(api.sendPriorityNotice).toHaveBeenCalled());
-    expect(api.sendPriorityNotice.mock.calls[0][0]).toMatchObject({ recipient: 'urmi.gor@greensglobal.com', title: 'Sign your timecard by 5 PM', action: { view: 'timeclock', sub: 'timecard' } });
+    expect(api.sendPriorityNotice.mock.calls[0][0]).toMatchObject({ recipient: 'urmi.gor@greensglobal.com', title: 'Sign your time sheet by 5 PM', action: { view: 'timeclock', sub: 'timecard' } });
   });
 });

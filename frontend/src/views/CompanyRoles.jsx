@@ -161,7 +161,7 @@ export default function CompanyRoles({ entity, toastOk, toastErr }) {
                     {selected.allowed_modules.map(g => <ModuleLevelPill key={g.id} moduleId={g.id} level={g.level} />)}
                   </div>}
 
-              <div style={sectLabel}>Timesheet approver (default manager)</div>
+              <div style={sectLabel}>Time Sheet approver (default manager)</div>
               <ApproverPicker role={selected} people={companyPeople} nameOf={nameOf}
                 onSaved={load} toastOk={toastOk} toastErr={toastErr} />
 

@@ -2843,6 +2843,25 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
   [style*="repeat(3, 1fr)"] { grid-template-columns: 1fr !important; }
 }
 
+/* Phone dashboard: a stacked widget that only says it is not connected (the
+   Calendar without Microsoft 365) keeps its message, not 9 rows of blank card. */
+.dash-stack-cell:has([data-widget-unavailable]) { height: auto !important; min-height: 0 !important; }
+
+/* Google Ads tables on a phone (Oct 17): they scroll sideways, so the name
+   column stays put and a shadow at the edge says there is more. */
+@media (max-width: 640px) {
+  .mktg-hscroll {
+    background:
+      linear-gradient(90deg, #fff 30%, rgba(255,255,255,0)) 0 0 / 40px 100% no-repeat local,
+      linear-gradient(90deg, rgba(255,255,255,0), #fff 70%) 100% 0 / 40px 100% no-repeat local,
+      radial-gradient(farthest-side at 0 50%, rgba(15,23,42,.14), transparent) 0 0 / 12px 100% no-repeat scroll,
+      radial-gradient(farthest-side at 100% 50%, rgba(15,23,42,.14), transparent) 100% 0 / 12px 100% no-repeat scroll;
+  }
+  .mktg-hscroll th:first-child, .mktg-hscroll td:first-child {
+    position: sticky; left: 0; z-index: 1; background: #fff; box-shadow: 1px 0 0 rgba(15,23,42,.08);
+  }
+}
+
 /* Vestibular safety: collapse animations/transitions for users who asked */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
@@ -5938,6 +5957,9 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
 @media (max-width: 900px) {
   .acct-header.view-header { grid-template-columns: minmax(0, 1fr) auto; }
   .acct-header-search { grid-column: 1 / -1; grid-row: 2; }
+  /* The subtitle drops under the title and wraps, instead of one cut line (Oct 17). */
+  .acct-header-title { flex-wrap: wrap; row-gap: 2px; }
+  .acct-header-title p { white-space: normal; flex-basis: 100%; }
 }
 /* Oct 6: a tab with a dropdown (ModuleTabs' TabGroupButton) names the item
    open inside it - "Dashboard  Cash". */

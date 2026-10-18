@@ -194,7 +194,7 @@ def build_feed(db: Session, email: str, now: datetime = None) -> str:
         cancelled = (getattr(r, "weather_status", "") or "") == "cancelled"
         desc = [x for x in ((f"Team: {g.name}" if g is not None and g.name else ""),
                             (f"Site: {site.name}" if site is not None and site.name else ""),
-                            ("Cancelled by a weather call." if cancelled else "")) if x]
+                            ("Canceled by a weather call." if cancelled else "")) if x]
         lines += ["BEGIN:VEVENT", f"UID:{_esc(r.id)}", f"DTSTAMP:{stamp}",
                   f"DTSTART:{_utc(s, tz)}", f"DTEND:{_utc(e, tz)}",
                   f"SUMMARY:{_esc(shift_calendar.subject_for(r.start_hhmm, r.end_hhmm, shift_calendar.title_of(r, preset)))}",

@@ -173,7 +173,7 @@ export default function TimeTracking({ task, canLog = true }) {
               })}
             </div>
           )}
-      <div style={{ fontSize: 11, color: NX.faint, marginTop: 8, fontFamily: FONT }}>Time here is effort on this task. It is not a Time Clock punch and does not touch your timesheet.</div>
+      <div style={{ fontSize: 11, color: NX.faint, marginTop: 8, fontFamily: FONT }}>Time here is effort on this task. It is not a Time Clock punch and does not touch your time sheet.</div>
     </div>
   );
 }

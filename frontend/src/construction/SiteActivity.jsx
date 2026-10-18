@@ -25,6 +25,7 @@ import ReviewQueue from './ReviewQueue';
 import DailyLogCapture from './DailyLogCapture';
 import WeeklyReports from './WeeklyReports';
 import SearchPicker from './SearchPicker';
+import { formatDate } from '../lib/datetime';
 
 export default function SiteActivity() {
   const { can } = useRole();
@@ -166,7 +167,7 @@ export default function SiteActivity() {
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
                         <div style={{ minWidth: 0 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                            <strong style={{ fontSize: '1rem', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{l.logDate}</strong>
+                            <strong style={{ fontSize: '1rem', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{formatDate(l.logDate, l.logDate)}</strong>
                             <span style={{ backgroundColor: s.bg, color: s.fg, fontSize: '0.7rem', padding: '2px 8px', borderRadius: 4, fontWeight: 600 }}>{s.label}</span>
                             {/* Advisory, never enforced - see _within_geofence. Shown so a
                                 manager can weigh it, not to accuse anyone. */}

@@ -322,7 +322,7 @@ export function PayrollHoursToQb() {
             <HoursPreview people={people} showApproval={source === 'nexus'} />
             {people.length > PREVIEW && <div style={small}>Showing the first {PREVIEW} of {people.length}; the downloads have them all.</div>}
             <p style={{ ...small, margin: 0 }}>
-              QuickBooks matches the employee by name and the payroll items Regular Pay, Overtime Pay, Double-time Pay, Sick Pay and Vacation Pay - they must exist in QuickBooks or be mapped when importing.
+              QuickBooks matches the employee by name and the payroll items Regular Pay, Overtime Pay, Double-time Pay, Sick Pay and Vacation Pay - they must exist in QuickBooks or be mapped when importing. Nexus time sheets use each company's names from Settings &gt; Time Clock &gt; Pay Rules &gt; Payroll Export Codes.
             </p>
           </>
         )}

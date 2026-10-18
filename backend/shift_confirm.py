@@ -235,7 +235,7 @@ def nudge_email_html(first_name: str, pub: models.ShiftPublish, actor_name: str)
     </td></tr>
   </table>
 </div>"""
-    return "Please confirm your schedule", html
+    return "Please Confirm Your Schedule", html
 
 
 def nudge(db: Session, publish_id: str, emails: list, actor: str, scope, bt=None) -> dict:
@@ -272,7 +272,7 @@ def nudge(db: Session, publish_id: str, emails: list, actor: str, scope, bt=None
         if a.nudged_at:
             skipped["alreadyNudged"] += 1
             continue
-        shift_notify._upsert_bell(db, em, f"schedule-confirm:{publish_id}", "Please confirm your schedule",
+        shift_notify._upsert_bell(db, em, f"schedule-confirm:{publish_id}", "Please Confirm Your Schedule",
                                   f"Confirm you have seen your shifts for {span}.", actor, now,
                                   action=confirm_action(publish_id))
         a.nudged_at = _now()

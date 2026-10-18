@@ -513,7 +513,7 @@ export default function RolesAccess({ embedded = false }) {
     { target: 'duplicate', before: () => { setSub('jobroles'); if (!selId && (jobRoles || [])[0]) setSelId(jobRoles[0].id); }, title: 'Same job, more power? Duplicate.',
       body: 'For a supervisor version of an existing role: Duplicate, rename it, raise the tier and levels, save. The original role and its people are untouched.' },
     { target: 'role-approver', before: () => { setSub('jobroles'); if (!selId && (jobRoles || [])[0]) setSelId(jobRoles[0].id); }, title: 'One approver for the whole role',
-      body: 'Pick who approves this role’s timesheets. Save as default - every NEW person mapped to the role reports to them automatically. “Apply to all members” backfills everyone already in the role in one click (ten people, two clicks). Individual People cards can still override.' },
+      body: 'Pick who approves this role’s time sheets. Save as default - every NEW person mapped to the role reports to them automatically. “Apply to all members” backfills everyone already in the role in one click (ten people, two clicks). Individual People cards can still override.' },
     { target: 'new-group', before: () => setSub('groups'), title: 'Groups add extras on top',
       body: 'Same job but extra duties? Don’t touch the role - add the person to a group. Groups only ever ADD access, and removing one never affects the job-role baseline.' },
     { target: 'audit-matrix', before: () => setSub('audit'), title: 'The audit view - everything at once',
@@ -631,7 +631,7 @@ export default function RolesAccess({ embedded = false }) {
                         <MonitorOff size={12} /> Not monitored</span>
                     )}
                     {selected.time_tracking_exempt && (
-                      <span title="People in this role have no time clock and no timesheet."
+                      <span title="People in this role have no time clock and no time sheet."
                         style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 9px', borderRadius: 999, fontSize: 11, fontWeight: 700,
                           background: 'rgba(37,99,235,0.1)', color: 'hsl(var(--color-blue))' }}>
                         <TimerOff size={12} /> No Time Tracking</span>
@@ -668,7 +668,7 @@ export default function RolesAccess({ embedded = false }) {
                     );
                   })}
                   {(selected.allowed_modules || []).length === 0 && <div style={{ color: 'var(--muted)', fontSize: 13, marginTop: 16 }}>No modules granted yet - press Edit to build the bundle.</div>}
-                  <div style={sectLabel}>Timesheet approver (default manager)</div>
+                  <div style={sectLabel}>Time Sheet approver (default manager)</div>
                   <ApproverPicker role={selected} people={people} nameOf={nameOf}
                     onSaved={loadRoles} toastOk={toastOk} toastErr={toastErr} />
                   <div style={sectLabel}>People with this role · {filterOn
@@ -1252,7 +1252,7 @@ export function ApproverPicker({ role, people, nameOf, onSaved, toastOk, toastEr
   }
   async function applyAll() {
     if (!val) return;
-    if (!await dialog.confirm(`Set ${nameOf(val)} as manager/timesheet approver for all ${role.member_count} people in "${role.name}"? This overwrites their current manager; individual cards can be changed afterwards.`, { title: 'Set approver for whole role', confirmText: 'Set for all' })) return;
+    if (!await dialog.confirm(`Set ${nameOf(val)} as manager/time sheet approver for all ${role.member_count} people in "${role.name}"? This overwrites their current manager; individual cards can be changed afterwards.`, { title: 'Set approver for whole role', confirmText: 'Set for all' })) return;
     setBusy('apply');
     try {
       const r = await api.applyJobRoleManager(role.id, val);
@@ -1277,7 +1277,7 @@ export function ApproverPicker({ role, people, nameOf, onSaved, toastOk, toastEr
         </button>
       </div>
       <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 7, lineHeight: 1.5, maxWidth: '60ch' }}>
-        Who approves this role's timesheets and punch fixes. New people mapped to the role inherit them automatically (if they don't already have a manager); Apply to all backfills everyone currently in it. A person's own card always wins.
+        Who approves this role's time sheets and punch fixes. New people mapped to the role inherit them automatically (if they don't already have a manager); Apply to all backfills everyone currently in it. A person's own card always wins.
       </div>
     </div>
   );
@@ -1639,7 +1639,7 @@ export function RoleEditor({ role, jobRoles = [], companyId = '', departments, o
           <span style={{ flex: 1, minWidth: 0 }}>
             <span style={{ display: 'block', fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>Exempt from time tracking</span>
             <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', marginTop: 3, lineHeight: 1.45 }}>
-              People in this role have no time clock and no timesheet. Use for salaried leadership who are not tracked.
+              People in this role have no time clock and no time sheet. Use for salaried leadership who are not tracked.
             </span>
           </span>
         </button>

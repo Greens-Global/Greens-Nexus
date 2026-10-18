@@ -413,7 +413,7 @@ def use_template(template_id: str, body: UseTemplateBody, background_tasks: Back
             ids.append(row.id)
             for who in row.assignee_emails or []:
                 if who != actor:
-                    task_notify(db, kind="task_assigned", for_email=who, title="You were assigned a task",
+                    task_notify(db, kind="task_assigned", for_email=who, title="You Were Assigned a Task",
                                 body=row.title, task_id=row.id,
                                 nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
         parent.subtask_ids = ids

@@ -165,7 +165,7 @@ class NoDeadEndTests(MatrixCase):
     def test_back_with_the_employee_they_are_told_and_can_resubmit(self):
         self._to("with_employee")
         bell = [n for n in self.db.query(models.NexusNotification).filter_by(recipient=EMP).all()
-                if n.title == "Timesheet sent back"]
+                if n.title == "Time Sheet Sent Back"]
         self.assertTrue(bell)
         self.assertTrue(tsr.state_for(self.db, EMP, self.ps, EMP, False)["canSubmit"])
 

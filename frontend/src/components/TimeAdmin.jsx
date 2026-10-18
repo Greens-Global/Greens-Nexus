@@ -10,6 +10,7 @@ import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import DayTimeline from './DayTimeline';
 import PayrollTimecard from './PayrollTimecard';
+import RetroPayReport from './RetroPayReport';
 import AddTimeModal from './AddTimeModal';
 import TimeInsights from './TimeInsights';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
@@ -24,6 +25,9 @@ import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import { formatDistance, formatAccuracy } from '../lib/distance';
 import { useRole } from '../contexts/RoleContext';
+import PayrollReadiness from './PayrollReadiness';
+import { ForChip } from './DelegateApprovals';
+import CaReview from './CaReview';
 
 // Launch (Neil, 10/16): timecards are approved by Agree in the timesheet
 // review and signed in Nexus Sign, so the per-day / per-period Approve
@@ -205,7 +209,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
   // add) instead of collapsing the whole list + KPI strip to a spinner on every action.
   const load = useCallback((quiet = false) => {
     if (!quiet) setRows(null);
-    api.timeTeam(start, end).then(r => setRows(r.rows)).catch(e => { setRows([]); toastErr(e?.message || 'Could not load timesheets.'); });
+    api.timeTeam(start, end).then(r => setRows(r.rows)).catch(e => { setRows([]); toastErr(e?.message || 'Could not load time sheets.'); });
   }, [start, end, toastErr]);
   useEffect(() => { load(); }, [load]);
   // A punch add/remove/edit anywhere (this tab or the employee's own timecard) should
@@ -255,7 +259,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
       // say so rather than silently dropping it from the count.
       catch (e) { if (e?.detail?.code === 'unresolved_exceptions') blocked++; }
     }
-    toastOk(`Approved ${ok} of ${targets.length} timecard${targets.length === 1 ? '' : 's'}`
+    toastOk(`Approved ${ok} of ${targets.length} time sheet${targets.length === 1 ? '' : 's'}`
       + (blocked ? ` - ${blocked} held for missing punches` : '') + '.');
     setApprovingAll(false);
     load(true);
@@ -314,7 +318,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
     }
     setBulkBusy(false);
     setSelReqs(new Set());
-    if (ok || dupes) toastOk([ok ? `${ok} request${ok === 1 ? '' : 's'} ${status}.` : '', dupes ? `${dupes} already on the timecard - closed as duplicate${dupes === 1 ? '' : 's'}.` : ''].filter(Boolean).join(' '));
+    if (ok || dupes) toastOk([ok ? `${ok} request${ok === 1 ? '' : 's'} ${status}.` : '', dupes ? `${dupes} already on the time sheet - closed as duplicate${dupes === 1 ? '' : 's'}.` : ''].filter(Boolean).join(' '));
     if (fails.length) toastErr(`${fails.length} could not be ${status}: ${fails[0]}`);
     loadPunchReqs();
   }
@@ -328,7 +332,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
     }
     try {
       const res = await api.timeDecidePunchRequest(id, { status, note });
-      if (res && res.status && res.status !== status) toastOk('That punch is already on the timecard - closed as a duplicate.');
+      if (res && res.status && res.status !== status) toastOk('That punch is already on the time sheet - closed as a duplicate.');
       // Approving can also set aside a punch the fix replaces - say which (Oct 7).
       else toastOk(status === 'approved' && /Replaced|Also added/.test(res?.decisionNote || '') ? `Approved. ${res.decisionNote}` : `Request ${status}.`);
       loadPunchReqs();
@@ -492,10 +496,10 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
             cls: 'card-blue', active: view === 'hours',
             title: `Worked hours of everyone on your team, ${rangeText}, after breaks - click to see them by person and by day`,
             go: () => setView('hours') },
-          { key: 'review', label: 'Timesheets to Review', value: reviewWaiting == null ? '-' : String(reviewWaiting),
+          { key: 'review', label: 'Time Sheets to Review', value: reviewWaiting == null ? '-' : String(reviewWaiting),
             sub: 'Waiting on your review', cls: reviewWaiting ? 'card-orange' : '', active: false,
-            title: reviewWaiting ? 'Timesheets waiting on your review and approval (submitted or not) - click to jump to the list'
-              : 'Nothing is waiting on you - click to open the Payroll timecards',
+            title: reviewWaiting ? 'Time sheets waiting on your review and approval (submitted or not) - click to jump to the list'
+              : 'Nothing is waiting on you - click to open the Payroll time sheets',
             go: openReviewList },
         ];
         const chevron = (
@@ -619,7 +623,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
             )}
             {r.pendingEdits > 0 && (
               <button onClick={e => { e.stopPropagation(); setPayrollEmail(r.email); setView('payroll'); }}
-                title={`${r.pendingEdits} time edit${r.pendingEdits === 1 ? '' : 's'} from this employee awaiting your review - click to open their Payroll timecard and approve or reject each`}
+                title={`${r.pendingEdits} time edit${r.pendingEdits === 1 ? '' : 's'} from this employee awaiting your review - click to open their Payroll time sheet and approve or reject each`}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 800, color: 'var(--wk-brand)', background: 'var(--wk-brand-tint)', border: 'none', padding: '3px 9px', borderRadius: 999, cursor: 'pointer', fontFamily: 'var(--wk-font)' }}>
                 <Pencil size={10} /> {r.pendingEdits} to review
               </button>
@@ -753,8 +757,13 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
       {/* Shifts moved out to its own module in My Desk (Sep 29) - views/Shifts.jsx. */}
 
       {/* Payroll - per-employee, per-pay-period editable timecard */}
+      {view === 'payroll' && <PayrollReadiness onOpenTimecard={openTimecard} toastOk={toastOk} toastErr={toastErr} />}
+      {/* California Review (Oct 18): CA-rule flags for HR - never the manager tier. */}
+      {view === 'payroll' && !hrTeam && <CaReview onOpenTimecard={openTimecard} toastOk={toastOk} toastErr={toastErr} />}
       {view === 'payroll' && <PayrollTimecard key={payrollTarget.key} toastOk={toastOk} toastErr={toastErr} initialEmail={payrollEmail}
         initialStart={payrollTarget.start} initialPayType={payrollTarget.payType} />}
+      {/* Retro Pay (Oct 17): back-dated rate changes on finalized periods. Pay - never the manager tier. */}
+      {view === 'payroll' && !hrTeam && <RetroPayReport />}
 
 
       {/* Action Log (Neil, 10/06): punch-fix requests and missing punches were two
@@ -776,7 +785,12 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
           if ((!g.name || g.name === g.email) && name) g.name = name;
           return g;
         };
-        punchReqs.slice(0, 500).forEach(r => slot(r.employeeEmail, r.employeeName, r.department).reqs.push(r));
+        punchReqs.slice(0, 500).forEach(r => {
+          const g = slot(r.employeeEmail, r.employeeName, r.department);
+          g.reqs.push(r);
+          // Seen only as someone's stand-in (approver delegation): "For <delegator>".
+          if (r.forEmail) { g.forEmail = r.forEmail; g.forName = r.forName; }
+        });
         (exceptions || []).forEach(r => {
           const g = slot(r.email, r.name || (rows || []).find(x => x.email === r.email)?.name, r.department);
           g.missing.push(...r.exceptions);
@@ -897,8 +911,10 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
                     {ids.length > 0 && cb(gSel === ids.length, on => toggle(ids, on), `Select every request from ${g.name}`)}
                     <Avatar email={g.email} name={g.name} size={32} />
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ fontSize: 13.5, fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.name}</div>
+                    {/* A 180px basis: on a phone the name keeps the first line and the
+                        chips and buttons wrap below it, instead of squeezing it to "N..." (Oct 17). */}
+                    <div style={{ minWidth: 0, flex: '1 1 180px' }}>
+                      <div style={{ fontSize: 13.5, fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.name}{g.forEmail && <ForChip name={g.forName} email={g.forEmail} />}</div>
                       <div style={{ fontSize: 11.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {g.dept || 'No department'} · {g.email}
                       </div>
@@ -915,7 +931,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                     {g.email && (
                       <button className="secondary-btn" onClick={() => openTimecard(g.email, '', '')}
                         style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                        <Pencil size={12} /> Open Timecard
+                        <Pencil size={12} /> Open Time Sheet
                       </button>
                     )}
                   </div>
@@ -958,7 +974,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                       <span style={{ color: 'var(--ink)', flex: 1, minWidth: 200 }}>{e.label}</span>
                       <button className="secondary-btn" onClick={() => openTimecard(g.email, e.date, '')}
                         style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                        <Pencil size={12} /> Fix on Timecard
+                        <Pencil size={12} /> Fix on Time Sheet
                       </button>
                     </div>
                   ))}
@@ -1012,7 +1028,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
             const partial = r.startTime && r.endTime;
             return (
               <div key={r.id} style={{ display: 'grid', gridTemplateColumns: '200px 110px 1fr 70px 160px 170px', gap: 10, alignItems: 'center', padding: '10px 14px', borderBottom: '1px solid var(--line)', background: r.status === 'pending' ? 'rgba(251,191,36,0.05)' : 'transparent' }}>
-                <span style={{ fontSize: 12.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name || r.email}</span>
+                <span style={{ fontSize: 12.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name || r.email}{r.forEmail && <ForChip name={r.forName} email={r.forEmail} />}</span>
                 <span style={{ fontSize: 12, textTransform: 'capitalize', display: 'inline-flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
                   {timeoffLabel(r)}{r.confidential && <ConfidentialMark />}
                 </span>
@@ -1067,7 +1083,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                 </span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 15, fontWeight: 800 }}>{p.name}</div>
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{p.email} · {start} → {end}</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{p.email} · {formatDate(start)} - {formatDate(end)}</div>
                 </div>
                 {LEGACY_APPROVE && (() => {
                   const dk = Object.keys(p.days || {});
@@ -1139,14 +1155,14 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                     <span style={{ fontWeight: 700, textTransform: 'capitalize', width: 80, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                       {timeoffLabel(t)}{t.confidential && <ConfidentialMark />}
                     </span>
-                    <span style={{ color: 'var(--muted)', flex: 1 }}>{t.startDate} → {t.endDate}{t.note ? ` · Reason: ${t.note}` : ''}</span>
+                    <span style={{ color: 'var(--muted)', flex: 1 }}>{formatDate(t.startDate, t.startDate)} - {formatDate(t.endDate, t.endDate)}{t.note ? ` · Reason: ${t.note}` : ''}</span>
                     <span style={{ fontWeight: 700, fontSize: 11, textTransform: 'capitalize', padding: '2px 10px', borderRadius: 999,
                       background: t.status === 'approved' ? 'hsla(var(--color-green),0.1)' : t.status === 'rejected' ? 'rgba(185,28,28,0.08)' : 'rgba(180,83,9,0.1)',
                       color: t.status === 'approved' ? 'hsl(var(--color-green))' : t.status === 'rejected' ? '#b91c1c' : '#b45309' }}>{t.status}</span>
                   </div>
                 ))}
                 <p style={{ margin: '14px 0 0', fontSize: 10.5, color: 'var(--muted)' }}>
-                  To correct a punch, use the pencil on the Timecards list. Screenshots (if captured) are in Workforce Analytics.
+                  To correct a punch, use the pencil on the Time Sheets list. Screenshots (if captured) are in Workforce Analytics.
                 </p>
               </div>
             </div>
