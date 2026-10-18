@@ -57,7 +57,7 @@ function KeywordTable({ rows, searchable }) {
           />
         </div>
       )}
-      <div style={{ overflowX: 'auto' }}>
+      <div className="mktg-hscroll" style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ borderBottom: '1px solid ' + C.gray100, color: C.gray400, fontSize: 10.5, textTransform: 'uppercase' }}>

@@ -644,7 +644,7 @@ export function CalendarPanel({ phone = false }) {
       }
     >
       {!state.available && !state.loading ? (
-        <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '24px 8px', textAlign: 'center', lineHeight: 1.5 }}>
+        <div data-widget-unavailable style={{ fontSize: 12.5, color: 'var(--muted)', padding: '24px 8px', textAlign: 'center', lineHeight: 1.5 }}>
           Your calendar isn't connected - this widget shows the Outlook calendar of Microsoft 365 accounts.
         </div>
       ) : (
