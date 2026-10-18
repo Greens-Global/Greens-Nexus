@@ -2407,6 +2407,21 @@ export const api = {
   approvalDelegationRevoke:    (id)   => req(`/approval-delegations/${encodeURIComponent(id)}/revoke`, { method: 'POST' }),
   approvalDelegationsAll:      (includePast = false) => req(`/approval-delegations${includePast ? '?include_past=true' : ''}`),
   approvalDelegationCreateFor: (data) => req('/approval-delegations', { method: 'POST', body: JSON.stringify(data) }),
+  // CA meal and rest breaks (Oct 17): the employee's Yes / No before signing,
+  // the manager's premium lines, HR's meal waiver (backend/ca_breaks.py).
+  timesheetBreakAttest:  (rid) => req(`/timesheet-review/${encodeURIComponent(rid)}/break-attest`, { method: 'POST', body: '{}' }),
+  timesheetBreakClaim:   (rid, data) => req(`/timesheet-review/${encodeURIComponent(rid)}/break-claim`, { method: 'POST', body: JSON.stringify(data) }),
+  breakPremiumAdd:       (data) => req('/ca-breaks/premiums', { method: 'POST', body: JSON.stringify(data) }),
+  breakPremiumRemove:    (id, reason) => req(`/ca-breaks/premiums/${encodeURIComponent(id)}/remove`, { method: 'POST', body: JSON.stringify({ reason }) }),
+  mealWaiver:            (email) => req(`/ca-breaks/waiver?email=${encodeURIComponent(email || '')}`),
+  mealWaiverSend:        (email) => req('/ca-breaks/waiver/send', { method: 'POST', body: JSON.stringify({ email }) }),
+  mealWaiverRevoke:      (email, note) => req('/ca-breaks/waiver/revoke', { method: 'POST', body: JSON.stringify({ email, note }) }),
+  // California Review (Oct 18): HR's queue of CA-rule flags (step-up, like Payroll Readiness).
+  caReview:              (start = '') => req(`/ca-review/report?start=${start || ''}`, { timeoutMs: 120_000 }),
+  caReviewResolve:       (data) => req('/ca-review/resolve', { method: 'POST', body: JSON.stringify(data) }),
+  caReviewReopen:        (data) => req('/ca-review/reopen', { method: 'POST', body: JSON.stringify(data) }),
+  caReviewSettings:      () => req('/ca-review/settings'),
+  caReviewSaveSettings:  (data) => req('/ca-review/settings', { method: 'PUT', body: JSON.stringify(data) }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

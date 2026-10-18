@@ -2966,6 +2966,13 @@ def _link_hook(event: str, db: Session, req: HrSignRequest, *args) -> None:
               "completed": hle.on_completed, "expired": hle.on_expired}.get(event)
         if fn:
             hle.safe(fn, db, req, *args)
+    elif kind == "meal_waiver":
+        # The California meal period waiver (ca_breaks.py, Oct 17 2026).
+        import ca_breaks
+        fn = {"declined": ca_breaks.on_declined, "voided": ca_breaks.on_voided,
+              "completed": ca_breaks.on_completed}.get(event)
+        if fn:
+            ca_breaks.safe(fn, db, req, *args)
 
 
 def _advance_or_finalize(db: Session, req: HrSignRequest) -> list:
@@ -3074,6 +3081,13 @@ def _apply_signature(db: Session, req: HrSignRequest, party: HrSignParty, body: 
     if not _its_their_turn(req, party):
         raise HTTPException(409, "It is not your turn to sign yet" if party.status != "signed"
                             else "You have already signed")
+    if (getattr(req, "link_kind", "") or "") == "timesheet":
+        # CA-rule staff answer the meal and rest break question before they
+        # sign their time sheet (timesheet_review.sign_blocker; '' for anyone else).
+        import timesheet_review as _tsr
+        _blk = _tsr.sign_blocker(db, req, party)
+        if _blk:
+            raise HTTPException(409, _blk)
     _validate_signature(body)
     # "No signature should be completed without OTP." Checked against the
     # consumed challenge row, so it holds for a caller that never loaded the

@@ -27,6 +27,7 @@ import { formatDistance, formatAccuracy } from '../lib/distance';
 import { useRole } from '../contexts/RoleContext';
 import PayrollReadiness from './PayrollReadiness';
 import { ForChip } from './DelegateApprovals';
+import CaReview from './CaReview';
 
 // Launch (Neil, 10/16): timecards are approved by Agree in the timesheet
 // review and signed in Nexus Sign, so the per-day / per-period Approve
@@ -757,6 +758,8 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
 
       {/* Payroll - per-employee, per-pay-period editable timecard */}
       {view === 'payroll' && <PayrollReadiness onOpenTimecard={openTimecard} toastOk={toastOk} toastErr={toastErr} />}
+      {/* California Review (Oct 18): CA-rule flags for HR - never the manager tier. */}
+      {view === 'payroll' && !hrTeam && <CaReview onOpenTimecard={openTimecard} toastOk={toastOk} toastErr={toastErr} />}
       {view === 'payroll' && <PayrollTimecard key={payrollTarget.key} toastOk={toastOk} toastErr={toastErr} initialEmail={payrollEmail}
         initialStart={payrollTarget.start} initialPayType={payrollTarget.payType} />}
       {/* Retro Pay (Oct 17): back-dated rate changes on finalized periods. Pay - never the manager tier. */}

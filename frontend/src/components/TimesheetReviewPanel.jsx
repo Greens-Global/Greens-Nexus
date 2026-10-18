@@ -20,6 +20,8 @@ import { CheckCircle, Clock, FileSignature, Send, Undo2, ChevronRight, Lock, Shi
 import { api } from '../api';
 import { formatDate, formatDateTime } from '../lib/datetime';
 import { SignModal } from './ESign';
+import BreakAttestModal from './BreakAttestModal';
+import { needsBreakAnswer } from '../lib/breakAttest';
 
 const ACTION_LABEL = {
   submitted: 'submitted the time sheet', resubmitted: 'sent it back to the manager',
@@ -31,6 +33,8 @@ const ACTION_LABEL = {
   finalized_unsigned: "finalized it without the employee's signature (HR)",
   signed_employee: 'signed as the employee', signed_manager: 'signed as the manager',
   signed_hr: 'signed for HR', completed: 'finalized it for payroll',
+  // CA-rule staff only (Oct 17 2026): the meal and rest break question.
+  break_attested: 'answered Yes to the meal and rest break question',
 };
 // Oct 16 (Neil): only the employee signs. The lead approver - the manager, or
 // the company's HR contact / a Global Admin when nobody is set - approves by
@@ -144,6 +148,13 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [signing, setSigning] = useState(null);   // Nexus Sign party id
+  // CA-rule staff only: the meal and rest break question before signing
+  // (BreakAttestModal). {partyId, review} while it is open.
+  const [asking, setAsking] = useState(null);
+  const startSign = (partyId, review = r) => {
+    if (needsBreakAnswer(review)) setAsking({ partyId, review });
+    else setSigning(partyId);
+  };
   const [reason, setReason] = useState('');
   if (!review) return null;
   const r = review;
@@ -165,7 +176,7 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
   // Approve & Sign: the envelope goes out and the signing screen opens on it.
   async function approveAndSign() {
     const out = await run(() => api.timesheetReviewSign(r.id), 'Sign it to finalize.');
-    if (out?.myPartyId) setSigning(out.myPartyId);
+    if (out?.myPartyId) startSign(out.myPartyId, out);
   }
 
   // A missing clock-out, a clock-out with no clock-in or an unended break is
@@ -331,7 +342,7 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
             <SigCard label="Employee" party={parties.employee} waiting={r.turn === 'employee'} />
           </div>
           {r.myPartyId && (
-            <button className="primary-btn" onClick={() => setSigning(r.myPartyId)}
+            <button className="primary-btn" onClick={() => startSign(r.myPartyId)}
               style={{ marginTop: 12, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
               <FileSignature size={13} /> {r.turn === 'employee' ? 'Sign & Submit' : 'Review & Sign'}
             </button>
@@ -341,6 +352,15 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
       {unsignedBox}
       <ApprovalLog lines={r.approvalLog} />
       <History rounds={r.rounds} nameFor={name} />
+      {asking && (
+        <BreakAttestModal reviewId={asking.review.id} attestation={asking.review.breakAttestation} toastErr={toastErr}
+          onClose={() => setAsking(null)}
+          onYes={() => { const pid = asking.partyId; setAsking(null); setSigning(pid); }}
+          onSentBack={() => {
+            setAsking(null); toastOk?.('Sent back to your manager to add the premium pay.'); onChanged?.();
+            window.dispatchEvent(new CustomEvent('nexus:timesheet-review-changed'));
+          }} />
+      )}
       {signing && createPortal(
         <div style={{ position: 'fixed', inset: 0, zIndex: 4000, background: 'var(--bg, #f4f5f7)', display: 'flex', flexDirection: 'column' }}>
           <SignModal partyId={signing} onClose={() => setSigning(null)}

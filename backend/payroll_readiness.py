@@ -359,6 +359,7 @@ def split_figures(card: dict, start: str, end: str) -> dict:
     tc = _tc()
     hours = ot = leave = 0
     reg_p = ot_p = dt_p = sick_p = vac_p = pers_p = hol_p = 0.0
+    meal_p = rest_p = 0.0    # CA premiums (ca_breaks.py) - 0 on every other card
     for d in card.get("days") or []:
         if not (start <= d["date"] <= end):
             continue
@@ -375,8 +376,11 @@ def split_figures(card: dict, start: str, end: str) -> dict:
         vac_p += vac / 60 * r
         pers_p += pers / 60 * r
         hol_p += float(d.get("holidayPay") or 0)
+        meal_p += float(d.get("mealPremiumPay") or 0)
+        rest_p += float(d.get("restPremiumPay") or 0)
     pay = round(round(reg_p, 2) + round(ot_p, 2) + round(dt_p, 2) + round(hol_p, 2)
-                + round(sick_p, 2) + round(vac_p, 2) + round(pers_p, 2), 2)
+                + round(sick_p, 2) + round(vac_p, 2) + round(pers_p, 2)
+                + round(meal_p, 2) + round(rest_p, 2), 2)
     return {"hours": hours, "ot": ot, "leave": leave, "pay": pay}
 
 
@@ -514,7 +518,7 @@ def _base_row(row: dict, pay_type: str, s: str, e: str, today: str, exceptions: 
 
 
 def person(db: Session, row: dict, P: dict, *, cfg: dict, emp, currency: str, approved: set,
-           expected_min, status: dict, rate_row) -> dict | None:
+           expected_min, status: dict, rate_row, ca_ctx: dict | None = None) -> dict | None:
     """One person's readiness row, or None when there is nothing to report
     (no hours in this period or the previous one)."""
     tc, tsr = _tc(), _tsr()
@@ -582,6 +586,11 @@ def person(db: Session, row: dict, P: dict, *, cfg: dict, emp, currency: str, ap
         anomalies += week_anomalies(weeks, history, cfg)
         anomalies += ot_jump(cur_f["ot"], prev_f["ot"], cfg)
     anomalies += missing_outs(exc, cfg)
+    if not fixed:
+        # CA-rule staff only (Oct 18 2026): meal break flags and the open
+        # California Review count, as information - never blocking, never
+        # Ready / Not Ready. Nobody else gets anything here.
+        exceptions = exceptions + ca_info(db, em, s, e, long_card, rate_row, ca_ctx)
 
     out = _base_row(row, "fixed" if fixed else "hourly", s, e, today, exceptions)
     out.update({
@@ -593,6 +602,30 @@ def person(db: Session, row: dict, P: dict, *, cfg: dict, emp, currency: str, ap
                    "expectedMin": expected_min if not fixed else None},
         "currency": currency,
     })
+    return out
+
+
+def ca_info(db: Session, em: str, s: str, e: str, card: dict, rate_row, ctx: dict | None = None) -> list:
+    """Non-blocking readiness notes for a CA-rule hourly person ([] for
+    anyone else): the days the meal detection flagged and the open
+    California Review flags (ca_review.py - the same engine card)."""
+    import ca_breaks
+    import ca_review
+    if not ca_breaks.is_ca_rate(rate_row):
+        return []
+    flags = ca_review.with_status(db, em, s, ca_review.flags_for(db, em, s, e, card=card, rate_row=rate_row,
+                                                                 ctx=ctx), ctx)
+    out = []
+    meal_days = sorted({f["date"] for f in flags if f["rule"] == "meal"})
+    if meal_days:
+        n = len(meal_days)
+        out.append({"type": "ca_meal", "blocking": False,
+                    "label": f"Meal break flags on {n} day{'' if n == 1 else 's'} - "
+                             f"{', '.join(us_date(d) for d in meal_days[:5])}{' ...' if n > 5 else ''}"})
+    n_open = sum(1 for f in flags if f["status"] == "open")
+    if n_open:
+        out.append({"type": "ca_review", "blocking": False,
+                    "label": f"{n_open} open California Review flag{'' if n_open == 1 else 's'} - information only"})
     return out
 
 
@@ -610,6 +643,8 @@ def strip_pay(report: dict) -> dict:
     for r in report.get("rows") or []:
         r["variance"] = [v for v in r["variance"] if v["metric"] != "pay"]
         r["varianceFlags"] = sum(1 for v in r["variance"] if v["flag"])
+        # The California Review is HR's (Oct 18 2026) - not even its count here.
+        r["exceptions"] = [x for x in r.get("exceptions") or [] if x.get("type") != "ca_review"]
         (r.get("totals") or {}).pop("grossPay", None)
         (r.get("totals") or {}).pop("prevGrossPay", None)
         r.pop("currency", None)
@@ -654,6 +689,20 @@ def build(db: Session, scope, anchor: str = "") -> dict:
     st_f = _bulk_status(db, [r["email"] for r in fixed], P["monthStart"], P["monthEnd"])
     people = [emps[r["email"]] for r in hourly if r["email"] in emps]
     expected = _expected(db, people, P["start"], P["end"])
+    # CA-rule hourly people (ca_review.py): their facts read once for all of them.
+    import ca_breaks
+    import ca_review
+    ca_people = [r["email"] for r in hourly if ca_breaks.is_ca_rate(rates.get(r["email"]))]
+    ca_ctx = ca_review.prefetch(db, ca_people, P["start"], P["end"]) if ca_people else None
+    if ca_people:
+        ca_breaks.preload(db, ca_people, (_d(P["start"]) - timedelta(days=7 * HISTORY_WEEKS)).isoformat(), P["end"])
+    try:
+        return _build_rows(db, rows, P, emps, rates, approved, st_h, st_f, expected, ca_ctx)
+    finally:
+        ca_breaks.clear_preload(db)
+
+
+def _build_rows(db: Session, rows, P, emps, rates, approved, st_h, st_f, expected, ca_ctx) -> dict:
     cfgs: dict = {}
     out = []
     for r in rows:
@@ -665,7 +714,7 @@ def build(db: Session, scope, anchor: str = "") -> dict:
         is_fixed = (r.get("payType") or "hourly") == "fixed"
         row = person(db, r, P, cfg=cfgs[cid], emp=emps.get(r["email"]), currency=currency,
                      approved=approved, expected_min=expected.get(r["email"]),
-                     status=st_f if is_fixed else st_h, rate_row=rr)
+                     status=st_f if is_fixed else st_h, rate_row=rr, ca_ctx=ca_ctx)
         if row:
             out.append(row)
     out.sort(key=lambda x: (x["ready"], -(len(x["anomalies"]) + x["varianceFlags"]), x["name"].lower()))

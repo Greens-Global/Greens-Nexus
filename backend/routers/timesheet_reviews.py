@@ -262,3 +262,43 @@ def employee_sign(rid: str, request: Request, user: dict = Depends(get_current_u
     ip, ua = _client_meta(request)
     tsr.employee_approve(db, r, me, ip=ip, user_agent=ua)
     return tsr.state_for(db, r.employee_email, r.period_start, me, False)
+
+
+# ── CA meal and rest breaks at signing (Neil, Oct 17 2026) ───────────────────
+# CA-rule hourly staff only (timesheet_review.needs_break_attestation); anyone
+# else gets a 409 and their signing is unchanged.
+
+class BreakClaimItem(BaseModel):
+    date: str
+    kind: str            # meal | rest
+
+
+class BreakClaimIn(BaseModel):
+    claims: list[BreakClaimItem] = Field(default_factory=list)
+    note: str = ""
+
+
+def _own_review(db: Session, rid: str, user: dict) -> TimesheetReview:
+    r = _review(db, rid)
+    if (user.get("email") or "").lower() != r.employee_email:
+        raise HTTPException(404, "Time sheet review not found")
+    return r
+
+
+@router.post("/{rid}/break-attest")
+def break_attest(rid: str, request: Request, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Yes: "In this pay period I was provided every meal and rest break
+    California law requires." Signing then goes exactly as before."""
+    r = _own_review(db, rid, user)
+    ip, ua = _client_meta(request)
+    tsr.attest_breaks(db, r, user["email"], ip=ip, user_agent=ua)
+    return tsr.state_for(db, r.employee_email, r.period_start, user["email"], False)
+
+
+@router.post("/{rid}/break-claim")
+def break_claim(rid: str, body: BreakClaimIn, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """No: the days and break kinds missed. Does NOT sign - the time sheet goes
+    back to the manager with the claim (the punch-fix reopen path)."""
+    r = _own_review(db, rid, user)
+    tsr.claim_breaks(db, r, user["email"], [c.model_dump() for c in body.claims], body.note)
+    return tsr.state_for(db, r.employee_email, r.period_start, user["email"], False)

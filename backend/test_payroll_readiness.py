@@ -199,6 +199,14 @@ class DbCase(unittest.TestCase):
         return {r["email"]: r for r in pr.build(self.db, scope, ANCHOR)["rows"]}
 
 
+def _core(exceptions):
+    """The readiness exceptions without the CA meal / California Review notes
+    (Oct 18 2026): this fixture's people are on the CA rule and work days with
+    no break punched, which those info-only notes report - test_ca_review
+    covers them; these tests are about the readiness rules themselves."""
+    return [x for x in exceptions if not x["type"].startswith("ca_")]
+
+
 class ReportTests(DbCase):
     def test_figures_are_the_timecards(self):
         r = self._report()[EMP]
@@ -214,7 +222,7 @@ class ReportTests(DbCase):
 
     def test_exceptions(self):
         rows = self._report()
-        emp = {x["type"] for x in rows[EMP]["exceptions"]}
+        emp = {x["type"] for x in _core(rows[EMP]["exceptions"])}
         self.assertEqual(emp, {"not_approved"})
         self.assertFalse(rows[EMP]["ready"])
         emp2 = {x["type"] for x in rows[EMP2]["exceptions"]}
@@ -227,12 +235,13 @@ class ReportTests(DbCase):
         self.db.add(models.TimesheetReview(id="r1", employee_email=EMP, period_start=self.start,
                                            period_end=self.end, status="signing"))
         self.db.commit()
-        self.assertEqual([x["type"] for x in self._report()[EMP]["exceptions"]], ["not_signed"])
+        self.assertEqual([x["type"] for x in _core(self._report()[EMP]["exceptions"])], ["not_signed"])
         self.db.query(models.TimesheetReview).update({"status": "completed"})
         self.db.commit()
         pr.clear_cache()
         r = self._report()[EMP]
-        self.assertEqual(r["exceptions"], [])
+        self.assertEqual(_core(r["exceptions"]), [])
+        self.assertFalse(any(x["blocking"] for x in r["exceptions"]))
         self.assertTrue(r["ready"])
 
     def test_variance_and_anomalies(self):

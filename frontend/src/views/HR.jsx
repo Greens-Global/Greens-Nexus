@@ -49,6 +49,7 @@ import { divisionColor as divColorFor } from '../components/orgchart/tree';
 import { takePendingPerson } from '../lib/personNav';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { TaskChecklist, punchTime } from '../components/WorkLogDrawer';
+import MealWaiverCard from '../components/MealWaiverCard';
 import { COUNTRIES, countryName } from '../lib/countries';
 import WorkSiteAddressMap from '../components/WorkSiteAddressMap';
 import WorkSiteLinkPanel from '../components/WorkSiteLinkPanel';
@@ -1203,6 +1204,8 @@ function PayTab({ employee, reloadToken, onEdit, readOnly = false }) {
           {row2('fullday', 'Full day hours', data.payroll?.fullDayHours ? `${data.payroll.fullDayHours} h` : '')}
           {/* Read-only: set on the person's role in Settings > Access, beside the screen-share exemption (Visesh, 10/02). */}
           {row2('tracking', 'Time tracking', timeTrackingText(data.payroll))}
+          {/* CA-rule hourly staff only (Oct 17 2026): the meal period waiver in Nexus Sign. */}
+          <MealWaiverCard email={employee.workEmail} />
           {sectionLabel('Pay history')}
           {(data.rateHistory || []).length === 0
             ? <div style={{ fontSize: 12.5, color: 'var(--muted)', padding: '6px 0' }}>No pay recorded yet.</div>
