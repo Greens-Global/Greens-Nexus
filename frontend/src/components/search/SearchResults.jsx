@@ -27,8 +27,8 @@ export default function SearchResults({ query, groups, rows, searching, activeId
           <div className="gs-section">{g.label}</div>
           {g.rows.map((r, j) => {
             const i = offsets[k] + j;
-            return (
-              <button key={r.key} className={`gs-row${r.more ? ' gs-more' : ''}`} data-active={i === activeIdx}
+            const main = (
+              <button key={r.alt ? undefined : r.key} className={`gs-row${r.more ? ' gs-more' : ''}`} data-active={i === activeIdx}
                 onMouseEnter={() => onActive?.(i)} onClick={() => onPick(r)}>
                 {r.Icon && <r.Icon size={15} style={{ color: r.done ? 'var(--ok, #16a34a)' : 'var(--muted)', flexShrink: 0 }} />}
                 <span className="gs-row-title" style={r.done ? { textDecoration: 'line-through' } : undefined}>{r.title}</span>
@@ -36,6 +36,18 @@ export default function SearchResults({ query, groups, rows, searching, activeId
                 {r.detail && <span className="gs-row-detail">{r.detail}</span>}
                 {i === activeIdx && <CornerDownLeft size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />}
               </button>
+            );
+            if (!r.alt) return main;
+            // A second action on the row (a person's Tasks page): a sibling
+            // button, never nested inside the row's own button.
+            return (
+              <div key={r.key} className="gs-row-wrap" data-active={i === activeIdx} onMouseEnter={() => onActive?.(i)}>
+                {main}
+                <button type="button" className="gs-row-alt" title={r.alt.title} aria-label={r.alt.title}
+                  onClick={(e) => { e.stopPropagation(); onPick(r, true); }}>
+                  {r.alt.Icon && <r.alt.Icon size={13} />}{r.alt.label}
+                </button>
+              </div>
             );
           })}
           {g.note && <div className="gs-more">{g.note}</div>}

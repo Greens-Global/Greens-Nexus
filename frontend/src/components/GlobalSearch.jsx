@@ -31,7 +31,7 @@ export default function GlobalSearch() {
   // Every opening starts clean.
   const openSheet = useCallback(() => { setQuery(''); setActiveIdx(0); setOpen(true); }, []);
   const close = useCallback(() => setOpen(false), []);
-  const pick = useCallback((row) => { setOpen(false); row.run?.(); }, []);
+  const pick = useCallback((row, alt = false) => { setOpen(false); if (alt && row.alt) row.alt.run?.(); else row.run?.(); }, []);
   useEffect(() => {
     const onKey = (e) => {
       if (!isSearchShortcut(e)) return;
@@ -52,7 +52,7 @@ export default function GlobalSearch() {
     if (e.key === 'Escape') { close(); return; }
     if (e.key === 'ArrowDown') { e.preventDefault(); setActiveIdx(Math.min(Math.max(0, search.rows.length - 1), idx + 1)); }
     if (e.key === 'ArrowUp')   { e.preventDefault(); setActiveIdx(Math.max(0, idx - 1)); }
-    if (e.key === 'Enter' && search.rows[idx]) { e.preventDefault(); pick(search.rows[idx]); }
+    if (e.key === 'Enter' && search.rows[idx]) { e.preventDefault(); pick(search.rows[idx], e.shiftKey); }
   }
 
   if (!open) return null;

@@ -6311,3 +6311,16 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
 .nx-md table { border-collapse: collapse; margin: 0 0 8px; font-size: .95em; }
 .nx-md th, .nx-md td { border: 1px solid var(--line, #d1d5db); padding: 4px 8px; text-align: left; }
 .nx-md h1, .nx-md h2, .nx-md h3 { font-size: 1em; margin: 10px 0 6px; }
+
+/* Search: a second action on a result row - a person's Tasks button (Oct 18 2026). */
+.gs-row-wrap { display: flex; align-items: center; border-radius: 8px; }
+.gs-row-wrap[data-active="true"] { background: var(--mist); }
+.gs-row-wrap > .gs-row { flex: 1; min-width: 0; background: transparent; }
+.gs-row-alt {
+  display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; margin-right: 8px;
+  padding: 5px 10px; border: 1px solid var(--line); border-radius: 999px;
+  background: var(--card); color: var(--ink); cursor: pointer;
+  font: 600 12px Inter, sans-serif;
+}
+.gs-row-alt:hover { border-color: var(--border-hover); }
+.gs-row-alt:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
