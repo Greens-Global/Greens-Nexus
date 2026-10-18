@@ -58,6 +58,7 @@ from routers.esign import _client_meta
 from routers.stepup import require_stepup
 from currency import is_currency
 import payroll_codes
+import pay_premiums
 from shift_day import shift_day as _shift_day, shift_bounds_by_day as _shift_bounds_by_day
 import shift_log
 
@@ -288,7 +289,8 @@ def _visible_emails(db: Session, user: dict):
 PAY_KEYS = frozenset({"pay", "rate", "rateSet", "rateSplits", "amount", "regPay", "otPay", "dtPay", "sickPay",
                       "vacationPay", "holidayPay", "totalPay", "hourlyRate", "dailyRate", "monthlySalary",
                       "salaryForPeriod", "weekendFloor", "deductionAmount", "weekendPay", "currency",
-                      "deduct", "deduction", "bonus", "weekendBonus"})
+                      "deduct", "deduction", "bonus", "weekendBonus",
+                      "diffPay", "callBackPay"})
 
 
 def strip_pay(o):
@@ -1938,6 +1940,9 @@ def finalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrat
             _day_rates[_dd.isoformat()] = float(_rate_on(db, email, _dd.isoformat(), hist=_hist, rate_row=_rr)["hourlyRate"])
             _dd += timedelta(days=1)
     _headline = _day_rates.get(body.end, float(_rr.hourly_rate) if _rr else 0.0)
+    # The differential / call-back rules in force (pay_premiums.py), frozen so
+    # a later rule change never re-prices this period. Off = not stored.
+    _prem = {} if _is_fixed else _pay_premiums_for(db, email, _rr)
     # Snapshot BOTH pay models so neither an hourly rate nor a fixed salary can
     # retro-price this locked, paid period after a later change (see
     # _compute_timecard and _fixed_card, which read this back for finalized periods).
@@ -1950,7 +1955,8 @@ def finalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrat
                         "monthlySalary": (float(_rate_on(db, email, body.end, hist=_hist, rate_row=_rr)["monthlySalary"]) if _hist
                                           else (float(getattr(_rr, "monthly_salary", 0) or 0) if _rr else 0.0)),
                         "fullDayHours": float(getattr(_rr, "full_day_hours", 8) or 8) if _rr else 8.0,
-                        **_fixed_snap})
+                        **_fixed_snap,
+                        **({"premiums": _prem} if _prem else {})})
     row = TimeApproval(id=str(uuid.uuid4()), employee_email=email,
                        period_start=body.start, period_end=body.end, worked_min=worked,
                        approved_by=user["email"], approved_at=_now_iso(), kind="final",
@@ -2317,17 +2323,24 @@ def export_csv(start: str = "", end: str = "", mode: str = "summary",
                           TimeApproval.period_start == TimeApproval.period_end,
                           TimeApproval.period_start >= (start or "0"),
                           TimeApproval.period_end <= (end or "9")).all()}
+        # Use the overtime engine (respects each person's ca/federal/none rule)
+        # for the reg/OT/DT split + pay; first-in/last-out/flags come from the
+        # day summary already loaded.
+        cards = {r["email"]: _compute_timecard(db, r["email"], start, end) for r in rows}
+        # Shift differential / call-back columns (pay_premiums.py) are added at
+        # the END, and only when a card in the file carries them - while every
+        # company has them off the file is exactly what it always was.
+        prem = any("diffPay" in c["totals"] for c in cards.values())
         w.writerow(["Employee", "Email", "Date", "First In", "Last Out",
                     "Worked Hours", "Regular Hours", "OT Hours (1.5x)", "DT Hours (2x)",
                     "Sick Hours", "Vacation Hours", "Personal Hours",
                     "Break Minutes", "Flags", "OT Rule", "Rate $/hr",
                     "Regular Pay", "OT Pay", "DT Pay", "Sick Pay", "Vacation Pay", "Personal Pay",
-                    "Total Pay", "Approved"])
+                    "Total Pay", "Approved"]
+                   + (["Shift Differential Hours", "Shift Differential Pay", "Call-Back Hours", "Call-Back Pay"]
+                      if prem else []))
         for r in rows:
-            # Use the overtime engine (respects each person's ca/federal/none rule)
-            # for the reg/OT/DT split + pay; first-in/last-out/flags come from the
-            # day summary already loaded.
-            card = _compute_timecard(db, r["email"], start, end)
+            card = cards[r["email"]]
             cday = {d["date"]: d for d in card["days"]}
             T = card["totals"]
             rate = card["rate"]
@@ -2344,7 +2357,9 @@ def export_csv(start: str = "", end: str = "", mode: str = "summary",
                             f"{cd.get('personalMin', 0) / 60:.2f}",
                             d["breakMin"],
                             " ".join(d["flags"]), "", "", "", "", "", "", "", "",
-                            "yes" if (r["email"], date) in day_ok else ""])
+                            "yes" if (r["email"], date) in day_ok else ""]
+                           + ([f"{cd.get('diffMin', 0) / 60:.2f}", f"{cd.get('diffPay', 0):.2f}",
+                               f"{cd.get('callBackMin', 0) / 60:.2f}", f"{cd.get('callBackPay', 0):.2f}"] if prem else []))
             all_days_ok = bool(r["days"]) and all((r["email"], dt) in day_ok for dt in r["days"])
             w.writerow([r["name"], r["email"], "TOTAL", "", "",
                         f"{T['workedMin'] / 60:.2f}", f"{T['regMin'] / 60:.2f}",
@@ -2356,7 +2371,9 @@ def export_csv(start: str = "", end: str = "", mode: str = "summary",
                         f"{T['regPay']:.2f}", f"{T['otPay']:.2f}", f"{T['dtPay']:.2f}",
                         f"{T.get('sickPay', 0):.2f}", f"{T.get('vacationPay', 0):.2f}",
                         f"{T.get('personalPay', 0):.2f}", f"{T['totalPay']:.2f}",
-                        "yes" if (r["email"] in approved or all_days_ok) else "no"])
+                        "yes" if (r["email"] in approved or all_days_ok) else "no"]
+                       + ([f"{T.get('diffMin', 0) / 60:.2f}", f"{T.get('diffPay', 0):.2f}",
+                           f"{T.get('callBackMin', 0) / 60:.2f}", f"{T.get('callBackPay', 0):.2f}"] if prem else []))
     buf.seek(0)
     fname = f"timeclock-{mode}-{start or 'all'}-to-{end or 'now'}.csv"
     return StreamingResponse(iter([buf.getvalue()]),
@@ -2397,7 +2414,9 @@ def _approved_emails(db: Session, rows: list, start: str, end: str) -> set:
 
 # The IIF's pay classes in row order: (timecard day minutes, payroll_codes class).
 _IIF_PAY_CLASSES = (("regMin", "regular"), ("otMin", "overtime"), ("dtMin", "doubleTime"),
-                    ("sickMin", "sick"), ("vacationMin", "vacation"), ("personalMin", "personal"))
+                    ("sickMin", "sick"), ("vacationMin", "vacation"), ("personalMin", "personal"),
+                    # Only on a day that has them (pay_premiums.py) - never while off.
+                    ("diffMin", "shiftDifferential"), ("callBackMin", "callBack"))
 
 
 @router.get("/export.iif")
@@ -2495,12 +2514,18 @@ def export_hours(start: str = "", end: str = "", company: str = "", approved_onl
         emp = emps.get(r["email"])
         def h(k, t=t):
             return round(float(t.get(k) or 0) / 60, 2)
+        hours = {"regular": h("regMin"), "overtime": h("otMin"), "doubleTime": h("dtMin"),
+                 "sick": h("sickMin"), "vacation": h("vacationMin"), "personal": h("personalMin")}
+        # Differential / call-back hours only when the card has any (never while off).
+        if t.get("diffMin"):
+            hours["shiftDifferential"] = h("diffMin")
+        if t.get("callBackMin"):
+            hours["callBack"] = h("callBackMin")
         out.append({"email": r["email"], "name": r["name"], "approved": approved,
                     "employeeCode": (emp.employee_code if emp else "") or "",
                     "department": (emp.department if emp else "") or "",
                     "company": (emp.company if emp else "") or "",
-                    "hours": {"regular": h("regMin"), "overtime": h("otMin"), "doubleTime": h("dtMin"),
-                              "sick": h("sickMin"), "vacation": h("vacationMin"), "personal": h("personalMin")}})
+                    "hours": hours})
     return {"start": start, "end": end, "rows": out}
 
 
@@ -2511,7 +2536,8 @@ def export_hours(start: str = "", end: str = "", company: str = "", approved_onl
 # (card["payCodes"], payroll_codes.py), else the default.
 _INTACCT_PAY_CLASSES = (("regPay", "regular", "regMin"), ("otPay", "overtime", "otMin"), ("dtPay", "doubleTime", "dtMin"),
                         ("holidayPay", "holiday", ""), ("sickPay", "sick", "sickMin"), ("vacationPay", "vacation", "vacationMin"),
-                        ("personalPay", "personal", "personalMin"))
+                        ("personalPay", "personal", "personalMin"),
+                        ("diffPay", "shiftDifferential", "diffMin"), ("callBackPay", "callBack", "callBackMin"))
 
 
 def payroll_intacct_entries(cards: list[dict], *, start: str, end: str, journal: str, expense: str, clearing: str,
@@ -8796,6 +8822,44 @@ def set_export_codes(body: ExportCodesIn, user: dict = Depends(require_administr
     return _export_codes_out(db, company)
 
 
+# ── Shift differentials + call-back pay (Neil, Oct 17 2026) ──────────────────
+# Off by default, per company (pay_premiums.py). Same permissions as Punch
+# Rounding and the export codes: team readers see it, administrators change
+# it - and only for a company inside their company wall.
+
+def _premiums_out(db: Session, company: str) -> dict:
+    sites = [{"id": w.id, "name": w.name or w.id} for w in company_sites(db, company)]
+    return {"company": company, **pay_premiums.config(db, company), "sites": sites,
+            "maxRules": pay_premiums.MAX_RULES}
+
+
+@router.get("/payroll/premiums")
+def get_pay_premiums(company: str = "", user: dict = Depends(require_team_read),
+                     db: Session = Depends(get_db)):
+    return _premiums_out(db, _export_codes_company(db, user, company))
+
+
+class PayPremiumsIn(BaseModel):
+    company: str = ""
+    enabled: bool = False
+    differentials: list = []
+    callBack: dict = {}
+
+
+@router.put("/payroll/premiums")
+def set_pay_premiums(body: PayPremiumsIn, user: dict = Depends(require_administrator),
+                     db: Session = Depends(get_db)):
+    """Replace one company's shift differentials and call-back rule. A
+    finalized period keeps the rules it was finalized with."""
+    company = _export_codes_company(db, user, body.company)
+    try:
+        pay_premiums.save(db, company, {"enabled": body.enabled, "differentials": body.differentials,
+                                        "callBack": body.callBack}, user["email"])
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return _premiums_out(db, company)
+
+
 # ── Break policy (Charmi call, Aug 21) ─────────────────────────────────────────
 # California rest breaks are PAID (10 min per work period); meal breaks are not.
 # Greens' own policy on a 9-hour shift: up to 1 hour of UNPAID lunch + the paid
@@ -9480,7 +9544,15 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
                          "adjustedBy": _who(p.adjusted_by), "adjustedAt": p.adjusted_at or "",
                          "adjustNote": p.adjust_note or ""} for p in punches}
 
-    return {"email": em, "start": start, "end": end, "rate": rate, "rateSet": rate_row is not None,
+    # Shift differentials + call-back pay (pay_premiums.py) - off by default
+    # per company; while off nothing below changes.
+    _prem_cfg = _pay_premiums_for(db, em, rate_row, _fin_snap)
+    _prem = pay_premiums.price_days(
+        _prem_cfg, days_out, tz_of=lambda pid: getattr(_punch_by_id.get(pid), "tz_offset_min", 0),
+        site_of=lambda s: _seg_site(s)[0],
+        round_at=lambda iso: _premium_time(iso, _rmin)) if _prem_cfg else None
+
+    card = {"email": em, "start": start, "end": end, "rate": rate, "rateSet": rate_row is not None,
             "rateSplits": rate_splits,   # >1 entry = the rate changed inside this period
             "dept": dept, "overtimeRule": rule, "days": days_out, "punchMeta": punch_meta,
             "rounding": {"enabled": _rnd["enabled"], "nearestMin": _rnd["nearestMin"]},
@@ -9499,6 +9571,43 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
                        "activeMin": active_min, "idleMin": idle_min,
                        "missingPunches": missing_punches, "editedPunches": edited_punches,
                        "pendingEdits": pending_edits}}
+    if _prem is not None:
+        pay_premiums.add_totals(card["totals"], _prem)
+    return card
+
+
+def _premium_time(iso: str, rmin: int):
+    """A raw punch time as the time sheet's math sees it (rounded when
+    rounding is on), naive UTC - for pay_premiums' break windows."""
+    t = _parse_iso(iso)
+    if t is None:
+        return None
+    return (_round_punch(t, rmin) if rmin else t).replace(tzinfo=None)
+
+
+def _pay_premiums_for(db: Session, em: str, rate_row, fin_snap=None) -> dict:
+    """The differential / call-back rules that price this person's card, or
+    {} (off). A finalized period uses ONLY the rules frozen in its snapshot
+    (none = off). Hourly, time-tracked people only."""
+    if fin_snap is not None:
+        # Finalized: only what was frozen with it. A period finalized before
+        # this feature (or while it was off, or with no readable snapshot at
+        # all) stays off - turning it on never re-prices a locked period.
+        try:
+            snap = json.loads(fin_snap.note or "")
+        except (TypeError, ValueError):
+            snap = None
+        if not isinstance(snap, dict) or not isinstance(snap.get("premiums"), dict) \
+                or (snap.get("payType") or "hourly") != "hourly":
+            return {}
+        cfg = pay_premiums.clean(snap["premiums"])
+    else:
+        if rate_row is not None and (getattr(rate_row, "pay_type", None) or "hourly") != "hourly":
+            return {}
+        cfg = pay_premiums.config(db, _company_of(db, em))
+    if not pay_premiums.active(cfg) or is_time_tracking_exempt(db, em):
+        return {}
+    return cfg
 
 
 @router.get("/payroll")

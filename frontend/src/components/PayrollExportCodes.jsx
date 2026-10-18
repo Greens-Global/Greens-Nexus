@@ -16,6 +16,8 @@ export const PAY_CLASS_LABELS = {
   sick: 'Sick',
   vacation: 'Vacation',
   personal: 'Personal',
+  shiftDifferential: 'Shift Differential',
+  callBack: 'Call-Back Pay',
 };
 
 const draftOf = (data) => Object.fromEntries((data?.classes || []).map((c) => [c.key, c.custom ? c.code : '']));

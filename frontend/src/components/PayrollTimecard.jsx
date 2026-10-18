@@ -780,6 +780,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       // punches above, not instead of them (Pranshu, Sep 22 - "half from
       // holiday and half they worked").
       if (d?.holidayPay) rows.push({ type: 'holiday', ds, name: d.holidayName, pay: d.holidayPay, holidayType: d.holidayType, worked: true });
+      // Shift differentials / call-back pay (Oct 17): only on a company that
+      // has them on - its own line under the day, never in the hours.
+      if (d?.diffMin || d?.callBackMin) rows.push({ type: 'premium', ds, day: d });
       // The day's note line (SwipeClock's pencil line under the day): the
       // manager / employee note, the punch reasons, and the Work Log.
       rows.push({ type: 'note', ds, band, text: notes.join('  ·  ') });
@@ -849,6 +852,24 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                     Auto-closed at end of day - no clock-out was recorded. The day is held at 0 hours and blocks sign-off; {self ? 'tap the Out time to propose the real end of your shift.' : 'set the real Out time to release it for pay.'}
     </>
   );
+  const hPremium = (r) => {
+    const parts = [...(r.day.differentials || []).map(x => ({ label: x.name, text: `${hhmm(x.min)} worked in the window`, pay: x.pay })),
+      ...(r.day.callBackMin ? [{ label: 'Call-Back Pay', text: `${hhmm(r.day.callBackMin)} short of the minimum, paid at the base rate`, pay: r.day.callBackPay }] : [])];
+    const total = (r.day.diffPay || 0) + (r.day.callBackPay || 0);
+    return (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                      <span>
+                        {parts.map((x, i) => (
+                          <span key={i} style={{ marginRight: 10, display: 'inline-block' }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 9px', borderRadius: 999, background: 'rgba(124,58,237,0.12)', color: '#7c3aed', marginRight: 6 }}>{x.label}</span>
+                            {x.text}{showPay && x.pay != null ? ` - ${fmtM(x.pay)}` : ''}
+                          </span>
+                        ))}
+                      </span>
+                      {showPay && <span style={{ fontWeight: 800, whiteSpace: 'nowrap' }}>{fmtM(total)}</span>}
+                    </div>
+    );
+  };
   const hHoliday = (r) => (
     <>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
@@ -1020,6 +1041,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   {r.type === 'break' ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>Break {hIn(r)} <ArrowRight size={11} style={{ color: 'var(--muted)' }} /> {hOut(r)} <span style={{ color: 'var(--muted)' }}>({hhmm(r.brk.min)})</span></span>
                     : r.type === 'auto' ? hAuto()
                     : r.type === 'holiday' ? hHoliday(r)
+                    : r.type === 'premium' ? hPremium(r)
                     : r.type === 'req' ? hReq(r)
                     : <><Pencil size={10} style={{ marginRight: 5, verticalAlign: 'middle' }} />{r.text}</>}
                 </div>
@@ -1274,6 +1296,12 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                     {hHoliday(r)}
                   </td>
                 </tr>
+              ) : r.type === 'premium' ? (
+                <tr key={i} style={{ background: 'rgba(124,58,237,0.05)' }}>
+                  <td colSpan={span} style={{ ...gc, textAlign: 'left', color: '#6d28d9', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
+                    {hPremium(r)}
+                  </td>
+                </tr>
               ) : r.type === 'req' ? (
                 <tr key={i} style={{ background: 'rgba(180,83,9,0.07)' }}>
                   <td colSpan={span} style={{ ...gc, textAlign: 'left', whiteSpace: 'normal', fontSize: 12 }}>
@@ -1415,6 +1443,10 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 ...(T.sickMin ? [[`Total Sick hours${at(1)}`, hd(T.sickMin), fmtM(T.sickPay)]] : []),
                 ...(T.vacationMin ? [[`Total Vacation hours${at(1)}`, hd(T.vacationMin), fmtM(T.vacationPay)]] : []),
                 ...(T.personalMin ? [[`Total Personal hours${at(1)}`, hd(T.personalMin), fmtM(T.personalPay)]] : []),
+                // Shift differentials, one line per rule, and call-back pay (Oct 17):
+                // on top of the hours, never counted in them.
+                ...(T.differentials || []).map(x => [`${x.name} (shift differential)`, hd(x.min), fmtM(x.pay)]),
+                ...(T.callBackMin ? [[`Call-Back Pay (minimum not worked)${at(1)}`, hd(T.callBackMin), fmtM(T.callBackPay)]] : []),
                 ...(T.holidayDays ? [[`Company holiday${T.holidayDays === 1 ? '' : 's'} (${T.holidayDays} day${T.holidayDays === 1 ? '' : 's'}, not worked)`, '-', fmtM(T.holidayPay)]] : []),
                 ['Totals', hd(T.workedMin ?? (T.regMin + T.otMin + (T.dtMin || 0))), fmtM(T.totalPay)],
               ];

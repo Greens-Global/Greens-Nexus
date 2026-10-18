@@ -75,6 +75,7 @@ import DailyBriefingSettings from '../components/DailyBriefingSettings';
 import WeeklyDigestSettings from '../components/WeeklyDigestSettings';
 import WorkforceScorecardSettings from '../components/WorkforceScorecardSettings';
 import PayrollExportCodes from '../components/PayrollExportCodes';
+import PayPremiums from '../components/PayPremiums';
 
 // Borrowed components, lazy so their home module's chunk only loads once an
 // admin actually opens that section.
@@ -214,8 +215,8 @@ const GLOBAL_SECTIONS = [
     sub: 'The questions asked in each role\'s interview - the Interview Room shows them to the interviewer.',
     keywords: 'questions interview questionnaire role character competence availability' },
   { id: 'timeclock-policy', category: 'timeclock', icon: CalendarClock, title: 'Pay Rules',
-    sub: 'Punch rounding (off by default), the auto-lunch deduction, California paid rest breaks and each company\'s payroll export codes. Applies to every time sheet.',
-    keywords: 'time clock punch rounding nearest minutes swipeclock auto lunch deduction meal break paid rest break california time sheet payroll export codes earnings codes payroll items quickbooks iif intacct' },
+    sub: 'Punch rounding (off by default), the auto-lunch deduction, California paid rest breaks, each company\'s payroll export codes, and shift differentials and call-back pay (off by default). Applies to every time sheet.',
+    keywords: 'time clock punch rounding nearest minutes swipeclock auto lunch deduction meal break paid rest break california time sheet payroll export codes earnings codes payroll items quickbooks iif intacct shift differential night weekend premium call-back callback minimum' },
   { id: 'shift-settings', category: 'shifts', icon: CalendarClock, title: 'Shift Settings',
     sub: 'What staff may request (open shifts, swaps, offers, time off) and see of their teammates, the team time zone, which day the week starts on, and the time-off reasons.',
     keywords: 'shifts schedule requests swap offer open shift time off reasons time zone week start sunday monday visibility' },
@@ -1358,6 +1359,7 @@ function TimeClockPolicyPanel({ toastOk, toastErr }) {
           onClick={() => save('breakPolicy', { enabled: true, paidBreakMin: num(breakPolicy.paidBreakMin, 10), restMaxMin: num(breakPolicy.restMaxMin, 20), longBreakMin: num(breakPolicy.longBreakMin, 75) }, 'CA paid breaks')}>Save</button>
       </PolicyCard>
       <PayrollExportCodes toastOk={toastOk} toastErr={toastErr} />
+      <PayPremiums toastOk={toastOk} toastErr={toastErr} />
     </div>
   );
 }
