@@ -25,6 +25,7 @@ import { formatDistance } from '../lib/distance';
 import { usePhotoMap } from '../lib/peoplePhotos';
 import { moneyPrefix } from '../asset/lib/currency';
 import { registerTour } from '../lib/tours';
+import { confirmExportReadiness } from '../lib/payrollReadiness';
 
 // Launch (Neil, 10/16): the only sign-off is review + Nexus Sign, so the HR
 // "Finalize Without Signatures" override is hidden. Flip to true to show it.
@@ -658,6 +659,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     if (!up.ok) { if (!up.cancelled) toastErr?.('Identity check didn’t complete.'); return; }
     setExporting(true);
     try {
+      // Payroll Readiness (Oct 17): warn, never block, when people are not ready.
+      if (!await confirmExportReadiness(perStart, perEnd)) return;
       let res;
       try { res = await fetcher(); }
       catch (e) {

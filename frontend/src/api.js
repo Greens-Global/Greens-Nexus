@@ -2387,6 +2387,12 @@ export const api = {
   // who is owed what. Payroll guard + step-up, read only.
   timeRetroPay: (start, end, email = '') =>
     req(`/timeclock/retro-pay?${new URLSearchParams({ start: start || '', end: end || '', email: email || '' })}`, { timeoutMs: 120_000 }),
+  // Payroll Readiness (Oct 17): who is not ready, variance and anomalies for a
+  // pay period (step-up, like the Payroll card), and HR's per-company thresholds.
+  payrollReadiness:             (start = '', refresh = false) =>
+    req(`/payroll-readiness/report?start=${start || ''}${refresh ? '&refresh=true' : ''}`, { timeoutMs: 120_000 }),
+  payrollReadinessSettings:     (company = '') => req(`/payroll-readiness/settings?company=${encodeURIComponent(company || '')}`),
+  payrollReadinessSaveSettings: (data) => req('/payroll-readiness/settings', { method: 'PUT', body: JSON.stringify(data) }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
