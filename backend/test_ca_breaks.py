@@ -240,36 +240,34 @@ class SigningTests(CaCase):
         self.assertTrue(all("breakAttestation" not in x for x in tsr.to_sign(self.db, EMP)))
         self._sign(self._parties(r.sign_request_id)["employee"])
         self.assertEqual(self._r().status, "completed")
+        self.assertNotIn("break_attested", [e["action"] for e in self._r().rounds])
+        self.assertFalse(tsr.statement_printed(self.db, r.sign_request_id))
         self._as(EMP)
-        res = self.client.post(f"/timesheet-review/{r.id}/break-attest")
+        res = self.client.post(f"/timesheet-review/{r.id}/break-claim", json={"claims": [{"date": self.d1, "kind": "meal"}]})
         self.assertEqual(res.status_code, 409, res.text)
 
-    def test_yes_then_sign(self):
+    def test_signing_confirms_the_statement(self):
         self._rate("ca")
         r = self._approve()
         st = tsr.state_for(self.db, EMP, self.start, EMP, False)
         ba = st["breakAttestation"]
         self.assertEqual((ba["required"], ba["answered"]), (True, False))
+        self.assertEqual(ba["statement"], tsr.BREAK_STATEMENT)
         self.assertEqual([d["date"] for d in ba["flaggedDays"]], [self.d1])
         self.assertIn("breakAttestation", tsr.to_sign(self.db, EMP)[0])
+        self.assertTrue(tsr.statement_printed(self.db, r.sign_request_id))
+        # No separate question: the signature goes straight through.
         party = self._parties(r.sign_request_id)["employee"]
-        res = self._try_sign(party)
-        self.assertEqual(res.status_code, 409, res.text)                 # not answered yet
-        self.assertIn("meal and rest break question", res.json()["detail"])
-        self.assertEqual(self._r().status, "signing")
-        self._as(MGR)
-        self.assertEqual(self.client.post(f"/timesheet-review/{r.id}/break-attest").status_code, 404)
-        self._as(EMP)
-        res = self.client.post(f"/timesheet-review/{r.id}/break-attest")
-        self.assertEqual(res.status_code, 200, res.text)
-        self.assertTrue(res.json()["breakAttestation"]["answered"])
         self.assertEqual(self._try_sign(party).status_code, 200)
         r = self._r()
         self.assertEqual(r.status, "completed")
-        self.assertIn("break_attested", [e["action"] for e in r.rounds])
+        self.assertEqual([e["action"] for e in r.rounds].count("break_attested"), 1)
         ev = self.db.query(models.HrSignEvent).filter_by(request_id=r.sign_request_id, type="attested").all()
         self.assertEqual(len(ev), 1)
-        self.assertIn("answered Yes", ev[0].detail)
+        self.assertIn("signed under the statement", ev[0].detail)
+        self.assertTrue(any("confirmed by" in ln and "by signing" in ln for ln in tsr.approval_log(self.db, r)))
+        self._as(EMP)
+        self.assertEqual(self.client.post(f"/timesheet-review/{r.id}/break-attest").status_code, 404)
 
     def test_no_reopens_to_manager_with_premiums_then_yes(self):
         self._rate("ca")
@@ -302,9 +300,9 @@ class SigningTests(CaCase):
         tsr.approve(self.db, self._r(), MGR, "Meal premium added")
         r = self._r()
         party = self._parties(r.sign_request_id)["employee"]
-        self.assertEqual(self._try_sign(party).status_code, 409)         # asked again on the new envelope
-        tsr.attest_breaks(self.db, r, EMP)
+        self.assertFalse(tsr.break_attested(r))                          # a new envelope, not confirmed yet
         self.assertEqual(self._try_sign(party).status_code, 200)
+        self.assertTrue(tsr.break_attested(self._r()))
         self.assertEqual(self._r().status, "completed")
         t = timeclock._compute_timecard(self.db, EMP, self.start, self.end)["totals"]
         self.assertEqual((t["mealPremiumPay"], t.get("restPremiumMin", 0)), (20.0, 0))
@@ -460,7 +458,7 @@ class ScopeTests(CaCase):
         party = self._parties(self._r().sign_request_id)["employee"]
         req = self.db.query(models.HrSignRequest).filter_by(id=party.request_id).first()
         self.assertNotIn("breakAttestation", esign._render_payload(self.db, req, party))
-        self.assertEqual(tsr.sign_blocker(self.db, req, party), "")
+        self.assertFalse(tsr.statement_printed(self.db, req.id))
 
     def test_inr_hourly_with_blank_or_ca_rule_gets_nothing(self):
         for rule in ("", "ca"):
@@ -498,8 +496,10 @@ class ScopeTests(CaCase):
         payload = esign._render_payload(self.db, req, party)
         self.assertEqual(payload["breakAttestation"]["reviewId"], self._r().id)
         self.assertFalse(payload["breakAttestation"]["answered"])
-        tsr.attest_breaks(self.db, self._r(), EMP)
-        self.assertTrue(esign._render_payload(self.db, req, party)["breakAttestation"]["answered"])
+        party.status, party.signature_kind = "signed", "typed"
+        tsr.on_progress(self.db, req)
+        self.db.commit()
+        self.assertTrue(tsr.break_attested(self._r()))
 
 
 class ReviewNitTests(CaCase):
@@ -540,9 +540,7 @@ class ReviewNitTests(CaCase):
         self.assertTrue(ca_breaks.waiver_on([w], "2026-09-15", 420))
         self.assertFalse(ca_breaks.waiver_on([w], "2026-09-15", 0))
 
-    def test_paper_signature_logs_the_answer_was_not_collected(self):
-        self._rate("ca")
-        tsr.approve_period(self.db, EMP, ANCHOR, MGR, "ok")
+    def _paper_sign(self):
         r = self._r()
         party = self._parties(r.sign_request_id)["employee"]
         party.status, party.signature_kind = "signed", "paper"
@@ -550,11 +548,27 @@ class ReviewNitTests(CaCase):
         req = self.db.query(models.HrSignRequest).filter_by(id=r.sign_request_id).first()
         tsr.on_progress(self.db, req)
         self.db.commit()
-        actions = [e["action"] for e in self._r().rounds]
-        self.assertIn("break_not_collected", actions)
-        self.assertTrue(any("not collected electronically" in ln for ln in tsr.approval_log(self.db, self._r())))
+        return [e["action"] for e in self._r().rounds]
 
-    def test_pdf_states_the_requirement_not_an_answer(self):
+    def test_paper_signature_confirms_the_printed_statement(self):
+        self._rate("ca")
+        tsr.approve_period(self.db, EMP, ANCHOR, MGR, "ok")
+        actions = self._paper_sign()
+        self.assertIn("break_attested", actions)
+        self.assertNotIn("break_not_collected", actions)
+
+    def test_paper_copy_without_the_statement_is_not_a_yes(self):
+        # An envelope sent before the statement existed: its PDF never had it.
+        self._rate("ca")
+        tsr.approve_period(self.db, EMP, ANCHOR, MGR, "ok")
+        # (the event log is append-only, so stand in for the missing event)
+        with mock.patch.object(tsr, "statement_printed", return_value=False):
+            actions = self._paper_sign()
+        self.assertIn("break_not_collected", actions)
+        self.assertNotIn("break_attested", actions)
+        self.assertTrue(any("without the printed statement" in ln for ln in tsr.approval_log(self.db, self._r())))
+
+    def test_pdf_prints_the_statement_above_the_signature(self):
         self._rate("ca")
         tsr.approve_period(self.db, EMP, ANCHOR, MGR, "ok")
         import io
@@ -562,8 +576,9 @@ class ReviewNitTests(CaCase):
         pdf, _ = tsr.build_pdf(self.db, self._r())
         text = " ".join((pg.extract_text() or "") for pg in PdfReader(io.BytesIO(pdf)).pages)
         text = " ".join(text.split())
-        self.assertIn("Before signing, the employee is asked", text)
-        self.assertNotIn("answer: Yes", text)
+        self.assertIn("By signing, I confirm that in this pay period I was provided every meal", text)
+        self.assertIn("A missed meal or rest break is reported instead of signing", text)
+        self.assertNotIn("Before signing, the employee is asked", text)
 
 
 class ClaimGuards(CaCase):

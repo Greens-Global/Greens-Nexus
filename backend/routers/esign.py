@@ -2717,9 +2717,8 @@ def _render_payload(db: Session, req: HrSignRequest, party: HrSignParty) -> dict
                "expiresOn": req.expires_on}
     if (getattr(req, "link_kind", "") or "") == "timesheet" and party.role_key == "employee" \
             and party.status != "signed" and req.status == "pending":
-        # CA-rule staff answer the meal and rest break question before the
-        # consent / code / signature steps (timesheet_review, Oct 18): every
-        # signing screen - Documents, the email link - asks it first.
+        # CA-rule staff: the meal and rest break statement their signature
+        # confirms, shown on every signing screen (timesheet_review, Oct 18).
         import timesheet_review as _tsr
         _r = _tsr._for(db, req)
         if _r is not None and _r.status == "signing" and _tsr.needs_break_attestation(db, _r):
@@ -3090,13 +3089,6 @@ def _apply_signature(db: Session, req: HrSignRequest, party: HrSignParty, body: 
     if not _its_their_turn(req, party):
         raise HTTPException(409, "It is not your turn to sign yet" if party.status != "signed"
                             else "You have already signed")
-    if (getattr(req, "link_kind", "") or "") == "timesheet":
-        # CA-rule staff answer the meal and rest break question before they
-        # sign their time sheet (timesheet_review.sign_blocker; '' for anyone else).
-        import timesheet_review as _tsr
-        _blk = _tsr.sign_blocker(db, req, party)
-        if _blk:
-            raise HTTPException(409, _blk)
     _validate_signature(body)
     # "No signature should be completed without OTP." Checked against the
     # consumed challenge row, so it holds for a caller that never loaded the

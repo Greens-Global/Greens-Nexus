@@ -574,8 +574,8 @@ def to_sign(db: Session, signer: str) -> list:
                "name": display_name(db, r.employee_email), "periodStart": r.period_start,
                "periodEnd": r.period_end, "payType": r.pay_type, "agreedAt": r.agreed_at or "",
                "agreedBy": display_name(db, r.agreed_by) if r.agreed_by else ""}
-        # CA-rule staff only: the card asks the meal and rest break question
-        # before it opens the signing screen (ca_breaks.py).
+        # CA-rule staff only: the meal and rest break statement their
+        # signature confirms, and Report a Missed Break (ca_breaks.py).
         if p.role_key == "employee" and needs_break_attestation(db, r):
             row["breakAttestation"] = break_attestation_state(db, r)
         out.append(row)
@@ -1079,8 +1079,8 @@ def build_pdf(db: Session, r: TimesheetReview) -> tuple[bytes, int]:
               "agreed": "agreed", "declined": "declined", "returned": "returned", "cancelled": "cancelled",
               "approved": "reviewed and approved", "reopened": "reopened it", "hr_edited": "edited it (HR)",
               "employee_approved": "approved it to sign", "unlocked": "unlocked it", "recalled": "recalled it",
-              "break_attested": "answered Yes to the meal and rest break question",
-              "break_not_collected": "signed on paper (meal and rest break answer not collected electronically)"}
+              "break_attested": "confirmed the meal and rest break statement by signing",
+              "break_not_collected": "signed on paper without the meal and rest break statement"}
     for e in (r.rounds or []):
         if y < margin + 30:
             new_page()
@@ -1105,22 +1105,16 @@ def build_pdf(db: Session, r: TimesheetReview) -> tuple[bytes, int]:
                  "for the pay period shown.", 9)
     y -= 14
     text(margin, "The approver does not sign - the approval, and any change HR made, are logged below.", 9)
-    if needs_break_attestation(db, r):
-        # CA-rule staff (Neil, Oct 17 2026): the page states the REQUIREMENT
-        # only - it is built before the employee answers. The actual answer
-        # (who, when) is recorded on the review's approval log and as an
-        # "attested" event in this envelope's audit trail; an electronic
-        # signature is refused until it is Yes (sign_blocker). A paper return
-        # is logged as "answer not collected electronically" (on_progress).
+    ca = needs_break_attestation(db, r)
+    if ca:
+        # CA-rule staff (Neil, Oct 18 2026): no separate question - the meal
+        # and rest break statement is printed in the box just above the
+        # signature, so signing confirms it (on_progress records it). A missed
+        # break is reported instead of signing (claim_breaks).
         from reportlab.lib.utils import simpleSplit as _split
         y -= 22
-        text(margin, "Meal and rest breaks (California)", 9.5, True)
-        for ln in _split(f'Before signing, the employee is asked: "{BREAK_QUESTION}"', "Helvetica", 9, W - 2 * margin):
-            y -= 12
-            text(margin, ln, 9)
-        for ln in _split("The employee's answer and its time are recorded in the approval log and in this "
-                         "document's audit trail. A No sends the time sheet back to the manager instead of "
-                         "signing it.", "Helvetica", 8.5, W - 2 * margin):
+        for ln in _split("A missed meal or rest break is reported instead of signing: the time sheet goes "
+                         "back to the manager, who adds the premium pay.", "Helvetica", 8.5, W - 2 * margin):
             y -= 11
             text(margin, ln, 8.5, color=(0.4, 0.4, 0.45))
     # The employee's attestation, boxed just above their signature line. Drawn
@@ -1128,6 +1122,8 @@ def build_pdf(db: Session, r: TimesheetReview) -> tuple[bytes, int]:
     # (_sig_fields places them at the same fixed positions).
     from reportlab.lib.utils import simpleSplit
     att_lines = simpleSplit(EMPLOYEE_ATTESTATION, "Helvetica-Bold", 9, W - 2 * margin - 16)
+    if ca:
+        att_lines += simpleSplit(BREAK_STATEMENT, "Helvetica-Bold", 9, W - 2 * margin - 16)
     box_bottom = H - _SIG_TOP * H + 10
     box_h = 12 * len(att_lines) + 10
     c.setStrokeColorRGB(0.6, 0.6, 0.65)
@@ -1179,9 +1175,9 @@ def approval_log(db: Session, r: TimesheetReview, offset: int = 0) -> list:
              "employee_approved": "Approved for signature by {who} (employee) on {when}",
              "finalized_unsigned": "Finalized without the employee's signature by {who} (HR) on {when}",
              # CA-rule staff only (ca_breaks.py) - no other card has this round.
-             "break_attested": "Meal and rest breaks: {who} (employee) answered Yes on {when}",
-             "break_not_collected": "Meal and rest breaks: signed on paper - the answer was not collected "
-                                    "electronically (recorded {when})"}
+             "break_attested": "Meal and rest breaks: confirmed by {who} (employee) by signing on {when}",
+             "break_not_collected": "Meal and rest breaks: signed on paper without the printed statement "
+                                    "(recorded {when})"}
     out = []
     for e in rounds[start:]:
         w = words.get(e.get("action"))
@@ -1217,6 +1213,11 @@ def _send_envelope(db: Session, r: TimesheetReview, actor: str, *, ip: str, user
         excluded_ack=True, document_class="employment")
     req = db.query(HrSignRequest).filter(HrSignRequest.id == out["id"]).first()
     req.link_kind, req.link_id = LINK_KIND, r.id
+    if needs_break_attestation(db, r):
+        # build_pdf printed the CA meal and rest break statement above the
+        # signature line; on_progress reads this to know a paper copy has it.
+        esign._log(db, req.id, "break_statement",
+                   f'Printed above the employee\'s signature: "{BREAK_STATEMENT}"', ip=ip, user_agent=user_agent)
     return req.id
 
 
@@ -1266,12 +1267,17 @@ def on_progress(db: Session, req) -> None:
     for p in db.query(HrSignParty).filter(HrSignParty.request_id == req.id).all():
         if p.status == "signed" and f"signed_{p.role_key}" not in done:
             paper = (p.signature_kind or "") == "paper"
-            if (paper and p.role_key == "employee" and needs_break_attestation(db, r)
-                    and not break_attested(r)):
-                # CA staff: a paper return skips the electronic question - say
-                # so on the record rather than imply a Yes (Oct 18 review).
-                _round(db, r, by=p.email, action="break_not_collected",
-                       note="Signed on paper - the meal and rest break answer was not collected electronically")
+            if p.role_key == "employee" and needs_break_attestation(db, r) and not break_attested(r):
+                # CA staff (Oct 18): the signature IS the confirmation - the
+                # statement is on the signing screen and printed above the
+                # signature line. Only a paper return of a copy printed
+                # without it (an envelope sent before the statement existed)
+                # is recorded as not confirmed, never as a Yes.
+                if paper and not statement_printed(db, req.id):
+                    _round(db, r, by=p.email, action="break_not_collected",
+                           note="Signed on paper without the meal and rest break statement")
+                else:
+                    _record_break_confirmed(db, r, p, paper)
             _round(db, r, by=p.email, action=f"signed_{p.role_key}",
                    note="Signed on paper" if paper else "")
 
@@ -1433,26 +1439,28 @@ def state_for(db: Session, email: str, start: str, viewer: str, viewer_team: boo
         "submitBlocker": (submit_blocker(db, email, r.period_start, r.period_end)
                           if is_self and r.status in ("with_employee", "approved") else ""),
     }
-    # CA-rule staff only (ca_breaks.py): the meal and rest break question the
-    # employee answers before signing. No key for anyone else.
+    # CA-rule staff only (ca_breaks.py): the meal and rest break statement
+    # their signature confirms. No key for anyone else.
     if is_self and r.status in ("signing", "approved") and needs_break_attestation(db, r):
         out["breakAttestation"] = break_attestation_state(db, r)
     return out
 
 
-# ── CA meal and rest breaks at signing (Neil, Oct 17 2026, ca_breaks.py) ─────
+# ── CA meal and rest breaks at signing (Neil, Oct 17-18 2026, ca_breaks.py) ──
 #
-# CA-rule hourly staff answer ONE question before they sign their period:
-# "In this pay period I was provided every meal and rest break California law
-# requires." Yes signs exactly as today (the answer is a round on the review
-# and an event on the envelope, which the sealed certificate prints). No does
-# NOT sign: the employee names the day(s) and Meal / Rest, the premium lines
-# are created from the claim, and the time sheet goes back to the manager
-# through reopen() - the same path a punch-fix request takes after approval.
-# Nobody else is asked anything (needs_break_attestation is False).
+# CA-rule hourly staff are NOT asked a separate question (Neil, Oct 18: one
+# step fewer). The statement below is shown on the signing screen and printed
+# in the box just above their signature line, so signing the time sheet
+# confirms it - no tick box. on_progress records the confirmation as a round
+# on the review and an "attested" event on the envelope, which the sealed
+# certificate prints. A missed break is reported INSTEAD of signing: the
+# employee names the day(s) and Meal / Rest, the premium lines are created
+# from the claim, and the time sheet goes back to the manager through
+# reopen() - the same path a punch-fix request takes after approval.
+# Nobody else sees any of this (needs_break_attestation is False).
 
-BREAK_QUESTION = ("In this pay period I was provided every meal and rest break "
-                  "California law requires.")
+BREAK_STATEMENT = ("By signing, I confirm that in this pay period I was provided every meal and "
+                   "rest break California law requires.")
 
 
 def needs_break_attestation(db: Session, r: TimesheetReview) -> bool:
@@ -1463,59 +1471,44 @@ def needs_break_attestation(db: Session, r: TimesheetReview) -> bool:
 
 
 def break_attested(r: TimesheetReview) -> bool:
-    """The employee answered Yes for the envelope out now."""
+    """The employee confirmed the statement on the envelope out now."""
     env = r.sign_request_id or ""
     return bool(env) and any(e.get("action") == "break_attested" and e.get("envelope") == env
                              for e in (r.rounds or []))
 
 
+def statement_printed(db: Session, request_id: str) -> bool:
+    """This envelope's PDF carries the statement above the signature line
+    (_send_envelope logs it when it builds one)."""
+    from models import HrSignEvent
+    return db.query(HrSignEvent.id).filter(HrSignEvent.request_id == request_id,
+                                           HrSignEvent.type == "break_statement").first() is not None
+
+
+def _record_break_confirmed(db: Session, r: TimesheetReview, party, paper: bool) -> None:
+    _round(db, r, by=party.email, action="break_attested",
+           note="Signed on paper" if paper else "Signed", extra={"envelope": r.sign_request_id})
+    from routers.esign import _log
+    _log(db, r.sign_request_id, "attested",
+         f'{display_name(db, party.email)} signed under the statement: "{BREAK_STATEMENT}"',
+         party_id=party.id, ip=getattr(party, "ip", "") or "", user_agent=getattr(party, "user_agent", "") or "")
+
+
 def break_attestation_state(db: Session, r: TimesheetReview) -> dict:
-    """What the Yes / No question needs: the days the meal detection flagged
-    (pre-filled on the No form) and the days with work (the pickable ones)."""
+    """What the signing screen shows: the statement, the days the meal
+    detection flagged (pre-filled on Report a Missed Break) and the days with
+    work (the pickable ones)."""
     card = card_for(db, r.employee_email, r.period_start, r.period_end, r.pay_type)
     import ca_breaks
     worked = ca_breaks.worked_days(card.get("days") or [])
-    return {"required": True, "question": BREAK_QUESTION, "answered": break_attested(r),
+    return {"required": True, "statement": BREAK_STATEMENT, "answered": break_attested(r),
             "flaggedDays": [{"date": d["date"], "label": d["meal"]["label"], "chip": d["meal"]["chip"]}
                             for d in (card.get("days") or []) if d.get("meal")],
             "workedDays": worked}
 
 
-def sign_blocker(db: Session, req, party) -> str:
-    """Why Nexus Sign must not take this signature yet ('' = go ahead):
-    a CA-rule employee signing their time sheet before answering Yes."""
-    r = _for(db, req)
-    if not r or (getattr(party, "role_key", "") or "") != "employee":
-        return ""
-    if not needs_break_attestation(db, r) or break_attested(r):
-        return ""
-    return ("Answer the meal and rest break question first - open Workday > Time Sheet and click "
-            "Sign & Submit.")
-
-
-def attest_breaks(db: Session, r: TimesheetReview, actor: str, *, ip: str = "",
-                  user_agent: str = "") -> TimesheetReview:
-    """The employee's Yes: recorded on the review and on the envelope's
-    event log; signing then goes exactly as today."""
-    actor = (actor or "").lower()
-    if actor != r.employee_email:
-        raise HTTPException(403, "Only the employee answers this for their own time sheet.")
-    if not needs_break_attestation(db, r):
-        raise HTTPException(409, "This question is only for staff on the California overtime rule.")
-    if r.status != "signing" or not r.sign_request_id:
-        raise HTTPException(409, "There is nothing for you to sign yet - your manager's approval sends "
-                                 "the time sheet to you to sign.")
-    if not break_attested(r):
-        _round(db, r, by=actor, action="break_attested", note="Yes", extra={"envelope": r.sign_request_id})
-        from routers.esign import _log
-        _log(db, r.sign_request_id, "attested",
-             f'{display_name(db, actor)} answered Yes: "{BREAK_QUESTION}"', ip=ip, user_agent=user_agent)
-    db.commit()
-    return r
-
-
 def claim_breaks(db: Session, r: TimesheetReview, actor: str, claims: list, note: str = "") -> TimesheetReview:
-    """The employee's No: the claimed days become premium lines and the time
+    """Report a Missed Break (instead of signing): the claimed days become premium lines and the time
     sheet goes back to the manager (reopen - the punch-fix path). Nothing is
     signed."""
     import ca_breaks
@@ -1524,7 +1517,7 @@ def claim_breaks(db: Session, r: TimesheetReview, actor: str, claims: list, note
     if actor != r.employee_email:
         raise HTTPException(403, "Only the employee answers this for their own time sheet.")
     if not needs_break_attestation(db, r):
-        raise HTTPException(409, "This question is only for staff on the California overtime rule.")
+        raise HTTPException(409, "Missed break reports are only for staff on the California overtime rule.")
     if r.status not in ("signing", "approved"):
         raise HTTPException(409, "This time sheet is not waiting for your signature.")
     if tc._finalized_row(db, r.employee_email, r.period_start, r.period_end):

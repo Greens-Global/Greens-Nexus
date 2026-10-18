@@ -23,8 +23,9 @@ else sees no change anywhere - no prompt, no flag, no line, no key.
    Days the engine cannot judge are skipped: a missing punch, an auto-closed
    shift, or an auto-lunch deduction (no break punch to place).
 
-2. The employee answers ONE question when signing their period time sheet
-   (timesheet_review.attest_breaks / claim_breaks): Yes signs as today; No
+2. The employee's signature on their period time sheet confirms the meal and
+   rest break statement printed above it - no separate question (Neil, Oct
+   18; timesheet_review.on_progress / claim_breaks). Report a Missed Break
    names the day(s) and break kind, creates the premium lines (source
    'claim') and reopens the time sheet to the manager through the SAME
    reopen() a punch-fix request uses.

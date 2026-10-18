@@ -2409,7 +2409,6 @@ export const api = {
   approvalDelegationCreateFor: (data) => req('/approval-delegations', { method: 'POST', body: JSON.stringify(data) }),
   // CA meal and rest breaks (Oct 17): the employee's Yes / No before signing,
   // the manager's premium lines, HR's meal waiver (backend/ca_breaks.py).
-  timesheetBreakAttest:  (rid) => req(`/timesheet-review/${encodeURIComponent(rid)}/break-attest`, { method: 'POST', body: '{}' }),
   timesheetBreakClaim:   (rid, data) => req(`/timesheet-review/${encodeURIComponent(rid)}/break-claim`, { method: 'POST', body: JSON.stringify(data) }),
   breakPremiumAdd:       (data) => req('/ca-breaks/premiums', { method: 'POST', body: JSON.stringify(data) }),
   breakPremiumRemove:    (id, reason) => req(`/ca-breaks/premiums/${encodeURIComponent(id)}/remove`, { method: 'POST', body: JSON.stringify({ reason }) }),

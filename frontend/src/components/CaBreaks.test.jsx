@@ -7,7 +7,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 // renders nothing for anyone not on the California overtime rule.
 
 const apiMock = vi.hoisted(() => ({
-  timesheetBreakAttest: vi.fn(), timesheetBreakClaim: vi.fn(), breakPremiumAdd: vi.fn(), breakPremiumRemove: vi.fn(),
+  timesheetBreakClaim: vi.fn(), breakPremiumAdd: vi.fn(), breakPremiumRemove: vi.fn(),
   mealWaiver: vi.fn(), mealWaiverSend: vi.fn(), mealWaiverRevoke: vi.fn(),
   caReview: vi.fn(), caReviewResolve: vi.fn(), caReviewReopen: vi.fn(), caReviewSaveSettings: vi.fn(),
 }));
@@ -22,13 +22,12 @@ vi.mock('../tasks/components', () => ({
   Modal: ({ title, children, footer }) => <div role="dialog" aria-label={title}>{children}{footer}</div>,
 }));
 
-import BreakAttestModal from './BreakAttestModal';
-import { needsBreakAnswer } from '../lib/breakAttest';
+import BreakAttestModal, { BreakStatement } from './BreakAttestModal';
 import BreakPremiums from './BreakPremiums';
 import MealWaiverCard from './MealWaiverCard';
 import CaReview from './CaReview';
 
-const ATT = { required: true, answered: false, question: 'In this pay period I was provided every meal and rest break California law requires.',
+const ATT = { required: true, answered: false, statement: 'By signing, I confirm that in this pay period I was provided every meal and rest break California law requires.',
   flaggedDays: [{ date: '2026-09-16', chip: 'Meal Missed', label: 'No 30-minute meal break in a day over 5 hours' }],
   workedDays: ['2026-09-16', '2026-09-17'] };
 
@@ -37,29 +36,31 @@ beforeEach(() => {
   promptMock.mockReset();
 });
 
-describe('BreakAttestModal', () => {
-  it('asks only when the review needs it', () => {
-    expect(needsBreakAnswer({ breakAttestation: ATT })).toBe(true);
-    expect(needsBreakAnswer({ breakAttestation: { ...ATT, answered: true } })).toBe(false);
-    expect(needsBreakAnswer({})).toBe(false);
-    expect(needsBreakAnswer(null)).toBe(false);
+describe('BreakStatement', () => {
+  it('shows the statement and the flagged days - no question, no tick box', () => {
+    const onReport = vi.fn();
+    render(<BreakStatement attestation={ATT} onReport={onReport} />);
+    expect(screen.getByText(ATT.statement)).toBeTruthy();
+    expect(screen.getByText(/No 30-minute meal break in a day over 5 hours/)).toBeTruthy();
+    expect(screen.queryByRole('checkbox')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Yes, Continue to Sign' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Report a Missed Break' }));
+    expect(onReport).toHaveBeenCalled();
   });
 
-  it('Yes records the answer, then signing goes on', async () => {
-    apiMock.timesheetBreakAttest.mockResolvedValue({});
-    const onYes = vi.fn();
-    render(<BreakAttestModal reviewId="r1" attestation={ATT} onYes={onYes} onClose={() => {}} />);
-    expect(screen.getByText(ATT.question)).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Yes, Continue to Sign' }));
-    await waitFor(() => expect(onYes).toHaveBeenCalled());
-    expect(apiMock.timesheetBreakAttest).toHaveBeenCalledWith('r1');
+  it('without a session (email link) says where to report instead', () => {
+    render(<BreakStatement attestation={ATT} />);
+    expect(screen.queryByRole('button', { name: 'Report a Missed Break' })).toBeNull();
+    expect(screen.getByText(/Workday > Time Sheet/)).toBeTruthy();
   });
+});
 
-  it('No pre-fills the flagged days and sends the claim back', async () => {
+describe('BreakAttestModal (Report a Missed Break)', () => {
+  it('pre-fills the flagged days and sends the claim back', async () => {
     apiMock.timesheetBreakClaim.mockResolvedValue({});
     const onSentBack = vi.fn();
     render(<BreakAttestModal reviewId="r1" attestation={ATT} onSentBack={onSentBack} onClose={() => {}} />);
-    fireEvent.click(screen.getByRole('button', { name: 'No' }));
+    expect(screen.getByRole('dialog', { name: 'Report a Missed Break' })).toBeTruthy();
     expect(screen.getByLabelText('Meal 09/16/2026').checked).toBe(true);
     expect(screen.getByLabelText('Rest 09/16/2026').checked).toBe(false);
     fireEvent.click(screen.getByLabelText('Rest 09/17/2026'));

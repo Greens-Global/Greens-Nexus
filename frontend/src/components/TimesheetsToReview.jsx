@@ -6,8 +6,6 @@ import { formatDate } from '../lib/datetime';
 import { Modal } from '../tasks/components';
 import { SignModal } from './ESign';
 import { ForChip } from './DelegateApprovals';
-import BreakAttestModal from './BreakAttestModal';
-import { needsBreakAnswer } from '../lib/breakAttest';
 
 // Timesheets to Review (Sep 29): the list at the top of People > Time of every
 // timesheet submitted to YOU that you have not decided yet - who, which
@@ -57,12 +55,9 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount 
   const [backFor, setBackFor] = useState('');   // review id whose Send Back note is open
   const [note, setNote] = useState('');
   const [signing, setSigning] = useState(null);  // party id being signed in place
-  // CA-rule staff only: the meal and rest break question first (BreakAttestModal).
-  const [asking, setAsking] = useState(null);    // {partyId, reviewId, attestation}
-  const startSign = (partyId, reviewId, review) => {
-    if (needsBreakAnswer(review)) setAsking({ partyId, reviewId, attestation: review.breakAttestation });
-    else setSigning(partyId);
-  };
+  // CA-rule staff: the signing screen itself shows the meal and rest break
+  // statement and Report a Missed Break (Oct 18) - no question first.
+  const startSign = (partyId) => setSigning(partyId);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
 
@@ -125,22 +120,13 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount 
     setBusyId(`resign-${s.id}`);
     try {
       const out = await api.timesheetReviewSign(s.id);
-      if (out?.myPartyId) startSign(out.myPartyId, s.id, out);
+      if (out?.myPartyId) startSign(out.myPartyId);
       window.dispatchEvent(new CustomEvent('nexus:timesheet-review-changed'));
     } catch (e) { toastErr?.(e?.message || 'Could not open the time sheet to sign.'); }
     setBusyId('');
   }
 
   const card = { marginBottom: 16, border: '1px solid var(--wk-line2)', background: 'var(--card)', borderRadius: 12, padding: '12px 16px', boxShadow: 'var(--wk-shadow)' };
-  const askModal = asking && (
-    <BreakAttestModal reviewId={asking.reviewId} attestation={asking.attestation} toastErr={toastErr}
-      onClose={() => setAsking(null)}
-      onYes={() => { const pid = asking.partyId; setAsking(null); setSigning(pid); }}
-      onSentBack={() => {
-        setAsking(null); toastOk?.('Sent back to your manager to add the premium pay.');
-        window.dispatchEvent(new CustomEvent('nexus:timesheet-review-changed'));
-      }} />
-  );
   const signPortal = signing && createPortal(
     <div style={{ position: 'fixed', inset: 0, zIndex: 4000, background: 'var(--bg, #f4f5f7)', display: 'flex', flexDirection: 'column' }}>
       <SignModal partyId={signing} onClose={() => setSigning(null)}
@@ -243,7 +229,7 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount 
                 {/* needsResign (Oct 17): HR changed it while it was out for signature -
                     the click sends the fresh envelope, then opens it. */}
                 <button type="button" className="primary-btn" disabled={busyId === `resign-${s.id}`}
-                  onClick={() => (s.needsResign ? resign(s) : startSign(s.partyId, s.id, s))}
+                  onClick={() => (s.needsResign ? resign(s) : startSign(s.partyId))}
                   style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                   <FileSignature size={13} /> {s.needsResign ? 'Sign Updated Time Sheet' : s.role === 'employee' ? 'Sign & Submit' : 'Review & Sign'}
                 </button>
@@ -289,7 +275,6 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount 
           </div>
         </Modal>
       )}
-      {askModal}
       {signPortal}
     </>
   );

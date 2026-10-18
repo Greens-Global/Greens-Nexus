@@ -15,7 +15,7 @@ rule is a small function taking the facts and returning flags:
   1. meal_flags        meal late / short / missed (the engine's day["meal"]),
                        and the days a signed waiver would have covered but
                        there is no waiver on file;
-  2. attestation_flags the period question answered No, or not answered yet
+  2. attestation_flags a missed break reported at signing, or not signed yet
                        while the card waits for the employee's signature;
   3. seventh_day_flags 7 consecutive days worked in a workweek: the 7th day
                        must carry no regular time (first 8 h overtime, the
@@ -161,16 +161,16 @@ def attestation_flags(review) -> list:
             words = "; ".join(f"{us_date(c.get('date'))} {'Meal' if c.get('kind') == 'meal' else 'Rest'}"
                               for c in e["breakClaims"])
             out.append(_flag("attest_no", review.period_start,
-                             f"Answered No to the meal and rest break question ({words})"
+                             f"Reported a missed break instead of signing ({words})"
                              + (" - re-approved since" if i < last_approval else ""),
                              {"c": e["breakClaims"], "at": e.get("at")}, detail=str(i)))
     if review.status == "signing" and not tsr.break_attested(review):
         out.append(_flag("attest_pending", review.period_start,
-                         "Approved - the employee has not answered the meal and rest break question yet",
+                         "Approved - the employee has not signed the meal and rest break statement yet",
                          {"env": review.sign_request_id}))
     elif review.status == "approved":
         out.append(_flag("attest_pending", review.period_start,
-                         "Approved - waiting on the employee to answer the meal and rest break question and sign",
+                         "Approved - waiting on the employee to sign the meal and rest break statement",
                          {"st": "approved", "at": review.updated_at}))
     return out
 

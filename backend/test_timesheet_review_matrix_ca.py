@@ -1,12 +1,13 @@
 """The timesheet matrix (test_timesheet_review_matrix - every state x actor x
 action) run again for a CA-rule hourly employee (Oct 17 2026, ca_breaks.py).
 
-The only difference for them: before Nexus Sign takes their signature they
-answer the meal and rest break question. Here every signature answers Yes
-first (attest_breaks), so each matrix test must still pass unchanged - no
-state may become a dead end for CA staff. Plus the No loop: No sends it back
-to the manager (reopen), who re-approves; repeated, it never leaves a stray
-envelope and always reaches "completed".
+The only difference for them (Neil, Oct 18): their signature also confirms
+the meal and rest break statement printed above it - no separate question,
+so the matrix signs exactly as it does for anyone else and each test must
+pass unchanged - no state may become a dead end for CA staff. Plus the
+Report a Missed Break loop: it sends the time sheet back to the manager
+(reopen), who re-approves; repeated, it never leaves a stray envelope and
+always reaches "completed".
 
     python -m pytest test_timesheet_review_matrix_ca.py -q
 """
@@ -26,14 +27,6 @@ class CaRule:
                                        full_day_hours=8, overtime_rule="ca"))
         self.db.commit()
 
-    def _sign(self, party):
-        """Answer Yes, then sign exactly as the matrix does."""
-        self.db.expire_all()
-        req = self.db.query(models.HrSignRequest).filter_by(id=party.request_id).first()
-        r = self.db.query(models.TimesheetReview).filter_by(id=req.link_id).first() if req else None
-        if r is not None and party.role_key == "employee" and r.status == "signing" and not tsr.break_attested(r):
-            tsr.attest_breaks(self.db, r, EMP)
-        super()._sign(party)
 
 
 class CaNoDeadEndTests(CaRule, m.NoDeadEndTests):
@@ -61,6 +54,9 @@ class CaLoopTests(CaRule, m.LoopTests):
         self.assertEqual(len(envelopes), 3)
         self._sign_now()
         self.assertEqual(self._status(), "completed")
+        # The signature on the last envelope confirmed the statement.
+        r = self._rv()
+        self.assertIn("break_attested", [e["action"] for e in r.rounds if e.get("envelope") == r.sign_request_id])
         # One meal premium for the day, however many times it was claimed.
         self.assertEqual(self.db.query(models.TimeBreakPremium).filter_by(employee_email=EMP, status="active").count(), 1)
 
