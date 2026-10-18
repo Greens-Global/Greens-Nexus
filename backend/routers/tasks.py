@@ -31,7 +31,7 @@ from routers.task_util import (
     is_manager, visible_project_ids, task_is_visible, wall_tasks,
     project_for_task, require_project_role, require_task_role, create_comment,
     task_assignees, set_task_assignees,
-    purge_task_permanently, assert_person_on_task, COMMENT_REACTIONS,
+    purge_task_permanently, assert_person_on_task, COMMENT_REACTIONS, extract_mentions,
 )
 from task_notify import notify_task_event
 import task_due
@@ -3354,15 +3354,37 @@ def task_activity(task_id: str, user: dict = Depends(get_current_user), db: Sess
     return [activity_to_dict(a) for a in rows]
 
 
+# The Updates card shows what PEOPLE did (Neil, Oct 18 2026: "every single
+# minor update about an email sent... it keeps saying System"). Only these
+# activity types, and only a real person's - never the notification log
+# (notify_sent / notify_failed / notify_error), recurrence scheduling,
+# automations or time entries. Anything not listed stays out, so a new
+# system-written type can never flood the card.
+UPDATE_TYPES = ("commented", "created", "completed", "task_completed", "status_changed",
+                "assignee_changed", "attached", "checklist_done", "comment_resolved",
+                "comment_assigned", "restored", "deleted", "closed_missed")
+_NOT_PEOPLE = ("", "system", "automation@nexus")
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _preview(body: str, limit: int = 140) -> str:
+    """One line of a rich-text comment, tags stripped."""
+    import html as html_lib
+    text = re.sub(r"\s+", " ", html_lib.unescape(_TAG_RE.sub(" ", body or ""))).strip()
+    return text if len(text) <= limit else text[:limit - 1] + "…"
+
+
 @router.get("/activity/mine")
 def my_task_activity(limit: int = 30, days: int = 14, user: dict = Depends(get_current_user),
                      db: Session = Depends(get_db)):
     """What OTHER people did lately on the tasks I am on - assigned to me or
-    following as a collaborator - newest first. The Updates card on the Tasks
-    Home (Neil, Oct 14 2026). My own actions stay out (I know what I did), so
-    do the Asana sync markers; a task in the Trash drops out with the default
-    soft-delete filter. The window is capped so the scan stays a bounded
-    slice of the activity table rather than a walk over all of it.
+    following as a collaborator - plus comments that @mention me, newest
+    first. The Updates card on the Tasks Home (Neil, Oct 14 2026). Only a
+    person's own actions (UPDATE_TYPES, never "system" / automation), each
+    attributed to that person; a comment carries its text (`preview`). My own
+    actions stay out (I know what I did); a task in the Trash drops out with
+    the default soft-delete filter. The window is capped so the scan stays a
+    bounded slice of the activity table rather than a walk over all of it.
 
     Declared as /activity/mine, which the /{task_id}/activity route cannot
     capture (its second segment is the literal "activity")."""
@@ -3372,14 +3394,16 @@ def my_task_activity(limit: int = 30, days: int = 14, user: dict = Depends(get_c
     limit = max(1, min(int(limit or 30), 100))
     days = max(1, min(int(days or 14), 90))
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-    # The bounded activity slice first; only the tasks it names are read
-    # (not every task's assignee list), in chunks that stay under SQLite's
-    # bound-parameter limit.
+    actor = func.lower(func.coalesce(models.TaskActivity.actor_email, ""))
+    # The bounded activity slice first - people's actions only, so the
+    # notification log can no longer push them out of it; only the tasks it
+    # names are read (not every task's assignee list), in chunks that stay
+    # under SQLite's bound-parameter limit.
     rows = (db.query(models.TaskActivity)
             .filter(models.TaskActivity.entity_kind == "task",
                     models.TaskActivity.at >= since,
-                    models.TaskActivity.type != "synced_from_asana",
-                    func.lower(func.coalesce(models.TaskActivity.actor_email, "")) != me)
+                    models.TaskActivity.type.in_(UPDATE_TYPES),
+                    actor != me, actor.notin_(_NOT_PEOPLE))
             .order_by(models.TaskActivity.at.desc()).limit(2000).all())
     ids = list({a.entity_id for a in rows if a.entity_id})
     if not ids:
@@ -3392,14 +3416,39 @@ def my_task_activity(limit: int = 30, days: int = 14, user: dict = Depends(get_c
                 mine[t.id] = "assignee"
             elif me in email_list(t.follower_emails):
                 mine[t.id] = "collaborator"
-    if not mine:
-        return []
+    # Comments in the window, for the text of each comment row and for the
+    # ones that @mention me on a task I am not otherwise on.
+    comments = {}
+    commented_ids = list({a.entity_id for a in rows if a.type == "commented" and a.entity_id})
+    for i in range(0, len(commented_ids), 500):
+        for c in (db.query(models.TaskComment)
+                  .filter(models.TaskComment.task_id.in_(commented_ids[i:i + 500]),
+                          models.TaskComment.created_at >= since).all()):
+            comments.setdefault(c.task_id, []).append(c)
+
+    def comment_for(a):
+        """The comment this "commented" row logged: same task and author,
+        written at (or a moment before) the row's time."""
+        best = None
+        for c in comments.get(a.entity_id, []):
+            if (c.author_email or "").lower() == (a.actor_email or "").lower() and (c.created_at or "") <= (a.at or ""):
+                if best is None or (c.created_at or "") > (best.created_at or ""):
+                    best = c
+        return best
+
     out = []
     for a in rows:
         rel = mine.get(a.entity_id or "")
+        c = comment_for(a) if a.type == "commented" else None
+        mentioned = c is not None and me in extract_mentions(c.body or "")
+        if mentioned:
+            rel = "mentioned"
         if not rel:
             continue
-        out.append({**activity_to_dict(a), "taskId": a.entity_id, "relation": rel})
+        row = {**activity_to_dict(a), "taskId": a.entity_id, "relation": rel}
+        if c is not None:
+            row["preview"] = _preview(c.body)
+        out.append(row)
         if len(out) >= limit:
             break
     return out
