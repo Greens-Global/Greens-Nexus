@@ -339,6 +339,30 @@ describe('Companies', () => {
     await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ noShowOnUsualHours: true }, ''));
   });
 
+  // Live overtime alert (Oct 17 2026): off unless turned on; the two lead
+  // times default to 30 and 120 minutes, clamped to 0-240 and 0-480.
+  it('saves the overtime alert switch and its two lead times', async () => {
+    render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} />);
+    const on = await screen.findByLabelText('Alert managers before overtime');
+    expect(on.checked).toBe(false);
+    const daily = screen.getByLabelText('Daily overtime warning');
+    const weekly = screen.getByLabelText('Weekly overtime warning');
+    expect(daily.value).toBe('30');
+    expect(weekly.value).toBe('120');
+    expect(screen.getByText(/People on the California overtime rule only/)).toBeTruthy();
+    fireEvent.click(on);
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ otAlertOn: true }, ''));
+    fireEvent.change(daily, { target: { value: '999' } });
+    fireEvent.blur(daily);
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ otAlertDailyLeadMin: 240 }, ''));
+    fireEvent.change(weekly, { target: { value: '999' } });
+    fireEvent.blur(weekly);
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ otAlertWeeklyLeadMin: 480 }, ''));
+    fireEvent.change(weekly, { target: { value: '0' } });
+    fireEvent.blur(weekly);
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ otAlertWeeklyLeadMin: 0 }, ''));
+  });
+
   it('shows the defaults (10 and 15) when the API sends none, and an unchanged value saves nothing', async () => {
     render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} />);
     const noShow = await screen.findByLabelText('No-show alert');

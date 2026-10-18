@@ -8884,8 +8884,20 @@ def _leave_class(category: str) -> str:
     return ""
 
 
+def _projected_out(last, at: str) -> TimePunch:
+    """A clock-out that is never stored: closes an open shift at `at` for
+    _compute_timecard's open_until projection. Not added to any session."""
+    return TimePunch(id="projected-out", employee_email=last.employee_email, kind="out", at=at,
+                     original_at="", local_date=last.local_date or "", tz_offset_min=last.tz_offset_min or 0,
+                     lat="", lng="", accuracy_m=0, geo_status="no_location", work_site_id="",
+                     work_site_name="", distance_m=0, source="projection", note="", adjusted_by="",
+                     adjusted_at="", adjust_note="", voided=0, category="", created_by="", created_at="",
+                     pending_at="", edit_reason="", edited_by="", edited_at="", edit_status="",
+                     edit_reviewed_by="", edit_reviewed_at="", site_set_by="", batch_id="")
+
+
 def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Optional[int] = None,
-                      reprice: bool = False) -> dict:
+                      reprice: bool = False, open_until: str = "") -> dict:
     """Per-day in/out segments, CA/federal overtime split, and wage totals off
     the HR-set hourly rate over [start, end]. Punch times are rounded per the
     SwipeClock-parity rule (_rounding_cfg - nearest 5 min by default) before any
@@ -8896,7 +8908,11 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
     reprice=True is for the Retro Pay report only (retro_pay.py): a finalized
     period keeps its snapshot OT rule but prices each day off the CURRENT rate
     history instead of the snapshot rate - what the period would pay today.
-    Read only; every other caller leaves it False."""
+    Read only; every other caller leaves it False.
+    `open_until` (a UTC ISO time) is a PROJECTION for overtime_watch.py: a
+    shift still open at the end of the punches is closed at that time for the
+    math only (nothing is stored), so the minutes so far go through the same
+    rounding, breaks, auto-lunch, leave and overtime rules as the time sheet."""
     # Fetch one day PAST `end` so a shift that starts on the last day and clocks
     # out after midnight still has its out-punch to pair with - otherwise that
     # whole overnight shift (in on `end`, out on `end`+1) would be dropped from
@@ -8907,6 +8923,8 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
     _end_fetch = (datetime.strptime(end, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d") if end else end
     punches = _live_punches(db, em, start, _end_fetch)
     _geo_fix = _live_geo(db, em, punches)
+    if open_until and punches and punches[-1].kind != "out":
+        punches = punches + [_projected_out(punches[-1], open_until)]
 
     def _geo_of(p):
         g = _geo_fix.get(p.id)

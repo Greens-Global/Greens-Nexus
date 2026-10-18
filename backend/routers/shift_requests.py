@@ -136,13 +136,21 @@ _DEFAULTS = {"openShifts": False, "swaps": False, "offers": False, "teamSchedule
              # team's open pool; a manager approves it unless
              # releaseNeedsApproval is off; and open shifts of every team
              # in the company are offered to everyone, not only that team.
-             "releaseShifts": False, "releaseNeedsApproval": True, "openShiftsAcrossTeams": False}
+             "releaseShifts": False, "releaseNeedsApproval": True, "openShiftsAcrossTeams": False,
+             # Live overtime alert (Neil, Oct 17 2026, overtime_watch.py): a
+             # quiet bell to the manager when someone clocked in is this many
+             # minutes from daily overtime (people on the 'ca' rule) or from
+             # weekly overtime on the payroll week. OFF by default - a CA
+             # team on 8-hour days would hear about every person every day;
+             # 0 turns one threshold off.
+             "otAlertOn": False, "otAlertDailyLeadMin": 30, "otAlertWeeklyLeadMin": 120}
 _TEXT_SETTINGS = ("timeZone", "weekStart")
 SHOW_AS = ("free", "busy")
 # key -> (min, max), clamped on read and save
 _INT_SETTINGS = {"defaultGraceMin": (0, 120), "noShowAlertMin": (0, 240), "leftEarlyMin": (0, 240),
                  "ruleMinRestHours": (0, 24), "ruleMaxDaysInRow": (0, 14), "ruleDailyOtHours": (0, 24),
-                 "ruleWeeklyOtHours": (0, 80), "ruleMaxWeekHours": (0, 100)}
+                 "ruleWeeklyOtHours": (0, 80), "ruleMaxWeekHours": (0, 100),
+                 "otAlertDailyLeadMin": (0, 240), "otAlertWeeklyLeadMin": (0, 480)}
 _KIND_SETTING = {"open": "openShifts", "swap": "swaps", "offer": "offers", "release": "releaseShifts"}
 _EMPLOYEE_ACTION = {"view": "shifts", "sub": "mine"}
 _APPROVER_ACTION = {"view": "shifts", "sub": "schedule"}   # the Shifts module (Sep 29)
@@ -337,6 +345,9 @@ class SettingsIn(BaseModel):
     releaseShifts: Optional[bool] = None        # staff may release a shared shift to the open pool (Phase 3b)
     releaseNeedsApproval: Optional[bool] = None # a manager approves a release; off = at once
     openShiftsAcrossTeams: Optional[bool] = None   # open shifts of every team in the company, for everyone
+    otAlertOn: Optional[bool] = None            # live overtime alert to the manager (Oct 17; off by default)
+    otAlertDailyLeadMin: Optional[int] = None   # 0-240; minutes before daily overtime ('ca' rule); 0 = off
+    otAlertWeeklyLeadMin: Optional[int] = None  # 0-480; minutes before weekly overtime; 0 = off
 
 
 @router.get("/settings")
