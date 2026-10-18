@@ -3090,7 +3090,7 @@ def create_punch_request(body: PunchRequestIn, user: dict = Depends(get_current_
     action = {**_timecard_action(db, req.employee_email, local_date),
               "sub": "hr-time-requests", "punchRequestId": req.id}
     _notify_approvers(db, employee_email=req.employee_email, title="Timesheet fix requested",
-                      body=f"{name} asked to {what} on {_us_day(local_date)}. Reason: {reason}",
+                      body=f"{name} asked to {what} on {_us_day(local_date)}.\nReason: {reason}",
                       ref_id=req.id, action=action)
     db.commit()
     return _pr_dict(req)
@@ -3623,7 +3623,7 @@ def request_punch_edit(body: PunchEditIn, user: dict = Depends(get_current_user)
     name = f"{emp.first_name} {emp.last_name}".strip() if emp else email.split("@")[0].replace(".", " ").title()
     _notify_approvers(db, employee_email=email, title="Timesheet edit requested",
                       body=f"{name} asked to adjust their {_kind_label(row.kind)} punch on {_us_day(row.local_date)}."
-                      + (f" Reason: {row.edit_reason}" if row.edit_reason else ""),
+                      + (f"\nReason: {row.edit_reason}" if row.edit_reason else ""),
                       ref_id=row.id, action=_timecard_action(db, email, row.local_date))
     db.commit()
     return _serialize(row)

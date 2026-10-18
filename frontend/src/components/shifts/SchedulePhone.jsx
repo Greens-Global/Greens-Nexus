@@ -43,17 +43,20 @@ export function DayStrip({ days, value, onChange, countOf, noteOn, hoursOf }) {
 }
 
 // One person on one day: photo, name and hours on the left, the day's
-// blocks on the right. The whole row is the drop / press target.
+// blocks on the right. The whole row is the drop / press target. The name
+// column is a share of the row, not a fixed 124px (Oct 17: "Darshana K..."
+// was cut beside an empty right half), and a long name wraps to two lines.
+const CLAMP2 = { display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere' };
 export function PhoneRow({ avatar, name, sub, sub2, isMe = false, onTap, children, style, ...rest }) {
   return (
-    <div {...rest} onClick={onTap} style={{ display: 'grid', gridTemplateColumns: '124px minmax(0, 1fr)', gap: 8, alignItems: 'center', padding: '7px 10px', borderBottom: '1px solid var(--line)',
+    <div {...rest} onClick={onTap} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 46%) minmax(0, 1fr)', gap: 8, alignItems: 'center', padding: '7px 10px', borderBottom: '1px solid var(--line)',
       background: isMe ? 'var(--wk-brand-tint)' : undefined, cursor: onTap ? 'pointer' : 'default', ...style }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 0 }}>
         {avatar}
         <span style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 12.5, fontWeight: isMe ? 800 : 700, color: isMe ? 'var(--wk-brand)' : 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
+          <div title={typeof name === 'string' ? name : undefined} style={{ fontSize: 12.5, fontWeight: isMe ? 800 : 700, color: isMe ? 'var(--wk-brand)' : 'var(--ink)', lineHeight: 1.25, ...CLAMP2 }}>{name}</div>
           {sub && <div style={{ fontSize: 10.5, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{sub}</div>}
-          {sub2 && <div style={{ fontSize: 10.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sub2}</div>}
+          {sub2 && <div style={{ fontSize: 10.5, color: 'var(--muted)', ...CLAMP2 }}>{sub2}</div>}
         </span>
       </div>
       <div style={{ minWidth: 0 }}>{children}</div>

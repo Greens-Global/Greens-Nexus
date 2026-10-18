@@ -5815,8 +5815,9 @@ function PeopleStatCards({ employees, externals = [], loading, isMobile, onStatu
 
   return (
     <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'minmax(300px, 1.05fr) 1.4fr 1.15fr', gap: 14, marginBottom: 16, alignItems: 'stretch' }}>
-      {/* 2×2 KPI tiles - solid brand hero + white siblings */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+      {/* 2×2 KPI tiles - solid brand hero + white siblings. repeat(2, ...) so
+          the phone guard on inline "1fr 1fr" keeps them 2x2 (Oct 17). */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 12 }}>
         <KpiTile solid label="Total People" value={total} loading={loading}
           delta={joined > 0 ? `↑ ${joined} this year` : undefined}
           sub={nExternal ? `+${nExternal} external` : 'no external users'}
@@ -5879,6 +5880,9 @@ function PendingRoleBadge({ req, onOpen }) {
     </span>
   );
 }
+
+// A directory filter on a phone: half the row, so four make a 2x2.
+const PHONE_FILTER = { flex: '1 1 calc(50% - 4px)', width: 'auto', minWidth: 0 };
 
 export default function HR({ activeSub, onSubChange }) {
   // Legacy subviews (hr-ms / hr-asana / …) all collapse into People for now.
@@ -6296,25 +6300,26 @@ export default function HR({ activeSub, onSubChange }) {
               <span className="wkc-chip"><Users size={14} /></span>
               <span className="wkc-title">Directory</span>
               {!loading && filtered.length > 0 && <span className="dk-count">{filtered.length}</span>}
-              <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                <div className="search-bar" style={{ width: 210 }}>
+              {/* Phone (Oct 17): full-width search, then the four filters as a clean 2x2. */}
+              <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', ...(isMobile ? { width: '100%' } : {}) }}>
+                <div className="search-bar" style={{ width: isMobile ? '100%' : 210 }}>
                   <Search size={13} style={{ flexShrink: 0 }} />
                   <input placeholder="Search people…" value={search} onChange={e => setSearch(e.target.value)} />
                   {search && <button onClick={() => setSearch('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}><X size={13} /></button>}
                 </div>
                 {/* Worker-type filter (Neil, Aug 24): the directory is the master
                     list, this narrows it to a category. */}
-                <select className="form-input" value={typeF} onChange={e => { setTypeF(e.target.value); setSelectedId(null); }} style={{ width: 140, padding: '7px 10px', fontSize: 13.5, height: 38 }}>
+                <select className="form-input" value={typeF} onChange={e => { setTypeF(e.target.value); setSelectedId(null); }} style={{ ...(isMobile ? PHONE_FILTER : { width: 140 }), padding: '7px 10px', fontSize: 13.5, height: 38 }}>
                   <option value="All">All people</option>
                   <option value="employee">Employees</option>
                   <option value="contractor">Contractors</option>
                   <option value="external">External &amp; guests</option>
                 </select>
-                <select className="form-input" value={companyF} onChange={e => { setCompanyF(e.target.value); setDeptF('All'); }} style={{ width: 150, padding: '7px 10px', fontSize: 13.5, height: 38 }}>
+                <select className="form-input" value={companyF} onChange={e => { setCompanyF(e.target.value); setDeptF('All'); }} style={{ ...(isMobile ? PHONE_FILTER : { width: 150 }), padding: '7px 10px', fontSize: 13.5, height: 38 }}>
                   <option value="All">All companies</option>
                   {entities.map(en => <option key={en.id} value={en.id}>{en.name}</option>)}
                 </select>
-                <select className="form-input" value={deptF} onChange={e => setDeptF(e.target.value)} style={{ width: 155, padding: '7px 10px', fontSize: 13.5, height: 38 }}>
+                <select className="form-input" value={deptF} onChange={e => setDeptF(e.target.value)} style={{ ...(isMobile ? PHONE_FILTER : { width: 155 }), padding: '7px 10px', fontSize: 13.5, height: 38 }}>
                   <option value="All">All departments</option>
                   {deptChoices.map(d => <option key={d}>{d}</option>)}
                 </select>
@@ -6328,7 +6333,7 @@ export default function HR({ activeSub, onSubChange }) {
                     setSelectedId(null);
                     if (next === DELETED_F) loadDeleted();
                   }}
-                  style={{ width: 135, padding: '7px 10px', fontSize: 13.5, height: 38 }}>
+                  style={{ ...(isMobile ? PHONE_FILTER : { width: 135 }), padding: '7px 10px', fontSize: 13.5, height: 38 }}>
                   <option value="All">All statuses</option>
                   {Object.entries(STATUS_META).map(([v, m]) => <option key={v} value={v}>{m.label}</option>)}
                   <option value={DELETED_F}>Deleted</option>

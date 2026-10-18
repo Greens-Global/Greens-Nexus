@@ -897,7 +897,9 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', borderBottom: '1px solid var(--line)', flexWrap: 'wrap' }}>
                     {ids.length > 0 && cb(gSel === ids.length, on => toggle(ids, on), `Select every request from ${g.name}`)}
                     <Avatar email={g.email} name={g.name} size={32} />
-                    <div style={{ minWidth: 0, flex: 1 }}>
+                    {/* A 180px basis: on a phone the name keeps the first line and the
+                        chips and buttons wrap below it, instead of squeezing it to "N..." (Oct 17). */}
+                    <div style={{ minWidth: 0, flex: '1 1 180px' }}>
                       <div style={{ fontSize: 13.5, fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.name}</div>
                       <div style={{ fontSize: 11.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {g.dept || 'No department'} · {g.email}
