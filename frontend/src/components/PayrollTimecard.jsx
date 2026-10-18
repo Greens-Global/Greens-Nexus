@@ -2190,8 +2190,15 @@ function InlineTime({ seg, k, meta, showRaw, locked, onSaved, toastErr, self, lo
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
       {geo && geo !== 'no_location' && geo !== 'location_off' && (locateEmail
+        // The dot is drawn INSIDE the button: a phone card gives every button
+        // in the row a 32px tap height (style.css .pr-dcard-times button), and
+        // a button that was itself the 10px dot stretched into an oval (Neil,
+        // Oct 18). The button is the tap target; the span stays a circle.
         ? <button onClick={openMap} aria-label="Open the geofence punch map" title={`${dotTitle} - click for the punch map`}
-            style={{ width: 10, height: 10, borderRadius: '50%', flexShrink: 0, padding: 0, cursor: 'pointer', border: 'none', background: dotColor, boxShadow: `0 0 0 2px var(--card), 0 0 0 3px ${dotColor}` }} />
+            className="pr-geo-dot"
+            style={{ width: 20, height: 20, margin: -5, flexShrink: 0, padding: 0, cursor: 'pointer', border: 'none', background: 'none', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+            <span aria-hidden="true" style={{ width: 10, height: 10, borderRadius: '50%', flexShrink: 0, background: dotColor, boxShadow: `0 0 0 2px var(--card), 0 0 0 3px ${dotColor}` }} />
+          </button>
         : <span title={dotTitle}
             style={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, background: dotColor }} />)}
       <button onClick={() => { if (!id) return; setVal(utcToInput(raw)); setEditing(true); }}
