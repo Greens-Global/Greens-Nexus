@@ -317,10 +317,36 @@ def _sweep() -> dict | None:
         db.close()
 
 
+def _reach_tick() -> None:
+    """Every poll (Oct 16 2026): release Scheduled updates whose time has
+    come, and send the Monday digest once a week (changelog_reach). Sync -
+    called via asyncio.to_thread."""
+    import changelog_reach
+    db = SessionLocal()
+    try:
+        changelog_reach.promote_scheduled(db)
+        changelog_reach.send_digests_if_due(db)
+    except Exception as e:      # noqa: BLE001 - never let it kill the loop
+        db.rollback()
+        print(f"[changelog] scheduled/digest tick failed: {e}")
+    try:
+        # Deprecation reminders and, on dev, Live in Production (Oct 18 2026).
+        from routers import changelog_lifecycle
+        for step in (changelog_lifecycle.deprecation_tick, changelog_lifecycle.sync_production_if_due):
+            try:
+                step(db)
+            except Exception as e:  # noqa: BLE001 - one step failing never stops the next
+                db.rollback()
+                print(f"[changelog] {step.__name__} failed: {e}")
+    finally:
+        db.close()
+
+
 async def changelog_generate_loop():
     """Draft "What's New" entries from recent commits on a schedule."""
     await asyncio.sleep(_SETTLE_SECONDS)
     while True:
+        await asyncio.to_thread(_reach_tick)
         if not _enabled():
             await asyncio.sleep(6 * 3600)   # off - recheck the env later
             continue

@@ -226,7 +226,11 @@ const PER_CHUNK_KB = 1000;   // largest today: vendor-pdf ~848 KB
 // feature tipped it again; #564 (Hiring: offer letter first, no-login
 // intake, the hiring board and screening task) measured 12582 KB. All app
 // code, no new dependency. Deliberate.
-const TOTAL_KB     = 12750;
+// Oct 18, 2026: 12750 -> 12950. dev itself measured 12706 KB on CI; #639
+// (What's New: audience, following, requests, known issues, deprecations,
+// guided tours, attachments, production tracking) measured 12810 KB. All
+// app code, no new dependency. Deliberate.
+const TOTAL_KB     = 12950;
 
 // Named exemptions, so one oversized lazy chunk does not force the cap up for
 // EVERY chunk. An entry here is a deliberate decision with a reason, not a

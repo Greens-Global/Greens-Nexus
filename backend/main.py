@@ -1080,6 +1080,19 @@ def _run_migrations():
             "ALTER TABLE hr_candidates ADD COLUMN screen_task_id VARCHAR DEFAULT ''",
             # Overdue ticket reminders (Oct 15 2026). models.TaskTicket.overdue_reminder.
             "ALTER TABLE task_tickets ADD COLUMN overdue_reminder JSON DEFAULT '{}'",
+            # What's New replies, mentions and "since your last visit" (Oct 16 2026).
+            "ALTER TABLE task_changelog_comments ADD COLUMN parent_id VARCHAR DEFAULT ''",
+            "ALTER TABLE task_changelog_comments ADD COLUMN mentions JSON DEFAULT '[]'",
+            "ALTER TABLE changelog_seen ADD COLUMN prev_seen_at VARCHAR DEFAULT ''",
+            # What's New: request statuses and tour completions (Oct 18 2026).
+            "ALTER TABLE changelog_feedback ADD COLUMN status VARCHAR DEFAULT ''",
+            "ALTER TABLE changelog_feedback ADD COLUMN status_note TEXT DEFAULT ''",
+            "ALTER TABLE changelog_feedback ADD COLUMN status_by VARCHAR DEFAULT ''",
+            "ALTER TABLE changelog_feedback ADD COLUMN status_at VARCHAR DEFAULT ''",
+            "ALTER TABLE changelog_feedback ADD COLUMN shipped_entry_id VARCHAR DEFAULT ''",
+            "ALTER TABLE changelog_feedback ADD COLUMN notified_status VARCHAR DEFAULT ''",
+            "ALTER TABLE changelog_feedback ADD COLUMN module VARCHAR DEFAULT ''",
+            "ALTER TABLE changelog_entry_views ADD COLUMN tour_done_at VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2408,6 +2421,19 @@ def _run_migrations():
         # Approver delegation (Oct 17 2026) - a new table: explicit RLS on top
         # of the _enable_rls_everywhere sweep. models.ApprovalDelegation.
         "ALTER TABLE approval_delegations ENABLE ROW LEVEL SECURITY",
+        # What's New replies, mentions and "since your last visit" (Oct 16 2026).
+        "ALTER TABLE task_changelog_comments ADD COLUMN IF NOT EXISTS parent_id VARCHAR DEFAULT ''",
+        "ALTER TABLE task_changelog_comments ADD COLUMN IF NOT EXISTS mentions JSONB DEFAULT '[]'::jsonb",
+        "ALTER TABLE changelog_seen ADD COLUMN IF NOT EXISTS prev_seen_at VARCHAR DEFAULT ''",
+        # What's New: request statuses and tour completions (Oct 18 2026).
+        "ALTER TABLE changelog_feedback ADD COLUMN IF NOT EXISTS status VARCHAR DEFAULT ''",
+        "ALTER TABLE changelog_feedback ADD COLUMN IF NOT EXISTS status_note TEXT DEFAULT ''",
+        "ALTER TABLE changelog_feedback ADD COLUMN IF NOT EXISTS status_by VARCHAR DEFAULT ''",
+        "ALTER TABLE changelog_feedback ADD COLUMN IF NOT EXISTS status_at VARCHAR DEFAULT ''",
+        "ALTER TABLE changelog_feedback ADD COLUMN IF NOT EXISTS shipped_entry_id VARCHAR DEFAULT ''",
+        "ALTER TABLE changelog_feedback ADD COLUMN IF NOT EXISTS notified_status VARCHAR DEFAULT ''",
+        "ALTER TABLE changelog_feedback ADD COLUMN IF NOT EXISTS module VARCHAR DEFAULT ''",
+        "ALTER TABLE changelog_entry_views ADD COLUMN IF NOT EXISTS tour_done_at VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -3763,3 +3789,7 @@ from routers import ca_breaks as ca_breaks_router  # noqa: E402
 app.include_router(ca_breaks_router.router)          # CA meal / rest premium lines + the meal waiver in Nexus Sign (Neil, 10/17)
 from routers import ca_review as ca_review_router  # noqa: E402
 app.include_router(ca_review_router.router)          # People > Time > Payroll: California Review - CA-rule flags for HR (Neil, 10/18)
+from routers import changelog_extras  # noqa: E402
+app.include_router(changelog_extras.router)          # What's New: following + digest, private RSS feed, screen hints, feedback, history, bulk, insights (Oct 16)
+from routers import changelog_lifecycle  # noqa: E402
+app.include_router(changelog_lifecycle.router)       # What's New: request statuses, known issues / rollbacks, deprecations, tours, live in production (Oct 18)

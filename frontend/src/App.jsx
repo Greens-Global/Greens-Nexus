@@ -21,6 +21,7 @@ import GlobalSearch from "./components/GlobalSearch";
 import PullToRefresh from "./components/PullToRefresh";
 import FeatureBanner from "./components/FeatureBanner";
 import AssistantWidget from "./components/AssistantWidget";
+import { WhatsNewHint } from "./tasks/changelogExtras";   // "New on this screen" (What's New, Oct 16 2026)
 import ViewErrorBoundary from "./components/ViewErrorBoundary";
 import WidgetBoundary, { NavFallback } from "./components/WidgetBoundary";
 import { Spinner, ViewLoading } from "./components/AsyncState";
@@ -381,7 +382,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "inventory":          return <InventoryManagement activeSub={activeSub} onSubChange={onSubChange} onNavigate={onNavigate} />;
     case "admin-console":      return <AdminConsole activeSub={activeSub} onSubChange={onSubChange} />;
     case "support":            return <Support activeSub={activeSub} onSubChange={onSubChange} />;
-    case "whats-new":          return <WhatsNew />;
+    case "whats-new":          return <WhatsNew activeSub={activeSub} onSubChange={onSubChange} />;
     case "timeclock":          return <TimeClock initialTab="overview" activeSub={activeSub} onSubChange={onSubChange} />;
     case "myhr":               return <TimeClock initialTab="overview" activeSub={activeSub} onSubChange={onSubChange} />;
     case "testing":            return <Testing />;
@@ -768,6 +769,7 @@ function MainApp() {
         <WidgetBoundary name="timeclock-widget" resetKey={widgetKey}><TimeclockWidget /></WidgetBoundary>
         <WidgetBoundary name="global-search" resetKey={widgetKey}><GlobalSearch /></WidgetBoundary>
         <AssistantWidget />
+        <WidgetBoundary name="whats-new-hint" resetKey={widgetKey}><WhatsNewHint view={activeView} /></WidgetBoundary>
         <WidgetBoundary name="pull-to-refresh" resetKey={widgetKey}><PullToRefresh /></WidgetBoundary>
         <WidgetBoundary name="task-prefetch" resetKey={widgetKey}><TaskPrefetch /></WidgetBoundary>
         {activeView === 'sso' && activeSub === 'accounting' && (
