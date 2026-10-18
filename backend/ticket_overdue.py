@@ -13,7 +13,7 @@ have opened:
 - ONE message per person per day, listing every ticket of theirs that is due
   today or past due - never one per ticket.
 - After two overdue reminders went unanswered, each later one also goes to
-  the department lead (TicketDepartment.lead_email, else backup_email, of the
+  the department head (HrDepartment.lead_email, else the desk's backup_email, of the
   department the ticket is about - the same lookup as Escalate).
 - Not reminded: resolved and closed tickets, tickets waiting for the
   requester (the delay is not the assignee's), tickets still awaiting
@@ -132,10 +132,15 @@ def _deliver(db: Session, *, sender: str, to: str, rows: list, audience: str,
 
 
 def _lead_of(db: Session, t: models.TaskTicket):
-    dept = (db.query(models.TicketDepartment).filter(models.TicketDepartment.id == t.hr_department_id).first()
-            if t.hr_department_id else None)
-    lead = ((dept.lead_email if dept else "") or (dept.backup_email if dept else "") or "").strip().lower()
-    return lead, (dept.name if dept else "")
+    """The department's head - HrDepartment.lead_email, the one head every
+    module reads since Oct 15 2026 (ticket_notify._recipients_for does the
+    same) - else the desk's backup. TicketDepartment.lead_email is history."""
+    if not t.hr_department_id:
+        return "", ""
+    live = db.query(models.HrDepartment).filter(models.HrDepartment.id == t.hr_department_id).first()
+    dept = db.query(models.TicketDepartment).filter(models.TicketDepartment.id == t.hr_department_id).first()
+    lead = ((live.lead_email if live else "") or (dept.backup_email if dept else "") or "").strip().lower()
+    return lead, ((live.name if live else "") or (dept.name if dept else ""))
 
 
 def run(db: Session, local_now=None) -> int:

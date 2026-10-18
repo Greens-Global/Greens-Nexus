@@ -24,6 +24,7 @@ is stored on the ticket as approval_status, so flipping it never changes a
 ticket that already exists - see requires_approval() below.
 """
 import json
+import math
 import re
 from typing import Any
 
@@ -224,6 +225,52 @@ def _clean_type_order(order: Any):
 
 class TaxonomyError(ValueError):
     """A save patch the server refuses - the router turns it into a 400."""
+
+
+class SlaHoursError(TaxonomyError):
+    """An SLA target that is not a positive number of hours - a 422 (the
+    router). Stored, it would 500 every ticket create (timedelta of junk)."""
+
+
+PRIORITIES = ("urgent", "high", "medium", "low")
+# A year. Anything longer is a typo, and an absurd value overflows the date
+# math every create does with it.
+SLA_HOURS_MAX = 24 * 365
+
+
+def _clean_sla_hours(patch: Any) -> dict:
+    if not isinstance(patch, dict):
+        raise SlaHoursError("slaTargetHours must be an object keyed by priority.")
+    out = {}
+    for key, value in patch.items():
+        if key not in PRIORITIES:
+            raise SlaHoursError(f"Unknown priority {key!r} - use urgent, high, medium or low.")
+        if isinstance(value, bool):
+            raise SlaHoursError(f"The SLA target for {key} must be a number of hours.")
+        try:
+            hours = float(value)
+        except (TypeError, ValueError):
+            raise SlaHoursError(f"The SLA target for {key} must be a number of hours.")
+        if not math.isfinite(hours) or hours <= 0:
+            raise SlaHoursError(f"The SLA target for {key} must be more than 0 hours.")
+        if hours > SLA_HOURS_MAX:
+            raise SlaHoursError(f"The SLA target for {key} can be at most {SLA_HOURS_MAX:,} hours (one year).")
+        out[key] = int(hours) if hours.is_integer() else hours
+    return out
+
+
+# Types tickets were raised as before the five (Oct 1 2026) - every ticket
+# screen still labels them (ticketMeta.js TICKET_TYPE_META), so the desk may
+# still file or re-type one. "request" is the historic default.
+LEGACY_TYPES = ("request", "service_request", "change_request", "task", "question")
+
+
+def valid_type(db: Session, key: str) -> bool:
+    """Is this a ticket type the desk knows - one of the five, a retired one
+    the screens still label, or a type an admin has configured?
+    create_ticket refuses anything else."""
+    key = (key or "").strip()
+    return key in TICKET_TYPES or key in LEGACY_TYPES or key in get_config(db)["types"]
 
 
 _DEFAULTS = {
@@ -452,8 +499,8 @@ def save_config(db: Session, patch: dict, actor_email: str) -> dict:
     if "types" in patch:
         _validate_types_patch(patch["types"])
     merged = get_config(db)
-    if "slaTargetHours" in patch and isinstance(patch["slaTargetHours"], dict):
-        merged["slaTargetHours"] = {**merged["slaTargetHours"], **patch["slaTargetHours"]}
+    if "slaTargetHours" in patch:
+        merged["slaTargetHours"] = {**merged["slaTargetHours"], **_clean_sla_hours(patch["slaTargetHours"])}
     if "types" in patch:
         # Per-type entries replace wholesale (the editor always sends a type's
         # full entry). A default-gated type whose entry arrives without the
@@ -483,13 +530,21 @@ def save_config(db: Session, patch: dict, actor_email: str) -> dict:
     return merged
 
 
-def sla_hours(db: Session, priority: str) -> int:
+def sla_hours(db: Session, priority: str) -> float:
     """The authoritative SLA target hours for a priority - used by
     _sla_due_from_priority in routers/tickets.py so a saved admin override
     takes effect immediately, server-side, without a redeploy."""
     cfg = get_config(db)
     hours = cfg["slaTargetHours"]
-    return hours.get(priority, hours["medium"])
+    # A value saved before save_config validated it must not 500 the create.
+    for value in (hours.get(priority), hours.get("medium"), _DEFAULT_SLA_HOURS.get(priority)):
+        try:
+            h = float(value)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(h) and 0 < h <= SLA_HOURS_MAX:
+            return h
+    return _DEFAULT_SLA_HOURS["medium"]
 
 
 def company_field(db: Session) -> dict:

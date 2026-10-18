@@ -102,8 +102,10 @@ def _summary(t, prop_names: dict, lead_id: str, photos: dict, names: dict, desk:
                           if full else ""),
         "approvalStatus": t.approval_status or "none",
         "createdAt": t.created_at or "", "resolvedAt": t.resolved_at or "",
-        "resolution": t.resolution or "", "resolutionNote": t.resolution_note or "",
-        "vendor": t.maintenance_vendor or "", "cost": t.maintenance_cost or "",
+        # What was said and spent on it is the conversation's / the desk's
+        # record - a read-only asset viewer gets the summary only.
+        "resolution": t.resolution or "", "resolutionNote": (t.resolution_note or "") if full else "",
+        "vendor": (t.maintenance_vendor or "") if full else "", "cost": (t.maintenance_cost or "") if full else "",
         "photoCount": photos.get(t.id, 0), "batchId": t.batch_id or "",
         # Worked (not Duplicate / Won't Fix / rejected) - eligible for the record.
         "maintenanceRecord": worked,
@@ -113,7 +115,7 @@ def _summary(t, prop_names: dict, lead_id: str, photos: dict, names: dict, desk:
         "needsAction": status in property_links.CLOSED_STATES and worked and t.id not in logged,
         "parentTicketId": t.parent_ticket_id or "",
         "isServiceParent": t.id in service_parents,
-        "canOpen": desk or me in T._ticket_participants(t),
+        "canOpen": desk or me in T._ticket_readers(t),
         "watching": me in watchers,
     }
 
@@ -147,7 +149,7 @@ def _record_out(r, by_id: dict) -> dict:
             "parentTicketId": r.parent_ticket_id or "", "parentCodeLabel": ticket_no(parent.code) if parent else ""}
 
 
-def _service_out(svc, by_id: dict, records: dict) -> dict:
+def _service_out(svc, by_id: dict, records: dict, full: bool = True) -> dict:
     """A recurring service: its parent ticket and every child under it, each
     with its date and cost (the logged record's, else what the ticket has)."""
     parent = by_id.get(svc.parent_ticket_id)
@@ -161,9 +163,11 @@ def _service_out(svc, by_id: dict, records: dict) -> dict:
         return {"id": t.id, "codeLabel": ticket_no(t.code), "subject": t.subject, "status": status,
                 "isParent": t.id == svc.parent_ticket_id,
                 "date": (rec.service_date if rec else "") or (t.resolved_at or t.created_at or "")[:10],
-                "cost": (rec.cost if rec else "") or (t.maintenance_cost or ""),
+                # The logged record is the property's history; a ticket's own
+                # vendor / cost (not yet logged) is the desk's, like _summary.
+                "cost": (rec.cost if rec else "") or ((t.maintenance_cost or "") if full else ""),
                 "currency": (rec.currency if rec else "") or "USD",
-                "vendor": (rec.vendor if rec else "") or (t.maintenance_vendor or ""),
+                "vendor": (rec.vendor if rec else "") or ((t.maintenance_vendor or "") if full else ""),
                 "logged": rec is not None}
     rows = [row(t) for t in family]
     totals = _totals((r["cost"], r["currency"]) for r in rows)
@@ -205,10 +209,13 @@ def property_tickets(property_id: str, user: dict = Depends(require_asset_read),
     desk = T._has_desk_grant(user, db)
     me = (user.get("email") or "").lower()
     can_manage = property_links.may_follow(db, user, prop)
-    summaries = [_summary(t, prop_names, prop.id, photos, names, desk, me, full=desk or can_manage,
+    full = desk or can_manage
+    summaries = [_summary(t, prop_names, prop.id, photos, names, desk, me, full=full,
                           logged=set(records), service_parents={s.parent_ticket_id for s in services})
                  for t in rows]
-    latest = _latest_public(db, list(by_id))
+    # The latest reply is the conversation - never for a read-only viewer (see
+    # the module docstring), so it is not even queried for one.
+    latest = _latest_public(db, list(by_id)) if full else {}
     names.update(_names(db, {c["authorId"] for c in latest.values()} - set(names)))
     for s in summaries:
         par = by_id.get(s["parentTicketId"]) if s["parentTicketId"] else None
@@ -227,7 +234,7 @@ def property_tickets(property_id: str, user: dict = Depends(require_asset_read),
             "open": open_, "history": history,
             "needsAction": [s for s in history if s["needsAction"]],
             "records": sorted([_record_out(r, by_id) for r in recs], key=lambda r: r["date"], reverse=True),
-            "services": sorted([_service_out(s, by_id, records) for s in services],
+            "services": sorted([_service_out(s, by_id, records, full) for s in services],
                                key=lambda s: (not s["active"], s["nextDue"])),
             "spend": spend, "spendTotals": spend_totals,
             "canWalkthrough": property_links.may_walkthrough(db, user),

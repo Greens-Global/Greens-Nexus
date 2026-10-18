@@ -44,7 +44,6 @@ from typing import List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
 from pydantic import BaseModel
-from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -108,11 +107,9 @@ def _desc_html(text: str) -> str:
                    for line in (text or "").splitlines() if line.strip())
 
 
-def _active_person(db: Session, email: str) -> bool:
-    emp = (db.query(models.NexusEmployee)
-           .filter(func.lower(models.NexusEmployee.work_email) == email).first())
-    return (emp is not None and (emp.status or "") != "offboarded"
-            and not (getattr(emp, "deleted_at", "") or ""))
+# One People-list check for every person a ticket payload names - shared with
+# create_ticket's assignee and request_approval's approver.
+_active_person = T.active_person
 
 
 def _validate_lines(db: Session, lines: list, desk: bool, gated: set) -> tuple:
