@@ -5938,6 +5938,9 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
 @media (max-width: 900px) {
   .acct-header.view-header { grid-template-columns: minmax(0, 1fr) auto; }
   .acct-header-search { grid-column: 1 / -1; grid-row: 2; }
+  /* The subtitle drops under the title and wraps, instead of one cut line (Oct 17). */
+  .acct-header-title { flex-wrap: wrap; row-gap: 2px; }
+  .acct-header-title p { white-space: normal; flex-basis: 100%; }
 }
 /* Oct 6: a tab with a dropdown (ModuleTabs' TabGroupButton) names the item
    open inside it - "Dashboard  Cash". */

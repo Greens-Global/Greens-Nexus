@@ -2857,7 +2857,7 @@ export default function SOP({ activeSub, onSubChange }) {
                 <Search size={18} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
                 <input data-slash-search={ownsSlash ? '' : undefined} ref={searchRef} type="text" className="form-input" value={search} onChange={e => setSearch(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter' && search.trim()) doAsk(search); }}
-                  placeholder="Search or ask anything… e.g. How do we hand over a unit key?"
+                  placeholder={isMobile ? 'Search or ask anything…' : 'Search or ask anything… e.g. How do we hand over a unit key?'}
                   style={{ paddingLeft: 42, paddingRight: 36, width: '100%', height: 48, fontSize: '0.95rem', borderRadius: 12 }} />
                 {!search && <span style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-muted)', background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 6, padding: '1px 7px', pointerEvents: 'none' }}>/</span>}
               </div>

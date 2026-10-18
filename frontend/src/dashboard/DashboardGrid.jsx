@@ -138,7 +138,10 @@ export default function DashboardGrid({ layout, editing, onLayoutChange, renderW
       <div ref={ref} className="dash-grid" style={{ display: 'flex', flexDirection: 'column', gap: GAP }}>
         {layout.length === 0 && emptyState}
         {rows.map(row => row.length === 1 ? cell(row[0]) : (
-          <div key={row[0].i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: GAP }}>
+          // repeat(2, ...) not '1fr 1fr': style.css's phone guard stacks any
+          // inline "1fr 1fr", which undid this pairing and gave every small
+          // tile a full-width row (Oct 17 mobile audit).
+          <div key={row[0].i} style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: GAP }}>
             {row.map(cell)}
           </div>
         ))}

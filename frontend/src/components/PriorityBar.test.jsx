@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 // The priority bar (Neil, call of 09/29; adjusted 10/01): a notification
 // with priority 1 sticks to the top until it is clicked off - opening the
@@ -16,7 +16,7 @@ vi.mock('../api', () => ({ api: {
   sendPriorityNotice: vi.fn(async () => ({ id: 'n1' })),
 } }));
 
-import PriorityBar, { RaiseNotice, canRaiseNotice } from './PriorityBar';
+import PriorityBar, { RaiseNotice, canRaiseNotice, noticeSummary } from './PriorityBar';
 import { takePendingOpen } from '../lib/pendingOpen';
 import { api } from '../api';
 
@@ -64,12 +64,33 @@ describe('PriorityBar', () => {
     render(<PriorityBar />);
     expect(screen.queryByText('Time-off request')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Show All' }));
-    expect(screen.getByText('Sign your timecard')).toBeTruthy();
-    expect(screen.getByText('Time-off request')).toBeTruthy();
-    expect(screen.getAllByRole('button', { name: 'Open' })).toHaveLength(2);
+    const list = within(screen.getByRole('dialog', { name: 'All priority notices' }));
+    expect(list.getByText('Sign your timecard')).toBeTruthy();
+    expect(list.getByText('Time-off request')).toBeTruthy();
+    expect(list.getAllByRole('button', { name: 'Open' })).toHaveLength(2);
     expect(screen.queryByRole('button', { name: 'Show All' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Clear All' }));
+    fireEvent.click(list.getByRole('button', { name: 'Clear All' }));
     expect(dismiss.mock.calls.map((c) => c[0])).toEqual(['a', 'b']);
+  });
+
+  it('keeps the bar to a headline - the reason is read in the details layer (Neil, Oct 17)', () => {
+    notifications = [{ id: 'a', priority: 1, read: false, actioned: false, title: 'Timesheet fix requested',
+      body: 'Nick Vaca asked to add a break end punch at 1:30 PM on 10/15/2026.\nReason: I clocked out instead of ending my break', action: { view: 'hr' } }];
+    render(<PriorityBar />);
+    const bar = screen.getByRole('alert', { name: 'Priority notice' });
+    expect(bar.textContent).toContain('Nick Vaca asked to add a break end punch at 1:30 PM on 10/15/2026.');
+    expect(bar.textContent).not.toContain('Reason');
+    fireEvent.click(screen.getByRole('button', { name: 'Read the full notice: Timesheet fix requested' }));
+    const sheet = screen.getByRole('dialog', { name: 'Priority notice details' });
+    expect(sheet.textContent).toContain('Reason: I clocked out instead of ending my break');
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Close Notice' }));
+    expect(dismiss).toHaveBeenCalledWith('a');
+  });
+
+  it('summarizes a one-line body at its first sentence', () => {
+    expect(noticeSummary('Dan asked to add a punch on 10/15/2026. Reason: forgot')).toBe('Dan asked to add a punch on 10/15/2026.');
+    expect(noticeSummary('Valinda, 09/01 - 09/30.')).toBe('Valinda, 09/01 - 09/30.');
+    expect(noticeSummary('')).toBe('');
   });
 
   it('has no Show All for a single notice', () => {
