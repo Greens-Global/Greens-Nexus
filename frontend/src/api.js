@@ -2396,6 +2396,14 @@ export const api = {
     req(`/payroll-readiness/export-check?start=${start || ''}&end=${end || ''}`, { timeoutMs: 120_000 }),
   payrollReadinessSettings:     (company = '') => req(`/payroll-readiness/settings?company=${encodeURIComponent(company || '')}`),
   payrollReadinessSaveSettings: (data) => req('/payroll-readiness/settings', { method: 'PUT', body: JSON.stringify(data) }),
+  // Delegate My Approvals (Oct 17): a stand-in for a date range. /mine =
+  // {canDelegate, delegations (mine), covering (naming me)}; the bare path is
+  // HR / admin - everyone's, and setting one for someone (delegator_email).
+  approvalDelegationsMine:     ()     => req('/approval-delegations/mine'),
+  approvalDelegationCreate:    (data) => req('/approval-delegations/mine', { method: 'POST', body: JSON.stringify(data) }),
+  approvalDelegationRevoke:    (id)   => req(`/approval-delegations/${encodeURIComponent(id)}/revoke`, { method: 'POST' }),
+  approvalDelegationsAll:      (includePast = false) => req(`/approval-delegations${includePast ? '?include_past=true' : ''}`),
+  approvalDelegationCreateFor: (data) => req('/approval-delegations', { method: 'POST', body: JSON.stringify(data) }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

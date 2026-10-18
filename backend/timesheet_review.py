@@ -68,6 +68,9 @@ from models import (HrEntity, HrSignParty, HrSignRequest, NexusEmployee, PunchRe
                     TimeApproval, TimePunch, TimesheetReview)
 
 ACTIVE = ("with_manager", "with_employee", "approved", "signing")
+# The reviewer's decisions a stand-in may take (approver delegation, Oct 17) -
+# the rounds that record who they were taken for.
+_DELEGABLE = ("sent_back", "agreed", "approved")
 LINK_KIND = "timesheet"
 # Nexus Sign role keys, in signing order. Only the EMPLOYEE signs (Neil, Oct
 # 16): the lead approver - their manager, or the company's HR contact / a
@@ -290,6 +293,16 @@ def guard_edit(db: Session, email: str, local_date: str, actor_email: str, *,
 def _round(db: Session, r: TimesheetReview, *, by: str, action: str, note: str = "",
            with_changes: bool = False) -> dict:
     entry = {"at": _now(), "by": (by or "").lower(), "action": action, "note": (note or "").strip()[:1000]}
+    if action in _DELEGABLE:
+        # A stand-in's decision is logged "by X for Y" (approver delegation,
+        # Oct 17): on the round - the approval log and the PDF read it - and
+        # in audit_logs.
+        import approval_delegation
+        for_ = approval_delegation.acting_for(db, by, r.employee_email)
+        if for_:
+            entry["for"] = for_
+            approval_delegation.audit(db, by, for_, f"Time sheet {action.replace('_', ' ')}",
+                                      "timesheet_reviews", r.id, r.employee_email)
     if with_changes:
         card = card_for(db, r.employee_email, r.period_start, r.period_end, r.pay_type)
         now = day_minutes(card, r.pay_type)
@@ -323,6 +336,25 @@ def _notify(db: Session, to: str, title: str, body: str, r: TimesheetReview) -> 
     _tc()._hr_notify(db, to, title, body, action=action, priority=1)
 
 
+def _notify_reviewer(db: Session, r: TimesheetReview, title: str, body: str, actor: str = "") -> None:
+    """The time sheet now waits on its reviewer: the reviewer, plus the live
+    stand-in of that reviewer (approver delegation, Oct 17) - one notice each,
+    landing on their Time Sheets to Review list."""
+    _notify(db, r.manager_email, title, body, r)
+    import approval_delegation
+    for dl, dg in approval_delegation.stand_ins(db, r.employee_email, [r.manager_email]):
+        if dl != (actor or "").lower():
+            _tc()._hr_notify(db, dl, title, f"For {display_name(db, dg)}: {body}",
+                             action={"view": "timeclock", "sub": "timesheet"}, priority=1)
+
+
+def _who(db: Session, e: dict) -> str:
+    """A round's actor as the logs print it: 'Max Test', or 'Max Test for
+    Dana Boss' when a stand-in acted (approver delegation)."""
+    who = display_name(db, e.get("by", ""))
+    return f"{who} for {display_name(db, e['for'])}" if e.get("for") else who
+
+
 def _label(r: TimesheetReview) -> str:
     return f"{us_date(r.period_start)} - {us_date(r.period_end)}"
 
@@ -354,7 +386,7 @@ def reopen(db: Session, r: TimesheetReview, actor: str, what: str) -> None:
            f"approved{' and sent for signature' if was_signing else ''}, so it is back with the manager to "
            "review and approve again.")
     if actor != (r.manager_email or "").lower():
-        _notify(db, r.manager_email, "Time Sheet Back for Review", msg, r)
+        _notify_reviewer(db, r, "Time Sheet Back for Review", msg, actor)
     if actor != r.employee_email:
         _notify(db, r.employee_email, "Time Sheet Back for Review", msg, r)
 
@@ -474,6 +506,10 @@ def waiting_on(db: Session, reviewer: str) -> list:
         mine |= {r.employee_email for r in db.query(TimesheetReview)
                  .filter(TimesheetReview.status == "with_manager").all()
                  if not manager_of(db, r.employee_email)}
+    # ...and, while an approver delegation names `reviewer`, the delegator's
+    # people (approval_delegation.delegated_people - never further: no chains).
+    import approval_delegation
+    mine |= set(approval_delegation.delegated_people(db, me))
     if mine:
         seen = {r.id for r in rows}
         rows += [r for r in db.query(TimesheetReview)
@@ -596,6 +632,9 @@ def not_reviewed(db: Session, reviewer: str) -> list:
     people = set(backup_manager.managed_directly(db, me))
     if _is_global_admin(db, me):
         people |= no_approver(db)
+    # A live approver delegation naming `reviewer` brings the delegator's people.
+    import approval_delegation
+    people |= set(approval_delegation.delegated_people(db, me))
     out = []
     for em in sorted(people - {me}):
         emp = _employee(db, em)
@@ -666,9 +705,9 @@ def submit(db: Session, employee_email: str, anchor: str, note: str = "") -> Tim
     r.status = "with_manager"
     _round(db, r, by=email, action="submitted" if first else "resubmitted", note=note, with_changes=True)
     who = display_name(db, email)
-    _notify(db, mgr, "Time Sheet to Review",
-            f"{who} {'submitted' if first else 'resubmitted'} their time sheet for {_label(r)}."
-            + (f' "{note.strip()[:200]}"' if (note or "").strip() else ""), r)
+    _notify_reviewer(db, r, "Time Sheet to Review",
+                     f"{who} {'submitted' if first else 'resubmitted'} their time sheet for {_label(r)}."
+                     + (f' "{note.strip()[:200]}"' if (note or "").strip() else ""), email)
     db.commit()
     return r
 
@@ -947,7 +986,9 @@ def build_pdf(db: Session, r: TimesheetReview) -> tuple[bytes, int]:
     text(margin, f"{(ent.name if ent else '') or ''}   Pay period {_label(r)}   "
                  f"{'Salaried (monthly)' if r.pay_type == 'fixed' else 'Hourly (bi-weekly)'}", 9)
     y -= 14
-    text(margin, f"Approved by {display_name(db, r.agreed_by)} on "
+    _agreed = next((e for e in reversed(r.rounds or []) if e.get("action") in ("agreed", "approved")), {})
+    _by = _who(db, _agreed) if _agreed.get("by") == (r.agreed_by or "").lower() else display_name(db, r.agreed_by)
+    text(margin, f"Approved by {_by} on "
                  f"{us_datetime(r.agreed_at, offset) or us_date(r.agreed_at)}. "
                  f"Version {(r.agreed_fingerprint or '')[:12]}", 8, color=(0.4, 0.4, 0.45))
     y -= 22
@@ -1019,7 +1060,7 @@ def build_pdf(db: Session, r: TimesheetReview) -> tuple[bytes, int]:
     for e in (r.rounds or []):
         if y < margin + 30:
             new_page()
-        who = display_name(db, e.get("by", ""))
+        who = _who(db, e)
         line = f"{us_date(e.get('at'))}  {who} {labels.get(e.get('action'), e.get('action'))}"
         if e.get("note"):
             line += f': "{e["note"]}"'
@@ -1099,7 +1140,7 @@ def approval_log(db: Session, r: TimesheetReview, offset: int = 0) -> list:
     for e in rounds[start:]:
         w = words.get(e.get("action"))
         if w:
-            line = w.format(who=display_name(db, e.get("by", "")), when=us_datetime(e.get("at", ""), offset))
+            line = w.format(who=_who(db, e), when=us_datetime(e.get("at", ""), offset))
             if e.get("note"):
                 line += f' - "{e["note"][:80]}"'
             out.append(line)

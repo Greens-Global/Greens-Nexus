@@ -14,7 +14,7 @@ from auth import get_current_user
 from database import get_db
 from models import TimesheetReview
 from routers.esign import _client_meta
-from routers.timeclock import _visible_emails, require_team_write
+from routers.timeclock import _visible_emails, require_approval_write
 
 router = APIRouter(prefix="/timesheet-review", tags=["Timesheet review"],
                    dependencies=[Depends(get_current_user)])
@@ -91,7 +91,16 @@ def waiting(user: dict = Depends(get_current_user), db: Session = Depends(get_db
     me = (user.get("email") or "").lower()
     # Oct 16: plus the closed periods of the caller's people that nobody has
     # submitted - the manager reviews first.
-    return {"reviews": [tsr.queue_row(db, r) for r in tsr.waiting_on(db, me)] + tsr.not_reviewed(db, me),
+    rows = [tsr.queue_row(db, r) for r in tsr.waiting_on(db, me)] + tsr.not_reviewed(db, me)
+    # A row the caller has only as a stand-in carries who it is for - the
+    # "For <delegator>" chip (approver delegation, Oct 17).
+    import approval_delegation
+    deleg = approval_delegation.delegated_people(db, me)
+    for row in rows:
+        f = deleg.get((row.get("employeeEmail") or "").lower())
+        if f:
+            row["forEmail"], row["forName"] = f, tsr.display_name(db, f)
+    return {"reviews": rows,
             # ...and the agreed timesheets waiting on the caller's SIGNATURE
             # (manager or HR turn), signed in place from the same card (Oct 16).
             "toSign": tsr.to_sign(db, me)}
@@ -104,7 +113,7 @@ def submit(body: SubmitIn, user: dict = Depends(get_current_user), db: Session =
 
 
 @router.post("/{rid}/send-back")
-def send_back(rid: str, body: NoteIn, user: dict = Depends(require_team_write),
+def send_back(rid: str, body: NoteIn, user: dict = Depends(require_approval_write),
               db: Session = Depends(get_db)):
     r = _review(db, rid)
     me = _as_reviewer(db, user, r)
@@ -113,7 +122,7 @@ def send_back(rid: str, body: NoteIn, user: dict = Depends(require_team_write),
 
 
 @router.post("/{rid}/agree")
-def agree(rid: str, body: NoteIn, request: Request, user: dict = Depends(require_team_write),
+def agree(rid: str, body: NoteIn, request: Request, user: dict = Depends(require_approval_write),
           db: Session = Depends(get_db)):
     r = _review(db, rid)
     me = _as_reviewer(db, user, r)
@@ -123,7 +132,7 @@ def agree(rid: str, body: NoteIn, request: Request, user: dict = Depends(require
 
 
 @router.post("/{rid}/approve")
-def approve(rid: str, body: NoteIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+def approve(rid: str, body: NoteIn, user: dict = Depends(require_approval_write), db: Session = Depends(get_db)):
     """The manager's Review & Approve (Oct 16) - no signature, a logged click."""
     r = _review(db, rid)
     me = _as_reviewer(db, user, r)
@@ -132,7 +141,7 @@ def approve(rid: str, body: NoteIn, user: dict = Depends(require_team_write), db
 
 
 @router.post("/approve")
-def approve_period(body: ApprovePeriodIn, user: dict = Depends(require_team_write),
+def approve_period(body: ApprovePeriodIn, user: dict = Depends(require_approval_write),
                    db: Session = Depends(get_db)):
     """Review & Approve a period the employee has not submitted (Oct 16)."""
     email = (body.email or "").strip().lower()
@@ -192,7 +201,7 @@ def _approve_one(db: Session, user: dict, item: BulkItemIn, note: str) -> dict:
 
 
 @router.post("/approve-bulk")
-def approve_bulk(body: ApproveBulkIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+def approve_bulk(body: ApproveBulkIn, user: dict = Depends(require_approval_write), db: Session = Depends(get_db)):
     """Approve All Clean (Neil, Oct 17): Review & Approve every listed time
     sheet that has nothing to look at - each one exactly as its own Approve
     button would (same checks, same envelope to the employee, same approval

@@ -26,6 +26,7 @@ import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import { formatDistance, formatAccuracy } from '../lib/distance';
 import { useRole } from '../contexts/RoleContext';
 import PayrollReadiness from './PayrollReadiness';
+import { ForChip } from './DelegateApprovals';
 
 // Launch (Neil, 10/16): timecards are approved by Agree in the timesheet
 // review and signed in Nexus Sign, so the per-day / per-period Approve
@@ -781,7 +782,12 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
           if ((!g.name || g.name === g.email) && name) g.name = name;
           return g;
         };
-        punchReqs.slice(0, 500).forEach(r => slot(r.employeeEmail, r.employeeName, r.department).reqs.push(r));
+        punchReqs.slice(0, 500).forEach(r => {
+          const g = slot(r.employeeEmail, r.employeeName, r.department);
+          g.reqs.push(r);
+          // Seen only as someone's stand-in (approver delegation): "For <delegator>".
+          if (r.forEmail) { g.forEmail = r.forEmail; g.forName = r.forName; }
+        });
         (exceptions || []).forEach(r => {
           const g = slot(r.email, r.name || (rows || []).find(x => x.email === r.email)?.name, r.department);
           g.missing.push(...r.exceptions);
@@ -905,7 +911,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                     {/* A 180px basis: on a phone the name keeps the first line and the
                         chips and buttons wrap below it, instead of squeezing it to "N..." (Oct 17). */}
                     <div style={{ minWidth: 0, flex: '1 1 180px' }}>
-                      <div style={{ fontSize: 13.5, fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.name}</div>
+                      <div style={{ fontSize: 13.5, fontWeight: 800, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.name}{g.forEmail && <ForChip name={g.forName} email={g.forEmail} />}</div>
                       <div style={{ fontSize: 11.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {g.dept || 'No department'} · {g.email}
                       </div>
@@ -1019,7 +1025,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
             const partial = r.startTime && r.endTime;
             return (
               <div key={r.id} style={{ display: 'grid', gridTemplateColumns: '200px 110px 1fr 70px 160px 170px', gap: 10, alignItems: 'center', padding: '10px 14px', borderBottom: '1px solid var(--line)', background: r.status === 'pending' ? 'rgba(251,191,36,0.05)' : 'transparent' }}>
-                <span style={{ fontSize: 12.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name || r.email}</span>
+                <span style={{ fontSize: 12.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name || r.email}{r.forEmail && <ForChip name={r.forName} email={r.forEmail} />}</span>
                 <span style={{ fontSize: 12, textTransform: 'capitalize', display: 'inline-flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
                   {timeoffLabel(r)}{r.confidential && <ConfidentialMark />}
                 </span>
