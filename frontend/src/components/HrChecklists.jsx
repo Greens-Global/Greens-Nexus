@@ -412,7 +412,7 @@ function StartForm({ employee, meta, onStarted, onClose, toastErr }) {
   }
   const needDate = kind !== 'onboarding';
   const ready = (!needDate || date) && (kind !== 'offboarding' || exitType);
-  const kinds = meta?.kinds || [{ value: 'onboarding', label: 'Onboarding' }, { value: 'offboarding', label: 'Offboarding' }, { value: 'inactive', label: 'Leave Or Suspension' }];
+  const kinds = meta?.kinds || [{ value: 'onboarding', label: 'Onboarding' }, { value: 'offboarding', label: 'Offboarding' }, { value: 'inactive', label: 'Leave or Suspension' }];
   return (
     <section style={{ ...card, padding: 18, marginBottom: 16, display: 'grid', gap: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -1196,7 +1196,7 @@ export function ChecklistSettings({ entities = [], toastOk, toastErr }) {
   const templates = loaded.entityId === entityId ? loaded.templates : null;
   const setTemplates = fn => setLoaded(l => ({ ...l, templates: fn(l.templates || []) }));
   const tpl = (templates || []).find(t => t.kind === kind);
-  const kinds = meta?.kinds || [{ value: 'onboarding', label: 'Onboarding' }, { value: 'offboarding', label: 'Offboarding' }, { value: 'inactive', label: 'Leave Or Suspension' }];
+  const kinds = meta?.kinds || [{ value: 'onboarding', label: 'Onboarding' }, { value: 'offboarding', label: 'Offboarding' }, { value: 'inactive', label: 'Leave or Suspension' }];
   const companyName = entityId ? (entities.find(e => e.id === entityId)?.name || 'This company') : 'Every company';
   return (
     <div style={{ fontFamily: FONT }}>

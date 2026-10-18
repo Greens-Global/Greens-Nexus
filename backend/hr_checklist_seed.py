@@ -185,5 +185,5 @@ INACTIVE = [
 DEFAULTS = {
     "onboarding": ("Onboarding", ONBOARDING),
     "offboarding": ("Offboarding", OFFBOARDING),
-    "inactive": ("Leave Or Suspension", INACTIVE),
+    "inactive": ("Leave or Suspension", INACTIVE),
 }

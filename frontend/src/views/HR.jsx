@@ -5104,7 +5104,7 @@ function StatusChangeModal({ employee, employees = [], onClose, onSaved, toastOk
                 <input type="checkbox" checked={startChecklistToo} onChange={e => setStartChecklistToo(e.target.checked)} style={{ marginTop: 3, accentColor: 'var(--wk-brand)' }} />
                 <span>
                   <span style={{ display: 'block', fontSize: 13, fontWeight: 700, color: 'var(--wk-ink)' }}>
-                    Also Start The {isLeft ? 'Offboarding' : 'Leave Or Suspension'} Checklist
+                    Also Start The {isLeft ? 'Offboarding' : 'Leave or Suspension'} Checklist
                   </span>
                   <span style={{ display: 'block', fontSize: 12, color: 'var(--wk-dim)', lineHeight: 1.5, marginTop: 2 }}>
                     {isLeft

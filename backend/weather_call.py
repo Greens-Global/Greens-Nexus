@@ -376,11 +376,11 @@ def _log_call(db: Session, r, actor: str, kind: str, reason: str, before: dict) 
 
 
 def headline(kind: str, new_start: str = "", new_end: str = "", move_to: str = "") -> str:
-    return {"cancel": "Day canceled for weather (unpaid)",
-            "delay": f"Start delayed to {_t12(new_start)} for weather",
-            "end_early": f"Ending early at {_t12(new_end)} for weather",
-            "move": f"Moved to {move_to} for weather",
-            "proceed": "Going ahead as planned despite the forecast"}.get(kind, kind)
+    return {"cancel": "Day Canceled for Weather (Unpaid)",
+            "delay": f"Start Delayed to {_t12(new_start)} for Weather",
+            "end_early": f"Ending Early at {_t12(new_end)} for Weather",
+            "move": f"Moved to {move_to} for Weather",
+            "proceed": "Going Ahead as Planned Despite the Forecast"}.get(kind, kind)
 
 
 def decide(db: Session, user: dict, g, day: str, body: dict, defer=None) -> dict:

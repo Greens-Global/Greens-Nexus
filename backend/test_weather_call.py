@@ -175,7 +175,7 @@ class CallTests(unittest.TestCase):
         self.assertEqual(by[CAL]["channels"]["sms"], "no phone on file")
         self.assertEqual(by[BOB]["channels"], {"bell": "ok", "groupChat": "ok"})
         # Bells: priority for the affected, quiet for the kept, nothing for the decider.
-        self.assertEqual([(b.priority, b.title) for b in self._bells(ANN)], [(1, "Weather Call: Day canceled for weather (unpaid)")])
+        self.assertEqual([(b.priority, b.title) for b in self._bells(ANN)], [(1, "Weather Call: Day Canceled for Weather (Unpaid)")])
         self.assertEqual([(b.priority, b.title) for b in self._bells(BOB)], [(0, "Weather Call: Your Shift Stands")])
         self.assertEqual(self._bells(MGR), [])
         # Texts: Ann only (Cal has no phone, Bob was not picked); the text names the shift and carries the link.
@@ -189,7 +189,7 @@ class CallTests(unittest.TestCase):
         self.assertIn("for 2 people", weather_call._teams_group.call_args[0][3])
         # The day note is the call, and the schedule shows the cancelled shift with no paid time.
         note = self.db.query(models.ScheduleDayNote).filter(models.ScheduleDayNote.group_id == GROUP).first()
-        self.assertTrue(note.note.startswith("Weather call: Day canceled for weather (unpaid) for 2 of 3 - Mia X. Flooded access road"), note.note)
+        self.assertTrue(note.note.startswith("Weather call: Day Canceled for Weather (Unpaid) for 2 of 3 - Mia X. Flooded access road"), note.note)
         self._as(BOSS)
         r = self.client.get("/timeclock/schedule", params={"start": DAY, "end": DAY})
         sched = {s["id"]: s for s in r.json()["scheduled"]}
@@ -286,7 +286,7 @@ class CallTests(unittest.TestCase):
         self._as(CAL)
         self.assertEqual(self.client.post(f"/weather-call/{j['id']}/ack").status_code, 200)
         mine = self.client.get("/weather-call/mine").json()["calls"]
-        self.assertEqual((mine[0]["outcome"], mine[0]["headline"], bool(mine[0]["ackAt"])), ("cancelled", "Day canceled for weather (unpaid)", True))
+        self.assertEqual((mine[0]["outcome"], mine[0]["headline"], bool(mine[0]["ackAt"])), ("cancelled", "Day Canceled for Weather (Unpaid)", True))
         self._as(BOB)
         self.assertEqual(self.client.get("/weather-call/mine").json()["calls"], [])
         self.assertEqual(weather_call.decision_dict(self.db, self._decision())["pendingCount"], 0)
