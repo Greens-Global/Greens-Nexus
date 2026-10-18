@@ -128,7 +128,9 @@ export default function DashboardGrid({ layout, editing, onLayoutChange, renderW
       // across the top edge) never covers the card above it. A compact tile
       // keeps its own height (a one-row pill stays a pill); everything else
       // gets at least 150px so a list never collapses to a sliver.
-      <div key={it.i} style={{ height: (rowsFor?.(it) || it.h) * ROW_H, minHeight: isCompact(it) || rowsFor?.(it) ? 0 : 150, marginTop: editing ? 16 : 0, minWidth: 0 }}>
+      // dash-stack-cell: a widget showing only its "not connected" line
+      // ([data-widget-unavailable]) shrinks to it - style.css (Oct 17).
+      <div key={it.i} className="dash-stack-cell" style={{ height: (rowsFor?.(it) || it.h) * ROW_H, minHeight: isCompact(it) || rowsFor?.(it) ? 0 : 150, marginTop: editing ? 16 : 0, minWidth: 0 }}>
         <Card it={it} editing={editing} onRemove={onRemove} onConfigure={onConfigure} onDuplicate={onDuplicate}
           renderWidget={renderWidget} startDrag={() => {}} draggable={false} canConfigure={canConfigure} stackedNow
           onMove={onMove} first={pos.get(it.i) === 0} last={pos.get(it.i) === ordered.length - 1} />
