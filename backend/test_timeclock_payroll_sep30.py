@@ -235,6 +235,27 @@ class FixedCardTests(unittest.TestCase):
         self.assertAlmostEqual(st["2026-09-03"]["deduct"], round(30000 * 12 / 261, 2), places=2)   # old rate
         self.assertAlmostEqual(st["2026-09-17"]["deduct"], round(36000 * 12 / 261, 2), places=2)   # new rate
 
+    def test_finalize_keeps_the_salary_dated_for_the_month(self):
+        # A raise keyed early for next month must not become this month's salary.
+        import json
+        from routers import timeclock as tc
+        db = database.SessionLocal()
+        try:
+            db.add(models.PayrollRateHistory(id="h-f-3", employee_email=FIXED, effective_date="",
+                                             pay_type="fixed", monthly_salary=30000, currency="INR", overtime_rule="none"))
+            db.add(models.PayrollRateHistory(id="h-f-4", employee_email=FIXED, effective_date="2026-10-01",
+                                             pay_type="fixed", monthly_salary=40000, currency="INR", overtime_rule="none"))
+            rr = db.query(models.PayrollRate).filter(models.PayrollRate.employee_email == FIXED).first()
+            rr.monthly_salary = 40000
+            db.commit()
+            tc.finalize_timecard(tc.FinalizeIn(email=FIXED, start="2026-09-01", end="2026-09-30", allow_exceptions=True),
+                                 user={"email": "hr.sep30@greensglobal.com", "role": "administrator"}, db=db)
+            row = (db.query(models.TimeApproval).filter(models.TimeApproval.employee_email == FIXED,
+                                                        models.TimeApproval.kind == "final").first())
+            self.assertEqual(json.loads(row.note)["monthlySalary"], 30000.0)
+        finally:
+            db.close()
+
 
 class HourlyPerDayPricingTests(unittest.TestCase):
     START, END = "2026-09-06", "2026-09-19"

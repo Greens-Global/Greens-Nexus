@@ -1874,7 +1874,9 @@ def finalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrat
                         "rule": (getattr(_rr, "overtime_rule", None) or "ca") if _rr else "ca",
                         "payType": (getattr(_rr, "pay_type", None) or "hourly") if _rr else "hourly",
                         "currency": (getattr(_rr, "currency", None) or "USD") if _rr else "USD",
-                        "monthlySalary": float(getattr(_rr, "monthly_salary", 0) or 0) if _rr else 0.0,
+                        # The salary in effect on the period's last day, not a raise keyed early for later.
+                        "monthlySalary": (float(_rate_on(db, email, body.end, hist=_hist, rate_row=_rr)["monthlySalary"]) if _hist
+                                          else (float(getattr(_rr, "monthly_salary", 0) or 0) if _rr else 0.0)),
                         "fullDayHours": float(getattr(_rr, "full_day_hours", 8) or 8) if _rr else 8.0,
                         **_fixed_snap})
     row = TimeApproval(id=str(uuid.uuid4()), employee_email=email,
