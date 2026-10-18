@@ -1080,6 +1080,8 @@ def _run_migrations():
             "ALTER TABLE hr_candidates ADD COLUMN screen_task_id VARCHAR DEFAULT ''",
             # Overdue ticket reminders (Oct 15 2026). models.TaskTicket.overdue_reminder.
             "ALTER TABLE task_tickets ADD COLUMN overdue_reminder JSON DEFAULT '{}'",
+            # Expense claims: what "Other" was (Oct 18 2026). models.ExpenseClaim.category_other.
+            "ALTER TABLE expense_claims ADD COLUMN category_other VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2410,6 +2412,8 @@ def _run_migrations():
         "ALTER TABLE approval_delegations ENABLE ROW LEVEL SECURITY",
         # Expense reimbursements (Oct 18 2026) - a new table. models.ExpenseClaim.
         "ALTER TABLE expense_claims ENABLE ROW LEVEL SECURITY",
+        # Expense claims: what "Other" was (Oct 18 2026). models.ExpenseClaim.category_other.
+        "ALTER TABLE expense_claims ADD COLUMN IF NOT EXISTS category_other VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

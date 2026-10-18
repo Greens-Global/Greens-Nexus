@@ -1,6 +1,7 @@
 """Expense reimbursement (Neil, Oct 17 2026): "employee pays on behalf of
 company, how can they get reimbursed with an upload of receipt and payment -
-needs to be added to Workday."
+needs to be added to Workday." Oct 18 (Pranshu): one receipt upload is
+enough - no separate proof of payment - and "What was it for" is required.
 
     employee submits (Workday > Expenses)  -> submitted
     manager decides  (Team > Requests)     -> manager_approved | rejected | sent_back
@@ -41,7 +42,7 @@ from routers.timeclock import (_visible_emails, _notify_team_alert, _display_nam
 router = APIRouter(prefix="/expenses", tags=["Expenses"])
 
 MODULE_ID = "reimbursements"
-CATEGORIES = ("travel", "meals", "mileage", "supplies", "software", "equipment", "other")
+CATEGORIES = ("travel", "meals", "supplies", "software", "equipment", "other")
 MAX_AMOUNT = 1_000_000           # a typo guard, not a policy limit
 MAX_FILES = 10
 
@@ -54,11 +55,11 @@ class ClaimIn(BaseModel):
     expense_date: str
     vendor: str
     category: str = "other"
+    category_other: Optional[str] = ""   # required when category is "other"
     amount: float
     currency: str = "USD"
     description: Optional[str] = ""
     receipt_urls: List[str] = []
-    payment_proof_urls: List[str] = []
 
 
 class DecisionIn(BaseModel):
@@ -84,6 +85,12 @@ def _clean(body: ClaimIn) -> dict:
         raise HTTPException(400, "Who was it paid to? Add the vendor")
     if body.category not in CATEGORIES:
         raise HTTPException(400, f"Category must be one of: {', '.join(CATEGORIES)}")
+    other = (body.category_other or "").strip()[:100] if body.category == "other" else ""
+    if body.category == "other" and not other:
+        raise HTTPException(400, "Say what the Other category is")
+    description = (body.description or "").strip()
+    if not description:
+        raise HTTPException(400, "Say what it was for")
     cents = round((body.amount or 0) * 100)
     if cents <= 0 or cents > MAX_AMOUNT * 100:
         raise HTTPException(400, "Enter the amount you paid")
@@ -91,18 +98,14 @@ def _clean(body: ClaimIn) -> dict:
     if len(currency) != 3 or not currency.isalpha():
         raise HTTPException(400, "Currency must be a 3-letter code like USD")
     receipts = [u.strip() for u in body.receipt_urls if (u or "").strip()]
-    proofs = [u.strip() for u in body.payment_proof_urls if (u or "").strip()]
     if not receipts:
         raise HTTPException(400, "Attach the receipt")
-    if not proofs:
-        raise HTTPException(400, "Attach proof of payment (card slip, statement line or bank transfer)")
-    if len(receipts) > MAX_FILES or len(proofs) > MAX_FILES:
-        raise HTTPException(400, f"Attach at most {MAX_FILES} files of each kind")
-    for u in receipts + proofs:
-        _validate_photo_url(u, "Attachment")
-    return dict(expense_date=d.isoformat(), vendor=vendor[:200], category=body.category,
-                amount_cents=cents, currency=currency, description=(body.description or "").strip()[:1000],
-                receipt_urls=receipts, payment_proof_urls=proofs)
+    if len(receipts) > MAX_FILES:
+        raise HTTPException(400, f"Attach at most {MAX_FILES} files")
+    for u in receipts:
+        _validate_photo_url(u, "Receipt")
+    return dict(expense_date=d.isoformat(), vendor=vendor[:200], category=body.category, category_other=other,
+                amount_cents=cents, currency=currency, description=description[:1000], receipt_urls=receipts)
 
 
 def _log(row: ExpenseClaim, by: str, action: str, note: str = "") -> None:
@@ -117,9 +120,10 @@ def _ser(row: ExpenseClaim, names: Optional[dict] = None) -> dict:
     return {
         "id": row.id, "employeeEmail": em, "employeeName": names.get(em, ""),
         "expenseDate": row.expense_date, "vendor": row.vendor, "category": row.category,
+        "categoryOther": row.category_other or "",
         "amount": (row.amount_cents or 0) / 100, "currency": row.currency or "USD",
         "description": row.description or "",
-        "receiptUrls": list(row.receipt_urls or []), "paymentProofUrls": list(row.payment_proof_urls or []),
+        "receiptUrls": list(row.receipt_urls or []),
         "status": row.status,
         "history": [{**h, "byName": names.get(h.get("by", ""), "")} for h in (row.history or [])],
         "paymentMethod": row.payment_method or "", "paymentRef": row.payment_ref or "", "paidOn": row.paid_on or "",

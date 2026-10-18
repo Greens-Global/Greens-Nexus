@@ -6618,7 +6618,7 @@ class ApprovalDelegation(Base):
 class ExpenseClaim(Base):
     """Expense reimbursement (Neil, Oct 17 2026): an employee paid for
     something on the company's behalf and asks for the money back - receipt
-    and proof of payment attached (Workday > Expenses). The manager decides
+    attached (Workday > Expenses). The manager decides
     first (Team > Requests), then accounting approves and marks it paid
     (Reimbursements, the `reimbursements` grant). Never deleted: a rejected
     or canceled claim stays as the record. `history` is the timeline -
@@ -6631,11 +6631,11 @@ class ExpenseClaim(Base):
     expense_date       = Column(String, default="")                    # YYYY-MM-DD
     vendor             = Column(String, default="")
     category           = Column(String, default="other")               # routers.expenses.CATEGORIES
+    category_other     = Column(String, default="")                    # what it was, when category is "other"
     amount_cents       = Column(Integer, default=0)
     currency           = Column(String, default="USD")
     description        = Column(String, default="")
     receipt_urls       = Column(JSON, default=list)                    # private ticket-evidence bucket
-    payment_proof_urls = Column(JSON, default=list)
     # submitted | manager_approved | approved | paid | rejected | sent_back | canceled
     status             = Column(String, default="submitted", index=True)
     history            = Column(JSON, default=list)

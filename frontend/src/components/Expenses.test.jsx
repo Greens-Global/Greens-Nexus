@@ -4,7 +4,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 const claim = {
   id: 'c1', employeeEmail: 'amy@x.com', employeeName: 'Amy Adams', expenseDate: '2026-10-10', vendor: 'Home Depot',
   category: 'supplies', amount: 42.5, currency: 'USD', description: 'Paint', status: 'manager_approved',
-  receiptUrls: ['https://x/files/view?u=r.jpg'], paymentProofUrls: ['https://x/files/view?u=p.pdf'],
+  receiptUrls: ['https://x/files/view?u=r.jpg'],
   history: [{ at: '2026-10-11T10:00:00Z', by: 'amy@x.com', byName: 'Amy Adams', action: 'submitted', note: '' }],
 };
 

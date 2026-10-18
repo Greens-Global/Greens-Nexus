@@ -32,7 +32,7 @@ FILE = f"{items._STORAGE_PREFIX or 'https://x.supabase.co/storage/v1/object/publ
 def _claim(**kw):
     body = {"expense_date": (date.today() - timedelta(days=2)).isoformat(), "vendor": "Home Depot",
             "category": "supplies", "amount": 42.5, "description": "Paint for unit 4",
-            "receipt_urls": [FILE], "payment_proof_urls": [FILE]}
+            "receipt_urls": [FILE]}
     body.update(kw)
     return body
 
@@ -140,7 +140,13 @@ class ExpensesCase(unittest.TestCase):
 
     def test_bad_claims_are_refused(self):
         self._call(EMP, "post", "/expenses", 400, json=_claim(receipt_urls=[]))
-        self._call(EMP, "post", "/expenses", 400, json=_claim(payment_proof_urls=[]))
+        self._call(EMP, "post", "/expenses", 400, json=_claim(description="  "))
+        self._call(EMP, "post", "/expenses", 400, json=_claim(category="mileage"))
+        self._call(EMP, "post", "/expenses", 400, json=_claim(category="other"))
+        ok = self._call(EMP, "post", "/expenses", 201, json=_claim(category="other", category_other="Parking", currency="EUR"))
+        self.assertEqual((ok["categoryOther"], ok["currency"]), ("Parking", "EUR"))
+        # The Other detail is dropped for any other category.
+        self.assertEqual(self._call(EMP, "post", "/expenses", 201, json=_claim(category_other="x"))["categoryOther"], "")
         self._call(EMP, "post", "/expenses", 400, json=_claim(amount=0))
         self._call(EMP, "post", "/expenses", 400, json=_claim(category="yacht"))
         self._call(EMP, "post", "/expenses", 400,

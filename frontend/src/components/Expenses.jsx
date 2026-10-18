@@ -1,7 +1,7 @@
 // Expense reimbursement (Neil, Oct 17 2026) - routers/expenses.py.
 //
-//   MyExpenses     Workday > Expenses: submit a claim (receipt + proof of
-//                  payment), see your claims, fix and resubmit a sent-back one.
+//   MyExpenses     Workday > Expenses: submit a claim (receipt required), see
+//                  your claims, fix and resubmit a sent-back one.
 //   TeamExpenses   Team > Requests (pending + history of your team) and
 //                  People > person > Expenses (`email` narrows to one person).
 //   ExpenseQueue   Reimbursements (the `reimbursements` grant): accounting
@@ -16,15 +16,17 @@ import { api } from '../api';
 import { Modal } from '../tasks/components';
 import { filesFromPaste } from '../tasks/lib';
 import { uploadTicketEvidence } from '../tickets/evidenceUpload';
+import { supabase } from '../lib/supabase';
+import { currencyOptions } from '../asset/lib/currency';
 import AsyncSection, { SkeletonBlocks, Spinner } from './AsyncState';
 import { formatDate, formatDateTime } from '../lib/datetime';
 
 const CATEGORIES = [
-  ['travel', 'Travel'], ['meals', 'Meals'], ['mileage', 'Mileage'], ['supplies', 'Supplies'],
+  ['travel', 'Travel'], ['meals', 'Meals'], ['supplies', 'Supplies'],
   ['software', 'Software'], ['equipment', 'Equipment'], ['other', 'Other'],
 ];
 const CATEGORY_LABEL = Object.fromEntries(CATEGORIES);
-const CURRENCIES = ['USD', 'INR', 'CAD'];
+const categoryText = (c) => (c.category === 'other' && c.categoryOther ? `Other - ${c.categoryOther}` : CATEGORY_LABEL[c.category] || c.category);
 const PAY_METHODS = [['ach', 'ACH / Bank Transfer'], ['payroll', 'With Payroll'], ['check', 'Check'], ['other', 'Other']];
 
 const STATUS = {
@@ -45,6 +47,7 @@ const STEP_LABEL = {
 
 const HD = { fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' };
 const LBL = { fontSize: 12, fontWeight: 600, color: 'var(--ink)' };
+const Req = () => <span style={{ color: '#b91c1c' }} aria-hidden="true"> *</span>;
 const INPUT = { width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line)',
   background: 'var(--card)', color: 'var(--ink)', fontSize: 13, fontFamily: 'inherit' };
 const CARD = { background: 'var(--card)', border: '1px solid var(--wk-line2, var(--line))', borderRadius: 16,
@@ -103,6 +106,15 @@ function FileThumbs({ urls, onRemove }) {
   );
 }
 
+// shortcut: a local dev build with no Supabase keys keeps the file inside the
+// claim as a data: URL so the flow can be tried end to end; never on a real build.
+const asDataUrl = (f) => new Promise((resolve, reject) => {
+  const r = new FileReader();
+  r.onload = () => resolve(r.result);
+  r.onerror = () => reject(new Error('Could not read the file'));
+  r.readAsDataURL(f);
+});
+
 // Click to pick, or click the box and press Ctrl+V to paste a screenshot.
 function FileDrop({ label, hint, urls, onChange }) {
   const [busy, setBusy] = useState(false);
@@ -115,7 +127,7 @@ function FileDrop({ label, hint, urls, onChange }) {
       for (const f of files) {
         if (f.size > 15 * 1024 * 1024) throw new Error(`${f.name} is over 15 MB`);
         if (!/^image\//.test(f.type) && f.type !== 'application/pdf') throw new Error('Attach a photo, screenshot or PDF');
-        added.push(await uploadTicketEvidence(f, 'expense'));
+        added.push(supabase || !import.meta.env.DEV ? await uploadTicketEvidence(f, 'expense') : await asDataUrl(f));
       }
       onChange([...urls, ...added]);
     } catch (e) {
@@ -126,12 +138,12 @@ function FileDrop({ label, hint, urls, onChange }) {
   };
   return (
     <div style={{ display: 'grid', gap: 6 }}>
-      <span style={LBL}>{label}</span>
+      <span style={LBL}>{label}<Req /></span>
       <label tabIndex={0} onPaste={e => { const f = filesFromPaste(e); if (f.length) { e.preventDefault(); upload(f); } }}
-        style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 10, cursor: 'pointer',
+        style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 12px', borderRadius: 8, cursor: 'pointer',
           border: '1.5px dashed var(--line)', background: 'var(--mist)', fontSize: 12.5, color: 'var(--muted)' }}>
         {busy ? <Spinner size={14} /> : <Upload size={15} />}
-        <span><b style={{ color: 'var(--ink)' }}>Choose files</b> or click here and press Ctrl+V to paste a screenshot. {hint}</span>
+        <span><b style={{ color: 'var(--ink)' }}>Choose files</b> or click here and press Ctrl+V to paste a screenshot.{hint ? ` ${hint}` : ''}</span>
         <input type="file" accept="image/*,application/pdf" multiple hidden disabled={busy}
           onChange={e => { upload([...e.target.files]); e.target.value = ''; }} />
       </label>
@@ -143,8 +155,18 @@ function FileDrop({ label, hint, urls, onChange }) {
 
 // ── Claim form (new or resubmit) ─────────────────────────────────────────────
 
-const blank = () => ({ expense_date: today(), vendor: '', category: 'supplies', amount: '', currency: 'USD',
-  description: '', receipt_urls: [], payment_proof_urls: [] });
+const blank = () => ({ expense_date: today(), vendor: '', category: 'supplies', category_other: '', amount: '', currency: 'USD',
+  description: '', receipt_urls: [] });
+
+// The same rules the server applies (routers/expenses.py _clean), said before the round trip.
+function missing(f) {
+  if (!f.vendor.trim()) return 'Add who you paid';
+  if (f.category === 'other' && !f.category_other.trim()) return 'Say what the Other category is';
+  if (!(Number(f.amount) > 0)) return 'Enter the amount you paid';
+  if (!f.description.trim()) return 'Say what it was for';
+  if (!f.receipt_urls.length) return 'Attach the receipt';
+  return '';
+}
 
 function ClaimForm({ initial, onDone, onCancel }) {
   const [f, setF] = useState(initial || blank());
@@ -152,6 +174,8 @@ function ClaimForm({ initial, onDone, onCancel }) {
   const [err, setErr] = useState('');
   const set = (k) => (v) => setF(p => ({ ...p, [k]: v?.target ? v.target.value : v }));
   const submit = async () => {
+    const why = missing(f);
+    if (why) { setErr(why); return; }
     setSaving(true); setErr('');
     try {
       const body = { ...f, amount: Number(f.amount) };
@@ -167,28 +191,31 @@ function ClaimForm({ initial, onDone, onCancel }) {
   return (
     <div style={{ display: 'grid', gap: 12 }}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, alignItems: 'end' }}>
-        <label style={{ display: 'grid', gap: 5 }}><span style={LBL}>Date Paid</span>
+        <label style={{ display: 'grid', gap: 5 }}><span style={LBL}>Date Paid<Req /></span>
           <input type="date" max={today()} value={f.expense_date} onChange={set('expense_date')} style={INPUT} /></label>
-        <label style={{ display: 'grid', gap: 5 }}><span style={LBL}>Paid To</span>
+        <label style={{ display: 'grid', gap: 5 }}><span style={LBL}>Paid To<Req /></span>
           <input value={f.vendor} onChange={set('vendor')} placeholder="Vendor or store" style={INPUT} /></label>
-        <label style={{ display: 'grid', gap: 5 }}><span style={LBL}>Category</span>
+        <label style={{ display: 'grid', gap: 5 }}><span style={LBL}>Category<Req /></span>
           <select value={f.category} onChange={set('category')} style={INPUT}>
             {CATEGORIES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
           </select></label>
-        <label style={{ display: 'grid', gap: 5 }}><span style={LBL}>Amount</span>
+        {f.category === 'other' && (
+          <label style={{ display: 'grid', gap: 5 }}><span style={LBL}>Other Category<Req /></span>
+            <input value={f.category_other} onChange={set('category_other')} maxLength={100} placeholder="e.g. Parking" style={INPUT} autoFocus /></label>
+        )}
+        <label style={{ display: 'grid', gap: 5 }}><span style={LBL}>Amount<Req /></span>
           <div style={{ display: 'flex', gap: 6 }}>
             <input type="number" min="0" step="0.01" inputMode="decimal" value={f.amount} onChange={set('amount')} placeholder="0.00" style={INPUT} />
-            <select value={f.currency} onChange={set('currency')} style={{ ...INPUT, width: 78 }} aria-label="Currency">
-              {CURRENCIES.map(c => <option key={c}>{c}</option>)}
+            <select value={f.currency} onChange={set('currency')} style={{ ...INPUT, width: 92 }} aria-label="Currency">
+              {currencyOptions().map(c => <option key={c.code} value={c.code} title={c.label}>{c.code}</option>)}
             </select>
           </div></label>
       </div>
-      <label style={{ display: 'grid', gap: 5 }}><span style={LBL}>What Was It For</span>
-        <textarea rows={2} value={f.description} onChange={set('description')} placeholder="e.g. Paint and rollers for unit 4 turnover"
-          style={{ ...INPUT, resize: 'vertical' }} /></label>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
-        <FileDrop label="Receipt" hint="The itemized receipt or invoice." urls={f.receipt_urls} onChange={set('receipt_urls')} />
-        <FileDrop label="Proof of Payment" hint="Card slip, statement line or transfer confirmation." urls={f.payment_proof_urls} onChange={set('payment_proof_urls')} />
+      {/* One row: a short "what for" line with the receipt beside it (Pranshu, Oct 18). */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12, alignItems: 'start' }}>
+        <label style={{ display: 'grid', gap: 5 }}><span style={LBL}>What Was It For<Req /></span>
+          <input value={f.description} onChange={set('description')} maxLength={1000} placeholder="e.g. Paint and rollers for unit 4 turnover" style={INPUT} /></label>
+        <FileDrop label="Receipt" urls={f.receipt_urls} onChange={set('receipt_urls')} />
       </div>
       {err && <div role="alert" style={{ fontSize: 12.5, color: '#b91c1c' }}>{err}</div>}
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
@@ -215,7 +242,7 @@ function ClaimRows({ claims, onOpen, showPerson }) {
         <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>
           {showPerson ? `${c.employeeName || c.employeeEmail} - ` : ''}{c.vendor}
         </div>
-        <div style={{ fontSize: 12, color: 'var(--muted)' }}>{formatDate(c.expenseDate)} · {CATEGORY_LABEL[c.category] || c.category}</div>
+        <div style={{ fontSize: 12, color: 'var(--muted)' }}>{formatDate(c.expenseDate)} · {categoryText(c)}</div>
       </div>
       <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', minWidth: 90, textAlign: 'right' }}>{money(c.amount, c.currency)}</span>
       <StatusChip status={c.status} />
@@ -275,16 +302,13 @@ export function ExpenseDetail({ claim: c, onClose, footer }) {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 14 }}>
           <Field label="Employee">{c.employeeName || c.employeeEmail}</Field>
           <Field label="Date Paid">{formatDate(c.expenseDate)}</Field>
-          <Field label="Category">{CATEGORY_LABEL[c.category] || c.category}</Field>
+          <Field label="Category">{categoryText(c)}</Field>
           <Field label="Amount">{money(c.amount, c.currency)}</Field>
           <Field label="Status"><StatusChip status={c.status} /></Field>
           {c.status === 'paid' && <Field label="Paid">{formatDate(c.paidOn)} · {(PAY_METHODS.find(m => m[0] === c.paymentMethod) || [])[1]}{c.paymentRef ? ` · ${c.paymentRef}` : ''}</Field>}
         </div>
         {c.description && <Field label="What Was It For">{c.description}</Field>}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14 }}>
-          <div style={{ display: 'grid', gap: 6 }}><span style={LBL}>Receipt</span><FileThumbs urls={c.receiptUrls} /></div>
-          <div style={{ display: 'grid', gap: 6 }}><span style={LBL}>Proof of Payment</span><FileThumbs urls={c.paymentProofUrls} /></div>
-        </div>
+        <div style={{ display: 'grid', gap: 6 }}><span style={LBL}>Receipt</span><FileThumbs urls={c.receiptUrls} /></div>
         <div style={{ display: 'grid', gap: 8 }}>
           <span style={LBL}>Timeline</span>
           {(c.history || []).map((h, i) => (
@@ -332,8 +356,8 @@ export function MyExpenses({ toast }) {
     catch (e) { toast?.(false, e.message || 'Could not cancel'); }
     finally { setBusy(false); }
   };
-  const editFrom = (c) => ({ id: c.id, expense_date: c.expenseDate, vendor: c.vendor, category: c.category, amount: String(c.amount),
-    currency: c.currency, description: c.description, receipt_urls: c.receiptUrls, payment_proof_urls: c.paymentProofUrls });
+  const editFrom = (c) => ({ id: c.id, expense_date: c.expenseDate, vendor: c.vendor, category: c.category, category_other: c.categoryOther || '',
+    amount: String(c.amount), currency: c.currency, description: c.description, receipt_urls: c.receiptUrls });
   return (
     <>
       <div style={{ ...CARD, padding: '16px 18px' }}>
@@ -342,7 +366,7 @@ export function MyExpenses({ toast }) {
           <span style={HD}>Request a Reimbursement</span>
         </div>
         <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 14 }}>
-          Paid for something for the company? Attach the receipt and proof that you paid. Your manager approves it, then accounting pays you back.
+          Paid for something for the company? Attach the receipt. Your manager approves it, then accounting pays you back.
         </div>
         <ClaimForm onDone={row => done(row, 'Claim submitted - your manager has been notified')} />
       </div>
@@ -426,7 +450,7 @@ const QUEUE_TABS = [['manager_approved', 'To Review'], ['approved', 'To Pay'], [
 function exportCsv(rows) {
   const head = ['Employee', 'Email', 'Date Paid', 'Paid To', 'Category', 'Amount', 'Currency', 'Status', 'Paid On', 'Method', 'Reference', 'Description'];
   const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const lines = rows.map(c => [c.employeeName, c.employeeEmail, formatDate(c.expenseDate), c.vendor, CATEGORY_LABEL[c.category] || c.category,
+  const lines = rows.map(c => [c.employeeName, c.employeeEmail, formatDate(c.expenseDate), c.vendor, categoryText(c),
     c.amount.toFixed(2), c.currency, (STATUS[c.status] || {}).label || c.status, formatDate(c.paidOn), c.paymentMethod, c.paymentRef, c.description].map(cell).join(','));
   const url = URL.createObjectURL(new Blob([[head.map(cell).join(','), ...lines].join('\r\n')], { type: 'text/csv' }));
   const a = Object.assign(document.createElement('a'), { href: url, download: `reimbursements-${today()}.csv` });

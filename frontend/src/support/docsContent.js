@@ -1075,7 +1075,7 @@ export const DOCS = [
     tagline: 'Get paid back for company expenses you paid yourself.',
     where: 'Workday > Expenses (submit), Team > Requests (manager), Left menu > Reimbursements (accounting)',
     access: 'Everyone submits. Managers decide for their team. Accounting needs the Reimbursements grant.',
-    purpose: 'When you pay for something on behalf of the company, file a claim with the receipt and proof that you paid. Your manager approves it, accounting approves it and pays you back, and every step is recorded on the claim.',
+    purpose: 'When you pay for something on behalf of the company, file a claim with the receipt. Your manager approves it, accounting approves it and pays you back, and every step is recorded on the claim.',
     gains: [
       'One place for receipts - no more emailing photos around.',
       'You always know where your claim is and who has it.',
@@ -1086,8 +1086,8 @@ export const DOCS = [
         title: 'Submit a Claim',
         steps: [
           'Open Workday and pick the Expenses tab.',
-          'Fill in the date you paid, who you paid, the category, the amount and what it was for.',
-          'Attach the receipt and the proof of payment (card slip, statement line or transfer confirmation). You can paste a screenshot with Ctrl+V.',
+          'Fill in the date you paid, who you paid, the category (pick Other and say what it was if none fit), the amount and its currency, and what it was for.',
+          'Attach the receipt. You can paste a screenshot with Ctrl+V.',
           'Click Submit Claim. Your manager gets a bell notification.',
         ],
       },
