@@ -22,7 +22,7 @@ const KINDS = [
   ['move', 'Move the Crew', 'Another site or indoor work; the times stay.'],
   ['proceed', 'Proceed as Planned', 'Tell the crew the shift goes ahead despite the forecast.'],
 ];
-const OUTCOME_TEXT = { cancelled: 'Cancelled (Unpaid)', delayed: 'Delayed', shortened: 'Ends Early', moved: 'Moved', kept: 'Shift Stands' };
+const OUTCOME_TEXT = { cancelled: 'Canceled (Unpaid)', delayed: 'Delayed', shortened: 'Ends Early', moved: 'Moved', kept: 'Shift Stands' };
 const BAND_COLOR = { heads_up: 'hsl(var(--color-blue))', major: 'hsl(var(--color-orange))', warning: 'hsl(var(--color-red))', quiet: 'var(--muted)' };
 const CELL = { padding: '6px 8px', fontSize: 12.5, borderTop: '1px solid var(--line)', verticalAlign: 'top' };
 
@@ -156,8 +156,8 @@ export default function WeatherCallDialog({ groupId, date, onClose, onChanged, t
             {/* An active call: who was told, who has acknowledged */}
             {decision && (
               <div style={{ border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px', background: 'var(--card)' }}>
-                <div style={{ fontSize: 13, fontWeight: 800 }}>{decision.kind === 'proceed' ? 'Going ahead as planned' : decision.kind === 'cancel' ? 'Day cancelled for weather (unpaid)'
-                  : decision.kind === 'delay' ? `Start delayed to ${formatHHMM(decision.newStart)}` : decision.kind === 'end_early' ? `Ending early at ${formatHHMM(decision.newEnd)}` : `Moved to ${decision.moveTo}`}</div>
+                <div style={{ fontSize: 13, fontWeight: 800 }}>{decision.kind === 'proceed' ? 'Going Ahead as Planned' : decision.kind === 'cancel' ? 'Day Canceled for Weather (Unpaid)'
+                  : decision.kind === 'delay' ? `Start Delayed to ${formatHHMM(decision.newStart)}` : decision.kind === 'end_early' ? `Ending Early at ${formatHHMM(decision.newEnd)}` : `Moved to ${/^\d{4}-\d{2}-\d{2}$/.test(decision.moveTo || '') ? formatDate(decision.moveTo) : decision.moveTo}`}</div>
                 <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{decision.decidedByName} · {formatDateTime(decision.decidedAt)} · {decision.reason}</div>
                 <div style={{ fontSize: 12.5, marginTop: 8, fontWeight: 700 }}>
                   {decision.ackedCount} of {decision.selectedCount} acknowledged{decision.pendingCount ? ` · ${decision.pendingCount} waiting` : ''}

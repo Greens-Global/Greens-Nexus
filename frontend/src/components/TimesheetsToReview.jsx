@@ -158,7 +158,7 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount 
             {toSign.map(s => (
               <div key={s.partyId || `resign-${s.id}`} data-sign={s.employeeEmail} style={{ borderTop: '1px solid var(--line)', padding: '10px 0', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                 <div style={{ flex: 1, minWidth: 220 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700 }}>{s.role === 'employee' ? 'Your time sheet' : s.name}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700 }}>{s.role === 'employee' ? 'Your Time Sheet' : s.name}</div>
                   <div style={{ fontSize: 12, color: 'var(--muted)' }}>
                     {formatDate(s.periodStart)} - {formatDate(s.periodEnd)}
                     {s.agreedBy ? ` · agreed by ${s.agreedBy}${s.agreedAt ? ` on ${formatDate(s.agreedAt)}` : ''}` : ''}
