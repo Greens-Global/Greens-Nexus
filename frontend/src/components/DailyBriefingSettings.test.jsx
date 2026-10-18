@@ -42,7 +42,7 @@ beforeEach(() => {
 async function openLog() {
   render(<DailyBriefingSettings />);
   fireEvent.click(await screen.findByText('Delivery Log'));
-  await screen.findByLabelText('Select visesh.lodha@greensglobal.com 2026-09-26');
+  await screen.findByLabelText('Select visesh.lodha@greensglobal.com 09/26/2026');
 }
 
 describe('Delivery Log bulk Force Resend', () => {
@@ -67,7 +67,7 @@ describe('Delivery Log bulk Force Resend', () => {
   it('does nothing when the confirmation is cancelled', async () => {
     confirm.mockResolvedValue(false);
     await openLog();
-    fireEvent.click(screen.getByLabelText('Select visesh.lodha@greensglobal.com 2026-09-26'));
+    fireEvent.click(screen.getByLabelText('Select visesh.lodha@greensglobal.com 09/26/2026'));
     fireEvent.click(screen.getByText('Force Resend Selected (1)'));
     await waitFor(() => expect(confirm).toHaveBeenCalled());
     expect(forceResendDailyBriefing).not.toHaveBeenCalled();

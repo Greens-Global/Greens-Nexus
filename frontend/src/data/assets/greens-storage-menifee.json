@@ -1,7 +1,7 @@
 {
   "id": "greens-storage-menifee",
   "name": "Greens Storage, Menifee",
-  "type": "Commercial — Storage Facility",
+  "type": "Commercial - Storage Facility",
   "address": "Menifee, CA",
   "snapshot": [
     {
@@ -12,7 +12,7 @@
         { "label": "City", "value": "Menifee" },
         { "label": "State", "value": "CA" },
         { "label": "Zip", "value": "" },
-        { "label": "Current Use", "value": "Commercial — Storage Facility" },
+        { "label": "Current Use", "value": "Commercial - Storage Facility" },
         { "label": "Development Stage (Feasibility / Entitlement / Permitting / Construction / Stabilized)", "value": "Construction" }
       ]
     }

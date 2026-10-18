@@ -37,13 +37,13 @@ async function renderTab(tab = 'timesheet') {
   return render(<TimeClock initialTab={tab} activeSub={tab} onSubChange={() => {}} />);
 }
 
-describe('Timesheets to Review on the Time Sheet tab', () => {
+describe('Time Sheets to Review on the Time Sheet tab', () => {
   it('lists what is waiting at the top of the tab, with no jump button (the header band is gone, Oct 14)', async () => {
     globalThis.__waiting = [ROW, { ...ROW, id: 'r2', name: 'Pranshu Upadhyay' }];
     await renderTab();
     expect(await screen.findByText('Valinda Cranfill')).toBeTruthy();
     expect(screen.getByText('2 waiting on you')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /Timesheets to Review/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Time Sheets to Review/ })).toBeNull();
     // Approve / Send Back for a manager without the HR grant; no Review link.
     expect(screen.getAllByRole('button', { name: /^Approve$/ }).length).toBe(2);
     expect(screen.queryByRole('button', { name: /^Review/ })).toBeNull();

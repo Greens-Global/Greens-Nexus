@@ -28,6 +28,7 @@ import BoardView from './views/board';
 import { SaveTemplateModal, DuplicateProjectModal } from './TemplatesView';
 import BulkActionBar from './BulkActionBar';
 import { useCustomSections } from './customSections';
+import { formatDate } from '../lib/datetime';
 
 const VIEW_KINDS = [
   { key: 'list', label: 'List', icon: List },
@@ -477,7 +478,7 @@ function BoardBody({ visible, group, ctx, store, onOpen }) {
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 9, flexWrap: 'wrap' }}>
                   <PriorityChip priority={t.priority} />
-                  {t.dueOn && <span style={{ fontSize: 11.5, color: NX.dim }}>{t.dueOn}</span>}
+                  {t.dueOn && <span style={{ fontSize: 11.5, color: NX.dim }}>{formatDate(t.dueOn, t.dueOn)}</span>}
                   {t.projectId && <span style={{ fontSize: 11.5, color: NX.faint }}>{projectName(t.projectId)}</span>}
                   <div style={{ marginLeft: 'auto', display: 'flex' }}>
                     {taskAssignees(t).length ? taskAssignees(t).slice(0, 2).map((a, i) => (

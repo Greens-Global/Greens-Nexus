@@ -7,7 +7,7 @@ import { SkeletonBlocks, Spinner, LoadingState } from '../components/AsyncState'
 import ModuleTabs from '../components/ModuleTabs';
 import DocumentBuilder from '../components/DocumentBuilder';
 import { BODY_EXTENSIONS } from '../lib/docBuilderSchema';
-import { formatDateLong } from '../lib/datetime';
+import { formatDate, formatDateLong } from '../lib/datetime';
 import { useNameResolver } from '../lib/useNameResolver';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from '../components/UnsavedChangesPrompt';
@@ -3225,7 +3225,7 @@ export default function SOP({ activeSub, onSubChange }) {
                       <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text-primary)' }}>{p.new_title}</div>
                       {(p.backfill?.effective_date || p.backfill?.departments) && (
                         <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: 4 }}>
-                          Will also backfill: {[p.backfill.effective_date && `effective date ${p.backfill.effective_date}`, p.backfill.departments && `department ${p.backfill.departments.join(', ')}`].filter(Boolean).join(', ')}
+                          Will also backfill: {[p.backfill.effective_date && `effective date ${formatDate(p.backfill.effective_date, p.backfill.effective_date)}`, p.backfill.departments && `department ${p.backfill.departments.join(', ')}`].filter(Boolean).join(', ')}
                         </div>
                       )}
                     </div>

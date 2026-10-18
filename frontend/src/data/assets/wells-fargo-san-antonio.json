@@ -1,7 +1,7 @@
 {
   "id": "wells-fargo-san-antonio",
   "name": "Wells Fargo",
-  "type": "Commercial — Office",
+  "type": "Commercial - Office",
   "address": "San Antonio, TX",
   "snapshot": [
     {
@@ -12,7 +12,7 @@
         { "label": "City", "value": "San Antonio" },
         { "label": "State", "value": "TX" },
         { "label": "Zip", "value": "" },
-        { "label": "Current Use", "value": "Commercial — Office" },
+        { "label": "Current Use", "value": "Commercial - Office" },
         { "label": "Development Stage (Feasibility / Entitlement / Permitting / Construction / Stabilized)", "value": "Stabilized" }
       ]
     }

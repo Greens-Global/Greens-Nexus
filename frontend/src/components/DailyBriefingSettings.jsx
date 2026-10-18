@@ -16,7 +16,7 @@ import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import { useRole } from '../contexts/RoleContext';
 import { NX, FONT, btn, input as inputStyle } from '../tasks/theme';
-import { formatTime } from '../lib/datetime';
+import { formatDate, formatTime } from '../lib/datetime';
 import SavedCheck from './SavedCheck';
 
 const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
@@ -297,7 +297,7 @@ function DeliveryLog() {
       ? 'This day already sent successfully - this WILL send a second real email right now. '
       : '';
     if (!window.confirm(
-      `${already}Send ${row.employeeEmail}'s ${row.briefingDate} briefing right now?\n\n` +
+      `${already}Send ${row.employeeEmail}'s ${formatDate(row.briefingDate, row.briefingDate)} briefing right now?\n\n` +
       `This sends immediately, regardless of their shift window - it does not wait for the next scan or for the ` +
       `window to be open. Nothing changes for any other employee or for the normal 15-minute scan schedule.`
     )) return;
@@ -412,10 +412,10 @@ function DeliveryLog() {
                 <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderBottom: `1px solid ${NX.border2}`, fontSize: 12.5,
                   background: selected.has(r.id) ? 'var(--wk-brand-tint)' : 'transparent' }}>
                   <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleRow(r.id)}
-                    aria-label={`Select ${r.employeeEmail} ${r.briefingDate}`} style={{ flexShrink: 0 }} />
+                    aria-label={`Select ${r.employeeEmail} ${formatDate(r.briefingDate, r.briefingDate)}`} style={{ flexShrink: 0 }} />
                   <meta.Icon size={14} style={{ color: meta.color, flexShrink: 0 }} />
                   <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.employeeEmail}>{r.employeeEmail}</span>
-                  <span style={{ color: NX.dim, flexShrink: 0, width: 90 }}>{r.briefingDate}</span>
+                  <span style={{ color: NX.dim, flexShrink: 0, width: 90 }}>{formatDate(r.briefingDate, r.briefingDate)}</span>
                   <span style={{ color: NX.faint, flexShrink: 0, width: 50, textTransform: 'capitalize' }}>{r.mode}</span>
                   <span style={{ color: NX.faint, flexShrink: 0, width: 110 }}>{r.redCount}R / {r.amberCount}A / {r.greenCount}G</span>
                   <span style={{ color: meta.color, fontWeight: 600, flexShrink: 0, width: 130 }}>{meta.label}</span>

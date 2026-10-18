@@ -206,7 +206,7 @@ export function PromoteModal({ employee: e, mode = 'promotion', canSeePay, onClo
             {input('Title In The Letter', 'job_title', { placeholder: 'Defaults to the role name' })}
             {input('Effective Date *', 'effective_date', { type: 'date' })}
           </div>
-          {past && <Warn>The effective date is in the past. Pay is dated from it; any timesheet from then that is already signed is flagged for HR to review, not changed.</Warn>}
+          {past && <Warn>The effective date is in the past. Pay is dated from it; any time sheet from then that is already signed is flagged for HR to review, not changed.</Warn>}
           <label style={lbl}>New Responsibilities</label>
           <textarea className="form-input" rows={3} style={{ width: '100%', resize: 'vertical', fontFamily: 'Inter,sans-serif', fontSize: 13 }}
             placeholder="What changes in their day-to-day - printed in the letter" value={f.responsibilities} onChange={ev => set('responsibilities', ev.target.value)} />

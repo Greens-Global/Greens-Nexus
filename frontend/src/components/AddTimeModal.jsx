@@ -113,7 +113,7 @@ export default function AddTimeModal({ email, name = '', start = '', end = '', i
       if (dry) setPreview(r);
       else {
         setDone(r);
-        if (r.added > 0) toastOk?.(`Added ${hm(r.totalMin)} over ${r.added} day${r.added === 1 ? '' : 's'} to ${who || email}'s timecard.`);
+        if (r.added > 0) toastOk?.(`Added ${hm(r.totalMin)} over ${r.added} day${r.added === 1 ? '' : 's'} to ${who || email}'s time sheet.`);
         onDone?.(r);
       }
     } catch (e) { const m = e?.message || 'Could not add the time.'; setErr(m); toastErr?.(m); }

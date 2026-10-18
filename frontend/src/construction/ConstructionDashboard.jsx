@@ -24,6 +24,7 @@ import Empty from './Empty';
 import ConstructionInbox from './ConstructionInbox';
 import ReviewQueue from './ReviewQueue';
 import Registers from './Registers';
+import { formatDate } from '../lib/datetime';
 
 function Stat({ label, value, helper }) {
   return (
@@ -206,10 +207,10 @@ export default function ConstructionDashboard() {
       <ConstructionInbox />
 
       <div className="cards-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', marginBottom: 24 }}>
-        <Stat label="Active Sites"    value={data ? data.activeSites : '—'} />
-        <Stat label="Crew on Projects" value={data ? data.totalWorkforce : '—'} />
-        <Stat label="Safety Flags"    value={data ? data.safetyFlags : '—'} helper="raised by AI from site media" />
-        <Stat label="Pending Review"  value={data ? data.pendingReview : '—'} helper="logs awaiting a manager" />
+        <Stat label="Active Sites"    value={data ? data.activeSites : '-'} />
+        <Stat label="Crew on Projects" value={data ? data.totalWorkforce : '-'} />
+        <Stat label="Safety Flags"    value={data ? data.safetyFlags : '-'} helper="raised by AI from site media" />
+        <Stat label="Pending Review"  value={data ? data.pendingReview : '-'} helper="logs awaiting a manager" />
       </div>
 
       {canReview && <ReviewQueue />}
@@ -251,7 +252,7 @@ export default function ConstructionDashboard() {
                         <Users size={13} />{(p.workerEmails || []).length} crew
                       </span>
                       {p.targetFinishOn && (
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Calendar size={13} />Due: {p.targetFinishOn}</span>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Calendar size={13} />Due: {formatDate(p.targetFinishOn, p.targetFinishOn)}</span>
                       )}
                     </div>
                   </div>

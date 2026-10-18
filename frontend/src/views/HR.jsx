@@ -412,7 +412,7 @@ function EmployeeFormModal({ employee, employees, externals = [], entities = [],
                 </>
               ) : managers.filter(m => m.workEmail !== f.manager_email).map(m => <option key={m.id} value={m.workEmail}>{fullName(m)} ({m.workEmail})</option>)}
             </select>
-            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Has the same rights over this person as their manager - timesheets, punches, time off and approvals.</div>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Has the same rights over this person as their manager - time sheets, punches, time off and approvals.</div>
           </div>
           {/* Office and contact info, kept in step with Microsoft 365 both ways
               (Neil, 10/07: HR updates these here instead of IT in the M365
@@ -547,7 +547,7 @@ function MailboxExportSection({ employee, toastOk, toastErr }) {
   const pct = active && job?.total > 0 ? Math.min(100, Math.round((job.count / job.total) * 100)) : null;
   const status = job === undefined ? '' :
     !job ? 'No export yet.' :
-    job.status === 'done' ? `Ready · ${job.message} · ${(job.updatedAt || '').slice(0, 10)}` :
+    job.status === 'done' ? `Ready · ${job.message} · ${formatDate((job.updatedAt || '').slice(0, 10))}` :
     job.status === 'error' ? `Failed · ${job.message}` :
     job.total > 0 ? `Exporting… ${job.count} of ${job.total} messages (${pct}%)` :
     job.count > 0 ? `Exporting… ${job.count} messages so far` :
@@ -1255,7 +1255,7 @@ function PayTab({ employee, reloadToken, onEdit, readOnly = false }) {
                 <button onClick={() => openStub(s.id)} style={{ flex: 1, textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: 'var(--ink)', fontFamily: 'Inter,sans-serif', padding: 0 }}>
                   {s.fileName}
                 </button>
-                <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{s.createdAt?.slice(0, 10)}</span>
+                <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{formatDate(s.createdAt?.slice(0, 10))}</span>
                 {!readOnly && <button onClick={() => deleteStub(s.id)} title="Delete" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 2 }}>
                   <Trash2 size={13} />
                 </button>}
@@ -1313,7 +1313,7 @@ function EmployeeRequestsPanel({ toastOk, toastErr }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <div style={{ flex: 1, minWidth: 200 }}>
                 <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{r.name}</span>
-                <span style={{ fontSize: 12, color: 'var(--muted)' }}> · {TYPE_LABEL[r.type] || r.type} · {r.createdAt?.slice(0, 10)}</span>
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}> · {TYPE_LABEL[r.type] || r.type} · {formatDate(r.createdAt?.slice(0, 10))}</span>
                 <div style={{ fontSize: 12.5, color: 'var(--ink)', marginTop: 3 }}>{r.message}</div>
                 {r.attachmentName && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 7, flexWrap: 'wrap' }}>
@@ -2041,12 +2041,12 @@ function EmployeeDetail({ e, employees, companyName = '', canSeeComp = false, is
                 </span>
               ) : '')}
               {row(FileText, 'Document', [DOC_TYPES.find(([v]) => v === e.compliance?.docType)?.[1], e.compliance?.docNumber].filter(Boolean).join(' · '))}
-              {row(CalendarDays, 'Issued', e.compliance?.issueDate)}
+              {row(CalendarDays, 'Issued', formatDate(e.compliance?.issueDate, e.compliance?.issueDate || ''))}
               {e.compliance?.expiryDate ? (() => {
                 const d = daysUntil(e.compliance.expiryDate); const warn = d !== null && d <= 60;
                 return row(warn ? AlertTriangle : CalendarDays, 'Doc expiry', (
                   <span style={{ color: warn ? (d < 0 ? 'hsl(var(--color-red))' : 'hsl(var(--color-orange))') : 'inherit', fontWeight: warn ? 700 : 400 }}>
-                    {e.compliance.expiryDate}{d !== null && (d < 0 ? ' · expired' : ` · in ${d}d`)}
+                    {formatDate(e.compliance.expiryDate, e.compliance.expiryDate)}{d !== null && (d < 0 ? ' · expired' : ` · in ${d}d`)}
                   </span>
                 ));
               })() : row(CalendarDays, 'Doc expiry', '')}
@@ -3746,7 +3746,7 @@ export function CompanySetupPage({ entities, employees = [], sites = [], onChang
                     <option value="">- not set -</option>
                     {people.map(p => <option key={p.email} value={p.email}>{p.name} ({p.email})</option>)}
                   </select>
-                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Signs each employee's timesheet after the employee and manager, and finalizes it for payroll.</div>
+                  <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 4 }}>Signs each employee's time sheet after the employee and manager, and finalizes it for payroll.</div>
                 </div>
                 <div style={{ gridColumn: '1 / -1' }}>{field('PHYSICAL ADDRESS', 'physical_address', { placeholder: 'search or pick a spot on the map, or type it in' })}</div>
                 <div style={{ gridColumn: '1 / -1' }}>{field('MAILING ADDRESS', 'mailing_address', { placeholder: 'if different from the physical address' })}</div>
@@ -5486,7 +5486,7 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
                   <option value="">Company default{payroll.defaultOvertimeRule ? ` (${(OT_RULES.find(([k]) => k === payroll.defaultOvertimeRule) || [])[1]?.split(' (')[0] || payroll.defaultOvertimeRule})` : ''}</option>
                   {OT_RULES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                 </select>
-                <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 4 }}>The default follows the company's country: US is California, India is None. The timecard only reads this.</div>
+                <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 4 }}>The default follows the company's country: US is California, India is None. The time sheet only reads this.</div>
               </div>
               <div>
                 <label style={FL}>FULL DAY HOURS</label>

@@ -20,10 +20,10 @@ const approval = { title: 'Approve: Budget sign-off', detail: 'Waiting on your d
 const timeOff = { title: "Approve: Sagar Patel's time off (Vacation)", detail: '10/12/2026 - 10/14/2026', module: 'time_off', path: '/timeclock', decision: { kind: 'timeoff_approval', id: 'to1' } };
 const ticketApproval = { title: 'Approve: New laptop', detail: '#27 - waiting on your decision', module: 'tickets', path: '/tickets?ticket=tk1', decision: { kind: 'ticket_approval', id: 'tk1' } };
 const dueToday = { title: 'Send the Q3 report', detail: 'Due today - Finance', module: 'tasks', path: '/tasks/mine?task=t2', taskId: 't2', taskOpen: true };
-const closedCard = { title: 'Submit your time card', detail: 'Pay period ending 10/04/2026 is closed - sign off is still open', module: 'timecard', path: '/timeclock' };
+const closedCard = { title: 'Submit your time sheet', detail: 'Pay period ending 10/04/2026 is closed - sign off is still open', module: 'timecard', path: '/timeclock' };
 const signature = { title: 'Sign: Offer Letter - Priya', detail: 'Signature required', module: 'documents', path: '/documents/documents-esign' };
-const punchFix = { title: "Approve: Ankush Jain's timesheet fix", detail: 'Asked to add a clock-out on 10/06/2026', module: 'timecard', path: '/hr/hr-time-requests' };
-const review = { title: "Review Visesh's timesheet", detail: '09/21/2026 - 10/04/2026 - 80h 00m', module: 'timecard', path: '/timeclock/timesheet' };
+const punchFix = { title: "Approve: Ankush Jain's time sheet fix", detail: 'Asked to add a clock-out on 10/06/2026', module: 'timecard', path: '/hr/hr-time-requests' };
+const review = { title: "Review Visesh's time sheet", detail: '09/21/2026 - 10/04/2026 - 80h 00m', module: 'timecard', path: '/timeclock/timesheet' };
 const bundled = { title: "Approve: Charmi's time off (2 requests)", detail: '2 pending requests - decide each below', module: 'time_off', path: '/timeclock',
   subDecisions: [{ detail: '10/20/2026 - 10/21/2026 (Vacation)', kind: 'timeoff_approval', id: 'to2' }, { detail: '11/02/2026 - 11/02/2026 (Sick)', kind: 'timeoff_approval', id: 'to3' }] };
 
@@ -52,7 +52,7 @@ describe('buildMyDayRows', () => {
   it('sorts overdue before due today before waiting, keeping server order inside a class', () => {
     const rows = buildMyDayRows(briefing([approval, timeOff, dueToday, signature, closedCard]), NOW);
     expect(rows.map((r) => r.title)).toEqual([
-      'Submit your time card', 'Send the Q3 report', 'Approve: Budget sign-off', "Approve: Sagar Patel's time off (Vacation)", 'Sign: Offer Letter - Priya',
+      'Submit your time sheet', 'Send the Q3 report', 'Approve: Budget sign-off', "Approve: Sagar Patel's time off (Vacation)", 'Sign: Offer Letter - Priya',
     ]);
   });
 
@@ -72,9 +72,12 @@ describe('buildMyDayRows', () => {
     expect(by('Approve: New laptop')[0]).toMatchObject({ kind: 'approval', decision: { kind: 'ticket_approval', id: 'tk1' } });
     expect(by('Send the Q3 report')[0]).toMatchObject({ kind: 'task', action: { type: 'complete', label: 'Complete' } });
     expect(by('Sign: Offer Letter - Priya')[0]).toMatchObject({ kind: 'signature', action: { type: 'nav', label: 'Sign' } });
-    expect(by("Approve: Ankush Jain's timesheet fix")[0]).toMatchObject({ kind: 'punch', action: { label: 'Fix Punch' } });
-    expect(by("Review Visesh's timesheet")[0]).toMatchObject({ kind: 'timesheet_review', action: { label: 'Open' } });
-    expect(by('Submit your time card')[0]).toMatchObject({ kind: 'timecard', action: { label: 'Open' } });
+    expect(by("Approve: Ankush Jain's time sheet fix")[0]).toMatchObject({ kind: 'punch', action: { label: 'Fix Punch' } });
+    expect(by("Review Visesh's time sheet")[0]).toMatchObject({ kind: 'timesheet_review', action: { label: 'Open' } });
+    expect(by('Submit your time sheet')[0]).toMatchObject({ kind: 'timecard', action: { label: 'Open' } });
+    // A briefing row still worded the old way (before the backend rename) is a punch fix too.
+    const oldFix = buildMyDayRows(briefing([{ ...punchFix, title: "Approve: Ankush Jain's timesheet fix" }]), NOW);
+    expect(oldFix[0]).toMatchObject({ kind: 'punch' });
     const split = by("Approve: Charmi's time off (2 requests)");
     expect(split).toHaveLength(2);
     expect(split.map((r) => r.decision.id)).toEqual(['to2', 'to3']);
@@ -105,7 +108,7 @@ describe('My Day tile', () => {
     expect(screen.queryByText('3 things need you')).toBeNull();
     expect(await screen.findByText('3 things need you')).toBeInTheDocument();
     const titles = screen.getAllByTestId('my-day-row').map((el) => within(el).getByRole('button', { name: /Submit|Send|Approve:/ }).textContent);
-    expect(titles[0]).toContain('Submit your time card');
+    expect(titles[0]).toContain('Submit your time sheet');
     expect(titles[1]).toContain('Send the Q3 report');
     expect(titles[2]).toContain('Approve: Budget sign-off');
     expect(screen.getByText('Overdue')).toBeInTheDocument();

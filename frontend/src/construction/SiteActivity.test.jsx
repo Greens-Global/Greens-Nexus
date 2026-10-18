@@ -49,7 +49,7 @@ describe('SiteActivity', () => {
     // Landing on a site beats landing on a "pick one" prompt - a worker opening
     // this tab wants today's log, not a menu.
     render(<SiteActivity />);
-    expect(await screen.findByText('2026-08-05')).toBeTruthy();
+    expect(await screen.findByText('08/05/2026')).toBeTruthy();
     expect(screen.getByText(/Formwork on grid C/)).toBeTruthy();
     expect(api.getConstructionLogs).toHaveBeenCalledWith('p1');
   });
@@ -77,7 +77,7 @@ describe('SiteActivity', () => {
 
   it('offers a jobsite picker only when there is more than one', async () => {
     render(<SiteActivity />);
-    await screen.findByText('2026-08-05');
+    await screen.findByText('08/05/2026');
     expect(screen.queryByLabelText('Jobsite')).toBeNull();
 
     api.getConstructionOverview.mockResolvedValue({ projects: [project, project2] });
