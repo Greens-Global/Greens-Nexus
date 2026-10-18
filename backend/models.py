@@ -6615,6 +6615,70 @@ class ApprovalDelegation(Base):
     revoked_by      = Column(String, default="")
 
 
+class TimeBreakPremium(Base):
+    """CA meal / rest premium (Neil, Oct 17 2026, ca_breaks.py): one hour of
+    pay at the day's regular rate owed for a missed meal or rest break. Only
+    for CA-rule hourly staff. Created from the employee's "No" at signing
+    (source 'claim') or by the manager/HR ('manager'); at most ONE active
+    meal and ONE active rest premium per person per day. Removing one keeps
+    the row (status 'removed' + who/when/why) - the audit trail. Not hours
+    worked, never in the overtime split. New table - create_all builds it;
+    RLS comes from main._enable_rls_everywhere's startup sweep."""
+    __tablename__ = "time_break_premiums"
+    id             = Column(String, primary_key=True)              # uuid
+    employee_email = Column(String, index=True, nullable=False)
+    local_date     = Column(String, index=True, nullable=False)    # YYYY-MM-DD
+    kind           = Column(String, default="meal")                # meal | rest
+    status         = Column(String, default="active")              # active | removed
+    source         = Column(String, default="manager")             # claim | manager
+    review_id      = Column(String, default="")                    # TimesheetReview.id it came in on
+    note           = Column(String, default="")
+    created_by     = Column(String, default="")
+    created_at     = Column(String, default="")
+    removed_by     = Column(String, default="")
+    removed_at     = Column(String, default="")
+    removed_reason = Column(String, default="")
+
+
+class CaMealWaiver(Base):
+    """CA meal period waiver (Neil, Oct 17 2026, ca_breaks.py): the one-time
+    waiver a CA-rule employee signs in Nexus Sign (link_kind 'meal_waiver').
+    One row per waiver sent; the person's waiver is the newest signed row not
+    revoked. Detection applies it to days on/after `signed_at` and before
+    `revoked_at`. New table - RLS from _enable_rls_everywhere."""
+    __tablename__ = "ca_meal_waivers"
+    id              = Column(String, primary_key=True)             # uuid
+    employee_email  = Column(String, index=True, nullable=False)
+    status          = Column(String, default="sent")               # sent | signed | revoked | canceled
+    sign_request_id = Column(String, default="", index=True)
+    sent_by         = Column(String, default="")
+    sent_at         = Column(String, default="")
+    signed_at       = Column(String, default="")                   # UTC ISO
+    revoked_at      = Column(String, default="")
+    revoked_by      = Column(String, default="")
+    revoke_note     = Column(String, default="")
+
+
+class CaReviewResolution(Base):
+    """California Review (Neil, Oct 18 2026, ca_review.py): HR's resolution of
+    one automated flag on one person's pay period. `fingerprint` is the hash
+    of the facts the flag was raised on - a resolution only holds while the
+    facts are unchanged (a changed day raises the flag again). Reopen keeps
+    the row (status 'reopened'). New table - RLS from _enable_rls_everywhere."""
+    __tablename__ = "ca_review_resolutions"
+    id             = Column(String, primary_key=True)              # uuid
+    employee_email = Column(String, index=True, nullable=False)
+    period_start   = Column(String, index=True, nullable=False)
+    flag_key       = Column(String, default="", index=True)        # rule:date[:detail]
+    fingerprint    = Column(String, default="")
+    status         = Column(String, default="resolved")            # resolved | reopened
+    note           = Column(String, default="")
+    resolved_by    = Column(String, default="")
+    resolved_at    = Column(String, default="")
+    reopened_by    = Column(String, default="")
+    reopened_at    = Column(String, default="")
+
+
 class ExpenseClaim(Base):
     """Expense reimbursement (Neil, Oct 17 2026): an employee paid for
     something on the company's behalf and asks for the money back - receipt

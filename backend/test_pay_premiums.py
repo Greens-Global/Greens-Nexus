@@ -18,6 +18,7 @@ import json
 import os
 import tempfile
 import unittest
+from unittest import mock
 from datetime import datetime
 
 _tmp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
@@ -73,7 +74,8 @@ def _shift(db, em, day, t_in, t_out, site="", out_day=None, cat="", brk=None):
 
 
 def _wipe(db):
-    for m in (models.TimePunch, models.PayrollRate, models.PayrollRateHistory, models.TimeApproval):
+    for m in (models.TimePunch, models.PayrollRate, models.PayrollRateHistory, models.TimeApproval,
+              models.TimeBreakPremium):
         db.query(m).filter(m.employee_email.in_([A, B, F])).delete(synchronize_session=False)
     (db.query(models.NexusEmployee).execution_options(include_deleted=True)
        .filter(models.NexusEmployee.work_email.in_([A, B, F])).delete(synchronize_session=False))
@@ -124,6 +126,24 @@ def _stream(resp) -> str:
             parts.append(c if isinstance(c, str) else c.decode())
         return "".join(parts)
     return asyncio.run(read())
+
+
+def _without_meal_flags(out: dict) -> dict:
+    """The CA meal check (ca_breaks.py, Oct 17 2026) flags this fixture's
+    CA-rule days that have no meal break - a day["meal"] note that adds no
+    pay and is not part of this feature. Everything else must still match the
+    golden file byte for byte; test_ca_breaks covers the meal flags."""
+    for k, v in list(out.items()):
+        if not k.startswith("card"):
+            continue
+        c = json.loads(v)
+        if "caBreaks" not in c and not any("meal" in d for d in c.get("days") or []):
+            continue
+        c.pop("caBreaks", None)        # the non-pay "CA tools apply" marker
+        for d in c.get("days") or []:
+            d.pop("meal", None)
+        out[k] = json.dumps(c, sort_keys=True)
+    return out
 
 
 def _outputs(db) -> dict:
@@ -182,7 +202,7 @@ class OffIsIdenticalTests(Base):
             return json.load(fh)
 
     def _assert_same(self, golden):
-        got = _outputs(self.db)
+        got = _without_meal_flags(_outputs(self.db))
         self.assertEqual(sorted(got), sorted(golden))
         for k in golden:
             self.assertEqual(got[k], golden[k], f"{k} changed while the feature is off")
@@ -466,6 +486,66 @@ class PureMathTests(unittest.TestCase):
         import pay_premiums as pp
         self.assertEqual(pp.rule_pay({"kind": "flat", "amount": 1.25}, 7, 0), 0.15)      # 0.14583
         self.assertEqual(pp.rule_pay({"kind": "percent", "amount": 7.5}, 50, 19.99), 1.25)  # 1.2494
+
+
+class WithCaBreakPremiumsTests(Base):
+    """A CA employee with BOTH a night differential and a meal premium on one
+    card (Oct 18 2026): two pay-class families side by side - each its own
+    line in the totals, both in totalPay, both in the IIF / CSV, both frozen
+    by finalize, both in Retro Pay's parts."""
+
+    def setUp(self):
+        super().setUp()
+        _save(self.db, CO1, {"enabled": True, "differentials": [NIGHT]})
+        import ca_breaks
+        ca_breaks.add_premium(self.db, A, "2026-09-15", "meal", "mgr@greensglobal.com")
+        self.db.commit()
+
+    def test_both_families_compose(self):
+        import ca_breaks
+        card = tc._compute_timecard(self.db, A, PS, PE)
+        T = card["totals"]
+        self.assertEqual((T["diffMin"], T["diffPay"]), (555, 18.5))
+        self.assertEqual((T["mealPremiumMin"], T["mealPremiumPay"]), (60, 20.0))
+        with mock.patch.object(ca_breaks, "is_ca_rate", return_value=False):
+            no_meal = tc._compute_timecard(self.db, A, PS, PE)["totals"]
+        self.assertEqual(T["totalPay"], round(no_meal["totalPay"] + 20.0, 2))
+        self.assertEqual(no_meal["diffPay"], 18.5)
+        for k in ("regMin", "otMin", "dtMin", "workedMin", "regPay", "otPay", "dtPay"):
+            self.assertEqual(T[k], no_meal[k], k)
+        tue = next(d for d in card["days"] if d["date"] == "2026-09-15")
+        self.assertEqual((tue["diffMin"], tue["mealPremiumMin"], tue["mealPremiumPay"]), (480, 60, 20.0))
+        # IIF: both items on Tuesday, differentials first (their classes come first).
+        iif = tc.export_iif(start=PS, end=PE, user=HR, _su={}, db=self.db).body.decode()
+        tue_rows = [ln.split("\t")[5] for ln in iif.splitlines() if ln.startswith("TIMEACT\t9/15/2026\t") and "Alice" in ln]
+        self.assertEqual(tue_rows[-2:], ["Shift Differential", "Meal Premium"])
+        # CSV: both column sets, each only because it is present.
+        head = _stream(tc.export_csv(start=PS, end=PE, mode="summary", user=HR, _su={}, db=self.db)).splitlines()[0]
+        self.assertTrue(head.endswith("Approved,Shift Differential Hours,Shift Differential Pay,Call-Back Hours,"
+                                      "Call-Back Pay,Meal Premium Hours,Meal Premium Pay,Rest Premium Hours,Rest Premium Pay"),
+                        head)
+        parts = rp._pay_parts(T)
+        self.assertEqual((parts["premium"], parts["breakPremium"]), (round(T["diffPay"] + T["callBackPay"], 2), 20.0))
+
+    def test_readiness_gross_matches_the_card(self):
+        import payroll_readiness as pr
+        card = tc._compute_timecard(self.db, A, PS, PE)
+        self.assertEqual(pr.split_figures(card, PS, PE)["pay"], card["totals"]["totalPay"])
+        self.assertGreater(card["totals"]["diffPay"], 0)
+
+    def test_finalize_freezes_both(self):
+        before = tc._compute_timecard(self.db, A, PS, PE)["totals"]
+        tc.finalize_timecard(tc.FinalizeIn(email=A, start=PS, end=PE, allow_exceptions=True), user=HR, db=self.db)
+        snap = json.loads(self.db.query(models.TimeApproval).filter_by(employee_email=A, kind="final").first().note)
+        self.assertEqual(snap["premiums"]["differentials"][0]["name"], "Night Differential")
+        self.assertEqual(snap["breakPremiums"], [{"date": "2026-09-15", "kind": "meal"}])
+        # Rules off and the premium row removed after finalize: the paid card is unchanged.
+        _save(self.db, CO1, {"enabled": False})
+        self.db.query(models.TimeBreakPremium).filter_by(employee_email=A).update({"status": "removed"})
+        self.db.commit()
+        after = tc._compute_timecard(self.db, A, PS, PE)["totals"]
+        for k in ("diffPay", "mealPremiumPay", "totalPay"):
+            self.assertEqual(after[k], before[k], k)
 
 
 if __name__ == "__main__":

@@ -127,6 +127,7 @@ class ExportCodesTests(unittest.TestCase):
             db.query(models.HrEntity).filter(models.HrEntity.id.in_((CO_A, CO_B))).delete(synchronize_session=False)
             db.query(models.NexusSetting).filter(models.NexusSetting.key.in_(
                 ("payroll_earnings_codes", "timeclock_pay_premiums"))).delete(synchronize_session=False)
+            db.query(models.TimeBreakPremium).filter(models.TimeBreakPremium.employee_email.in_((PAT, QUINN))).delete(synchronize_session=False)
             db.commit()
         finally:
             db.close()
@@ -201,7 +202,7 @@ class ExportCodesTests(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual([c["key"] for c in r.json()["classes"]],
                          ["regular", "overtime", "doubleTime", "holiday", "sick", "vacation", "personal",
-                          "shiftDifferential", "callBack"])
+                          "shiftDifferential", "callBack", "mealPremium", "restPremium"])
         self.assertIn(self._put({"regular": "REG"}, who=MGR).status_code, (401, 403))
         _as(PAT)
         self.assertIn(self.client.get(f"/timeclock/payroll/export-codes?company={CO_A}").status_code, (401, 403))
@@ -240,6 +241,63 @@ class ExportCodesTests(unittest.TestCase):
         self.assertEqual(iif.replace("TIMEACT\t9/16/2026\tRental A\tPat Test\t\tShift Differential\t3.00\t\t\tY\t1\r\n", "")
                          .replace("TIMEACT\t9/17/2026\tRental A\tPat Test\t\tShift Differential\t6.00\t\t\tY\t1\r\n", ""),
                          GOLDEN)
+
+
+class BreakPremiumExportTests(ExportCodesTests):
+    """CA meal / rest premiums (Oct 17 2026): with none on a card every export
+    is the file it always was (GOLDEN above, and the CSV without the premium
+    columns); a premium is 1.00 h at its own payroll item, at the day's rate."""
+
+    def _premium(self, day, kind):
+        db = database.SessionLocal()
+        try:
+            db.add(models.TimeBreakPremium(id=f"bp-{day}-{kind}", employee_email=PAT, local_date=day, kind=kind,
+                                           status="active", source="manager", created_at="2026-09-27T00:00:00"))
+            db.commit()
+        finally:
+            db.close()
+
+    def _csv(self):
+        r = self.client.get(f"/timeclock/export.csv?start={START}&end={END}")
+        self.assertEqual(r.status_code, 200, r.text)
+        return r.text
+
+    def test_no_premium_means_no_change(self):
+        self.assertEqual(self._iif(), GOLDEN)
+        header = self._csv().splitlines()[0]
+        self.assertTrue(header.endswith("Total Pay,Approved"), header)
+        r = self.client.get(f"/timeclock/export-hours?start={START}&end={END}")
+        self.assertTrue(all(set(x["hours"]) == {"regular", "overtime", "doubleTime", "sick", "vacation", "personal"}
+                            for x in r.json()["rows"]))
+
+    def test_premiums_are_their_own_payroll_items(self):
+        self._premium("2026-09-16", "meal")
+        self._premium("2026-09-17", "rest")
+        got = self._iif()
+        expected = GOLDEN.replace(
+            "TIMEACT\t9/16/2026\tRental A\tPat Test\t\tOvertime Pay\t2.00\t\t\tY\t1\r\n",
+            "TIMEACT\t9/16/2026\tRental A\tPat Test\t\tOvertime Pay\t2.00\t\t\tY\t1\r\n"
+            "TIMEACT\t9/16/2026\tRental A\tPat Test\t\tMeal Premium\t1.00\t\t\tY\t1\r\n").replace(
+            "TIMEACT\t9/17/2026\tRental A\tPat Test\t\tDouble-time Pay\t1.00\t\t\tY\t1\r\n",
+            "TIMEACT\t9/17/2026\tRental A\tPat Test\t\tDouble-time Pay\t1.00\t\t\tY\t1\r\n"
+            "TIMEACT\t9/17/2026\tRental A\tPat Test\t\tRest Premium\t1.00\t\t\tY\t1\r\n")
+        self.assertEqual(got, expected)
+        # Renamed per company like every other class.
+        self._put({"mealPremium": "CA Meal Prem"})
+        self.assertIn("Pat Test\t\tCA Meal Prem\t1.00", self._iif())
+        r = self.client.get(f"/timeclock/export-intacct.csv?start={START}&end={END}&expense=60100&clearing=21500")
+        self.assertIn("Pat Test - CA Meal Prem - 1.00 h", r.text)
+        self.assertIn("Pat Test - Rest Premium - 1.00 h", r.text)
+        csv_text = self._csv()
+        self.assertTrue(csv_text.splitlines()[0].endswith(
+            "Approved,Meal Premium Hours,Meal Premium Pay,Rest Premium Hours,Rest Premium Pay"))
+        pat_total = next(line for line in csv_text.splitlines() if line.startswith("Pat Test") and ",TOTAL," in line)
+        self.assertTrue(pat_total.endswith(",1.00,20.00,1.00,20.00"), pat_total)
+        # Quinn has no premium: empty premium hours, no new key.
+        r = self.client.get(f"/timeclock/export-hours?start={START}&end={END}")
+        hours = {x["email"]: x["hours"] for x in r.json()["rows"]}
+        self.assertEqual((hours[PAT]["mealPremium"], hours[PAT]["restPremium"]), (1.0, 1.0))
+        self.assertNotIn("mealPremium", hours[QUINN])
 
 
 if __name__ == "__main__":
