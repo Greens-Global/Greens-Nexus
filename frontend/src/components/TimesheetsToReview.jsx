@@ -55,6 +55,9 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount 
   const [backFor, setBackFor] = useState('');   // review id whose Send Back note is open
   const [note, setNote] = useState('');
   const [signing, setSigning] = useState(null);  // party id being signed in place
+  // CA-rule staff: the signing screen itself shows the meal and rest break
+  // statement and Report a Missed Break (Oct 18) - no question first.
+  const startSign = (partyId) => setSigning(partyId);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
 
@@ -117,7 +120,7 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount 
     setBusyId(`resign-${s.id}`);
     try {
       const out = await api.timesheetReviewSign(s.id);
-      if (out?.myPartyId) setSigning(out.myPartyId);
+      if (out?.myPartyId) startSign(out.myPartyId);
       window.dispatchEvent(new CustomEvent('nexus:timesheet-review-changed'));
     } catch (e) { toastErr?.(e?.message || 'Could not open the time sheet to sign.'); }
     setBusyId('');
@@ -226,7 +229,7 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount 
                 {/* needsResign (Oct 17): HR changed it while it was out for signature -
                     the click sends the fresh envelope, then opens it. */}
                 <button type="button" className="primary-btn" disabled={busyId === `resign-${s.id}`}
-                  onClick={() => (s.needsResign ? resign(s) : setSigning(s.partyId))}
+                  onClick={() => (s.needsResign ? resign(s) : startSign(s.partyId))}
                   style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                   <FileSignature size={13} /> {s.needsResign ? 'Sign Updated Time Sheet' : s.role === 'employee' ? 'Sign & Submit' : 'Review & Sign'}
                 </button>

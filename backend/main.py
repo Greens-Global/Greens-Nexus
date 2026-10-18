@@ -3759,3 +3759,7 @@ from routers import payroll_readiness as payroll_readiness_router  # noqa: E402
 app.include_router(payroll_readiness_router.router)  # People > Time > Payroll: Payroll Readiness - who is not ready, variance and anomalies for a pay period (Neil, 10/17)
 from routers import approval_delegations  # noqa: E402
 app.include_router(approval_delegations.router)      # Delegate My Approvals: a stand-in for a date range (Neil, 10/17)
+from routers import ca_breaks as ca_breaks_router  # noqa: E402
+app.include_router(ca_breaks_router.router)          # CA meal / rest premium lines + the meal waiver in Nexus Sign (Neil, 10/17)
+from routers import ca_review as ca_review_router  # noqa: E402
+app.include_router(ca_review_router.router)          # People > Time > Payroll: California Review - CA-rule flags for HR (Neil, 10/18)

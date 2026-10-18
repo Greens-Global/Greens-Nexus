@@ -14,6 +14,7 @@ import { PHONE_QUERY } from '../lib/keys';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import TimesheetReviewPanel from './TimesheetReviewPanel';
+import BreakPremiums from './BreakPremiums';
 import GeofencePunchModal from './GeofencePunchModal';
 import AddTimeModal from './AddTimeModal';
 import AnchoredMenu from './AnchoredMenu';
@@ -772,6 +773,10 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       // A shift Nexus auto-closed at end of day (no clock-out was recorded):
       // one loud line under the day - the segment above pays 0 until fixed.
       if (segs.some(s => (s.flags || []).includes('auto_clock_out'))) rows.push({ type: 'auto', ds });
+      // CA-rule staff only (Oct 17 2026, backend/ca_breaks.py): the meal check's
+      // flag and the day's Meal / Rest Premium - the server sends neither for
+      // anyone else, or for a day with nothing to say.
+      if (d?.meal || d?.mealPremiumMin || d?.restPremiumMin) rows.push({ type: 'meal', ds, d });
       // Same reasons/notes the fixed card shows: employee edit reasons + HR adjust
       // notes + punch notes, visible in the card (not only on the hover Info dot).
       // Internal markers like "payroll edit" are filtered out (segReasons).
@@ -870,6 +875,20 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                     </div>
     );
   };
+  const hMeal = (r) => (
+    <>
+      {r.d.meal && (
+        <span style={{ marginRight: 10 }}>
+          <AlertTriangle size={11} style={{ marginRight: 5, verticalAlign: 'middle' }} />
+          <b>{r.d.meal.chip}</b> - {r.d.meal.label}.
+        </span>
+      )}
+      {[['mealPremiumMin', 'mealPremiumPay', 'Meal Premium'], ['restPremiumMin', 'restPremiumPay', 'Rest Premium']]
+        .filter(([m]) => r.d[m]).map(([, pay, label]) => (
+          <span key={label} style={{ marginRight: 10, color: '#2563eb' }}>{label}: 1 hour of pay{showPay ? ` (${fmtM(r.d[pay])})` : ''}</span>
+        ))}
+    </>
+  );
   const hHoliday = (r) => (
     <>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
@@ -1040,6 +1059,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 <div key={xi} className={`pr-dcard-extra pr-dcard-${r.type}`}>
                   {r.type === 'break' ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>Break {hIn(r)} <ArrowRight size={11} style={{ color: 'var(--muted)' }} /> {hOut(r)} <span style={{ color: 'var(--muted)' }}>({hhmm(r.brk.min)})</span></span>
                     : r.type === 'auto' ? hAuto()
+                    : r.type === 'meal' ? hMeal(r)
                     : r.type === 'holiday' ? hHoliday(r)
                     : r.type === 'premium' ? hPremium(r)
                     : r.type === 'req' ? hReq(r)
@@ -1290,6 +1310,12 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                     {hAuto()}
                   </td>
                 </tr>
+              ) : r.type === 'meal' ? (
+                <tr key={i}>
+                  <td colSpan={span} style={{ ...gc, textAlign: 'left', color: '#b45309', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
+                    {hMeal(r)}
+                  </td>
+                </tr>
               ) : r.type === 'holiday' ? (
                 <tr key={i} style={{ background: 'rgba(37,99,235,0.06)' }}>
                   <td colSpan={span} style={{ ...gc, textAlign: 'left', color: '#2563eb', fontWeight: 600, fontSize: 11.5, whiteSpace: 'normal' }}>
@@ -1448,6 +1474,9 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 ...(T.differentials || []).map(x => [`${x.name} (shift differential)`, hd(x.min), fmtM(x.pay)]),
                 ...(T.callBackMin ? [[`Call-Back Pay (minimum not worked)${at(1)}`, hd(T.callBackMin), fmtM(T.callBackPay)]] : []),
                 ...(T.holidayDays ? [[`Company holiday${T.holidayDays === 1 ? '' : 's'} (${T.holidayDays} day${T.holidayDays === 1 ? '' : 's'}, not worked)`, '-', fmtM(T.holidayPay)]] : []),
+                // CA meal / rest premiums: 1 hour of pay each, not hours worked.
+                ...(T.mealPremiumMin ? [[`Meal Premium (${T.mealPremiumMin / 60} x 1 hour of pay)`, '-', fmtM(T.mealPremiumPay)]] : []),
+                ...(T.restPremiumMin ? [[`Rest Premium (${T.restPremiumMin / 60} x 1 hour of pay)`, '-', fmtM(T.restPremiumPay)]] : []),
                 ['Totals', hd(T.workedMin ?? (T.regMin + T.otMin + (T.dtMin || 0))), fmtM(T.totalPay)],
               ];
               const last = rows.length - 1;
@@ -1460,6 +1489,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
               ));
             })()}
           </div>
+          <BreakPremiums card={data} self={self} locked={!!fin} onChanged={load} toastOk={toastOk} toastErr={toastErr} />
           {(data?.byCategory || []).length > 1 && (
             <div style={{ minWidth: 240, border: '1px solid var(--wk-line2)', borderRadius: 14, overflow: 'hidden', background: 'var(--card)', boxShadow: 'var(--wk-shadow)' }}>
               <div style={{ padding: '8px 12px', background: 'var(--wk-hover)', fontSize: 12, fontWeight: 500, color: 'var(--wk-dim)' }}>By category (job costing)</div>

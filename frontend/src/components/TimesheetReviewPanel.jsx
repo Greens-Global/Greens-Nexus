@@ -31,6 +31,9 @@ const ACTION_LABEL = {
   finalized_unsigned: "finalized it without the employee's signature (HR)",
   signed_employee: 'signed as the employee', signed_manager: 'signed as the manager',
   signed_hr: 'signed for HR', completed: 'finalized it for payroll',
+  // CA-rule staff only (Oct 17 2026): the meal and rest break question.
+  break_attested: 'confirmed the meal and rest break statement by signing',
+  break_not_collected: 'signed on paper without the meal and rest break statement',
 };
 // Oct 16 (Neil): only the employee signs. The lead approver - the manager, or
 // the company's HR contact / a Global Admin when nobody is set - approves by
@@ -144,6 +147,9 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [signing, setSigning] = useState(null);   // Nexus Sign party id
+  // CA-rule staff: no question before signing (Oct 18) - the signing screen
+  // shows the meal and rest break statement and Report a Missed Break.
+  const startSign = (partyId) => setSigning(partyId);
   const [reason, setReason] = useState('');
   if (!review) return null;
   const r = review;
@@ -165,7 +171,7 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
   // Approve & Sign: the envelope goes out and the signing screen opens on it.
   async function approveAndSign() {
     const out = await run(() => api.timesheetReviewSign(r.id), 'Sign it to finalize.');
-    if (out?.myPartyId) setSigning(out.myPartyId);
+    if (out?.myPartyId) startSign(out.myPartyId);
   }
 
   // A missing clock-out, a clock-out with no clock-in or an unended break is
@@ -331,7 +337,7 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
             <SigCard label="Employee" party={parties.employee} waiting={r.turn === 'employee'} />
           </div>
           {r.myPartyId && (
-            <button className="primary-btn" onClick={() => setSigning(r.myPartyId)}
+            <button className="primary-btn" onClick={() => startSign(r.myPartyId)}
               style={{ marginTop: 12, display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
               <FileSignature size={13} /> {r.turn === 'employee' ? 'Sign & Submit' : 'Review & Sign'}
             </button>

@@ -57,6 +57,7 @@ from routers.hr import company_sites, allowed_site_ids as _allowed_site_ids, _hr
 from routers.esign import _client_meta
 from routers.stepup import require_stepup
 from currency import is_currency
+import ca_breaks
 import payroll_codes
 import pay_premiums
 from shift_day import shift_day as _shift_day, shift_bounds_by_day as _shift_bounds_by_day
@@ -290,7 +291,9 @@ PAY_KEYS = frozenset({"pay", "rate", "rateSet", "rateSplits", "amount", "regPay"
                       "vacationPay", "holidayPay", "totalPay", "hourlyRate", "dailyRate", "monthlySalary",
                       "salaryForPeriod", "weekendFloor", "deductionAmount", "weekendPay", "currency",
                       "deduct", "deduction", "bonus", "weekendBonus",
-                      "diffPay", "callBackPay"})
+                      "diffPay", "callBackPay",
+                      # CA meal / rest premiums (ca_breaks.py) - pay, like the rest.
+                      "mealPremiumPay", "restPremiumPay"})
 
 
 def strip_pay(o):
@@ -1943,6 +1946,15 @@ def finalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrat
     # The differential / call-back rules in force (pay_premiums.py), frozen so
     # a later rule change never re-prices this period. Off = not stored.
     _prem = {} if _is_fixed else _pay_premiums_for(db, email, _rr)
+    # CA meal / rest premiums (ca_breaks.py) freeze with the period - only a
+    # card that has some carries the key, so every other snapshot is unchanged.
+    # ("premiums" is the differential / call-back rules' key - pay_premiums.py.)
+    _break_snap = {}
+    if not _is_fixed and ca_breaks.in_scope(db, email, _rr, _load_rate=False):
+        _pr = [{"date": p.local_date, "kind": p.kind}
+               for p in ca_breaks.premium_rows(db, email, body.start, body.end)]
+        if _pr:
+            _break_snap = {"breakPremiums": _pr}
     # Snapshot BOTH pay models so neither an hourly rate nor a fixed salary can
     # retro-price this locked, paid period after a later change (see
     # _compute_timecard and _fixed_card, which read this back for finalized periods).
@@ -1956,7 +1968,8 @@ def finalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrat
                                           else (float(getattr(_rr, "monthly_salary", 0) or 0) if _rr else 0.0)),
                         "fullDayHours": float(getattr(_rr, "full_day_hours", 8) or 8) if _rr else 8.0,
                         **_fixed_snap,
-                        **({"premiums": _prem} if _prem else {})})
+                        **({"premiums": _prem} if _prem else {}),
+                        **_break_snap})
     row = TimeApproval(id=str(uuid.uuid4()), employee_email=email,
                        period_start=body.start, period_end=body.end, worked_min=worked,
                        approved_by=user["email"], approved_at=_now_iso(), kind="final",
@@ -2331,6 +2344,15 @@ def export_csv(start: str = "", end: str = "", mode: str = "summary",
         # the END, and only when a card in the file carries them - while every
         # company has them off the file is exactly what it always was.
         prem = any("diffPay" in c["totals"] for c in cards.values())
+        # CA meal / rest premiums (ca_breaks.py): four more columns at the END,
+        # only when someone in the file has one - every other file is unchanged.
+        ca_prem = any((c["totals"].get("mealPremiumMin") or c["totals"].get("restPremiumMin")) for c in cards.values())
+
+        def _pcols(x: dict) -> list:
+            if not ca_prem:
+                return []
+            return [f"{x.get('mealPremiumMin', 0) / 60:.2f}", f"{x.get('mealPremiumPay', 0):.2f}",
+                    f"{x.get('restPremiumMin', 0) / 60:.2f}", f"{x.get('restPremiumPay', 0):.2f}"]
         w.writerow(["Employee", "Email", "Date", "First In", "Last Out",
                     "Worked Hours", "Regular Hours", "OT Hours (1.5x)", "DT Hours (2x)",
                     "Sick Hours", "Vacation Hours", "Personal Hours",
@@ -2338,7 +2360,8 @@ def export_csv(start: str = "", end: str = "", mode: str = "summary",
                     "Regular Pay", "OT Pay", "DT Pay", "Sick Pay", "Vacation Pay", "Personal Pay",
                     "Total Pay", "Approved"]
                    + (["Shift Differential Hours", "Shift Differential Pay", "Call-Back Hours", "Call-Back Pay"]
-                      if prem else []))
+                      if prem else [])
+                   + (["Meal Premium Hours", "Meal Premium Pay", "Rest Premium Hours", "Rest Premium Pay"] if ca_prem else []))
         for r in rows:
             card = cards[r["email"]]
             cday = {d["date"]: d for d in card["days"]}
@@ -2359,7 +2382,8 @@ def export_csv(start: str = "", end: str = "", mode: str = "summary",
                             " ".join(d["flags"]), "", "", "", "", "", "", "", "",
                             "yes" if (r["email"], date) in day_ok else ""]
                            + ([f"{cd.get('diffMin', 0) / 60:.2f}", f"{cd.get('diffPay', 0):.2f}",
-                               f"{cd.get('callBackMin', 0) / 60:.2f}", f"{cd.get('callBackPay', 0):.2f}"] if prem else []))
+                               f"{cd.get('callBackMin', 0) / 60:.2f}", f"{cd.get('callBackPay', 0):.2f}"] if prem else [])
+                           + _pcols(cd))
             all_days_ok = bool(r["days"]) and all((r["email"], dt) in day_ok for dt in r["days"])
             w.writerow([r["name"], r["email"], "TOTAL", "", "",
                         f"{T['workedMin'] / 60:.2f}", f"{T['regMin'] / 60:.2f}",
@@ -2373,7 +2397,8 @@ def export_csv(start: str = "", end: str = "", mode: str = "summary",
                         f"{T.get('personalPay', 0):.2f}", f"{T['totalPay']:.2f}",
                         "yes" if (r["email"] in approved or all_days_ok) else "no"]
                        + ([f"{T.get('diffMin', 0) / 60:.2f}", f"{T.get('diffPay', 0):.2f}",
-                           f"{T.get('callBackMin', 0) / 60:.2f}", f"{T.get('callBackPay', 0):.2f}"] if prem else []))
+                           f"{T.get('callBackMin', 0) / 60:.2f}", f"{T.get('callBackPay', 0):.2f}"] if prem else [])
+                       + _pcols(T))
     buf.seek(0)
     fname = f"timeclock-{mode}-{start or 'all'}-to-{end or 'now'}.csv"
     return StreamingResponse(iter([buf.getvalue()]),
@@ -2416,7 +2441,10 @@ def _approved_emails(db: Session, rows: list, start: str, end: str) -> set:
 _IIF_PAY_CLASSES = (("regMin", "regular"), ("otMin", "overtime"), ("dtMin", "doubleTime"),
                     ("sickMin", "sick"), ("vacationMin", "vacation"), ("personalMin", "personal"),
                     # Only on a day that has them (pay_premiums.py) - never while off.
-                    ("diffMin", "shiftDifferential"), ("callBackMin", "callBack"))
+                    ("diffMin", "shiftDifferential"), ("callBackMin", "callBack"),
+                    # CA premiums: 1.00 h on the day at its own payroll item; a day
+                    # without one has no such key, so no row (ca_breaks.py).
+                    ("mealPremiumMin", "mealPremium"), ("restPremiumMin", "restPremium"))
 
 
 @router.get("/export.iif")
@@ -2521,6 +2549,10 @@ def export_hours(start: str = "", end: str = "", company: str = "", approved_onl
             hours["shiftDifferential"] = h("diffMin")
         if t.get("callBackMin"):
             hours["callBack"] = h("callBackMin")
+        # CA premiums (ca_breaks.py): only on a card that has one.
+        for _k, _m in (("mealPremium", "mealPremiumMin"), ("restPremium", "restPremiumMin")):
+            if t.get(_m):
+                hours[_k] = h(_m)
         out.append({"email": r["email"], "name": r["name"], "approved": approved,
                     "employeeCode": (emp.employee_code if emp else "") or "",
                     "department": (emp.department if emp else "") or "",
@@ -2537,7 +2569,8 @@ def export_hours(start: str = "", end: str = "", company: str = "", approved_onl
 _INTACCT_PAY_CLASSES = (("regPay", "regular", "regMin"), ("otPay", "overtime", "otMin"), ("dtPay", "doubleTime", "dtMin"),
                         ("holidayPay", "holiday", ""), ("sickPay", "sick", "sickMin"), ("vacationPay", "vacation", "vacationMin"),
                         ("personalPay", "personal", "personalMin"),
-                        ("diffPay", "shiftDifferential", "diffMin"), ("callBackPay", "callBack", "callBackMin"))
+                        ("diffPay", "shiftDifferential", "diffMin"), ("callBackPay", "callBack", "callBackMin"),
+                        ("mealPremiumPay", "mealPremium", "mealPremiumMin"), ("restPremiumPay", "restPremium", "restPremiumMin"))
 
 
 def payroll_intacct_entries(cards: list[dict], *, start: str, end: str, journal: str, expense: str, clearing: str,
@@ -9132,11 +9165,14 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
     # over the history.
     _fin_snap = _finalized_row(db, em, start, end)
     _frozen_rates = {}
+    _snap_prem = None   # CA meal/rest premiums frozen at finalize (ca_breaks.py), when any
     if _fin_snap and _fin_snap.note:
         try:
             _sn = json.loads(_fin_snap.note)
             if isinstance(_sn, dict) and "rate" in _sn:
                 rule = _sn.get("rule") or rule
+                if isinstance(_sn.get("breakPremiums"), list):
+                    _snap_prem = _sn["breakPremiums"]
                 if not reprice:
                     rate = float(_sn.get("rate") or 0.0)
                     _hist = []
@@ -9155,6 +9191,14 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
     _bp = _breakpolicy_cfg(db)
     _bp_eff = {**_bp, "enabled": _bp["enabled"] and rule == "ca"}
     _long_min = _bp_eff["longBreakMin"]
+    # CA meal detection + meal/rest premiums (Neil, Oct 17 2026 - ca_breaks.py):
+    # CA-rule HOURLY people only. Nothing below adds a key for anyone else, or
+    # for a CA day with nothing to flag or pay.
+    _ca_hourly = ca_breaks.in_scope(db, em, rate_row, rule, emp=emp, _load_rate=False)
+    _ca_waivers = ca_breaks.waiver_rows(db, em) if _ca_hourly else []
+    # The waiver's signed / revoked dates are compared on the employee's own
+    # calendar: the offset of their latest punch in the window (JS convention).
+    _tz_last = (punches[-1].tz_offset_min or 0) if punches else 0
 
     days_out = []
     total_reg = total_ot = total_dt = total_sick = total_vac = total_personal = total_break = total_paid_break = missing_punches = 0
@@ -9388,6 +9432,22 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
                 day_split[sd] = split
 
     reg_pay = ot_pay = dt_pay = sick_pay = vac_pay = personal_pay = 0.0
+    # Premiums: one hour at the day's regular rate per meal / rest premium on a
+    # worked day; never minutes worked, never in the overtime split above. A
+    # finalized period reads the list frozen in its snapshot.
+    _prem_rows = ca_breaks.premium_rows(db, em, start, end, include_removed=True) if _ca_hourly else []
+    _prem_src = (_snap_prem if _snap_prem is not None
+                 else [{"date": p.local_date, "kind": p.kind} for p in _prem_rows if p.status == "active"])
+    # A finalized period that froze premiums keeps paying them even if the
+    # person has since left the CA rule (the snapshot is the record).
+    # TODO (owner decision pending, Ferra v. Loews 2021): California's
+    # "regular rate of compensation" for a premium may include shift
+    # differentials and other nondiscretionary pay. Kept at the day's BASE
+    # rate here until Neil decides; pay_premiums.py has the differentials.
+    _prem_lines = (ca_breaks.premium_lines(_prem_src, {d for d, m in day_total.items() if m > 0}, _rate_for_day)
+                   if (_ca_hourly or _snap_prem is not None) else {})
+    meal_prem_n = rest_prem_n = 0
+    meal_prem_pay = rest_prem_pay = 0.0
     for d in sorted(day_total):
         reg, ot, dt = day_split.get(d, (day_total[d], 0, 0))
         segs = day_segs[d]
@@ -9428,9 +9488,24 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
                          "sickMin": sick_m, "vacationMin": vac_m, "personalMin": personal_m,
                          "rate": rate_d,
                          "breakMin": day_break_m[d], "paidBreakMin": day_paid_break.get(d, 0)})
+        if _ca_hourly:
+            _meal = ca_breaks.detect_day(segs, ca_breaks.waiver_on(_ca_waivers, d, _tz_last))
+            if _meal:
+                days_out[-1]["meal"] = _meal
+        if _prem_lines:
+            _pl = _prem_lines.get(d) or {}
+            if "meal" in _pl:
+                days_out[-1].update({"mealPremiumMin": 60, "mealPremiumPay": _pl["meal"]})
+                meal_prem_n += 1
+                meal_prem_pay += _pl["meal"]
+            if "rest" in _pl:
+                days_out[-1].update({"restPremiumMin": 60, "restPremiumPay": _pl["rest"]})
+                rest_prem_n += 1
+                rest_prem_pay += _pl["rest"]
 
     reg_pay, ot_pay, dt_pay = round(reg_pay, 2), round(ot_pay, 2), round(dt_pay, 2)
     sick_pay, vac_pay, personal_pay = round(sick_pay, 2), round(vac_pay, 2), round(personal_pay, 2)
+    meal_prem_pay, rest_prem_pay = round(meal_prem_pay, 2), round(rest_prem_pay, 2)
     worked_min = total_reg + total_ot + total_dt + total_sick + total_vac + total_personal
     # "Through 10/14 at X · From 10/15 at Y" - the rate runs across the period's
     # calendar days (every day, not only worked ones, so the split date is the
@@ -9569,7 +9644,17 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
         site_of=lambda s: _seg_site(s)[0],
         round_at=lambda iso: _premium_time(iso, _rmin)) if _prem_cfg else None
 
+    # CA meal / rest premiums (ca_breaks.py): their own pay classes, only on a card that has any.
+    _prem_totals = ({"mealPremiumMin": meal_prem_n * 60, "mealPremiumPay": meal_prem_pay,
+                     "restPremiumMin": rest_prem_n * 60, "restPremiumPay": rest_prem_pay}
+                    if (meal_prem_n or rest_prem_n) else {})
+    _card_extra = {"breakPremiums": [ca_breaks.premium_dict(p) for p in _prem_rows]} if _prem_rows else {}
+    # A non-pay marker the screens use to show the CA meal / rest tools
+    # (rateSet is a pay key, stripped for the manager tier) - ca_breaks.in_scope.
+    if _ca_hourly:
+        _card_extra["caBreaks"] = True
     card = {"email": em, "start": start, "end": end, "rate": rate, "rateSet": rate_row is not None,
+            **_card_extra,
             "rateSplits": rate_splits,   # >1 entry = the rate changed inside this period
             "dept": dept, "overtimeRule": rule, "days": days_out, "punchMeta": punch_meta,
             "rounding": {"enabled": _rnd["enabled"], "nearestMin": _rnd["nearestMin"]},
@@ -9582,7 +9667,9 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
                        "regPay": reg_pay, "otPay": ot_pay, "dtPay": dt_pay,
                        "holidayPay": holiday_pay, "holidayDays": holiday_days,
                        "sickPay": sick_pay, "vacationPay": vac_pay, "personalPay": personal_pay,
-                       "totalPay": round(reg_pay + ot_pay + dt_pay + holiday_pay + sick_pay + vac_pay + personal_pay, 2),
+                       "totalPay": round(reg_pay + ot_pay + dt_pay + holiday_pay + sick_pay + vac_pay + personal_pay
+                                         + meal_prem_pay + rest_prem_pay, 2),
+                       **_prem_totals,
                        "breakMin": total_break, "paidBreakMin": total_paid_break,
                        "workedMin": worked_min, "deductedMin": total_deducted,
                        "activeMin": active_min, "idleMin": idle_min,

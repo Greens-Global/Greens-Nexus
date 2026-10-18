@@ -80,6 +80,10 @@ def _pay_parts(t: dict) -> dict:
            "total": _r2(t.get("totalPay"))}
     if "diffPay" in t:
         out["premium"] = _r2(float(t.get("diffPay") or 0) + float(t.get("callBackPay") or 0))
+    # CA meal / rest premiums (ca_breaks.py, 1 h at the day's rate) - only on a
+    # card that carries them; the frozen list prices both sides alike.
+    if "mealPremiumMin" in t:
+        out["breakPremium"] = _r2(float(t.get("mealPremiumPay") or 0) + float(t.get("restPremiumPay") or 0))
     return out
 
 

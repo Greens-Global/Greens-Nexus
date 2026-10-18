@@ -2715,6 +2715,14 @@ def _render_payload(db: Session, req: HrSignRequest, party: HrSignParty) -> dict
                "governingLaw": (req.governing_law or _DEFAULT_GOVERNING_LAW).upper(),
                "standaloneConsent": True,
                "expiresOn": req.expires_on}
+    if (getattr(req, "link_kind", "") or "") == "timesheet" and party.role_key == "employee" \
+            and party.status != "signed" and req.status == "pending":
+        # CA-rule staff: the meal and rest break statement their signature
+        # confirms, shown on every signing screen (timesheet_review, Oct 18).
+        import timesheet_review as _tsr
+        _r = _tsr._for(db, req)
+        if _r is not None and _r.status == "signing" and _tsr.needs_break_attestation(db, _r):
+            payload["breakAttestation"] = {**_tsr.break_attestation_state(db, _r), "reviewId": _r.id}
     # What must happen before any of the document is sent to this browser.
     # Withholding the URLs is the enforcement - a client that ignores `gate`
     # still has nothing to render.
@@ -2966,6 +2974,13 @@ def _link_hook(event: str, db: Session, req: HrSignRequest, *args) -> None:
               "completed": hle.on_completed, "expired": hle.on_expired}.get(event)
         if fn:
             hle.safe(fn, db, req, *args)
+    elif kind == "meal_waiver":
+        # The California meal period waiver (ca_breaks.py, Oct 17 2026).
+        import ca_breaks
+        fn = {"declined": ca_breaks.on_declined, "voided": ca_breaks.on_voided,
+              "completed": ca_breaks.on_completed}.get(event)
+        if fn:
+            ca_breaks.safe(fn, db, req, *args)
 
 
 def _advance_or_finalize(db: Session, req: HrSignRequest) -> list:
