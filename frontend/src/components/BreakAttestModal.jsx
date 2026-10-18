@@ -9,10 +9,10 @@
 //         sheet goes back to the manager, who adds the premium pay.
 import { useState } from 'react';
 import { api } from '../api';
-import { formatDate } from '../lib/datetime';
+import { formatDate, formatWeekday } from '../lib/datetime';
 import { Modal } from '../tasks/components';
 
-const dow = (ds) => `${new Date(`${ds}T00:00`).toLocaleDateString('en-US', { weekday: 'short' })} ${formatDate(ds)}`;
+const dow = (ds) => `${formatWeekday(ds, 'short')} ${formatDate(ds)}`;
 
 export default function BreakAttestModal({ reviewId, attestation, onClose, onYes, onSentBack, toastErr }) {
   const flagged = new Map((attestation?.flaggedDays || []).map(d => [d.date, d]));
@@ -69,8 +69,9 @@ export default function BreakAttestModal({ reviewId, attestation, onClose, onYes
             Answer Yes to sign your time sheet. If you missed a meal or rest break, answer No - your manager adds the premium pay and sends it back to you to sign.
           </p>
           {flagged.size > 0 && (
-            <div role="note" style={{ fontSize: 12.5, color: '#b45309', border: '1px solid rgba(180,83,9,0.3)', borderRadius: 10, padding: '8px 10px' }}>
-              Your punches show no full meal break on {[...flagged.keys()].map(formatDate).join(', ')}.
+            <div role="note" style={{ fontSize: 12.5, color: '#b45309', border: '1px solid rgba(180,83,9,0.3)', borderRadius: 10, padding: '8px 10px', display: 'grid', gap: 3 }}>
+              <span>Your punches show:</span>
+              {[...flagged.values()].map(d => <span key={d.date}>{formatDate(d.date)} - {d.label}.</span>)}
             </div>
           )}
         </div>

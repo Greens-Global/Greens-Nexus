@@ -71,6 +71,9 @@ def add_premium(body: PremiumIn, user: dict = Depends(require_approval_write), d
     if not ca_breaks.is_ca(db, em):
         raise HTTPException(409, "Meal and rest premiums are only for hourly staff on the California overtime rule.")
     _guard_not_finalized(db, em, day)
+    from routers.timeclock import _compute_timecard
+    if day not in ca_breaks.worked_days(_compute_timecard(db, em, day, day).get("days") or []):
+        raise HTTPException(422, "A premium goes on a day with time worked - this day has none.")
     _guard_review(db, em, day, me)
     p = ca_breaks.add_premium(db, em, day, (body.kind or "").lower(), me, source="manager",
                               note=_decided_note(db, user, em, (body.note or "").strip()))

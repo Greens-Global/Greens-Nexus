@@ -1079,7 +1079,8 @@ def build_pdf(db: Session, r: TimesheetReview) -> tuple[bytes, int]:
               "agreed": "agreed", "declined": "declined", "returned": "returned", "cancelled": "cancelled",
               "approved": "reviewed and approved", "reopened": "reopened it", "hr_edited": "edited it (HR)",
               "employee_approved": "approved it to sign", "unlocked": "unlocked it", "recalled": "recalled it",
-              "break_attested": "answered Yes to the meal and rest break question"}
+              "break_attested": "answered Yes to the meal and rest break question",
+              "break_not_collected": "signed on paper (meal and rest break answer not collected electronically)"}
     for e in (r.rounds or []):
         if y < margin + 30:
             new_page()
@@ -1105,23 +1106,21 @@ def build_pdf(db: Session, r: TimesheetReview) -> tuple[bytes, int]:
     y -= 14
     text(margin, "The approver does not sign - the approval, and any change HR made, are logged below.", 9)
     if needs_break_attestation(db, r):
-        # CA-rule staff (Neil, Oct 17 2026): one required question before
-        # signing. Nexus Sign refuses the signature until the employee has
-        # answered Yes (sign_blocker), so every signed copy of this page
-        # carries a Yes; a No never reaches a signature - it sends the time
-        # sheet back to the manager. The answer's time is on the review's
-        # approval log and in this envelope's audit trail (event "attested").
+        # CA-rule staff (Neil, Oct 17 2026): the page states the REQUIREMENT
+        # only - it is built before the employee answers. The actual answer
+        # (who, when) is recorded on the review's approval log and as an
+        # "attested" event in this envelope's audit trail; an electronic
+        # signature is refused until it is Yes (sign_blocker). A paper return
+        # is logged as "answer not collected electronically" (on_progress).
         from reportlab.lib.utils import simpleSplit as _split
         y -= 22
         text(margin, "Meal and rest breaks (California)", 9.5, True)
-        for ln in _split(f'"{BREAK_QUESTION}"', "Helvetica", 9, W - 2 * margin):
+        for ln in _split(f'Before signing, the employee is asked: "{BREAK_QUESTION}"', "Helvetica", 9, W - 2 * margin):
             y -= 12
             text(margin, ln, 9)
-        y -= 13
-        text(margin, "Employee's answer: Yes", 9.5, True)
-        for ln in _split("This time sheet can be signed only after the employee answers Yes; a No sends it back "
-                         "to the manager instead. The time of the answer is recorded with the approval log and "
-                         "in this document's audit trail.", "Helvetica", 8.5, W - 2 * margin):
+        for ln in _split("The employee's answer and its time are recorded in the approval log and in this "
+                         "document's audit trail. A No sends the time sheet back to the manager instead of "
+                         "signing it.", "Helvetica", 8.5, W - 2 * margin):
             y -= 11
             text(margin, ln, 8.5, color=(0.4, 0.4, 0.45))
     # The employee's attestation, boxed just above their signature line. Drawn
@@ -1180,7 +1179,9 @@ def approval_log(db: Session, r: TimesheetReview, offset: int = 0) -> list:
              "employee_approved": "Approved for signature by {who} (employee) on {when}",
              "finalized_unsigned": "Finalized without the employee's signature by {who} (HR) on {when}",
              # CA-rule staff only (ca_breaks.py) - no other card has this round.
-             "break_attested": "Meal and rest breaks: {who} (employee) answered Yes on {when}"}
+             "break_attested": "Meal and rest breaks: {who} (employee) answered Yes on {when}",
+             "break_not_collected": "Meal and rest breaks: signed on paper - the answer was not collected "
+                                    "electronically (recorded {when})"}
     out = []
     for e in rounds[start:]:
         w = words.get(e.get("action"))
@@ -1264,8 +1265,15 @@ def on_progress(db: Session, req) -> None:
     done = {e.get("action") for e in (r.rounds or [])}
     for p in db.query(HrSignParty).filter(HrSignParty.request_id == req.id).all():
         if p.status == "signed" and f"signed_{p.role_key}" not in done:
+            paper = (p.signature_kind or "") == "paper"
+            if (paper and p.role_key == "employee" and needs_break_attestation(db, r)
+                    and not break_attested(r)):
+                # CA staff: a paper return skips the electronic question - say
+                # so on the record rather than imply a Yes (Oct 18 review).
+                _round(db, r, by=p.email, action="break_not_collected",
+                       note="Signed on paper - the meal and rest break answer was not collected electronically")
             _round(db, r, by=p.email, action=f"signed_{p.role_key}",
-                   note="Signed on paper" if (p.signature_kind or "") == "paper" else "")
+                   note="Signed on paper" if paper else "")
 
 
 def on_declined(db: Session, req, party, reason: str) -> None:
@@ -1465,7 +1473,8 @@ def break_attestation_state(db: Session, r: TimesheetReview) -> dict:
     """What the Yes / No question needs: the days the meal detection flagged
     (pre-filled on the No form) and the days with work (the pickable ones)."""
     card = card_for(db, r.employee_email, r.period_start, r.period_end, r.pay_type)
-    worked = sorted({d["date"] for d in (card.get("days") or []) if int(d.get("workedMin") or 0) > 0})
+    import ca_breaks
+    worked = ca_breaks.worked_days(card.get("days") or [])
     return {"required": True, "question": BREAK_QUESTION, "answered": break_attested(r),
             "flaggedDays": [{"date": d["date"], "label": d["meal"]["label"], "chip": d["meal"]["chip"]}
                             for d in (card.get("days") or []) if d.get("meal")],
@@ -1533,6 +1542,12 @@ def claim_breaks(db: Session, r: TimesheetReview, actor: str, claims: list, note
             clean.append({"date": day, "kind": kind})
     if not clean:
         raise HTTPException(422, "Pick at least one day and say whether it was a meal or a rest break.")
+    worked = set(ca_breaks.worked_days(card_for(db, r.employee_email, r.period_start, r.period_end,
+                                                r.pay_type).get("days") or []))
+    off = sorted({c["date"] for c in clean if c["date"] not in worked})
+    if off:
+        raise HTTPException(422, f"No time worked on {', '.join(us_date(d) for d in off)} - a missed break "
+                                 "can only be on a day you worked.")
     note = (note or "").strip()[:500]
     for c in clean:
         ca_breaks.add_premium(db, r.employee_email, c["date"], c["kind"], actor, source="claim",

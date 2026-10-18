@@ -35,6 +35,7 @@ const ACTION_LABEL = {
   signed_hr: 'signed for HR', completed: 'finalized it for payroll',
   // CA-rule staff only (Oct 17 2026): the meal and rest break question.
   break_attested: 'answered Yes to the meal and rest break question',
+  break_not_collected: 'signed on paper - the meal and rest break answer was not collected electronically',
 };
 // Oct 16 (Neil): only the employee signs. The lead approver - the manager, or
 // the company's HR contact / a Global Admin when nobody is set - approves by

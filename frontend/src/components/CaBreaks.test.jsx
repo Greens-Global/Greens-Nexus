@@ -72,11 +72,11 @@ describe('BreakAttestModal', () => {
 });
 
 describe('BreakPremiums', () => {
-  const card = { email: 'e@x.com', overtimeRule: 'ca', rateSet: true, days: [{ date: '2026-09-16', workedMin: 480 }],
+  const card = { email: 'e@x.com', overtimeRule: 'ca', caBreaks: true, days: [{ date: '2026-09-16', workedMin: 480 }],
     breakPremiums: [{ id: 'p1', date: '2026-09-16', kind: 'meal', label: 'Meal Premium', status: 'active', source: 'claim', note: '' }] };
 
   it('renders nothing off the CA rule or on the employee\'s own card', () => {
-    const { container, rerender } = render(<BreakPremiums card={{ ...card, overtimeRule: 'federal' }} />);
+    const { container, rerender } = render(<BreakPremiums card={{ ...card, caBreaks: undefined }} />);
     expect(container.innerHTML).toBe('');
     rerender(<BreakPremiums card={card} self />);
     expect(container.innerHTML).toBe('');

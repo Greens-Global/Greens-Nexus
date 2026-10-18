@@ -360,6 +360,7 @@ def split_figures(card: dict, start: str, end: str) -> dict:
     hours = ot = leave = 0
     reg_p = ot_p = dt_p = sick_p = vac_p = pers_p = hol_p = 0.0
     meal_p = rest_p = 0.0    # CA premiums (ca_breaks.py) - 0 on every other card
+    diff_p = cb_p = 0.0      # shift differentials / call-back (pay_premiums.py) - 0 while off
     for d in card.get("days") or []:
         if not (start <= d["date"] <= end):
             continue
@@ -378,9 +379,14 @@ def split_figures(card: dict, start: str, end: str) -> dict:
         hol_p += float(d.get("holidayPay") or 0)
         meal_p += float(d.get("mealPremiumPay") or 0)
         rest_p += float(d.get("restPremiumPay") or 0)
+        diff_p += float(d.get("diffPay") or 0)
+        cb_p += float(d.get("callBackPay") or 0)
     pay = round(round(reg_p, 2) + round(ot_p, 2) + round(dt_p, 2) + round(hol_p, 2)
                 + round(sick_p, 2) + round(vac_p, 2) + round(pers_p, 2)
                 + round(meal_p, 2) + round(rest_p, 2), 2)
+    if diff_p or cb_p:
+        # The card adds these after its own rounding (pay_premiums.add_totals).
+        pay = round(pay + round(diff_p, 2) + round(cb_p, 2), 2)
     return {"hours": hours, "ot": ot, "leave": leave, "pay": pay}
 
 
@@ -590,7 +596,7 @@ def person(db: Session, row: dict, P: dict, *, cfg: dict, emp, currency: str, ap
         # CA-rule staff only (Oct 18 2026): meal break flags and the open
         # California Review count, as information - never blocking, never
         # Ready / Not Ready. Nobody else gets anything here.
-        exceptions = exceptions + ca_info(db, em, s, e, long_card, rate_row, ca_ctx)
+        exceptions = exceptions + ca_info(db, em, s, e, long_card, rate_row, ca_ctx, emp=emp)
 
     out = _base_row(row, "fixed" if fixed else "hourly", s, e, today, exceptions)
     out.update({
@@ -605,16 +611,20 @@ def person(db: Session, row: dict, P: dict, *, cfg: dict, emp, currency: str, ap
     return out
 
 
-def ca_info(db: Session, em: str, s: str, e: str, card: dict, rate_row, ctx: dict | None = None) -> list:
+_NO_EMP = object()
+
+
+def ca_info(db: Session, em: str, s: str, e: str, card: dict, rate_row, ctx: dict | None = None,
+            emp=_NO_EMP) -> list:
     """Non-blocking readiness notes for a CA-rule hourly person ([] for
     anyone else): the days the meal detection flagged and the open
     California Review flags (ca_review.py - the same engine card)."""
     import ca_breaks
     import ca_review
-    if not ca_breaks.is_ca_rate(rate_row):
+    if not ca_breaks.in_scope(db, em, rate_row, _load_rate=False, **({"emp": emp} if emp is not _NO_EMP else {})):
         return []
     flags = ca_review.with_status(db, em, s, ca_review.flags_for(db, em, s, e, card=card, rate_row=rate_row,
-                                                                 ctx=ctx), ctx)
+                                                                 ctx=ctx, in_scope=True), ctx)
     out = []
     meal_days = sorted({f["date"] for f in flags if f["rule"] == "meal"})
     if meal_days:
@@ -692,10 +702,14 @@ def build(db: Session, scope, anchor: str = "") -> dict:
     # CA-rule hourly people (ca_review.py): their facts read once for all of them.
     import ca_breaks
     import ca_review
-    ca_people = [r["email"] for r in hourly if ca_breaks.is_ca_rate(rates.get(r["email"]))]
+    # The pay-rate half first (no queries), then preload - which also reads
+    # every company's country once - then the country half of the scope.
+    ca_rate = [r["email"] for r in hourly if ca_breaks.is_ca_rate(rates.get(r["email"]))]
+    if ca_rate:
+        ca_breaks.preload(db, ca_rate, (_d(P["start"]) - timedelta(days=7 * HISTORY_WEEKS)).isoformat(), P["end"])
+    ca_people = [em for em in ca_rate
+                 if ca_breaks.in_scope(db, em, rates.get(em), emp=emps.get(em), _load_rate=False)]
     ca_ctx = ca_review.prefetch(db, ca_people, P["start"], P["end"]) if ca_people else None
-    if ca_people:
-        ca_breaks.preload(db, ca_people, (_d(P["start"]) - timedelta(days=7 * HISTORY_WEEKS)).isoformat(), P["end"])
     try:
         return _build_rows(db, rows, P, emps, rates, approved, st_h, st_f, expected, ca_ctx)
     finally:

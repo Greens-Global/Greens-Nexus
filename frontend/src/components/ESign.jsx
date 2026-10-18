@@ -21,6 +21,8 @@ import AccessCodeField from './AccessCodeField';
 import AnchoredMenu from './AnchoredMenu';
 import { useRole } from '../contexts/RoleContext';
 import { Spinner, LoadingState } from './AsyncState';
+import BreakAttestModal from './BreakAttestModal';
+import { needsBreakAnswer } from '../lib/breakAttest';
 
 // ── HR Section C - Native E-Sign (DocuSign-style UX) ──────────────────────────
 // Send wizard (Document → Recipients → Fields → Review) with color-coded
@@ -2041,7 +2043,20 @@ export function SignModal({ partyId, onClose, onDone, toastOk, toastErr }) {
         <div style={{ maxWidth: 1180, margin: '0 auto' }}>
           {!payload
             ? <div style={{ padding: 60, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
-            : <SigningDoc payload={payload} busy={busy} onSubmit={submit} onAct={act} onDecline={decline}
+            : needsBreakAnswer(payload)
+              // A CA-rule employee's time sheet (Oct 18): the meal and rest
+              // break question comes first, before consent and the code. Yes
+              // records it and the signing steps follow; No sends the time
+              // sheet back to the manager and closes signing.
+              ? <BreakAttestModal reviewId={payload.breakAttestation.reviewId} attestation={payload.breakAttestation}
+                  toastErr={toastErr} onClose={onClose}
+                  onYes={() => load().catch(e => toastErr(e?.message || 'Could not load the document.'))}
+                  onSentBack={() => {
+                    toastOk('Sent back to your manager to add the premium pay.');
+                    window.dispatchEvent(new CustomEvent('nexus:timesheet-review-changed'));
+                    onDone();
+                  }} />
+              : <SigningDoc payload={payload} busy={busy} onSubmit={submit} onAct={act} onDecline={decline}
                 gateApi={gateApi} onCleared={() => load().catch(() => {})} uploadApi={uploadApi}
                 historyApi={historyApi} />}
         </div>

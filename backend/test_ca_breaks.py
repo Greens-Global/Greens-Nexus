@@ -113,9 +113,9 @@ class CaCase(ReviewCase):
     def _as(self, email):
         os.environ["NEXUS_DEV_EMAIL"] = email
 
-    def _rate(self, rule="ca", rate=20.0, pay_type="hourly"):
+    def _rate(self, rule="ca", rate=20.0, pay_type="hourly", currency="USD"):
         self.db.query(models.PayrollRate).filter_by(employee_email=EMP).delete()
-        self.db.add(models.PayrollRate(employee_email=EMP, pay_type=pay_type, currency="USD", hourly_rate=rate,
+        self.db.add(models.PayrollRate(employee_email=EMP, pay_type=pay_type, currency=currency, hourly_rate=rate,
                                        full_day_hours=8, overtime_rule=rule, monthly_salary=6000))
         self.db.commit()
 
@@ -437,6 +437,133 @@ class DelegationTests(CaCase):
         self._as(MGR)
         r = self.client.post(f"/ca-breaks/premiums/{p.id}/remove", json={"reason": "Not owed"})
         self.assertEqual(r.status_code, 403, r.text)
+
+
+class ScopeTests(CaCase):
+    """Who the CA tools apply to (Oct 18 review): hourly, USD, rule 'ca'
+    (blank counts - the column defaults to 'ca') AND working in the US (own
+    People country, else the company's). India hourly staff get nothing."""
+
+    def _nothing_new(self):
+        card = self._card()
+        self.assertNotIn("caBreaks", card)
+        self.assertFalse(any("meal" in d for d in card["days"]))
+        self.assertFalse(ca_breaks.is_ca(self.db, EMP))
+        self._as(MGR)
+        r = self.client.post("/ca-breaks/premiums", json={"email": EMP, "date": self.d1, "kind": "meal"})
+        self.assertEqual(r.status_code, 409, r.text)
+        self.assertFalse(self.client.get(f"/ca-breaks/waiver?email={EMP}").json()["ca"])
+        import ca_review
+        self.assertEqual(ca_review.flags_for(self.db, EMP, self.start, self.end), [])
+        r = tsr.approve_period(self.db, EMP, ANCHOR, MGR, "ok")
+        self.assertNotIn("breakAttestation", tsr.state_for(self.db, EMP, self.start, EMP, False))
+        party = self._parties(self._r().sign_request_id)["employee"]
+        req = self.db.query(models.HrSignRequest).filter_by(id=party.request_id).first()
+        self.assertNotIn("breakAttestation", esign._render_payload(self.db, req, party))
+        self.assertEqual(tsr.sign_blocker(self.db, req, party), "")
+
+    def test_inr_hourly_with_blank_or_ca_rule_gets_nothing(self):
+        for rule in ("", "ca"):
+            with self.subTest(rule=rule):
+                self._rate(rule, currency="INR")
+                self._nothing_new()
+                self.db.query(models.TimesheetReview).delete()
+                self.db.commit()
+
+    def test_usd_but_working_in_india_gets_nothing(self):
+        self._rate("ca")
+        self.db.query(models.NexusEmployee).filter_by(work_email=EMP).update({"country": "IN"})
+        self.db.commit()
+        self._nothing_new()
+
+    def test_company_country_counts_when_the_person_has_none(self):
+        self._rate("ca")
+        self.db.query(models.HrEntity).filter_by(id=ENTITY).update({"country": "IN"})
+        self.db.commit()
+        self.assertFalse(ca_breaks.is_ca(self.db, EMP))
+        self.db.query(models.HrEntity).filter_by(id=ENTITY).update({"country": "US"})
+        self.db.commit()
+        self.assertTrue(ca_breaks.is_ca(self.db, EMP))
+
+    def test_usd_us_ca_person_still_gets_them(self):
+        self._rate("")
+        self.db.query(models.NexusEmployee).filter_by(work_email=EMP).update({"country": "US"})
+        self.db.commit()
+        card = self._card()
+        self.assertTrue(card["caBreaks"])
+        self.assertEqual(self._days(card)[self.d1]["meal"]["status"], "missed")
+        tsr.approve_period(self.db, EMP, ANCHOR, MGR, "ok")
+        party = self._parties(self._r().sign_request_id)["employee"]
+        req = self.db.query(models.HrSignRequest).filter_by(id=party.request_id).first()
+        payload = esign._render_payload(self.db, req, party)
+        self.assertEqual(payload["breakAttestation"]["reviewId"], self._r().id)
+        self.assertFalse(payload["breakAttestation"]["answered"])
+        tsr.attest_breaks(self.db, self._r(), EMP)
+        self.assertTrue(esign._render_payload(self.db, req, party)["breakAttestation"]["answered"])
+
+
+class ReviewNitTests(CaCase):
+    def test_finalized_premiums_survive_leaving_the_ca_rule(self):
+        self._rate("ca")
+        ca_breaks.add_premium(self.db, EMP, self.d1, "meal", MGR)
+        self.db.commit()
+        timeclock.finalize_timecard(timeclock.FinalizeIn(email=EMP, start=self.start, end=self.end,
+                                                         allow_exceptions=True),
+                                    user={"email": HR, "level": 4}, db=self.db)
+        before = self._card()["totals"]
+        self._rate("ca", currency="INR")       # no longer in scope
+        after = self._card()["totals"]
+        self.assertEqual((after["mealPremiumPay"], after["totalPay"]), (before["mealPremiumPay"], before["totalPay"]))
+
+    def test_claims_and_premiums_only_on_worked_days(self):
+        self._rate("ca")
+        off_day = self.end      # inside the period, nothing worked
+        # A sick-only day is not a work day either.
+        self.db.add(models.TimePunch(id="sick-in", employee_email=EMP, kind="in", at=f"{self.end}T15:00:00",
+                                     local_date=self.end, tz_offset_min=0, category="Sick Day", created_at="x"))
+        self.db.add(models.TimePunch(id="sick-out", employee_email=EMP, kind="out", at=f"{self.end}T23:00:00",
+                                     local_date=self.end, tz_offset_min=0, category="Sick Day", created_at="x"))
+        self.db.commit()
+        tsr.approve_period(self.db, EMP, ANCHOR, MGR, "ok")
+        st = tsr.state_for(self.db, EMP, self.start, EMP, False)["breakAttestation"]
+        self.assertEqual(st["workedDays"], [self.d1, self.d2])
+        with self.assertRaises(HTTPException) as e:
+            tsr.claim_breaks(self.db, self._r(), EMP, [{"date": off_day, "kind": "meal"}])
+        self.assertEqual(e.exception.status_code, 422)
+        self._as(MGR)
+        r = self.client.post("/ca-breaks/premiums", json={"email": EMP, "date": off_day, "kind": "meal"})
+        self.assertEqual(r.status_code, 422, r.text)
+
+    def test_waiver_dates_on_the_employee_calendar(self):
+        w = models.CaMealWaiver(id="w-tz", employee_email=EMP, status="signed", signed_at="2026-09-16T03:00:00")
+        # 03:00 UTC on 9/16 is 8:00 PM on 9/15 in Pacific daylight time (offset 420).
+        self.assertTrue(ca_breaks.waiver_on([w], "2026-09-15", 420))
+        self.assertFalse(ca_breaks.waiver_on([w], "2026-09-15", 0))
+
+    def test_paper_signature_logs_the_answer_was_not_collected(self):
+        self._rate("ca")
+        tsr.approve_period(self.db, EMP, ANCHOR, MGR, "ok")
+        r = self._r()
+        party = self._parties(r.sign_request_id)["employee"]
+        party.status, party.signature_kind = "signed", "paper"
+        self.db.commit()
+        req = self.db.query(models.HrSignRequest).filter_by(id=r.sign_request_id).first()
+        tsr.on_progress(self.db, req)
+        self.db.commit()
+        actions = [e["action"] for e in self._r().rounds]
+        self.assertIn("break_not_collected", actions)
+        self.assertTrue(any("not collected electronically" in ln for ln in tsr.approval_log(self.db, self._r())))
+
+    def test_pdf_states_the_requirement_not_an_answer(self):
+        self._rate("ca")
+        tsr.approve_period(self.db, EMP, ANCHOR, MGR, "ok")
+        import io
+        from pypdf import PdfReader
+        pdf, _ = tsr.build_pdf(self.db, self._r())
+        text = " ".join((pg.extract_text() or "") for pg in PdfReader(io.BytesIO(pdf)).pages)
+        text = " ".join(text.split())
+        self.assertIn("Before signing, the employee is asked", text)
+        self.assertNotIn("answer: Yes", text)
 
 
 class ClaimGuards(CaCase):

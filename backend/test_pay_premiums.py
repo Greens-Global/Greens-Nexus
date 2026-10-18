@@ -137,8 +137,9 @@ def _without_meal_flags(out: dict) -> dict:
         if not k.startswith("card"):
             continue
         c = json.loads(v)
-        if not any("meal" in d for d in c.get("days") or []):
+        if "caBreaks" not in c and not any("meal" in d for d in c.get("days") or []):
             continue
+        c.pop("caBreaks", None)        # the non-pay "CA tools apply" marker
         for d in c.get("days") or []:
             d.pop("meal", None)
         out[k] = json.dumps(c, sort_keys=True)
@@ -525,6 +526,12 @@ class WithCaBreakPremiumsTests(Base):
                         head)
         parts = rp._pay_parts(T)
         self.assertEqual((parts["premium"], parts["breakPremium"]), (round(T["diffPay"] + T["callBackPay"], 2), 20.0))
+
+    def test_readiness_gross_matches_the_card(self):
+        import payroll_readiness as pr
+        card = tc._compute_timecard(self.db, A, PS, PE)
+        self.assertEqual(pr.split_figures(card, PS, PE)["pay"], card["totals"]["totalPay"])
+        self.assertGreater(card["totals"]["diffPay"], 0)
 
     def test_finalize_freezes_both(self):
         before = tc._compute_timecard(self.db, A, PS, PE)["totals"]

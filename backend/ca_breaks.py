@@ -43,7 +43,7 @@ from __future__ import annotations
 
 import io
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -87,25 +87,66 @@ def _tc():
 
 # ── Who is in scope ───────────────────────────────────────────────────────
 
+_US = ("", "US", "USA")
+
+
 def is_ca_rate(rate_row, rule: str | None = None) -> bool:
-    """A CA-rule HOURLY person: a pay rate on file, hourly, OT rule 'ca'
-    (blank reads 'ca', as the engine does). No rate row = not classified
-    yet = out of scope. `rule` overrides the row's rule (a finalized
-    period's snapshot rule)."""
+    """The pay-rate half of the scope (no database): a pay rate on file,
+    hourly, paid in USD, OT rule 'ca' (blank reads 'ca', as the engine does -
+    PayrollRate.overtime_rule DEFAULTS to 'ca', so the rule alone would pull
+    in India hourly staff). No rate row = not classified yet = out of scope.
+    `rule` overrides the row's rule (a finalized period's snapshot rule).
+    Callers use in_scope(), which adds the country check."""
     if rate_row is None:
         return False
     if (getattr(rate_row, "pay_type", None) or "hourly") != "hourly":
+        return False
+    if (getattr(rate_row, "currency", None) or "USD").strip().upper() != "USD":
         return False
     r = rule if rule is not None else (getattr(rate_row, "overtime_rule", None) or "ca")
     return (r or "ca") == "ca"
 
 
+_UNSET = object()
+
+
+def country_of(db: Session, email: str, emp=_UNSET) -> str:
+    """Where the person works: their own People country, else their
+    company's (shift_rules.overtime_rule_for's order). '' = unknown. `emp`:
+    the person's NexusEmployee row when the caller has it (None = no row)."""
+    if emp is _UNSET:
+        emp = db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == (email or "").lower()).first()
+    if emp is None:
+        return ""
+    own = (getattr(emp, "country", "") or "").strip().upper()
+    if own or not (getattr(emp, "company", "") or ""):
+        return own
+    pre = db.info.get(_PRELOAD) if hasattr(db, "info") else None
+    if pre is not None and emp.company in pre.get("entityCountry", {}):
+        return pre["entityCountry"][emp.company]
+    ent = db.query(models.HrEntity.country).filter(models.HrEntity.id == emp.company).first()
+    return ((ent[0] if ent else "") or "").strip().upper()
+
+
+def in_scope(db: Session, email: str, rate_row=None, rule: str | None = None, emp=_UNSET,
+             _load_rate: bool = True) -> bool:
+    """THE one rule for who the CA meal / rest features apply to (meal
+    detection, the signing question, premium lines, the waiver, California
+    Review and its minimum-wage check): is_ca_rate (hourly, USD, rule 'ca')
+    AND working in the US - the person's People country, else their
+    company's; unknown counts as US only because the pay is USD. The
+    overtime engine's own rule is untouched."""
+    em = (email or "").strip().lower()
+    if rate_row is None and _load_rate and em:
+        rate_row = db.query(models.PayrollRate).filter(models.PayrollRate.employee_email == em).first()
+    if not is_ca_rate(rate_row, rule):
+        return False
+    return country_of(db, em, emp) in _US
+
+
 def is_ca(db: Session, email: str) -> bool:
     em = (email or "").strip().lower()
-    if not em:
-        return False
-    rr = db.query(models.PayrollRate).filter(models.PayrollRate.employee_email == em).first()
-    return is_ca_rate(rr)
+    return bool(em) and in_scope(db, em)
 
 
 # ── Meal detection (pure) ─────────────────────────────────────────────────
@@ -232,7 +273,8 @@ _PRELOAD = "ca_breaks_preload"
 
 def preload(db: Session, emails, start: str, end: str) -> None:
     ems = sorted({(e or "").lower() for e in emails if e})
-    pre = {"start": start or "0", "end": end or "9", "emails": set(ems), "waivers": {}, "premiums": {}}
+    pre = {"start": start or "0", "end": end or "9", "emails": set(ems), "waivers": {}, "premiums": {},
+           "entityCountry": {i: ((c or "").strip().upper()) for i, c in db.query(models.HrEntity.id, models.HrEntity.country).all()}}
     if ems:
         for w in (db.query(models.CaMealWaiver).filter(models.CaMealWaiver.employee_email.in_(ems))
                   .order_by(models.CaMealWaiver.sent_at.desc()).all()):
@@ -265,14 +307,24 @@ def waiver_rows(db: Session, email: str) -> list:
             .order_by(models.CaMealWaiver.sent_at.desc()).all())
 
 
-def waiver_on(rows: list, day: str) -> bool:
-    """A signed waiver covers `day`: signed on/before it and not revoked by then."""
+def _local_day(iso: str, tz_offset_min: int) -> str:
+    """A UTC time's date on the employee's calendar (tz_offset_min is minutes
+    WEST of UTC, the punch convention: local = UTC - offset)."""
+    t = _t(iso)
+    if t is None:
+        return (iso or "")[:10]
+    return (t - timedelta(minutes=tz_offset_min or 0)).strftime("%Y-%m-%d")
+
+
+def waiver_on(rows: list, day: str, tz_offset_min: int = 0) -> bool:
+    """A signed waiver covers `day` (the employee's local date): signed on or
+    before it and not revoked by then, both read on their own calendar."""
     for w in rows or []:
         if w.status not in ("signed", "revoked") or not w.signed_at:
             continue
-        if w.signed_at[:10] > day:
+        if _local_day(w.signed_at, tz_offset_min) > day:
             continue
-        if w.revoked_at and w.revoked_at[:10] <= day:
+        if w.revoked_at and _local_day(w.revoked_at, tz_offset_min) <= day:
             continue
         return True
     return False
@@ -480,6 +532,13 @@ def remove_premium(p, actor: str, reason: str) -> None:
     if p.status != "active":
         raise HTTPException(409, "This premium was already removed.")
     p.status, p.removed_by, p.removed_at, p.removed_reason = "removed", (actor or "").lower(), _now(), reason[:500]
+
+
+def worked_days(days: list) -> list:
+    """The dates with WORKED minutes (regular / overtime / double time) - a
+    sick or vacation block alone is not a work day, so no premium."""
+    return sorted({d["date"] for d in days or []
+                   if int(d.get("regMin") or 0) + int(d.get("otMin") or 0) + int(d.get("dtMin") or 0) > 0})
 
 
 def premium_lines(prem: list, day_dates: set, rate_for_day) -> dict:

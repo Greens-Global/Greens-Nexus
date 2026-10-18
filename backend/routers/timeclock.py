@@ -1950,7 +1950,7 @@ def finalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrat
     # card that has some carries the key, so every other snapshot is unchanged.
     # ("premiums" is the differential / call-back rules' key - pay_premiums.py.)
     _break_snap = {}
-    if not _is_fixed and ca_breaks.is_ca_rate(_rr):
+    if not _is_fixed and ca_breaks.in_scope(db, email, _rr, _load_rate=False):
         _pr = [{"date": p.local_date, "kind": p.kind}
                for p in ca_breaks.premium_rows(db, email, body.start, body.end)]
         if _pr:
@@ -9194,8 +9194,11 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
     # CA meal detection + meal/rest premiums (Neil, Oct 17 2026 - ca_breaks.py):
     # CA-rule HOURLY people only. Nothing below adds a key for anyone else, or
     # for a CA day with nothing to flag or pay.
-    _ca_hourly = ca_breaks.is_ca_rate(rate_row, rule)
+    _ca_hourly = ca_breaks.in_scope(db, em, rate_row, rule, emp=emp, _load_rate=False)
     _ca_waivers = ca_breaks.waiver_rows(db, em) if _ca_hourly else []
+    # The waiver's signed / revoked dates are compared on the employee's own
+    # calendar: the offset of their latest punch in the window (JS convention).
+    _tz_last = (punches[-1].tz_offset_min or 0) if punches else 0
 
     days_out = []
     total_reg = total_ot = total_dt = total_sick = total_vac = total_personal = total_break = total_paid_break = missing_punches = 0
@@ -9435,7 +9438,14 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
     _prem_rows = ca_breaks.premium_rows(db, em, start, end, include_removed=True) if _ca_hourly else []
     _prem_src = (_snap_prem if _snap_prem is not None
                  else [{"date": p.local_date, "kind": p.kind} for p in _prem_rows if p.status == "active"])
-    _prem_lines = ca_breaks.premium_lines(_prem_src, set(day_total), _rate_for_day) if _ca_hourly else {}
+    # A finalized period that froze premiums keeps paying them even if the
+    # person has since left the CA rule (the snapshot is the record).
+    # TODO (owner decision pending, Ferra v. Loews 2021): California's
+    # "regular rate of compensation" for a premium may include shift
+    # differentials and other nondiscretionary pay. Kept at the day's BASE
+    # rate here until Neil decides; pay_premiums.py has the differentials.
+    _prem_lines = (ca_breaks.premium_lines(_prem_src, {d for d, m in day_total.items() if m > 0}, _rate_for_day)
+                   if (_ca_hourly or _snap_prem is not None) else {})
     meal_prem_n = rest_prem_n = 0
     meal_prem_pay = rest_prem_pay = 0.0
     for d in sorted(day_total):
@@ -9479,9 +9489,10 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
                          "rate": rate_d,
                          "breakMin": day_break_m[d], "paidBreakMin": day_paid_break.get(d, 0)})
         if _ca_hourly:
-            _meal = ca_breaks.detect_day(segs, ca_breaks.waiver_on(_ca_waivers, d))
+            _meal = ca_breaks.detect_day(segs, ca_breaks.waiver_on(_ca_waivers, d, _tz_last))
             if _meal:
                 days_out[-1]["meal"] = _meal
+        if _prem_lines:
             _pl = _prem_lines.get(d) or {}
             if "meal" in _pl:
                 days_out[-1].update({"mealPremiumMin": 60, "mealPremiumPay": _pl["meal"]})
@@ -9638,6 +9649,10 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
                      "restPremiumMin": rest_prem_n * 60, "restPremiumPay": rest_prem_pay}
                     if (meal_prem_n or rest_prem_n) else {})
     _card_extra = {"breakPremiums": [ca_breaks.premium_dict(p) for p in _prem_rows]} if _prem_rows else {}
+    # A non-pay marker the screens use to show the CA meal / rest tools
+    # (rateSet is a pay key, stripped for the manager tier) - ca_breaks.in_scope.
+    if _ca_hourly:
+        _card_extra["caBreaks"] = True
     card = {"email": em, "start": start, "end": end, "rate": rate, "rateSet": rate_row is not None,
             **_card_extra,
             "rateSplits": rate_splits,   # >1 entry = the rate changed inside this period

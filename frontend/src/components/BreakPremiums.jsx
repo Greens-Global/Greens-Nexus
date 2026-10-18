@@ -15,9 +15,10 @@ const KIND = { meal: 'Meal Premium', rest: 'Rest Premium' };
 
 export default function BreakPremiums({ card, self, locked, onChanged, toastOk, toastErr }) {
   const list = card?.breakPremiums || [];
-  // rateSet is a pay key, so the manager tier never receives it: only an
-  // explicit false (HR's view of someone with no rate on file) hides this.
-  const isCa = card?.overtimeRule === 'ca' && card?.rateSet !== false && !card?.fixedDays;
+  // caBreaks: the server's non-pay "CA meal / rest rules apply" marker
+  // (ca_breaks.in_scope) - never inferred from pay fields the manager tier
+  // does not receive.
+  const isCa = !!card?.caBreaks && !card?.fixedDays;
   const workDays = (card?.days || []).filter(d => (d.workedMin || 0) > 0).map(d => d.date);
   const [day, setDay] = useState('');
   const [kind, setKind] = useState('meal');

@@ -5,7 +5,7 @@ employee's pay period against California rules, for HR to handle.
 time card by HR that reviews against California rules and if something
 doesn't make sense it can flag and HR can handle it."
 
-Scope: hourly staff on the 'ca' overtime rule ONLY (ca_breaks.is_ca_rate).
+Scope: hourly USD staff on the 'ca' overtime rule working in the US ONLY (ca_breaks.in_scope).
 Nobody else is looked at or produces anything.
 
 Every figure comes from the timecard engine (timeclock._compute_timecard) and
@@ -132,7 +132,7 @@ def _worked(d: dict) -> int:
     return int(d.get("regMin") or 0) + int(d.get("otMin") or 0) + int(d.get("dtMin") or 0)
 
 
-def meal_flags(days: list, waivers: list) -> list:
+def meal_flags(days: list, waivers: list, tz_offset_min: int = 0) -> list:
     out = []
     for d in days:
         m = d.get("meal")
@@ -141,7 +141,7 @@ def meal_flags(days: list, waivers: list) -> list:
         out.append(_flag("meal", d["date"], f"{m['chip']}: {m['label']}", {"m": m.get("issues"), "w": m.get("workMin")}))
         # A waiver would have excused it, but none is on file for the day.
         tl = ca_breaks.day_timeline(d.get("segments") or [])
-        if tl and not ca_breaks.waiver_on(waivers, d["date"]) and not ca_breaks.evaluate(tl[0], tl[1], True):
+        if tl and not ca_breaks.waiver_on(waivers, d["date"], tz_offset_min) and not ca_breaks.evaluate(tl[0], tl[1], True):
             out.append(_flag("waiver", d["date"],
                              f"No signed meal waiver on file - one would have covered this {_hm(tl[0])} day",
                              {"w": tl[0], "g": tl[1]}))
@@ -316,7 +316,7 @@ def prefetch(db: Session, emails, s: str, e: str) -> dict:
 
 
 def flags_for(db: Session, em: str, s: str, e: str, *, card: dict | None = None, rate_row=None,
-              cfg: dict | None = None, ctx: dict | None = None) -> list:
+              cfg: dict | None = None, ctx: dict | None = None, in_scope: bool | None = None) -> list:
     """Every California Review flag for one person-period ([] for anyone not
     on the CA rule). `card` may be a longer engine card covering [s, e]
     (Payroll Readiness passes its own) - only its days in [s, e] are read.
@@ -325,7 +325,7 @@ def flags_for(db: Session, em: str, s: str, e: str, *, card: dict | None = None,
     em = (em or "").lower()
     if rate_row is None:
         rate_row = db.query(models.PayrollRate).filter(models.PayrollRate.employee_email == em).first()
-    if not ca_breaks.is_ca_rate(rate_row):
+    if not (in_scope if in_scope is not None else ca_breaks.in_scope(db, em, rate_row, _load_rate=False)):
         return []
     if ctx is None:
         ctx = prefetch(db, [em], s, e)
@@ -336,7 +336,8 @@ def flags_for(db: Session, em: str, s: str, e: str, *, card: dict | None = None,
         return []
     days = [d for d in (card.get("days") or []) if s <= d["date"] <= e and not d.get("isHoliday")]
     flags = []
-    flags += meal_flags(days, ctx["waivers"].get(em, []))
+    _p = ctx["punches"].get(em) or []
+    flags += meal_flags(days, ctx["waivers"].get(em, []), (_p[-1].tz_offset_min or 0) if _p else 0)
     flags += attestation_flags(ctx["reviews"].get(em))
     flags += seventh_day_flags(days)
     flags += long_day_flags(days)
@@ -387,7 +388,8 @@ def build(db: Session, scope, anchor: str = "") -> dict:
     s, e = P["start"], P["end"]
     rates = {(r.employee_email or "").lower(): r for r in db.query(models.PayrollRate).all()}
     emps = {(x.work_email or "").lower(): x for x in db.query(models.NexusEmployee).all() if x.work_email}
-    team = [r for r in tc._team_rows(db, s, e, only_emails=scope) if ca_breaks.is_ca_rate(rates.get(r["email"]))]
+    team = [r for r in tc._team_rows(db, s, e, only_emails=scope)
+            if ca_breaks.in_scope(db, r["email"], rates.get(r["email"]), emp=emps.get(r["email"]), _load_rate=False)]
     ctx = prefetch(db, [r["email"] for r in team], s, e)
     cfg = ctx["cfg"]
     rows = []

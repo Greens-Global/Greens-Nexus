@@ -2715,6 +2715,15 @@ def _render_payload(db: Session, req: HrSignRequest, party: HrSignParty) -> dict
                "governingLaw": (req.governing_law or _DEFAULT_GOVERNING_LAW).upper(),
                "standaloneConsent": True,
                "expiresOn": req.expires_on}
+    if (getattr(req, "link_kind", "") or "") == "timesheet" and party.role_key == "employee" \
+            and party.status != "signed" and req.status == "pending":
+        # CA-rule staff answer the meal and rest break question before the
+        # consent / code / signature steps (timesheet_review, Oct 18): every
+        # signing screen - Documents, the email link - asks it first.
+        import timesheet_review as _tsr
+        _r = _tsr._for(db, req)
+        if _r is not None and _r.status == "signing" and _tsr.needs_break_attestation(db, _r):
+            payload["breakAttestation"] = {**_tsr.break_attestation_state(db, _r), "reviewId": _r.id}
     # What must happen before any of the document is sent to this browser.
     # Withholding the URLs is the enforcement - a client that ignores `gate`
     # still has nothing to render.
