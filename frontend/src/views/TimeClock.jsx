@@ -27,6 +27,8 @@ import WorkdayShiftRequests from '../components/shifts/WorkdayShiftRequests';
 import { formatDistance, formatAccuracy } from '../lib/distance';
 import { recallTimeExempt, rememberTimeExempt } from '../lib/timeTracking';
 import { pairLocalAgent } from '../lib/agentPair';
+import { useActionCounts, withBadges, tabCount } from '../lib/useActionCounts';
+import DocumentsToSign from '../components/DocumentsToSign';
 
 // ── Workday ("My Workday" until Neil dropped the "My", Sep 23) - one module (Visesh, Sep 3: "combine My HR and Time Clock...
 // anything to do with their time and HR should be together"; renamed from
@@ -69,10 +71,12 @@ const TAB_META = {
 // 'timecard' is what the timesheet review bells (sent back, finalized,
 // unlocked) carry for the employee - that is the Time Sheet tab (Oct 16: it
 // used to fall through to Overview).
-const tabFor = (sub) => (sub === 'clock' || /^shifts(:|$)/.test(sub || '') ? 'overview'
+const tabFor = (sub) => (sub === 'clock' || /^(shifts|sign)(:|$)/.test(sub || '') ? 'overview'
   : sub === 'timecard' ? 'timesheet' : sub);
 // "shifts:confirm:<publish id>" (Shifts Phase 3a): a schedule to confirm - My Schedule shows its banner.
 const confirmOf = (sub) => (String(sub || '').match(/^shifts:confirm:(.+)$/) || [])[1] || '';
+// "sign:<party id>" (Oct 18): a Nexus Sign document to sign - Documents to Sign opens it.
+const signOf = (sub) => (String(sub || '').match(/^sign:(.+)$/) || [])[1] || '';
 // Work OS card-header title (sentence case, no uppercase tracking).
 const HD = { fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' };
 
@@ -465,6 +469,7 @@ function GeoChip({ p }) {
 }
 
 export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange } = {}) {
+  const counts = useActionCounts();
   // Phone layout (Oct 13): the clock card leads, the dial sits beside the
   // status and the punch button runs the full width - see the wd-* rules.
   const phone = useIsMobile('(max-width: 640px)');
@@ -1269,12 +1274,12 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
           reading "Time Clock". Overview always leads - My HR content applies
           to everyone regardless of time-tracking-exempt status. */}
       <ModuleTabs
-        tabs={(exempt
+        tabs={withBadges((exempt
           /* Salaried/exempt (Charmi, Aug 21): no punch card, no timesheet -
              time off is the only surface that applies. */
-          ? ['overview', ...(toReview > 0 || tab === 'timesheet' ? ['timesheet'] : []), 'timeoff']
+          ? ['overview', ...(toReview > 0 || tabCount(counts, 'myhr', 'timesheet') > 0 || tab === 'timesheet' ? ['timesheet'] : []), 'timeoff']
           : ['overview', 'timesheet', 'timeoff']
-        ).map((key) => ({ key, label: TAB_META[key].label, title: TAB_META[key].title }))}
+        ).map((key) => ({ key, label: TAB_META[key].label, title: TAB_META[key].title })), counts, 'myhr')}
         active={tab} onChange={setTab} syncTitle />
 
       {msg && (
@@ -1287,6 +1292,8 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
 
       {/* Overview: the Time Clock widget first, then the employee's own HR
           page (profile, hours, documents, time off, Ask HR). */}
+      {/* Nexus Sign documents waiting on me, signed here (Oct 18) - Documents needs a grant. */}
+      {tab === 'overview' && <DocumentsToSign focusParty={signOf(activeSub)} toastOk={t => toast(true, t)} toastErr={t => toast(false, t)} />}
       {tab === 'overview' && (
         <MyHROverview focusConfirm={focusConfirm} clock={clockWidget} onOpenTimeOff={() => setTab('timeoff')} onOpenTimeSheet={exemptKnown ? undefined : () => setTab('timesheet')} />
       )}

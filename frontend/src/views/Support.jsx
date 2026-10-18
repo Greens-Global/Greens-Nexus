@@ -37,6 +37,7 @@ import { buildSupportTourSteps } from './supportTourSteps';
 import { LatestCommentPreview } from '../tickets/LatestComment';
 import { StatusLabel } from '../components/StatusLabel';
 import { registerTour } from '../lib/tours';
+import { useActionCounts, tabCount } from '../lib/useActionCounts';
 
 // Documentation tab (Sep 24): the written guide to every module. Lazy so its
 // content and drawn screenshots only load when someone opens the tab. The
@@ -257,6 +258,7 @@ const SUPPORT_PAGE_SIZE = 10;
 
 export default function Support({ activeSub, onSubChange }) {
   const { can = () => false, isExternal = false } = useRole() || {};
+  const counts = useActionCounts();
   const canImplement = !isExternal && can('administrator');
   const onGuide = activeSub === 'implementation' && canImplement;
   const tab = activeSub === 'documentation' || onGuide ? 'documentation' : 'help';
@@ -393,7 +395,7 @@ export default function Support({ activeSub, onSubChange }) {
     // The Knowledge Base left the left menu for here (Neil, Oct 13 2026:
     // "people aren't going to use SOPs unless they're having an issue").
     { icon: GraduationCap, title: 'Knowledge Base & Training', desc: 'SOPs, how-to articles and your assigned courses.',
-      onOpen: () => go('sop') },
+      onOpen: () => go('sop'), waiting: tabCount(counts, 'support', 'kb') },
   ];
 
   // Closed tickets are not what "Open Tickets" means, but a requester whose
@@ -490,7 +492,10 @@ export default function Support({ activeSub, onSubChange }) {
           <button key={o.title} type="button" className="support-card" data-tour={o.tour} onClick={o.onOpen}>
             <ArrowUpRight size={16} className="support-card-arrow" aria-hidden="true" />
             <div className="support-icon"><o.icon size={20} /></div>
-            <div className="support-card-title">{o.title}</div>
+            <div className="support-card-title">{o.title}
+              {/* Sign-offs and training waiting on me (Oct 18). */}
+              {o.waiting > 0 && <span className="hdr-tab-badge" style={{ marginLeft: 8 }} aria-label={`${o.waiting} waiting`}>{o.waiting}</span>}
+            </div>
             <p className="support-card-desc">{o.desc}</p>
           </button>
         ))}
@@ -518,6 +523,8 @@ export default function Support({ activeSub, onSubChange }) {
                   boxShadow: listTab === k ? '0 1px 2px rgba(0,0,0,0.08)' : 'none', whiteSpace: 'nowrap',
                 }}>
                 {lab}{tickets !== null && <span style={{ color: NX.faint, fontWeight: 600, marginLeft: 6 }}>{n}</span>}
+                {/* A ticket waiting on my answer, or a reply I have not read (Oct 18). */}
+                {k === 'open' && tabCount(counts, 'support', 'open') > 0 && <span className="nav-dot-inline" role="img" aria-label="Waiting on you" />}
               </button>
             ))}
           </div>

@@ -323,6 +323,8 @@ async function req(path, options = {}, attempt = 1, tokenRefreshed = false) {
   if ((options.method || 'GET').toUpperCase() !== 'GET') {
     _getCache.clear();
     _queryClient?.invalidateQueries();
+    // The sidebar dots and tab counts refresh after any write (lib/useActionCounts.js).
+    window.dispatchEvent(new CustomEvent('nexus:data-written'));
   }
   if (res.status === 204) return null;
   // Parse from text so evidence-photo URLs of the private buckets can be
@@ -2421,6 +2423,8 @@ export const api = {
   caReviewReopen:        (data) => req('/ca-review/reopen', { method: 'POST', body: JSON.stringify(data) }),
   caReviewSettings:      () => req('/ca-review/settings'),
   caReviewSaveSettings:  (data) => req('/ca-review/settings', { method: 'PUT', body: JSON.stringify(data) }),
+  // What is waiting on me: {counts: {view: {tab: n}}} - routers/action_counts.py.
+  actionCounts:          () => req('/me/action-counts'),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

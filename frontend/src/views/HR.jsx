@@ -59,6 +59,7 @@ import AnchoredMenu from '../components/AnchoredMenu';
 import PersonSearchSelect from '../components/PersonSearchSelect';
 import { ChecklistSection, ChecklistSettings, ChecklistBoard, ChecklistChip } from '../components/HrChecklists';
 import { ApprovalDelegationsAdmin } from '../components/DelegateApprovals';
+import { useActionCounts, withBadges } from '../lib/useActionCounts';
 // Workforce Analytics Policy tab (Sep 19) - lazy so TimeTrackingAdmin's chunk
 // only loads once an admin actually opens a company's policy tab.
 const MonitoringPolicy = lazy(() => import('../components/TimeTrackingAdmin').then(m => ({ default: m.MonitoringPolicy })));
@@ -5889,6 +5890,7 @@ function PendingRoleBadge({ req, onOpen }) {
 const PHONE_FILTER = { flex: '1 1 calc(50% - 4px)', width: 'auto', minWidth: 0 };
 
 export default function HR({ activeSub, onSubChange }) {
+  const waiting = useActionCounts();   // the tab counts - `counts` below is the people tallies
   // Legacy subviews (hr-ms / hr-asana / …) all collapse into People for now.
   // E-Sign moved to its own top-level Documents module (Jul 2026); legacy
   // 'hr-esign*' deep-links are redirected there by the effect below.
@@ -6230,7 +6232,7 @@ export default function HR({ activeSub, onSubChange }) {
 
       {/* Tabs - desktop renders them centered in the top header; phones keep
           the in-page strip (ModuleTabs handles both) */}
-      <ModuleTabs tabs={TABS} active={sub} onChange={onSubChange} />
+      <ModuleTabs tabs={withBadges(TABS, waiting, 'hr')} active={sub} onChange={onSubChange} />
 
       {sub === 'hr-hiring' && (
         <HiringTab isMobile={isMobile} toastOk={toastOk} toastErr={toastErr}

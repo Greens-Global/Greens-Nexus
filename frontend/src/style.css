@@ -3962,7 +3962,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
 }
 .hdr-tab svg { color: currentColor; flex-shrink: 0; }
 .hdr-tab-badge {
-  background: var(--wk-brand);
+  background: hsl(var(--color-red));
   color: #fff;
   border-radius: 20px;
   font-size: 11.5px;
@@ -3970,7 +3970,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible, [contentedita
   padding: 2px 7px;
   line-height: 1.2;
 }
-.hdr-tab:not(.active) .hdr-tab-badge { background: var(--wk-faint); }
+/* Every tab count is something waiting on you (Oct 18): red, active or not. */
 [data-theme="dark"] .hdr-tab { color: var(--muted); }
 [data-theme="dark"] .hdr-tab:hover { background: var(--mist); color: var(--ink); }
 [data-theme="dark"] .hdr-tab.active {
@@ -6283,3 +6283,14 @@ body.links-dragging .fav-tile::after, .app-tile-ghost::after { display: none; }
 .nx-prio-loud { font-weight: 600; color: color-mix(in srgb, var(--c) 72%, #000); }
 .nx-prio-loud .nx-prio-bars i.on { background: var(--c); }
 [data-theme="dark"] .nx-prio-loud { color: color-mix(in srgb, var(--c) 55%, #fff); }
+
+/* What is waiting on me (Oct 18 2026): a red dot on a module's icon -
+   lib/useActionCounts.js. The icon keeps its size; the dot sits on its corner. */
+.nav-ico { position: relative; display: inline-flex; flex-shrink: 0; }
+.nav-dot {
+  position: absolute; top: -3px; right: -4px;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: hsl(var(--color-red));
+  box-shadow: 0 0 0 2px var(--sidebar);
+}
+.nav-dot-inline { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-left: 6px; vertical-align: middle; background: hsl(var(--color-red)); }
