@@ -1,0 +1,107 @@
+"""Payroll export codes (Neil, Oct 17 2026): the name each pay class carries
+in the payroll exports - the QuickBooks IIF's payroll item (PITEM) and the
+Intacct GL memo - per company.
+
+The defaults are EXACTLY the names the exports always wrote, so nothing
+changes for anyone until HR saves a different name for their company. One
+`nexus_settings` row (key below) holds only the overrides, as
+{company_id: {pay_class: name}}; a class missing from a company's map, or a
+company with no map, reads the default. Every export names a pay class
+through `codebook` / `earnings_code` - never a literal.
+"""
+import json
+
+from sqlalchemy.orm import Session
+
+from models import NexusSetting
+
+SETTING_KEY = "payroll_earnings_codes"
+
+# (pay class, default name), in the order the exports write them. The keys
+# match the timecard engine's names (regMin -> regular, ...).
+PAY_CLASSES = (
+    ("regular", "Regular Pay"),
+    ("overtime", "Overtime Pay"),
+    ("doubleTime", "Double-time Pay"),
+    ("holiday", "Holiday Pay"),
+    ("sick", "Sick Pay"),
+    ("vacation", "Vacation Pay"),
+    ("personal", "Personal Pay"),
+)
+DEFAULTS = dict(PAY_CLASSES)
+# QuickBooks Desktop caps a payroll item name at 31 characters.
+MAX_LEN = 31
+
+
+def clean_code(value) -> str:
+    """A name safe in a tab-separated IIF row: no tabs or line breaks,
+    trimmed, at most MAX_LEN characters."""
+    s = " ".join(str(value or "").replace("\t", " ").replace("\r", " ").replace("\n", " ").split())
+    return s[:MAX_LEN].strip()
+
+
+def _stored(db: Session) -> dict:
+    row = db.query(NexusSetting).filter(NexusSetting.key == SETTING_KEY).first()
+    if not row or not row.value:
+        return {}
+    try:
+        raw = json.loads(row.value)
+    except (ValueError, TypeError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    out = {}
+    for company, codes in raw.items():
+        if not isinstance(codes, dict):
+            continue
+        kept = {k: clean_code(v) for k, v in codes.items() if k in DEFAULTS and clean_code(v)}
+        if kept:
+            out[str(company)] = kept
+    return out
+
+
+def custom_codes(db: Session, company_id: str) -> dict:
+    """Only the names this company has changed ({} = every default)."""
+    return dict(_stored(db).get(company_id or "", {}))
+
+
+def codebook(db: Session):
+    """Read the setting once; returns company_id -> {pay_class: name} with
+    every class filled (defaults under the company's overrides). For export
+    loops over many employees."""
+    stored = _stored(db)
+
+    def for_company(company_id: str) -> dict:
+        return {**DEFAULTS, **stored.get(company_id or "", {})}
+    return for_company
+
+
+def earnings_code(db: Session, company_id: str, pay_class: str) -> str:
+    """The name one company's exports give one pay class."""
+    return codebook(db)(company_id)[pay_class]
+
+
+def save_codes(db: Session, company_id: str, codes: dict, by: str) -> dict:
+    """Replace one company's overrides with `codes`. Unknown classes are
+    ignored; a blank name, or the default itself, is not stored (it reads the
+    default). An empty `codes` is Reset to Default. Commits; returns the
+    company's overrides as stored."""
+    company_id = company_id or ""
+    kept = {}
+    for k, _default in PAY_CLASSES:
+        v = clean_code((codes or {}).get(k))
+        if v and v != DEFAULTS[k]:
+            kept[k] = v
+    stored = _stored(db)
+    if kept:
+        stored[company_id] = kept
+    else:
+        stored.pop(company_id, None)
+    row = db.query(NexusSetting).filter(NexusSetting.key == SETTING_KEY).first()
+    if not row:
+        row = NexusSetting(key=SETTING_KEY)
+        db.add(row)
+    row.value = json.dumps(stored, sort_keys=True)
+    row.updated_by = by
+    db.commit()
+    return kept
