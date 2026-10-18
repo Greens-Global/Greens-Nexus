@@ -3450,12 +3450,23 @@ def _request_mate(chain: list, r):
     return None
 
 
+def _refuse_own_decision(user: dict, employee_email: str) -> None:
+    """Nobody decides their own punch fix or punch edit - a manager's team
+    scope includes themself, so without this they could approve their own
+    (the same rule as a time sheet's self-review and time off). Their
+    request still reaches their manager / HR / the Global Admins
+    (_notify_approvers), so it never sits with nobody to decide it."""
+    if (employee_email or "").strip().lower() == (user.get("email") or "").strip().lower():
+        raise HTTPException(403, "Someone else must approve your own punch fix.")
+
+
 @router.patch("/punch-requests/{req_id}")
 def decide_punch_request(req_id: str, body: PunchRequestDecision,
                          user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
     r = db.query(PunchRequest).filter(PunchRequest.id == req_id).with_for_update().first()
     if not r:
         raise HTTPException(404, "Request not found")
+    _refuse_own_decision(user, r.employee_email)
     visible = _visible_emails(db, user)
     if visible is not None and r.employee_email not in visible:
         raise HTTPException(403, "That employee isn't on your team.")
@@ -3680,6 +3691,7 @@ def decide_punch_edit(punch_id: str, body: PunchEditDecision,
         raise HTTPException(404, "Punch not found")
     if row.edit_status != "pending" or not row.pending_at:
         raise HTTPException(409, "There is no pending edit on this punch.")
+    _refuse_own_decision(user, row.employee_email)
     visible = _visible_emails(db, user)
     if visible is not None and row.employee_email not in visible:
         raise HTTPException(403, "That employee isn't on your team.")
