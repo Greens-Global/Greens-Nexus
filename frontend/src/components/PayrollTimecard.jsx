@@ -390,7 +390,7 @@ function anchorForStart(startIso, payType) {
   return payType === 'fixed' ? new Date(y, m - 1, 15) : periodStartFor(new Date(y, m - 1, d));
 }
 
-export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, initialEmail = '', initialStart = '', initialPayType = '' }) {
+export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, initialEmail = '', initialStart = '', initialPayType = '', selfTop = null }) {
   const self = selfMode;   // employee viewing their OWN timecard (from /my-payroll)
   const [people, setPeople] = useState([]);
   const [peopleLoaded, setPeopleLoaded] = useState(false);   // the team list answered (even empty)
@@ -427,7 +427,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   useDisplayTz();   // re-render this card (and its time cells) when the tz switch flips
   // Your own timesheet reads in your own zone, so a time you type is the time
   // you mean (Oct 13). After useDisplayTz, so its listener hears the switch.
-  useOwnZone(self);
+  // The zone is the EMPLOYEE's (data.zoneKey), not the viewer's browser (Oct 18).
+  useOwnZone(self, data?.zoneKey || '');
   // A phone gets the day cards instead of the 12-column table (Oct 14) - the
   // table scrolled sideways and hid Hours, OT, Notes and the Work Log.
   const phone = useIsMobile(PHONE_QUERY);
@@ -1151,7 +1152,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         onPrev={() => shiftMonth(-1)} onNext={() => shiftMonth(1)}
         onFinalize={finalize} onUnfinalize={unfinalize}
         editDay={editDay} setEditDay={setEditDay} load={load} toastOk={toastOk} toastErr={toastErr}
-        setWorkLogDay={setWorkLogDay} dayNotes={notes} saveNote={saveNote} saveMyNote={saveMyNote} myNote={myNote} />
+        setWorkLogDay={setWorkLogDay} dayNotes={notes} saveNote={saveNote} saveMyNote={saveMyNote} myNote={myNote} selfTop={selfTop} />
     );
     return (
       <>
@@ -1237,6 +1238,14 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         <TimecardOptions self={self} showRaw={showRaw} setShowRaw={setShowRaw} />
       </div>
 
+      {/* The employee's own sheet leads with what they have to do (Neil, Oct
+          18 2026): approve and sign first, then this period's change requests -
+          not at the bottom under the grid, and not every period's requests. */}
+      {self && T && (
+        <TimesheetReviewPanel review={data.review} self={self} anchor={perStart} periodLabel={label}
+          nameFor={nameFor} onChanged={load} toastOk={toastOk} toastErr={toastErr} />
+      )}
+      {self && data && selfTop?.(perStart, perEnd)}
       {self && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: 'var(--wk-brand)', background: 'var(--wk-brand-tint)', borderRadius: 9, padding: '8px 12px', marginBottom: 10, fontWeight: 500 }}>
           <Pencil size={13} style={{ flexShrink: 0 }} /> Tap any clock-in or clock-out time to request a change. It goes to your approver, and your pay stays the same until they approve it.
@@ -1245,9 +1254,13 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       {!stepLocked && data && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
           {data.dept && <span><strong style={{ color: 'var(--ink)' }}>Department:</strong> {data.dept}</span>}
-          <span title={self ? undefined : 'Set on the Pay & Benefits tab of this person\'s profile'}>
+          {/* The OT rule is for managers and HR, never on the employee's own
+              time sheet (Neil, Oct 18 2026). */}
+          {self ? (showPay && <span><strong style={{ color: 'var(--ink)' }}>Pay rate:</strong> {fmtM(rate)}/hr</span>) : (
+          <span title="Set on the Pay & Benefits tab of this person's profile">
             {showPay && <><strong style={{ color: 'var(--ink)' }}>Pay rate:</strong> {fmtM(rate)}/hr · </>}<strong style={{ color: 'var(--ink)' }}>OT rule:</strong> {RULE_LABEL[rule] || 'None'}
           </span>
+          )}
           {showPay && rateSplitText(data.rateSplits, 'rate', v => `${fmtM(v)}/hr`) && (
             <span title="The rate changed inside this period - each day is paid at the rate in effect that day" style={{ color: 'var(--wk-brand)', fontWeight: 600 }}>
               {rateSplitText(data.rateSplits, 'rate', v => `${fmtM(v)}/hr`)}
@@ -1566,7 +1579,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           </div>
         </div>
       )}
-      {T && (
+      {T && !self && (
         <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 12, fontStyle: 'italic' }}>
           Overtime rule: {rule === 'ca' ? 'California - over 8h/day (1.5×), over 12h/day (2×), the 7th consecutive day, and over 40h/week'
             : rule === 'federal' ? 'Federal - over 40 hours per week (1.5×)'
@@ -1576,7 +1589,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
 
       {/* Review + Nexus Sign (Sep 2026): the employee submits, the manager sends
           back or agrees, then employee -> manager -> HR sign in Nexus Sign. */}
-      {T && (
+      {T && !self && (
         <TimesheetReviewPanel review={data.review} self={self} anchor={perStart} periodLabel={label}
           nameFor={nameFor} onChanged={load} toastOk={toastOk} toastErr={toastErr} />
       )}
@@ -1651,7 +1664,7 @@ const t12s = (iso) => iso ? formatTimeTz(iso, { seconds: true }) : '';
 // Monthly card for a FIXED-salary employee. Same day grid + inline edit/add +
 // signatures as the hourly card, but the pay math is the fixed model: salary,
 // per-day present/half/absent/weekend status, deductions and weekend overtime.
-function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM, showRaw, setShowRaw, isAdmin, busy, setBusy, onPrev, onNext, onFinalize, onUnfinalize, editDay, setEditDay, load, toastOk, toastErr, setWorkLogDay, dayNotes = {}, saveNote, saveMyNote, myNote = () => null }) {
+function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM, showRaw, setShowRaw, isAdmin, busy, setBusy, onPrev, onNext, onFinalize, onUnfinalize, editDay, setEditDay, load, toastOk, toastErr, setWorkLogDay, dayNotes = {}, saveNote, saveMyNote, myNote = () => null, selfTop = null }) {
   const showPay = !data.payHidden;   // the manager tier never sees pay
   const [geoMap, setGeoMap] = useState('');   // email whose Geofence Punch view is open
   useDisplayTz();   // re-render this card (and its time cells) when the tz switch flips
@@ -1746,6 +1759,14 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
         {/* No rounding toggle - salary pay is day-based, so times show exactly as punched. */}
       </div>
 
+      {/* Employee's own sheet: approve and sign first, then this month's
+          change requests (Neil, Oct 18 2026). */}
+      {self && (
+        <TimesheetReviewPanel review={data.review} self={self} anchor={data.periodStart} periodLabel={monthLabel}
+          nameFor={nameFor} onChanged={load} toastOk={toastOk} toastErr={toastErr} />
+      )}
+      {self && selfTop?.(data.periodStart, data.periodEnd)}
+
       {/* Fixed-pay strip */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 999, background: 'var(--wk-brand-tint)', color: 'var(--wk-brand)', fontWeight: 700 }}>Fixed salary</span>
@@ -1757,19 +1778,21 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
         {showPay && <span title="Monthly salary x 12, divided by the working days in this calendar year (days minus Saturdays and Sundays; company holidays stay in)">
           <strong style={{ color: 'var(--ink)' }}>Daily:</strong> {fmtM(data.dailyRate)} (annual / {data.workingDaysInYear || T.workingDaysInYear || 261} working days)
         </span>}
-        <span title="Weekend pay = max(minimum, 1.35 x daily x hours worked / full-day hours). Calculated, never typed per person.">
+        {/* How the pay is worked out (weekend rate, day bands) is for the
+            reviewer, not the employee's own time sheet (Neil, Oct 18 2026). */}
+        {!self && <span title="Weekend pay = max(minimum, 1.35 x daily x hours worked / full-day hours). Calculated, never typed per person.">
           <strong style={{ color: 'var(--ink)' }}>Weekend:</strong> {data.weekendMultiplier || 1.35} × daily, pro-rated by hours{data.weekendFloor ? `, min ${fmtM(data.weekendFloor)}` : ''}
-        </span>
-        <span title="A weekday is a full day at this many hours worked (full-day hours minus an hour), a half day from 4 hours, absent below that">
+        </span>}
+        {!self && <span title="A weekday is a full day at this many hours worked (full-day hours minus an hour), a half day from 4 hours, absent below that">
           <strong style={{ color: 'var(--ink)' }}>Bands:</strong> Full Day ≥ {hhmm(bands.fullMin)} · Half Day ≥ {hhmm(bands.halfMin)} · Absent below
-        </span>
+        </span>}
         {mgrAp && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 999, background: 'hsla(var(--color-green),0.1)', color: 'hsl(var(--color-green))', fontWeight: 700 }}><CheckCircle size={12} /> Manager approved · {nameFor(mgrAp.by)}</span>}
         {fin && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '2px 10px', borderRadius: 999, background: 'var(--ink)', color: 'var(--card)', fontWeight: 700 }}><CheckCircle size={12} /> Finalized · period locked</span>}
       </div>
 
       {self && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: 'var(--wk-brand)', background: 'var(--wk-brand-tint)', borderRadius: 9, padding: '8px 12px', marginBottom: 10, fontWeight: 500 }}>
-          <Pencil size={13} style={{ flexShrink: 0 }} /> Your pay is fixed at {fmtM(data.monthlySalary)}/month. A weekday under {hhmm(bands.halfMin)} deducts a day, under {hhmm(bands.fullMin)} half a day; each weekend day worked adds {data.weekendMultiplier || 1.35} × your daily rate, pro-rated by hours{data.weekendFloor ? ` (at least ${fmtM(data.weekendFloor)})` : ''}. Tap a time to change it, or "+ add" on a past day to log a missed punch - it goes to your approver.
+          <Pencil size={13} style={{ flexShrink: 0 }} /> Tap a time to change it, or "+ add" on a past day to log a missed punch - it goes to your approver.
         </div>
       )}
       {showPay && !data.rateSet && (
@@ -2029,9 +2052,9 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
         </div>
       </div>
 
-      {/* Review + Nexus Sign (same as hourly) */}
-      <TimesheetReviewPanel review={data.review} self={self} anchor={data.periodStart} periodLabel={monthLabel}
-        nameFor={nameFor} onChanged={load} toastOk={toastOk} toastErr={toastErr} />
+      {/* Review + Nexus Sign (same as hourly) - at the top on the employee's own sheet */}
+      {!self && <TimesheetReviewPanel review={data.review} self={self} anchor={data.periodStart} periodLabel={monthLabel}
+        nameFor={nameFor} onChanged={load} toastOk={toastOk} toastErr={toastErr} />}
 
       {editDay && (
         <PunchEditModal day={editDay} email={email} busy={busy} setBusy={setBusy}

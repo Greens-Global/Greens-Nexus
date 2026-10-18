@@ -742,6 +742,17 @@ export const api = {
   getChangelogTour: (id) => req(`/task-changelog/${encodeURIComponent(id)}/tour`),
   finishChangelogTour: (id) => req(`/task-changelog/${encodeURIComponent(id)}/tour-done`, { method: "POST" }),
   checkChangelogProduction: () => req("/task-changelog-admin/check-production", { method: "POST", timeoutMs: 120_000 }),
+  // Workday > Reimbursements (Oct 18 2026): file, approve, receipt, HR pays.
+  getReimbursements:       ()          => req('/reimbursements'),
+  createReimbursement:     (body)      => req('/reimbursements', { method: 'POST', body: JSON.stringify(body) }),
+  uploadReimbursementReceipt: (form)   => req('/reimbursements/receipt', { method: 'POST', body: form }),
+  decideReimbursement:     (id, body)  => req(`/reimbursements/${id}/decide`, { method: 'POST', body: JSON.stringify(body) }),
+  addReimbursementReceipts: (id, body) => req(`/reimbursements/${id}/receipts`, { method: 'POST', body: JSON.stringify(body) }),
+  resubmitReimbursement:   (id, body)  => req(`/reimbursements/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+  cancelReimbursement:     (id)        => req(`/reimbursements/${id}/cancel`, { method: 'POST' }),
+  payReimbursement:        (id, body)  => req(`/reimbursements/${id}/paid`, { method: 'POST', body: JSON.stringify(body) }),
+  reimbursementReceiptUrl: (id, i = 0) => req(`/reimbursements/${id}/receipt-url?i=${i}`),
+  personReimbursements:    (email)     => req(`/reimbursements/person/${encodeURIComponent(email)}`),
   // The weekly New Feature bar (components/FeatureBanner.jsx) and its dismissal.
   getFeatureBanner: () => req('/task-changelog/feature-banner'),
   dismissFeatureBanner: () => req('/task-changelog/feature-banner/dismiss', { method: 'POST' }),

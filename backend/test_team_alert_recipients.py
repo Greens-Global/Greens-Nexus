@@ -128,15 +128,29 @@ class TeamAlertTests(unittest.TestCase):
 
     def test_time_off_request_goes_to_the_manager_owners_only_without_one(self):
         """A NEW request is for whoever decides it: the manager (else the HR
-        contact); the Global Admins hear only when there is neither (Oct 2)."""
+        contact); the Global Admins hear only when there is neither (Oct 2).
+        Plus the manager's own manager (Neil, Oct 18 2026: "manager plus
+        plus") - Visesh reports to Neil here, so Neil hears as the level above,
+        not as a Global Admin: another owner off the line is still not told."""
+        self.db.add(models.NexusRole(email="owner2@example.com", role="owner"))
+        self.db.commit()
         timeclock.request_timeoff(
             timeclock.TimeOffIn(type="vacation", start_date="2026-10-01", end_date="2026-10-02"),
             user={"email": PRANSHU, "level": 1}, db=self.db)
-        self.assertEqual(self._recipients(), [VISESH])
+        self.assertEqual(self._recipients(), sorted([VISESH, NEIL]))
+        self.db.query(models.NexusNotification).delete()
+        self.db.commit()
+        # One level only: Sagar's report reaches Sagar and Neil, nobody above Neil.
+        timeclock.request_timeoff(
+            timeclock.TimeOffIn(type="vacation", start_date="2026-10-01", end_date="2026-10-02"),
+            user={"email": SAGARS_REPORT, "level": 1}, db=self.db)
+        self.assertEqual(self._recipients(), sorted([SAGAR, NEIL]))
+        self.db.query(models.NexusNotification).delete()
+        self.db.commit()
         timeclock.request_timeoff(
             timeclock.TimeOffIn(type="vacation", start_date="2026-10-01", end_date="2026-10-02"),
             user={"email": ORPHAN, "level": 1}, db=self.db)
-        self.assertEqual(self._recipients(), sorted([VISESH, NEIL]))
+        self.assertEqual(self._recipients(), sorted([NEIL, "owner2@example.com"]))   # no manager: the Global Admins
 
     # ── Home screen "Time off to review" ─────────────────────────────────
     def _pending(self, email):
@@ -160,3 +174,33 @@ class TeamAlertTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EmployeeZoneTests(unittest.TestCase):
+    """The employee's own time sheet reads in THEIR zone, not the viewer's
+    browser (Neil, Oct 18 2026: a California card viewed from India showed
+    AM punches)."""
+    def setUp(self):
+        self.db = database.SessionLocal()
+        self.addCleanup(self.db.close)
+        for m in (models.TimePunch, models.NexusEmployee):
+            self.db.query(m).delete()
+        self.db.commit()
+
+    def _punch(self, email, off):
+        self.db.add(models.TimePunch(id=str(uuid.uuid4()), employee_email=email, kind="in",
+                                     at="2026-10-15T16:00:00", local_date="2026-10-15", tz_offset_min=off))
+        self.db.commit()
+
+    def test_latest_punch_decides(self):
+        self._punch("amy@example.com", 420)    # PDT
+        self.assertEqual(timeclock._employee_zone_key(self.db, "amy@example.com"), "california")
+        self._punch("raj@example.com", -330)   # IST
+        self.assertEqual(timeclock._employee_zone_key(self.db, "raj@example.com"), "india")
+
+    def test_no_punch_uses_people_country(self):
+        self.db.add(models.NexusEmployee(id=str(uuid.uuid4()), work_email="new@example.com",
+                                         first_name="New", last_name="Hire", country="IN", status="active"))
+        self.db.commit()
+        self.assertEqual(timeclock._employee_zone_key(self.db, "new@example.com"), "india")
+        self.assertEqual(timeclock._employee_zone_key(self.db, "nobody@example.com"), "california")
