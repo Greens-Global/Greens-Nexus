@@ -186,6 +186,11 @@ export default function TicketTaxonomySettings() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [err, setErr] = useState('');
+  // What is typed in each SLA hours box, kept as text while typing and only
+  // clamped to a whole number of at least 1 on blur / save. Clamping every
+  // keystroke turned clearing "48" to retype it into "148" (the empty box
+  // snapped to 1, then the 4 and 8 were typed after it).
+  const [slaText, setSlaText] = useState({});
 
   const load = () => api.getTicketTaxonomySettings()
     .then((c) => { setCfg(c); setOrder(Array.isArray(c.typeOrder) ? c.typeOrder : null); })
@@ -209,7 +214,22 @@ export default function TicketTaxonomySettings() {
   const shownOrder = (order ?? [...TICKET_TYPE_ORDER]).filter((k, i, arr) => allKeys.includes(k) && arr.indexOf(k) === i);
   const hidden = allKeys.filter((k) => !shownOrder.includes(k));
 
-  const setSla = (k, v) => setCfg((c) => ({ ...c, slaTargetHours: { ...c.slaTargetHours, [k]: Math.max(1, Number(v) || 1) } }));
+  const clampHours = (v) => Math.max(1, Math.round(Number(v)) || 1);
+  const typeSla = (k, raw) => {
+    setSlaText((m) => ({ ...m, [k]: raw }));
+    // A usable number goes into the config as it is typed, so the days hint
+    // follows along; an empty or partial box waits for blur.
+    const n = Number(raw);
+    if (raw.trim() !== '' && Number.isFinite(n) && n >= 1) {
+      setCfg((c) => ({ ...c, slaTargetHours: { ...c.slaTargetHours, [k]: Math.round(n) } }));
+    }
+  };
+  const settleSla = (k) => {
+    if (!(k in slaText)) return;
+    const n = clampHours(slaText[k]);
+    setCfg((c) => ({ ...c, slaTargetHours: { ...c.slaTargetHours, [k]: n } }));
+    setSlaText((m) => { const next = { ...m }; delete next[k]; return next; });
+  };
   const setTypeCfg = (key, patch) => setCfg((c) => ({ ...c, types: { ...c.types, [key]: { ...(c.types[key] || {}), ...patch } } }));
   const setCompanyField = (patch) => setCfg((c) => ({ ...c, companyField: { ...c.companyField, ...patch } }));
   const toggleCompanyId = (id) => setCompanyField({
@@ -226,7 +246,11 @@ export default function TicketTaxonomySettings() {
   const save = async () => {
     setSaving(true); setErr(''); setSaved(false);
     try {
-      const next = await api.updateTicketTaxonomySettings({ slaTargetHours: cfg.slaTargetHours, types: cfg.types, typeOrder: order ? shownOrder : null, companyField: cfg.companyField });
+      // Anything still being typed is settled the same way blur would.
+      const slaTargetHours = { ...cfg.slaTargetHours };
+      for (const [k, raw] of Object.entries(slaText)) slaTargetHours[k] = clampHours(raw);
+      setSlaText({});
+      const next = await api.updateTicketTaxonomySettings({ slaTargetHours, types: cfg.types, typeOrder: order ? shownOrder : null, companyField: cfg.companyField });
       setCfg(next);
       setOrder(Array.isArray(next.typeOrder) ? next.typeOrder : null);
       await refreshTicketConfig();
@@ -248,7 +272,7 @@ export default function TicketTaxonomySettings() {
           fixed 2-up grid. */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 18, marginBottom: 18 }}>
         <div style={{ ...card, padding: 18, flex: '1 1 380px', maxWidth: 560 }}>
-          <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 4 }}>SLA target hours</div>
+          <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 4 }}>SLA Target Hours</div>
           <div style={{ fontSize: 12, color: NX.faint, marginBottom: 12 }}>
             How many hours after a ticket is raised its SLA due date lands, by priority. Changing this here takes effect
             immediately, server-side - no redeploy.
@@ -256,7 +280,9 @@ export default function TicketTaxonomySettings() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
             {PRIORITIES.map(([k, lab]) => (
               <Field key={k} label={lab} hint={`${(cfg.slaTargetHours[k] / 24).toFixed(1)} days`}>
-                <input type="number" min={1} value={cfg.slaTargetHours[k]} onChange={(e) => setSla(k, e.target.value)} style={inputStyle} />
+                <input type="number" min={1} step={1} inputMode="numeric" aria-label={`${lab} SLA hours`}
+                  value={k in slaText ? slaText[k] : String(cfg.slaTargetHours[k] ?? '')}
+                  onChange={(e) => typeSla(k, e.target.value)} onBlur={() => settleSla(k)} style={inputStyle} />
               </Field>
             ))}
           </div>
@@ -265,7 +291,7 @@ export default function TicketTaxonomySettings() {
         <div style={{ ...card, padding: 18, flex: '1 1 380px', maxWidth: 560 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
             <Building2 size={15} style={{ color: NX.dim }} />
-            <div style={{ fontSize: 13.5, fontWeight: 700 }}>Company field at intake</div>
+            <div style={{ fontSize: 13.5, fontWeight: 700 }}>Company Field at Intake</div>
           </div>
           <div style={{ fontSize: 12, color: NX.faint, marginBottom: 12 }}>
             Off by default - a ticket is silently filed under the requester's own company (from their People record),
@@ -309,7 +335,7 @@ export default function TicketTaxonomySettings() {
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
         <ListTree size={15} style={{ color: NX.dim }} />
-        <div style={{ fontSize: 13.5, fontWeight: 700 }}>Ticket types & intake questions</div>
+        <div style={{ fontSize: 13.5, fontWeight: 700 }}>Ticket Types & Intake Questions</div>
       </div>
       <div style={{ fontSize: 12, color: NX.faint, marginBottom: 12 }}>
         The five ticket types. Each one's label, hint, whether it is offered on Submit a Ticket, the order, whether it requires approval

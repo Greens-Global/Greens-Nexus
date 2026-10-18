@@ -126,7 +126,7 @@ export default function TicketNotifySettings() {
             </div>
 
             <div style={{ ...card, padding: 18 }}>
-              <label style={fieldLabel}>Notification types</label>
+              <label style={fieldLabel}>Notification Types</label>
               {Object.entries(EVENT_LABELS).map(([k, lab]) => (
                 <div key={k} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 0' }}>
                   <span style={{ fontSize: 13.5 }}>{lab}</span>

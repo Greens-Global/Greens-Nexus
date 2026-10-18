@@ -38,7 +38,7 @@ describe('TicketDrawer desk controls follow the server role', () => {
   it('an agent gets the internal-note switch but no Delete', async () => {
     access = { role: 'agent', canWorkQueue: true, canReadInternal: true, canDelete: false, canManageDesk: false };
     render(<TicketDrawer ticketId="t1" onClose={() => {}} initialTab="conversation" />);
-    expect(await screen.findByRole('button', { name: /Internal note/ })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: /Internal Note/ })).toBeTruthy();
     expect(screen.queryByRole('button', { name: /^Delete$/ })).toBeNull();
   });
 
@@ -52,7 +52,7 @@ describe('TicketDrawer desk controls follow the server role', () => {
     access = { role: 'requester', canWorkQueue: false, canReadInternal: false, canDelete: false, canManageDesk: false };
     render(<TicketDrawer ticketId="t1" onClose={() => {}} initialTab="conversation" />);
     await Promise.resolve();
-    expect(screen.queryByRole('button', { name: /Internal note/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Internal Note/ })).toBeNull();
     expect(screen.queryByRole('button', { name: /^Delete$/ })).toBeNull();
   });
 });

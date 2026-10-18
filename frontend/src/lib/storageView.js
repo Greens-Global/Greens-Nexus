@@ -73,3 +73,18 @@ export function restoreRequestBody(body) {
     try { return decodeURIComponent(enc); } catch { return whole; }
   });
 }
+
+/** May a rich-text body (comment, description) load this image? Only our own
+ * storage - the Supabase project's storage URLs (canonical or signed) and the
+ * /files/view viewer - a same-origin path, and an inline data: image (a paste
+ * that has not been stored yet, or whose upload failed). Anything else is a
+ * remote image that would load for every reader the moment the body renders
+ * (a tracking pixel), so sanitizeRichHtml shows it as a link instead. */
+export function isOwnImageUrl(u) {
+  const s = String(u || '').trim();
+  if (!s) return false;
+  if (/^data:image\//i.test(s)) return true;
+  if (s.startsWith(VIEW_PREFIX)) return true;
+  if (SUPABASE_URL && s.startsWith(`${SUPABASE_URL}/storage/v1/`)) return true;
+  return /^\/(?!\/)/.test(s);
+}

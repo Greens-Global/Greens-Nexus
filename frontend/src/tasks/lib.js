@@ -4,7 +4,7 @@ import { NX, PRIORITY_ORDER, PRIORITY_META, STATUS_ORDER, STATUS_META } from './
 import { api } from '../api';
 import { supabase, supabaseUrl, supabaseAnonKey } from '../lib/supabase';
 import { formatDate as usFormatDate, formatDateTime as usFormatDateTime } from '../lib/datetime';
-import { toViewUrl } from '../lib/storageView';
+import { toViewUrl, isOwnImageUrl } from '../lib/storageView';
 
 export const EMPTY_FILTER = {
   // collaboratorIds = people in a task's follower list (Asana "collaborators").
@@ -942,8 +942,28 @@ export function sanitizeRichHtml(html, nameOf) {
         const allowed = RICH_ATTRS[tag] || [];
         if (!allowed.includes(name)) { child.removeAttribute(attr.name); continue; }
         // javascript: and vbscript: URLs are the whole point of the allowlist.
-        if ((name === 'href' || name === 'src') && !SAFE_URL.test(attr.value.trim())) {
+        // An image from our own storage passes even as a same-origin path
+        // (the /api/files/view viewer behind the BFF).
+        const ownImage = tag === 'IMG' && name === 'src' && isOwnImageUrl(attr.value);
+        if ((name === 'href' || name === 'src') && !ownImage && !SAFE_URL.test(attr.value.trim())) {
           child.removeAttribute(attr.name);
+        }
+      }
+      // Images load only from our own storage (isOwnImageUrl). A remote one
+      // becomes a plain link to it, so nothing is lost and nothing loads on
+      // its own for whoever opens the body.
+      if (tag === 'IMG') {
+        const src = (child.getAttribute('src') || '').trim();
+        if (src && !isOwnImageUrl(src)) {
+          const link = document.createElement('a');
+          if (/^https?:/i.test(src)) {
+            link.setAttribute('href', src);
+            link.setAttribute('target', '_blank');
+            link.setAttribute('rel', 'noreferrer noopener');
+          }
+          link.textContent = `[Image: ${child.getAttribute('alt') || 'external link'}]`;
+          child.replaceWith(link);
+          continue;
         }
       }
       if (tag === 'A') {

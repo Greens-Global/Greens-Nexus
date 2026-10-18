@@ -189,3 +189,14 @@ export function wallClock(iso, tzOffsetMin) {
   const zone = `GMT${east >= 0 ? '+' : '-'}${Math.floor(abs / 60)}${abs % 60 ? `:${String(abs % 60).padStart(2, '0')}` : ''}`;
   return { time, date: d.toISOString().slice(0, 10), zone };
 }
+
+// The viewer's LOCAL calendar day as YYYY-MM-DD - for comparing against stored
+// date-only values (a ticket's slaDueOn). new Date().toISOString().slice(0, 10)
+// is the UTC day, which is already tomorrow on a US evening (and still
+// yesterday on an India morning), so a ticket read as breached or on time a
+// day early. `offsetDays` moves from `from` in whole local days.
+export function localIsoDate(from = new Date(), offsetDays = 0) {
+  const d = new Date(from.getTime());
+  if (offsetDays) d.setDate(d.getDate() + offsetDays);
+  return toDateInputValue(d);
+}

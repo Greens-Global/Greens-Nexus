@@ -590,6 +590,10 @@ export function TasksProvider({ children }) {
     addTicketLink: async (id, targetId, type) => { const r = await api.addTicketLink(id, { ticket_id: targetId, type }); await reloadTicketsInto(setTickets); return r; },
     removeTicketLink: async (id, targetId) => { const r = await api.removeTicketLink(id, targetId); await reloadTicketsInto(setTickets); return r; },
     escalateTicket: async (id) => { const r = await api.escalateTicket(id); setTickets((p) => p.map((x) => (x.id === id ? r : x))); return r; },
+    // The ticket list alone (Oct 2026 review): an approval decision or a
+    // deleted comment changes one ticket, and `refresh` (loadCore) re-pulled
+    // the whole task workspace for it.
+    reloadTickets: () => reloadTicketsInto(setTickets),
     // A task made from a ticket (Oct 14 2026): the server links both sides in
     // one save and hands both back.
     createTaskFromTicket: async (id) => {

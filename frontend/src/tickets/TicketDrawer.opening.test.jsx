@@ -44,10 +44,12 @@ describe('Opening a ticket from a link', () => {
     expect(screen.getByText('Ticket #27')).toBeTruthy();
   });
 
-  it('shows nothing for a ticket that is not in the loaded list', () => {
+  // It used to render nothing at all - a dead click (Oct 2026 review).
+  it('says Ticket Not Found for a ticket that is not in the loaded list', () => {
     store.ticketsLoaded = true;
-    const { container } = render(<TicketDrawer ticketId="gone" onClose={() => {}} />);
+    render(<TicketDrawer ticketId="gone" onClose={() => {}} />);
     expect(screen.queryByText('Opening your ticket…')).toBeNull();
-    expect(container.textContent).toBe('');
+    expect(screen.getByText('Ticket Not Found')).toBeTruthy();
+    expect(screen.getByRole('alert').textContent).toMatch(/no longer have access/);
   });
 });

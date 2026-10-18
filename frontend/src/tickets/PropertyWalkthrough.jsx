@@ -38,6 +38,7 @@ import { uploadTicketEvidence } from './evidenceUpload';
 import { PropertySelect } from './PropertySelect';
 import { useTicketProperties, propertyLabel, groupTakesProperty, isBuildingGroup } from './propertyMeta';
 import CreateModeTabs from './CreateModeTabs';
+import { dialog } from '../ui/dialog';
 
 const MAX_LINES = 50;
 const MAX_PHOTOS = 6;
@@ -282,10 +283,10 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
     setBatchId(newBatchId());                          // a NEW batch - never the filed id
     setLines(rest.length ? rest : [blankLine()]);
   };
-  const discard = () => {
-    if (filled.length && !window.confirm(unconfirmed
+  const discard = async () => {
+    if (filled.length && !(await dialog.confirm(unconfirmed
       ? 'Discard this batch? If it was already filed, the tickets stay filed - check Tickets.'
-      : 'Discard this batch? Lines not yet created are lost.')) return;
+      : 'Discard this batch? Lines not yet created are lost.', { title: 'Discard Batch?', confirmText: 'Discard', danger: true }))) return;
     writeDraft(null);
     onClose();
   };
@@ -319,7 +320,7 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
     const n = mismatch.tickets.length;
     const left = mismatch.leftover.length;
     return (
-      <Modal title="Batch Create" onClose={onClose} width={560} footer={<>
+      <Modal title="Batch Create" onClose={onClose} minHeight="60vh" footer={<>
         {left > 0 && <button style={{ ...btn('primary'), marginLeft: 'auto' }} onClick={continueLeftover}>
           Start a Batch With the {left} Unfiled Line{left === 1 ? '' : 's'}</button>}
         <button style={{ ...btn(left > 0 ? 'outline' : 'primary'), ...(left > 0 ? null : { marginLeft: 'auto' }) }} onClick={onClose}>Done</button>
@@ -339,7 +340,7 @@ export default function PropertyWalkthrough({ onClose, property = null, onDone =
   if (done) {
     const n = done.tickets?.length || 0;
     return (
-      <Modal title="Batch Create" onClose={onClose} width={560} footer={<>
+      <Modal title="Batch Create" onClose={onClose} minHeight="60vh" footer={<>
         <button style={{ ...btn('outline'), marginLeft: 'auto' }} onClick={startOver}>Start Another Batch</button>
         <button style={btn('primary')} onClick={onClose}>Done</button>
       </>}>

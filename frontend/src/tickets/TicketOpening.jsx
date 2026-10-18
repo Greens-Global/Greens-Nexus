@@ -8,7 +8,9 @@
 // frame so the ticket fills in where it will appear.
 import { useEffect, useState } from 'react';
 
-import { NX } from '../tasks/theme';
+import { SearchX } from 'lucide-react';
+
+import { NX, btn } from '../tasks/theme';
 import { Modal } from '../tasks/components';
 import { Spinner } from '../components/AsyncState';
 
@@ -16,6 +18,25 @@ import { Spinner } from '../components/AsyncState';
 const SLOW_AFTER_MS = 8000;
 
 const FIELD_WIDTHS = ['58%', '44%', '66%', '50%'];
+
+// The list has landed and the ticket is not in it: deleted, or not this
+// person's to see (any more). Said plainly, with a way out - never a drawer
+// that renders nothing.
+export function TicketNotFound({ onClose }) {
+  return (
+    <Modal title="Ticket" onClose={onClose} footer={
+      <button type="button" style={btn('primary')} onClick={onClose}>Close</button>
+    }>
+      <div role="alert" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, textAlign: 'center', padding: '32px 12px' }}>
+        <SearchX size={34} style={{ color: NX.faint }} aria-hidden="true" />
+        <div style={{ fontSize: 15, fontWeight: 700, color: NX.ink }}>Ticket Not Found</div>
+        <div style={{ fontSize: 13, color: NX.dim, maxWidth: 420, lineHeight: 1.5 }}>
+          You no longer have access to this ticket, or it has been deleted. If you think this is wrong, ask the desk to share it with you.
+        </div>
+      </div>
+    </Modal>
+  );
+}
 
 export default function TicketOpening({ onClose }) {
   const [slow, setSlow] = useState(false);
