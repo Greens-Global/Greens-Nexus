@@ -5,6 +5,7 @@ import { api } from '../api';
 import { formatDate } from '../lib/datetime';
 import { Modal } from '../tasks/components';
 import { SignModal } from './ESign';
+import { ForChip } from './DelegateApprovals';
 
 // Timesheets to Review (Sep 29): the list at the top of People > Time of every
 // timesheet submitted to YOU that you have not decided yet - who, which
@@ -159,6 +160,7 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount 
                   <div style={{ flex: 1, minWidth: 220 }}>
                     <div style={{ fontSize: 13, fontWeight: 700 }}>
                       {r.name}{r.resubmitted && <span style={{ fontSize: 11, fontWeight: 700, color: '#b45309', marginLeft: 6 }}>Resubmitted</span>}
+                      {r.forEmail && <ForChip name={r.forName} email={r.forEmail} />}
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--muted)' }}>
                       {formatDate(r.periodStart)} - {formatDate(r.periodEnd)} · {hm(r.workedMin)} · {r.notSubmitted ? 'not submitted - period closed' : `submitted ${formatDate(r.submittedAt)}`}
