@@ -69,10 +69,14 @@ def _weather(db: Session, user: dict) -> int:
 
 
 def _checklist_steps(db: Session, me: str) -> int:
-    return (db.query(func.count(models.HrChecklistItem.id))
-            .join(models.HrChecklist, models.HrChecklist.id == models.HrChecklistItem.checklist_id)
-            .filter(models.HrChecklistItem.owner_email == me, models.HrChecklistItem.status == "open",
-                    models.HrChecklist.status == "open").scalar())
+    """My open steps that are due - today or before, or with no date. A step
+    due in three weeks is on the card, but not waiting on me yet."""
+    I = models.HrChecklistItem
+    return (db.query(func.count(I.id))
+            .join(models.HrChecklist, models.HrChecklist.id == I.checklist_id)
+            .filter(I.owner_email == me, I.status == "open", models.HrChecklist.status == "open",
+                    or_(I.due_date.is_(None), I.due_date == "", func.substr(I.due_date, 1, 10) <= date.today().isoformat()))
+            .scalar())
 
 
 def _documents_to_sign(db: Session, user: dict) -> int:

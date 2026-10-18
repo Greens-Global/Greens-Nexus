@@ -96,6 +96,9 @@ class ActionCountsCase(unittest.TestCase):
         # My checklist step, on an open checklist.
         self.db.add(models.HrChecklist(id="c1", employee_id="id-Mia", status="open"))
         self.db.add(models.HrChecklistItem(id="ci1", checklist_id="c1", owner_email=EMP, status="open"))
+        # ...and one not due for weeks: on the card, not waiting on me yet.
+        self.db.add(models.HrChecklistItem(id="ci2", checklist_id="c1", owner_email=EMP, status="open",
+                                           due_date=(date.today() + timedelta(days=21)).isoformat()))
         # A KB document to sign off, and one I already signed.
         self.db.add(models.KbDocument(id="k1", title="Safety", status="approved", require_ack=True, version="1.0"))
         self.db.add(models.KbDocument(id="k2", title="Handbook", status="approved", require_ack=True, version="1.0"))
