@@ -2434,6 +2434,9 @@ def _run_migrations():
         "ALTER TABLE changelog_feedback ADD COLUMN IF NOT EXISTS notified_status VARCHAR DEFAULT ''",
         "ALTER TABLE changelog_feedback ADD COLUMN IF NOT EXISTS module VARCHAR DEFAULT ''",
         "ALTER TABLE changelog_entry_views ADD COLUMN IF NOT EXISTS tour_done_at VARCHAR DEFAULT ''",
+        # Expense reimbursements (Oct 18 2026) - a new table: explicit RLS on
+        # top of the _enable_rls_everywhere sweep. models.ExpenseReimbursement.
+        "ALTER TABLE expense_reimbursements ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -3793,3 +3796,5 @@ from routers import changelog_extras  # noqa: E402
 app.include_router(changelog_extras.router)          # What's New: following + digest, private RSS feed, screen hints, feedback, history, bulk, insights (Oct 16)
 from routers import changelog_lifecycle  # noqa: E402
 app.include_router(changelog_lifecycle.router)       # What's New: request statuses, known issues / rollbacks, deprecations, tours, live in production (Oct 18)
+from routers import reimbursements  # noqa: E402
+app.include_router(reimbursements.router)         # Workday > Reimbursements: out-of-pocket purchases - approve, then HR pays (Neil, 10/18)

@@ -48,11 +48,14 @@ export function browserTzKey() {
  *  India-based staff saw California times, so "5 PM yesterday" typed from
  *  India just after midnight was still in the future in California and the
  *  request was refused. While `on`, the card uses the browser's zone without
- *  touching the saved choice; leaving puts the saved choice back. */
-export function useOwnZone(on) {
+ *  touching the saved choice; leaving puts the saved choice back.
+ *  `zoneKey` (Neil, Oct 18 2026): the EMPLOYEE's zone from the server, which
+ *  wins over the browser - a California employee's card viewed from India
+ *  (acting as them) showed AM punches. The browser is the fallback only. */
+export function useOwnZone(on, zoneKey = '') {
   useEffect(() => {
     if (!on) return undefined;
-    const own = TZ_OPTIONS.find((o) => o.key === browserTzKey()) || TZ_OPTIONS[0];
+    const own = TZ_OPTIONS.find((o) => o.key === (zoneKey || browserTzKey())) || TZ_OPTIONS[0];
     if (own.key !== _current.key) {
       _current = own;
       window.dispatchEvent(new CustomEvent(EVENT));
@@ -64,7 +67,7 @@ export function useOwnZone(on) {
         window.dispatchEvent(new CustomEvent(EVENT));
       }
     };
-  }, [on]);
+  }, [on, zoneKey]);
 }
 
 /** Subscribe a component to the current display timezone; re-renders on change. */

@@ -54,8 +54,18 @@ from models import (TimePunch, TimeScreenshot, TimeOffRequest, TimeApproval, Tim
                     ShiftAvailability, TimecardNote, PayrollRateHistory, ShiftAvailabilityDate,
                     ShiftAvailabilityPref)
 from routers.hr import company_sites, allowed_site_ids as _allowed_site_ids, _hr_notify, _storage_headers, _SUPABASE_URL, _DOC_BUCKET, _SHOT_BUCKET, sync_comp_from_rate
-from routers.esign import _client_meta
+from client_ip import client_ip as _trusted_ip
 from routers.stepup import require_stepup
+
+
+def _client_meta(request) -> tuple:
+    """(ip, user_agent) for a punch / consent record. The IP is the one
+    client_ip vouches for (the right-hand end of X-Forwarded-For past the
+    Cloudflare hops), not the first hop - which is whatever the caller sent,
+    and showed odd addresses on punches (Neil, Oct 18 2026)."""
+    if request is None:
+        return "", ""
+    return _trusted_ip(request), (request.headers.get("user-agent", "") or "")[:300]
 from currency import is_currency
 import ca_breaks
 import payroll_codes
@@ -5286,7 +5296,7 @@ class TrackClockIn(BaseModel):
 
 
 @router.post("/track/clock")
-def track_clock(body: TrackClockIn, dev: AgentDevice = Depends(get_agent_device),
+def track_clock(body: TrackClockIn, request: Request, dev: AgentDevice = Depends(get_agent_device),
                 db: Session = Depends(get_db)):
     """Clock in/out from the enrolled phone (token-authed, no Microsoft login -
     same self-punch model as the desktop agent's auto-clock). Punching in also
@@ -5309,6 +5319,8 @@ def track_clock(body: TrackClockIn, dev: AgentDevice = Depends(get_agent_device)
                      tz_offset_min=body.tz_offset_min or 0,
                      lat=(body.lat or "").strip()[:24], lng=(body.lng or "").strip()[:24],
                      accuracy_m=max(0, int(body.accuracy_m or 0)),
+                     # Phone punches carried no IP, so the hover showed none (Oct 18 2026).
+                     ip=_client_meta(request)[0], user_agent=_client_meta(request)[1],
                      source="mobile", created_by=email, created_at=now, **geo))
     if body.kind == "in":
         if _live_consent(db, email) is not None:
@@ -8301,6 +8313,21 @@ def _employee_today(db: Session, email: str) -> str:
     return (datetime.now(timezone.utc) - timedelta(minutes=off)).strftime("%Y-%m-%d")
 
 
+def _employee_zone_key(db: Session, email: str) -> str:
+    """Which display zone ('india' / 'california') the employee's OWN time sheet
+    reads in (Neil, Oct 18 2026): where the employee is, never where the
+    viewer's browser is - acting as a California employee from India showed
+    AM punches. Their latest punch's offset says where they work (IST is
+    -330 in JS getTimezoneOffset terms); no punch yet = their People country."""
+    p = (db.query(TimePunch.tz_offset_min).filter(TimePunch.employee_email == email)
+         .order_by(TimePunch.at.desc()).first())
+    if p is not None and p[0] is not None:
+        return "india" if int(p[0]) == -330 else "california"
+    emp = (db.query(NexusEmployee.country)
+           .filter(func.lower(NexusEmployee.work_email) == email.lower()).first())
+    return "india" if emp and (emp[0] or "").strip().upper() in ("IN", "INDIA") else "california"
+
+
 def _employee_now(db: Session, email: str) -> datetime:
     """The employee's LOCAL wall-clock time (naive), for comparing against a shift
     start time. Same offset source as _employee_today."""
@@ -9879,6 +9906,7 @@ def my_payroll(start: str = "", user: dict = Depends(get_current_user), db: Sess
         card["review"] = _review_state(db, user["email"], card["periodStart"], user, team=False)
         # Only the employee's OWN notes - never the manager/HR note (Oct 12).
         card["notes"] = _timecard_notes(db, user["email"], card["periodStart"], card["periodEnd"], own=True)
+        card["zoneKey"] = _employee_zone_key(db, user["email"])
         return card
     p_start, p_end = _pay_period(anchor)
     card = _compute_timecard(db, user["email"], p_start, p_end)
@@ -9887,6 +9915,7 @@ def my_payroll(start: str = "", user: dict = Depends(get_current_user), db: Sess
     card["periodStart"], card["periodEnd"] = p_start, p_end
     card["periodDays"] = _PAYPERIOD_DAYS
     card["notes"] = _timecard_notes(db, user["email"], p_start, p_end, own=True)
+    card["zoneKey"] = _employee_zone_key(db, user["email"])
     return card
 
 
@@ -10886,9 +10915,23 @@ def request_timeoff(body: TimeOffIn, user: dict = Depends(get_current_user),
                        body=f"{who} requested {_bell_kind(row)} "
                             f"{_us_span(body.start_date, body.end_date)}{_timeoff_window(st, et)}.{_bell_reason(row)}",
                        ref_id=row.id, action={"view": "hr", "sub": "hr-time"}, owners_as_fallback=True,
-                       extra_recipients=_approver_stand_ins(db, user["email"], user["email"]))
+                       extra_recipients=[*_approver_stand_ins(db, user["email"], user["email"]),
+                                         *_skip_level_manager(db, user["email"])])
     db.commit()
     return _ser_timeoff(row, priv=_TimeoffPrivacy(db, user["email"]))
+
+
+def _skip_level_manager(db: Session, email: str) -> list[str]:
+    """A time-off request goes to the manager AND the manager's manager (Neil,
+    Oct 18 2026: "manager plus plus" - when a manager is off they are actually
+    off, so the level above has to see it too). [] when there is no second level."""
+    def mgr_of(e):
+        row = (db.query(NexusEmployee.manager_email)
+               .filter(func.lower(NexusEmployee.work_email) == (e or "").strip().lower()).first())
+        return ((row[0] if row else "") or "").strip().lower()
+    first = mgr_of(email)
+    second = mgr_of(first) if first else ""
+    return [second] if second and second not in (first, (email or "").strip().lower()) else []
 
 
 class TimeOffOnBehalfIn(TimeOffIn):

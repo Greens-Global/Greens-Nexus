@@ -1071,6 +1071,53 @@ export const DOCS = [
     tips: ['Each tab shows one section at a time. Use the section list at the top to switch.'],
   },
   {
+    id: 'reimbursements', name: 'Reimbursements', group: 'Modules', icon: 'Receipt', view: 'myhr',
+    tagline: 'Get paid back for company purchases you paid for yourself.',
+    where: 'Workday > Reimbursements (the tile beside Ask HR). People > a person > Expenses for their history.',
+    access: 'Everyone files. Whoever is picked approves (your manager unless you pick someone else). HR approves and pays, the same people who handle time sheets: your company\'s HR contact, an administrator or a Full HR grant.',
+    purpose: 'When you pay for something on behalf of the company, file it with the receipt. The person you pick approves it, HR approves it and pays you back, and every step is recorded on the claim.',
+    gains: [
+      'One place for receipts - no more emailing photos around.',
+      'You always know where your claim is and who has it.',
+      'Managers and HR can open any past claim, with its receipts and history.',
+    ],
+    walkthroughs: [
+      {
+        title: 'File a Reimbursement',
+        steps: [
+          'Open Workday and click Reimbursements, beside Ask HR.',
+          'Click New Reimbursement. Say what you bought, the category (pick Other and say what it was if none fit), the amount and its currency, when and where, and what it was for.',
+          'Pick who approves it, or leave My Manager.',
+          'Attach the receipts. You can paste a screenshot with Ctrl+V. No receipt yet? Send it anyway and add the receipt once you have bought it.',
+          'Click Send for Approval. Your approver gets a notification.',
+        ],
+      },
+      {
+        title: 'Approve One',
+        steps: [
+          'Open Workday > Reimbursements and pick To Approve.',
+          'Open the receipts and check the details.',
+          'Approve it, or add a note and Send Back (the employee fixes it and resubmits) or Reject it.',
+        ],
+      },
+      {
+        title: 'Approve and Pay (HR)',
+        steps: [
+          'Open Workday > Reimbursements and pick HR. To Approve holds the claims their approver approved.',
+          'Check the receipts and Approve it - it moves to To Pay. Send Back and Reject work as above.',
+          'Once the money has gone out, click Mark Paid and enter the date, the method and a reference.',
+        ],
+      },
+    ],
+    features: [
+      { name: 'Reimbursements (Workday)', desc: 'File one and follow it; fix and resubmit one that was sent back; add receipts later.' },
+      { name: 'To Approve', desc: 'The claims waiting on you as their approver.' },
+      { name: 'HR', desc: 'To Approve, To Pay and Paid, for the companies you are HR for.' },
+      { name: 'Expenses (People profile)', desc: 'Every claim one person has filed, with receipts and the history.' },
+    ],
+    tips: ['A claim is never deleted. Rejected and canceled claims stay on the record.', 'Receipts open through a short private link, only for the employee, the approver, their manager and HR.'],
+  },
+  {
     id: 'investor-relations', name: 'Investor Relations', group: 'Modules', icon: 'Landmark', view: 'investor-relations',
     tagline: 'Deals, investors, capital calls, distributions and investor documents.',
     where: 'Left menu > Investor Relations',
