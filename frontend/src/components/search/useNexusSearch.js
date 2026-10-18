@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Check, LayoutDashboard, Archive, User, Package, ClipboardList, ShoppingCart, Briefcase, Users, ListTodo } from 'lucide-react';
+import { Check, LayoutDashboard, Archive, User, Package, ClipboardList, ShoppingCart, Briefcase, Users } from 'lucide-react';
 import { useRole } from '../../contexts/RoleContext';
 import { useInventory } from '../../contexts/InventoryContext';
 import { useRequisitions } from '../../contexts/RequisitionContext';
@@ -138,16 +138,6 @@ export function useNexusSearch(query, { enabled = true } = {}) {
           key: `person:${item.email}`, Icon: User, title: item.name, detail: item.email,
           // A person opens their Contact Directory card (Oct 2026).
           run: () => openContact(item.email),
-          // The Tasks button on the row (Shift+Enter) opens their Tasks
-          // person page in one click (Oct 18 2026). People results come from
-          // the Task module's search, so anyone who sees one can open it.
-          alt: {
-            label: 'Tasks', Icon: ListTodo, title: `Open ${item.name}'s Tasks (Shift+Enter)`,
-            run: () => {
-              toTasks('home');
-              setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:tasks-person', { detail: { email: item.email, name: item.name } })), 0);
-            },
-          },
         };
         const Icon = item.archived ? Archive : g.key === 'teams' ? Users : g.key === 'portfolios' ? Briefcase : LayoutDashboard;
         return {

@@ -133,38 +133,6 @@ describe('TopHeader search', () => {
     } finally { vi.useRealTimers(); }
   });
 
-  it('a person row opens their contact card, and its Tasks button (or Shift+Enter) opens their Tasks page', async () => {
-    vi.useFakeTimers();
-    try {
-      const nav = vi.fn();
-      const person = vi.fn();
-      window.addEventListener('nexus:navigate', nav);
-      window.addEventListener('nexus:tasks-person', person);
-      header();
-      fireEvent.focus(bar());
-      const find = async () => {
-        fireEvent.change(bar(), { target: { value: 'charmi' } });
-        await act(async () => { vi.advanceTimersByTime(200); await Promise.resolve(); });
-      };
-      await find();
-      fireEvent.click(screen.getByRole('button', { name: "Open Charmi Patel's Tasks (Shift+Enter)" }));
-      await act(async () => { vi.advanceTimersByTime(1); });
-      expect(nav.mock.calls.at(-1)[0].detail).toEqual({ view: 'tasks', sub: 'home' });
-      expect(person.mock.calls.at(-1)[0].detail).toEqual({ email: 'charmi@x.com', name: 'Charmi Patel' });
-      expect(bar().value).toBe('');
-      // Keyboard: Shift+Enter on the highlighted person opens the same page.
-      await find();
-      const rows = [...document.querySelectorAll('.gs-row')];
-      const at = rows.findIndex((r) => r.textContent.includes('Charmi Patel'));
-      for (let n = 0; n < at; n += 1) fireEvent.keyDown(bar(), { key: 'ArrowDown' });
-      fireEvent.keyDown(bar(), { key: 'Enter', shiftKey: true });
-      await act(async () => { vi.advanceTimersByTime(1); });
-      expect(person).toHaveBeenCalledTimes(2);
-      window.removeEventListener('nexus:navigate', nav);
-      window.removeEventListener('nexus:tasks-person', person);
-    } finally { vi.useRealTimers(); }
-  });
-
   it('Esc clears and closes; the clear button reads Clear', () => {
     header();
     fireEvent.change(bar(), { target: { value: 'tasks' } });

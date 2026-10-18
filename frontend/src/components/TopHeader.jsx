@@ -168,9 +168,9 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
     setSearchQuery(''); setSearchOpen(false);
     if (blur) searchInputRef.current?.blur();
   }
-  function pickSearch(row, alt = false) {
+  function pickSearch(row) {
     closeSearch(true);
-    if (alt && row.alt) row.alt.run?.(); else row.run?.();
+    row.run?.();
   }
 
   // Keyboard, desktop only: Ctrl/Cmd+K lands in this bar. "/" lands in the
@@ -207,7 +207,7 @@ export default function TopHeader({ title, activeView, theme, onThemeToggle, sid
     if (e.key === 'Escape') { e.preventDefault(); closeSearch(true); return; }
     if (e.key === 'ArrowDown') { e.preventDefault(); setSearchIdx(Math.min(Math.max(0, search.rows.length - 1), activeIdx + 1)); return; }
     if (e.key === 'ArrowUp') { e.preventDefault(); setSearchIdx(Math.max(0, activeIdx - 1)); return; }
-    if (e.key === 'Enter' && search.rows[activeIdx]) { e.preventDefault(); pickSearch(search.rows[activeIdx], e.shiftKey); }
+    if (e.key === 'Enter' && search.rows[activeIdx]) { e.preventDefault(); pickSearch(search.rows[activeIdx]); }
   }
 
   function handleSignOut() {
