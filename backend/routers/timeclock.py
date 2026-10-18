@@ -8884,13 +8884,19 @@ def _leave_class(category: str) -> str:
     return ""
 
 
-def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Optional[int] = None) -> dict:
+def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Optional[int] = None,
+                      reprice: bool = False) -> dict:
     """Per-day in/out segments, CA/federal overtime split, and wage totals off
     the HR-set hourly rate over [start, end]. Punch times are rounded per the
     SwipeClock-parity rule (_rounding_cfg - nearest 5 min by default) before any
     math; raw times ride along per segment for the unrounded view. Also
     aggregates break minutes and (when web capture ran) idle minutes so the
-    timesheet can show a worked/break/idle composition bar."""
+    timesheet can show a worked/break/idle composition bar.
+
+    reprice=True is for the Retro Pay report only (retro_pay.py): a finalized
+    period keeps its snapshot OT rule but prices each day off the CURRENT rate
+    history instead of the snapshot rate - what the period would pay today.
+    Read only; every other caller leaves it False."""
     # Fetch one day PAST `end` so a shift that starts on the last day and clocks
     # out after midnight still has its out-punch to pair with - otherwise that
     # whole overnight shift (in on `end`, out on `end`+1) would be dropped from
@@ -8943,21 +8949,25 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
         rate = _rate_for_day(end or start)
     # A FINALIZED period is frozen at the rate + OT rule it was finalized with, so a
     # later raise or rule switch never retro-reprices an already-paid timecard
-    # (finalize snapshots these into the approval row's note). The snapshot is
-    # one rate for the whole period - it stays authoritative over the history.
+    # (finalize snapshots these into the approval row's note). The snapshot -
+    # each day's rate since Oct 17 2026, one rate before - stays authoritative
+    # over the history.
     _fin_snap = _finalized_row(db, em, start, end)
     _frozen_rates = {}
     if _fin_snap and _fin_snap.note:
         try:
             _sn = json.loads(_fin_snap.note)
             if isinstance(_sn, dict) and "rate" in _sn:
-                rate = float(_sn.get("rate") or 0.0)
                 rule = _sn.get("rule") or rule
-                _hist = []
-                # Finalized since Oct 17 2026: each day keeps the rate it was
-                # priced at ("rates"); older snapshots hold one rate for all.
-                _frozen_rates = _sn.get("rates") if isinstance(_sn.get("rates"), dict) else {}
-                _rate_for_day = lambda d, _r=rate, _f=_frozen_rates: float(_f.get(d, _r))   # noqa: E731 - pinned to the snapshot
+                if not reprice:
+                    rate = float(_sn.get("rate") or 0.0)
+                    _hist = []
+                    # Finalized since Oct 17 2026: each day keeps the rate it was
+                    # priced at ("rates"); older snapshots hold one rate for all.
+                    # reprice=True (Retro Pay) skips all of this and prices each
+                    # day from TODAY's history.
+                    _frozen_rates = _sn.get("rates") if isinstance(_sn.get("rates"), dict) else {}
+                    _rate_for_day = lambda d, _r=rate, _f=_frozen_rates: float(_f.get(d, _r))   # noqa: E731 - pinned to the snapshot
         except Exception:   # noqa: BLE001 - a bad snapshot must not break the timecard
             pass
     emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == em).first()

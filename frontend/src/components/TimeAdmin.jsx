@@ -10,6 +10,7 @@ import { api } from '../api';
 import { dialog } from '../ui/dialog';
 import DayTimeline from './DayTimeline';
 import PayrollTimecard from './PayrollTimecard';
+import RetroPayReport from './RetroPayReport';
 import AddTimeModal from './AddTimeModal';
 import TimeInsights from './TimeInsights';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
@@ -755,6 +756,8 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
       {/* Payroll - per-employee, per-pay-period editable timecard */}
       {view === 'payroll' && <PayrollTimecard key={payrollTarget.key} toastOk={toastOk} toastErr={toastErr} initialEmail={payrollEmail}
         initialStart={payrollTarget.start} initialPayType={payrollTarget.payType} />}
+      {/* Retro Pay (Oct 17): back-dated rate changes on finalized periods. Pay - never the manager tier. */}
+      {view === 'payroll' && !hrTeam && <RetroPayReport />}
 
 
       {/* Action Log (Neil, 10/06): punch-fix requests and missing punches were two
