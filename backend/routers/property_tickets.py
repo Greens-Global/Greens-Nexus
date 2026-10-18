@@ -124,6 +124,8 @@ def _latest_public(db: Session, ids: list) -> dict:
     """The newest PUBLIC reply on each of these tickets - the Support table's
     Latest Comment column. Internal notes never leave the desk, and Asset
     Management viewers are not the desk."""
+    import ticket_notify
+    ids = [i for i in ids if i not in ticket_notify.clashing_ids(db, ids)]   # a task's thread is not theirs
     if not ids:
         return {}
     C = models.TaskComment

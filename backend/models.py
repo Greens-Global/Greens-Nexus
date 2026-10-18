@@ -3499,7 +3499,7 @@ class TicketEmailLog(Base):
     recipient            = Column(String, default="")
     recipient_role       = Column(String, default="")     # requester|it_admin|assignee|ticket_admin
     subject              = Column(String, default="")
-    status               = Column(String, default="pending")   # pending|sent|failed|retrying
+    status               = Column(String, default="pending")   # pending|sending|sent|failed (retrying: rows from before the claim)
     graph_message_id     = Column(String, default="")
     conversation_id      = Column(String, default="")
     internet_message_id  = Column(String, default="")

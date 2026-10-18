@@ -17,7 +17,7 @@ import html as html_lib
 from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy import String, cast, func, or_, text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 from pydantic import BaseModel
 from typing import Optional, Any
 
@@ -31,6 +31,7 @@ import code_sequence
 from ticket_notify import (notify_ticket_event, get_settings as get_notify_settings,
                            save_settings as save_notify_settings, ticket_agents, all_agents,
                            _name_of)
+import ticket_notify
 import ticket_taxonomy
 import ticket_roles
 from ticket_roles import require_ticket_agent, require_ticket_supervisor
@@ -290,9 +291,11 @@ def _latest_comments(db: Session, internal_ok: bool, ticket_id: str | None = Non
                      ).group_by(C.task_id).subquery()
     rows = _scoped(db.query(C.task_id, C.author_email, C.body, C.created_at, C.internal)
                    .join(newest, (C.task_id == newest.c.tid) & (C.created_at == newest.c.mx))).all()
+    # A ticket sharing a task's id has the task's thread - never shown as its own.
+    clash = ticket_notify.clashing_ids(db, ids if ids is not None else ([ticket_id] if ticket_id else None))
     out: dict = {}
     for tid, author, body, created, internal in rows:
-        if tid in out:   # two replies in the same instant - either is "the latest"
+        if tid in out or tid in clash:   # two replies in the same instant - either is "the latest"
             continue
         out[tid] = {"authorId": _nz((author or "").lower()), "preview": _comment_preview(body or "", 160),
                     "createdAt": created or "", "internal": bool(internal)}
@@ -874,9 +877,13 @@ def list_tickets(mine: bool = False, user: dict = Depends(get_current_user),
     if mine:
         # For me, filed by me on someone else's behalf (Oct 1), or watched by
         # me (Oct 12) - the page puts the last two under Following.
-        q = q.filter(_person_sql(T_.requester_email, T_.created_by_email))
+        # ...and a request waiting on MY approval: an approver without the
+        # desk has only Support to find it in.
+        q = q.filter(or_(_person_sql(T_.requester_email, T_.created_by_email),
+                         func.lower(func.coalesce(T_.approver_email, "")) == me))
         rows = [t for t in q.all() if (t.requester_email or "").lower() == me
-                or (t.created_by_email or "").lower() == me or _watching(t)]
+                or (t.created_by_email or "").lower() == me or _watching(t)
+                or ((t.approval_status or "none") == "pending" and (t.approver_email or "").lower() == me)]
     # Without the desk grant the scope is forced, not requested: the unscoped
     # list IS the agent queue, so honouring `mine` only when asked would leave
     # the whole company's tickets one query parameter away from any employee.
@@ -2689,10 +2696,14 @@ def request_approval(ticket_id: str, body: ApprovalRequestBody, background_tasks
                  detail=("re-routed" if resent else "sent") + f" for approval to {approver}"
                         + (f": {note}" if note else ""))
     tk_action = {"view": "tickets", "label": "View Ticket"}
+    # An approver off the desk cannot use the Tickets module; Support opens
+    # the same ticket (nexus:open-ticket via the action's ticketId).
+    approver_action = (tk_action if ticket_notify.on_desk(db, approver)
+                       else {"view": "support", "label": "View Ticket"})
     if approver != actor:
         task_notify(db, kind="ticket_needs_approval", for_email=approver,
                     title="A Ticket Needs Your Approval",
-                    body=f"{ticket_no(t.code)} · {t.subject}", ticket_id=t.id, nexus_action=tk_action)
+                    body=f"{ticket_no(t.code)} · {t.subject}", ticket_id=t.id, nexus_action=approver_action)
     _tell_requester(db, t, user["email"], f"Sent to {_name_of(db, approver)} for approval")
     db.commit()
     db.refresh(t)
@@ -2804,11 +2815,19 @@ def add_ticket_link(ticket_id: str, body: TicketLinkBody, user: dict = Depends(g
 def remove_ticket_link(ticket_id: str, target_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     # Sep 30 review: this took no user, so the desk grant alone let anyone
     # unlink tickets in another company, and nothing recorded who did it.
-    t = _ticket_or_404(db, ticket_id, lock=True)
+    # Both rows locked in id order, like add_ticket_link - two unlinks of the
+    # same pair from either end cannot deadlock.
+    locked = {}
+    for tid in sorted({ticket_id, target_id}):
+        locked[tid] = (db.query(models.TaskTicket).filter(models.TaskTicket.id == tid)
+                       .with_for_update().first())
+    t = locked.get(ticket_id)
+    if t is None:
+        raise HTTPException(404, "Ticket not found")
     _require_ticket_participant(db, user, t)
     had = any(l.get("ticketId") == target_id for l in (t.links or []))
     t.links = [l for l in (t.links or []) if l.get("ticketId") != target_id]
-    other = db.query(models.TaskTicket).filter(models.TaskTicket.id == target_id).with_for_update().first()
+    other = locked.get(target_id) if target_id != ticket_id else None
     if other:
         _require_ticket_participant(db, user, other)
         other.links = [l for l in (other.links or []) if l.get("ticketId") != ticket_id]
@@ -3015,7 +3034,9 @@ def _log_scope(db: Session, user: dict, q, ticket_col):
 @router.get("/task-tickets/notify/log", dependencies=[Depends(require_ticket_supervisor)])
 def get_ticket_notify_log(ticket_id: str = "", status: str = "", limit: int = 20, offset: int = 0,
                           user: dict = Depends(require_manager), db: Session = Depends(get_db)):
-    q = _log_scope(db, user, db.query(models.TicketEmailLog), models.TicketEmailLog.ticket_id)
+    # The stored email bodies are for retries, not this list - never loaded here.
+    q = _log_scope(db, user, db.query(models.TicketEmailLog).options(defer(models.TicketEmailLog.html)),
+                   models.TicketEmailLog.ticket_id)
     if ticket_id:
         q = q.filter(models.TicketEmailLog.ticket_id == ticket_id)
     if status:

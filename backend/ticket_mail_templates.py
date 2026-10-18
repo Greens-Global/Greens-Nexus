@@ -252,7 +252,9 @@ def created_email_triage(*, t: dict, base_url: str, logo_url: str) -> tuple[str,
     return subject, html
 
 
-def approval_email(*, t: dict, base_url: str, logo_url: str) -> tuple[str, str]:
+def approval_email(*, t: dict, base_url: str, logo_url: str, for_requester: bool = False) -> tuple[str, str]:
+    """`for_requester`: the approver has no desk access, so the button opens
+    the ticket in Support (their entry point) rather than the Tickets module."""
     subject = _ticket_subject(t)
     html = ticket_email_html(
         ticket_code=t["code"], ticket_subject=t["subject"], status=t["status"],
@@ -266,7 +268,8 @@ def approval_email(*, t: dict, base_url: str, logo_url: str) -> tuple[str, str]:
             ("Requested By", t.get("requesterName") or t.get("requesterId")),
             ("Created", t.get("createdAtDisplay") or "-"),
         ],
-        cta_label="Review & Approve", cta_url=_ticket_url(base_url, t["id"]), logo_url=logo_url,
+        cta_label="Review & Approve", cta_url=_ticket_url(base_url, t["id"], for_requester=for_requester),
+        logo_url=logo_url,
     )
     return subject, html
 

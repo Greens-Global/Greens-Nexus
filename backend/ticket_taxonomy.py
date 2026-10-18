@@ -238,24 +238,50 @@ PRIORITIES = ("urgent", "high", "medium", "low")
 SLA_HOURS_MAX = 24 * 365
 
 
-def _clean_sla_hours(patch: Any) -> dict:
+def _sla_value(key: str, value: Any):
+    """(hours, None) for a usable SLA target, else (None, why not)."""
+    if isinstance(value, bool):
+        return None, f"The SLA target for {key} must be a number of hours."
+    try:
+        hours = float(value)
+    except (TypeError, ValueError):
+        return None, f"The SLA target for {key} must be a number of hours."
+    if not math.isfinite(hours) or hours <= 0:
+        return None, f"The SLA target for {key} must be more than 0 hours."
+    if hours > SLA_HOURS_MAX:
+        return None, f"The SLA target for {key} can be at most {SLA_HOURS_MAX:,} hours (one year)."
+    return (int(hours) if hours.is_integer() else hours), None
+
+
+def _valid_stored_sla(stored: Any) -> dict:
+    """The stored targets that are usable - an unknown key or a bad value
+    saved before validation existed is dropped (the default fills in)."""
+    out = {}
+    for key, value in (stored if isinstance(stored, dict) else {}).items():
+        hours, _ = _sla_value(key, value) if key in PRIORITIES else (None, "")
+        if hours is not None:
+            out[key] = hours
+    return out
+
+
+def _clean_sla_hours(patch: Any, stored: Any = None) -> dict:
+    """The caller's SLA targets. A value they are CHANGING must be a positive
+    number of hours (422 otherwise). Unknown priorities are dropped, and so is
+    a bad value sent back exactly as it was stored - the editor sends the whole
+    object, so one old bad value must not block every later save."""
     if not isinstance(patch, dict):
         raise SlaHoursError("slaTargetHours must be an object keyed by priority.")
+    stored = stored if isinstance(stored, dict) else {}
     out = {}
     for key, value in patch.items():
         if key not in PRIORITIES:
-            raise SlaHoursError(f"Unknown priority {key!r} - use urgent, high, medium or low.")
-        if isinstance(value, bool):
-            raise SlaHoursError(f"The SLA target for {key} must be a number of hours.")
-        try:
-            hours = float(value)
-        except (TypeError, ValueError):
-            raise SlaHoursError(f"The SLA target for {key} must be a number of hours.")
-        if not math.isfinite(hours) or hours <= 0:
-            raise SlaHoursError(f"The SLA target for {key} must be more than 0 hours.")
-        if hours > SLA_HOURS_MAX:
-            raise SlaHoursError(f"The SLA target for {key} can be at most {SLA_HOURS_MAX:,} hours (one year).")
-        out[key] = int(hours) if hours.is_integer() else hours
+            continue
+        hours, problem = _sla_value(key, value)
+        if hours is None:
+            if key in stored and stored[key] == value:
+                continue
+            raise SlaHoursError(problem)
+        out[key] = hours
     return out
 
 
@@ -499,8 +525,10 @@ def save_config(db: Session, patch: dict, actor_email: str) -> dict:
     if "types" in patch:
         _validate_types_patch(patch["types"])
     merged = get_config(db)
+    stored_sla = merged["slaTargetHours"]
+    merged["slaTargetHours"] = {**_DEFAULT_SLA_HOURS, **_valid_stored_sla(stored_sla)}
     if "slaTargetHours" in patch:
-        merged["slaTargetHours"] = {**merged["slaTargetHours"], **_clean_sla_hours(patch["slaTargetHours"])}
+        merged["slaTargetHours"].update(_clean_sla_hours(patch["slaTargetHours"], stored_sla))
     if "types" in patch:
         # Per-type entries replace wholesale (the editor always sends a type's
         # full entry). A default-gated type whose entry arrives without the

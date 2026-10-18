@@ -369,7 +369,7 @@ class EscalateTests(_Base):
 class SlaSettingsTests(_Base):
     def test_sla_hours_must_be_positive_numbers(self):
         c = self.as_(ADMIN1)
-        for bad in ({"high": -1}, {"high": 0}, {"high": "soon"}, {"high": True}, {"vip": 4}, {"high": 10 ** 9}):
+        for bad in ({"high": -1}, {"high": 0}, {"high": "soon"}, {"high": True}, {"high": 10 ** 9}):
             r = c.put("/task-tickets/taxonomy/settings", json={"slaTargetHours": bad})
             self.assertEqual(r.status_code, 422, bad)
         r = c.put("/task-tickets/taxonomy/settings", json={"slaTargetHours": {"high": 12}})
@@ -469,6 +469,138 @@ class EmailTests(_Base):
         self.assertEqual(ticket_notify._fmt("2026-10-18"), "10/18/2026")
         self.assertEqual(ticket_notify._fmt("not a date"), "")
         self.assertNotIn("UTC", ticket_notify._fmt("2026-10-18T19:30:00Z"))
+
+
+class FollowUpReviewTests(_Base):
+    """The second review pass on PR #643."""
+
+    def _log(self, t, **kw):
+        row = models.TicketEmailLog(id=gen_id(), ticket_id=t.id, ticket_code=t.code, event_type="created",
+                                    event_version=1, idempotency_key=f"{t.id}:created:1:{gen_id()}",
+                                    recipient=REQ, recipient_role="requester", subject="S",
+                                    created_at=now_iso(), **kw)
+        self.db.add(row)
+        self.db.commit()
+        return row
+
+    # ── 1. one row, one send ────────────────────────────────────────────────
+    def test_a_row_is_claimed_by_exactly_one_worker(self):
+        t = self.ticket_row(code="000050")
+        row = self._log(t, status="pending", attempts=0, html="<p>x</p>", updated_at=now_iso())
+        other = database.SessionLocal()
+        self.addCleanup(other.close)
+        twin = other.get(models.TicketEmailLog, row.id)
+        self.assertTrue(ticket_notify._claim_send(self.db, row, "pending"))
+        self.assertFalse(ticket_notify._claim_send(other, twin, "pending"))   # the second worker loses
+        self.assertEqual((row.status, row.attempts), ("sending", 1))
+
+    def test_a_slow_batch_is_not_double_sent_by_the_sweep(self):
+        """The request's background task claims each row as it reaches it; a
+        row whose claim is fresh is left alone by the sweep, and a row the
+        sweep took is skipped by the task."""
+        t = self.ticket_row(code="000051")
+        fresh = self._log(t, status="sending", attempts=1, html="<p>a</p>", updated_at=now_iso())
+        old = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+        waiting = self._log(t, status="pending", attempts=0, html="<p>b</p>", updated_at=old)
+        sent = []
+        with patch("graph_mail.send_mail", side_effect=lambda **kw: sent.append(kw["html"]) or {}):
+            ticket_notify._retry_failed_once(self.db)            # sweep: takes only the stale one
+            ticket_notify._deliver_row(self.db, waiting, t, ticket_notify.get_settings(self.db))  # task arrives late
+        self.assertEqual(sent, ["<p>b</p>"])
+        self.db.expire_all()
+        self.assertEqual(self.db.get(models.TicketEmailLog, fresh.id).status, "sending")
+
+    # ── 6. bodies are not kept forever ──────────────────────────────────────
+    def test_the_body_is_cleared_when_attempts_run_out(self):
+        t = self.ticket_row(code="000052")
+        last = self._log(t, status="failed", attempts=ticket_notify.MAX_ATTEMPTS - 1, html="<p>c</p>",
+                         updated_at=now_iso())
+        old = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+        stuck = self._log(t, status="retrying", attempts=ticket_notify.MAX_ATTEMPTS, html="<p>d</p>", updated_at=old)
+        with patch("graph_mail.send_mail", side_effect=graph_mail.GraphMailError("down")):
+            ticket_notify._retry_failed_once(self.db)
+        self.db.expire_all()
+        for rid in (last.id, stuck.id):
+            r = self.db.get(models.TicketEmailLog, rid)
+            self.assertEqual((r.status, r.html), ("failed", ""), rid)
+
+    # ── 3. the approver finds it in Support ─────────────────────────────────
+    def test_a_pending_approver_finds_it_in_support_and_is_sent_there(self):
+        t = self.file(type="access_request")
+        sent = []
+        with patch("graph_mail.send_mail", side_effect=lambda **kw: sent.append(kw) or {}):
+            r = self.as_(ADMIN1).post(f"/task-tickets/{t['id']}/request-approval", json={"approver_email": APPROVER})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertIn(t["id"], [x["id"] for x in self.as_(APPROVER).get("/task-tickets?mine=true").json()])
+        import json
+        bell = next(n for n in self.db.query(models.NexusNotification).all()
+                    if n.recipient == APPROVER and n.type == "task_ticket_needs_approval")
+        self.assertEqual(json.loads(bell.action)["view"], "support")
+        mail = next(kw for kw in sent if kw["to"] == [APPROVER])
+        self.assertIn(f"/support?ticket={t['id']}", mail["html"])
+
+    def test_a_desk_approver_keeps_the_tickets_link(self):
+        t = self.file(type="access_request")
+        self.db.add(models.NexusEmployee(id=gen_id(), work_email="deskappr@greensglobal.com", first_name="D",
+                                         company="co1", status="active", identity_type="internal"))
+        self.db.add(models.NexusGroupMember(group_id="desk", email="deskappr@greensglobal.com"))
+        self.db.commit()
+        self.as_(ADMIN1).post(f"/task-tickets/{t['id']}/request-approval",
+                              json={"approver_email": "deskappr@greensglobal.com"})
+        import json
+        bell = next(n for n in self.db.query(models.NexusNotification).all()
+                    if n.recipient == "deskappr@greensglobal.com" and n.type == "task_ticket_needs_approval")
+        self.assertEqual(json.loads(bell.action)["view"], "tickets")
+
+    # ── 2. unlink ───────────────────────────────────────────────────────────
+    def test_unlink_through_the_route(self):
+        a = self.file(who=AGENT)
+        b = self.file(who=AGENT, subject="Second")
+        c = self.as_(AGENT)
+        self.assertEqual(c.post(f"/task-tickets/{a['id']}/links", json={"ticket_id": b["id"]}).status_code, 201)
+        r = c.delete(f"/task-tickets/{b['id']}/links/{a['id']}")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual((self.row(a["id"]).links, self.row(b["id"]).links), ([], []))
+
+    # ── 4. a clashed id's thread is never read as the ticket's ──────────────
+    def test_comment_readers_skip_a_ticket_sharing_a_tasks_id(self):
+        task = models.Task(id=gen_id(), code="TASK-1", title="Payroll")
+        self.db.add(task)
+        self.db.add(models.TaskComment(id=gen_id(), task_id=task.id, author_email=ADMIN1, body="<p>salaries</p>",
+                                       created_at=now_iso(), internal=False))
+        self.db.commit()
+        self.ticket_row(id=task.id, code="000053")
+        self.assertEqual(ticket_notify._comment_thread(self.db, task.id), [])
+        self.assertNotIn(task.id, T._latest_comments(self.db, internal_ok=True))
+        self.assertNotIn(task.id, T._latest_comments(self.db, internal_ok=True, ticket_ids=[task.id]))
+        from routers import property_tickets as P
+        self.assertEqual(P._latest_public(self.db, [task.id]), {})
+
+    # ── 5. one bad old SLA value cannot block every save ────────────────────
+    def test_a_bad_stored_sla_value_does_not_block_saves(self):
+        import json
+        self.db.add(models.NexusSetting(key="ticket_taxonomy_config",
+                                        value=json.dumps({"slaTargetHours": {"medium": "x", "vip": 3}})))
+        self.db.commit()
+        c = self.as_(ADMIN1)
+        # Another section saved: fine, and the bad value is gone.
+        r = c.put("/task-tickets/taxonomy/settings", json={"companyField": {"enabled": False}})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["slaTargetHours"]["medium"], 72)
+        self.assertNotIn("vip", r.json()["slaTargetHours"])
+
+    def test_the_bad_value_sent_back_unchanged_is_dropped_but_a_new_bad_one_is_422(self):
+        import json
+        self.db.add(models.NexusSetting(key="ticket_taxonomy_config",
+                                        value=json.dumps({"slaTargetHours": {"medium": "x"}})))
+        self.db.commit()
+        c = self.as_(ADMIN1)
+        r = c.put("/task-tickets/taxonomy/settings",
+                  json={"slaTargetHours": {"urgent": 4, "high": 48, "medium": "x", "low": 168}})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual((r.json()["slaTargetHours"]["urgent"], r.json()["slaTargetHours"]["medium"]), (4, 72))
+        self.assertEqual(c.put("/task-tickets/taxonomy/settings",
+                               json={"slaTargetHours": {"high": "soon"}}).status_code, 422)
 
 
 class TitleCaseTests(_Base):
