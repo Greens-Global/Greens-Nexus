@@ -3752,3 +3752,5 @@ from routers import shift_ical  # noqa: E402
 app.include_router(shift_ical.router)                # Shifts Phase 3a: the personal calendar subscribe feed (signed link, no login on the .ics) (Neil, 10/14)
 from routers import retro_pay  # noqa: E402
 app.include_router(retro_pay.router)                 # People > Time > Payroll > Retro Pay: back-dated raises owed on finalized periods, read only (Neil, 10/17)
+from routers import payroll_readiness as payroll_readiness_router  # noqa: E402
+app.include_router(payroll_readiness_router.router)  # People > Time > Payroll: Payroll Readiness - who is not ready, variance and anomalies for a pay period (Neil, 10/17)

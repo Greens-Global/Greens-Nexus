@@ -25,6 +25,7 @@ import { useUnsavedGuard } from '../lib/useUnsavedGuard';
 import UnsavedChangesPrompt from './UnsavedChangesPrompt';
 import { formatDistance, formatAccuracy } from '../lib/distance';
 import { useRole } from '../contexts/RoleContext';
+import PayrollReadiness from './PayrollReadiness';
 
 // Launch (Neil, 10/16): timecards are approved by Agree in the timesheet
 // review and signed in Nexus Sign, so the per-day / per-period Approve
@@ -754,6 +755,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
       {/* Shifts moved out to its own module in My Desk (Sep 29) - views/Shifts.jsx. */}
 
       {/* Payroll - per-employee, per-pay-period editable timecard */}
+      {view === 'payroll' && <PayrollReadiness onOpenTimecard={openTimecard} toastOk={toastOk} toastErr={toastErr} />}
       {view === 'payroll' && <PayrollTimecard key={payrollTarget.key} toastOk={toastOk} toastErr={toastErr} initialEmail={payrollEmail}
         initialStart={payrollTarget.start} initialPayType={payrollTarget.payType} />}
       {/* Retro Pay (Oct 17): back-dated rate changes on finalized periods. Pay - never the manager tier. */}
