@@ -36,7 +36,8 @@ import { SignModal } from './ESign';
 // again per item). Flagged rows stay for one-by-one review and say why.
 
 const rowKey = (r) => r.id || `${r.employeeEmail}|${r.periodStart}`;
-const BULK_MAX = 100;   // the server's cap per click (timesheet_reviews.BULK_MAX)
+const BULK_MAX = 100;   // per click; sent BULK_CHUNK per request (the server caps a call at 25)
+const BULK_CHUNK = 10;   // per request - see approveAllClean
 const isClean = (r) => !r.agreeBlocker && r.reviewFlag === '';
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
@@ -89,8 +90,16 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount 
   async function approveAllClean() {
     setBulkBusy(true);
     try {
-      const out = await api.timesheetReviewApproveBulk(
-        going.map(r => (r.id ? { id: r.id } : { email: r.employeeEmail, start: r.periodStart })), '');
+      // Sent BULK_CHUNK at a time: each approval builds the PDF and sends the
+      // signing email inside the request, so one call for 100 could run past
+      // Azure's ~230s request limit. The server caps a call at 25 too.
+      const items = going.map(r => (r.id ? { id: r.id } : { email: r.employeeEmail, start: r.periodStart }));
+      const out = { approved: 0, skipped: 0, failed: 0, results: [] };
+      for (let i = 0; i < items.length; i += BULK_CHUNK) {
+        const part = await api.timesheetReviewApproveBulk(items.slice(i, i + BULK_CHUNK), '');
+        out.approved += part?.approved || 0; out.skipped += part?.skipped || 0; out.failed += part?.failed || 0;
+        out.results.push(...(part?.results || []));
+      }
       const parts = [`${plural(out?.approved || 0, 'time sheet', 'time sheets')} approved and sent to sign`];
       if (out?.skipped) parts.push(`${out.skipped} skipped`);
       if (out?.failed) parts.push(`${out.failed} failed`);

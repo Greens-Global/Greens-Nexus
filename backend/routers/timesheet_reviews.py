@@ -48,7 +48,7 @@ class ApproveBulkIn(BaseModel):
 
 # One click approves at most this many (Oct 17). Each approval builds the
 # PDF and sends the envelope, so a bigger batch would outlive the request.
-BULK_MAX = 100
+BULK_MAX = 25   # per call: each approval builds a PDF and sends email in-request (Azure ~230s limit); the screen sends 10 at a time
 
 
 class FinalizeUnsignedIn(BaseModel):
