@@ -133,6 +133,31 @@ describe('TopHeader search', () => {
     } finally { vi.useRealTimers(); }
   });
 
+  it('a person opens their page in Tasks - their tasks - not the contact card (Neil, Oct 18)', async () => {
+    vi.useFakeTimers();
+    const nav = vi.fn(), person = vi.fn(), contact = vi.fn();
+    window.addEventListener('nexus:navigate', nav);
+    window.addEventListener('nexus:tasks-person', person);
+    window.addEventListener('nexus:contact', contact);
+    try {
+      header();
+      fireEvent.focus(bar());
+      fireEvent.change(bar(), { target: { value: 'charmi' } });
+      await act(async () => { vi.advanceTimersByTime(200); await Promise.resolve(); });
+      fireEvent.click(screen.getByText('Charmi Patel'));
+      await act(async () => { vi.advanceTimersByTime(1); });
+      expect(nav.mock.calls.at(-1)[0].detail).toEqual({ view: 'tasks', sub: 'home' });
+      expect(person).toHaveBeenCalledTimes(1);
+      expect(person.mock.calls[0][0].detail).toEqual({ email: 'charmi@x.com', name: 'Charmi Patel' });
+      expect(contact).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener('nexus:navigate', nav);
+      window.removeEventListener('nexus:tasks-person', person);
+      window.removeEventListener('nexus:contact', contact);
+      vi.useRealTimers();
+    }
+  });
+
   it('Esc clears and closes; the clear button reads Clear', () => {
     header();
     fireEvent.change(bar(), { target: { value: 'tasks' } });
