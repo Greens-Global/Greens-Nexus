@@ -2681,8 +2681,13 @@ export function TicketActionDialog({ mode, ticket, targetStatus = 'resolved', on
       : mode === 'confirm'
         ? { status: 'closed', csatRating: rating, csatComment: comment.trim() }
         : { status: 'reopened', reopen_reason: reason.trim() };
-    try { await onSubmit(patch); onClose(); }
-    catch (e) { appDialog.alert(e?.message || String(e)); setBusy(false); }
+    // onSubmit resolving to exactly `false` means nothing was saved (the
+    // person chose Keep Editing over someone else's change) - stay open
+    // rather than closing as if it had worked.
+    try {
+      if ((await onSubmit(patch)) === false) { setBusy(false); return; }
+      onClose();
+    } catch (e) { appDialog.alert(e?.message || String(e)); setBusy(false); }
   };
   return (
     // The shared popup size (60vw, at least 60vh; a full-screen sheet on
@@ -2927,6 +2932,9 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   // held here (Oct 2026 review) - see changedUnderneath below.
   const baseRef = useRef(null);
   useEffect(() => { if (t && !baseRef.current) baseRef.current = t; }, [t]);
+  // Pasted images already stored by a Done whose save then failed - filed
+  // under Attachments by the save that lands (see commit).
+  const storedImagesRef = useRef([]);
   // Not in the list that has landed: the list may simply predate the ticket
   // (a bell click on a ticket raised seconds ago - the background refresh is
   // once a minute), so pull the tickets once more before saying it is gone.
@@ -3129,14 +3137,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   // Returns false when nothing went out because the person chose not to
   // overwrite someone else's change.
   const commit = async (extra = {}) => {
-    const body = { ...pending, ...extra };
-    if (hasReply) {
-      // A reply being written AND a dialog's own comment (Mark Resolved's
-      // "What fixed it?") go out as one reply, the dialog's line last.
-      body.comment = extra.comment ? `${reply.body}${extra.comment}` : reply.body;
-      body.comment_internal = reply.internal;
-    }
-    if (!Object.keys(body).length) return true;
+    if (!Object.keys(pending).length && !hasReply && !Object.keys(extra).length) return true;
     // Someone else saved this ticket while these edits were held, and a field
     // being sent is one they changed: ask before overwriting their change.
     const clashes = changedUnderneath(Object.keys(pending));
@@ -3148,17 +3149,35 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
     // private ticket-evidence bucket and the HTML points at that copy, the
     // way the create form does it - so the ticket, its activity and its
     // emails never carry a megabyte of base64. Each one is also filed under
-    // Attachments. A failed upload keeps the inline copy - never worse.
-    const stored = [];
+    // Attachments once the save lands. A failed upload keeps the inline copy
+    // - never worse. The stored copy goes straight back into the held edit,
+    // so a save that fails and is retried does not upload the same images
+    // again.
     const upload = async (f) => {
       const url = await uploadTicketEvidence(f, 'image');
-      stored.push({ name: f.name, size: `${Math.max(1, Math.round(f.size / 1024))} KB`, kind: 'image', url });
+      storedImagesRef.current.push({ name: f.name, size: `${Math.max(1, Math.round(f.size / 1024))} KB`, kind: 'image', url });
       return { url };
     };
-    if (body.comment) body.comment = await externalizeInlineImages(body.comment, upload);
-    if (body.description) body.description = await externalizeInlineImages(body.description, upload);
+    let replyBody = reply.body;
+    if (hasReply) {
+      replyBody = await externalizeInlineImages(reply.body, upload);
+      if (replyBody !== reply.body) setReply((r) => ({ ...r, body: replyBody }));
+    }
+    let description = pending.description;
+    if (description) {
+      description = await externalizeInlineImages(description, upload);
+      if (description !== pending.description) setPending((p) => ({ ...p, description }));
+    }
+    const body = { ...pending, ...(description !== undefined ? { description } : {}), ...extra };
+    if (hasReply) {
+      // A reply being written AND a dialog's own comment (Mark Resolved's
+      // "What fixed it?") go out as one reply, the dialog's line last.
+      body.comment = extra.comment ? `${replyBody}${extra.comment}` : replyBody;
+      body.comment_internal = reply.internal;
+    }
     const saved = await updateTicket(t.id, body);
-    for (const a of stored) api.addTicketAttachment(t.id, a).catch(() => {});
+    for (const a of storedImagesRef.current) api.addTicketAttachment(t.id, a).catch(() => {});
+    storedImagesRef.current = [];
     baseRef.current = saved && saved.id ? saved : null;
     setPending({});
     setReply({ body: '', internal: false });
@@ -3670,7 +3689,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
         // Self-resolve is the requester's own finishing move too.
         // The satisfaction survey raised by Done closes the drawer once saved.
         onSubmit={(p) => (dialog.mode === 'resolve' ? stage(p)
-          : dialog.viaDone ? commit(p).then((ok) => { if (ok) onClose(); }) : commit(p))} onClose={() => setDialog(null)} />
+          : dialog.viaDone ? commit(p).then((ok) => { if (ok) onClose(); return ok; }) : commit(p))} onClose={() => setDialog(null)} />
     )}
     {requestingControl && (
       <LiveView assist email={t.requesterId} name={nameOf(t.requesterId) || t.requesterId} onClose={() => setRequestingControl(false)} />

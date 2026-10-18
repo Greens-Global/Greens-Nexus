@@ -4,12 +4,14 @@
 import { Ticket, Bug, AlertOctagon, Wrench, HelpCircle, ClipboardList, Lightbulb, RefreshCw, KeyRound, ShieldAlert, Timer, MessageSquareWarning } from 'lucide-react';
 import { fmtDate as fmtDateRaw } from '../tasks/lib';
 import { NX } from '../tasks/theme';
-import { localIsoDate } from '../lib/datetime';
 
 export const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '-');
-// The viewer's LOCAL day - see localIsoDate (lib/datetime.js). The UTC day
-// flipped a ticket to breached hours early on a US evening.
-export const today = () => localIsoDate();
+// The UTC day, on purpose: the server decides an SLA breach (and whether the
+// requester's Escalate is allowed) by the UTC date (_sla_breached in
+// backend/routers/tickets.py), and the screen must agree with it. A following
+// PR moves BOTH client and server to SLA datetimes together - do not switch
+// this one to the local day on its own.
+export const today = () => new Date().toISOString().slice(0, 10);
 
 // ── Ticket issue types ───────────────────────────────────────────────────────
 // `hint` is the one-line, plain-English "which one am I?" shown under the Type
@@ -379,13 +381,13 @@ export const CLOSED_STATES = ['resolved', 'closed'];
 // routers/tickets.py; this copy is for the same-request UI preview and for
 // slaState's breach/at-risk math), and to flag breaches/at-risk. ──
 export const SLA_TARGET_HOURS = { urgent: 24, high: 48, medium: 72, low: 168 };
-export const slaDueFromPriority = (priority) => localIsoDate(new Date(Date.now() + (SLA_TARGET_HOURS[priority] ?? 72) * 3600 * 1000));
+export const slaDueFromPriority = (priority) => new Date(Date.now() + (SLA_TARGET_HOURS[priority] ?? 72) * 3600 * 1000).toISOString().slice(0, 10);
 // 'breached' | 'at_risk' | 'ok' | 'none'
 export function slaState(t) {
   if (!t.slaDueOn || CLOSED_STATES.includes(t.status)) return 'none';
   const now = today();
   if (t.slaDueOn < now) return 'breached';
-  const soon = localIsoDate(new Date(), 1);
+  const soon = new Date(Date.now() + 24 * 3600 * 1000).toISOString().slice(0, 10);
   if (t.slaDueOn <= soon) return 'at_risk';
   return 'ok';
 }

@@ -53,7 +53,8 @@ vi.mock('../tasks/TasksContext', () => ({
     nameOf: (e) => e, updateTicket, refresh: vi.fn(), reloadTickets }),
 }));
 
-const { TicketDrawer } = await import('./TicketsView');
+const { TicketDrawer, TicketActionDialog } = await import('./TicketsView');
+const { uploadTicketEvidence } = await import('./evidenceUpload');
 const { dialog } = await import('../ui/dialog');
 
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
@@ -88,6 +89,41 @@ describe('TicketDrawer - pasted screenshots', () => {
     const sent = updateTicket.mock.calls[0][1];
     expect(sent.comment).toContain('https://store/ticket-evidence/pasted.png');
     expect(sent.comment).not.toContain('data:image');
+  });
+});
+
+describe('TicketDrawer - a failed save', () => {
+  it('does not upload the same pasted image again on the retry', async () => {
+    const told = vi.spyOn(dialog, 'alert').mockResolvedValue(undefined);
+    uploadTicketEvidence.mockClear();
+    updateTicket.mockImplementationOnce(() => Promise.reject(new Error('Network down')));
+    const onClose = vi.fn();
+    render(<TicketDrawer ticketId="t1" onClose={onClose} startEditing />);
+    fireEvent.change(screen.getByLabelText('Describe the issue'), { target: { value: `<p>See</p><img src="${PNG}">` } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Done' })); });
+    expect(told).toHaveBeenCalledWith(expect.stringMatching(/Network down/));
+    expect(onClose).not.toHaveBeenCalled();
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Done' })); });
+    expect(updateTicket).toHaveBeenCalledTimes(2);
+    expect(uploadTicketEvidence).toHaveBeenCalledTimes(1);
+    expect(updateTicket.mock.calls[1][1].description).toContain('https://store/ticket-evidence/pasted.png');
+    // Filed under Attachments once, by the save that landed.
+    expect(apiMock.addTicketAttachment).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalled();
+  });
+});
+
+describe('TicketActionDialog - nothing saved', () => {
+  it('stays open when the save was declined', async () => {
+    const onClose = vi.fn();
+    const onSubmit = vi.fn(() => Promise.resolve(false));
+    render(<TicketActionDialog mode="reopen" ticket={BASE} onSubmit={onSubmit} onClose={onClose} />);
+    fireEvent.change(screen.getByPlaceholderText(/light went out again/), { target: { value: 'Still broken' } });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Reopen' })); });
+    expect(onSubmit).toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: 'Reopen' })).not.toBeDisabled();
   });
 });
 

@@ -593,7 +593,15 @@ export function TasksProvider({ children }) {
     // The ticket list alone (Oct 2026 review): an approval decision or a
     // deleted comment changes one ticket, and `refresh` (loadCore) re-pulled
     // the whole task workspace for it.
-    reloadTickets: () => reloadTicketsInto(setTickets),
+    // Same stale guard as refreshTickets: a local ticket write that lands
+    // while this fetch is on the wire wins, and the older answer is dropped.
+    reloadTickets: async () => {
+      const gen = ticketGenRef.current;
+      let rows;
+      try { rows = await api.getTaskTickets(); } catch { return; }
+      if (gen !== ticketGenRef.current || !Array.isArray(rows)) return;
+      setTickets(rows);
+    },
     // A task made from a ticket (Oct 14 2026): the server links both sides in
     // one save and hands both back.
     createTaskFromTicket: async (id) => {
