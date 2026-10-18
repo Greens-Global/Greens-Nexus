@@ -323,7 +323,7 @@ def _deliver_code(to_email: str, code: str, file_name: str) -> None:
         print("[pfs-lock] Graph mail not configured - PFS access code NOT sent (fail-closed)")
         raise HTTPException(status_code=503, detail="Access codes cannot be emailed from this deployment yet.")
     try:
-        _send([to_email], "Your Nexus PFS access code", _code_email(code, file_name))
+        _send([to_email], "Your Nexus PFS Access Code", _code_email(code, file_name))
     except graph_mail.GraphMailError as e:
         print(f"[pfs-lock] code email failed: {e}")
         raise HTTPException(status_code=502, detail="Could not email the code. Please try again in a moment.")
@@ -348,7 +348,7 @@ def notify_borrowers(profile_id: str, viewer_email: str, at_iso: str) -> None:
             sent = True
         elif graph_mail.graph_configured():
             try:
-                _send(to, "Your personal financial statement was accessed", _notice_email(viewer, when))
+                _send(to, "Your Personal Financial Statement Was Accessed", _notice_email(viewer, when))
                 sent = True
             except graph_mail.GraphMailError as e:
                 error = str(e)[:200]

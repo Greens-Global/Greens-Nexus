@@ -1181,7 +1181,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
       type: 'listItem',
       content: [{
         type: 'paragraph', attrs: { indent: Math.max(0, e.level - 1) },
-        content: [{ type: 'text', text: `${e.text} — p.${e.page}`, marks: [{ type: 'link', attrs: { href: `#toc:${e.pageId}:${e.name}` } }] }],
+        content: [{ type: 'text', text: `${e.text} - p.${e.page}`, marks: [{ type: 'link', attrs: { href: `#toc:${e.pageId}:${e.name}` } }] }],
       }],
     }));
     activeEditor.chain().focus('end').insertContent([
@@ -2378,7 +2378,7 @@ export default function DocumentBuilder({ docId, kind = 'document', employees = 
                 </div>
                 <div>
                   <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    Page Colour
+                    Page Color
                     <input type="color" value={pageSetup.pageColor || '#ffffff'}
                       onChange={e => updatePageSetup({ pageColor: e.target.value === '#ffffff' ? null : e.target.value })}
                       style={{ width: 24, height: 24, padding: 0, border: '1px solid var(--line)', borderRadius: 5, cursor: 'pointer' }} />

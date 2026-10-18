@@ -1052,7 +1052,7 @@ export function PdfEditor({ file, url, fileName, onSave, onClose, toastErr }) {
                 border: color === c ? `2px solid ${SEL}` : c === '#ffffff' ? '1.5px solid var(--line)' : '1.5px solid transparent',
                 boxShadow: color === c ? '0 0 0 2px var(--card)' : 'none' }} />
           ))}
-          <input type="color" value={color} onChange={e => changeColor(e.target.value)} title="Custom colour"
+          <input type="color" value={color} onChange={e => changeColor(e.target.value)} title="Custom color"
             style={{ width: 24, height: 22, padding: 0, border: '1px solid var(--line)', borderRadius: 6, background: 'var(--card)', cursor: 'pointer' }} />
           <span style={{ width: 1, height: 20, background: 'var(--line)', margin: '0 4px' }} />
           <label style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--muted)' }}>Stroke</label>

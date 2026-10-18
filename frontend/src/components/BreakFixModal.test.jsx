@@ -99,7 +99,7 @@ describe('BreakFixModal', () => {
     await waitFor(() => expect(timeAddPunch).toHaveBeenCalledWith(expect.objectContaining({
       employee_email: 'aarav@x.com', kind: 'break_end', note: 'Back at 1 PM per Aarav' })));
     expect(timePunchRequestCreate).not.toHaveBeenCalled();
-    expect(toastOk).toHaveBeenCalledWith('Break end added - the timecard is updated.');
+    expect(toastOk).toHaveBeenCalledWith('Break end added - the time sheet is updated.');
     expect(onDone).toHaveBeenCalled();
   });
 

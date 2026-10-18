@@ -77,7 +77,7 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount 
       const out = await api.timesheetReviewSign(s.id);
       if (out?.myPartyId) setSigning(out.myPartyId);
       window.dispatchEvent(new CustomEvent('nexus:timesheet-review-changed'));
-    } catch (e) { toastErr?.(e?.message || 'Could not open the timesheet to sign.'); }
+    } catch (e) { toastErr?.(e?.message || 'Could not open the time sheet to sign.'); }
     setBusyId('');
   }
 
@@ -96,7 +96,7 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount 
         <div style={card}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
             <ClipboardCheck size={15} style={{ color: 'var(--wk-brand)' }} />
-            <span style={{ fontWeight: 800, fontSize: 13.5 }}>Timesheets to Review</span>
+            <span style={{ fontWeight: 800, fontSize: 13.5 }}>Time Sheets to Review</span>
             <span style={{ fontSize: 12, color: 'var(--muted)' }}>{rows.length} waiting on you</span>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -151,19 +151,19 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount 
         <div style={card}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
             <PenLine size={15} style={{ color: 'var(--wk-brand)' }} />
-            <span style={{ fontWeight: 800, fontSize: 13.5 }}>Timesheets to Sign</span>
+            <span style={{ fontWeight: 800, fontSize: 13.5 }}>Time Sheets to Sign</span>
             <span style={{ fontSize: 12, color: 'var(--muted)' }}>{toSign.length} waiting on your signature</span>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {toSign.map(s => (
               <div key={s.partyId || `resign-${s.id}`} data-sign={s.employeeEmail} style={{ borderTop: '1px solid var(--line)', padding: '10px 0', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                 <div style={{ flex: 1, minWidth: 220 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700 }}>{s.role === 'employee' ? 'Your timesheet' : s.name}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700 }}>{s.role === 'employee' ? 'Your Time Sheet' : s.name}</div>
                   <div style={{ fontSize: 12, color: 'var(--muted)' }}>
                     {formatDate(s.periodStart)} - {formatDate(s.periodEnd)}
                     {s.agreedBy ? ` · agreed by ${s.agreedBy}${s.agreedAt ? ` on ${formatDate(s.agreedAt)}` : ''}` : ''}
                     {` · you sign ${ROLE_WORD[s.role] || ''}`.replace(/ $/, '')}
-                    {s.needsResign ? ' · HR changed the hours - sign the updated timesheet' : ''}
+                    {s.needsResign ? ' · HR changed the hours - sign the updated time sheet' : ''}
                   </div>
                 </div>
                 {/* needsResign (Oct 17): HR changed it while it was out for signature -
@@ -171,7 +171,7 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount 
                 <button type="button" className="primary-btn" disabled={busyId === `resign-${s.id}`}
                   onClick={() => (s.needsResign ? resign(s) : setSigning(s.partyId))}
                   style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                  <FileSignature size={13} /> {s.needsResign ? 'Sign Updated Timesheet' : s.role === 'employee' ? 'Sign & Submit' : 'Review & Sign'}
+                  <FileSignature size={13} /> {s.needsResign ? 'Sign Updated Time Sheet' : s.role === 'employee' ? 'Sign & Submit' : 'Review & Sign'}
                 </button>
               </div>
             ))}

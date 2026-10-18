@@ -60,6 +60,14 @@ def week_bounds(week_start: str) -> tuple:
     return week_start, (d + timedelta(days=6)).isoformat()
 
 
+def _us(iso) -> str:
+    """'2026-10-04' -> '10/04/2026' for report text people read."""
+    try:
+        return date.fromisoformat(str(iso or "")[:10]).strftime("%m/%d/%Y")
+    except ValueError:
+        return str(iso or "")
+
+
 def _now() -> str:
     from datetime import timezone
     return datetime.now(timezone.utc).isoformat()
@@ -173,12 +181,12 @@ def _evidence(project, data: dict) -> str:
     the cost of every regenerate for no added signal."""
     p = [f"Project: {project.name}",
          f"Phase: {project.phase or 'not set'}",
-         f"Week: {data['weekStart']} to {data['weekEnd']}",
+         f"Week: {_us(data['weekStart'])} to {_us(data['weekEnd'])}",
          f"Approved daily logs: {data['stats']['logs']}",
          f"Crew-days: {data['stats']['crewDays']}   Hours: {data['stats']['hours']}",
          ""]
     for l in data["logs"]:
-        p.append(f"--- {l.log_date} ({l.author_email}) ---")
+        p.append(f"--- {_us(l.log_date)} ({l.author_email}) ---")
         if l.notes_raw:
             p.append(f"Worker note: {l.notes_raw}")
         if l.ai_summary:
@@ -261,12 +269,12 @@ def draft_offline(project, data: dict) -> dict:
         if line:
             if not line.endswith("."):
                 line += "."
-            bullets.append(f"{l.log_date}: {line}")
+            bullets.append(f"{_us(l.log_date)}: {line}")
     if not bullets:
         bullets = ["No approved daily logs were filed for this week."]
-    week = f"{data['weekStart']} to {data['weekEnd']}"
+    week = f"{_us(data['weekStart'])} to {_us(data['weekEnd'])}"
     return {
-        "title": f"Construction Update - week of {data['weekStart']}",
+        "title": f"Construction Update - week of {_us(data['weekStart'])}",
         "summary_of_progress": bullets,
         "executive_summary": (
             f"{project.name}, {week}. {data['stats']['logs']} approved daily log(s), "
@@ -386,7 +394,7 @@ def generate(db, project, week_start: str, actor_email: str):
             version=1, created_at=now)
         db.add(r)
 
-    r.title = ai.get("title") or f"Week of {start}"
+    r.title = ai.get("title") or f"Week of {_us(start)}"
     r.sections = assemble(db, project, data, ai)
     r.section_order = [k for k, _ in SECTIONS]
     r.stats = data["stats"]

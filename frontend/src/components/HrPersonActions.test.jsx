@@ -30,7 +30,7 @@ const { PromoteModal, RoleChangeModal } = await import('./HrPersonActions');
 const erin = { id: 'e1', firstName: 'Erin', lastName: 'Lee', company: 'c1', jobTitle: 'IT Dev Associate I' };
 
 describe('PromoteModal', () => {
-  it('reviews the letter, flags signed timesheets, and sends once confirmed', async () => {
+  it('reviews the letter, flags signed time sheets, and sends once confirmed', async () => {
     const onSent = vi.fn();
     render(<PromoteModal employee={erin} canSeePay onClose={() => {}} onSent={onSent} toastErr={() => {}} />);
     await waitFor(() => expect(screen.getByText(/IT Dev Associate II - IT/)).toBeTruthy());

@@ -923,8 +923,8 @@ def _spawn_next_occurrence(db: Session, t: models.Task, user: dict,
         if _who == user["email"].lower():
             continue
         task_notify(db, kind="task_assigned", for_email=_who,
-                    title="Recurring task due",
-                    body=f"{nxt.title} (due {next_due})", task_id=nid,
+                    title="Recurring Task Due",
+                    body=f"{nxt.title} (due {_us(next_due)})", task_id=nid,
                     nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
     return nxt
 
@@ -953,7 +953,7 @@ def _tell_ticket_task_done(db: Session, t: models.Task, user: dict) -> None:
     who = (tk.assignee_email or "").lower()
     if who and who != actor:
         task_notify(db, kind="ticket_tasks_done", for_email=who,
-                    title="All tasks for a ticket are done",
+                    title="All Tasks for a Ticket Are Done",
                     body=f"{ticket_no(tk.code)} · {tk.subject} - it may be ready to resolve", ticket_id=tk.id,
                     nexus_action={"view": "tickets", "label": "View ticket"})
 
@@ -1791,7 +1791,7 @@ def _create_task(body: TaskCreate, background_tasks: BackgroundTasks, user: dict
     for who in task_assignees(t):
         if who != user["email"].lower():
             task_notify(db, kind="task_assigned", for_email=who,
-                        title="You were assigned a task",
+                        title="You Were Assigned a Task",
                         body=f"{t.title}", task_id=tid,
                         nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
     if before_commit is not None:
@@ -1935,7 +1935,7 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
         for who in (now_assignees - prev_assignees):
             if who != user["email"].lower():
                 task_notify(db, kind="task_assigned", for_email=who,
-                            title="You were assigned a task",
+                            title="You Were Assigned a Task",
                             body=f"{t.title}", task_id=t.id,
                             nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
     if t.completed and not prev_completed:
@@ -1969,7 +1969,7 @@ def update_task(task_id: str, upd: TaskUpdate, background_tasks: BackgroundTasks
         req = task_due.requester_of(t)
         if req and req != user["email"].lower():
             task_notify(db, kind="task_due_changed", for_email=req,
-                        title="Due date extended" if due_entry["extension"] else "Due date changed",
+                        title="Due Date Extended" if due_entry["extension"] else "Due Date Changed",
                         body=f"{t.title} - {_due_change_label(t, due_entry)}", task_id=t.id,
                         nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
     elif "due_on" in data:
@@ -2054,7 +2054,7 @@ def reschedule_task(task_id: str, body: RescheduleBody, background_tasks: Backgr
                     req = task_due.requester_of(d)
                     if req and req != user["email"].lower():
                         task_notify(db, kind="task_due_changed", for_email=req,
-                                    title="Due date moved", body=f"{d.title} - moved with {t.title}", task_id=d.id,
+                                    title="Due Date Moved", body=f"{d.title} - moved with {t.title}", task_id=d.id,
                                     nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
                 db.commit()
         except Exception as e:   # the dependents' rows are uncommitted; the task's own move stands
@@ -2554,12 +2554,12 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
         if len(assigned) == 1:
             one = assigned[0]
             task_notify(db, kind="task_assigned", for_email=email,
-                        title="You were assigned a task",
+                        title="You Were Assigned a Task",
                         body=f"{one.title}", task_id=one.id,
                         nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
         else:
             task_notify(db, kind="task_assigned", for_email=email,
-                        title=f"You were assigned {len(assigned)} tasks",
+                        title=f"You Were Assigned {len(assigned)} Tasks",
                         body=", ".join(t.title or "Untitled task" for t in assigned[:5])
                              + (f" and {len(assigned) - 5} more" if len(assigned) > 5 else ""),
                         nexus_action={"view": "tasks", "sub": "mine", "label": "View tasks"})
@@ -2568,7 +2568,7 @@ def bulk_update(body: BulkUpdate, user: dict = Depends(get_current_user), db: Se
             continue
         one = asked[0] if len(asked) == 1 else None
         task_notify(db, kind="task_due_extension_requested", for_email=email,
-                    title="Extension needs your approval" if one else f"{len(asked)} extensions need your approval",
+                    title="Extension Needs Your Approval" if one else f"{len(asked)} Extensions Need Your Approval",
                     body=(f"{one.title} - {task_due.us_date(one.due_on)} → "
                           f"{task_due.us_date((one.due_proposal or {}).get('dueOn') or '')}") if one
                          else ", ".join(t.title or "Untitled task" for t in asked[:5])
@@ -2695,7 +2695,7 @@ def edit_comment(comment_id: str, upd: CommentUpdate, background_tasks: Backgrou
             c.resolved_at, c.resolved_by = "", ""
             if who and who != me:
                 task_notify(db, kind="task_activity", for_email=who, main_bell=True,
-                            title="A comment was assigned to you", body=f"{t.title}", task_id=t.id,
+                            title="A Comment Was Assigned to You", body=f"{t.title}", task_id=t.id,
                             nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
                 # Same email the person gets when the comment is posted to them.
                 background_tasks.add_task(notify_task_event, t.id, "comment_assigned", me,
@@ -2719,7 +2719,7 @@ def edit_comment(comment_id: str, upd: CommentUpdate, background_tasks: Backgrou
                 author = (c.author_email or "").lower()
                 if upd.resolved and author and author != me:
                     task_notify(db, kind="task_activity", for_email=author,
-                                title="Your comment was resolved", body=f"{t.title}", task_id=t.id,
+                                title="Your Comment Was Resolved", body=f"{t.title}", task_id=t.id,
                                 nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
     if t:
         t.modified_at = now_iso()   # so a delta fetch (GET /tasks/delta) picks this task up
@@ -2756,7 +2756,7 @@ def react_to_comment(comment_id: str, body: ReactionBody, user: dict = Depends(g
         author = (c.author_email or "").lower()
         if author and author != me:
             task_notify(db, kind="task_activity", for_email=author,
-                        title=f"{emoji} on your comment", body=f"{t.title}", task_id=t.id,
+                        title=f"{emoji} on Your Comment", body=f"{t.title}", task_id=t.id,
                         nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
     if people:
         reactions[emoji] = people
@@ -3145,7 +3145,7 @@ def add_checklist_items(task_id: str, body: ChecklistItemCreate, user: dict = De
     _recount_checklist(db, t)
     if who and who != user["email"].lower():
         task_notify(db, kind="task_activity", for_email=who, main_bell=True,
-                    title="You were given a checklist item",
+                    title="You Were Given a Checklist Item",
                     body=f"{titles[0]} - {t.title}" if len(titles) == 1 else f"{len(titles)} items - {t.title}",
                     task_id=t.id, nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
     db.commit()
@@ -3178,7 +3178,7 @@ def update_checklist_item(item_id: str, upd: ChecklistItemUpdate, user: dict = D
         who = assert_person_on_task(db, t, data["assignee_email"] or "")
         if who and who != (i.assignee_email or "") and who != me:
             task_notify(db, kind="task_activity", for_email=who, main_bell=True,
-                        title="You were given a checklist item", body=f"{i.title} - {t.title}",
+                        title="You Were Given a Checklist Item", body=f"{i.title} - {t.title}",
                         task_id=t.id, nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
         i.assignee_email = who
     if "position" in data and data["position"] is not None:

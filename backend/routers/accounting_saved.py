@@ -197,7 +197,7 @@ def share_report(body: ShareBody, user: dict = Depends(get_current_user), db: Se
     note = (body.message or "").strip()[:600]
     db.add(models.NexusNotification(
         id=str(uuid.uuid4()), type="accounting_report_shared", recipient=recipient,
-        title=f"A report was shared with you: {name}",
+        title=f"A Report Was Shared With You: {name}",
         body=(note + " " if note else "") + "Open Accounting, Reports, then Saved Reports.",
         ref_id=row.id, item_name=name, requested_by=me,
         action=json.dumps({"view": "accounting", "sub": "reports"}), actioned=False, read_by="",

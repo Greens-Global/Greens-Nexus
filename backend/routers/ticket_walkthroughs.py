@@ -228,7 +228,7 @@ def _bells(db: Session, batch: models.TicketBatch, tickets: list, actor: str, de
         if em in told:
             continue
         task_notify(db, kind="ticket_assigned", for_email=em,
-                    title=f"You were assigned {len(ts)} ticket{'s' if len(ts) > 1 else ''}{at}",
+                    title=f"You Were Assigned {len(ts)} Ticket{'s' if len(ts) > 1 else ''}{at}",
                     body="; ".join(f"{ticket_no(t.code)} {t.subject}" for t in ts)[:500],
                     ticket_id=ts[0].id if len(ts) == 1 else "",
                     nexus_action={"view": "tickets", "label": "View Ticket" if len(ts) == 1 else "View Tickets"})
@@ -236,7 +236,7 @@ def _bells(db: Session, batch: models.TicketBatch, tickets: list, actor: str, de
 
     mgr = (batch.asset_manager_email or "").lower()
     if mgr and mgr not in told:
-        task_notify(db, kind="ticket_property", for_email=mgr, title=f"{n} new ticket{s}{at}",
+        task_notify(db, kind="ticket_property", for_email=mgr, title=f"{n} New Ticket{s}{at}",
                     body=f"Batch by {who}: {span}"[:500],
                     nexus_action={"view": "property-asset", "sub": f"tickets:{batch.property_asset_id}",
                                   "label": "View Property"})
@@ -246,7 +246,7 @@ def _bells(db: Session, batch: models.TicketBatch, tickets: list, actor: str, de
     if req and req not in told:
         # The requester, who may have no Tickets screen: the main bell too.
         task_notify(db, kind="ticket_received", for_email=req, main_bell=True,
-                    title=f"{n} ticket{s} raised for you{at}", body=f"{span} - filed by {who}"[:500],
+                    title=f"{n} Ticket{s} Raised for You{at}", body=f"{span} - filed by {who}"[:500],
                     nexus_action={"view": "support", "label": "View Tickets"})
         told.add(req)
 
@@ -259,7 +259,7 @@ def _bells(db: Session, batch: models.TicketBatch, tickets: list, actor: str, de
             if em in told:
                 continue
             task_notify(db, kind="ticket_needs_assignment", for_email=em,
-                        title=f"Batch{at}: {n} new ticket{s}",
+                        title=f"Batch{at}: {n} New Ticket{s}",
                         body=f"{span} - {', '.join(parts)}. Filed by {who}."[:500],
                         nexus_action={"view": "tickets", "label": "View Tickets"})
             told.add(em)

@@ -87,7 +87,7 @@ export function PersonalLinkModal({ modal, setModal, save, saving, existingLinks
           </p>
           <div className="form-group">
             <label>Name</label>
-            <input className="form-input" value={form.name} onChange={e => setForm({ name: e.target.value })} placeholder="e.g. My Timesheet" autoFocus />
+            <input className="form-input" value={form.name} onChange={e => setForm({ name: e.target.value })} placeholder="e.g. My Time Sheet" autoFocus />
           </div>
           <div className="form-group">
             <label>URL</label>

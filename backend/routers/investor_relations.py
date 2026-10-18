@@ -35,6 +35,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from database import get_db
+from task_due import us_date
 from notify_company import notification_company
 from auth import (require_level_or_module, scoped_ids, invalidate_role_cache,
                   get_current_user, _module_level, _MODULE_LEVEL_RANK)
@@ -1223,7 +1224,7 @@ def update_capital_call(call_id: str, body: CapitalCallUpdate,
                         body=(f"Capital Call #{call.call_number}"
                               f"{' (' + call.title + ')' if call.title else ''} for "
                               f"{_fmt_money(call.total_amount)} has been issued"
-                              f"{', due ' + call.due_date if call.due_date else ''}."),
+                              f"{', due ' + us_date(call.due_date) if call.due_date else ''}."),
                         ref_id=call.id, actor=user["email"])
 
     call.updated_at = _now_iso()

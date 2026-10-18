@@ -276,7 +276,7 @@ def _send_email_otp(to_email: str, code: str) -> str:
         try:
             graph_mail.send_mail(
                 from_email=graph_mail.DEFAULT_FROM_EMAIL, to=[to_email], cc=None,
-                subject="Your Credential Vault verification code",
+                subject="Your Credential Vault Verification Code",
                 html=(f"<p>Your Greens Nexus Credential Vault verification code is:</p>"
                       f"<p style='font-size:28px;font-weight:700;letter-spacing:6px'>{code}</p>"
                       f"<p>This code expires in 10 minutes. If you didn't request this, you can ignore this email.</p>"),
@@ -675,7 +675,7 @@ def create_credential(body: CredentialIn, user: dict = Depends(get_current_user)
     # to every manager's bell - noise nobody acted on; the activity log has it.
     if row.backup_owner_email and row.backup_owner_email != user["email"]:
         _notify(db, type="vault_change", recipient=row.backup_owner_email,
-                title="Credential Vault - you are a backup owner",
+                title="Credential Vault - You Are a Backup Owner",
                 body=f"{_display_name(user['email'], db)} added {row.name} ({row.dept}) and named you its backup owner.",
                 ref_id=row.id, actor=user["email"], action={"view": "credvault", "sub": f"cred-{row.id}"})
     db.commit()
@@ -744,7 +744,7 @@ def delete_credential(cred_id: str, user: dict = Depends(get_current_user), db: 
     _log(db, user, "Removed", c.name, c.dept, c.id)
     for who in {(c.owner_email or "").lower(), (c.backup_owner_email or "").lower()} - {"", user["email"]}:
         _notify(db, type="vault_change", recipient=who,
-                title="Credential Vault - moved to the trash",
+                title="Credential Vault - Moved to the Trash",
                 body=f"{_display_name(user['email'], db)} moved {c.name} ({c.dept}) to the trash. It can be recovered from there.",
                 ref_id=c.id, actor=user["email"], action={"view": "credvault", "sub": "trash"})
     db.commit()
@@ -864,7 +864,7 @@ def request_access(cred_id: str, body: RequestIn,
     _log(db, user, "Requested", c.name, c.dept, c.id)
     for who in {owner, (c.backup_owner_email or "").lower()} - {""}:
         _notify(db, type="vault_access", recipient=who,
-                title="Credential Vault - access request",
+                title="Credential Vault - Access Request",
                 body=f"{_display_name(user['email'], db)} asked for {body.durationLabel or '4 Hours'} of access to "
                      f"{c.name} ({c.dept}). Approve or deny it on the Approvals tab.",
                 ref_id=c.id, actor=user["email"], action={"view": "credvault", "sub": "approvals"})
@@ -929,7 +929,7 @@ def _transfer(db: Session, user: dict, c: models.VaultCredential, new_owner: str
     c.owner_email = new_owner
     _log(db, user, "Transferred", c.name, c.dept, c.id, detail=detail)
     _notify(db, type="vault_change", recipient=new_owner,
-            title="Credential Vault - you are now the owner",
+            title="Credential Vault - You Are Now the Owner",
             body=f"{c.name} ({c.dept}) is now yours{note}. You approve its access requests and keep it rotated.",
             ref_id=c.id, actor=user["email"], action={"view": "credvault", "sub": f"cred-{c.id}"})
 
@@ -1036,7 +1036,7 @@ def share_credential(cred_id: str, body: ShareIn, user: dict = Depends(get_curre
     _log(db, user, "Shared", c.name, c.dept, c.id, detail=[{"field": "With", "from": "", "to": recipient},
                                                             {"field": "For", "from": "", "to": body.durationLabel or ""}])
     _notify(db, type="vault_access", recipient=recipient,
-            title="Credential Vault - access granted",
+            title="Credential Vault - Access Granted",
             body=f"{_display_name(user['email'], db)} shared {c.name} with you for {body.durationLabel}. Open the Credential Vault to view it.",
             ref_id=c.id, actor=user["email"], action={"view": "credvault", "sub": f"cred-{c.id}"})
     db.commit()
@@ -1112,7 +1112,7 @@ def approve_request(req_id: str, user: dict = Depends(get_current_user), db: Ses
     _log(db, user, "Shared", c.name, c.dept, c.id, detail=[{"field": "With", "from": "", "to": recipient},
                                                             {"field": "For", "from": "", "to": r.duration_label or ""}])
     _notify(db, type="vault_access", recipient=recipient,
-            title="Credential Vault - access approved",
+            title="Credential Vault - Access Approved",
             body=f"{_display_name(user['email'], db)} approved {r.duration_label or 'temporary'} access to {c.name}. Open the Credential Vault to view it.",
             ref_id=c.id, actor=user["email"], action={"view": "credvault", "sub": f"cred-{c.id}"})
     db.commit()
@@ -1129,7 +1129,7 @@ def deny_request(req_id: str, user: dict = Depends(get_current_user), db: Sessio
     _log(db, user, "Denied", c.name if c else "(deleted)", c.dept if c else "-", r.cred_id)
     if c and r.requested_by_email:
         _notify(db, type="vault_access", recipient=r.requested_by_email,
-                title="Credential Vault - access declined",
+                title="Credential Vault - Access Declined",
                 body=f"{_display_name(user['email'], db)} declined your request for {c.name} ({c.dept}).",
                 ref_id=c.id, actor=user["email"], action={"view": "credvault", "sub": f"cred-{c.id}"})
     db.commit()
@@ -1498,7 +1498,7 @@ def rotation_reminders(db: Session) -> int:
             if _reminded_today(db, "vault_rotation", c.id, who):
                 continue
             _notify(db, type="vault_rotation", recipient=who,
-                    title="Credential Vault - rotation due" if "rotation" in lines[0] else "Credential Vault - expiring",
+                    title="Credential Vault - Rotation Due" if "rotation" in lines[0] else "Credential Vault - Expiring",
                     body=f"{c.name} ({c.dept}): " + " and ".join(lines) + ". Open it to rotate the password.",
                     ref_id=c.id, actor=c.owner_email or who, action={"view": "credvault", "sub": f"cred-{c.id}"})
             sent += 1

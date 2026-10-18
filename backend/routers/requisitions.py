@@ -223,7 +223,7 @@ def create_requisition(
         _req_notify(db,
             type="req_update",
             recipient=payload["employee_email"],
-            title=f"Purchase request raised for you: {data.item}",
+            title=f"Purchase Request Raised for You: {data.item}",
             body=f"{submitter_name} submitted a purchase request for {data.quantity}× {data.item} on your behalf. It is pending manager approval.",
             ref_id=server_id, item_name=data.item, requested_by=data.employee_name,
             actor=payload["employee_email"] or submitter_email,
@@ -282,7 +282,7 @@ def approve_requisition(req_id: str, body: RequisitionApprove, user: dict = Depe
         _req_notify(db,
             type="req_approved",
             recipient=req.employee_email,
-            title=f"Requisition approved: {req.item}",
+            title=f"Requisition Approved: {req.item}",
             body=f"Your purchase request for {req.quantity}× {req.item} was approved by {body.manager_name}."
                  + (f"\n{req.allocator_name} will purchase it for you." if req.allocator_name else ""),
             ref_id=req_id, item_name=req.item, requested_by=req.employee_name,
@@ -293,7 +293,7 @@ def approve_requisition(req_id: str, body: RequisitionApprove, user: dict = Depe
         _req_notify(db,
             type="req_fulfill",
             recipient=req.allocator_email,
-            title=f"Purchase to fulfill: {req.quantity}× {req.item}",
+            title=f"Purchase to Fulfill: {req.quantity}× {req.item}",
             body=f"{body.manager_name} approved {req.employee_name}'s request and assigned the purchase to you."
                  + (f"\nReason: {req.reason}" if (req.reason or "").strip() else ""),
             ref_id=req_id, item_name=req.item, requested_by=req.employee_name,
@@ -362,7 +362,7 @@ def fulfill_requisition(req_id: str, body: RequisitionFulfill, user: dict = Depe
         _req_notify(db,
             type="req_update",
             recipient=req.employee_email,
-            title=f"Ready for you: {req.item}",
+            title=f"Ready for You: {req.item}",
             body=f"Your {req.quantity}× {req.item} has been purchased{' and added to inventory' if body.item_id else ''}."
                  + (f"\n{req.fulfillment_note}" if req.fulfillment_note else "")
                  + f"\nCoordinate with {body.by_name} to receive it.",
@@ -389,7 +389,7 @@ def reject_requisition(req_id: str, body: RequisitionReject, user: dict = Depend
         _req_notify(db,
             type="req_rejected",
             recipient=req.employee_email,
-            title=f"Requisition rejected: {req.item}",
+            title=f"Requisition Rejected: {req.item}",
             body=f"Your purchase request for {req.quantity}× {req.item} was not approved. Reason: {body.rejection_reason or 'No reason given.'}",
             ref_id=req_id, item_name=req.item, requested_by=req.employee_name,
         )

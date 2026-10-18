@@ -1,7 +1,7 @@
 {
   "id": "mattress-firm-chicago",
   "name": "Mattress Firm",
-  "type": "Commercial — Retail Store",
+  "type": "Commercial - Retail Store",
   "address": "Chicago, IL",
   "snapshot": [
     {
@@ -12,7 +12,7 @@
         { "label": "City", "value": "Chicago" },
         { "label": "State", "value": "IL" },
         { "label": "Zip", "value": "" },
-        { "label": "Current Use", "value": "Commercial — Retail Store" },
+        { "label": "Current Use", "value": "Commercial - Retail Store" },
         { "label": "Development Stage (Feasibility / Entitlement / Permitting / Construction / Stabilized)", "value": "Stabilized" }
       ]
     }

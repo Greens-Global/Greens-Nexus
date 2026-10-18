@@ -7,9 +7,9 @@
 
 export const MODULE_CAPABILITIES = {
   timeclock: {
-    viewer: 'See the time clock and their own timesheet.',
+    viewer: 'See the time clock and their own time sheet.',
     editor: 'Clock in / out and manage their own time entries.',
-    full:   "Review and correct everyone's punches; approve and export timesheets.",
+    full:   "Review and correct everyone's punches; approve and export time sheets.",
     owner:  'Everything in Full, plus manage who else can access Time Clock.',
   },
   hr: {

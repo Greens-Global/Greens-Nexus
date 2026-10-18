@@ -27,7 +27,7 @@ const BOARD = [
     next: { title: 'Knowledge Handover Plan', dueDate: '2099-01-01', overdue: false, ownerEmail: '', ownerName: '', ownerRoleLabel: 'Manager' } },
 ];
 const META = {
-  kinds: [{ value: 'onboarding', label: 'Onboarding' }, { value: 'offboarding', label: 'Offboarding' }, { value: 'inactive', label: 'Leave Or Suspension' }],
+  kinds: [{ value: 'onboarding', label: 'Onboarding' }, { value: 'offboarding', label: 'Offboarding' }, { value: 'inactive', label: 'Leave or Suspension' }],
   roles: [{ value: 'hr', label: 'HR' }, { value: 'it', label: 'IT' }, { value: 'manager', label: 'Manager' }],
   exitTypes: [{ value: 'resignation', label: 'Resignation' }],
   signals: [{ value: 'provisioned', label: 'A provisioning run finished' }],

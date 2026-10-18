@@ -30,7 +30,7 @@ const SUMMARY_LABEL = {
 };
 const MODULE_LABEL = {
   tasks: 'Tasks', tickets: 'Tickets', documents: 'Documents', time_off: 'Time Off',
-  timecard: 'Time Card', shifts: 'Shifts', items: 'Items', team: 'Team',
+  timecard: 'Time Sheet', shifts: 'Shifts', items: 'Items', team: 'Team',
 };
 const MODULE_ORDER = ['tasks', 'tickets', 'documents', 'time_off', 'timecard', 'shifts', 'items', 'team'];
 const ROWS_SHOWN = 5;

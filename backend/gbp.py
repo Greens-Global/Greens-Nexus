@@ -580,7 +580,7 @@ def _notify_low_reviews(db: Session, low: list) -> None:
             for email in people:
                 db.add(models.NexusNotification(
                     id=str(uuid.uuid4()), type="gbp_low_review", recipient=email,
-                    title=f"{r.rating}-star Google review for {where} - awaiting a reply",
+                    title=f"{r.rating}-star Google Review for {where} - Awaiting a Reply",
                     body=body, ref_id=r.id, item_name=where, requested_by="", action=action,
                     actioned=False, read_by="", company=company_of(email, db), created_at=now_iso()))
         db.commit()

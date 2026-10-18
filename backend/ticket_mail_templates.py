@@ -565,11 +565,11 @@ def _overdue_heading(rows: list, audience: str, dept_name: str = "") -> tuple[st
     s = "s" if n != 1 else ""
     if audience == "lead":
         where = f" in {dept_name}" if dept_name else ""
-        return (f"{n} ticket{s}{where} past due",
+        return (f"{n} Ticket{s}{where} Past Due",
                 f"These ticket{s} are past due and earlier reminders to the assignee went unanswered.")
     if all(r["late"] <= 0 for r in rows):
-        return (f"{n} ticket{s} due today", f"These ticket{s} assigned to you are due today and not closed yet.")
-    return (f"{n} ticket{s} not closed", f"These ticket{s} assigned to you are due or past due and not closed yet.")
+        return (f"{n} Ticket{s} Due Today", f"These ticket{s} assigned to you are due today and not closed yet.")
+    return (f"{n} Ticket{s} Not Closed", f"These ticket{s} assigned to you are due or past due and not closed yet.")
 
 
 def overdue_teams_html(*, rows: list, audience: str, base_url: str, first_name: str = "",

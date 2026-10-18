@@ -127,7 +127,7 @@ class PropertyTicketTests(unittest.TestCase):
         self.assertNotIn(MANAGER, out["watcherIds"])           # no per-status-move bells later
         bells = self._bells(MANAGER, "ticket_property")
         self.assertEqual(len(bells), 1)
-        self.assertEqual(bells[0].title, "New ticket at Greens Storage Temecula")
+        self.assertEqual(bells[0].title, "New Ticket at Greens Storage Temecula")
 
     def test_a_ticket_without_a_property_is_unchanged(self):
         out = self._one()
@@ -281,7 +281,7 @@ class PropertyTicketTests(unittest.TestCase):
     def test_one_bell_per_person_per_walkthrough(self):
         self._walk([self._line(f"Issue {i}") for i in range(12)])
         self.assertEqual(len(self._bells(MANAGER)), 1)
-        self.assertEqual(self._bells(MANAGER)[0].title, "12 new tickets at Greens Storage Temecula")
+        self.assertEqual(self._bells(MANAGER)[0].title, "12 New Tickets at Greens Storage Temecula")
         for desk in (ADMIN["email"], DESK2):
             self.assertEqual(len(self._bells(desk, "ticket_needs_assignment")), 1)
         self.assertEqual(len(self._bells(WALKER["email"])), 0)   # nothing about your own action
@@ -344,7 +344,7 @@ class PropertyTicketTests(unittest.TestCase):
         self.assertEqual(out["property"], {"id": "", "name": ""})
         self.assertEqual(self._bells(MANAGER), [])                # no property, no asset manager to tell
         desk_bell = self._bells(ADMIN["email"], "ticket_needs_assignment")[0]
-        self.assertEqual(desk_bell.title, "Batch: 2 new tickets")
+        self.assertEqual(desk_bell.title, "Batch: 2 New Tickets")
 
     def test_the_batch_email_without_a_property_names_none(self):
         import ticket_notify
@@ -451,7 +451,7 @@ class PropertyTicketTests(unittest.TestCase):
 
     def test_resolving_tells_the_asset_manager_to_review_it(self):
         tid = self._resolved()
-        bells = [b for b in self._bells(MANAGER) if "is resolved" in b.title]
+        bells = [b for b in self._bells(MANAGER) if "Is Resolved" in b.title]
         self.assertEqual(len(bells), 1)
         view = P.property_tickets("gst", user=MANAGER_USER, db=self.db)
         self.assertEqual([t["id"] for t in view["needsAction"]], [tid])
@@ -509,7 +509,7 @@ class PropertyTicketTests(unittest.TestCase):
         self.assertEqual(MS.run_due(self.db, date.today() + timedelta(days=10)), {"reminded": 0, "opened": 0})
         self.assertEqual(MS.run_due(self.db, date.today() + timedelta(days=16))["reminded"], 1)
         self.assertEqual(MS.run_due(self.db, date.today() + timedelta(days=17))["reminded"], 0)
-        self.assertEqual(len([b for b in self._bells(MANAGER) if b.title.startswith("Service due")]), 1)
+        self.assertEqual(len([b for b in self._bells(MANAGER) if b.title.startswith("Service Due")]), 1)
         # Due and nobody opened it: a child ticket opens with the parent's details.
         self.assertEqual(MS.run_due(self.db, date.today() + timedelta(days=30))["opened"], 1)
         self.db.commit()

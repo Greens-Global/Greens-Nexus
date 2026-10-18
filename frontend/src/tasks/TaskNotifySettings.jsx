@@ -379,7 +379,7 @@ function RepliesLog({ replyTo, enabled }) {
                 <meta.Icon size={14} style={{ color: meta.color, flexShrink: 0 }} />
                 <span style={{ fontWeight: 700, flexShrink: 0, width: 78, color: task ? NX.blue : NX.faint }}
                   title={task?.title}>
-                  {task?.code || (r.taskId ? '—' : '')}
+                  {task?.code || (r.taskId ? '-' : '')}
                 </span>
                 <span style={{ flexShrink: 0, width: 170, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.from}>
                   {r.from || 'unknown sender'}

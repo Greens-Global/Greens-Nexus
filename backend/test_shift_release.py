@@ -189,7 +189,7 @@ class ReleaseTests(_Case):
         self._as(A)
         mine = self.client.get("/timeclock/shift-requests/mine").json()["mine"]
         self.assertEqual([(m["kind"], m["status"]) for m in mine], [("release", "pending_manager")])
-        self.assertIn("Shift request to approve", self._titles(MGR))
+        self.assertIn("Shift Request to Approve", self._titles(MGR))
 
     def test_approval_converts_the_row_into_an_open_slot(self):
         self._settings(releaseShifts=True)
@@ -222,8 +222,8 @@ class ReleaseTests(_Case):
                          "delete")
         s = self.db.query(models.ShiftRequest).filter(models.ShiftRequest.id == swap["id"]).first()
         self.assertEqual((s.status, s.decision_note), ("cancelled", "Shift released to the open pool"))
-        self.assertIn("Shift request cancelled", self._titles(B))
-        self.assertIn("Shift request approved", self._titles(A))
+        self.assertIn("Shift Request Canceled", self._titles(B))
+        self.assertIn("Shift Request Approved", self._titles(A))
         # Teammates can now ask for it; the open slot is in the pool.
         self.assertEqual([(o["id"], o["openSlots"], o["crossTeam"]) for o in self._open_for(B)], [(x, 1, False)])
         self.assertEqual(self._ask(B, kind="open", shift_id=x).status_code, 200)
@@ -238,7 +238,7 @@ class ReleaseTests(_Case):
         self.assertEqual((row.employee_email, row.open_slots, row.published), ("", 1, 1))
         self.assertEqual([e.action for e in self._log(x)], ["released"])
         bells = self._bells(MGR)
-        self.assertEqual([t for t, _ in bells], ["Shift released to the open pool"])
+        self.assertEqual([t for t, _ in bells], ["Shift Released to the Open Pool"])
         self.assertIn("Amy Lee released", bells[0][1])
         self.assertIn("Can't make it", bells[0][1])
         self.assertIn("No approval was needed.", bells[0][1])
@@ -257,8 +257,8 @@ class ReleaseTests(_Case):
         self.assertEqual((row.employee_email, row.open_slots), (A, 0))
         self.assertEqual(self._log(x), [])
         bells = dict(self._bells(A))
-        self.assertIn("Shift request declined", bells)
-        self.assertIn("We need you", bells["Shift request declined"])
+        self.assertIn("Shift Request Declined", bells)
+        self.assertIn("We need you", bells["Shift Request Declined"])
 
     def test_a_shift_that_has_started_cannot_be_released(self):
         """Today's shift is released only until it starts, in the shift's own
@@ -305,7 +305,7 @@ class ReleaseTests(_Case):
         y = self._shift(A, day=DAY2, pending_json=json.dumps({"start": "10:00", "end": "18:00"}))
         self.assertEqual(self._ask(A, kind="release", shift_id=y).json()["status"], "approved")
         self.assertEqual(self._row(y).created_by, MGR)
-        body = dict(self._bells(MGR))["Shift released to the open pool"]
+        body = dict(self._bells(MGR))["Shift Released to the Open Pool"]
         self.assertIn("The unshared edit to this shift was dropped", body)
         # A plain one says nothing about edits.
         z = self._shift(B, day=DAY2, start="12:00")
@@ -341,7 +341,7 @@ class CrossTeamTests(_Case):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(r.json()["team"], "Other Crew")
         # The slot's team scheduler is asked, not A's manager.
-        self.assertEqual(self._titles(SCHED), ["Shift request to approve"])
+        self.assertEqual(self._titles(SCHED), ["Shift Request to Approve"])
         self.assertEqual(self._titles(MGR), [])
         # A's own (scoped) manager cannot decide it and does not see it; the
         # scheduler and an administrator can.
@@ -357,14 +357,14 @@ class CrossTeamTests(_Case):
         self.db.expire_all()
         got = self.db.query(models.ScheduledShift).filter(models.ScheduledShift.employee_email == A).all()
         self.assertEqual([(g.work_date, g.start_hhmm, g.group_id, g.published) for g in got], [(DAY, "10:00", OTHER, 1)])
-        self.assertIn("Shift request approved", self._titles(A))
+        self.assertIn("Shift Request Approved", self._titles(A))
 
     def test_a_team_with_no_scheduler_falls_to_its_company_managers(self):
         self._settings(openShiftsAcrossTeams=True)
         quiet = self._shift("", slots=1, group=NOBODY)
         r = self._ask(A, kind="open", shift_id=quiet)
         self.assertEqual(r.status_code, 200, r.text)
-        self.assertEqual(self._titles(CMGR), ["Shift request to approve"])
+        self.assertEqual(self._titles(CMGR), ["Shift Request to Approve"])
         self.assertEqual(self._titles(MGR), [])
         self.assertEqual(self._decide(MGR, r.json()["id"]).status_code, 403)
         self.assertEqual(self._decide(CMGR, r.json()["id"]).json()["status"], "approved")
@@ -376,7 +376,7 @@ class CrossTeamTests(_Case):
         quiet = self._shift("", slots=1, group=NOBODY)
         r = self._ask(A, kind="open", shift_id=quiet)
         self.assertEqual(r.status_code, 200, r.text)
-        self.assertEqual(self._titles(MGR), ["Shift request to approve"])
+        self.assertEqual(self._titles(MGR), ["Shift Request to Approve"])
         self.assertEqual(self._decide(MGR, r.json()["id"]).json()["status"], "approved")
 
     def test_a_slot_of_another_company_never_shows(self):

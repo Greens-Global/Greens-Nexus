@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 
 import models
 from database import get_db
+from task_due import us_date
 from auth import get_current_user, require_level
 from notify_company import notification_company
 
@@ -290,7 +291,7 @@ def _emit_stale_reminders(db: Session, rows: list) -> None:
         if not target:
             continue
         _kb_notify(db, recipient=target, ntype="kb_verify_due",
-                   title="A document needs your verification",
+                   title="A Document Needs Your Verification",
                    body=f"“{d.title}” ({d.doc_code}) is past its review date. "
                         "Open it and confirm it is still accurate, or update it.", doc=d)
         d.stale_notified_at = today
@@ -641,7 +642,7 @@ def submit_document(doc_id: str, user: dict = Depends(get_current_user), db: Ses
     d.updated_at = _now()
     _push_history(d, {"version": d.version, "date": _today(), "author": user["email"], "notes": "Submitted for review."})
     _kb_notify(db, recipient=d.reviewer_email, ntype="kb_review_request",
-               title="A SOP is awaiting your review",
+               title="A SOP Is Awaiting Your Review",
                body=f"{user.get('name') or user['email']} submitted “{d.title}”"
                     f"{_code_label(d)} for your review.", doc=d)
     db.commit()
@@ -674,7 +675,7 @@ def review_document(doc_id: str, payload: ReviewIn, user: dict = Depends(require
         _snapshot(d, db)
         note = f" Note: {payload.note}" if (payload.note or "").strip() else ""
         _kb_notify(db, recipient=d.owner_email, ntype="kb_approved",
-                   title="Your SOP was approved & published",
+                   title="Your SOP Was Approved & Published",
                    body=f"{reviewer} approved “{d.title}”{_code_label(d)}. It's now live.{note}", doc=d)
     elif payload.decision == "request_changes":
         if not payload.note.strip():
@@ -683,7 +684,7 @@ def review_document(doc_id: str, payload: ReviewIn, user: dict = Depends(require
         d.review_note = payload.note
         _push_history(d, {"version": d.version, "date": _today(), "author": user["email"], "notes": f"Changes requested: {payload.note}"})
         _kb_notify(db, recipient=d.owner_email, ntype="kb_changes_requested",
-                   title="Changes requested on your SOP",
+                   title="Changes Requested on Your SOP",
                    body=f"{reviewer} requested changes on “{d.title}”{_code_label(d)}: {payload.note}", doc=d)
     else:
         raise HTTPException(status_code=400, detail="decision must be 'approve' or 'request_changes'")
@@ -1108,7 +1109,7 @@ def add_comment(doc_id: str, payload: CommentIn, user: dict = Depends(get_curren
     # left as a comment doesn't go unseen.
     cname = user.get("name") or user["email"]
     for target in {(d.owner_email or "").lower(), (d.reviewer_email or "").lower()} - {user["email"].lower(), ""}:
-        _kb_notify(db, recipient=target, ntype="kb_comment", title="New comment on a SOP",
+        _kb_notify(db, recipient=target, ntype="kb_comment", title="New Comment on a SOP",
                    body=f"{cname} commented on “{d.title}”{_code_label(d)}: {text[:160]}", doc=d)
     db.commit()
     return list_comments(doc_id, user, db)
@@ -2254,7 +2255,7 @@ def submit_quiz(cid: str, payload: QuizSubmitIn, user: dict = Depends(get_curren
     if newly_completed and _mgr:
         db.add(models.NexusNotification(
             id=str(uuid.uuid4()), type="kb_course_complete", recipient=_mgr,
-            title="Course completed",
+            title="Course Completed",
             body=f"{who} completed “{c.title}” ({c.course_code or 'course'}) with a score of {score}%.",
             ref_id=c.id, item_name=c.title, requested_by=user["email"], action="",
             actioned=False, read_by="", created_at=_now(),
@@ -2312,11 +2313,11 @@ def _emit_due_reminders(db: Session, email: str, assignments: list) -> None:
     today = _today()
     for a in assignments:
         if a.get("overdue"):
-            ntype, title = "kb_course_overdue", "Training overdue"
+            ntype, title = "kb_course_overdue", "Training Overdue"
             body = (f"Your assigned course “{a['title']}” is overdue "
-                    f"(was due {a['due_date']}). Please complete it as soon as you can.")
+                    f"(was due {us_date(a['due_date'])}). Please complete it as soon as you can.")
         elif a.get("expired"):
-            ntype, title = "kb_course_recert", "Recertification due"
+            ntype, title = "kb_course_recert", "Recertification Due"
             body = (f"Your certification for “{a['title']}” has lapsed. "
                     "Please retake it to stay current.")
         else:
@@ -2351,9 +2352,9 @@ def assign_course(cid: str, payload: AssignIn, user: dict = Depends(require_leve
             id="asn_" + uuid.uuid4().hex[:12], course_id=cid, user_email=email,
             user_name=names.get(email) or _name_from_email(email), due_date=payload.due_date or "",
             assigned_by=user["email"], created_at=_now()))
-        due = f" (due {payload.due_date})" if payload.due_date else ""
+        due = f" (due {us_date(payload.due_date)})" if payload.due_date else ""
         db.add(models.NexusNotification(
-            id=str(uuid.uuid4()), type="kb_course_assigned", recipient=email, title="Training assigned",
+            id=str(uuid.uuid4()), type="kb_course_assigned", recipient=email, title="Training Assigned",
             body=f"You've been assigned the course “{c.title}”{due}.", ref_id=c.id, item_name=c.title,
             requested_by=user["email"], action="", actioned=False, read_by="",
             company=notification_company(db, user["email"], email), created_at=_now()))

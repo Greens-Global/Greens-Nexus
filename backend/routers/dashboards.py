@@ -33,6 +33,19 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _us(iso: str) -> str:
+    """'2026-10-04' -> '10/04/2026' and '2026-10-04T14:30' -> '10/04/2026 2:30 PM'
+    for drill-down detail text people read; anything unreadable as-is."""
+    s = (iso or "").strip()
+    try:
+        if len(s) > 10 and s[10] in "T ":
+            t = datetime.fromisoformat(s.replace("Z", "+00:00")[:19])
+            return f"{t.strftime('%m/%d/%Y')} {t.strftime('%I:%M %p').lstrip('0')}"
+        return datetime.strptime(s[:10], "%Y-%m-%d").strftime("%m/%d/%Y")
+    except ValueError:
+        return s
+
+
 def _dept_of(email: str, db: Session) -> str:
     row = db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == email).first()
     return (row.department or "") if row else ""
@@ -838,7 +851,7 @@ def insights_drilldown(module: str, metric: str, user: dict = Depends(get_curren
             rows = db.query(M.HardwareAsset).filter(
                 M.HardwareAsset.warranty_end != "", M.HardwareAsset.warranty_end >= today,
                 M.HardwareAsset.warranty_end <= month_ahead).order_by(M.HardwareAsset.warranty_end).all()
-            items = [(r.name, f"{r.assigned_to or 'Unassigned'} · {r.warranty_end}") for r in rows]
+            items = [(r.name, f"{r.assigned_to or 'Unassigned'} · {_us(r.warranty_end)}") for r in rows]
             return _list(items, "Hardware Warranties Expiring")
         if metric == "hw_unassigned":
             rows = db.query(M.HardwareAsset).filter(M.HardwareAsset.assigned_to == "Unassigned").all()
@@ -853,7 +866,7 @@ def insights_drilldown(module: str, metric: str, user: dict = Depends(get_curren
         projects = {p.id: p.name for p in db.query(M.ConstructionProject.id, M.ConstructionProject.name).all()}
         if metric == "overdue_rfis":
             rows = db.query(M.ConstructionRfi).filter(M.ConstructionRfi.status == "open", M.ConstructionRfi.due_on != "", M.ConstructionRfi.due_on < today).order_by(M.ConstructionRfi.due_on).all()
-            items = [(r.subject or r.number, f"{projects.get(r.project_id, '')} · due {r.due_on}") for r in rows]
+            items = [(r.subject or r.number, f"{projects.get(r.project_id, '')} · due {_us(r.due_on)}") for r in rows]
             return _list(items, "Overdue RFIs")
         if metric == "pending_submittals":
             rows = db.query(M.ConstructionSubmittal).filter(M.ConstructionSubmittal.status.in_(["pending", "submitted"]), M.ConstructionSubmittal.deleted_at == "").all()
@@ -873,7 +886,7 @@ def insights_drilldown(module: str, metric: str, user: dict = Depends(get_curren
             for r in rows:
                 exp = (r.payload or {}).get("expiration", "")[:10]
                 if exp and exp <= ninety_ahead:
-                    items.append(((r.payload or {}).get("scope") or "Warranty", f"{props.get(r.property_id, '')} · {exp}"))
+                    items.append(((r.payload or {}).get("scope") or "Warranty", f"{props.get(r.property_id, '')} · {_us(exp)}"))
             items.sort(key=lambda r: r[1])
             return _list(items, "Warranties Expiring")
         if metric == "inspections_due":
@@ -882,7 +895,7 @@ def insights_drilldown(module: str, metric: str, user: dict = Depends(get_curren
             for r in rows:
                 due = (r.payload or {}).get("nextDue", "")[:10]
                 if due and due <= month_ahead:
-                    items.append(((r.payload or {}).get("type") or "Inspection", f"{props.get(r.property_id, '')} · {due}"))
+                    items.append(((r.payload or {}).get("type") or "Inspection", f"{props.get(r.property_id, '')} · {_us(due)}"))
             items.sort(key=lambda r: r[1])
             return _list(items, "Inspections Due")
         raise HTTPException(404, "No breakdown for this metric")
@@ -895,7 +908,8 @@ def insights_drilldown(module: str, metric: str, user: dict = Depends(get_curren
             rows = q.all()
             if metric == "interviews_7d":
                 rows = [r for r in rows if r.interview_at and today <= r.interview_at <= week_ahead + "T23:59:59"]
-                items = sorted((((r.first_name + " " + r.last_name).strip() or r.email, r.interview_at) for r in rows), key=lambda r: r[1])
+                rows.sort(key=lambda r: r.interview_at or "")
+                items = [((r.first_name + " " + r.last_name).strip() or r.email, _us(r.interview_at)) for r in rows]
             else:
                 items = sorted((((r.first_name + " " + r.last_name).strip() or r.email, f"{r.role_title or ''} · {r.stage}") for r in rows), key=lambda r: r[0])
             return _list(items, "Interviews This Week" if metric == "interviews_7d" else "Hiring Pipeline")
@@ -904,10 +918,10 @@ def insights_drilldown(module: str, metric: str, user: dict = Depends(get_curren
                          for e in db.query(M.NexusEmployee.id, M.NexusEmployee.display_name, M.NexusEmployee.first_name, M.NexusEmployee.last_name).all()}
             if metric == "leave_pending":
                 rows = db.query(M.HrLeaveRequest).filter(M.HrLeaveRequest.status == "pending").all()
-                items = [(emp_names.get(r.employee_id, r.employee_id), f"{r.leave_type} · {r.start_date} to {r.end_date}") for r in rows]
+                items = [(emp_names.get(r.employee_id, r.employee_id), f"{r.leave_type} · {_us(r.start_date)} to {_us(r.end_date)}") for r in rows]
             else:
                 rows = db.query(M.HrDocument).filter(M.HrDocument.expires_on != "", M.HrDocument.expires_on >= today, M.HrDocument.expires_on <= month_ahead).order_by(M.HrDocument.expires_on).all()
-                items = [(emp_names.get(r.employee_id, r.employee_id), f"{r.kind} · expires {r.expires_on}") for r in rows]
+                items = [(emp_names.get(r.employee_id, r.employee_id), f"{r.kind} · expires {_us(r.expires_on)}") for r in rows]
             return _list(items, "Leave to Approve" if metric == "leave_pending" else "Employee Docs Expiring")
         raise HTTPException(404, "No breakdown for this metric")
 

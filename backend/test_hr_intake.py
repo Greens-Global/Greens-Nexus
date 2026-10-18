@@ -134,7 +134,7 @@ class IntakeTests(unittest.TestCase):
         db = database.SessionLocal()
         self.assertEqual(db.query(models.HrCandidate).filter_by(id="cand-1").first().first_name, "Jane")
         self.assertTrue(db.query(models.NexusNotification).filter(models.NexusNotification.recipient == HR,
-                        models.NexusNotification.title.like("Ready to verify%")).first())
+                        models.NexusNotification.title.like("Ready to Verify%")).first())
         db.close()
         # used once
         self.assertEqual(self.client.post(f"/hr/intake/public/{token}", json=self._values()).status_code, 409)

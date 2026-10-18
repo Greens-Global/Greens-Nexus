@@ -159,7 +159,7 @@ class SinceOnRowsTests(_Case):
                                         requested_by_email=AMY, raised_by="Amy Lee", status="allocated",
                                         created_at=T1, extension_status="pending", extension_days=2))
         self.db.commit()
-        ext = next(r for r in self._red(self._reports()) if r["title"] == "Approve extension: Drill")
+        ext = next(r for r in self._red(self._reports()) if r["title"] == "Approve Extension: Drill")
         self.assertNotIn("since", ext)
 
     def test_email_never_shows_the_stamp(self):

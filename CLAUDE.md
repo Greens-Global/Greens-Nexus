@@ -348,5 +348,14 @@ Old `hardware_assets` table (IT module) is legacy — planned to fold into
   chips and column headers ("In Progress", "On Hold", "Awaiting Approval" -
   never "In progress"; Neil, Sep 30). Body copy, hints, empty states, and
   descriptions stay sentence case.
+- **American English, US formats, no exceptions (Neil, Oct 17 2026 - raised
+  more than once):** every user-facing string, server-built ones included
+  (notification titles and bodies, priority notices, emails, PDFs), shows
+  dates as MM/DD/YYYY - never interpolate a raw ISO `2026-10-04` (route it
+  through `us_date` / `_us_day` on the backend, `formatDate` on the
+  frontend) - times as 12-hour AM/PM, and American spelling. Notice titles
+  are Title Case like any other title. The time record is a **"Time Sheet"**
+  in copy (two words, capitalized in titles) - not "timecard", "time card"
+  or "timesheet"; identifiers and route keys (`timecard`, `timesheet`) stay.
 - Never use em dashes in user-facing copy — plain hyphens ("-"). Em dashes
   read as AI-generated (Visesh, Jul 28).

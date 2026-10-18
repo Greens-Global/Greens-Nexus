@@ -580,7 +580,7 @@ def _approver_emails(db: Session, r: models.ShiftRequest, actor: str) -> list:
 
 def _notify_approvers(db: Session, r: models.ShiftRequest, names: dict, actor: str) -> None:
     for rec in _approver_emails(db, r, actor):
-        _bell(db, rec, "Shift request to approve", _describe(r, names) + ".", r.id, actor, _APPROVER_ACTION)
+        _bell(db, rec, "Shift Request to Approve", _describe(r, names) + ".", r.id, actor, _APPROVER_ACTION)
 
 
 def _open_visible(row, my_groups, cfg: dict = None, groups: dict = None, company: str = "") -> bool:
@@ -739,7 +739,7 @@ def create_request(body: CreateIn, user: dict = Depends(get_current_user), db: S
         r.status, r.decided_by, r.decided_at = "approved", me, _now()
         who = names.get(me, me)
         for rec in _approver_emails(db, r, me):
-            _bell(db, rec, "Shift released to the open pool",
+            _bell(db, rec, "Shift Released to the Open Pool",
                   f"{who} released {_when(r.shift_date, r.shift_start, r.shift_end)} to the open pool"
                   + (f": {r.note}" if r.note else ".") + " No approval was needed."
                   + (" The unshared edit to this shift was dropped - the shared times went to the pool." if had_edit else ""),
@@ -747,7 +747,7 @@ def create_request(body: CreateIn, user: dict = Depends(get_current_user), db: S
     elif kind in ("open", "release"):
         _notify_approvers(db, r, names, me)
     else:
-        _bell(db, target_email, f"Shift {_KIND_LABEL[kind]} request", _describe(r, names) + ". Accept or decline it in My Shifts.",
+        _bell(db, target_email, f"Shift {_KIND_LABEL[kind].title()} Request", _describe(r, names) + ". Accept or decline it in My Shifts.",
               r.id, me, _EMPLOYEE_ACTION)
     db.commit()
     return _dicts(db, [r], names)[0]
@@ -795,13 +795,13 @@ def respond(req_id: str, body: RespondIn, user: dict = Depends(get_current_user)
     names = _names(db)
     if body.accept:
         r.status = "pending_manager"
-        _bell(db, r.requester_email, "Shift request accepted",
+        _bell(db, r.requester_email, "Shift Request Accepted",
               f"{names.get(me, me)} accepted your {_KIND_LABEL[r.kind]}. It now needs a manager's approval.",
               r.id, me, _EMPLOYEE_ACTION)
         _notify_approvers(db, r, names, me)
     else:
         r.status, r.decided_at, r.decided_by = "declined", _now(), me
-        _bell(db, r.requester_email, "Shift request declined",
+        _bell(db, r.requester_email, "Shift Request Declined",
               f"{names.get(me, me)} declined your {_KIND_LABEL[r.kind]}" + (f": {r.peer_note}" if r.peer_note else "."),
               r.id, me, _EMPLOYEE_ACTION)
     db.commit()
@@ -968,8 +968,8 @@ def _apply(db: Session, r: models.ShiftRequest, actor: str, force: bool = False)
         # describes a shift that no longer has an owner: cancelled, the same
         # way a publish cancels them (cancel_requests_for_shifts), with this
         # request itself left alone.
-        _end_others(db, [shift.id], r.id, actor, "cancelled", RELEASED_NOTE, "Shift request cancelled",
-                    "A shift in your request was released to the open pool before it was decided, so the request was cancelled.")
+        _end_others(db, [shift.id], r.id, actor, "cancelled", RELEASED_NOTE, "Shift Request Canceled",
+                    "A shift in your request was released to the open pool before it was decided, so the request was canceled.")
         return []
     if r.kind == "swap":
         other = _live_shift(db, r.target_shift_id, lock=True)
@@ -1021,8 +1021,8 @@ def cancel_requests_for_shifts(db: Session, shift_ids: list, actor: str) -> int:
     """Publishing an edit or a removal of a shift (routers/timeclock.
     publish_schedule) cancels the pending swap / offer / open requests
     about it and bells the requester. Returns how many."""
-    return _end_others(db, list(shift_ids), "", actor, "cancelled", CHANGED_NOTE, "Shift request cancelled",
-                       "A shift in your request was changed or removed before it was decided, so the request was cancelled.")
+    return _end_others(db, list(shift_ids), "", actor, "cancelled", CHANGED_NOTE, "Shift Request Canceled",
+                       "A shift in your request was changed or removed before it was decided, so the request was canceled.")
 
 
 @router.post("/{req_id}/decide")
@@ -1046,13 +1046,13 @@ def decide(req_id: str, body: DecideIn, user: dict = Depends(require_schedule_wr
         r.status = "approved"
         # Other requests on these shifts no longer describe the schedule:
         # they are DECLINED with the reason, not "cancelled" as if withdrawn.
-        _end_others(db, moved, r.id, actor, "declined", FILLED_NOTE, "Shift request declined",
+        _end_others(db, moved, r.id, actor, "declined", FILLED_NOTE, "Shift Request Declined",
                     "Another request filled a shift in your request, so it could not go ahead.")
-        title, verb = "Shift request approved", "approved"
+        title, verb = "Shift Request Approved", "approved"
     else:
         r.decision_note, r.decided_by, r.decided_at = note, actor, now
         r.status = "declined"
-        title, verb = "Shift request declined", "declined"
+        title, verb = "Shift Request Declined", "declined"
     for p in people:
         body_text = f"Your manager {verb}: {_describe(r, names)}" + (f". Note: {r.decision_note}" if r.decision_note else ".")
         _bell(db, p, title, body_text, r.id, actor, _EMPLOYEE_ACTION)

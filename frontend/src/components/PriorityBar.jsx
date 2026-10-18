@@ -204,7 +204,7 @@ export default function PriorityBar({ onNavigate }) {
 // A manager's priority notice: one person, a title, a line of text, and
 // where Open should take them. Opened from the bell's megaphone.
 const VIEWS = [
-  ['', 'Nowhere - just the notice'], ['timeclock', 'Time Clock'], ['timeclock:timecard', 'Time Clock - Timecard'], ['timeclock:timeoff', 'Time Clock - Time Off'],
+  ['', 'Nowhere - just the notice'], ['timeclock', 'Time Clock'], ['timeclock:timecard', 'Time Clock - Time Sheet'], ['timeclock:timeoff', 'Time Clock - Time Off'],
   ['shifts', 'Shifts'], ['tasks', 'Tasks'], ['accounting', 'Accounting'], ['hr', 'People'], ['dashboard', 'Dashboard'],
 ];
 export function canRaiseNotice(myRole) { return (ROLES?.[myRole]?.level || 0) >= 3; }
@@ -262,7 +262,7 @@ export function RaiseNotice({ onClose, myEmail }) {
           </div>
           <div>
             <label style={label} htmlFor="pn-title">What must be done</label>
-            <input id="pn-title" type="text" value={title} maxLength={200} autoFocus onChange={(e) => setTitle(e.target.value)} placeholder="Sign your timecard by 5 PM today" style={input} required />
+            <input id="pn-title" type="text" value={title} maxLength={200} autoFocus onChange={(e) => setTitle(e.target.value)} placeholder="Sign Your Time Sheet by 5 PM Today" style={input} required />
           </div>
           <div>
             <label style={label} htmlFor="pn-body">Details (optional)</label>

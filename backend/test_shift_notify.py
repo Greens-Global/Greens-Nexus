@@ -83,7 +83,7 @@ class PublishTests(_Case):
         self.assertEqual(n, 2)
         amy = self._bells(AMY)
         self.assertEqual(len(amy), 1)
-        self.assertEqual(amy[0].title, "Your schedule was updated")
+        self.assertEqual(amy[0].title, "Your Schedule Was Updated")
         self.assertEqual(amy[0].body, "1 new, 1 changed (09/28/2026 - 09/29/2026).")
         self.assertIn('"view": "shifts", "sub": "mine"', amy[0].action)
         self.assertEqual(self._bells(BOB)[0].body, "1 removed (09/28/2026).")
@@ -102,7 +102,7 @@ class PublishTests(_Case):
         self.assertEqual(len(bt.tasks), 1)
         (to, subject, html), = bt.tasks[0].args[0]
         self.assertEqual(to, AMY)
-        self.assertEqual(subject, "Your schedule was updated - 2 changes")
+        self.assertEqual(subject, "Your Schedule Was Updated - 2 Changes")
         for text in ("Hi Amy,", "Pat Lee published 2 changes", "Mon, 09/28/2026", "10:00 AM - 6:00 PM",
                      "was 9:00 AM - 5:00 PM &middot; Front desk", "Removed", "Open My Shifts", "/shifts/mine"):
             self.assertIn(text, html)

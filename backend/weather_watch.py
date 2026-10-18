@@ -578,7 +578,7 @@ def _advise(db: Session, g, site, company_id: str, day: str, o: dict, hours: lis
     deciders, told = deciders_for(db, g, company_id)
     link_sub = f"schedule:{day}:{g.id}"
     action = {"view": "shifts", "sub": link_sub}
-    headline = f"{'Weather warning' if o['band'] == 'warning' else 'Rain expected'} for {g.name} on {_day_label(day)}"
+    headline = f"{'Weather Warning' if o['band'] == 'warning' else 'Rain Expected'} for {g.name} on {_day_label(day)}"
     body = f"{summary_line(o)} {o['shifts']} shift{'' if o['shifts'] == 1 else 's'} scheduled. Make the weather call."
     # The record row goes in WITH the bells, before anything leaves Nexus:
     # it is the claim a concurrent scan (Check Now beside the loop) sees
@@ -630,7 +630,7 @@ def _eased(db: Session, g, company_id: str, day: str, o: dict, hours: list, now_
     deciders, told = deciders_for(db, g, company_id)
     action = {"view": "shifts", "sub": f"schedule:{day}:{g.id}"}
     for em in told:
-        _bell(db, em, f"weather-eased:{g.id}:{day}", f"Weather eased for {g.name} on {_day_label(day)}",
+        _bell(db, em, f"weather-eased:{g.id}:{day}", f"Weather Eased for {g.name} on {_day_label(day)}",
               f"The forecast no longer reaches the major band. {summary_line(o)}", action=action, company=company_id, priority=0)
     _set_day_note(db, g.id, day, f"Weather: forecast eased. {summary_line(o)}")
     channels = {"bell": len(told)}

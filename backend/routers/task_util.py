@@ -641,16 +641,16 @@ def create_comment(db: Session, task, *, actor_email: str, author_email: str = "
             if who and who != actor and who != assignee:
                 told.add(who)
                 task_notify(db, kind="task_activity", for_email=who,
-                            title="New reply on a task" if root is not None else "New comment on a task",
+                            title="New Reply on a Task" if root is not None else "New Comment on a Task",
                             body=f"{task.title}", task_id=task.id,
                             nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
         for who in in_thread - told - {assignee}:
             task_notify(db, kind="task_activity", for_email=who,
-                        title="New reply in your thread", body=f"{task.title}", task_id=task.id,
+                        title="New Reply in Your Thread", body=f"{task.title}", task_id=task.id,
                         nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
         if assignee and assignee != actor:
             task_notify(db, kind="task_activity", for_email=assignee, main_bell=True,
-                        title="A comment was assigned to you", body=f"{task.title}", task_id=task.id,
+                        title="A Comment Was Assigned to You", body=f"{task.title}", task_id=task.id,
                         nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
     db.commit()
     db.refresh(c)
@@ -672,7 +672,7 @@ def create_comment(db: Session, task, *, actor_email: str, author_email: str = "
         if mentioned:
             for who in mentioned:
                 task_notify(db, kind="task_activity", for_email=who, main_bell=True,
-                            title="You were mentioned in a comment",
+                            title="You Were Mentioned in a Comment",
                             body=f"{task.title}", task_id=task.id,
                             nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
             db.commit()

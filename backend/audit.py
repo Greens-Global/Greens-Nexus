@@ -164,7 +164,7 @@ def _describe(method: str, path: str, body_fields: dict = None) -> tuple[str, st
             return label or "Posted a start/end-of-day update", ""
         if rid == "timeoff" and method == "POST":  return "Requested time off", ""
         if rid == "timeoff" and method == "PATCH": return "Decided a time-off request", sub
-        if rid == "approvals":                  return "Approved a timesheet", ""
+        if rid == "approvals":                  return "Approved a time sheet", ""
         if rid == "shifts":
             if method == "POST":                return "Created a shift", ""
             if method == "PATCH":               return "Updated a shift", sub

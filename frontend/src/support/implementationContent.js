@@ -35,7 +35,7 @@ export const IMPL_INTRO = {
   lead: 'Everything an organization sets up so Nexus works the way it runs - companies, people, access, time and pay, the modules it uses and the integrations behind them - in the order it has to happen.',
   audience: 'For whoever implements Nexus: the Nexus team onboarding a new client, or the client’s owner and administrators. Everyday users want Documentation instead.',
   howTo: [
-    'Work the phases in order. Each one leans on the ones before it: job roles need companies, people need job roles, timecards need people and pay rules.',
+    'Work the phases in order. Each one leans on the ones before it: job roles need companies, people need job roles, time sheets need people and pay rules.',
     'Settle the Decisions with the client before touching a screen - most rework comes from setting something up before the answer was known.',
     'Each step’s Open button takes you to the screen it describes. Tick a check when it is really true, not when the screen was visited; the whole team sees the same progress and who ticked what.',
     'Plan on two to three weeks for an organization of about fifty people: a week for phases 1 to 5, a week for time, shifts and the modules, and a few days of verification and training before go-live.',
@@ -54,7 +54,7 @@ export const IMPL_CONCEPTS = [
   { term: 'Access Group', text: 'Extra modules on top of a job role, for a few people who need more than their role (a payroll helper who also needs Accounting). Additive only - it never takes access away.' },
   { term: 'Company Walls', text: 'When on, a person whose role belongs to a company sees only that company’s people and records. Global Admins see across all of them. Turn it on once every person has a company.' },
   { term: 'Person', text: 'A People record: Employee (on payroll), Independent Contractor, or External (a partner-company person who signs in with an emailed code). Internal people sign in with Microsoft 365; Nexus never stores their password.' },
-  { term: 'Reports To', text: 'The reporting line. It drives the org chart, who approves time off and timesheets, who a manager sees in People, and who gets a person’s day-message notifications. Get it right early - half of Nexus reads it.' },
+  { term: 'Reports To', text: 'The reporting line. It drives the org chart, who approves time off and time sheets, who a manager sees in People, and who gets a person’s day-message notifications. Get it right early - half of Nexus reads it.' },
 ];
 
 // What to ask the client before Phase 1 - the kickoff questionnaire.
@@ -63,7 +63,7 @@ export const IMPL_DISCOVERY = [
     'Which legal entities (companies) will use Nexus? Legal name, country, tax ID and addresses for each.',
     'Which email domains does each company use? (People are matched to their company by email domain.)',
     'Who is the owner (Global Admin) and who administers Nexus day to day (IT Admins)?',
-    'Who is HR for each company? Their HR contact signs every timesheet last.',
+    'Who is HR for each company? Their HR contact signs every time sheet last.',
     'Is there one manager over all companies (the group manager)?',
   ]},
   { area: 'People', questions: [
@@ -203,7 +203,7 @@ export const IMPL_PHASES = [
     needs: ['Phase 1 (domains).'],
     decisions: [
       'For each company: legal name, country, tax ID, physical and mailing address, signatory, logo, website, main phone.',
-      'Its managers, its HR contact (the last signature on every timesheet), and the group manager over all companies.',
+      'Its managers, its HR contact (the last signature on every time sheet), and the group manager over all companies.',
       'Departments per company, matched to the chart of accounts.',
       'Every work site: its Google Maps link and a geofence radius. Which companies use each.',
       'Holidays per company and country, for this year and the next few.',
@@ -239,7 +239,7 @@ export const IMPL_PHASES = [
     pitfalls: [
       'Too many departments. Microsoft and every ERP push back on "maintenance support" vs "maintenance admin" - one department, sub-teams elsewhere.',
       'A location without its Google Maps link has no point on the map, so no punch can be judged on-site there.',
-      'No HR contact on a company: timesheets cannot finish their signing chain.',
+      'No HR contact on a company: time sheets cannot finish their signing chain.',
     ],
   },
 
@@ -323,7 +323,7 @@ export const IMPL_PHASES = [
       { id: 'people.reports', text: 'Reports To set for every person; the org chart looks right.' },
       { id: 'people.roles', text: 'Every person has a job role.' },
       { id: 'people.contact', text: 'Office and contact details complete and showing in Microsoft 365.' },
-      { id: 'people.pay', text: 'Pay set for everyone who is paid through Nexus timecards.' },
+      { id: 'people.pay', text: 'Pay set for everyone who is paid through Nexus time sheets.' },
       { id: 'people.externals', text: 'External users invited and limited to what they need.' },
       { id: 'people.walls', text: 'Company walls switched on (if the client has more than one company).' },
     ],
@@ -335,9 +335,9 @@ export const IMPL_PHASES = [
 
   // ── 6 ────────────────────────────────────────────────────────────────────
   {
-    id: 'time-pay', n: 6, title: 'Time Clock, Timesheets and Leave', icon: 'Clock', owner: 'Client HR + Client Admin', time: 'Half a day + a test pay period',
-    summary: 'Set the pay rules, the timesheet signing chain, time off and monitoring - then run a test period.',
-    why: 'Timecards are computed from punches with the organization’s rules: rounding, auto-lunch, California rest breaks, each person’s overtime rule, and leave classes (sick and vacation are paid at base and kept out of overtime). A timesheet is then reviewed by the person’s manager (Reports To) and signed employee, manager, then the company’s HR contact. Getting the rules right before the first live pay period avoids re-running payroll.',
+    id: 'time-pay', n: 6, title: 'Time Clock, Time Sheets and Leave', icon: 'Clock', owner: 'Client HR + Client Admin', time: 'Half a day + a test pay period',
+    summary: 'Set the pay rules, the time sheet signing chain, time off and monitoring - then run a test period.',
+    why: 'Time sheets are computed from punches with the organization’s rules: rounding, auto-lunch, California rest breaks, each person’s overtime rule, and leave classes (sick and vacation are paid at base and kept out of overtime). A time sheet is then reviewed by the person’s manager (Reports To) and signed employee, manager, then the company’s HR contact. Getting the rules right before the first live pay period avoids re-running payroll.',
     needs: ['Phase 5 (people, managers, pay).'],
     decisions: [
       'Punch rounding, auto-lunch deduction and California paid rest breaks.',
@@ -346,7 +346,7 @@ export const IMPL_PHASES = [
     ],
     steps: [
       { title: 'Pay rules', where: 'Settings > Global Settings > Time Clock > Pay Rules', view: 'admin-console', sub: 'global-timeclock', items: [
-        'Punch rounding, the auto-lunch deduction and California paid rest breaks - the rules every timecard is computed with.',
+        'Punch rounding, the auto-lunch deduction and California paid rest breaks - the rules every time sheet is computed with.',
       ]},
       { title: 'Time off', where: 'Settings > Global Settings > Shifts > Shift Settings', view: 'admin-console', sub: 'global-shifts', items: [
         'Add the time-off reasons the client uses. Requests route to the person’s manager; approved time off is not punched in automatically.',
@@ -356,7 +356,7 @@ export const IMPL_PHASES = [
       ]},
       { title: 'Run a test pay period', where: 'People > Time', view: 'hr', sub: 'hr-time', items: [
         'Have a few people punch in and out for a week, with a break, a missed punch and a punch request.',
-        'Clear the Action Log (punch requests and missing punches), then submit, agree and sign one timesheet end to end through the HR contact.',
+        'Clear the Action Log (punch requests and missing punches), then submit, agree and sign one time sheet end to end through the HR contact.',
         'Compare totals and overtime with the client’s current payroll for the same days.',
       ]},
     ],
@@ -365,10 +365,10 @@ export const IMPL_PHASES = [
       { id: 'time.exempt', text: 'Salaried people exempt from time tracking (via their role) see no clock.' },
       { id: 'time.timeoff', text: 'Time-off reasons set; a test request was approved by the right manager.' },
       { id: 'time.monitoring', text: 'Monitoring computers enrolled, or monitoring confirmed off.' },
-      { id: 'time.test', text: 'A test timesheet was signed employee, manager, HR - totals match payroll.' },
+      { id: 'time.test', text: 'A test time sheet was signed employee, manager, HR - totals match payroll.' },
     ],
     pitfalls: [
-      'Wrong Reports To sends timesheets and time off to the wrong approver.',
+      'Wrong Reports To sends time sheets and time off to the wrong approver.',
       'A leave punch must use a job category Nexus recognizes as Sick or Vacation (Sick Day, PTO, Annual Leave...) to be paid as leave.',
     ],
   },
@@ -530,7 +530,7 @@ export const IMPL_PHASES = [
       ]},
       { title: 'Prove the flows', items: [
         'A punch in and out with the day messages; a punch request approved from the Action Log.',
-        'A time-off request approved by the right manager; a timesheet signed through HR.',
+        'A time-off request approved by the right manager; a time sheet signed through HR.',
         'A ticket raised and routed; a task email received; a document signed and filed.',
         'A profile change in Nexus appearing in Microsoft 365, and one made there coming back.',
       ]},
@@ -555,11 +555,11 @@ export const IMPL_PHASES = [
         'Send the go-live announcement with the sign-in link and the date the old tools stop.',
         'Everyone: Workday, punching in, time off, Help Center and Help with This Page.',
         'Managers: People (their team), approvals, the Action Log, Shifts.',
-        'HR: People, Checklists, Pay & Benefits, timesheet signing.',
+        'HR: People, Checklists, Pay & Benefits, time sheet signing.',
         'Admins: Settings, Access, Act As, Logs - and this guide.',
       ]},
       { title: 'Watch the first weeks', items: [
-        'Watch the first pay period closely: the Action Log daily, missing punches, unsigned timesheets.',
+        'Watch the first pay period closely: the Action Log daily, missing punches, unsigned time sheets.',
         'Collect feedback through Help Center tickets; publish fixes in What’s New.',
       ]},
     ],

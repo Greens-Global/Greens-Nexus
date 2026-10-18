@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { api } from '../api';
 import { uploadConstructionMedia, validate, kindOf, filesFromPaste } from './lib/upload';
+import { formatDate } from '../lib/datetime';
 
 // One row per file the worker picked, tracked client-side until the server has
 // a media row for it. `status` drives the whole strip:
@@ -230,7 +231,7 @@ export default function DailyLogCapture({ log, project, onClose, onSubmitted }) 
           <div style={{ minWidth: 0 }}>
             <h3 style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", margin: 0 }}>Daily Log</h3>
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '4px 0 0' }}>
-              {project.name} &middot; {log.logDate}
+              {project.name} &middot; {formatDate(log.logDate, log.logDate)}
             </p>
           </div>
           {/* Saves too. An X that discards what was typed is the same data loss

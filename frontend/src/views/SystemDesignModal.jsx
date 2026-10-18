@@ -77,7 +77,7 @@ function TableRow({ table, open, onToggle }) {
         {open ? <ChevronDown size={13} style={{ color: NX.faint, flexShrink: 0 }} /> : <ChevronRight size={13} style={{ color: NX.faint, flexShrink: 0 }} />}
         <code style={{ fontSize: 11, padding: '2px 7px', borderRadius: 5, background: NX.hover, color: NX.dim, flexShrink: 0 }}>{table.name}</code>
         <span style={{ fontSize: 12.5, color: NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-          {table.description || '—'}
+          {table.description || '-'}
         </span>
         <span style={{ fontSize: 11, color: NX.faint, flexShrink: 0 }}>{table.fieldCount} field{table.fieldCount === 1 ? '' : 's'}</span>
       </button>

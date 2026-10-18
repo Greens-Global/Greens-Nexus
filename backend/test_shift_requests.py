@@ -171,7 +171,7 @@ class ShiftRequestTests(unittest.TestCase):
         finally:
             db.close()
         self.assertEqual([(g.work_date, g.published) for g in got], [(DAY, 1)])
-        self.assertIn("Shift request approved", self._bells(A))
+        self.assertIn("Shift Request Approved", self._bells(A))
 
     def test_a_multi_slot_open_shift_keeps_other_requests(self):
         open_id = self._shift("", slots=2)
@@ -195,7 +195,7 @@ class ShiftRequestTests(unittest.TestCase):
         x, y = self._shift(A), self._shift(B, day=DAY2)
         r = self._ask(A, kind="swap", shift_id=x, target_email=B, target_shift_id=y).json()
         self.assertEqual(r["status"], "pending_peer")
-        self.assertIn("Shift swap request", self._bells(B))
+        self.assertIn("Shift Swap Request", self._bells(B))
         # A manager cannot approve before the teammate accepts.
         self.assertEqual(self._decide(r["id"]).status_code, 409)
         self._as(B)
@@ -212,7 +212,7 @@ class ShiftRequestTests(unittest.TestCase):
         self._as(B)
         d = self.client.post(f"/timeclock/shift-requests/{r['id']}/respond", json={"accept": False, "note": "Busy"}).json()
         self.assertEqual(d["status"], "declined")
-        self.assertIn("Shift request declined", self._bells(A))
+        self.assertIn("Shift Request Declined", self._bells(A))
         self.assertEqual(self._row(x).employee_email, A)
 
     def test_only_own_shifts_and_only_teammates(self):

@@ -29,7 +29,7 @@ export function daySegments(punches) {
 }
 
 const HOUR = 3600000;
-const fmtT = (t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+const fmtT = (t) => new Date(t).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
 const fmtDur = (ms) => {
   const m = Math.round(ms / 60000);
   return m >= 60 ? `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m` : `${m}m`;
@@ -135,7 +135,7 @@ export default function DayTimeline({ punches, height = 24, ticks = true, date =
           {tickList.map(t => (
             <span key={t} style={{ position: 'absolute', left: `${pct(t)}%`, transform: 'translateX(-50%)',
               fontSize: 9, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
-              {new Date(t).toLocaleTimeString([], { hour: 'numeric' })}
+              {new Date(t).toLocaleTimeString('en-US', { hour: 'numeric' })}
             </span>
           ))}
         </div>
