@@ -89,7 +89,7 @@ describe('the weekly New in Nexus bar', () => {
 });
 
 describe('a new version, in the same bar', () => {
-  const update = () => screen.queryByRole('region', { name: 'New version of Nexus' });
+  const update = () => screen.queryByRole('region', { name: 'New Version of Nexus' });
   const mount = (activeView = 'tasks') => render(<FeatureBanner activeView={activeView} onNavigate={() => {}} />);
   beforeEach(() => { api.getFeatureBanner.mockResolvedValue({ show: false }); });
 
@@ -100,7 +100,7 @@ describe('a new version, in the same bar', () => {
     expect(await screen.findByText('1 New Feature')).toBeTruthy();
     const text = update().querySelector('.feature-banner-text');
     expect(text.title).toBe('Reload to get the latest Nexus, including 1 New Feature and 2 Bug Fixes');
-    expect(update().querySelector('.feature-banner-lead-short').textContent).toBe('New version: ');
+    expect(update().querySelector('.feature-banner-lead-short').textContent).toBe('New Version: ');
     expect(screen.getByRole('button', { name: "See What's New" })).toBeTruthy();
     expect(screen.getByRole('button', { name: /Reload/ })).toBeTruthy();
     expect(api.getReleasedSince).toHaveBeenCalledWith('2026-10-14T00:00:00Z');
