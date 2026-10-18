@@ -3,6 +3,7 @@
 // Mirrors backend/routers/documents.py's _FIELD_TYPES/_RESERVED_FIELD_TYPES
 // (not imported - different languages) so both sides agree on what a type
 // means without a network round trip to find out.
+import { formatDate } from './datetime';
 
 export const FIELD_TYPES = [
   { value: 'text', label: 'Text' },
@@ -150,8 +151,8 @@ export function validateFieldValue(def, raw) {
   if ((def.type === 'address' || def.type === 'person') && v.maxLength
       && String(raw).length > Number(v.maxLength)) return `Max ${v.maxLength} characters`;
   if (def.type === 'date' || def.type === 'time') {
-    if (v.minDate && String(raw) < v.minDate) return `Must be on or after ${v.minDate}`;
-    if (v.maxDate && String(raw) > v.maxDate) return `Must be on or before ${v.maxDate}`;
+    if (v.minDate && String(raw) < v.minDate) return `Must be on or after ${formatDate(v.minDate, v.minDate)}`;
+    if (v.maxDate && String(raw) > v.maxDate) return `Must be on or before ${formatDate(v.maxDate, v.maxDate)}`;
   }
   return '';
 }

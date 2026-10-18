@@ -49,7 +49,7 @@ const _LEGACY_MAP = [
   [/POST timeclock bod/,          'Posted a start/end-of-day update'],
   [/POST timeclock timeoff/,      'Requested time off'],
   [/PATCH timeclock timeoff/,     'Decided a time-off request'],
-  [/POST timeclock approvals/,    'Approved a timesheet'],
+  [/POST timeclock approvals/,    'Approved a time sheet'],
   [/(POST|PATCH) timeclock punches/, 'Adjusted a punch'],
   [/(POST|PATCH) timeclock agent/, 'Monitoring device activity'],
   [/(POST|PATCH|DELETE) timeclock shift/, 'Updated shifts'],

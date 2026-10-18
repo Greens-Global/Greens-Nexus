@@ -3629,7 +3629,7 @@ function RequestDetailModal({ requestId, onClose, onChanged, toastOk, toastErr }
                         onClick={() => { setEditPid(editPid === p.id ? null : p.id); setPf({ name: p.name, email: p.email, access_code: '' }); }}
                         style={{ fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 9px' }}><Pencil size={11} /> Edit</button>
                     )}
-                    <span style={{ fontSize: 11.5, fontWeight: 700, color: m.fg }}>{p.status === 'signed' && p.signedAt ? `Signed ${p.signedAt.slice(0, 10)}` : cc && p.status !== 'signed' ? '-' : m.label}</span>
+                    <span style={{ fontSize: 11.5, fontWeight: 700, color: m.fg }}>{p.status === 'signed' && p.signedAt ? `Signed ${formatDate(p.signedAt.slice(0, 10))}` : cc && p.status !== 'signed' ? '-' : m.label}</span>
                   </div>
                   {editPid === p.id && (
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', padding: '0 0 10px 32px', alignItems: 'center' }}>
@@ -3823,7 +3823,7 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
             <FileSignature size={17} style={{ color: item.myTurn ? '#f59e0b' : 'var(--muted)', flexShrink: 0 }} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 13.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.title}</div>
-              <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>from {item.from}{item.expiresOn && ` · expires ${item.expiresOn}`}</div>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>from {item.from}{item.expiresOn && ` · expires ${formatDate(item.expiresOn, item.expiresOn)}`}</div>
             </div>
             {expiryChip(item.expiresOn)}
             {item.myTurn
@@ -3877,7 +3877,7 @@ export default function ESign({ employees = [], entities = [], prefill = null, n
                       <span style={{ width: 70, height: 4, borderRadius: 4, background: 'var(--line)', overflow: 'hidden', display: 'inline-block' }}>
                         <span style={{ display: 'block', height: '100%', width: `${total ? (signed / total) * 100 : 0}%`, background: m.fg }} />
                       </span>
-                      {signed}/{total} signed · sent {(r.createdAt || '').slice(0, 10)}
+                      {signed}/{total} signed · sent {formatDate((r.createdAt || '').slice(0, 10))}
                       {r.routing === 'parallel' && ' · all at once'}
                     </div>
                   </div>

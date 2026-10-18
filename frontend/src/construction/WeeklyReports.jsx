@@ -14,6 +14,7 @@ import {
   FileText, Sparkles, Download, Send, RotateCcw, AlertTriangle, Lock, ChevronDown, ChevronRight,
 } from 'lucide-react';
 import { api } from '../api';
+import { formatDate } from '../lib/datetime';
 
 const CARD = {
   backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)',
@@ -271,7 +272,7 @@ export default function WeeklyReports({ project, canReview }) {
                            border: `1px solid ${on ? 'var(--pine)' : 'var(--border-color)'}`,
                            backgroundColor: on ? 'var(--bg-primary)' : 'transparent',
                            fontWeight: on ? 600 : 400 }}>
-                  {r.weekStart}
+                  {formatDate(r.weekStart, r.weekStart)}
                   {r.version > 1 && <span style={{ color: 'var(--text-secondary)' }}>v{r.version}</span>}
                   <span style={{ backgroundColor: s.bg, color: s.fg, fontSize: '0.65rem',
                                  padding: '1px 6px', borderRadius: 3, fontWeight: 600 }}>{s.label}</span>
@@ -291,7 +292,7 @@ export default function WeeklyReports({ project, canReview }) {
                 )}
               </div>
               <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginBottom: 18 }}>
-                {open.weekStart} to {open.weekEnd}
+                {formatDate(open.weekStart, open.weekStart)} to {formatDate(open.weekEnd, open.weekEnd)}
                 {open.stats?.logs != null && ` · ${open.stats.logs} approved log${open.stats.logs === 1 ? '' : 's'}`}
                 {open.stats?.crewDays ? ` · ${open.stats.crewDays} crew-days` : ''}
                 {open.stats?.safetyFlags ? ` · ${open.stats.safetyFlags} safety flag${open.stats.safetyFlags === 1 ? '' : 's'}` : ''}

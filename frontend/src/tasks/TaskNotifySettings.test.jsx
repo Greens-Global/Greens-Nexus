@@ -142,7 +142,7 @@ describe('replies log', () => {
       attachmentCount: 0, receivedAt: '', processedAt: '',
     }], total: 1 });
     await openReplies();
-    fireEvent.click(await screen.findByText('—'));
+    fireEvent.click(await screen.findByText('-'));
     expect(screen.queryByTestId('drawer')).toBeNull();
   });
 

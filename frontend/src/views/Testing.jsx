@@ -18,6 +18,7 @@ import { popupRedirectUri } from '../authConfig';
 import { toViewUrl } from '../lib/storageView';
 import AnchoredMenu from '../components/AnchoredMenu';
 import { Spinner } from '../components/AsyncState';
+import { formatDate } from '../lib/datetime';
 
 // ── Testing module - interactive QA runs over the audit test cases, bug
 // reports with recorded steps + AI conversion, assignments with due dates.
@@ -709,7 +710,7 @@ function ReportBug({ prefill, onPrefillUsed, canEdit, toastOk, toastErr, onOpenD
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13.5 }}>{b.description}</div>
                   <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 3, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                    {nameOf(b.createdBy)} · {(b.createdAt || '').slice(0, 10)}
+                    {nameOf(b.createdBy)} · {formatDate((b.createdAt || '').slice(0, 10))}
                     {b.moduleHint && <span>· {b.moduleHint}</span>}
                     {b.stepsLog.length > 0 && (
                       <button onClick={() => setOpenLog(openLog === b.id ? '' : b.id)}

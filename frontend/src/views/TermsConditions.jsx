@@ -24,7 +24,7 @@ export const TERMS_SECTIONS = [
     'While you are clocked in through the Time Clock module on a company-managed device, Nexus may capture periodic screenshots, active application/window titles, and activity levels to verify worked time and support performance review, as described in the Privacy Policy and in the acknowledgment shown at sign-in. Continued use of the Time Clock feature constitutes agreement to that monitoring.',
   ]},
   { h: '5. Your content', p: [
-    'You retain no separate ownership claim over work records, documents, photos, or other content you create or upload in Nexus in the course of your employment - it is Greens Global company data. You are responsible for the accuracy of information you enter (timesheets, checkouts, HR forms, etc.) and for having the right to upload any file you attach.',
+    'You retain no separate ownership claim over work records, documents, photos, or other content you create or upload in Nexus in the course of your employment - it is Greens Global company data. You are responsible for the accuracy of information you enter (time sheets, checkouts, HR forms, etc.) and for having the right to upload any file you attach.',
   ]},
   { h: '6. Availability and changes', p: [
     'Nexus is provided "as is" and "as available." We aim for reliability but do not guarantee uninterrupted access - the service may be unavailable during maintenance, deployments, or outages. Features and modules may be added, changed, or removed at any time as the portal evolves.',

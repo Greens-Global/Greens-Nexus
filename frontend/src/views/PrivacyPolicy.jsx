@@ -12,7 +12,7 @@ export const PRIVACY_SECTIONS = [
   ]},
   { h: '2. Information we collect', p: [
     'Account and identity: your name, work email, job title, and role, from Microsoft Entra ID (Azure AD) single sign-on. Nexus never sees or stores your Microsoft password.',
-    'Work records you or others enter: HR records (attendance, leave, timesheets, documents), task and project data (including data previously imported from Asana), item and asset checkouts/assignments, uploaded photos and documents, tickets, and similar operational records tied to your account.',
+    'Work records you or others enter: HR records (attendance, leave, time sheets, documents), task and project data (including data previously imported from Asana), item and asset checkouts/assignments, uploaded photos and documents, tickets, and similar operational records tied to your account.',
   ], list: [
     'Time-clock and monitoring data - see Section 3, this is limited and disclosed separately at sign-in.',
     'Technical data: IP address, browser/user-agent, and timestamps, recorded for security and audit purposes (e.g. login events, e-signature audit trails, policy acknowledgments).',

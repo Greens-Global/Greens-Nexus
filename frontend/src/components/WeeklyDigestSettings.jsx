@@ -100,7 +100,7 @@ export default function WeeklyDigestSettings() {
       </div>
       <div style={{ fontSize: 12.5, color: NX.faint, marginBottom: 14 }}>
         One email a week listing each employee's overdue tasks with their due dates, and a button to extend each
-        one, plus everything else still waiting on them (approvals, time off to decide, time card, items, tickets,
+        one, plus everything else still waiting on them (approvals, time off to decide, time sheet, items, tickets,
         documents to sign). Managers also see which of their reports have overdue work. Separate from the Daily Briefing.
       </div>
       <div className="scroll-tabs" style={{ display: 'flex', gap: 4, marginBottom: 18, borderBottom: `1px solid ${NX.border}` }}>

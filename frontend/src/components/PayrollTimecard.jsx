@@ -63,7 +63,7 @@ const typeOfCategory = (c) => /\bsick\b/i.test(c || '') ? 'Sick'
 function TzSwitch() {
   const cur = useDisplayTz();
   return (
-    <div title="Timezone for punch times on this timecard. California matches SwipeClock; India shows local time for India-based staff."
+    <div title="Timezone for punch times on this time sheet. California matches SwipeClock; India shows local time for India-based staff."
       style={{ display: 'inline-flex', border: '1px solid var(--wk-line2)', borderRadius: 999, overflow: 'hidden' }}>
       {TZ_OPTIONS.map((o) => {
         const on = o.key === cur.key;
@@ -107,7 +107,7 @@ function TimecardOptions({ self, showRaw, setShowRaw, children }) {
         style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--wk-line2)', borderRadius: 999, padding: '5px 12px', fontFamily: 'var(--wk-font)', fontWeight: 700, fontSize: 12, cursor: 'pointer', color: 'var(--ink)' }}>
         <SlidersHorizontal size={14} /> Options
       </button>
-      <AnchoredMenu anchorRef={btn} open={open} onClose={() => setOpen(false)} align="end" role="dialog" aria-label="Timecard options"
+      <AnchoredMenu anchorRef={btn} open={open} onClose={() => setOpen(false)} align="end" role="dialog" aria-label="Time Sheet options"
         style={{ width: 320, background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 12, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', padding: '12px 14px' }}>
         <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 4 }}>Display</div>
         {!self && (
@@ -346,7 +346,7 @@ function NoteModal({ dates, dow, self, noteFor, onSave, onClose, toastOk }) {
         </label>
         <label style={{ display: 'grid', gap: 5, fontSize: 12.5, fontWeight: 600 }}>Note
           <textarea className="form-input" rows={4} autoFocus value={text} onChange={e => setText(e.target.value)}
-            placeholder={self ? 'Seen by your manager on your timecard' : 'Seen by managers and HR, not by the employee'}
+            placeholder={self ? 'Seen by your manager on your time sheet' : 'Seen by managers and HR, not by the employee'}
             style={{ fontWeight: 400, resize: 'vertical', fontFamily: 'inherit' }} />
         </label>
         <div style={{ fontSize: 12, color: 'var(--muted)' }}>It shows on its day under the time rows. Save an empty note to remove it.</div>
@@ -431,7 +431,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const phone = useIsMobile(PHONE_QUERY);
   const [tour, setTour] = useState(false);               // Simulate walkthrough
   // The Help panel's Take the Tour (lib/tours.js) - a manager's timecard only.
-  useEffect(() => (self ? undefined : registerTour('timecard', 'Timecard', () => setTour(true))), [self]);
+  useEffect(() => (self ? undefined : registerTour('timecard', 'Time Sheet', () => setTour(true))), [self]);
   const { can, myEmail } = useRole();
   const isAdmin = can('administrator');
   const [workLogDay, setWorkLogDay] = useState(null);   // date string - opens the Work Log drawer for this day
@@ -494,7 +494,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         _timecardCache.set(key, d);
         if (reqKeyRef.current !== key) return;   // period moved on before this arrived
         setStepLocked(false); setData(d);
-      }).catch(e => { if (reqKeyRef.current === key) { setData(null); toastErr?.(e?.message || 'Could not load your timecard.'); } });
+      }).catch(e => { if (reqKeyRef.current === key) { setData(null); toastErr?.(e?.message || 'Could not load your time sheet.'); } });
       return;
     }
     if (!email) return;
@@ -509,7 +509,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       // Payroll shows $ - the backend requires a fresh step-up MFA. Show the
       // Verify gate (a gesture) rather than popping a challenge on mount.
       if (isStepUpRequired(e)) { setStepLocked(true); return; }
-      setData(null); toastErr?.(e?.message || 'Could not load the timecard.');
+      setData(null); toastErr?.(e?.message || 'Could not load the time sheet.');
     });
     // toastErr is only used in the catch; excluding it keeps `load` stable so a
     // parent that re-creates the callback each render (TimeClock's 1s stopwatch)
@@ -610,7 +610,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   const label = `${formatDate(start)} – ${formatDate(end)}`;
   // The period as the employee sees it - a month for fixed, the bi-weekly range for hourly.
   const periodLabel = isFixed && data?.periodStart
-    ? new Date(data.periodStart + 'T00:00').toLocaleDateString([], { month: 'long', year: 'numeric' })
+    ? new Date(data.periodStart + 'T00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
     : label;
   const T = data?.totals;
   const fin = data?.finalized;         // HR finalization - the period is LOCKED
@@ -624,12 +624,12 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     || (em ? em.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : '');
 
   async function finalize() {
-    if (!await dialog.confirm(`Finalize ${nameFor(email)}'s timecard for ${periodLabel}? This locks all time records for the period - edits will need an unlock.`, { title: 'Finalize timecard', confirmText: 'Finalize', danger: true })) return;
+    if (!await dialog.confirm(`Finalize ${nameFor(email)}'s time sheet for ${periodLabel}? This locks all time records for the period - edits will need an unlock.`, { title: 'Finalize Time Sheet', confirmText: 'Finalize', danger: true })) return;
     await signOff((allow) => api.timeFinalize({ email, start: perStart, end: perEnd, allow_exceptions: allow }),
-      'Finalize', 'Timecard finalized - the period is locked.');
+      'Finalize', 'Time sheet finalized - the period is locked.');
   }
   async function unfinalize() {
-    if (!await dialog.confirm(`Unlock ${nameFor(email)}'s finalized timecard for ${periodLabel}? Edits become possible again, and ${nameFor(email)} signs the corrected card again.`, { title: 'Unlock period', confirmText: 'Unlock' })) return;
+    if (!await dialog.confirm(`Unlock ${nameFor(email)}'s finalized time sheet for ${periodLabel}? Edits become possible again, and ${nameFor(email)} signs the corrected card again.`, { title: 'Unlock period', confirmText: 'Unlock' })) return;
     setBusy(true);
     try { await api.timeUnfinalize({ email, start: perStart, end: perEnd }); toastOk?.('Period unlocked.'); load(); }
     catch (e) { toastErr?.(e?.message || 'Could not unlock.'); }
@@ -728,7 +728,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     try {
       const res = await api.timeDecidePunchRequest(id, { status, note: note || '' });
       const extra = /Replaced|Also added/.test(res?.decisionNote || '') ? ` ${res.decisionNote}` : '';
-      toastOk?.(status === 'approved' ? `Punch added to the timecard.${extra}` : 'Request rejected.');
+      toastOk?.(status === 'approved' ? `Punch added to the time sheet.${extra}` : 'Request rejected.');
       load();
     } catch (e) { toastErr?.(e?.message || 'Could not update the request.'); }
   };
@@ -878,7 +878,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                         ? <span style={{ fontSize: 11, color: 'var(--muted)' }}>with your approver - not in your hours yet</span>
                         : !fin && (
                           <span style={{ display: 'inline-flex', gap: 6 }}>
-                            <button onClick={() => decideReq(r.req.id, 'approved')} title="Approve - adds this punch to the timecard"
+                            <button onClick={() => decideReq(r.req.id, 'approved')} title="Approve - adds this punch to the time sheet"
                               style={{ borderRadius: 999, padding: '3px 12px', cursor: 'pointer', font: 'inherit', fontSize: 11.5, fontWeight: 700, border: 'none', background: 'hsl(var(--color-green))', color: '#fff' }}>Approve</button>
                             <button onClick={() => decideReq(r.req.id, 'rejected')} title="Reject - the employee is notified"
                               style={{ borderRadius: 999, padding: '3px 12px', cursor: 'pointer', font: 'inherit', fontSize: 11.5, fontWeight: 700, border: '1px solid var(--wk-line2)', background: 'var(--card)', color: 'var(--ink)' }}>Reject</button>
@@ -1069,7 +1069,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           {filterSel(dept, setDept, 'Department', depts)}
           {showPay && companies.length > 0 && (
             <button type="button" className="secondary-btn" disabled={!iifCompanyId || exporting}
-              title={iifCompanyId ? `QuickBooks Desktop time import (IIF) of ${iifCompany}'s finalized time cards for ${formatDate(perStart)} - ${formatDate(perEnd)}. Employee names and the payroll items must match QuickBooks.` : 'Pick a company - QuickBooks imports one company per file'}
+              title={iifCompanyId ? `QuickBooks Desktop time import (IIF) of ${iifCompany}'s finalized time sheets for ${formatDate(perStart)} - ${formatDate(perEnd)}. Employee names and the payroll items must match QuickBooks.` : 'Pick a company - QuickBooks imports one company per file'}
               onClick={() => exportFile(() => api.timeExportIifFinalized(perStart, perEnd, iifCompanyId), 'QuickBooks IIF')}
               style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}><Download size={13} /> QuickBooks IIF</button>
           )}
@@ -1156,7 +1156,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       {/* Toolbar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
         {self
-          ? <span style={{ fontSize: 15, fontWeight: 800, minWidth: 180 }}>My Timesheet</span>
+          ? <span style={{ fontSize: 15, fontWeight: 800, minWidth: 180 }}>My Time Sheet</span>
           : <EmployeeCombobox people={pickable} value={email} onChange={setEmail} title="Also selectable from the sidebar"
               labelFor={p => `${p.name}${p.pendingEdits ? ` (${p.pendingEdits} to review)` : exByEmail[p.email]?.missing ? ` (${exByEmail[p.email].missing} missing)` : ''}`} />}
         <div data-tour="pr-period" style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -1548,7 +1548,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           body: 'Everyone in this pay period. M = missing punches, E = exceptions - the red numbers are your to-do list each morning. Click a name to open their card.' },
         { target: 'pr-period', title: 'The pay period',
           body: 'Bi-weekly, Sunday to Saturday - the SAME calendar as SwipeClock (current period 7/26–8/8), so the two cards always cover identical days. Arrows move one period.' },
-        { target: 'pr-table', title: 'The time card - same columns as SwipeClock',
+        { target: 'pr-table', title: 'The time sheet - same columns as SwipeClock',
           body: 'Date, Edit, In, Out, Deducted Time, Category, Total Hours, OT (1.5× and, past 12 hours in California, 2×), Loc, Pay Rate and Wage. Each break the person punched is its own Break line under the shift, with its start, end and length. Hover a time for its punch history - where it came from, the exact time, who entered or changed it. Add Note in the toolbar leaves a note on a day; it reads on the line under that day. Weekly total rows appear after each week.' },
         { target: 'pr-rounding', title: 'Options: rounded vs raw times',
           body: 'SwipeClock computes pay from rounded times but keeps the raw punch - so does Nexus. Open Options to peek at raw times, switch the timezone, or change a pay rule. During the comparison week, leave the rounding setting ON so the numbers can match 1:1.' },
@@ -1607,7 +1607,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
   const fixedSplit = (data.rateSplits || []).length > 1
     ? data.rateSplits.map((s, i) => i === 0 ? `Through ${formatDate(s.through)} at ${fmtM(s.monthlySalary)}/mo` : `From ${formatDate(s.from)} at ${fmtM(s.monthlySalary)}/mo`).join(' · ')
     : '';
-  const monthLabel = data.periodStart ? new Date(data.periodStart + 'T00:00').toLocaleDateString([], { month: 'long', year: 'numeric' }) : '';
+  const monthLabel = data.periodStart ? new Date(data.periodStart + 'T00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : '';
   // Always US month/day (Oct 16): [] took the browser's locale, so an India-locale
   // browser read 'Sun 11/10' for October 11.
   const dow = (ds) => `${new Date(ds + 'T00:00').toLocaleDateString('en-US', { weekday: 'short' })} ${ds.slice(5, 7)}/${ds.slice(8, 10)}`;
@@ -1649,7 +1649,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
       const res = await api.timeDecidePunchRequest(id, { status, note: note || '' });
       // Approving can also set aside a punch the fix replaces - say which (Oct 7).
       const extra = /Replaced|Also added/.test(res?.decisionNote || '') ? ` ${res.decisionNote}` : '';
-      toastOk?.(status === 'approved' ? `Punch added to the timecard.${extra}` : 'Request rejected.');
+      toastOk?.(status === 'approved' ? `Punch added to the time sheet.${extra}` : 'Request rejected.');
       load();
     } catch (e) { toastErr?.(e?.message || 'Could not update the request.'); }
   };
@@ -1659,7 +1659,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
       {/* Toolbar - month nav (fixed pay is by calendar month, no work-week) */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
         {self
-          ? <span style={{ fontSize: 15, fontWeight: 800, minWidth: 160 }}>My Timesheet</span>
+          ? <span style={{ fontSize: 15, fontWeight: 800, minWidth: 160 }}>My Time Sheet</span>
           : <EmployeeCombobox people={people} value={email} onChange={setEmail}
               labelFor={p => `${p.name}${p.pendingEdits ? ` (${p.pendingEdits} to review)` : ''}`} />}
         <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -1894,7 +1894,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                           ? <span style={{ fontSize: 11, color: 'var(--muted)' }}>with your approver - not in your hours yet</span>
                           : !fin && (
                             <span style={{ display: 'inline-flex', gap: 6 }}>
-                              <button onClick={() => decideReq(r.id, 'approved')} title="Approve - adds this punch to the timecard" style={{ ...reqBtn, border: 'none', background: 'hsl(var(--color-green))', color: '#fff' }}>Approve</button>
+                              <button onClick={() => decideReq(r.id, 'approved')} title="Approve - adds this punch to the time sheet" style={{ ...reqBtn, border: 'none', background: 'hsl(var(--color-green))', color: '#fff' }}>Approve</button>
                               <button onClick={() => decideReq(r.id, 'rejected')} title="Reject - the employee is notified" style={{ ...reqBtn, border: '1px solid var(--wk-line2)', background: 'var(--card)', color: 'var(--ink)' }}>Reject</button>
                             </span>
                           )}
@@ -2135,7 +2135,7 @@ export function BreakFixModal({ day, email = '', self = true, busy, setBusy, onD
         if (self) await api.timePunchRequestCreate({ action: 'remove', target_punch_id: id, reason: reason.trim() });
         else await api.timeAdjustPunch(id, { void: true, adjust_note: reason.trim() });
       }
-      toastOk?.(self ? 'Request sent - your approver decides whether the break comes off.' : 'Break deleted - the timecard is updated.');
+      toastOk?.(self ? 'Request sent - your approver decides whether the break comes off.' : 'Break deleted - the time sheet is updated.');
       window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));
       onDone();
     } catch (e) { toastErr?.(e?.message || 'Could not delete the break.'); }
@@ -2151,7 +2151,7 @@ export function BreakFixModal({ day, email = '', self = true, busy, setBusy, onD
       try {
         await api.timeAddPunch({ employee_email: email, kind: 'break_start', at: inputToUtc(at), tz_offset_min: tzFor(at), note: reason.trim() });
         await api.timeAddPunch({ employee_email: email, kind: 'break_end', at: inputToUtc(endAt), tz_offset_min: tzFor(endAt), note: reason.trim() });
-        toastOk?.('Break added - the timecard is updated.');
+        toastOk?.('Break added - the time sheet is updated.');
         window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));
         onDone();
       } catch (e) { toastErr?.(e?.message || 'Could not add the break.'); }
@@ -2167,10 +2167,10 @@ export function BreakFixModal({ day, email = '', self = true, busy, setBusy, onD
     try {
       if (self) {
         await api.timePunchRequestCreate({ action: 'add', punch_kind: kind, at: inputToUtc(at), tz_offset_min: tzFor(at), reason: reason.trim() });
-        toastOk?.('Request sent to your approver - it shows on your timecard as Not Yet Approved until they decide.');
+        toastOk?.('Request sent to your approver - it shows on your time sheet as Not Yet Approved until they decide.');
       } else {
         await api.timeAddPunch({ employee_email: email, kind, at: inputToUtc(at), tz_offset_min: tzFor(at), note: reason.trim() });
-        toastOk?.(kind === 'break_end' ? 'Break end added - the timecard is updated.' : 'Break start added - the timecard is updated.');
+        toastOk?.(kind === 'break_end' ? 'Break end added - the time sheet is updated.' : 'Break start added - the time sheet is updated.');
       }
       window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));
       onDone();
@@ -2190,7 +2190,7 @@ export function BreakFixModal({ day, email = '', self = true, busy, setBusy, onD
           <span style={{ fontSize: 15, fontWeight: 700, flex: 1 }}>{isDelete ? (self ? 'Ask to Remove a Break' : 'Delete a Break') : self ? 'Request a Missing Break Punch' : kind === 'both' ? 'Add a Break' : 'Fix a Break Punch'}</span>
           <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
         </div>
-        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>{new Date(day.date + 'T00:00').toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}</div>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>{new Date(day.date + 'T00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</div>
         {unended && !isDelete && (
           <div style={{ fontSize: 12, lineHeight: 1.55, color: '#b45309', background: 'rgba(180,83,9,0.09)', border: '1px solid rgba(180,83,9,0.25)', borderRadius: 10, padding: '9px 12px', marginBottom: 12 }}>
             {self ? 'Your' : 'The'} break started at {t12(unended.start)} and was never ended, so the clock-out closed it
@@ -2213,7 +2213,7 @@ export function BreakFixModal({ day, email = '', self = true, busy, setBusy, onD
                 {deletable.map((b, i) => <option key={b.startId} value={i}>{brLabel(b)}</option>)}
               </select>
               <span style={{ display: 'block', marginTop: 5, fontSize: 11.5, color: 'var(--muted)' }}>
-                {self ? 'Your approver decides; nothing changes until they approve.' : 'Its start and end punches come off the timecard. The audit record keeps them, with who deleted them and why.'}
+                {self ? 'Your approver decides; nothing changes until they approve.' : 'Its start and end punches come off the time sheet. The audit record keeps them, with who deleted them and why.'}
               </span>
             </label>
           ) : (
@@ -2299,7 +2299,7 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
       try {
         await api.timePunchRequestCreate({ action: 'add', punch_kind: 'break_start', at: inputToUtc(inAt), tz_offset_min: tzFor(inAt), reason: reason.trim() });
         await api.timePunchRequestCreate({ action: 'add', punch_kind: 'break_end', at: inputToUtc(outAt), tz_offset_min: tzFor(outAt), reason: reason.trim() });
-        toastOk?.('Request sent to your approver - it shows on your timecard as Not Yet Approved until they decide.');
+        toastOk?.('Request sent to your approver - it shows on your time sheet as Not Yet Approved until they decide.');
         window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));
         onDone();
       } catch (e) { fail(e?.message || 'Could not send the request.'); }
@@ -2311,7 +2311,7 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
       try {
         await api.timeAddPunch({ employee_email: email, kind: 'break_start', at: inputToUtc(inAt), tz_offset_min: tzFor(inAt), note: 'payroll edit' });
         await api.timeAddPunch({ employee_email: email, kind: 'break_end', at: inputToUtc(outAt), tz_offset_min: tzFor(outAt), note: 'payroll edit' });
-        toastOk?.('Break added - the timecard is updated.');
+        toastOk?.('Break added - the time sheet is updated.');
         window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));
         onDone();
       } catch (e) { fail(e?.message || 'Could not add the break - it has to fall inside a shift that day.'); }
@@ -2331,7 +2331,7 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
           await api.timePunchRequestCreate({ action: 'add', punch_kind: kind, at: inputToUtc(at), tz_offset_min: tzFor(at), reason: reason.trim(),
             category: kind === 'in' && LEAVE_TYPES.includes(type) ? type : '' });
         }
-        toastOk?.('Request sent to your approver - it shows on your timecard as Not Yet Approved until they decide.');
+        toastOk?.('Request sent to your approver - it shows on your time sheet as Not Yet Approved until they decide.');
         window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));   // refresh the request stack
         onDone();
       } catch (e) { fail(e?.message || 'Could not send the request.'); }
@@ -2364,7 +2364,7 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
       // as a clock-out before a clock-in. Then the out goes first.
       const outFirst = !!(seg?.outId && seg?.out && new Date(inAt) >= new Date(utcToInput(seg.out)));
       if (outFirst) { await saveOut(); await saveIn(); } else { await saveIn(); await saveOut(); }
-      toastOk?.('Timecard updated - original times stay on record.'); onDone();
+      toastOk?.('Time sheet updated - original times stay on record.'); onDone();
     } catch (e) { fail(e?.message || 'Could not save.'); }
     setBusy(false);
   }
@@ -2374,7 +2374,7 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
   async function voidPunches(ids, what) {
     const list = ids.filter(Boolean);
     if (!list.length) return;
-    if (!await dialog.confirm(`Delete ${what}? It comes off the timecard and out of the hours. The audit record keeps it, with who deleted it.`,
+    if (!await dialog.confirm(`Delete ${what}? It comes off the time sheet and out of the hours. The audit record keeps it, with who deleted it.`,
       { title: 'Delete punch', confirmText: 'Delete', danger: true })) return;
     setBusy(true);
     try {
@@ -2414,7 +2414,7 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
           <span style={{ fontSize: 15, fontWeight: 700, flex: 1 }}>{self ? 'Request a Missing Punch' : seg ? 'Edit Punch' : isBreak ? 'Add Break' : 'Add Punch'}</span>
           <button onClick={guard.requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)' }}><X size={18} /></button>
         </div>
-        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>{new Date(day.date + 'T00:00').toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric' })}</div>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>{new Date(day.date + 'T00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</div>
         <div style={{ display: 'grid', gap: 12 }}>
           {/* In self mode only the MISSING punch is editable - an existing time stays
               shown (disabled) for context but can't be silently overwritten here. */}

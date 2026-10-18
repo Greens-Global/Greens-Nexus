@@ -569,7 +569,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       setParked(null); setLostModal(false);
       // A stale drop is NOT a quiet success. The punch they were waiting on is
       // gone; say so, or they carry on believing it landed.
-      if (r.stale) toast(true, `Your ${(KIND_LABEL[held.kind] || 'punch').toLowerCase()} is already on your timecard - nothing left to record.`);
+      if (r.stale) toast(true, `Your ${(KIND_LABEL[held.kind] || 'punch').toLowerCase()} is already on your time sheet - nothing left to record.`);
       else toast(false, r.error?.message || 'That punch could not be added - request it from your Time Sheet.');
       load();
       return { done: true, ...r };
@@ -1561,7 +1561,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
             </div>
             <div style={{ padding: '16px 22px', fontSize: 13, color: 'var(--ink)', lineHeight: 1.65 }}>
               Nexus couldn&apos;t reach the server, so your <b>{(KIND_LABEL[parked.kind] || 'punch').toLowerCase()}</b> at{' '}
-              <b>{localTime(parked.at)}</b> is not on your timecard yet. Your Teams message may already
+              <b>{localTime(parked.at)}</b> is not on your time sheet yet. Your Teams message may already
               have gone out - that does not record a punch.
               {parked.held ? (
                 <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 10, background: 'var(--wk-hover)', color: 'var(--ink)' }}>

@@ -205,7 +205,7 @@ function NetworkDashboard() {
       const fresh = data.data || [];
       setSites(fresh);
       sessionStorage.setItem(CACHE_KEY, JSON.stringify(fresh));
-      setLastUpdated(new Date().toLocaleTimeString());
+      setLastUpdated(new Date().toLocaleTimeString('en-US'));
     } catch (e) {
       setError(e.message);
     } finally {
@@ -219,7 +219,7 @@ function NetworkDashboard() {
     try {
       const data = await api.unifiStats(siteId);
       setDetail(data);
-      setLastUpdated(new Date().toLocaleTimeString());
+      setLastUpdated(new Date().toLocaleTimeString('en-US'));
     } catch (e) {
       setError(e.message);
     } finally {

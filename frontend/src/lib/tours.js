@@ -16,7 +16,7 @@ export const TOURS = [
   { key: 'tasks', label: 'Tasks', view: 'tasks', need: 'tasks' },
   { key: 'tickets', label: 'Tickets', view: 'tickets', need: 'tickets' },
   { key: 'documents', label: 'Documents', view: 'documents', need: 'documents' },
-  { key: 'timecard', label: 'Timecard', view: 'hr', sub: 'hr-time', need: 'people' },
+  { key: 'timecard', label: 'Time Sheet', view: 'hr', sub: 'hr-time', need: 'people' },
   { key: 'roles', label: 'Roles & Access', view: 'admin-console', sub: 'access', need: 'administrator' },
   { key: 'support', label: 'Help Center', view: 'support', need: '' },
 ];

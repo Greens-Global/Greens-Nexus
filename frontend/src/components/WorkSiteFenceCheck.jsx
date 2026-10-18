@@ -69,7 +69,7 @@ export default function WorkSiteFenceCheck({ lat, lng, radiusM, siteId = '', mov
           <span>{gained} more punch{gained === 1 ? '' : 'es'} count as on-site than with the saved fence.</span>
         </div>
       )}
-      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>Past punches are rechecked against the saved fence on every timecard.</div>
+      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>Past punches are rechecked against the saved fence on every time sheet.</div>
     </div>
   );
 }

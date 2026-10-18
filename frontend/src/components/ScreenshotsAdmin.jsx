@@ -9,7 +9,7 @@ import { Spinner } from './AsyncState';
 // Pick a day → people with captures → their frames (signed URLs, 1h expiry).
 // Idle badge shows how long since the last keyboard/mouse input at capture.
 
-const localTime = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+const localTime = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '';
 
 export default function ScreenshotsAdmin({ onClose, onBack, embedded = false, initialEmail = '', initialDate = '' }) {
   const [date, setDate] = useState(() => initialDate || new Date().toISOString().slice(0, 10));

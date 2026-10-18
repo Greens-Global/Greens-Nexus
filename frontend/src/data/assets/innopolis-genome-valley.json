@@ -1,7 +1,7 @@
 {
   "id": "innopolis-genome-valley",
   "name": "Innopolis, Genome Valley",
-  "type": "Industrial — Mixed-Use Development",
+  "type": "Industrial - Mixed-Use Development",
   "address": "Genome Valley, Hyderabad, India",
   "snapshot": [
     {
@@ -12,7 +12,7 @@
         { "label": "City", "value": "" },
         { "label": "State", "value": "" },
         { "label": "Zip", "value": "" },
-        { "label": "Current Use", "value": "Industrial — Mixed-Use Development" },
+        { "label": "Current Use", "value": "Industrial - Mixed-Use Development" },
         { "label": "Development Stage (Feasibility / Entitlement / Permitting / Construction / Stabilized)", "value": "Construction" }
       ]
     }

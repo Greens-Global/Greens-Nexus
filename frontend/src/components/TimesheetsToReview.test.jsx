@@ -68,7 +68,7 @@ describe('TimesheetsToReview', () => {
     await waitFor(() => expect(sendBack).toHaveBeenCalledWith('r1', 'Tuesday lunch'));
   });
 
-  it('says why Approve is not available yet, and Review opens the timecard', async () => {
+  it('says why Approve is not available yet, and Review opens the time sheet', async () => {
     waiting.mockResolvedValue({ reviews: [row({ agreeBlocker: 'This period runs to 09/30/2026. You can approve it after that day, once every day is in.' })] });
     const onOpen = vi.fn();
     render(<TimesheetsToReview onOpen={onOpen} />);
@@ -78,13 +78,13 @@ describe('TimesheetsToReview', () => {
     expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ employeeEmail: 'erin@x.com', periodStart: '2026-09-01', payType: 'fixed' }));
   });
 
-  it('a timesheet HR changed is on the sign card, and signing sends the fresh copy (Oct 17)', async () => {
+  it('a time sheet HR changed is on the sign card, and signing sends the fresh copy (Oct 17)', async () => {
     waiting.mockResolvedValue({ reviews: [], toSign: [{ id: 'r9', partyId: '', role: 'employee', employeeEmail: 'erin@x.com',
       name: 'Erin Test', periodStart: '2026-09-20', periodEnd: '2026-10-03', agreedBy: 'Max Test', agreedAt: '2026-10-05T10:00:00Z',
       needsResign: true }] });
     render(<TimesheetsToReview onOpen={() => {}} />);
-    expect(await screen.findByText(/HR changed the hours - sign the updated timesheet/)).toBeTruthy();
-    fireEvent.click(screen.getByText('Sign Updated Timesheet'));
+    expect(await screen.findByText(/HR changed the hours - sign the updated time sheet/)).toBeTruthy();
+    fireEvent.click(screen.getByText('Sign Updated Time Sheet'));
     await waitFor(() => expect(sign).toHaveBeenCalledWith('r9'));
     expect(await screen.findByTestId('sign-modal')).toHaveTextContent('p-new');
   });

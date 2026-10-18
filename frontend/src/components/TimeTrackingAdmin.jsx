@@ -247,7 +247,7 @@ function AgentInstall() {
       {/* Enrolled computers */}
       <div style={{ marginTop: 18, borderTop: '1px solid var(--line)', paddingTop: 14 }}>
         <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 8 }}>
-          Enrolled computers
+          Enrolled Computers
         </div>
         {devices === null ? (
           <LoadingState compact />
