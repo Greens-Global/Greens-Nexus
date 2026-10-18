@@ -123,6 +123,12 @@ def _period(db: Session, em: str, row, hist: list, name_of) -> tuple:
                                  "month with the salary now in effect.", paid=paid, now=runs)
 
     paid_rate = float(snap.get("rate") or 0)
+    # Finalized since Oct 17 2026, a period keeps the rate EACH day was priced
+    # at ("rates"); an older snapshot holds one rate for every day.
+    _paid_days = snap.get("rates") if isinstance(snap.get("rates"), dict) else {}
+
+    def paid_on(d: str) -> float:
+        return float(_paid_days.get(d, paid_rate))
     odd = [d for d in days if now_of[d]["payType"] != "hourly" or now_of[d]["currency"] != cur]
     if odd:
         runs = _rate_splits(odd, {d: now_of[d]["hourlyRate"] for d in odd}, "rate")
@@ -130,7 +136,7 @@ def _period(db: Session, em: str, row, hist: list, name_of) -> tuple:
                                  f"The pay type or currency in effect from {_us_day(odd[0])} differs from the one the "
                                  f"period was finalized with, so the two cannot be compared.",
                                  paid=paid_rate, now=runs)
-    changed = [d for d in days if not _same(now_of[d]["hourlyRate"], paid_rate)]
+    changed = [d for d in days if not _same(now_of[d]["hourlyRate"], paid_on(d))]
     if not changed:
         return "", None
 
@@ -157,7 +163,7 @@ def _period(db: Session, em: str, row, hist: list, name_of) -> tuple:
         "email": em, "name": name, "periodStart": ps, "periodEnd": pe, "finalizedAt": row.approved_at or "",
         "currency": cur, "overtimeRule": snap.get("rule") or "ca",
         "changedFrom": changed[0], "changedThrough": changed[-1], "changedDays": len(changed),
-        "hours": hrs, "ratePaid": paid_rate,
+        "hours": hrs, "ratePaid": paid_on(changed[-1]),
         "rateNow": _rate_splits(changed, {d: now_of[d]["hourlyRate"] for d in changed}, "rate"),
         "paid": pw, "now": pn, "owedByClass": diff, "owed": owed,
     }

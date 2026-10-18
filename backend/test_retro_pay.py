@@ -142,6 +142,21 @@ class HourlyRetroTests(unittest.TestCase):
         out = _run()
         self.assertEqual((out["people"], out["totals"], out["checkManually"]), ([], [], []))
 
+    def test_a_period_finalized_with_each_days_rate_owes_nothing(self):
+        # Finalized since Oct 17 2026: the snapshot keeps each day's rate. A raise
+        # that was already in the history (and so already paid) is not owed again.
+        db = database.SessionLocal()
+        try:
+            row = db.query(models.TimeApproval).filter(models.TimeApproval.id == f"{HOURLY}-{PS}-final").first()
+            days = {f"2026-09-{d:02d}": (20.0 if d < 15 else 25.0) for d in range(int(PS[-2:]), int(PE[-2:]) + 1)}
+            row.note = json.dumps({"rate": 25.0, "rates": days, "rule": "ca", "payType": "hourly", "currency": "USD",
+                                   "monthlySalary": 0.0, "fullDayHours": 8.0})
+            db.commit()
+        finally:
+            db.close()
+        self._raise("2026-09-15", 25.0)
+        self.assertEqual(_run()["people"], [])
+
     def test_range_and_employee_filters(self):
         self._raise("2026-09-15", 25.0)
         self.assertEqual(_run(start="2026-10-01", end="2026-10-17")["people"], [])   # period outside the range
