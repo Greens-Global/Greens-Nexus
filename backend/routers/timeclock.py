@@ -1852,14 +1852,31 @@ def finalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrat
         worked = sum(v["workedMin"] for k, v in _day_summaries(
             _live_punches(db, email, body.start, _end_nx), _round_min(db),
             break_cfg=_break_cfg_for(db, email)).items() if k <= body.end)
+    # The rate each day of the period was priced at on the live card (the dated
+    # history, _rate_on) - frozen day by day (Oct 17 2026, Neil). One rate for
+    # the whole period (the person's CURRENT rate) re-priced every day of a
+    # period with a raise inside it, or one entered early with a later
+    # effective date, at the wrong rate the moment it was finalized.
+    _hist = _rate_history(db, email)
+    _d0, _d1 = date.fromisoformat(body.start), date.fromisoformat(body.end)
+    _day_rates = {}
+    if _hist:
+        _dd = _d0
+        while _dd <= _d1:
+            _day_rates[_dd.isoformat()] = float(_rate_on(db, email, _dd.isoformat(), hist=_hist, rate_row=_rr)["hourlyRate"])
+            _dd += timedelta(days=1)
+    _headline = _day_rates.get(body.end, float(_rr.hourly_rate) if _rr else 0.0)
     # Snapshot BOTH pay models so neither an hourly rate nor a fixed salary can
     # retro-price this locked, paid period after a later change (see
     # _compute_timecard and _fixed_card, which read this back for finalized periods).
-    _snap = json.dumps({"rate": float(_rr.hourly_rate) if _rr else 0.0,
+    _snap = json.dumps({"rate": _headline,
+                        **({"rates": _day_rates} if _day_rates else {}),
                         "rule": (getattr(_rr, "overtime_rule", None) or "ca") if _rr else "ca",
                         "payType": (getattr(_rr, "pay_type", None) or "hourly") if _rr else "hourly",
                         "currency": (getattr(_rr, "currency", None) or "USD") if _rr else "USD",
-                        "monthlySalary": float(getattr(_rr, "monthly_salary", 0) or 0) if _rr else 0.0,
+                        # The salary in effect on the period's last day, not a raise keyed early for later.
+                        "monthlySalary": (float(_rate_on(db, email, body.end, hist=_hist, rate_row=_rr)["monthlySalary"]) if _hist
+                                          else (float(getattr(_rr, "monthly_salary", 0) or 0) if _rr else 0.0)),
                         "fullDayHours": float(getattr(_rr, "full_day_hours", 8) or 8) if _rr else 8.0,
                         **_fixed_snap})
     row = TimeApproval(id=str(uuid.uuid4()), employee_email=email,
@@ -8929,6 +8946,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
     # (finalize snapshots these into the approval row's note). The snapshot is
     # one rate for the whole period - it stays authoritative over the history.
     _fin_snap = _finalized_row(db, em, start, end)
+    _frozen_rates = {}
     if _fin_snap and _fin_snap.note:
         try:
             _sn = json.loads(_fin_snap.note)
@@ -8936,7 +8954,10 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
                 rate = float(_sn.get("rate") or 0.0)
                 rule = _sn.get("rule") or rule
                 _hist = []
-                _rate_for_day = lambda d, _r=rate: _r   # noqa: E731 - pinned to the snapshot
+                # Finalized since Oct 17 2026: each day keeps the rate it was
+                # priced at ("rates"); older snapshots hold one rate for all.
+                _frozen_rates = _sn.get("rates") if isinstance(_sn.get("rates"), dict) else {}
+                _rate_for_day = lambda d, _r=rate, _f=_frozen_rates: float(_f.get(d, _r))   # noqa: E731 - pinned to the snapshot
         except Exception:   # noqa: BLE001 - a bad snapshot must not break the timecard
             pass
     emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == em).first()
@@ -9231,7 +9252,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
         _d0 = datetime.strptime(start, "%Y-%m-%d").date()
         _n = (datetime.strptime(end, "%Y-%m-%d").date() - _d0).days + 1
         _cal_days = [(_d0 + timedelta(days=i)).isoformat() for i in range(min(_n, 62))]
-    rate_splits = _rate_splits(_cal_days, {d: _rate_for_day(d) for d in _cal_days}, "rate") if _hist else []
+    rate_splits = _rate_splits(_cal_days, {d: _rate_for_day(d) for d in _cal_days}, "rate") if (_hist or _frozen_rates) else []
 
     # Paid company holidays (see _company_holidays_for_employee): an HOURLY
     # employee has no "missed day" deduction to exempt (they're only ever paid for
