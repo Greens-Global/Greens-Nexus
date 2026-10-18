@@ -1845,9 +1845,15 @@ async function uploadTicketFile(ticketId, f) {
   let url = '';
   let ok = true;
   try { url = await uploadTicketEvidence(f, kind); } catch { ok = false; }
-  await api.addTicketAttachment(ticketId, { name: f.name, size, kind, url }).catch(() => {});
+  // The server refuses a URL outside our storage (400) - that file is not on
+  // the ticket either, so it counts as failed too.
+  try { await api.addTicketAttachment(ticketId, { name: f.name, size, kind, url }); } catch { ok = false; }
   return ok;
 }
+
+// "Could not attach <name>: <server's reason>" - a refused attachment (e.g.
+// a URL outside our storage, 400) used to vanish without a word.
+const attachFailed = (name) => (e) => appDialog.alert(`Could not attach "${name}": ${e?.message || e}`, { title: 'Attachment Not Saved' });
 
 // Shared Record + Upload control - a screen recording (optionally with mic
 // narration) or a plain file picker. `onFile(file)` gets a plain File each
@@ -2279,7 +2285,11 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
         typeFields[HELP_SUBTOPIC_KEY] = tf[HELP_SUBTOPIC_KEY];
       }
       const created = await createTicket({
-        subject: form.subject.trim(), description, type: form.type, priority: form.priority, status: form.status,
+        subject: form.subject.trim(), description, type: form.type, priority: form.priority,
+        // No status (and never an assignee) from this form: the server opens
+        // every new ticket, and a non-desk requester sending either is refused
+        // (403). Sent only if something ever picks a status other than Open.
+        ...(form.status && form.status !== 'open' ? { status: form.status } : {}),
         // Requester = who it is for (defaults to me; the server checks anyone
         // else against the People list and records me as the creator). SLA due
         // date is derived from priority; the service area from the topic.
@@ -2299,7 +2309,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
       // ticket still saves, and any failed file gets one combined warning
       // (not one alert per file) rather than being silently dropped.
       if (created?.id && inlineImages.length) {
-        await Promise.all(inlineImages.map((a) => api.addTicketAttachment(created.id, a).catch(() => {})));
+        await Promise.all(inlineImages.map((a) => api.addTicketAttachment(created.id, a).catch(attachFailed(a.name))));
       }
       if (created?.id && attachments.length) {
         const results = await Promise.all(attachments.map((f) => uploadTicketFile(created.id, f)));
@@ -3176,7 +3186,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
       body.comment_internal = reply.internal;
     }
     const saved = await updateTicket(t.id, body);
-    for (const a of storedImagesRef.current) api.addTicketAttachment(t.id, a).catch(() => {});
+    for (const a of storedImagesRef.current) api.addTicketAttachment(t.id, a).catch(attachFailed(a.name));
     storedImagesRef.current = [];
     baseRef.current = saved && saved.id ? saved : null;
     setPending({});
@@ -4134,7 +4144,7 @@ function TicketConversation({ ticketId, ticketType, nameOf, canInternal = true, 
     try { url = await uploadTicketEvidence(f, kind); } catch (e) {
       appDialog.alert(`"${f.name}" couldn't be stored: ${e?.message || 'upload failed'}.`);
     }
-    await api.addTicketAttachment(ticketId, { name: f.name, size: `${Math.max(1, Math.round(f.size / 1024))} KB`, kind, url }).catch(() => {});
+    await api.addTicketAttachment(ticketId, { name: f.name, size: `${Math.max(1, Math.round(f.size / 1024))} KB`, kind, url }).catch(attachFailed(f.name));
     setAttaching(false);
     if (!url) return;
     const text = kind === 'video' ? 'Screen recording' : f.name;
@@ -4291,7 +4301,7 @@ function TicketAttachments({ ticketId, ticketType, canDelete = false }) {
     } catch (e) {
       appDialog.alert(`"${f.name}" was recorded but couldn't be stored: ${e?.message || 'upload failed'}. It won't be playable/downloadable.`);
     }
-    await api.addTicketAttachment(ticketId, { name: f.name, size, kind, url }).catch(() => {});
+    await api.addTicketAttachment(ticketId, { name: f.name, size, kind, url }).catch(attachFailed(f.name));
     setBusy(false);
     reload();
   };
