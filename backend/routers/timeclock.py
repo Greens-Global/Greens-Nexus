@@ -8693,7 +8693,10 @@ def set_export_codes(body: ExportCodesIn, user: dict = Depends(require_administr
     """Replace one company's export codes. A blank name (or the default
     itself) reads the default; `codes: {}` is Reset to Default."""
     company = _export_codes_company(db, user, body.company)
-    payroll_codes.save_codes(db, company, body.codes if isinstance(body.codes, dict) else {}, user["email"])
+    try:
+        payroll_codes.save_codes(db, company, body.codes if isinstance(body.codes, dict) else {}, user["email"])
+    except ValueError as e:      # two pay classes under one name
+        raise HTTPException(400, str(e))
     return _export_codes_out(db, company)
 
 

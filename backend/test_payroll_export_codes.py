@@ -185,6 +185,15 @@ class ExportCodesTests(unittest.TestCase):
         self.assertEqual(after, [m.replace("Pat Test - Regular Pay", "Pat Test - REG") for m in before])
         self.assertTrue(any("Quinn Test - Regular Pay" in m for m in after))
 
+    def test_two_pay_classes_under_one_name_are_refused(self):
+        # QuickBooks would merge them - sick and vacation paid as one line.
+        r = self._put({"sick": "Leave Pay", "vacation": "leave pay"})
+        self.assertEqual(r.status_code, 400, r.text)
+        self.assertIn("QuickBooks would merge them", r.json()["detail"])
+        r = self._put({"sick": "Regular Pay"})     # clashes with a default name
+        self.assertEqual(r.status_code, 400, r.text)
+        self.assertEqual(self._iif(), GOLDEN)      # nothing was saved
+
     def test_settings_permissions(self):
         _as(MGR)
         r = self.client.get(f"/timeclock/payroll/export-codes?company={CO_A}")

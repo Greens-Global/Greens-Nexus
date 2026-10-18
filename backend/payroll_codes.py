@@ -29,6 +29,9 @@ PAY_CLASSES = (
     ("personal", "Personal Pay"),
 )
 DEFAULTS = dict(PAY_CLASSES)
+# How a pay class is named in a message to HR.
+LABELS = {"regular": "Regular", "overtime": "Overtime", "doubleTime": "Double Time", "holiday": "Holiday",
+          "sick": "Sick", "vacation": "Vacation", "personal": "Personal"}
 # QuickBooks Desktop caps a payroll item name at 31 characters.
 MAX_LEN = 31
 
@@ -92,6 +95,16 @@ def save_codes(db: Session, company_id: str, codes: dict, by: str) -> dict:
         v = clean_code((codes or {}).get(k))
         if v and v != DEFAULTS[k]:
             kept[k] = v
+    # Two pay classes under one name would merge in QuickBooks - sick and
+    # vacation paid as one line - so a clash is refused, not saved.
+    final = {k: kept.get(k, DEFAULTS[k]) for k, _d in PAY_CLASSES}
+    seen = {}
+    for k, name in final.items():
+        other = seen.get(name.lower())
+        if other:
+            raise ValueError(f"\"{name}\" is used for both {LABELS.get(other, other)} and {LABELS.get(k, k)} - "
+                             f"QuickBooks would merge them. Give each pay class its own name.")
+        seen[name.lower()] = k
     stored = _stored(db)
     if kept:
         stored[company_id] = kept
