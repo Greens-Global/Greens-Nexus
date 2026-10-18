@@ -6613,3 +6613,34 @@ class ApprovalDelegation(Base):
     created_at      = Column(String, default="")
     revoked_at      = Column(String, default="")                    # '' = not revoked
     revoked_by      = Column(String, default="")
+
+
+class ExpenseClaim(Base):
+    """Expense reimbursement (Neil, Oct 17 2026): an employee paid for
+    something on the company's behalf and asks for the money back - receipt
+    and proof of payment attached (Workday > Expenses). The manager decides
+    first (Team > Requests), then accounting approves and marks it paid
+    (Reimbursements, the `reimbursements` grant). Never deleted: a rejected
+    or canceled claim stays as the record. `history` is the timeline -
+    [{at, by, action, note}], one entry per step. New table - create_all
+    builds it; RLS comes from main._enable_rls_everywhere's startup sweep (and
+    the explicit ALTER in the Postgres migrations list)."""
+    __tablename__ = "expense_claims"
+    id                 = Column(String, primary_key=True)              # uuid
+    employee_email     = Column(String, index=True, nullable=False)
+    expense_date       = Column(String, default="")                    # YYYY-MM-DD
+    vendor             = Column(String, default="")
+    category           = Column(String, default="other")               # routers.expenses.CATEGORIES
+    amount_cents       = Column(Integer, default=0)
+    currency           = Column(String, default="USD")
+    description        = Column(String, default="")
+    receipt_urls       = Column(JSON, default=list)                    # private ticket-evidence bucket
+    payment_proof_urls = Column(JSON, default=list)
+    # submitted | manager_approved | approved | paid | rejected | sent_back | canceled
+    status             = Column(String, default="submitted", index=True)
+    history            = Column(JSON, default=list)
+    payment_method     = Column(String, default="")                    # set when paid
+    payment_ref        = Column(String, default="")
+    paid_on            = Column(String, default="")                    # YYYY-MM-DD
+    created_at         = Column(String, default="")
+    updated_at         = Column(String, default="")

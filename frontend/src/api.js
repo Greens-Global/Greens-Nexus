@@ -2407,6 +2407,16 @@ export const api = {
   approvalDelegationRevoke:    (id)   => req(`/approval-delegations/${encodeURIComponent(id)}/revoke`, { method: 'POST' }),
   approvalDelegationsAll:      (includePast = false) => req(`/approval-delegations${includePast ? '?include_past=true' : ''}`),
   approvalDelegationCreateFor: (data) => req('/approval-delegations', { method: 'POST', body: JSON.stringify(data) }),
+  // Expense reimbursements (Neil, Oct 17 2026) - routers/expenses.py.
+  expensesMine:          ()               => req('/expenses/mine'),
+  expenseSubmit:         (data)           => req('/expenses', { method: 'POST', body: JSON.stringify(data) }),
+  expenseResubmit:       (id, data)       => req(`/expenses/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }),
+  expenseCancel:         (id)             => req(`/expenses/${encodeURIComponent(id)}/cancel`, { method: 'POST' }),
+  expensesTeam:          (email = '')     => req(`/expenses/team${email ? `?email=${encodeURIComponent(email)}` : ''}`),
+  expenseManagerDecide:  (id, data)       => req(`/expenses/${encodeURIComponent(id)}/manager-decision`, { method: 'POST', body: JSON.stringify(data) }),
+  expensesQueue:         ()               => req('/expenses/queue'),
+  expenseReview:         (id, data)       => req(`/expenses/${encodeURIComponent(id)}/review`, { method: 'POST', body: JSON.stringify(data) }),
+  expenseMarkPaid:       (id, data)       => req(`/expenses/${encodeURIComponent(id)}/paid`, { method: 'POST', body: JSON.stringify(data) }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

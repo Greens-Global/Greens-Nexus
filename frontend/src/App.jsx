@@ -83,6 +83,7 @@ const CredentialVault     = lazy(() => import("./views/CredentialVault"));
 const Egnyte              = lazy(() => import("./views/Egnyte"));
 const EmployeeTracking    = lazy(() => import("./components/TimeTrackingAdmin"));
 const Shifts              = lazy(() => import("./views/Shifts"));
+const Reimbursements      = lazy(() => import("./components/Expenses"));
 const MyBriefing          = lazy(() => import("./views/MyBriefing"));
 const WhatsNew            = lazy(() => import("./tasks/ChangelogView"));   // What's New as a page (Oct 12)
 
@@ -153,6 +154,8 @@ const VIEW_MIN_ROLES = {
   // can see regardless of the viewer's own Egnyte permissions. Gated at
   // supervisor for that reason - see the note in src/egnyte/EgnyteApp.jsx.
   'egnyte':             'supervisor',
+  // Accounting's expense-claim queue: administrators or the 'reimbursements' grant.
+  'reimbursements':     'supervisor',
 };
 
 // A view whose Access Group grant has another module's id (none today:
@@ -389,6 +392,7 @@ function ProtectedView({ activeView, activeSub, onSubChange, onNavigate }) {
     case "egnyte":             return <Egnyte activeSub={activeSub} onSubChange={onSubChange} />;
     case "employee-tracking":  return <EmployeeTracking initialSub={activeSub} module />;
     case "shifts":             return <Shifts activeSub={activeSub} onSubChange={onSubChange} />;
+    case "reimbursements":     return <Reimbursements />;
     case "legal":              return <Legal activeSub={activeSub} onSubChange={onSubChange} />;
     // Old links to the two separate pages open their tab of Legal.
     case "privacy-policy":     return <Legal activeSub="privacy" onSubChange={(sub) => onNavigate("legal", sub)} />;

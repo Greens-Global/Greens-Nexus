@@ -47,6 +47,8 @@ export const MODULES = [
   // Workforce Analytics > Scorecard + the weekly manager email (Neil, 10/10):
   // viewer = their own reporting line, full = the whole company.
   { id: 'workforce-scorecard', label: 'Workforce Scorecard' },
+  // Expense claims after the manager: viewer reads the queue, editor approves and pays (Oct 18 2026).
+  { id: 'reimbursements',      label: 'Reimbursements' },
 ];
 
 // Per-module permission levels an Access Group can grant - mirrors a

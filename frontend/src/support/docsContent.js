@@ -1071,6 +1071,52 @@ export const DOCS = [
     tips: ['Each tab shows one section at a time. Use the section list at the top to switch.'],
   },
   {
+    id: 'reimbursements', name: 'Reimbursements', group: 'Modules', icon: 'Receipt', view: 'reimbursements',
+    tagline: 'Get paid back for company expenses you paid yourself.',
+    where: 'Workday > Expenses (submit), Team > Requests (manager), Left menu > Reimbursements (accounting)',
+    access: 'Everyone submits. Managers decide for their team. Accounting needs the Reimbursements grant.',
+    purpose: 'When you pay for something on behalf of the company, file a claim with the receipt and proof that you paid. Your manager approves it, accounting approves it and pays you back, and every step is recorded on the claim.',
+    gains: [
+      'One place for receipts - no more emailing photos around.',
+      'You always know where your claim is and who has it.',
+      'Managers and HR can open any past claim of their team, with its receipts.',
+    ],
+    walkthroughs: [
+      {
+        title: 'Submit a Claim',
+        steps: [
+          'Open Workday and pick the Expenses tab.',
+          'Fill in the date you paid, who you paid, the category, the amount and what it was for.',
+          'Attach the receipt and the proof of payment (card slip, statement line or transfer confirmation). You can paste a screenshot with Ctrl+V.',
+          'Click Submit Claim. Your manager gets a bell notification.',
+        ],
+      },
+      {
+        title: "Approve Your Team's Claims",
+        steps: [
+          'Open Team > Requests. Expense Claims is under the time-off and shift requests.',
+          'Click a claim to see the receipts and the details.',
+          'Approve it, or add a note and Send Back or Reject it.',
+        ],
+      },
+      {
+        title: 'Pay a Claim (Accounting)',
+        steps: [
+          'Open Reimbursements. To Review holds the claims managers approved.',
+          'Open one, check the receipts and Approve it - it moves to To Pay.',
+          'Once the money has gone out, open it from To Pay, enter the date, method and reference, and click Mark Paid.',
+        ],
+      },
+    ],
+    features: [
+      { name: 'Expenses (Workday)', desc: 'Submit a claim and follow it; fix and resubmit one that was sent back.' },
+      { name: 'Expense Claims (Team > Requests)', desc: 'Pending claims to decide, and every past claim of your team.' },
+      { name: 'Expenses (People profile)', desc: 'Every claim one person has filed, with receipts and the timeline.' },
+      { name: 'Reimbursements', desc: "Accounting's queue: To Review, To Pay, Paid, with CSV export." },
+    ],
+    tips: ['A claim is never deleted. Rejected and canceled claims stay on the record.'],
+  },
+  {
     id: 'investor-relations', name: 'Investor Relations', group: 'Modules', icon: 'Landmark', view: 'investor-relations',
     tagline: 'Deals, investors, capital calls, distributions and investor documents.',
     where: 'Left menu > Investor Relations',

@@ -2408,6 +2408,8 @@ def _run_migrations():
         # Approver delegation (Oct 17 2026) - a new table: explicit RLS on top
         # of the _enable_rls_everywhere sweep. models.ApprovalDelegation.
         "ALTER TABLE approval_delegations ENABLE ROW LEVEL SECURITY",
+        # Expense reimbursements (Oct 18 2026) - a new table. models.ExpenseClaim.
+        "ALTER TABLE expense_claims ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -3759,3 +3761,5 @@ from routers import payroll_readiness as payroll_readiness_router  # noqa: E402
 app.include_router(payroll_readiness_router.router)  # People > Time > Payroll: Payroll Readiness - who is not ready, variance and anomalies for a pay period (Neil, 10/17)
 from routers import approval_delegations  # noqa: E402
 app.include_router(approval_delegations.router)      # Delegate My Approvals: a stand-in for a date range (Neil, 10/17)
+from routers import expenses as expenses_router  # noqa: E402
+app.include_router(expenses_router.router)           # Expense reimbursements: Workday > Expenses, Team > Requests, Reimbursements (Neil, 10/17)

@@ -24,6 +24,7 @@ import { MyHROverview } from './MyHR';
 import { leaveRequestDays, openShiftMinutes } from '../lib/workdayStats';
 import { timeOffLabel } from '../components/shiftScheduleLib';
 import WorkdayShiftRequests from '../components/shifts/WorkdayShiftRequests';
+import { MyExpenses } from '../components/Expenses';
 import { formatDistance, formatAccuracy } from '../lib/distance';
 import { recallTimeExempt, rememberTimeExempt } from '../lib/timeTracking';
 import { pairLocalAgent } from '../lib/agentPair';
@@ -61,6 +62,7 @@ const TAB_META = {
   overview:  { title: 'Workday',    label: 'Overview' },
   timesheet: { title: 'Time Sheet', label: 'Time Sheet' },
   timeoff:   { title: 'Time Off',   label: 'Time Off' },
+  expenses:  { title: 'Expenses',   label: 'Expenses' },   // reimbursements (Neil, Oct 17 2026)
 };
 // The Clock tab folded into Overview (Oct 2), and so did your own shifts
 // (Neil, Oct 13 2026: "the personal shift data should move into your
@@ -1272,8 +1274,8 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
         tabs={(exempt
           /* Salaried/exempt (Charmi, Aug 21): no punch card, no timesheet -
              time off is the only surface that applies. */
-          ? ['overview', ...(toReview > 0 || tab === 'timesheet' ? ['timesheet'] : []), 'timeoff']
-          : ['overview', 'timesheet', 'timeoff']
+          ? ['overview', ...(toReview > 0 || tab === 'timesheet' ? ['timesheet'] : []), 'timeoff', 'expenses']
+          : ['overview', 'timesheet', 'timeoff', 'expenses']
         ).map((key) => ({ key, label: TAB_META[key].label, title: TAB_META[key].title }))}
         active={tab} onChange={setTab} syncTitle />
 
@@ -1522,6 +1524,8 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
         })}
       </div>
       </>)}
+
+      {tab === 'expenses' && <MyExpenses toast={toast} />}
 
       {bodMode && (() => {
         const modalMode = bodMode === 'bod-gate' ? 'bod'

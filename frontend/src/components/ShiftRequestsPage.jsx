@@ -5,6 +5,7 @@
 // (views/Shifts.jsx, useManagerInbox) so the tab badge and this page agree
 // and nothing is fetched twice.
 import ShiftRequestsInbox from './ShiftRequestsInbox';
+import { TeamExpenses } from './Expenses';
 
 export default function ShiftRequestsPage({ inbox, timeoff, loading, error, onRetry, onChanged, toastOk, toastErr }) {
   return (
@@ -13,6 +14,8 @@ export default function ShiftRequestsPage({ inbox, timeoff, loading, error, onRe
         Requests from your team. A swap or an offer reaches you once the teammate has accepted; time off comes straight to you.
       </div>
       <ShiftRequestsInbox inbox={inbox} timeoff={timeoff} loading={loading} error={error} onRetry={onRetry} onChanged={onChanged} toastOk={toastOk} toastErr={toastErr} />
+      {/* Expense claims waiting on the manager (Neil, Oct 17 2026). */}
+      <TeamExpenses toastOk={toastOk} toastErr={toastErr} />
     </div>
   );
 }

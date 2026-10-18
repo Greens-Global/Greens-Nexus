@@ -15,6 +15,7 @@ vi.mock('../api', () => ({
   api: {
     shiftRequestDecide: (...a) => shiftRequestDecide(...a),
     timeOffDecide: (...a) => timeOffDecide(...a),
+    expensesTeam: vi.fn().mockResolvedValue([]),
     getPeopleDirectory: vi.fn().mockResolvedValue([{ email: 'amy@x.com', name: 'Amy Adams' }, { email: 'bob@x.com', name: 'Bob Brown' }]),
     getRolesDirectory: vi.fn().mockResolvedValue([]),
   },

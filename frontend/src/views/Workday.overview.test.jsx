@@ -62,9 +62,9 @@ describe('Workday Overview with the Time Clock', () => {
     expect(screen.getByRole('button', { name: /Punch In/ }).closest('.wd-punch-row')).toBeTruthy();
     expect(document.querySelector('.wd-overview > .wd-clock-wrap .wd-clock')).toBeTruthy();
     expect(await screen.findByText('Amy Test')).toBeTruthy();
-    // Overview, Time Sheet, Time Off - no Clock tab.
+    // Overview, Time Sheet, Time Off, Expenses - no Clock tab.
     const tabs = [...document.querySelectorAll('.module-tab-inline-btn')].map((b) => b.textContent.trim());
-    expect(tabs).toEqual(['Overview', 'Time Sheet', 'Time Off']);
+    expect(tabs).toEqual(['Overview', 'Time Sheet', 'Time Off', 'Expenses']);
   }, SLOW);
 
   it('sends an old Clock link to Overview and rewrites the address', async () => {
@@ -215,7 +215,7 @@ describe('Workday Overview with the Time Clock', () => {
     await screen.findByText('Amy Test');
     expect(screen.queryByRole('region', { name: 'Time Clock' })).toBeNull();
     expect(screen.queryByText('Hours · This Week')).toBeNull();
-    expect([...document.querySelectorAll('.module-tab-inline-btn')].map((b) => b.textContent.trim())).toEqual(['Overview', 'Time Off']);
+    expect([...document.querySelectorAll('.module-tab-inline-btn')].map((b) => b.textContent.trim())).toEqual(['Overview', 'Time Off', 'Expenses']);
     expect(screen.getByText('Time Off This Year')).toBeTruthy();   // the rest of Overview is there
   }, SLOW);
 

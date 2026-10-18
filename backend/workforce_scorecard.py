@@ -304,17 +304,18 @@ def scope_for(db: Session, user: dict) -> tuple:
     return scope_emails(db, email, kind), kind
 
 
-def grant_holders(db: Session) -> dict:
+def grant_holders(db: Session, module_id: str = MODULE_ID) -> dict:
     """{email: best rank} for everyone a role or access group grants the
-    scorecard module - the reverse of auth._grants_for, for the weekly send."""
+    scorecard module (or `module_id`) - the reverse of auth._grants_for, for
+    the weekly send."""
     from auth import _MODULE_LEVEL_RANK
     groups = (db.query(models.NexusGroup)
-              .filter(models.NexusGroup.allowed_modules.like(f"%{MODULE_ID}%")).all())
+              .filter(models.NexusGroup.allowed_modules.like(f"%{module_id}%")).all())
     rank_by_group = {}
     for g in groups:
         for part in (g.allowed_modules or "").split(","):
             mid, _, level = part.strip().partition(":")
-            if mid == MODULE_ID:
+            if mid == module_id:
                 rank_by_group[g.id] = max(rank_by_group.get(g.id, 0),
                                           _MODULE_LEVEL_RANK.get(level, _MODULE_LEVEL_RANK["viewer"]))
     if not rank_by_group:
