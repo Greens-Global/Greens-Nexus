@@ -3091,6 +3091,14 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             print(f"[startup] no-show loop skipped: {e}")
         try:
+            # Live overtime alert (Oct 17 2026): every five minutes, a quiet
+            # bell to the manager when someone clocked in nears daily ('ca')
+            # or weekly overtime; per-company otAlertOn. See overtime_watch.py.
+            from overtime_watch import overtime_loop
+            _tasks.append(_a.create_task(overtime_loop()))
+        except Exception as e:
+            print(f"[startup] overtime watch loop skipped: {e}")
+        try:
             # Shifts Phase 3a (Oct 14 2026): shared shifts onto people's
             # Outlook calendars - every minute, up to 50 queued rows, Graph
             # app-only in a thread. See shift_calendar.py.

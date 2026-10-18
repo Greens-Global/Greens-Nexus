@@ -261,6 +261,15 @@ export function ShiftSettingsPanel({ toastOk, toastErr }) {
               </div>
               <label style={{ ...CHECK, marginTop: 8 }}><input type="checkbox" checked={cfg.noShowOnUsualHours === true} onChange={(e) => save({ noShowOnUsualHours: e.target.checked })} /> Alert for usual hours too</label>
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Also alerts for office staff who have usual hours but no shift on the schedule that day. Time off and holidays excuse those.</div>
+              {/* Live overtime alert (Oct 17 2026, overtime_watch.py). */}
+              <label style={{ ...CHECK, marginTop: 10 }}><input type="checkbox" checked={cfg.otAlertOn === true} onChange={(e) => save({ otAlertOn: e.target.checked })} /> Alert managers before overtime</label>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Off unless turned on here. Tells the person's manager and their backup manager once, from the actual punches, when someone clocked in is about to reach overtime.</div>
+              <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', marginTop: 8, opacity: cfg.otAlertOn === true ? 1 : 0.6 }}>
+                <MinutesField label="Daily Overtime Warning" aria="Daily overtime warning" value={cfg.otAlertDailyLeadMin} fallback={30} onSave={(n) => save({ otAlertDailyLeadMin: n })}
+                  hint="Minutes before 8 worked hours in a day. People on the California overtime rule only. 0 turns it off." />
+                <MinutesField label="Weekly Overtime Warning" aria="Weekly overtime warning" max={480} value={cfg.otAlertWeeklyLeadMin} fallback={120} onSave={(n) => save({ otAlertWeeklyLeadMin: n })}
+                  hint="Minutes before 40 hours of regular time in a payroll week (Sunday to Saturday). 0 turns it off." />
+              </div>
             </div>
             <div>
               <div style={LBL}>Rules</div>
