@@ -2391,6 +2391,9 @@ export const api = {
   // pay period (step-up, like the Payroll card), and HR's per-company thresholds.
   payrollReadiness:             (start = '', refresh = false) =>
     req(`/payroll-readiness/report?start=${start || ''}${refresh ? '&refresh=true' : ''}`, { timeoutMs: 120_000 }),
+  // The export's warning: readiness of what an export of [start, end] carries.
+  payrollReadinessExportCheck:  (start, end) =>
+    req(`/payroll-readiness/export-check?start=${start || ''}&end=${end || ''}`, { timeoutMs: 120_000 }),
   payrollReadinessSettings:     (company = '') => req(`/payroll-readiness/settings?company=${encodeURIComponent(company || '')}`),
   payrollReadinessSaveSettings: (data) => req('/payroll-readiness/settings', { method: 'PUT', body: JSON.stringify(data) }),
 };

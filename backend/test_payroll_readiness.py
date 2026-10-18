@@ -10,6 +10,14 @@
     punches, no pay rate), the variance and anomaly flags, salaried people on
     their month, and the routes' access - managers see their team only and no
     money; only HR may change the thresholds.
+  - One long timecard per hourly person, split by payroll week, gives the
+    same figures as the standalone period cards (CA daily / weekly / 7th-day
+    overtime, an overnight shift across the period line, a mid-period raise,
+    sick time, a paid holiday); a finalized period whose frozen rate differs
+    gets its own card. The bulk status reads equal the one-person helpers.
+  - The export's warning judges what the export carries: hourly people on
+    every pay period overlapping its dates, salaried people on its month.
+  - Cost: the query count for 100 people, before (the first cut) and after.
 
     python -m unittest test_payroll_readiness -v
 """
@@ -128,7 +136,8 @@ class DbCase(unittest.TestCase):
         self.db = database.SessionLocal()
         for m in (models.TimesheetReview, models.TimePunch, models.TimeApproval, models.NexusEmployee,
                   models.HrEntity, models.PayrollRate, models.PayrollRateHistory, models.NexusRole,
-                  models.NexusSetting, models.PunchRequest, models.ScheduledShift, models.ShiftAssignment):
+                  models.NexusSetting, models.PunchRequest, models.ScheduledShift, models.ShiftAssignment,
+                  models.HrCompanyHoliday):
             self.db.query(m).delete()
         self.db.add_all([models.HrEntity(id=ENT, name="Greens PR One"), models.HrEntity(id=ENT2, name="Greens PR Two")])
         for email, mgr, company in ((ADMIN, "", ENT), (MGR, "", ENT), (EMP, MGR, ENT), (EMP2, MGR, ENT),
@@ -314,6 +323,188 @@ class RouteTests(DbCase):
         self.assertTrue(r.json()["override"])
         self.assertEqual(self.client.put("/payroll-readiness/settings",
                                          json={"company": "nope", "settings": {}}).status_code, 404)
+
+
+class SplitTests(DbCase):
+    """The long card's split must equal the standalone period cards."""
+    HARD = "hard.pr@greensglobal.com"
+
+    def _hard_case(self):
+        self.db.add(models.NexusEmployee(id="id-hard", work_email=self.HARD, first_name="Hard", last_name="Pr",
+                                         company=ENT, manager_email=MGR, status="active", country="US",
+                                         employment_type="full_time", start_date="2025-01-01"))
+        self.db.add(models.PayrollRate(employee_email=self.HARD, pay_type="hourly", hourly_rate=26, overtime_rule="ca"))
+        ps = self.s - timedelta(days=14)
+        # Rate history: 20 until the 4th day of this period, then 26.
+        self.db.add_all([models.PayrollRateHistory(id="h1", employee_email=self.HARD, effective_date="",
+                                                   pay_type="hourly", hourly_rate=20, overtime_rule="ca"),
+                         models.PayrollRateHistory(id="h2", employee_email=self.HARD,
+                                                   effective_date=(self.s + timedelta(days=3)).isoformat(),
+                                                   pay_type="hourly", hourly_rate=26, overtime_rule="ca")])
+        hol = ps + timedelta(days=5)
+        for w in range(-8, 2):
+            # Seven days in a row, 9h each: daily OT, weekly OT over 40, the 7th day.
+            for i in range(7):
+                day = self.s + timedelta(days=7 * w + i)
+                if day == hol:
+                    continue
+                self._punch(self.HARD, day, "in", 7)
+                self._punch(self.HARD, day, "out", 16)
+        # An overnight shift from the previous period's last evening into this period.
+        last = self.s - timedelta(days=1)
+        self._punch(self.HARD, last, "in", 17)
+        self.db.add(models.TimePunch(id="p-hard-overnight-out", employee_email=self.HARD, kind="out",
+                                     at=f"{self.s.isoformat()}T02:00:00", local_date=self.s.isoformat(),
+                                     tz_offset_min=0, created_at=f"{self.s.isoformat()}T02:00:00"))
+        # A sick block this period, and a paid holiday nobody worked last period.
+        sick = (self.s + timedelta(days=9)).isoformat()
+        self.db.add_all([models.TimePunch(id="p-hard-sick-in", employee_email=self.HARD, kind="in",
+                                          at=f"{sick}T17:00:00", local_date=sick, tz_offset_min=0,
+                                          created_at=f"{sick}T17:00:00", category="Sick"),
+                         models.TimePunch(id="p-hard-sick-out", employee_email=self.HARD, kind="out",
+                                          at=f"{sick}T20:00:00", local_date=sick, tz_offset_min=0,
+                                          created_at=f"{sick}T20:00:00")])
+        self.db.add(models.HrCompanyHoliday(id="hol-1", company_id=ENT, date=hol.isoformat(), name="Test Day",
+                                            type="mandatory"))
+        self.db.commit()
+        return ps.isoformat(), last.isoformat()
+
+    def test_split_equals_standalone_cards(self):
+        ps, pe = self._hard_case()
+        hist = (self.s - timedelta(days=56)).isoformat()
+        long_card = timeclock._compute_timecard(self.db, self.HARD, hist, self.end)
+        for a, b in ((self.start, self.end), (ps, pe)):
+            alone = pr._figures(timeclock._compute_timecard(self.db, self.HARD, a, b))
+            self.assertEqual(pr.split_figures(long_card, a, b), alone, (a, b))
+            self.assertGreater(alone["ot"], 0)
+        prev_alone = timeclock._compute_timecard(self.db, self.HARD, ps, pe)["totals"]
+        self.assertGreater(prev_alone["holidayPay"], 0)
+        cur_alone = timeclock._compute_timecard(self.db, self.HARD, self.start, self.end)
+        self.assertGreater(cur_alone["totals"]["sickMin"], 0)
+        self.assertGreater(len(cur_alone["rateSplits"]), 1)          # the raise lands inside the period
+        # And the report carries exactly those.
+        r = self._report()[self.HARD]
+        self.assertEqual((r["totals"]["hoursMin"], r["totals"]["grossPay"]),
+                         (cur_alone["totals"]["workedMin"], cur_alone["totals"]["totalPay"]))
+        self.assertEqual(r["totals"]["prevGrossPay"], prev_alone["totalPay"])
+
+    def test_a_finalized_period_keeps_its_frozen_rate(self):
+        ps = (self.s - timedelta(days=14)).isoformat()
+        pe = (self.s - timedelta(days=1)).isoformat()
+        self.db.add(models.TimeApproval(id="fin-1", employee_email=EMP, period_start=ps, period_end=pe,
+                                        kind="final", revoked=0, approved_by=ADMIN,
+                                        approved_at="2026-01-01T00:00:00", note='{"rate": 31.0, "rule": "ca"}'))
+        self.db.commit()
+        pinned = timeclock._compute_timecard(self.db, EMP, ps, pe)["totals"]["totalPay"]
+        hist = (self.s - timedelta(days=56)).isoformat()
+        unpinned = pr.split_figures(timeclock._compute_timecard(self.db, EMP, hist, self.end), ps, pe)["pay"]
+        self.assertNotEqual(pinned, unpinned)
+        self.assertEqual(self._report()[EMP]["totals"]["prevGrossPay"], pinned)
+
+    def test_bulk_status_equals_the_one_person_helpers(self):
+        import timesheet_review as tsr
+        d = (self.s + timedelta(days=2)).isoformat()
+        self.db.add(models.PunchRequest(id="pr-1", employee_email=EMP, status="pending", action="add",
+                                        punch_kind="out", at=f"{d}T20:00:00", local_date=d))
+        self.db.query(models.TimePunch).filter(models.TimePunch.id == f"p-{EMP2}-{d}-in-8").update(
+            {"edit_status": "pending", "pending_at": f"{d}T09:00:00"})
+        self.db.add_all([models.TimesheetReview(id="rv-1", employee_email=EMP, period_start=self.start,
+                                                period_end=self.end, status="with_manager", created_at="2026-01-01"),
+                         models.TimesheetReview(id="rv-2", employee_email=EMP, period_start=self.start,
+                                                period_end=self.end, status="signing", created_at="2026-01-02"),
+                         models.TimeApproval(id="fin-2", employee_email=OTHER, period_start=self.start,
+                                             period_end=self.end, kind="final", revoked=0)])
+        self.db.commit()
+        people = [EMP, EMP2, OTHER, SAL]
+        b = pr._bulk_status(self.db, people, self.start, self.end)
+        for em in people:
+            rv = tsr.active_review(self.db, em, self.start)
+            self.assertEqual(b["review"].get(em, ""), rv.status if rv else "", em)
+            self.assertEqual(em in b["final"], bool(timeclock._finalized_row(self.db, em, self.start, self.end)), em)
+            self.assertEqual(b["fixes"].get(em, 0), timeclock._pending_fixes(self.db, em, self.start, self.end), em)
+        self.assertEqual(b["fixes"], {EMP: 1, EMP2: 1})
+
+
+class ExportCheckTests(DbCase):
+    def test_periods_an_export_carries(self):
+        X = pr.export_periods("2026-10-01", "2026-10-31")
+        self.assertEqual(X["hourly"], [("2026-09-20", "2026-10-03"), ("2026-10-04", "2026-10-17"),
+                                       ("2026-10-18", "2026-10-31")])
+        self.assertEqual((X["monthStart"], X["monthEnd"]), ("2026-10-01", "2026-10-31"))
+        self.assertEqual(pr.export_periods("2026-09-20", "2026-10-03")["hourly"], [("2026-09-20", "2026-10-03")])
+
+    def test_a_salaried_month_export_judges_salaried_people_on_that_month(self):
+        ms, me = timeclock._month_bounds(self.start)
+        self.db.add(models.TimeApproval(id="fin-s", employee_email=SAL, period_start=ms, period_end=me,
+                                        kind="final", revoked=0))
+        self._punch(SAL, date.fromisoformat(ms) + timedelta(days=1), "in", 9)
+        self._punch(SAL, date.fromisoformat(ms) + timedelta(days=1), "out", 17)
+        self.db.commit()
+        rows = pr.check_export(self.db, None, ms, me)["rows"]
+        self.assertEqual([(r["periodStart"], r["periodEnd"], r["ready"]) for r in rows if r["email"] == SAL],
+                         [(ms, me, True)])
+        # Hourly people: every pay period the month touches that they worked in.
+        hourly = {p for p, _e in pr.export_periods(ms, me)["hourly"]}
+        emp = {r["periodStart"] for r in rows if r["email"] == EMP}
+        self.assertTrue(emp and emp <= hourly, emp)
+        self.assertTrue(all(not r["ready"] for r in rows if r["email"] == EMP))
+        self.assertFalse(any(r["variance"] or r["anomalies"] for r in rows))
+        # A bi-weekly export judges that one period for hourly people.
+        two = pr.check_export(self.db, None, self.start, self.end)["rows"]
+        self.assertEqual({(r["periodStart"], r["periodEnd"]) for r in two if r["payType"] == "hourly"},
+                         {(self.start, self.end)})
+
+    def test_route(self):
+        self._as(MGR)
+        res = self.client.get(f"/payroll-readiness/export-check?start={self.start}&end={self.end}")
+        self.assertEqual(res.status_code, 200, res.text)
+        emails = {r["email"] for r in res.json()["rows"]}
+        self.assertIn(EMP, emails)
+        self.assertNotIn(OTHER, emails)
+        self.assertEqual(self.client.get(
+            f"/payroll-readiness/export-check?start={self.end}&end={self.start}").status_code, 400)
+        self.assertEqual(self.client.get(
+            "/payroll-readiness/export-check?start=2026-01-01&end=2026-06-01").status_code, 400)
+
+
+# The first cut (a3fec758) ran 5,161 queries for the report over this same
+# seed: 100 hourly people, ten weeks of punches each (about 51 a person).
+QUERIES_BEFORE = 5161
+
+
+class CostTests(DbCase):
+    def test_hundred_people_query_budget(self):
+        import time as _time
+        from sqlalchemy import event
+        self.db.query(models.TimePunch).delete()
+        self.db.query(models.NexusEmployee).delete()
+        self.db.query(models.PayrollRate).delete()
+        for n in range(100):
+            em = f"load{n}.pr@greensglobal.com"
+            self.db.add(models.NexusEmployee(id=f"id-load{n}", work_email=em, first_name=f"Load{n}", last_name="Pr",
+                                             status="active", country="US", start_date="2025-01-01"))
+            self.db.add(models.PayrollRate(employee_email=em, pay_type="hourly", hourly_rate=20))
+            for w in range(-8, 2):
+                for i in range(1, 6):
+                    day = self.s + timedelta(days=7 * w + i)
+                    self._punch(em, day, "in", 8)
+                    self._punch(em, day, "out", 16 + n % 3)
+        self.db.commit()
+        count = [0]
+
+        def tick(*_a, **_k):
+            count[0] += 1
+        event.listen(database.engine, "before_cursor_execute", tick)
+        try:
+            t0 = _time.monotonic()
+            rows = pr.build(self.db, None, ANCHOR)["rows"]
+            took = _time.monotonic() - t0
+        finally:
+            event.remove(database.engine, "before_cursor_execute", tick)
+        self.assertEqual(len(rows), 100)
+        print(f"\n[payroll readiness] {len(rows)} people: {count[0]} queries in {took:.2f}s "
+              f"(first cut: {QUERIES_BEFORE})")
+        self.assertLess(count[0], QUERIES_BEFORE // 2)
 
 
 if __name__ == "__main__":

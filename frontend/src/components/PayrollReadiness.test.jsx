@@ -6,7 +6,7 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 // payroll export WARNS (never blocks) when people are not ready; HR edits
 // the thresholds.
 
-const apiMock = vi.hoisted(() => ({ payrollReadiness: vi.fn(), payrollReadinessSettings: vi.fn(), payrollReadinessSaveSettings: vi.fn() }));
+const apiMock = vi.hoisted(() => ({ payrollReadiness: vi.fn(), payrollReadinessExportCheck: vi.fn(), payrollReadinessSettings: vi.fn(), payrollReadinessSaveSettings: vi.fn() }));
 const confirmMock = vi.hoisted(() => vi.fn());
 vi.mock('../api', () => ({ api: apiMock }));
 vi.mock('../ui/dialog', () => ({ dialog: { confirm: (...a) => confirmMock(...a), prompt: vi.fn(), alert: vi.fn() } }));
@@ -41,6 +41,7 @@ const REPORT = { period: PERIOD, rows: ROWS, payHidden: false, generatedAt: '202
 
 beforeEach(() => {
   apiMock.payrollReadiness.mockReset().mockResolvedValue(REPORT);
+  apiMock.payrollReadinessExportCheck.mockReset().mockResolvedValue({ checkOnly: true, rows: ROWS });
   apiMock.payrollReadinessSettings.mockReset().mockResolvedValue({
     company: '', settings: { variancePct: 25, varianceHours: 8, anomalyPct: 40, anomalyHours: 10, otJumpHours: 4, missingOutCount: 2 },
     limits: {}, override: false, canEdit: true, canEditDefault: true, companies: [{ id: 'gg-us', name: 'Greens US' }] });
@@ -133,17 +134,25 @@ describe('PayrollReadiness', () => {
 });
 
 describe('confirmExportReadiness', () => {
-  it('warns when people in the exported dates are not ready, and lets the export go', async () => {
-    expect(await confirmExportReadiness('2026-09-20', '2026-10-03')).toBe(true);
-    expect(confirmMock).toHaveBeenCalledWith(expect.stringMatching(/^1 person is not ready - export anyway\?/), expect.objectContaining({ confirmText: 'Export Anyway' }));
+  it('checks exactly the exported dates and warns once per person who is not ready', async () => {
+    // A salaried card exports its month: the server is asked about that month.
+    apiMock.payrollReadinessExportCheck.mockResolvedValueOnce({ rows: [
+      ...ROWS,
+      { ...ROWS[0], periodStart: '2026-10-04', periodEnd: '2026-10-17' },           // Amy again, the next period
+      { ...ROWS[2], ready: false, exceptions: [{ type: 'not_approved', blocking: true, label: 'x' }] },
+    ] });
+    expect(await confirmExportReadiness('2026-10-01', '2026-10-31')).toBe(true);
+    expect(apiMock.payrollReadinessExportCheck).toHaveBeenCalledWith('2026-10-01', '2026-10-31');
+    expect(confirmMock).toHaveBeenCalledWith(expect.stringMatching(/^2 people are not ready - export anyway\?/), expect.objectContaining({ confirmText: 'Export Anyway' }));
     confirmMock.mockResolvedValueOnce(false);
     expect(await confirmExportReadiness('2026-09-20', '2026-10-03')).toBe(false);
+    expect(confirmMock).toHaveBeenLastCalledWith(expect.stringMatching(/^1 person is not ready/), expect.anything());
   });
 
   it('says nothing when everyone is ready, or when the check cannot run', async () => {
-    apiMock.payrollReadiness.mockResolvedValueOnce({ ...REPORT, rows: ROWS.filter(r => r.ready) });
+    apiMock.payrollReadinessExportCheck.mockResolvedValueOnce({ rows: ROWS.filter(r => r.ready) });
     expect(await confirmExportReadiness('2026-09-20', '2026-10-03')).toBe(true);
-    apiMock.payrollReadiness.mockRejectedValueOnce(new Error('nope'));
+    apiMock.payrollReadinessExportCheck.mockRejectedValueOnce(new Error('nope'));
     expect(await confirmExportReadiness('2026-09-20', '2026-10-03')).toBe(true);
     expect(confirmMock).not.toHaveBeenCalled();
   });

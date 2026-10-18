@@ -45,13 +45,27 @@ def readiness_report(start: str = "", refresh: bool = False, user: dict = Depend
     anchor = _check_date(start)
     scope = _visible_emails(db, user)
     hidden = _pay_hidden(db, user)
-    # Keyed by the period, so the panel ('' = last closed) and the export's
-    # confirm (the period's start) share one report.
-    key = (user["email"].lower(), pr.periods(anchor or pr.default_anchor())["start"], hidden)
+    key = ("report", user["email"].lower(), pr.periods(anchor or pr.default_anchor())["start"], hidden)
     if refresh:
         pr.clear_cache()
     report = pr.cached(key, lambda: pr.build(db, scope, anchor))
     return pr.strip_pay(report) if hidden else {**report, "payHidden": False}
+
+
+@router.get("/export-check")
+def readiness_export_check(start: str, end: str, user: dict = Depends(require_team_read),
+                           _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
+    """Readiness only, for what a payroll export of [start, end] carries: every
+    pay period overlapping the dates (hourly), the month containing `start`
+    (salaried). The export WARNS on it, never blocks. No money in it."""
+    s, e = _check_date(start), _check_date(end)
+    if not s or not e or e < s:
+        raise HTTPException(400, "start and end are required, start first")
+    if (date.fromisoformat(e) - date.fromisoformat(s)).days > 62:
+        raise HTTPException(400, "An export check covers at most two months")
+    scope = _visible_emails(db, user)
+    key = ("export", user["email"].lower(), s, e)
+    return pr.cached(key, lambda: pr.check_export(db, scope, s, e))
 
 
 def _editable_companies(db: Session, user: dict):

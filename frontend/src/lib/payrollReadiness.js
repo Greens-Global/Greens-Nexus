@@ -31,14 +31,17 @@ export function issueLines(r) {
   ];
 }
 
-// Before an export (PayrollTimecard's exportFile): WARN when people in the
-// exported dates are not ready - never block. Any problem reading the check
-// lets the export go ahead.
+// Before an export (PayrollTimecard's exportFile): WARN when people in what
+// the export carries are not ready - never block. The server judges hourly
+// people on every pay period overlapping the dates and salaried people on
+// the month containing the first one (/payroll-readiness/export-check), so a
+// salaried card's month export is checked on that month. Any problem reading
+// the check lets the export go ahead.
 export async function confirmExportReadiness(start, end) {
   let report;
-  try { report = await api.payrollReadiness(start); }
+  try { report = await api.payrollReadinessExportCheck(start, end || start); }
   catch { return true; }
-  const n = (report?.rows || []).filter(r => !r.ready && (!end || r.periodStart <= end) && (!start || r.periodEnd >= start)).length;
+  const n = new Set((report?.rows || []).filter(r => !r.ready).map(r => r.email)).size;
   if (!n) return true;
   return dialog.confirm(`${n} ${n === 1 ? 'person is' : 'people are'} not ready - export anyway? Payroll Readiness on this screen lists who and why.`,
     { title: 'Payroll Readiness', confirmText: 'Export Anyway', cancelText: 'Cancel' });

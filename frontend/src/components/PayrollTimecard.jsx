@@ -654,13 +654,14 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     try { localStorage.setItem('nexus.payroll.intacct', JSON.stringify(next)); } catch { /* per-viewer convenience only */ }
     return next;
   });
-  async function exportFile(fetcher, label) {
+  async function exportFile(fetcher, label, range = [perStart, perEnd]) {
     const up = await ensureStepUp();
     if (!up.ok) { if (!up.cancelled) toastErr?.('Identity check didn’t complete.'); return; }
     setExporting(true);
     try {
-      // Payroll Readiness (Oct 17): warn, never block, when people are not ready.
-      if (!await confirmExportReadiness(perStart, perEnd)) return;
+      // Payroll Readiness (Oct 17): warn, never block, when people in the
+      // exported dates are not ready.
+      if (!await confirmExportReadiness(range[0], range[1])) return;
       let res;
       try { res = await fetcher(); }
       catch (e) {
@@ -1469,7 +1470,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
             )}
             {!self && showPay && (
             <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-              <button className="secondary-btn" disabled={exporting} onClick={() => exportFile(() => api.timeExportCsv(start, end, 'punches'), 'CSV')} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> CSV</button>
+              <button className="secondary-btn" disabled={exporting} onClick={() => exportFile(() => api.timeExportCsv(start, end, 'punches'), 'CSV', [start, end])} style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> CSV</button>
               <button className="secondary-btn" disabled={exporting} title="Intacct General Ledger import of this period's payroll by employee - wages by pay class, with department and entity as dimensions. Same file layout as the accounting app's bank import."
                 onClick={() => setIntacctOpen((v) => !v)} aria-expanded={intacctOpen}
                 style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Download size={13} /> Export for Intacct</button>
