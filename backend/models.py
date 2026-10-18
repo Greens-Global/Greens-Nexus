@@ -3570,6 +3570,10 @@ class TaskChangelogComment(Base):
     author_email = Column(String, default="")
     body         = Column(String, default="")
     created_at   = Column(String, default="")
+    # Replies and @mentions (Pranshu, Oct 16 2026): the comment this one
+    # answers ('' = top level), and the work emails it mentions.
+    parent_id    = Column(String, default="")
+    mentions     = Column(JSON, default=list)
 
 
 class TaskEvent(Base):
@@ -4679,6 +4683,10 @@ class ChangelogSeen(Base):
     # When this person last dismissed (or followed) the weekly New Feature bar
     # - it stays away for 7 days after (Neil, Oct 12 2026). UTC ISO.
     banner_seen_at = Column(String, default="")
+    # The visit before this one (Oct 16 2026): "new since your last visit" is
+    # what was released after it. Moves up when a visit starts 30+ minutes
+    # after the last one (task_config._mark_changelog_seen).
+    prev_seen_at   = Column(String, default="")
 
 
 class AiConversation(Base):
@@ -6590,3 +6598,94 @@ class ShiftAvailabilityPref(Base):
     preferred_hours_week = Column(Integer, default=0)
     max_hours_week       = Column(Integer, default=0)
     updated_at           = Column(String, default="")
+
+
+class ChangelogReaction(Base):
+    """One person's reaction to a What's New update (Pranshu, Oct 16 2026):
+    `reaction` is one of task_config.CHANGELOG_REACTIONS (like, celebrate,
+    love, helpful, confused). ONE reaction per person per update: picking
+    another kind replaces theirs, pressing theirs again takes it back. New table - create_all
+    builds it; RLS comes from main._enable_rls_everywhere's startup sweep."""
+    __tablename__ = "changelog_reactions"
+    __table_args__ = (UniqueConstraint("entry_id", "email", name="uq_changelog_reaction"),)
+    id         = Column(String, primary_key=True)
+    entry_id   = Column(String, index=True, nullable=False)
+    email      = Column(String, nullable=False)                # lowercased
+    reaction   = Column(String, nullable=False)
+    created_at = Column(String, default="")
+
+
+class ChangelogEntryView(Base):
+    """Who has seen a What's New update, for its analytics (Pranshu, Oct 16
+    2026). One row per person and update: `views` counts the times it was
+    shown to them (on the What's New tab or opened in full), first/last_at
+    bracket them. New table - create_all builds it; RLS comes from
+    main._enable_rls_everywhere's startup sweep."""
+    __tablename__ = "changelog_entry_views"
+    __table_args__ = (UniqueConstraint("entry_id", "email", name="uq_changelog_entry_view"),)
+    id       = Column(String, primary_key=True)
+    entry_id = Column(String, index=True, nullable=False)
+    email    = Column(String, nullable=False)                  # lowercased
+    views    = Column(Integer, default=1)
+    first_at = Column(String, default="")
+    last_at  = Column(String, default="")
+    # Finished the update's guided tour (Oct 18 2026, changelog_lifecycle).
+    tour_done_at = Column(String, default="")
+
+
+class ChangelogEntryHistory(Base):
+    """Every change to a What's New update (Oct 16 2026): who, when, and the
+    fields that changed as {field: [old, new]} (text cut to 500 characters;
+    screenshots are never copied). `action` is edit | published | republished
+    | hidden | shown | pinned | unpinned. New table - create_all builds it; RLS
+    comes from main._enable_rls_everywhere's startup sweep."""
+    __tablename__ = "changelog_entry_history"
+    id       = Column(String, primary_key=True)
+    entry_id = Column(String, index=True, nullable=False)
+    at       = Column(String, default="")
+    by_email = Column(String, default="")
+    action   = Column(String, default="edit")
+    changes  = Column(JSON, default=dict)
+
+
+class ChangelogFeedback(Base):
+    """Feedback on a What's New update (Oct 16 2026). kind "helpful": one per
+    person, helpful 1 (yes) or 0 (no), with an optional note. kind "request":
+    a feature request raised from the update, any number. New table -
+    create_all builds it; RLS comes from main._enable_rls_everywhere's sweep."""
+    __tablename__ = "changelog_feedback"
+    id         = Column(String, primary_key=True)
+    entry_id   = Column(String, index=True, nullable=False)
+    email      = Column(String, nullable=False)                # lowercased
+    kind       = Column(String, default="helpful")             # helpful | request
+    helpful    = Column(Integer, default=1)
+    note       = Column(Text, default="")
+    created_at = Column(String, default="")
+    # A feature request's road to shipping (Oct 18 2026, changelog_lifecycle):
+    # status '' = New, then Under Review / Planned / In Progress / Shipped /
+    # Declined. `shipped_entry_id` is the update that delivered it; the
+    # requester's bell rings once per status (`notified_status`) - for
+    # Shipped only once that update is released. `module` is set on a
+    # request raised on its own (entry_id '').
+    status           = Column(String, default="")
+    status_note      = Column(Text, default="")
+    status_by        = Column(String, default="")
+    status_at        = Column(String, default="")
+    shipped_entry_id = Column(String, default="")
+    notified_status  = Column(String, default="")
+    module           = Column(String, default="")
+
+
+class ChangelogSubscription(Base):
+    """What a person follows in What's New (Oct 16 2026): modules and
+    categories (lowercased names) bring a bell notice when a matching update
+    is released; `digest` adds the Monday email of last week's updates;
+    `feed_salt` signs their private RSS link (rotating it kills old links).
+    New table - create_all builds it; RLS comes from the startup sweep."""
+    __tablename__ = "changelog_subscriptions"
+    email      = Column(String, primary_key=True)              # lowercased
+    modules    = Column(JSON, default=list)
+    categories = Column(JSON, default=list)
+    digest     = Column(Boolean, default=False)
+    feed_salt  = Column(String, default="")
+    updated_at = Column(String, default="")

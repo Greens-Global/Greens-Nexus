@@ -762,7 +762,9 @@ export function attachmentKindOf(file) {
   if (file.type.startsWith('video/')) return 'video';
   return 'doc';
 }
-async function storeTaskFile(file, onProgress) {
+// `folder` keeps other modules' files apart in the bucket (What's New
+// screenshots and attachments use 'whats-new').
+export async function storeTaskFile(file, onProgress, folder = 'tasks') {
   if (!supabase) {
     if (file.size > ATTACHMENT_MAX_INLINE) return '';
     return new Promise((resolve) => {
@@ -774,7 +776,7 @@ async function storeTaskFile(file, onProgress) {
   }
   if (file.size > ATTACHMENT_MAX_BYTES) throw new Error('file is larger than 25 MB');
   const ext = (file.name.split('.').pop() || 'dat').toLowerCase();
-  const path = `tasks/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const path = `${folder}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
   // XHR instead of supabase.storage.upload solely for upload.onprogress -
   // supabase-js exposes no progress events, and a 20 MB video otherwise looks
   // frozen. Same endpoint, same anon-key auth, same immutable-cache header the
