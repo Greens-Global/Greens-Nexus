@@ -6590,3 +6590,26 @@ class ShiftAvailabilityPref(Base):
     preferred_hours_week = Column(Integer, default=0)
     max_hours_week       = Column(Integer, default=0)
     updated_at           = Column(String, default="")
+
+
+class ApprovalDelegation(Base):
+    """Approver delegation (Neil, Oct 17 2026): someone who approves things
+    names a stand-in for a date range (a vacation). While it is live, the
+    approvals that route to the delegator - Time Sheet review, punch fixes and
+    punch edits, time off - ALSO route to the delegate, for the delegator's own
+    people only (approval_delegation.py). The delegator keeps their access.
+    Dates are inclusive, YYYY-MM-DD on the delegator's local calendar. A
+    revoked row is kept as the record. New table - create_all builds it; RLS
+    comes from main._enable_rls_everywhere's startup sweep (and the explicit
+    ALTER in the Postgres migrations list)."""
+    __tablename__ = "approval_delegations"
+    id              = Column(String, primary_key=True)              # uuid
+    delegator_email = Column(String, index=True, nullable=False)
+    delegate_email  = Column(String, index=True, nullable=False)
+    start_date      = Column(String, default="")                    # YYYY-MM-DD, inclusive
+    end_date        = Column(String, default="")                    # YYYY-MM-DD, inclusive
+    note            = Column(String, default="")
+    created_by      = Column(String, default="")                    # the delegator, or HR setting it for them
+    created_at      = Column(String, default="")
+    revoked_at      = Column(String, default="")                    # '' = not revoked
+    revoked_by      = Column(String, default="")

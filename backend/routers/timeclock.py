@@ -164,6 +164,70 @@ require_schedule_read = _schedule_dep("viewer")
 require_schedule_write = _schedule_dep("editor")
 
 
+# Approver delegation (Neil, Oct 17 2026): the APPROVAL routes only - the
+# punch-fix / punch-edit / time-off queues and decisions, and Time Sheet
+# review - add the people a live delegation hands the caller (`_deleg`,
+# {employee: delegator}, read by _visible_emails). The level gate is the
+# same require_team_* as before: a delegate who could not open these screens
+# gets nothing (approval_delegation.can_approve). Payroll, timecards, pay and
+# monitoring keep require_team_* and never see `_deleg`.
+def _with_delegations(user: dict, db: Session) -> dict:
+    import approval_delegation
+    extra = approval_delegation.delegated_people(db, user.get("email") or "")
+    return {**user, "_deleg": extra} if extra else user
+
+
+def require_approval_read(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+    return _with_delegations(user, db)
+
+
+def require_approval_write(user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    return _with_delegations(user, db)
+
+
+def _delegated_for(user: dict, employee_email: str) -> str:
+    """The delegator the caller stands in for on this person, '' if none."""
+    return (user.get("_deleg") or {}).get((employee_email or "").strip().lower(), "")
+
+
+def _mark_for(db: Session, user: dict, rows: list, key: str) -> list:
+    """List rows the caller sees only through a delegation carry
+    forEmail / forName - the "For <delegator>" chip."""
+    if not user.get("_deleg"):
+        return rows
+    for r in rows:
+        f = _delegated_for(user, r.get(key) or "")
+        if f:
+            r["forEmail"], r["forName"] = f, _display_name(db, f)
+    return rows
+
+
+def _decided_note(db: Session, user: dict, employee_email: str, note: str) -> str:
+    """A decision note that says who a delegate decided it for."""
+    f = _delegated_for(user, employee_email)
+    if not f:
+        return note
+    import approval_delegation
+    tag = f"Decided by {approval_delegation.by_for(db, user['email'], f)}."
+    return f"{note} ({tag})" if note else tag
+
+
+def _audit_delegated(db: Session, user: dict, employee_email: str, action: str, rtype: str, rid: str) -> None:
+    f = _delegated_for(user, employee_email)
+    if f:
+        import approval_delegation
+        approval_delegation.audit(db, user["email"], f, action, rtype, rid, employee_email)
+
+
+def _approver_stand_ins(db: Session, employee_email: str, actor_email: str = "") -> list:
+    """The live stand-ins of whoever a NEW request about this person routes
+    to (their manager, HR contact, Backup Manager and on up) - named extra
+    recipients of that ONE notice, never a broadcast."""
+    import approval_delegation
+    cands = set(_team_alert_recipients(db, employee_email, actor_email)) | set(_reporting_line(db, employee_email))
+    return [dl for dl, _dg in approval_delegation.stand_ins(db, employee_email, cands)]
+
+
 def _visible_emails(db: Session, user: dict):
     """Team-data scope. None = whole company (administrators, or anyone holding
     an UNRESTRICTED HR-module grant). An HR grant limited by company scopes
@@ -175,8 +239,16 @@ def _visible_emails(db: Session, user: dict):
 
     On the schedule routes (require_schedule_*), a group scheduler also gets
     their groups' members; one whose rights come only from groups gets just
-    those members and themself."""
+    those members and themself.
+
+    On the approval routes (require_approval_*), a live approver delegation
+    adds the delegator's people (`_deleg`, approval_delegation.py) - only
+    there, never on timecards, payroll or monitoring."""
     from auth import _module_level, hr_scope, is_team_scope
+    deleg = user.get("_deleg")
+    if deleg:
+        base = _visible_emails(db, {k: v for k, v in user.items() if k != "_deleg"})
+        return None if base is None else base | set(deleg)
     extra = user.get("_sched_extra")
     if extra is not None:
         if user.get("_group_scheduler"):
@@ -3139,7 +3211,7 @@ def my_punch_requests(user: dict = Depends(get_current_user), db: Session = Depe
 
 
 @router.get("/punch-requests")
-def list_punch_requests(status: str = "pending", user: dict = Depends(require_team_read),
+def list_punch_requests(status: str = "pending", user: dict = Depends(require_approval_read),
                         db: Session = Depends(get_db)):
     """Approver review queue - team-scoped, so a manager sees only their reports'."""
     visible = _visible_emails(db, user)
@@ -3158,7 +3230,7 @@ def list_punch_requests(status: str = "pending", user: dict = Depends(require_te
     meta = _people_meta(db, [r["employeeEmail"] for r in rows])
     for r in rows:
         r["department"] = meta.get((r["employeeEmail"] or "").lower(), {}).get("department", "")
-    return rows
+    return _mark_for(db, user, rows, "employeeEmail")
 
 
 class PunchRequestDecision(BaseModel):
@@ -3466,7 +3538,7 @@ def _refuse_own_decision(user: dict, employee_email: str) -> None:
 
 @router.patch("/punch-requests/{req_id}")
 def decide_punch_request(req_id: str, body: PunchRequestDecision,
-                         user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+                         user: dict = Depends(require_approval_write), db: Session = Depends(get_db)):
     r = db.query(PunchRequest).filter(PunchRequest.id == req_id).with_for_update().first()
     if not r:
         raise HTTPException(404, "Request not found")
@@ -3547,8 +3619,9 @@ def decide_punch_request(req_id: str, body: PunchRequestDecision,
                 for p in partners:
                     p.status = "approved"
                     p.decided_by, p.decided_at = user["email"], now
-                    p.decision_note = (f"Approved together with the {_kind_label(r.punch_kind)} "
-                                       f"at {_punch_when(r)[0]} on {_punch_when(r)[1]}.")
+                    p.decision_note = _decided_note(db, user, p.employee_email,
+                                                    f"Approved together with the {_kind_label(r.punch_kind)} "
+                                                    f"at {_punch_when(r)[0]} on {_punch_when(r)[1]}.")
                     _hr_notify(db, p.employee_email, "Time Sheet Fix Approved",
                                "Your request to add a punch was approved.",
                                ref_id=p.id, action={"view": "timeclock", "sub": "timesheet"})
@@ -3577,7 +3650,10 @@ def decide_punch_request(req_id: str, body: PunchRequestDecision,
                    ref_id=r.id, action={"view": "timeclock", "sub": "timesheet"})
         _close_dupes(db, [r], user, now, _DUPE_REJECTED)
     r.status = decision
-    r.decided_by, r.decided_at, r.decision_note = user["email"], now, note
+    # A stand-in's decision records who it was decided for (approver delegation).
+    r.decided_by, r.decided_at = user["email"], now
+    r.decision_note = _decided_note(db, user, r.employee_email, note)
+    _audit_delegated(db, user, r.employee_email, f"{decision.title()} punch fix request", "punch_requests", r.id)
     db.commit()
     return _pr_dict(r)
 
@@ -3608,10 +3684,12 @@ def _notify_approvers(db: Session, *, employee_email: str, title: str, body: str
     anybody manager plus plus gets a pop-up" - so the edit is handled the day
     it happens, not at the end of the pay period. Plus everyone above the
     manager in the employee's reporting line and their Backup Manager - never
-    unrelated managers (the Sep 25 rule stands)."""
+    unrelated managers (the Sep 25 rule stands). Plus the live stand-in of
+    any of those approvers (approver delegation, Oct 17)."""
     _notify_team_alert(db, employee_email=employee_email, actor_email=employee_email,
                        title=title, body=body, ref_id=ref_id, action=action, priority=1,
-                       requested_by=employee_email, extra_recipients=_reporting_line(db, employee_email))
+                       requested_by=employee_email,
+                       extra_recipients=_reporting_line(db, employee_email) + _approver_stand_ins(db, employee_email))
 
 
 def _reporting_line(db: Session, employee_email: str) -> list[str]:
@@ -3686,7 +3764,7 @@ class PunchEditDecision(BaseModel):
 
 @router.patch("/punch-edits/{punch_id}")
 def decide_punch_edit(punch_id: str, body: PunchEditDecision,
-                      user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+                      user: dict = Depends(require_approval_write), db: Session = Depends(get_db)):
     """Approver accepts or rejects an employee's pending punch-time edit. On
     approve, the proposed time becomes the pay-effective `at` (it now counts toward
     hours). On reject, the proposal is discarded and `at` is unchanged."""
@@ -3742,12 +3820,13 @@ def decide_punch_edit(punch_id: str, body: PunchEditDecision,
     row.pending_at = ""
     row.edit_status = decision
     row.edit_reviewed_by, row.edit_reviewed_at = user["email"], now
+    _audit_delegated(db, user, row.employee_email, f"{decision.title()} punch edit", "time_punches", row.id)
     db.commit()
     return _serialize(row)
 
 
 @router.get("/punch-edits")
-def list_pending_punch_edits(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
+def list_pending_punch_edits(user: dict = Depends(require_approval_read), db: Session = Depends(get_db)):
     """Pending employee punch-time edits awaiting review, scoped to the approver's team."""
     visible = _visible_emails(db, user)
     q = db.query(TimePunch).filter(TimePunch.edit_status == "pending", TimePunch.voided == 0,
@@ -3761,7 +3840,7 @@ def list_pending_punch_edits(user: dict = Depends(require_team_read), db: Sessio
         d = _serialize(p)
         d["employeeName"] = names.get(p.employee_email) or p.employee_email.split("@")[0].replace(".", " ").title()
         out.append(d)
-    return out
+    return _mark_for(db, user, out, "email")
 
 
 # ── Silent agent enrollment (no-login, token-authenticated devices) ───────────
@@ -10395,6 +10474,8 @@ class _TimeoffPrivacy:
         self.viewer = (viewer_email or "").strip().lower()
         self._emps = None
         self._approvers = {}
+        self._stand_ins = {}
+        self._any_deleg = None
 
     def _emp(self, email: str):
         if self._emps is None:
@@ -10425,19 +10506,41 @@ class _TimeoffPrivacy:
         self._approvers[em] = out
         return out
 
+    def stand_ins(self, employee_email: str) -> list:
+        """The live stand-ins of this person's approvers (approver
+        delegation, Oct 17). Kept apart from approvers(): a stand-in DECIDES
+        a confidential request like the approver, but READS one only while
+        it is pending, or once they decided it themselves - never the
+        person's confidential history. Looked up once per request."""
+        em = (employee_email or "").strip().lower()
+        if em in self._stand_ins:
+            return self._stand_ins[em]
+        import approval_delegation
+        if self._any_deleg is None:
+            self._any_deleg = approval_delegation.any_live(self.db)
+        base = self.approvers(em)
+        out = ([dl for dl, _dg in approval_delegation.stand_ins(self.db, em, base) if dl not in base]
+               if self._any_deleg and base else [])
+        self._stand_ins[em] = out
+        return out
+
     def can_see(self, r) -> bool:
         if not _is_confidential(r):
             return True
         em = (r.employee_email or "").strip().lower()
-        return bool(self.viewer) and (self.viewer == em
-                                      or self.viewer in self.approvers(em)
-                                      or self.viewer == (r.approver or "").strip().lower())
+        if not self.viewer:
+            return False
+        if (self.viewer == em or self.viewer in self.approvers(em)
+                or self.viewer == (r.approver or "").strip().lower()):
+            return True
+        return r.status == "pending" and self.viewer in self.stand_ins(em)
 
     def can_decide(self, r) -> bool:
         em = (r.employee_email or "").strip().lower()
         if not self.viewer or self.viewer == em:
             return False
-        return not _is_confidential(r) or self.viewer in self.approvers(em)
+        return (not _is_confidential(r) or self.viewer in self.approvers(em)
+                or self.viewer in self.stand_ins(em))
 
     def reviewer_names(self, r) -> str:
         """Who decides it, for the "only X can decide this" line."""
@@ -10586,7 +10689,8 @@ def request_timeoff(body: TimeOffIn, user: dict = Depends(get_current_user),
                        title="Time-Off Request",
                        body=f"{who} requested {_bell_kind(row)} "
                             f"{_us_span(body.start_date, body.end_date)}{_timeoff_window(st, et)}.{_bell_reason(row)}",
-                       ref_id=row.id, action={"view": "hr", "sub": "hr-time"}, owners_as_fallback=True)
+                       ref_id=row.id, action={"view": "hr", "sub": "hr-time"}, owners_as_fallback=True,
+                       extra_recipients=_approver_stand_ins(db, user["email"], user["email"]))
     db.commit()
     return _ser_timeoff(row, priv=_TimeoffPrivacy(db, user["email"]))
 
@@ -10640,7 +10744,8 @@ def request_timeoff_on_behalf(body: TimeOffOnBehalfIn, user: dict = Depends(requ
                        title="Time-Off Request",
                        body=f"{filer} filed a {_bell_kind(row)} request for {emp.first_name} {emp.last_name}: "
                             f"{_us_span(body.start_date, body.end_date)}{_timeoff_window(st, et)}.{_bell_reason(row)}",
-                       ref_id=row.id, action={"view": "hr", "sub": "hr-time"}, owners_as_fallback=True)
+                       ref_id=row.id, action={"view": "hr", "sub": "hr-time"}, owners_as_fallback=True,
+                       extra_recipients=_approver_stand_ins(db, target, user["email"]))
     db.commit()
     return _ser_timeoff(row, priv=_TimeoffPrivacy(db, user["email"]))
 
@@ -10658,15 +10763,28 @@ _TIMEOFF_LIST_LIMIT = 2000
 
 @router.get("/timeoff")
 def list_timeoff(status: str = "", from_: str = Query("", alias="from"), to: str = "",
-                 limit: int = _TIMEOFF_LIST_LIMIT, user: dict = Depends(require_team_read),
+                 limit: int = _TIMEOFF_LIST_LIMIT, user: dict = Depends(require_approval_read),
                  db: Session = Depends(get_db)):
     """Time off the caller may see, newest first. Paged by DATE (Oct 2,
     B2-12: a flat 300-row cap hid everything before 07/2025 on PROD):
-    requests touching [from, to], `from` defaulting to 18 months ago."""
+    requests touching [from, to], `from` defaulting to 18 months ago.
+
+    A stand-in (approver delegation) sees the delegator's people's PENDING
+    requests and the ones they decided themselves - what approving needs,
+    not the people's whole leave history."""
     q = db.query(TimeOffRequest)
     scope = _visible_emails(db, user)
     if scope is not None:
         q = q.filter(TimeOffRequest.employee_email.in_(scope))
+    only_deleg = set(user.get("_deleg") or {})
+    if only_deleg and scope is not None:
+        own = _visible_emails(db, {k: v for k, v in user.items() if k != "_deleg"}) or set()
+        only_deleg -= set(own)
+        if only_deleg:
+            from sqlalchemy import or_
+            q = q.filter(or_(~TimeOffRequest.employee_email.in_(sorted(only_deleg)),
+                             TimeOffRequest.status == "pending",
+                             func.lower(TimeOffRequest.approver) == (user.get("email") or "").lower()))
     if status:
         q = q.filter(TimeOffRequest.status == status)
     lo = _parse_day(from_, "from date").isoformat() if from_ else (date.today() - timedelta(days=548)).isoformat()
@@ -10681,7 +10799,7 @@ def list_timeoff(status: str = "", from_: str = Query("", alias="from"), to: str
     names = {e.work_email: f"{e.first_name} {e.last_name}".strip()
              for e in db.query(NexusEmployee).all() if e.work_email}
     priv = _TimeoffPrivacy(db, user["email"])
-    return [_ser_timeoff(r, names, priv) for r in rows]
+    return _mark_for(db, user, [_ser_timeoff(r, names, priv) for r in rows], "email")
 
 
 class TimeOffDecision(BaseModel):
@@ -10736,7 +10854,7 @@ def _tell_reports_manager_off(db: Session, row, title: str, verb: str) -> None:
 
 @router.patch("/timeoff/{req_id}")
 def decide_timeoff(req_id: str, body: TimeOffDecision,
-                   user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+                   user: dict = Depends(require_approval_write), db: Session = Depends(get_db)):
     if body.status not in ("approved", "rejected"):
         raise HTTPException(400, "status must be approved or rejected")
     row = db.query(TimeOffRequest).filter(TimeOffRequest.id == req_id).with_for_update().first()
@@ -10757,6 +10875,10 @@ def decide_timeoff(req_id: str, body: TimeOffDecision,
         # the approval returned and now asks to remove the shifts inside it.
         # Marks them only - the decision, approver and the person's bell stay.
         if row.status == "approved" and body.status == "approved" and body.remove_shifts:
+            # A stand-in follows up only on the approvals they made themselves.
+            if (_delegated_for(user, row.employee_email)
+                    and (row.approver or "").strip().lower() != (user.get("email") or "").lower()):
+                raise HTTPException(403, "Only whoever approved this time off can remove the shifts inside it.")
             conflicts = _timeoff_shift_conflicts(db, row)
             for r in conflicts:
                 r.pending_delete = 1
@@ -10771,7 +10893,9 @@ def decide_timeoff(req_id: str, body: TimeOffDecision,
     row.status = body.status
     row.approver = user["email"]
     row.decided_at = _now_iso()
-    row.decide_note = (body.note or "").strip()[:400]
+    # A stand-in's decision says who it was decided for (approver delegation).
+    row.decide_note = _decided_note(db, user, row.employee_email, (body.note or "").strip()[:400])
+    _audit_delegated(db, user, row.employee_email, f"{body.status.title()} time off request", "time_off_requests", row.id)
     # The shifts this leave lands on, so the approver sees them - and, when
     # asked, marks them for removal in the same transaction (published, so
     # staff keep them until the next publish, like any removal).
