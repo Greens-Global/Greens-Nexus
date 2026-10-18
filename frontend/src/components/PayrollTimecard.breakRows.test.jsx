@@ -48,7 +48,7 @@ describe('a shift with a break on the Time Sheet', () => {
     </QueryClientProvider>);
     await screen.findByText('Deducted Time');
     const heads = [...container.querySelectorAll('thead th')].map(th => th.textContent);
-    expect(heads).toEqual(['Date', 'Edit', 'In', 'Out', 'Deducted Time', 'Category', 'Total Hours', 'OT', 'Loc', 'Pay Rate', 'Wage', 'Log']);
+    expect(heads).toEqual(['Date', 'Edit', 'In', 'Out', 'Deducted Time', 'Category', 'Total Hours', 'Hrs/Day', 'OT', 'Loc', 'Pay Rate', 'Wage', 'Log']);
     const cells = (tr) => [...tr.querySelectorAll('td')].map(td => td.textContent.trim());
     const worked = [...container.querySelectorAll('tr.pr-day-row')].filter(tr => cells(tr)[6] !== '-');
     expect(worked).toHaveLength(2);
@@ -56,10 +56,16 @@ describe('a shift with a break on the Time Sheet', () => {
     // as the server computed it) and the wage - each cell merged down over
     // the break row.
     expect(cells(worked[0])[6]).toBe('7:55');
-    expect(cells(worked[0])[10]).toBe('$197.92');
+    expect(cells(worked[0])[11]).toBe('$197.92');
     expect(worked[0].querySelectorAll('td')[6].getAttribute('rowspan')).toBe('2');
-    // The break under it: just its start and end; the shift's columns span over it.
-    expect(cells(worked[1])).toHaveLength(4);
+    // Hrs/Day (Neil, Oct 18 2026 - SwipeClock's down arrow): the shift row
+    // points down; the day's total sits on its last row, the break.
+    expect(worked[0].querySelectorAll('td')[7].querySelector('[aria-label="continues below"]')).toBeTruthy();
+    expect(worked[0].querySelectorAll('td')[7].getAttribute('rowspan')).toBeNull();
+    // The break under it: its start and end, and the day total in Hrs/Day; the
+    // shift's other columns span over it.
+    expect(cells(worked[1])).toHaveLength(5);
+    expect(cells(worked[1])[4]).toBe('7:55');
     expect(cells(worked[1])[0]).toBe('Break');
     expect(screen.queryByText(/Coffee/)).toBeNull();
     // The manager-entered break end reads bold, and the clock-in's hover says where it came from.
