@@ -57,6 +57,7 @@ from routers.hr import company_sites, allowed_site_ids as _allowed_site_ids, _hr
 from routers.esign import _client_meta
 from routers.stepup import require_stepup
 from currency import is_currency
+import payroll_codes
 from shift_day import shift_day as _shift_day, shift_bounds_by_day as _shift_bounds_by_day
 import shift_log
 
@@ -2305,6 +2306,11 @@ def _approved_emails(db: Session, rows: list, start: str, end: str) -> set:
     return ok
 
 
+# The IIF's pay classes in row order: (timecard day minutes, payroll_codes class).
+_IIF_PAY_CLASSES = (("regMin", "regular"), ("otMin", "overtime"), ("dtMin", "doubleTime"),
+                    ("sickMin", "sick"), ("vacationMin", "vacation"), ("personalMin", "personal"))
+
+
 @router.get("/export.iif")
 def export_iif(start: str = "", end: str = "", company: str = "", approved_only: bool = False,
                finalized_only: bool = False,
@@ -2316,7 +2322,9 @@ def export_iif(start: str = "", end: str = "", company: str = "", approved_only:
     in decimal hours from the SAME engine as the timecard, so what QuickBooks
     imports is exactly what was approved. EMP must match the employee's name in
     QuickBooks; the payroll item names (Regular Pay / Overtime Pay / Double-time
-    Pay / Sick Pay / Vacation Pay) must exist in QuickBooks or be mapped at import.
+    Pay / Sick Pay / Vacation Pay / Personal Pay by default, renamed per company
+    under Payroll Export Codes - payroll_codes.py) must exist in QuickBooks or
+    be mapped at import.
     `company` keeps one company's people; `approved_only` keeps the approved
     time sheets (_approved_emails) - both optional (Import Hub, Neil 10/15).
     `finalized_only` keeps the time cards signed and finalized for the period
@@ -2341,9 +2349,15 @@ def export_iif(start: str = "", end: str = "", company: str = "", approved_only:
         "TIMERHDR\t8\t0\tGreens Global\tN\tY\t0",
         "!TIMEACT\tDATE\tJOB\tEMP\tITEM\tPITEM\tDURATION\tPROJ\tNOTE\tXFERTOPAYROLL\tBILLINGSTATUS",
     ]
+    from auth import company_of_email_map
+    book = payroll_codes.codebook(db)
+    co_of = company_of_email_map(db)
     for r in rows:
         card = _compute_timecard(db, r["email"], start, end)
         name = _clean(r["name"])
+        # The payroll item names of the employee's company (defaults = the
+        # names this file always carried; Payroll Export Codes, Oct 17).
+        codes = book(co_of.get((r["email"] or "").lower(), ""))
         for d in card["days"]:
             # Billing dimension (Neil, Aug 25): if the whole day was worked at ONE
             # work site, put it in the JOB column (QuickBooks Customer:Job) and
@@ -2354,14 +2368,11 @@ def export_iif(start: str = "", end: str = "", company: str = "", approved_only:
             day_sites = {_seg_site(s)[1] for s in d.get("segments", []) if _seg_site(s)[0]}
             job = _clean(next(iter(day_sites))) if len(day_sites) == 1 else ""
             billing = "1" if job else "0"
-            for mins, pitem in ((d.get("regMin", 0), "Regular Pay"),
-                                (d.get("otMin", 0), "Overtime Pay"),
-                                (d.get("dtMin", 0), "Double-time Pay"),
-                                (d.get("sickMin", 0), "Sick Pay"),
-                                (d.get("vacationMin", 0), "Vacation Pay"),
-                                (d.get("personalMin", 0), "Personal Pay")):
+            for mins_key, pay_class in _IIF_PAY_CLASSES:
+                mins = d.get(mins_key, 0)
                 if mins <= 0:
                     continue
+                pitem = _clean(codes[pay_class])
                 lines.append(f"TIMEACT\t{_mdy(d['date'])}\t{job}\t{name}\t\t{pitem}\t{mins / 60:.2f}\t\t\tY\t{billing}")
     body = "\r\n".join(lines) + "\r\n"
     fname = f"timeclock-{start or 'all'}-to-{end or 'now'}.iif"
@@ -2407,9 +2418,11 @@ def export_hours(start: str = "", end: str = "", company: str = "", approved_onl
 # The pay classes an Intacct payroll line is written for, in order, with the
 # payroll-card total each one reads (hourly cards). A salaried card is one
 # "Salary" line off totals.totalPay.
-_INTACCT_PAY_CLASSES = (("regPay", "Regular Pay", "regMin"), ("otPay", "Overtime Pay", "otMin"), ("dtPay", "Double-time Pay", "dtMin"),
-                        ("holidayPay", "Holiday Pay", ""), ("sickPay", "Sick Pay", "sickMin"), ("vacationPay", "Vacation Pay", "vacationMin"),
-                        ("personalPay", "Personal Pay", "personalMin"))
+# The memo names the class by the employee's company's export code
+# (card["payCodes"], payroll_codes.py), else the default.
+_INTACCT_PAY_CLASSES = (("regPay", "regular", "regMin"), ("otPay", "overtime", "otMin"), ("dtPay", "doubleTime", "dtMin"),
+                        ("holidayPay", "holiday", ""), ("sickPay", "sick", "sickMin"), ("vacationPay", "vacation", "vacationMin"),
+                        ("personalPay", "personal", "personalMin"))
 
 
 def payroll_intacct_entries(cards: list[dict], *, start: str, end: str, journal: str, expense: str, clearing: str,
@@ -2419,8 +2432,9 @@ def payroll_intacct_entries(cards: list[dict], *, start: str, end: str, journal:
     names the class and the hours, DEPT_ID the person's department,
     GLENTRY_EMPLOYEEID their employee code), and one credit to the payroll
     clearing account for their total. `cards` are payroll cards with `name`,
-    `department`, `employeeId` and `payType` added. Pure, so it is testable
-    without punches."""
+    `department`, `employeeId` and `payType` added, and optionally
+    `payCodes` (the company's export codes, payroll_codes.codebook). Pure, so
+    it is testable without punches."""
     lines = []
 
     def side(amount: float, debit_side: bool) -> dict:
@@ -2443,10 +2457,12 @@ def payroll_intacct_entries(cards: list[dict], *, start: str, end: str, journal:
                 lines.append({**base, "memo": f"{name} - Salary", **side(amt, True)})
                 total += amt
         else:
-            for key, label, mins_key in _INTACCT_PAY_CLASSES:
+            codes = card.get("payCodes") or {}
+            for key, pay_class, mins_key in _INTACCT_PAY_CLASSES:
                 amt = round(float(t.get(key) or 0), 2)
                 if not amt:
                     continue
+                label = codes.get(pay_class) or payroll_codes.DEFAULTS[pay_class]
                 hours = f" - {float(t.get(mins_key) or 0) / 60:.2f} h" if mins_key else ""
                 lines.append({**base, "memo": f"{name} - {label}{hours}", **side(amt, True)})
                 total += amt
@@ -2483,6 +2499,7 @@ def export_intacct(start: str = "", end: str = "", journal: str = "PYRJ", expens
     scope = _visible_emails(db, user)
     rows = _team_rows(db, start, end, only_emails=scope, include_fixed=True)
     emps = {(e.work_email or "").lower(): e for e in db.query(NexusEmployee).all() if e.work_email}
+    book = payroll_codes.codebook(db)
     cards = []
     for r in rows:
         em = r["email"]
@@ -2490,7 +2507,8 @@ def export_intacct(start: str = "", end: str = "", journal: str = "PYRJ", expens
         card = _fixed_card(db, em, start) if fixed else _compute_timecard(db, em, start, end)
         emp = emps.get(em)
         card.update({"name": r["name"], "department": (emp.department if emp else "") or "",
-                     "employeeId": (emp.employee_code if emp else "") or "", "payType": "fixed" if fixed else "hourly"})
+                     "employeeId": (emp.employee_code if emp else "") or "", "payType": "fixed" if fixed else "hourly",
+                     "payCodes": book((emp.company if emp else "") or "")})
         cards.append(card)
     entries = payroll_intacct_entries(cards, start=start, end=end, journal=(journal or "PYRJ").strip()[:20],
                                       expense=(expense or "").strip()[:40], clearing=(clearing or "").strip()[:40],
@@ -8631,6 +8649,55 @@ def set_rounding(body: RoundingIn, user: dict = Depends(require_administrator),
     row.updated_by = user["email"]
     db.commit()
     return cfg
+
+
+# ── Payroll export codes (Neil, Oct 17 2026) ──────────────────────────────────
+# The name each pay class carries in the QuickBooks IIF and the Intacct memo,
+# per company (payroll_codes.py). Same permissions as Punch Rounding: team
+# readers see it, administrators change it - and only for a company inside
+# their company wall.
+
+def _export_codes_company(db: Session, user: dict, company: str) -> str:
+    from auth import company_ok, company_scope
+    from models import HrEntity
+    company = (company or "").strip()
+    if company and not db.query(HrEntity.id).filter(HrEntity.id == company).first():
+        raise HTTPException(404, "Company not found")
+    if not company_ok(company, company_scope(user, db)):
+        raise HTTPException(404, "Company not found")
+    return company
+
+
+def _export_codes_out(db: Session, company: str) -> dict:
+    custom = payroll_codes.custom_codes(db, company)
+    return {"company": company,
+            "classes": [{"key": k, "default": d, "code": custom.get(k, d), "custom": k in custom}
+                        for k, d in payroll_codes.PAY_CLASSES],
+            "maxLength": payroll_codes.MAX_LEN}
+
+
+@router.get("/payroll/export-codes")
+def get_export_codes(company: str = "", user: dict = Depends(require_team_read),
+                     db: Session = Depends(get_db)):
+    return _export_codes_out(db, _export_codes_company(db, user, company))
+
+
+class ExportCodesIn(BaseModel):
+    company: str = ""
+    codes: dict = {}
+
+
+@router.put("/payroll/export-codes")
+def set_export_codes(body: ExportCodesIn, user: dict = Depends(require_administrator),
+                     db: Session = Depends(get_db)):
+    """Replace one company's export codes. A blank name (or the default
+    itself) reads the default; `codes: {}` is Reset to Default."""
+    company = _export_codes_company(db, user, body.company)
+    try:
+        payroll_codes.save_codes(db, company, body.codes if isinstance(body.codes, dict) else {}, user["email"])
+    except ValueError as e:      # two pay classes under one name
+        raise HTTPException(400, str(e))
+    return _export_codes_out(db, company)
 
 
 # ── Break policy (Charmi call, Aug 21) ─────────────────────────────────────────

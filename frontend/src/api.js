@@ -1947,6 +1947,10 @@ export const api = {
   timeRoundingGet:     () => req('/timeclock/payroll/rounding'),
   timeAutoLunchGet:    () => req('/timeclock/payroll/autolunch'),
   timeBreakPolicyGet:  () => req('/timeclock/payroll/breakpolicy'),
+  // Payroll Export Codes (Oct 17): one company's pay item names for the
+  // QuickBooks IIF and Intacct memo; codes {} is Reset to Default.
+  timeExportCodesGet:  (company) => req(`/timeclock/payroll/export-codes?company=${encodeURIComponent(company || '')}`),
+  timeExportCodesSet:  (company, codes) => req('/timeclock/payroll/export-codes', { method: 'PUT', body: JSON.stringify({ company, codes }) }),
   // ── Shifts rebuild (Oct 2026, CONTRACT.md): the unshared-change count across
   //    the whole schedule, the saved group order, the request settings on
   //    their own, and the manager's time-off list over a date range ──
