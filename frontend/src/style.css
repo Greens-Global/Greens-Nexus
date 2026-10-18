@@ -4547,6 +4547,22 @@ button.gs-more { padding: 8px 10px; font-weight: 600; color: hsl(var(--color-blu
   .dk-toolbar .dk-controls { gap: 6px !important; }
   .dk-toolbar .secondary-btn, .dk-toolbar .primary-btn { padding: 7px 11px; }
   .dk-toolbar select.form-input { padding-right: 26px !important; padding-left: 10px !important; }
+  /* One tidy group at the right edge (Neil, Oct 18): the view picker,
+     Customize, the clock chip and the "..." menu share one 40px height and
+     one bordered look - the picker read as a borderless box beside two
+     taller squares. Pushed right with an auto margin rather than
+     justify-content, so a row that ever overflows still scrolls from its
+     start. Customize and "..." are 40px squares. */
+  .dk-toolbar > :first-child { margin-left: auto; }
+  .dk-toolbar select.form-input, .dk-toolbar .secondary-btn, .dk-toolbar .dk-session-chip {
+    height: 40px; min-height: 40px; box-sizing: border-box;
+  }
+  .dk-toolbar select.form-input {
+    width: auto !important; max-width: 60vw !important; border: 1px solid var(--wk-line); border-radius: 8px;
+    background-color: var(--wk-card, var(--card)); box-shadow: 0 1px 2px rgba(29,33,57,.04); font-size: 13.5px !important;
+  }
+  .dk-toolbar .dk-icon-btn { width: 40px; padding: 0 !important; justify-content: center; }
+  .dk-toolbar .dk-session-chip { border-radius: 8px; }
   .dk-zones { display: none; }
   .dk-sub-local { display: inline; white-space: nowrap; }  /* "California 6:21 PM PDT" never splits */
 }
