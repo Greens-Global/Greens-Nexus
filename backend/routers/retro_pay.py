@@ -72,10 +72,15 @@ def _same(a: float, b: float) -> bool:
 
 
 def _pay_parts(t: dict) -> dict:
-    """The card's pay by class, in cents."""
-    return {"regular": _r2(t.get("regPay")), "overtime": _r2(t.get("otPay")), "doubleTime": _r2(t.get("dtPay")),
-            "leave": _r2(sum(float(t.get(k) or 0) for k in _LEAVE)), "holiday": _r2(t.get("holidayPay")),
-            "total": _r2(t.get("totalPay"))}
+    """The card's pay by class, in cents. "premium" (shift differentials +
+    call-back pay, pay_premiums.py) only on a card that carries them - the
+    rules frozen with the period, so both sides of a comparison agree."""
+    out = {"regular": _r2(t.get("regPay")), "overtime": _r2(t.get("otPay")), "doubleTime": _r2(t.get("dtPay")),
+           "leave": _r2(sum(float(t.get(k) or 0) for k in _LEAVE)), "holiday": _r2(t.get("holidayPay")),
+           "total": _r2(t.get("totalPay"))}
+    if "diffPay" in t:
+        out["premium"] = _r2(float(t.get("diffPay") or 0) + float(t.get("callBackPay") or 0))
+    return out
 
 
 def _manual(em: str, name: str, row, currency: str, reason: str, paid=None, now=None) -> dict:
@@ -157,7 +162,7 @@ def _period(db: Session, em: str, row, hist: list, name_of) -> tuple:
         hrs["leaveMin"] += int((d.get("sickMin") or 0) + (d.get("vacationMin") or 0) + (d.get("personalMin") or 0))
         if d.get("holidayPay"):
             hrs["holidayDays"] += 1
-    diff = {k: _r2(pn[k] - pw[k]) for k in pn}
+    diff = {k: _r2(pn[k] - pw.get(k, 0)) for k in pn}
     diff["total"] = owed
     return "owed", {
         "email": em, "name": name, "periodStart": ps, "periodEnd": pe, "finalizedAt": row.approved_at or "",

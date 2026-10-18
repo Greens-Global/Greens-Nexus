@@ -1951,6 +1951,9 @@ export const api = {
   // QuickBooks IIF and Intacct memo; codes {} is Reset to Default.
   timeExportCodesGet:  (company) => req(`/timeclock/payroll/export-codes?company=${encodeURIComponent(company || '')}`),
   timeExportCodesSet:  (company, codes) => req('/timeclock/payroll/export-codes', { method: 'PUT', body: JSON.stringify({ company, codes }) }),
+  // Shift differentials + call-back pay (Oct 17): one company's rule, off by default.
+  timePremiumsGet:     (company) => req(`/timeclock/payroll/premiums?company=${encodeURIComponent(company || '')}`),
+  timePremiumsSet:     (company, cfg) => req('/timeclock/payroll/premiums', { method: 'PUT', body: JSON.stringify({ ...cfg, company }) }),
   // ── Shifts rebuild (Oct 2026, CONTRACT.md): the unshared-change count across
   //    the whole schedule, the saved group order, the request settings on
   //    their own, and the manager's time-off list over a date range ──

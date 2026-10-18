@@ -27,11 +27,16 @@ PAY_CLASSES = (
     ("sick", "Sick Pay"),
     ("vacation", "Vacation Pay"),
     ("personal", "Personal Pay"),
+    # Shift differentials + call-back pay (pay_premiums.py, Oct 17): written
+    # only when a card carries them, i.e. never while a company has them off.
+    ("shiftDifferential", "Shift Differential"),
+    ("callBack", "Call-Back Pay"),
 )
 DEFAULTS = dict(PAY_CLASSES)
 # How a pay class is named in a message to HR.
 LABELS = {"regular": "Regular", "overtime": "Overtime", "doubleTime": "Double Time", "holiday": "Holiday",
-          "sick": "Sick", "vacation": "Vacation", "personal": "Personal"}
+          "sick": "Sick", "vacation": "Vacation", "personal": "Personal",
+          "shiftDifferential": "Shift Differential", "callBack": "Call-Back Pay"}
 # QuickBooks Desktop caps a payroll item name at 31 characters.
 MAX_LEN = 31
 

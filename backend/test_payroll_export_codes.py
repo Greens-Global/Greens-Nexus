@@ -125,7 +125,8 @@ class ExportCodesTests(unittest.TestCase):
             db.query(models.TimePunch).filter(models.TimePunch.employee_email.in_((PAT, QUINN))).delete(synchronize_session=False)
             db.query(models.HrWorkSite).filter(models.HrWorkSite.id == SITE).delete(synchronize_session=False)
             db.query(models.HrEntity).filter(models.HrEntity.id.in_((CO_A, CO_B))).delete(synchronize_session=False)
-            db.query(models.NexusSetting).filter(models.NexusSetting.key == "payroll_earnings_codes").delete(synchronize_session=False)
+            db.query(models.NexusSetting).filter(models.NexusSetting.key.in_(
+                ("payroll_earnings_codes", "timeclock_pay_premiums"))).delete(synchronize_session=False)
             db.commit()
         finally:
             db.close()
@@ -199,13 +200,46 @@ class ExportCodesTests(unittest.TestCase):
         r = self.client.get(f"/timeclock/payroll/export-codes?company={CO_A}")
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual([c["key"] for c in r.json()["classes"]],
-                         ["regular", "overtime", "doubleTime", "holiday", "sick", "vacation", "personal"])
+                         ["regular", "overtime", "doubleTime", "holiday", "sick", "vacation", "personal",
+                          "shiftDifferential", "callBack"])
         self.assertIn(self._put({"regular": "REG"}, who=MGR).status_code, (401, 403))
         _as(PAT)
         self.assertIn(self.client.get(f"/timeclock/payroll/export-codes?company={CO_A}").status_code, (401, 403))
         _as(ADMIN)
         self.assertEqual(self._put({"regular": "REG"}, company="no-such-company").status_code, 404)
         self.assertEqual(self._iif(), GOLDEN)
+
+    def test_pay_premiums_settings_permissions(self):
+        """Shift differentials + call-back (pay_premiums.py): same permissions
+        as the export codes - team readers read, administrators write, inside
+        the company wall."""
+        body = {"company": CO_A, "enabled": True,
+                "differentials": [{"name": "Night Differential", "kind": "flat", "amount": 2,
+                                   "start": "22:00", "end": "06:00", "days": [], "sites": []}],
+                "callBack": {"enabled": True, "minimumMin": 120, "gapMin": 60}}
+        _as(MGR)
+        r = self.client.get(f"/timeclock/payroll/premiums?company={CO_A}")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertFalse(r.json()["enabled"])                     # off by default
+        self.assertIn(self.client.put("/timeclock/payroll/premiums", json=body).status_code, (401, 403))
+        _as(PAT)
+        self.assertIn(self.client.get(f"/timeclock/payroll/premiums?company={CO_A}").status_code, (401, 403))
+        _as(ADMIN)
+        r = self.client.put("/timeclock/payroll/premiums", json=body)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["differentials"][0]["name"], "Night Differential")
+        self.assertEqual(self.client.put("/timeclock/payroll/premiums",
+                                         json={**body, "company": "no-such-company"}).status_code, 404)
+        # Company A only: Pat's 15:00-01:00 and 15:00-04:00 (UTC) shifts get
+        # 3 h and 6 h of night differential; Quinn (company B) is untouched.
+        iif = self._iif()
+        self.assertIn("TIMEACT\t9/16/2026\tRental A\tPat Test\t\tShift Differential\t3.00\t\t\tY\t1\r\n", iif)
+        self.assertIn("TIMEACT\t9/17/2026\tRental A\tPat Test\t\tShift Differential\t6.00\t\t\tY\t1\r\n", iif)
+        self.assertEqual([ln for ln in iif.split("\r\n") if "Quinn" in ln],
+                         [ln for ln in GOLDEN.split("\r\n") if "Quinn" in ln])
+        self.assertEqual(iif.replace("TIMEACT\t9/16/2026\tRental A\tPat Test\t\tShift Differential\t3.00\t\t\tY\t1\r\n", "")
+                         .replace("TIMEACT\t9/17/2026\tRental A\tPat Test\t\tShift Differential\t6.00\t\t\tY\t1\r\n", ""),
+                         GOLDEN)
 
 
 if __name__ == "__main__":
