@@ -436,6 +436,24 @@ def agree_blocker(db: Session, r: TimesheetReview) -> str:
     return approve_blocker(db, r.employee_email, r.period_start, r.period_end)
 
 
+def review_flag(db: Session, email: str, start: str, end: str, blocker: str | None = None) -> str:
+    """Why Approve All Clean (Oct 17) leaves this time sheet for one-by-one
+    review, in plain words; '' when it is clean. Clean = Approve would go
+    through (approve_blocker: the period is over, no missing punch, no punch
+    fix or edit waiting on a decision) AND the card has no exception at all -
+    an unusually long shift or break, or a shift Nexus auto-closed, does not
+    block Approve but is worth a look before it is approved in bulk.
+    `blocker`: the approve_blocker the caller already worked out."""
+    blocker = approve_blocker(db, email, start, end) if blocker is None else blocker
+    if blocker:
+        return blocker
+    exc = _tc()._period_exceptions(db, email, start, end)
+    if not exc:
+        return ""
+    return (f"Look at {'this' if len(exc) == 1 else 'these'} before approving - "
+            f"{_tc()._exception_summary(exc)}.")
+
+
 def waiting_on(db: Session, reviewer: str) -> list:
     """Timesheets submitted to `reviewer` that they have not decided yet,
     oldest first."""
@@ -528,11 +546,14 @@ def queue_row(db: Session, r: TimesheetReview) -> dict:
     """One line of the reviewer's list: who, which period, the hours as last
     submitted, when, their note, and whether Agree would go through now."""
     last = next((e for e in reversed(r.rounds or []) if e.get("action") in ("submitted", "resubmitted")), {})
+    blocker = agree_blocker(db, r)
     return {"id": r.id, "employeeEmail": r.employee_email, "name": display_name(db, r.employee_email),
             "periodStart": r.period_start, "periodEnd": r.period_end, "payType": r.pay_type,
             "workedMin": int(last.get("workedMin") or 0), "submittedAt": last.get("at") or r.updated_at or "",
             "resubmitted": last.get("action") == "resubmitted", "note": last.get("note") or "",
-            "agreeBlocker": agree_blocker(db, r), "notSubmitted": False}
+            "agreeBlocker": blocker, "notSubmitted": False,
+            # Approve All Clean skips it while this says why (Oct 17).
+            "reviewFlag": review_flag(db, r.employee_email, r.period_start, r.period_end, blocker)}
 
 
 def last_closed_period(db: Session, email: str) -> tuple[str, str, str]:
@@ -593,11 +614,13 @@ def not_reviewed(db: Session, reviewer: str) -> list:
                                                TimePunch.local_date >= start, TimePunch.local_date <= end).first()):
                 continue
             card = card_for(db, em, start, end, pay_type)
+            blocker = approve_blocker(db, em, start, end)
             out.append({"id": "", "employeeEmail": em, "name": display_name(db, em), "periodStart": start,
                         "periodEnd": end, "payType": pay_type,
                         "workedMin": int((card.get("totals") or {}).get("workedMin") or 0),
                         "submittedAt": "", "resubmitted": False, "note": "",
-                        "agreeBlocker": approve_blocker(db, em, start, end), "notSubmitted": True})
+                        "agreeBlocker": blocker, "notSubmitted": True,
+                        "reviewFlag": review_flag(db, em, start, end, blocker)})
     return sorted(out, key=lambda x: (x["periodStart"], x["name"]))
 
 

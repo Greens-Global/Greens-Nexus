@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ClipboardCheck, CheckCircle, FileSignature, Undo2, ChevronRight, PenLine } from 'lucide-react';
+import { ClipboardCheck, CheckCircle, CheckCheck, FileSignature, Undo2, ChevronRight, PenLine } from 'lucide-react';
 import { api } from '../api';
 import { formatDate } from '../lib/datetime';
+import { Modal } from '../tasks/components';
 import { SignModal } from './ESign';
 
 // Timesheets to Review (Sep 29): the list at the top of People > Time of every
@@ -28,8 +29,16 @@ import { SignModal } from './ESign';
 // id yet) - Approve works on them too; Send Back needs a submission to answer.
 // Approve is the manager's "these hours are accurate" - no signature; it
 // sends the timesheet straight to the employee to sign.
+//
+// Approve All Clean (Neil, Oct 17): one click approves every listed time sheet
+// with nothing to look at - reviewFlag is '' (no agreeBlocker and no exception
+// at all on the card; timesheet_review.review_flag, which the server checks
+// again per item). Flagged rows stay for one-by-one review and say why.
 
 const rowKey = (r) => r.id || `${r.employeeEmail}|${r.periodStart}`;
+const BULK_MAX = 100;   // the server's cap per click (timesheet_reviews.BULK_MAX)
+const isClean = (r) => !r.agreeBlocker && r.reviewFlag === '';
+const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
 const hm = (m) => `${Math.floor((m || 0) / 60)}h ${String((m || 0) % 60).padStart(2, '0')}m`;
 const ROLE_WORD = { manager: 'as the manager', hr: 'for HR', employee: 'as the employee' };
@@ -44,6 +53,8 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount 
   const [backFor, setBackFor] = useState('');   // review id whose Send Back note is open
   const [note, setNote] = useState('');
   const [signing, setSigning] = useState(null);  // party id being signed in place
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   const load = useCallback(() => {
     api.timesheetReviewWaiting().then(r => {
@@ -71,6 +82,27 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount 
     setBusyId('');
   }
 
+  const clean = rows.filter(isClean);
+  const flagged = rows.filter(r => !isClean(r));
+  const going = clean.slice(0, BULK_MAX);
+
+  async function approveAllClean() {
+    setBulkBusy(true);
+    try {
+      const out = await api.timesheetReviewApproveBulk(
+        going.map(r => (r.id ? { id: r.id } : { email: r.employeeEmail, start: r.periodStart })), '');
+      const parts = [`${plural(out?.approved || 0, 'time sheet', 'time sheets')} approved and sent to sign`];
+      if (out?.skipped) parts.push(`${out.skipped} skipped`);
+      if (out?.failed) parts.push(`${out.failed} failed`);
+      const firstErr = (out?.results || []).find(x => x.status === 'failed')?.error;
+      if (out?.failed) toastErr?.(`${parts.join(', ')}.${firstErr ? ` ${firstErr}` : ''}`);
+      else toastOk?.(`${parts.join(', ')}.`);
+      setBulkOpen(false);
+      window.dispatchEvent(new CustomEvent('nexus:timesheet-review-changed'));
+    } catch (e) { toastErr?.(e?.message || 'Could not approve the time sheets.'); }
+    setBulkBusy(false);
+  }
+
   async function resign(s) {
     setBusyId(`resign-${s.id}`);
     try {
@@ -94,11 +126,23 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount 
     <>
       {rows.length > 0 && (
         <div style={card}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
             <ClipboardCheck size={15} style={{ color: 'var(--wk-brand)' }} />
             <span style={{ fontWeight: 800, fontSize: 13.5 }}>Time Sheets to Review</span>
             <span style={{ fontSize: 12, color: 'var(--muted)' }}>{rows.length} waiting on you</span>
+            <button type="button" className="secondary-btn" disabled={!clean.length || bulkBusy}
+              title={clean.length ? 'Approve every time sheet with nothing to look at - flagged ones stay here'
+                : 'Every time sheet here needs a look first - the note on each one says why.'}
+              onClick={() => setBulkOpen(true)}
+              style={{ marginLeft: 'auto', fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5, opacity: clean.length ? 1 : 0.55 }}>
+              <CheckCheck size={13} /> Approve All Clean ({clean.length})
+            </button>
           </div>
+          {!clean.length && (
+            <div style={{ fontSize: 11.5, color: 'var(--muted)', marginBottom: 6 }}>
+              Nothing to approve in one click - every time sheet here needs a look first.
+            </div>
+          )}
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {rows.map(r => (
               <div key={rowKey(r)} data-review={r.employeeEmail} style={{ borderTop: '1px solid var(--line)', padding: '10px 0' }}>
@@ -112,6 +156,8 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount 
                     </div>
                     {r.note && <div style={{ fontSize: 12, marginTop: 2 }}>"{r.note}"</div>}
                     {r.agreeBlocker && <div style={{ fontSize: 11.5, color: '#b45309', marginTop: 2 }}>{r.agreeBlocker}</div>}
+                    {/* Approve works, but Approve All Clean leaves it: an exception to look at. */}
+                    {!r.agreeBlocker && r.reviewFlag && <div style={{ fontSize: 11.5, color: '#b45309', marginTop: 2 }}>{r.reviewFlag}</div>}
                   </div>
                   {/* Review opens the full timecard in People > Time - offered only
                       where the caller can open it (no onOpen = no button, Oct 1). */}
@@ -124,7 +170,7 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount 
                       onClick={() => { setBackFor(backFor === r.id ? '' : r.id); setNote(''); }}
                       style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}><Undo2 size={13} /> Send Back</button>
                   )}
-                  <button type="button" className="primary-btn" disabled={busyId === rowKey(r) || !!r.agreeBlocker}
+                  <button type="button" className="primary-btn" disabled={busyId === rowKey(r) || bulkBusy || !!r.agreeBlocker}
                     title={r.agreeBlocker || 'These hours are accurate - it goes to the employee to sign'}
                     onClick={() => run(r, () => (r.notSubmitted
                       ? api.timesheetReviewApprovePeriod(r.employeeEmail, r.periodStart, '')
@@ -177,6 +223,43 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount 
             ))}
           </div>
         </div>
+      )}
+      {bulkOpen && (
+        <Modal title="Approve All Clean" onClose={() => setBulkOpen(false)}
+          footer={<>
+            <button type="button" className="secondary-btn" disabled={bulkBusy} onClick={() => setBulkOpen(false)}>Cancel</button>
+            <button type="button" className="primary-btn" disabled={bulkBusy || !going.length} onClick={approveAllClean}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+              <CheckCircle size={13} /> {bulkBusy ? 'Approving...' : `Approve ${plural(going.length, 'Time Sheet', 'Time Sheets')}`}
+            </button>
+          </>}>
+          <div style={{ fontSize: 13, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div>
+              {plural(going.length, 'time sheet', 'time sheets')} will be approved and sent to each employee to sign.
+              {clean.length > going.length && ` The first ${BULK_MAX} go now - run it again for the other ${clean.length - going.length}.`}
+            </div>
+            <ul data-bulk="going" style={{ margin: 0, paddingLeft: 18 }}>
+              {going.map(r => (
+                <li key={rowKey(r)} style={{ fontSize: 12.5 }}>
+                  {r.name} - {formatDate(r.periodStart)} - {formatDate(r.periodEnd)} · {hm(r.workedMin)}
+                </li>
+              ))}
+            </ul>
+            {flagged.length > 0 && (
+              <>
+                <div>{plural(flagged.length, 'time sheet stays', 'time sheets stay')} here for one-by-one review:</div>
+                <ul data-bulk="skipped" style={{ margin: 0, paddingLeft: 18 }}>
+                  {flagged.map(r => (
+                    <li key={rowKey(r)} style={{ fontSize: 12.5 }}>
+                      <strong>{r.name}</strong> - {formatDate(r.periodStart)} - {formatDate(r.periodEnd)}
+                      <div style={{ fontSize: 11.5, color: '#b45309' }}>{r.agreeBlocker || r.reviewFlag || 'Needs a look first.'}</div>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
+        </Modal>
       )}
       {signPortal}
     </>
