@@ -37,6 +37,7 @@ import {
   csvOf, downloadText, readPins, writePins, byLastName,
 } from '../directory/lib';
 import { exportDirectoryPdf } from '../directory/pdf';
+import { openPersonTasks } from '../lib/personTasksNav';
 
 const REFRESH_MS = 60_000;
 const PRESENCE_MS = 30_000;   // Teams presence poll; the server holds one Graph answer per 30 s
@@ -212,10 +213,7 @@ export default function Directory({ embedded = false, toolsTarget = null }) {
   };
   const canOpenPeople = !!(can?.('administrator') || myGrantedModules?.has('hr'));
   const canOpenTasks = !!(can?.('administrator') || myGrantedModules?.has('tasks'));
-  const openTasks = (p) => {
-    window.dispatchEvent(new CustomEvent('nexus:navigate', { detail: { view: 'tasks', sub: 'home' } }));
-    setTimeout(() => window.dispatchEvent(new CustomEvent('nexus:tasks-person', { detail: { email: p.email, name: p.name } })), 0);
-  };
+  const openTasks = (p) => openPersonTasks(p.email, p.name);
   const gaps = data?.gaps;
   const gapCount = gaps ? Object.values(gaps).reduce((n, arr) => n + arr.length, 0) : 0;
 

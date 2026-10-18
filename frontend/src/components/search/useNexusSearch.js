@@ -6,6 +6,7 @@ import { useRequisitions } from '../../contexts/RequisitionContext';
 import { NAV, isNavItemVisible } from '../Sidebar';
 import { SUBMENUS } from '../MobileMenu';
 import { openContact } from '../../lib/contactNav';
+import { openPersonTasks } from '../../lib/personTasksNav';
 import { api } from '../../api';
 
 // ONE search for the whole app (Neil, Oct 14 2026). The header bar on every
@@ -75,6 +76,7 @@ export function useNexusSearch(query, { enabled = true } = {}) {
   const q = (query || '').trim().toLowerCase();
   const live = enabled && q.length > 0;
   const isManager = can?.('manager');
+  const canTasks = !!(can?.('administrator') || myGrantedModules?.has?.('tasks'));
   const qaEnabled = useQaEnabled(live);
 
   // Screens registry: the sidebar's NAV, visible exactly as the sidebar
@@ -136,8 +138,10 @@ export function useNexusSearch(query, { enabled = true } = {}) {
         };
         if (g.key === 'people') return {
           key: `person:${item.email}`, Icon: User, title: item.name, detail: item.email,
-          // A person opens their Contact Directory card (Oct 2026).
-          run: () => openContact(item.email),
+          // A person opens their page in Tasks - their tasks - for anyone
+          // with the Task module (Neil, Oct 18 2026); the Contact Directory
+          // card for everyone else.
+          run: () => (canTasks ? openPersonTasks(item.email, item.name) : openContact(item.email)),
         };
         const Icon = item.archived ? Archive : g.key === 'teams' ? Users : g.key === 'portfolios' ? Briefcase : LayoutDashboard;
         return {
@@ -199,7 +203,7 @@ export function useNexusSearch(query, { enabled = true } = {}) {
       run: () => navigate(s.view, s.sub),
     })));
     return out;
-  }, [live, q, query, screens, hits, items, checkouts, requisitions, isManager, myEmail]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [live, q, query, screens, hits, items, checkouts, requisitions, isManager, myEmail, canTasks]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const rows = useMemo(() => groups.flatMap(g => g.rows), [groups]);
   return { groups, rows, searching, count: rows.length };

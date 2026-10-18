@@ -57,7 +57,7 @@ class MyActivityTests(unittest.TestCase):
 
     def setUp(self):
         self.db = database.SessionLocal()
-        for m in (models.TaskActivity, models.Task):
+        for m in (models.TaskActivity, models.TaskComment, models.Task):
             self.db.query(m).execution_options(include_deleted=True).delete()
         self.db.commit()
 
@@ -110,6 +110,51 @@ class MyActivityTests(unittest.TestCase):
         # a zero falls back to the defaults (30 rows, 14 days), never to nothing
         self.assertEqual(len(T.my_task_activity(limit=0, days=0, user=ME, db=self.db)), 5)
         self.assertEqual(len(T.my_task_activity(limit=500, days=14, user=ME, db=self.db)), 5)
+
+    def test_only_peoples_actions_never_the_system_log(self):
+        # Neil, Oct 18: "every single minor update about an email sent" and
+        # "it keeps saying System".
+        t = self._task("TASK-A", assignee_emails=[ME["email"]])
+        for typ in ("notify_sent", "notify_failed", "notify_error", "recurrence_scheduled", "time_logged"):
+            self._act(t, "system" if typ != "time_logged" else OTHER, type=typ, at=_ago(2))
+        self._act(t, "automation@nexus", type="automation", at=_ago(2))
+        self._act(t, "system", type="status_changed", at=_ago(2), detail="changed status to done")
+        self._act(t, "", type="commented", at=_ago(2))
+        self._act(t, OTHER, type="status_changed", at=_ago(3), detail="changed status to in_progress")
+        self.db.commit()
+        rows = T.my_task_activity(user=ME, db=self.db)
+        self.assertEqual([(r["type"], r["actorId"]) for r in rows], [("status_changed", OTHER)])
+
+    def test_a_flood_of_emails_does_not_push_real_updates_out(self):
+        t = self._task("TASK-A", assignee_emails=[ME["email"]])
+        self._act(t, OTHER, type="commented", at=_ago(500))
+        for i in range(2100):
+            self._act(t, "system", type="notify_sent", at=_ago(i % 400))
+        self.db.commit()
+        self.assertEqual([r["type"] for r in T.my_task_activity(user=ME, db=self.db)], ["commented"])
+
+    def _comment(self, t, author, body, minutes):
+        at = _ago(minutes)
+        self.db.add(models.TaskComment(id=gen_id(), task_id=t.id, author_email=author, body=body, created_at=at))
+        self._act(t, author, type="commented", at=at, detail="added a comment")
+
+    def test_a_comment_carries_its_text_attributed_to_its_author(self):
+        t = self._task("TASK-F", assignee_emails=[OTHER], follower_emails=[ME["email"]])
+        self._comment(t, "pragya@greensglobal.com", "<p>Old note</p>", 40)
+        self._comment(t, "pragya@greensglobal.com", "<p>Permit is <b>approved</b> &amp; filed</p>", 10)
+        self.db.commit()
+        rows = T.my_task_activity(user=ME, db=self.db)
+        self.assertEqual([(r["actorId"], r["relation"], r["preview"]) for r in rows],
+                         [("pragya@greensglobal.com", "collaborator", "Permit is approved & filed"),
+                          ("pragya@greensglobal.com", "collaborator", "Old note")])
+
+    def test_a_mention_on_a_task_i_am_not_on(self):
+        t = self._task("TASK-N", assignee_emails=[OTHER])
+        self._comment(t, OTHER, '<p>Can you check this <a href="mailto:neil@greensglobal.com">@Neil</a>?</p>', 5)
+        self._comment(t, OTHER, "<p>Unrelated</p>", 6)
+        self.db.commit()
+        rows = T.my_task_activity(user=ME, db=self.db)
+        self.assertEqual([(r["relation"], r["preview"]) for r in rows], [("mentioned", "Can you check this @Neil ?")])
 
     def test_nothing_for_someone_on_no_task(self):
         t = self._task("TASK-A", assignee_emails=[OTHER])

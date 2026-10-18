@@ -101,6 +101,20 @@ describe('the Updates card', () => {
     expect(screen.getByTestId('drawer').textContent).toBe('t1');
   });
 
+  it('shows what a comment said, and a mention as "mentioned you" (Oct 18)', async () => {
+    activity.mockImplementation(() => Promise.resolve([
+      { id: 'c1', type: 'commented', actorId: SAGAR, at: minutesAgo(2), detail: 'added a comment', taskId: 't2', relation: 'collaborator', preview: 'Permit is approved', entityTitle: 'Paint fence' },
+      { id: 'c2', type: 'commented', actorId: SAGAR, at: minutesAgo(4), detail: 'added a comment', taskId: 'tx', relation: 'mentioned', preview: 'Can you check @Neil?', entityTitle: 'Other task' },
+    ]));
+    render(<HomeView onNavigate={() => {}} />);
+    await flush();
+    const rows = document.querySelectorAll('[data-update-row]');
+    expect(rows[0].textContent).toContain('Sagar P added a comment');
+    expect(rows[0].textContent).toContain('“Permit is approved”');
+    expect(rows[1].textContent).toContain('Sagar P mentioned you');
+    expect(rows[1].textContent).toContain('Other task');
+  });
+
   it('reads once on open, and again only when a task actually changed', async () => {
     const { rerender } = render(<HomeView onNavigate={() => {}} />);
     await flush();
