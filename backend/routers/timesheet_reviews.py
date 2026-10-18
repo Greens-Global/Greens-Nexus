@@ -6,7 +6,7 @@ Signing itself happens in Nexus Sign (/esign/mine/{party_id}/...), which calls
 back into timesheet_review when a party signs, declines, or completes it.
 """
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 import timesheet_review as tsr
@@ -33,6 +33,23 @@ class ApprovePeriodIn(BaseModel):
     email: str
     start: str = ""      # any date in the period
     note: str = ""
+
+
+class BulkItemIn(BaseModel):
+    id: str = ""         # a submitted review, or...
+    email: str = ""      # ...a closed period nobody submitted
+    start: str = ""      # any date in that period
+
+
+class ApproveBulkIn(BaseModel):
+    items: list[BulkItemIn] = Field(default_factory=list)
+    note: str = ""
+
+
+# One CALL approves at most this many (Oct 17). Each approval builds the PDF
+# and sends the envelope inside the request, so a bigger batch could outlive
+# Azure's ~230s request limit; the screen sends 10 per call.
+BULK_MAX = 25
 
 
 class FinalizeUnsignedIn(BaseModel):
@@ -122,6 +139,92 @@ def approve_period(body: ApprovePeriodIn, user: dict = Depends(require_team_writ
     me = _reviewer_of(db, user, email, tsr.manager_of(db, email))
     r = tsr.approve_period(db, email, (body.start or "").strip(), me, body.note)
     return tsr.state_for(db, r.employee_email, r.period_start, me, True)
+
+
+# Why a time sheet that is no longer waiting on the manager is skipped - the
+# usual case is the same click run twice, which must change nothing.
+_NOT_WAITING = {
+    "signing": "Already approved - it is with the employee to sign.",
+    "completed": "Already signed and finalized.",
+    "with_employee": "Sent back to the employee for changes.",
+    "approved": "Approved and waiting for the employee to sign HR's changes.",
+}
+
+
+def _detail(e: HTTPException) -> str:
+    d = e.detail
+    if isinstance(d, dict):
+        return str(d.get("message") or d.get("code") or "Could not approve this one.")
+    return str(d or "Could not approve this one.")
+
+
+def _approve_one(db: Session, user: dict, item: BulkItemIn, note: str) -> dict:
+    """One line of Approve All Clean, through the SAME calls the single
+    Approve buttons make (/{rid}/approve and /approve): the reviewer check,
+    then tsr.approve / tsr.approve_period, which commit on their own. Only
+    a clean time sheet goes (tsr.review_flag, the flag the list shows)."""
+    rid = (item.id or "").strip()
+    if rid:
+        r = _review(db, rid)
+        me = _as_reviewer(db, user, r)
+        if r.status != "with_manager":
+            db.rollback()                       # release the row lock
+            return {"status": "skipped", "reason": _NOT_WAITING.get(r.status, "Not waiting on your review.")}
+        flag = tsr.review_flag(db, r.employee_email, r.period_start, r.period_end)
+        if flag:
+            db.rollback()
+            return {"status": "skipped", "reason": flag}
+        tsr.approve(db, r, me, note)
+        return {"status": "approved", "id": r.id}
+    email = (item.email or "").strip().lower()
+    if not email:
+        return {"status": "failed", "error": "Pick a time sheet to approve."}
+    me = _reviewer_of(db, user, email, tsr.manager_of(db, email))
+    start, end, _pt = tsr.period_for(db, email, (item.start or "").strip())
+    r = tsr.active_review(db, email, start)
+    if r is not None and r.status != "with_manager":
+        return {"status": "skipped", "reason": _NOT_WAITING.get(r.status, "Not waiting on your review.")}
+    flag = tsr.review_flag(db, email, start, end)
+    if flag:
+        return {"status": "skipped", "reason": flag}
+    r = tsr.approve_period(db, email, start, me, note)
+    return {"status": "approved", "id": r.id}
+
+
+@router.post("/approve-bulk")
+def approve_bulk(body: ApproveBulkIn, user: dict = Depends(require_team_write), db: Session = Depends(get_db)):
+    """Approve All Clean (Neil, Oct 17): Review & Approve every listed time
+    sheet that has nothing to look at - each one exactly as its own Approve
+    button would (same checks, same envelope to the employee, same approval
+    log). A flagged one is skipped with the reason and stays on the list; a
+    failure is rolled back alone and the rest still go. Running it again
+    skips what already went, so a retried click changes nothing."""
+    items = body.items or []
+    if not items:
+        raise HTTPException(422, "Pick at least one time sheet to approve.")
+    if len(items) > BULK_MAX:
+        raise HTTPException(422, f"Approve up to {BULK_MAX} time sheets at a time.")
+    results, seen = [], set()
+    for item in items:
+        line = {"id": (item.id or "").strip(), "email": (item.email or "").strip().lower(),
+                "start": (item.start or "").strip()}
+        key = line["id"] or f"{line['email']}|{line['start']}"
+        if key in seen:
+            results.append({**line, "status": "skipped", "reason": "Listed twice."})
+            continue
+        seen.add(key)
+        try:
+            out = _approve_one(db, user, item, body.note)
+        except HTTPException as e:
+            db.rollback()
+            out = {"status": "failed", "error": _detail(e)}
+        except Exception as e:  # noqa: BLE001 - one bad time sheet must not stop the rest
+            db.rollback()
+            print(f"[timesheet-review] bulk approve failed for {key}: {type(e).__name__}: {e}")
+            out = {"status": "failed", "error": "Could not approve this one. Try it on its own."}
+        results.append({**line, **out, "id": out.get("id") or line["id"]})
+    count = {k: sum(1 for x in results if x["status"] == k) for k in ("approved", "skipped", "failed")}
+    return {"results": results, **count}
 
 
 @router.post("/finalize-unsigned")

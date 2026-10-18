@@ -2380,6 +2380,9 @@ export const api = {
   timesheetReviewFinalizeUnsigned: (email, start, reason) => req('/timesheet-review/finalize-unsigned', { method: 'POST', body: JSON.stringify({ email, start: start || '', reason }) }),
   timeExportIifFinalized:       (start, end, company) =>
     reqBlob(`/timeclock/export.iif?start=${start || ''}&end=${end || ''}&company=${encodeURIComponent(company || '')}&finalized_only=true`, { timeoutMs: 120_000 }),
+  // Approve All Clean (Oct 17): items are [{id}] or [{email, start}], at most
+  // 25 per call (the screen sends 10); each builds its PDF and envelope.
+  timesheetReviewApproveBulk: (items, note = '') => req('/timesheet-review/approve-bulk', { method: 'POST', body: JSON.stringify({ items, note }), timeoutMs: 120_000 }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
