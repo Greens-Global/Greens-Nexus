@@ -3150,6 +3150,10 @@ def list_punch_requests(status: str = "pending", user: dict = Depends(require_te
         if not visible:
             return []
         q = q.filter(PunchRequest.employee_email.in_(visible))
+    # Your own pending fixes are not yours to decide (Neil, Oct 18) - they wait
+    # on your manager / HR, so they leave your approver queue. History stays.
+    if status == "pending":
+        q = q.filter(PunchRequest.employee_email != (user.get("email") or "").lower())
     rows = [_pr_dict(r) for r in q.order_by(PunchRequest.created_at.desc()).limit(200).all()]
     meta = _people_meta(db, [r["employeeEmail"] for r in rows])
     for r in rows:
@@ -3746,7 +3750,8 @@ def decide_punch_edit(punch_id: str, body: PunchEditDecision,
 def list_pending_punch_edits(user: dict = Depends(require_team_read), db: Session = Depends(get_db)):
     """Pending employee punch-time edits awaiting review, scoped to the approver's team."""
     visible = _visible_emails(db, user)
-    q = db.query(TimePunch).filter(TimePunch.edit_status == "pending", TimePunch.voided == 0)
+    q = db.query(TimePunch).filter(TimePunch.edit_status == "pending", TimePunch.voided == 0,
+                                   TimePunch.employee_email != (user.get("email") or "").lower())   # not your own (Oct 18)
     if visible is not None:
         q = q.filter(TimePunch.employee_email.in_(visible))
     names = {e.work_email: f"{e.first_name} {e.last_name}".strip()

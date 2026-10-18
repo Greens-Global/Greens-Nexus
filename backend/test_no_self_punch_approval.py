@@ -117,5 +117,17 @@ class SelfDecisionTests(SelfDecisionCase):
         self.assertEqual(res.status_code, 200, res.text)
 
 
+    def test_your_own_pending_fixes_leave_your_queue(self):
+        # Neil, Oct 18: hidden from your own approver queue - your manager's shows them.
+        rid = self._fix(MGR)
+        pid = self._edit(MGR)
+        self._as(MGR)
+        self.assertNotIn(rid, [r["id"] for r in self.client.get("/timeclock/punch-requests").json()])
+        self.assertNotIn(pid, [r["id"] for r in self.client.get("/timeclock/punch-edits").json()])
+        self._as(BOSS)
+        self.assertIn(rid, [r["id"] for r in self.client.get("/timeclock/punch-requests").json()])
+        self.assertIn(pid, [r["id"] for r in self.client.get("/timeclock/punch-edits").json()])
+
+
 if __name__ == "__main__":
     unittest.main()
