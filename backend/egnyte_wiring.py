@@ -141,8 +141,8 @@ KNOWN_SLOTS = [
     {
         "slot": "timesheet.signed-subfolder",
         "group": "E-Sign",
-        "label": "Signed timesheets subfolder",
-        "description": "Subfolder of the EMPLOYEE's person folder where their signed timesheet is "
+        "label": "Signed time sheets subfolder",
+        "description": "Subfolder of the EMPLOYEE's person folder where their signed time sheet is "
                        "filed when they sign it (Neil, Oct 16) - never the approving manager's "
                        "folder. Created on first use. Blank files into the person folder itself.",
         "kind": "path",

@@ -46,7 +46,7 @@ def _review(db: Session, rid: str) -> TimesheetReview:
     # same moment must not send two envelopes (CLAUDE.md - with_for_update).
     r = db.query(TimesheetReview).filter(TimesheetReview.id == rid).with_for_update().first()
     if not r:
-        raise HTTPException(404, "Timesheet review not found")
+        raise HTTPException(404, "Time sheet review not found")
     return r
 
 
@@ -56,10 +56,10 @@ def _reviewer_of(db: Session, user: dict, employee_email: str, manager_email: st
     me = (user.get("email") or "").lower()
     employee_email = (employee_email or "").lower()
     if me == employee_email:
-        raise HTTPException(403, "You can't review your own timesheet.")
+        raise HTTPException(403, "You can't review your own time sheet.")
     scope = _visible_emails(db, user)
     if me != (manager_email or "").lower() and scope is not None and employee_email not in scope:
-        raise HTTPException(404, "Timesheet review not found")
+        raise HTTPException(404, "Time sheet review not found")
     return me
 
 
@@ -133,7 +133,7 @@ def finalize_unsigned(body: FinalizeUnsignedIn, user: dict = Depends(get_current
     email = (body.email or "").strip().lower()
     me = (user.get("email") or "").lower()
     if not tsr.is_hr(db, me, email):
-        raise HTTPException(403, "Only HR can finalize a timesheet without the employee's signature.")
+        raise HTTPException(403, "Only HR can finalize a time sheet without the employee's signature.")
     r = tsr.finalize_unsigned(db, email, (body.start or "").strip(), me, body.reason)
     return tsr.state_for(db, r.employee_email, r.period_start, me, True)
 
@@ -146,7 +146,7 @@ def employee_sign(rid: str, request: Request, user: dict = Depends(get_current_u
     r = _review(db, rid)
     me = (user.get("email") or "").lower()
     if me != r.employee_email:
-        raise HTTPException(404, "Timesheet review not found")
+        raise HTTPException(404, "Time sheet review not found")
     ip, ua = _client_meta(request)
     tsr.employee_approve(db, r, me, ip=ip, user_agent=ua)
     return tsr.state_for(db, r.employee_email, r.period_start, me, False)

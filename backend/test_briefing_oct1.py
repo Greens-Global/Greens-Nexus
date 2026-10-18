@@ -272,7 +272,7 @@ class ShiftsAndTimesheetFixesTests(_Case):
                                         status="approved"))
         self.db.commit()
         [row] = [r for r in self._pending(BOSS) if r["module"] == "timecard"]
-        self.assertEqual(row["title"], "Approve: Bob's timesheet fixes (2)")
+        self.assertEqual(row["title"], "Approve: Bob's Time Sheet Fixes (2)")
         self.assertEqual(row["detail"], "add a clock-out on 09/25/2026; a new clock-in time on 09/26/2026")
         self.assertTrue(row["url"].endswith("/hr/hr-time-requests"))
         self.assertEqual([r for r in self._pending(AMY) if r["module"] == "timecard"], [])   # not Amy's to decide
@@ -303,7 +303,7 @@ class ShiftsAndTimesheetFixesTests(_Case):
         self.assertEqual(list(sections)[0], "pending")   # actions first
         intro = weekly_digest._intro(sections)
         self.assertEqual(intro, "Here is everything waiting on you in Nexus this week: 2 items needing your "
-                                "action (Time Off, Time Card) and 1 overdue task.")
+                                "action (Time Off, Time Sheet) and 1 overdue task.")
 
 
 class TeamSummaryTests(_Case):
@@ -366,7 +366,7 @@ class TimeOffTests(_Case):
     def test_and_when_it_is_cancelled(self):
         rid = self._off(BOSS, "2026-10-12", "2026-10-12")
         timeclock.cancel_timeoff(rid, user={"email": BOSS, "role": "manager", "level": 3}, db=self.db)
-        self.assertIn(("Your manager's time off is cancelled", "Your manager Boss is no longer off 10/12/2026."),
+        self.assertIn(("Your manager's time off is canceled", "Your manager Boss is no longer off 10/12/2026."),
                       self._bells(BOB))
 
     def test_a_report_with_no_reports_bells_nobody(self):

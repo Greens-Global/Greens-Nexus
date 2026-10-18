@@ -366,7 +366,7 @@ class RebuildTests(unittest.TestCase):
             self.assertEqual({r.status for r in reqs.values()}, {"cancelled"})
             self.assertEqual({r.decision_note for r in reqs.values()}, {"Shift changed before a decision"})
             bells = [n for n in db.query(models.NexusNotification).filter(models.NexusNotification.recipient == A).all()]
-            self.assertEqual(sorted(n.title for n in bells), ["Shift request cancelled", "Your schedule was updated"])
+            self.assertEqual(sorted(n.title for n in bells), ["Shift request canceled", "Your schedule was updated"])
             # ONE "schedule updated" row per (person, range), updated in place.
             self.assertEqual(len([n for n in bells if n.title == "Your schedule was updated"]), 1)
             last = json.loads(db.query(models.NexusSetting).filter(models.NexusSetting.key == "shift_last_publish").first().value)

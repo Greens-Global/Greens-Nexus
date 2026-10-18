@@ -674,7 +674,7 @@ def _punch_fix_rows(db: Session, my_reports: dict) -> list:
         items = sorted(got["req"] + got["edit"])
         n = len(items)
         rows.append({
-            "title": f"Approve: {name}'s timesheet fix" + (f"es ({n})" if n > 1 else ""),
+            "title": f"Approve: {name}'s Time Sheet Fix" + (f"es ({n})" if n > 1 else ""),
             "detail": ("Asked to " + items[0][1]) if n == 1 else "; ".join(t for _, t in items[:3]) +
                       (f"; and {n - 3} more" if n > 3 else ""),
             # People > Time > Punch requests (the bell's own target) when there
@@ -732,7 +732,7 @@ def _timesheet_review_rows(db: Session, email: str) -> list:
         q = tsr.queue_row(db, r)
         hours = f"{q['workedMin'] // 60}h {q['workedMin'] % 60:02d}m"
         rows.append({
-            "title": f"Review {q['name']}'s timesheet",
+            "title": f"Review {q['name']}'s Time Sheet",
             "detail": f"{_fmt_date(r.period_start)} - {_fmt_date(r.period_end)} - {hours}"
                       + (" - resubmitted" if q["resubmitted"] else ""),
             # Workday > Time Sheet, where Timesheets to Review sits (Oct 1) -
@@ -746,7 +746,7 @@ def _timesheet_review_rows(db: Session, email: str) -> list:
     for q in tsr.not_reviewed(db, email):
         hours = f"{q['workedMin'] // 60}h {q['workedMin'] % 60:02d}m"
         rows.append({
-            "title": f"Review {q['name']}'s timesheet",
+            "title": f"Review {q['name']}'s Time Sheet",
             "detail": f"{_fmt_date(q['periodStart'])} - {_fmt_date(q['periodEnd'])} - {hours} - not submitted",
             "url": f"{app_url()}/timeclock/timesheet",
             "module": "timecard",
@@ -756,7 +756,7 @@ def _timesheet_review_rows(db: Session, email: str) -> list:
     for r in db.query(models.TimesheetReview).filter(models.TimesheetReview.employee_email == email,
                                                      models.TimesheetReview.status == "approved").all():
         rows.append({
-            "title": "Sign your updated timesheet",
+            "title": "Sign Your Updated Time Sheet",
             "detail": f"{_fmt_date(r.period_start)} - {_fmt_date(r.period_end)} - HR changed the hours",
             "url": f"{app_url()}/timeclock/timesheet",
             "module": "timecard",
@@ -789,12 +789,12 @@ def _timecard_rows(db: Session, email: str) -> list:
     # Confirm row first shows two days before the period closes, the Submit
     # row the moment it has closed (midnight after the last day, local).
     if 0 <= days_to_close <= 2:
-        return [{"title": "Confirm your time card",
+        return [{"title": "Confirm Your Time Sheet",
                  "detail": f"Pay period closes {_fmt_date(end)} - review and sign off before it locks",
                  "url": f"{app_url()}/timeclock", "module": "timecard",
                  **_since((end_d - timedelta(days=2)).strftime("%Y-%m-%dT00:00:00"))}]
     if days_to_close == -1:
-        return [{"title": "Submit your time card",
+        return [{"title": "Submit Your Time Sheet",
                  "detail": f"Pay period ending {_fmt_date(end)} is closed - sign off is still open",
                  "url": f"{app_url()}/timeclock", "module": "timecard",
                  **_since((end_d + timedelta(days=1)).strftime("%Y-%m-%dT00:00:00"))}]
@@ -1257,7 +1257,7 @@ _MODULE_META = {
     "tickets":  "Tickets",
     "documents": "Documents",
     "time_off": "Time Off",
-    "timecard": "Time Card",
+    "timecard": "Time Sheet",
     "shifts":   "Shifts",
     "items":    "Items",
     "team":     "Team",

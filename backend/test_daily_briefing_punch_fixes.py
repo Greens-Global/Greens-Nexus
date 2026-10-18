@@ -75,7 +75,7 @@ class PunchFixRowTests(unittest.TestCase):
         self._request(TODAY)
         rows = self._rows()
         self.assertEqual(len(rows), 1)
-        self.assertIn("timesheet fixes (2)", rows[0]["title"])
+        self.assertIn("Time Sheet Fixes (2)", rows[0]["title"])
 
     def test_a_fix_from_a_long_closed_period_is_left_out(self):
         self._edit(TODAY - timedelta(days=60))   # August, in October

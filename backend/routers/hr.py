@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 from database import get_db
+from task_due import us_date
 from notify_company import notification_company
 from auth import require_module_grant, hr_scope, is_team_scope, get_current_user, hr_team_limited
 from routers.stepup import require_stepup
@@ -1012,7 +1013,8 @@ def update_candidate(cid: str, body: CandidateUpdate, user: dict = Depends(requi
         if row.interview_at and row.created_by:
             cand_name = f"{row.first_name} {row.last_name}".strip()
             try:
-                pretty = datetime.fromisoformat(row.interview_at).strftime("%a, %b %d at %H:%M")
+                _iv = datetime.fromisoformat(row.interview_at)
+                pretty = f"{_iv.strftime('%a')}, {_iv.strftime('%m/%d/%Y')} at {_iv.strftime('%I:%M %p').lstrip('0')}"
             except ValueError:
                 pretty = row.interview_at
             _hr_notify(db, row.created_by, f"Interview scheduled - {cand_name}",
@@ -1231,7 +1233,7 @@ def create_leave(body: LeaveIn, user: dict = Depends(require_hr_write), db: Sess
         _hr_notify(db, emp.manager_email,
                    f"Leave request: {emp_name}",
                    f"{emp_name} requested {body.days} day{'s' if body.days != 1 else ''} of {body.leave_type} leave"
-                   f" starting {body.start_date}." + (f"\nReason: {body.reason.strip()}" if (body.reason or '').strip() else ''),
+                   f" starting {us_date(body.start_date)}." + (f"\nReason: {body.reason.strip()}" if (body.reason or '').strip() else ''),
                    ref_id=row.id, requested_by=user["email"])
     db.commit()
     return _ser_leave(row)
@@ -1258,7 +1260,7 @@ def decide_leave(lid: str, body: LeaveDecision, user: dict = Depends(require_hr_
         db.add(NexusNotification(
             id=str(uuid.uuid4()), type="custom_alert", recipient=emp.work_email.lower(),
             title=f"Leave {row.status}",
-            body=f"Your {row.leave_type} leave ({row.start_date}, {row.days} day{'s' if row.days != 1 else ''}) was {row.status}."
+            body=f"Your {row.leave_type} leave ({us_date(row.start_date)}, {row.days} day{'s' if row.days != 1 else ''}) was {row.status}."
                  + (f"\n\nNote: {row.decision_note}" if row.decision_note else ""),
             ref_id=row.id, item_name="", requested_by=user["email"],
             action="", actioned=False, read_by="", company=emp.company or "", created_at=now,

@@ -132,7 +132,7 @@ class IcalTests(unittest.TestCase):
         cancelled = body[body.index("UID:mine-cancelled"):]
         cancelled = cancelled[:cancelled.index("END:VEVENT")]
         self.assertIn("STATUS:CANCELLED", cancelled)
-        self.assertIn("Cancelled by a weather call", cancelled)
+        self.assertIn("Canceled by a weather call", cancelled)
         # Free by default -> transparent; UTC stamps, no VTIMEZONE.
         self.assertIn("TRANSP:TRANSPARENT", body)
         self.assertNotIn("VTIMEZONE", body)

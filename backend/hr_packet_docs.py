@@ -1646,7 +1646,7 @@ def readiness(db: Session, setting: HrPacketSetting) -> list:
         # 5. Signs Once: the company has signed.
         for s in company_once_status(db, setting, entity):
             out.append(_check(f"once:{s['key']}", s["signed"], "Company Signed Once",
-                              f"{s['name']} signed on {s['adoptedAt'][:10]}" if s["signed"] else
+                              f"{s['name']} signed on {hc.us_date(s['adoptedAt'][:10])}" if s["signed"] else
                               (f"{s['name']} ({s['roleLabel']}) signs once - after that it goes on every packet."
                                if s["email"] else f"Nobody holds {s['roleLabel']} yet."),
                               fix={"kind": "signOnce", "step": s["key"], "email": s["email"]}))

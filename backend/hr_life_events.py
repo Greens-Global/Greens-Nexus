@@ -2254,8 +2254,8 @@ def _apply_promotion(db: Session, ev: HrLifeEvent, req: HrSignRequest) -> None:
         labels = ", ".join(p["label"] for p in periods)
         for to in {ev.created_by, hr_contact} - {""}:
             from routers.hr import _hr_notify
-            _hr_notify(db, to, f"Review signed timesheets - {ev.subject_name}",
-                       f"The new pay starts {us_date(eff)}, inside timesheets already signed or finalized "
+            _hr_notify(db, to, f"Review Signed Time Sheets - {ev.subject_name}",
+                       f"The new pay starts {us_date(eff)}, inside time sheets already signed or finalized "
                        f"({labels}). They were NOT repriced - review and adjust them if needed.",
                        ref_id=ev.id, requested_by="nexus-sign", action={"view": "hr", "sub": "hr-time"}, priority=1)
 

@@ -23,6 +23,7 @@ from typing import Optional, Any
 
 import models
 from database import get_db
+from task_due import us_date
 from auth import get_current_user, require_manager
 from routers.task_util import now_iso, gen_id, log_activity, task_notify, extract_mentions
 from ticket_code import ticket_no
@@ -1556,7 +1557,7 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
         # side effect of a priority change, and that's still worth a line in
         # the audit trail (see this function's "gets logged if it actually
         # happened" comment above the mutation loop).
-        _log("sla_changed", f"changed the SLA due date to {t.sla_due_on or '-'}")
+        _log("sla_changed", f"changed the SLA due date to {us_date(t.sla_due_on) if t.sla_due_on else '-'}")
     if t.resolution != prev_resolution:
         _log("resolution_changed", f"set resolution to {_type_label(t.resolution) if t.resolution else '-'}")
     if (t.resolution_note or "") != prev_resolution_note and t.resolution_note:

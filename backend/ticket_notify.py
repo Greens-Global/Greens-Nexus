@@ -381,8 +381,10 @@ def _fmt(iso: str) -> str:
     if not iso:
         return ""
     try:
+        if len(iso) <= 10:
+            return datetime.fromisoformat(iso).strftime("%m/%d/%Y")
         d = datetime.fromisoformat(iso.replace("Z", "+00:00"))
-        return d.strftime("%b %d, %Y %I:%M %p UTC")
+        return f"{d.strftime('%m/%d/%Y')} {d.strftime('%I:%M %p').lstrip('0')} UTC"
     except ValueError:
         return iso[:10]
 

@@ -653,7 +653,7 @@ class PromotionTests(LifeEventCase):
         self.assertEqual([h.effective_date for h in hist], ["2026-09-01"])
         self.assertEqual(ev.flags[0]["periods"][0]["start"], "2026-09-06")           # signed period flagged
         bells = {(n.recipient, n.title) for n in self.db.query(models.NexusNotification).all()}
-        self.assertIn((HR, "Review signed timesheets - Erin Lee"), bells)
+        self.assertIn((HR, "Review Signed Time Sheets - Erin Lee"), bells)
         self.assertIn((ERIN, "Your promotion is official"), bells)
         self.assertIn((MGR, "Promotion signed - Erin Lee"), bells)
         # Filed in Erin's folder under Promotion Documents

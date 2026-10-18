@@ -308,8 +308,8 @@ _EXCLUDED_RECORD_CATEGORIES = [
     ("Court orders, notices and filings, or documents for a court proceeding", "15 U.S.C. 7003(b)(1)"),
     ("Notices of default, foreclosure, eviction, or repossession on a primary residence",
      "15 U.S.C. 7003(b)(2)(B)"),
-    ("Notices cancelling utility service", "15 U.S.C. 7003(b)(2)(A)"),
-    ("Notices cancelling or terminating health or life insurance benefits", "15 U.S.C. 7003(b)(2)(C)"),
+    ("Notices canceling utility service", "15 U.S.C. 7003(b)(2)(A)"),
+    ("Notices canceling or terminating health or life insurance benefits", "15 U.S.C. 7003(b)(2)(C)"),
     ("Product recalls, or notices of a material failure affecting health or safety",
      "15 U.S.C. 7003(b)(2)(D)"),
     ("Documents accompanying the transport of hazardous or dangerous materials",
@@ -2052,7 +2052,7 @@ _DOCUMENT_CLASS_SEED = [
     ("eviction_notice", "Eviction or termination-of-tenancy notice", False,
      "15 U.S.C. 7003(b)(2)(B)",
      "Serve on paper by the method the statute requires.", 240),
-    ("utility_cancellation", "Notice cancelling utility service", False,
+    ("utility_cancellation", "Notice canceling utility service", False,
      "15 U.S.C. 7003(b)(2)(A)", "Send on paper.", 250),
     ("insurance_termination", "Cancellation of health or life insurance benefits", False,
      "15 U.S.C. 7003(b)(2)(C)", "Send on paper.", 260),
@@ -3039,7 +3039,7 @@ def _apply_saved(db: Session, req: HrSignRequest, party: HrSignParty) -> None:
     party.field_values = party.field_values or {}
     _log(db, req.id, "signed",
          f"{party.name} signed with the signature they adopted once for this packet"
-         + (f" on {adopted[:10]}" if adopted else "")
+         + (f" on {_us_date_slash(adopted)}" if adopted else "")
          + " (signed in to Nexus, identity verified by one-time code) - applied automatically when the packet was sent",
          party_id=party.id)
 

@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 
 import safe_fetch
 from database import get_db
+from task_due import us_date
 from notify_company import notification_company
 from auth import get_current_user, require_module_grant
 from models import (QaTestCase, QaRun, QaResult, QaBugReport, QaAssignment,
@@ -581,7 +582,7 @@ def create_assignment(body: AssignIn, user: dict = Depends(require_qa_write), db
     db.add(row)
 
     n = len(body.case_ids)
-    due_txt = f" - due {row.due_date}" if row.due_date else ""
+    due_txt = f" - due {us_date(row.due_date)}" if row.due_date else ""
     title = f"{n} test case{'s' if n != 1 else ''} assigned to you"
     body_txt = (f"You've been assigned {n} test case{'s' if n != 1 else ''} in run "
                 f"“{run.name}”{due_txt}. Open Testing → Run tests to complete them."

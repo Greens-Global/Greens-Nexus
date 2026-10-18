@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 
 import models
 from database import get_db
+from task_due import us_date
 from auth import get_current_user, require_level
 from notify_company import notification_company
 
@@ -2314,7 +2315,7 @@ def _emit_due_reminders(db: Session, email: str, assignments: list) -> None:
         if a.get("overdue"):
             ntype, title = "kb_course_overdue", "Training overdue"
             body = (f"Your assigned course “{a['title']}” is overdue "
-                    f"(was due {a['due_date']}). Please complete it as soon as you can.")
+                    f"(was due {us_date(a['due_date'])}). Please complete it as soon as you can.")
         elif a.get("expired"):
             ntype, title = "kb_course_recert", "Recertification due"
             body = (f"Your certification for “{a['title']}” has lapsed. "
@@ -2351,7 +2352,7 @@ def assign_course(cid: str, payload: AssignIn, user: dict = Depends(require_leve
             id="asn_" + uuid.uuid4().hex[:12], course_id=cid, user_email=email,
             user_name=names.get(email) or _name_from_email(email), due_date=payload.due_date or "",
             assigned_by=user["email"], created_at=_now()))
-        due = f" (due {payload.due_date})" if payload.due_date else ""
+        due = f" (due {us_date(payload.due_date)})" if payload.due_date else ""
         db.add(models.NexusNotification(
             id=str(uuid.uuid4()), type="kb_course_assigned", recipient=email, title="Training assigned",
             body=f"You've been assigned the course “{c.title}”{due}.", ref_id=c.id, item_name=c.title,

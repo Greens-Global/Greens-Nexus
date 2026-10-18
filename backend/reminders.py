@@ -56,6 +56,14 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _us_day(iso: str) -> str:
+    """'2026-10-04' -> '10/04/2026' for reminder text; anything else as-is."""
+    try:
+        return datetime.strptime((iso or "")[:10], "%Y-%m-%d").strftime("%m/%d/%Y")
+    except ValueError:
+        return iso or ""
+
+
 def _hr_team_emails(db) -> list:
     out = set()
     for g in db.query(NexusGroup).all():
@@ -398,8 +406,8 @@ def run_daily_scan() -> int:
                     and _pay_type(db, e.work_email.lower()) != "fixed"):
                 sent += _notify(
                     db, "timecard_sign", e.work_email,
-                    "Submit Your Timesheet",
-                    f"Your timesheet for {_us(_pstart)} - {_us(_pend)} closes today. "
+                    "Submit Your Time Sheet",
+                    f"Your time sheet for {_us(_pstart)} - {_us(_pend)} closes today. "
                     f"Review your hours and submit it to your manager for review.",
                     ref_id=_pstart, action={"view": "timeclock", "sub": "timesheet"}, priority=1,
                 )
@@ -411,7 +419,7 @@ def run_daily_scan() -> int:
                 msg = (
                     f"{name}'s right-to-work document expired {abs(d)}d ago."
                     if d < 0
-                    else f"{name}'s right-to-work document expires in {d} day{'s' if d != 1 else ''} ({exp})."
+                    else f"{name}'s right-to-work document expires in {d} day{'s' if d != 1 else ''} ({_us_day(exp)})."
                 )
                 for r in hr_team:
                     sent += _notify(
@@ -428,7 +436,7 @@ def run_daily_scan() -> int:
             cend = (e.contractor or {}).get("contract_end", "")
             d = _days_until(cend) if cend else None
             if _fires(cend_cfg, d):
-                msg = f"{name}'s contract ends in {d} day{'s' if d != 1 else ''} ({cend})."
+                msg = f"{name}'s contract ends in {d} day{'s' if d != 1 else ''} ({_us_day(cend)})."
                 for r in hr_team:
                     sent += _notify(
                         db,
@@ -477,7 +485,7 @@ def run_daily_scan() -> int:
                     if emp
                     else "an employee"
                 )
-                msg = f"{who}'s document \"{doc.file_name}\" expires in {d} day{'s' if d != 1 else ''} ({doc.expires_on})."
+                msg = f"{who}'s document \"{doc.file_name}\" expires in {d} day{'s' if d != 1 else ''} ({_us_day(doc.expires_on)})."
                 for r in hr_team:
                     sent += _notify(
                         db,
@@ -498,7 +506,7 @@ def run_daily_scan() -> int:
             ):
                 cand = f"{c.first_name} {c.last_name}".strip()
                 try:
-                    t = datetime.fromisoformat(c.interview_at).strftime("%H:%M")
+                    t = datetime.fromisoformat(c.interview_at).strftime("%I:%M %p").lstrip("0")
                 except ValueError:
                     t = c.interview_at
                 sent += _notify(
@@ -569,7 +577,7 @@ def run_daily_scan() -> int:
                     ).get(yesterday, {})
                     if "missing_out" in (ysum.get("flags") or []):
                         msg = (
-                            f"{name} clocked in on {yesterday} but never clocked out - "
+                            f"{name} clocked in on {_us_day(yesterday)} but never clocked out - "
                             f"their time needs a correction before payroll."
                         )
                         ref = f"{e.work_email}:{yesterday}"

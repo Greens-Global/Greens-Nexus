@@ -924,7 +924,7 @@ def _spawn_next_occurrence(db: Session, t: models.Task, user: dict,
             continue
         task_notify(db, kind="task_assigned", for_email=_who,
                     title="Recurring task due",
-                    body=f"{nxt.title} (due {next_due})", task_id=nid,
+                    body=f"{nxt.title} (due {_us(next_due)})", task_id=nid,
                     nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
     return nxt
 

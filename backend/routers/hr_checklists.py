@@ -138,7 +138,7 @@ def start_checklist(eid: str, body: StartIn, user: dict = Depends(require_hr_wri
 def cancel_checklist(cid: str, user: dict = Depends(require_hr_write), db: Session = Depends(get_db)):
     cl = _checklist_in_scope(db, cid, user)
     if cl.status != "open":
-        raise HTTPException(400, "Only an open checklist can be cancelled")
+        raise HTTPException(400, "Only an open checklist can be canceled")
     cl.status, cl.closed_at = "cancelled", hc._now()
     db.commit()
     return _full(db, cl)
@@ -184,7 +184,7 @@ def update_item(iid: str, body: ItemPatch, user: dict = Depends(get_current_user
     if not hr and (body.owner_email is not None or body.due_date is not None):
         raise HTTPException(403, "Only HR can reassign a step or move its date")
     if cl.status == "cancelled":
-        raise HTTPException(400, "This checklist was cancelled")
+        raise HTTPException(400, "This checklist was canceled")
 
     if body.status is not None:
         if body.status not in ("open", "done", "na"):

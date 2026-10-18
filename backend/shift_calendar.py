@@ -395,7 +395,7 @@ def _is_live(shift, email: str) -> bool:
 def _skip_reason(shift, email: str, emp, ctx: _Ctx, has_event: bool = True, now: datetime = None) -> str:
     if not _is_live(shift, email):
         if shift is not None and (getattr(shift, "weather_status", "") or "") == "cancelled":
-            return "cancelled by a weather call"
+            return "canceled by a weather call"
         return "not a shared assigned shift"
     if not has_event:
         # Nothing on the calendar yet and the day is gone: a queue that sat
