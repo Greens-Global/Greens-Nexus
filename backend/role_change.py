@@ -230,10 +230,10 @@ def request_change(db: Session, user: dict, emp: models.NexusEmployee, role_id: 
     url = f"{app_url()}/hr/{deep_link_sub(req.id)}"
     emails = []
     for a in approvers:
-        _bell(db, a["email"], f"Approve role change - {name}",
+        _bell(db, a["email"], f"Approve Role Change - {name}",
               f"{req.requested_by_name} asks to change {name}'s role: {change}.\nReason: {req.reason}",
               req, me, priority=1, button=REVIEW)
-        emails.append((a["email"], f"Approve role change - {name}", _email(
+        emails.append((a["email"], f"Approve Role Change - {name}", _email(
             "Role Change Waiting For You",
             f"{req.requested_by_name} asks to change {name}'s role. It changes only when you or "
             f"{'HR' if a['as'] == 'manager' else 'their manager'} approves.",
@@ -274,13 +274,13 @@ def change_now(db: Session, user: dict, emp: models.NexusEmployee, role_id: str,
         req.decision_note = f"Changed directly in People to {jr.name}."
         _clear_bells(db, req)
         for to in ({req.requested_by} | {a.get("email", "") for a in (req.approvers or [])}) - {me, ""}:
-            _bell(db, to, f"Role change canceled - {name}",
+            _bell(db, to, f"Role Change Canceled - {name}",
                   f"{who} changed {name}'s role to {jr.name} in People. Nothing to approve.", req, me, button=PEOPLE)
-    _hr_notify(db, email, "Your role changed",
+    _hr_notify(db, email, "Your Role Changed",
                f"Your role is now {jr.name}. Your access in Nexus follows the new role.", ref_id=emp.id, requested_by=me)
     manager = (emp.manager_email or "").strip().lower()
     if manager and manager not in (me, email):
-        _hr_notify(db, manager, f"Role changed - {name}",
+        _hr_notify(db, manager, f"Role Changed - {name}",
                    f"{who} changed {name}'s role: {from_title or 'No role'} -> {jr.name}."
                    + (f"\nReason: {reason}" if reason else ""),
                    ref_id=emp.id, requested_by=me, action={"view": "hr", "sub": "hr-people", "label": "Open People"})
@@ -340,7 +340,7 @@ def decide(db: Session, user: dict, req_id: str, approve: bool, note: str = "") 
     verdict = "approved" if approve else "declined"
     body = (f"{who} {verdict} the change of {name}'s role to {req.to_role_name}."
             + (f"\nNote: {note}" if note and not approve else ""))
-    title = f"Role change {verdict} - {name}"
+    title = f"Role Change {verdict.title()} - {name}"
     emails = []
     for to in ({req.requested_by} | {a.get("email", "") for a in (req.approvers or [])}) - {me, ""}:
         _bell(db, to, title, body, req, me, button=PEOPLE)
@@ -352,7 +352,7 @@ def decide(db: Session, user: dict, req_id: str, approve: bool, note: str = "") 
             "Open People", f"{app_url()}/hr/hr-people",
             "You get this email because you asked for this role change in Nexus.")))
     if approve and emp is not None:
-        _bell(db, req.employee_email, "Your role changed",
+        _bell(db, req.employee_email, "Your Role Changed",
               f"Your role is now {req.to_role_name}. Your access in Nexus follows the new role.", req, me)
     return req, emails
 
@@ -368,7 +368,7 @@ def cancel(db: Session, user: dict, req_id: str, can_manage: bool) -> models.HrR
     _clear_bells(db, req)
     for a in req.approvers or []:
         if a.get("email") and a["email"] != me:
-            _bell(db, a["email"], f"Role change canceled - {req.employee_name}",
+            _bell(db, a["email"], f"Role Change Canceled - {req.employee_name}",
                   f"{_name(db, me)} canceled the change of {req.employee_name}'s role to {req.to_role_name}. "
                   f"Nothing to approve.", req, me, button=PEOPLE)
     return req

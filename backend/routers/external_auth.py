@@ -277,7 +277,7 @@ def _send_invite_email(to_email: str, display_name: str, inviter_name: str,
     invite_status='failed'). The activation link is the only secret inside."""
     html = _invite_email_html(display_name, inviter_name, company, token)
     graph_mail.send_mail(from_email=_from_email(), to=[to_email], cc=None,
-                         subject="Greens Global invited you to Nexus", html=html)
+                         subject="Greens Global Invited You to Nexus", html=html)
 
 
 def _invite_email_html(display_name: str, inviter_name: str, company: str, token: str) -> str:
@@ -307,7 +307,7 @@ def _invite_email_html(display_name: str, inviter_name: str, company: str, token
 def _send_email_code(to_email: str, code: str) -> None:
     """The 6-digit code by email. Raises GraphMailError on failure."""
     graph_mail.send_mail(from_email=_from_email(), to=[to_email], cc=None,
-                         subject="Your Nexus sign-in code", html=_code_email_html(code))
+                         subject="Your Nexus Sign-In Code", html=_code_email_html(code))
 
 
 def _code_email_html(code: str) -> str:

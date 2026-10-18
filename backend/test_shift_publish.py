@@ -265,7 +265,7 @@ class ShiftPublishTests(unittest.TestCase):
         finally:
             db.close()
         self.assertEqual(set(bells), {A})
-        self.assertEqual(bells[A].title, "Your schedule was updated")
+        self.assertEqual(bells[A].title, "Your Schedule Was Updated")
 
     def _bells(self):
         db = database.SessionLocal()
@@ -290,7 +290,7 @@ class ShiftPublishTests(unittest.TestCase):
         self.assertEqual(r["notified"], 2)
         # The person whose shift changed gets the detailed note; A (unchanged
         # but on the schedule) gets the short one; the publisher gets nothing.
-        self.assertEqual(self._bells(), {(VIEWER, "Your schedule was updated"), (A, "Schedule published")})
+        self.assertEqual(self._bells(), {(VIEWER, "Your Schedule Was Updated"), (A, "Schedule Published")})
 
     def test_the_default_still_tells_only_changed_people(self):
         self._published_shift()
@@ -303,7 +303,7 @@ class ShiftPublishTests(unittest.TestCase):
         self._as(ADMIN)
         self.client.post("/timeclock/schedule", json={"employee_email": VIEWER, "work_date": DATE, "shift_id": SHIFT})
         self.client.post("/timeclock/schedule/publish", json={"start_date": DATE, "end_date": DATE})
-        self.assertEqual(self._bells(), {(VIEWER, "Your schedule was updated")})
+        self.assertEqual(self._bells(), {(VIEWER, "Your Schedule Was Updated")})
 
     def test_publish_is_idempotent(self):
         self._as(ADMIN)

@@ -353,7 +353,7 @@ class ShiftAuditTests(unittest.TestCase):
         try:
             return [n.body for n in db.query(models.NexusNotification)
                     .filter(models.NexusNotification.recipient == recipient,
-                            models.NexusNotification.title == "Time-off request").all()]
+                            models.NexusNotification.title == "Time-Off Request").all()]
         finally:
             db.close()
 

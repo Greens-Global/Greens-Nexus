@@ -94,7 +94,7 @@ def _email(db, email: str, hours: int):
             f"{LONG_SESSION_HOURS} hours are flagged on the time sheet until corrected.</p>"
         )
         graph_mail.send_mail(from_email=from_email, to=[email], cc=None,
-                             subject=f"Nexus - Time clock - Clocked in {hours}+ hours",
+                             subject=f"Nexus - Time Clock - Clocked in {hours}+ Hours",
                              html=html)
     except Exception:
         pass
@@ -119,7 +119,7 @@ def _scan_once():
                 continue
             db.add(NexusNotification(
                 id=str(uuid.uuid4()), type=NOTIF_TYPE, recipient=email,
-                title=f"Still working? You've been clocked in {h} hours",
+                title=f"Still Working? You've Been Clocked in {h} Hours",
                 body=("If you're still on the clock, carry on. If you forgot to punch out, "
                       "open Time Clock and use \"I forgot - fix my punch-out\" to set the real end time."),
                 ref_id=start.id, action=json.dumps({"view": "timeclock"}),

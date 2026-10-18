@@ -599,9 +599,9 @@ def _company_name(db: Session, cid: str) -> str:
 def _bell_person(db: Session, d, g, p: dict, decider_name: str) -> str:
     """The priority bell for one affected person (in the request - it is a
     row, not a send). Returns the bell's title, which the Teams DM reuses."""
-    title = f"Weather call: {headline(d.kind, d.new_start, d.new_end, d.move_to)}" if p["outcome"] != "kept" else "Weather call: your shift goes ahead"
+    title = f"Weather Call: {headline(d.kind, d.new_start, d.new_end, d.move_to)}" if p["outcome"] != "kept" else "Weather Call: Your Shift Goes Ahead"
     if p["outcome"] == "cancelled" and d.kind != "cancel":
-        title = "Weather call: your shift is canceled (unpaid)"
+        title = "Weather Call: Your Shift Is Canceled (Unpaid)"
     body = f"{g.name}, {_day_label(d.work_date)}. {d.reason} Tap Acknowledge in My Shifts so {decider_name} knows you saw this."
     _bell(db, p["email"], f"weather-call:{d.id}", title, body, action=MY_SHIFTS, company=d.company, priority=1)
     return title
@@ -634,9 +634,9 @@ def notify_person(db: Session, d, g, p: dict, *, site_name: str, company_name: s
     else:
         out["sms"] = _sms_skip(d, p)
     if not reminder:
-        title = f"Weather call: {headline(d.kind, d.new_start, d.new_end, d.move_to)}" if p["outcome"] != "kept" else "Weather call: your shift goes ahead"
+        title = f"Weather Call: {headline(d.kind, d.new_start, d.new_end, d.move_to)}" if p["outcome"] != "kept" else "Weather Call: Your Shift Goes Ahead"
         if p["outcome"] == "cancelled" and d.kind != "cancel":
-            title = "Weather call: your shift is canceled (unpaid)"
+            title = "Weather Call: Your Shift Is Canceled (Unpaid)"
         subject, html = _email(company_name, g, site_name, d.work_date, p, d, url, decider_name)
         out["email"] = _send_email(p["email"], subject, html)
         out["teams"] = _teams_dm(db, actor, p["email"], f"<p><b>{escape(title)}</b><br>{escape(text)}</p>")
@@ -736,7 +736,7 @@ def notify_decision(db: Session, d, g, people: dict, actor: str, cid: str, defer
         if p["selected"]:
             _bell_person(db, d, g, p, decider_name)
         else:
-            _bell(db, p["email"], f"weather-call:{d.id}", "Weather call: your shift stands",
+            _bell(db, p["email"], f"weather-call:{d.id}", "Weather Call: Your Shift Stands",
                   f"{g.name}, {_day_label(d.work_date)}: a weather call was made for others on the day. Your shift goes ahead as scheduled.",
                   action=MY_SHIFTS, company=d.company, priority=0)
 
@@ -873,7 +873,7 @@ def _escalate(db: Session, d) -> int:
     names = ", ".join(p.get("name") or p["email"] for p in silent[:6]) + (" and more" if len(silent) > 6 else "")
     for em in told:
         _bell(db, em, f"weather-call-silent:{d.id}",
-              f"{len(silent)} {'person has' if len(silent) == 1 else 'people have'} not acknowledged the weather call",
+              f"{len(silent)} {'Person Has' if len(silent) == 1 else 'People Have'} Not Acknowledged the Weather Call",
               f"{g.name}, {_day_label(d.work_date)}: {names}. Their phone numbers are on the Weather Call screen - a call may be needed.",
               action={"view": "shifts", "sub": f"schedule:{d.work_date}:{d.group_id}"}, company=d.company, priority=1)
     d.escalated_at = _iso()
@@ -950,7 +950,7 @@ def reinstate(db: Session, user: dict, d, defer=None) -> dict:
             continue
         first = (p.get("shifts") or [{}])[0]
         start = _t12(first.get("originalStart") or first.get("start") or "")
-        _bell(db, p["email"], f"weather-call:{d.id}", "Weather call reversed: your shift is back on",
+        _bell(db, p["email"], f"weather-call:{d.id}", "Weather Call Reversed: Your Shift Is Back On",
               f"{g.name}, {_day_label(d.work_date)}: your {start} shift goes ahead as scheduled after all.", action=MY_SHIFTS,
               company=d.company, priority=1)
         told.append(p)
@@ -987,7 +987,7 @@ def _deliver_reinstatement(db: Session, decision_id: str, actor: str) -> None:
         if _texts(d, p):
             ok, err = _send_sms(_phone(db, p["email"]), text)
             res["sms"] = "ok" if ok else (err or "failed")
-        res["email"] = _send_email(p["email"], "Weather call reversed: your shift is back on",
+        res["email"] = _send_email(p["email"], "Weather Call Reversed: Your Shift Is Back On",
                                    f"<p>{escape(text)}</p><p><a href=\"{escape(url)}\">Acknowledge</a></p>")
         out[p["email"]] = res
 

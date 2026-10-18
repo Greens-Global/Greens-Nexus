@@ -287,10 +287,10 @@ class ShiftsAndTimesheetFixesTests(_Case):
                                         **{**common, "shift_date": "2026-09-20"}))   # day already passed
         self.db.commit()
         boss = [r for r in self._pending(BOSS) if r["module"] == "shifts"]
-        self.assertEqual([r["title"] for r in boss], ["Approve: open shift request"])
+        self.assertEqual([r["title"] for r in boss], ["Approve: Open Shift Request"])
         self.assertIn("Bob asked for the open shift 10/01/2026", boss[0]["detail"])
         amy = [r for r in self._pending(AMY) if r["module"] == "shifts"]
-        self.assertEqual([r["title"] for r in amy], ["Respond: shift offer from Bob"])
+        self.assertEqual([r["title"] for r in amy], ["Respond: Shift Offer From Bob"])
         self.assertTrue(amy[0]["url"].endswith("/shifts/mine"))
 
     def test_the_opening_line_counts_actions_across_modules(self):
@@ -338,18 +338,18 @@ class TimeOffTests(_Case):
                          [("Bob (sick)", "Off 10/02/2026 - 10/03/2026")])
         bob = weekly_digest.build_sections(self.db, BOB, TODAY)["time_off_ahead"]
         self.assertEqual([(r["title"], r["detail"]) for r in bob],
-                         [("Your manager Boss", "Out now, back after 09/29/2026")])
+                         [("Your Manager Boss", "Out now, back after 09/29/2026")])
         self.assertNotIn("Medical", str(bob))
 
     def test_the_daily_tells_a_report_their_manager_is_out(self):
         self._off(BOSS, "2026-09-28", "2026-09-30")
         rows = daily_briefing.build_sections(self.db, BOB, SINCE, "2026-09-28")["needs_to_know"]
-        self.assertIn(("Your manager Boss is out today", "Back after 09/30/2026"),
+        self.assertIn(("Your Manager Boss Is Out Today", "Back after 09/30/2026"),
                       [(r["title"], r["detail"]) for r in rows])
         self.db.query(models.TimeOffRequest).delete()
         self._off(BOSS, "2026-09-29", "2026-09-29")
         rows = daily_briefing.build_sections(self.db, BOB, SINCE, "2026-09-28")["needs_to_know"]
-        self.assertIn(("Your manager Boss is out from tomorrow", "Off 09/29/2026"),
+        self.assertIn(("Your Manager Boss Is Out From Tomorrow", "Off 09/29/2026"),
                       [(r["title"], r["detail"]) for r in rows])
 
     def _bells(self, who):
@@ -361,12 +361,12 @@ class TimeOffTests(_Case):
         rid = self._off(BOSS, "2026-10-12", "2026-10-14", status="pending", type_="Medical Appointment")
         hr = {"email": "hr@greensglobal.com", "role": "owner", "level": 5}
         timeclock.decide_timeoff(rid, timeclock.TimeOffDecision(status="approved"), user=hr, db=self.db)
-        self.assertEqual(self._bells(BOB), [("Your manager is off", "Your manager Boss is off 10/12/2026 - 10/14/2026.")])
+        self.assertEqual(self._bells(BOB), [("Your Manager Is Off", "Your manager Boss is off 10/12/2026 - 10/14/2026.")])
 
     def test_and_when_it_is_cancelled(self):
         rid = self._off(BOSS, "2026-10-12", "2026-10-12")
         timeclock.cancel_timeoff(rid, user={"email": BOSS, "role": "manager", "level": 3}, db=self.db)
-        self.assertIn(("Your manager's time off is canceled", "Your manager Boss is no longer off 10/12/2026."),
+        self.assertIn(("Your Manager's Time Off Is Canceled", "Your manager Boss is no longer off 10/12/2026."),
                       self._bells(BOB))
 
     def test_a_report_with_no_reports_bells_nobody(self):

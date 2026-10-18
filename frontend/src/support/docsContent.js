@@ -838,7 +838,7 @@ export const DOCS = [
       {
         title: 'Review a Daily Log (Project Manager)',
         steps: [
-          'Click the bell alert "Daily log ready to review", or open the project.',
+          'Click the bell alert "Daily Log Ready to Review", or open the project.',
           'Read the AI summary. Click to see what the worker originally wrote.',
           'Approve it, or send it back with a note.',
         ],

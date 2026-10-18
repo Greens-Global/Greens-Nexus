@@ -453,7 +453,7 @@ def _notify_out_of_fence(db: Session, emp, row, geo: dict) -> None:
     from notify_rollup import upsert_rollup
     first = upsert_rollup(
         db, recipient=emp.manager_email, key=f"fence:{(emp.work_email or '').lower()}:{row.local_date}",
-        title=f"Out-of-fence punches - {who}",
+        title=f"Out-of-Fence Punches - {who}",
         line=f"{verb.capitalize()} at {when}, {_us_distance(dist)} from {site}.",
         action=_timecard_action(db, emp.work_email, row.local_date),
         company=notification_company(db, emp.manager_email))
@@ -477,7 +477,7 @@ def _notify_out_of_fence(db: Session, emp, row, geo: dict) -> None:
             + f"<p><a href='{link}' style='display:inline-block;padding:9px 16px;background:#166534;color:#fff;"
               f"border-radius:8px;text-decoration:none;font-weight:600'>Review the Punch in Nexus</a></p>"
             + f"<p style='color:#6b7280;font-size:12px'>Or open Nexus - People - Time - {who}'s time sheet.</p>")
-    subject = f"Out-of-fence punch: {who} {verb} at {when}"
+    subject = f"Out-of-Fence Punch: {who} {verb} at {when}"
     to = [emp.manager_email]
 
     def _send():
@@ -3679,12 +3679,12 @@ def decide_punch_edit(punch_id: str, body: PunchEditDecision,
         # max(created_at, adjusted_at); without this, an approved edit silently
         # changes pay under an existing sign-off.
         row.adjusted_at = now
-        _hr_notify(db, row.employee_email, "Punch edit approved",
+        _hr_notify(db, row.employee_email, "Punch Edit Approved",
                    f"Your edited {row.kind} punch time was approved and now counts toward your hours."
                    + (f" Note: {note}" if note else ""),
                    ref_id=row.id, action={"view": "timeclock", "sub": "timesheet"})
     else:
-        _hr_notify(db, row.employee_email, "Punch edit rejected",
+        _hr_notify(db, row.employee_email, "Punch Edit Rejected",
                    f"Your edited {row.kind} punch time was not approved; your time sheet is unchanged."
                    + (f" Reason: {note}" if note else ""),
                    ref_id=row.id, action={"view": "timeclock", "sub": "timesheet"})
@@ -10450,7 +10450,7 @@ def request_timeoff(body: TimeOffIn, user: dict = Depends(get_current_user),
     # A bell's text reaches every recipient alike (manager, HR contact, Global
     # Admins), so a confidential request never names its type there.
     _notify_team_alert(db, employee_email=user["email"], actor_email=user["email"],
-                       title="Time-off request",
+                       title="Time-Off Request",
                        body=f"{who} requested {_bell_kind(row)} "
                             f"{_us_span(body.start_date, body.end_date)}{_timeoff_window(st, et)}.{_bell_reason(row)}",
                        ref_id=row.id, action={"view": "hr", "sub": "hr-time"}, owners_as_fallback=True)
@@ -10499,12 +10499,12 @@ def request_timeoff_on_behalf(body: TimeOffOnBehalfIn, user: dict = Depends(requ
     filer = _display_name(db, user["email"])
     if target != user["email"]:
         # The employee's own copy may name the type - it is theirs.
-        _hr_notify(db, target, "Time-off request filed for you",
+        _hr_notify(db, target, "Time-Off Request Filed for You",
                    f"{filer} requested {body.type} time off {_us_span(body.start_date, body.end_date)}{_timeoff_window(st, et)} "
                    "on your behalf" + (" (confidential)" if row.confidential else "") + " - you'll hear once it's decided.",
                    ref_id=row.id, action={"view": "timeclock", "sub": ""})
     _notify_team_alert(db, employee_email=target, actor_email=user["email"],
-                       title="Time-off request",
+                       title="Time-Off Request",
                        body=f"{filer} filed a {_bell_kind(row)} request for {emp.first_name} {emp.last_name}: "
                             f"{_us_span(body.start_date, body.end_date)}{_timeoff_window(st, et)}.{_bell_reason(row)}",
                        ref_id=row.id, action={"view": "hr", "sub": "hr-time"}, owners_as_fallback=True)
@@ -10648,13 +10648,13 @@ def decide_timeoff(req_id: str, body: TimeOffDecision,
             r.pending_delete = 1
     presets = {s.id: s for s in db.query(Shift).all()} if conflicts else {}
     team_tz = _team_tz(db) if conflicts else ""
-    _hr_notify(db, row.employee_email, f"Time off {body.status}",
+    _hr_notify(db, row.employee_email, f"Time Off {body.status.title()}",
                f"Your {row.type} request {_us_span(row.start_date, row.end_date)}"
                f"{_timeoff_window(getattr(row, 'start_time', '') or '', getattr(row, 'end_time', '') or '')} was {body.status}."
                + (f" Note: {row.decide_note}" if row.decide_note else ""),
                ref_id=row.id, action={"view": "timeclock", "sub": ""})
     if body.status == "approved":
-        _tell_reports_manager_off(db, row, "Your manager is off", "is off")
+        _tell_reports_manager_off(db, row, "Your Manager Is Off", "is off")
     db.commit()
     out = _ser_timeoff(row, priv=priv)
     out["conflicts"] = [_sched_dict(r, presets, effective=True, team_tz=team_tz) for r in conflicts]
@@ -10680,12 +10680,12 @@ def cancel_timeoff(req_id: str, user: dict = Depends(get_current_user), db: Sess
     row.decided_at = _now_iso()
     if was_approved:
         _notify_team_alert(db, employee_email=user["email"], actor_email=user["email"],
-                           title="Time off canceled",
+                           title="Time Off Canceled",
                            body=f"{_display_name(db, user['email'])} canceled their {_bell_kind(row)} request "
                                 f"{_us_span(row.start_date, row.end_date)}"
                                 f"{_timeoff_window(getattr(row, 'start_time', '') or '', getattr(row, 'end_time', '') or '')}.",
                            ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
-        _tell_reports_manager_off(db, row, "Your manager's time off is canceled", "is no longer off")
+        _tell_reports_manager_off(db, row, "Your Manager's Time Off Is Canceled", "is no longer off")
     db.commit()
     return _ser_timeoff(row, priv=_TimeoffPrivacy(db, user["email"]))
 

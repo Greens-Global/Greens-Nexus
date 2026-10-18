@@ -156,7 +156,7 @@ class RoutingTests(_Case):
         """Telling the queue to "assign" something nobody may touch yet trains
         people to ignore the queue."""
         self._create("access_request")
-        self.assertEqual([n.title for n in self._bells(ADMIN)], ["Ticket needs approval routing"])
+        self.assertEqual([n.title for n in self._bells(ADMIN)], ["Ticket Needs Approval Routing"])
 
     def test_an_admin_raising_their_own_ticket_is_not_told_about_it(self):
         self._create("bug", actor=ADMIN)
@@ -184,7 +184,7 @@ class RequestApprovalTests(_Case):
     def test_the_approver_is_told(self):
         t = self._create("access_request")
         self._send(t["id"])
-        self.assertEqual([n.title for n in self._bells(APPROVER)], ["A ticket needs your approval"])
+        self.assertEqual([n.title for n in self._bells(APPROVER)], ["A Ticket Needs Your Approval"])
 
     def test_the_requester_cannot_route_their_own_request(self):
         """The whole point of the control. Anyone who can pick their own
@@ -442,7 +442,7 @@ class GateBypassTests(_Case):
         self.db.query(models.TaskNotification).delete()
         self.db.commit()
         self._patch(t["id"], type="access_request")
-        self.assertEqual([n.title for n in self._bells(OTHER_ADMIN)], ["Ticket needs approval routing"])
+        self.assertEqual([n.title for n in self._bells(OTHER_ADMIN)], ["Ticket Needs Approval Routing"])
 
     # ── reopening a refusal ──────────────────────────────────────────────
     def test_reopening_a_rejected_request_sends_it_back_for_approval(self):
@@ -529,7 +529,7 @@ class ApprovalSwitchTests(_Case):
         self.assertEqual(t["approvalStatus"], "pending")
         self.assertIsNone(t["approverId"])
         # Same routing as the old hardcoded types: the IT Admins are told to route it.
-        self.assertEqual([n.title for n in self._bells(ADMIN)], ["Ticket needs approval routing"])
+        self.assertEqual([n.title for n in self._bells(ADMIN)], ["Ticket Needs Approval Routing"])
         # ...and nobody can be handed it yet.
         with self.assertRaises(HTTPException) as e:
             self._patch(t["id"], assignee_email=AGENT)

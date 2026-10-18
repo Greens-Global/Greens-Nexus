@@ -79,7 +79,7 @@ class TicketMentionTests(unittest.TestCase):
         self._comment(mention(SAGAR, "Sagar"))
 
         titles = [n.title for n in self._bells(SAGAR)]
-        self.assertIn("You were mentioned in a ticket comment", titles)
+        self.assertIn("You Were Mentioned in a Ticket Comment", titles)
 
     def test_a_mentioned_person_becomes_a_participant(self):
         """Without this the bell opens a 403 - a ticket is readable by the people
@@ -115,13 +115,13 @@ class TicketMentionTests(unittest.TestCase):
 
         bells = self._bells(SAGAR)
         self.assertEqual(len(bells), 1)
-        self.assertEqual(bells[0].title, "You were mentioned in a ticket comment")
+        self.assertEqual(bells[0].title, "You Were Mentioned in a Ticket Comment")
 
     def test_everyone_else_still_gets_the_ordinary_comment_bell(self):
         self._comment(mention(SAGAR, "Sagar"))
 
         titles = [n.title for n in self._bells(REQUESTER)]
-        self.assertEqual(titles, ["New comment on a ticket"])
+        self.assertEqual(titles, ["New Comment on a Ticket"])
 
     # ── the plain case still works ───────────────────────────────────────────
     def test_a_comment_with_no_mention_changes_nothing_about_the_ticket(self):
@@ -129,7 +129,7 @@ class TicketMentionTests(unittest.TestCase):
         self.db.refresh(self.t)
 
         self.assertEqual(self.t.watcher_emails or [], [])
-        self.assertEqual([n.title for n in self._bells(REQUESTER)], ["New comment on a ticket"])
+        self.assertEqual([n.title for n in self._bells(REQUESTER)], ["New Comment on a Ticket"])
 
 
 if __name__ == "__main__":

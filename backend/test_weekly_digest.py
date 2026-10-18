@@ -376,7 +376,7 @@ class StillToDoTests(_Case):
                                           start_date="2026-10-05", end_date="2026-10-06", status="pending"))
         self.db.commit()
         rows = weekly_digest.build_sections(self.db, "boss@greensglobal.com", TODAY)["pending"]
-        self.assertEqual(rows[0]["title"], "Approve: Bob's time off (vacation)")
+        self.assertEqual(rows[0]["title"], "Approve: Bob's Time Off (vacation)")
 
     def test_nothing_overdue_but_work_waiting_still_sends(self):
         self._emp(AMY)

@@ -202,7 +202,7 @@ class JourneyTests(ReviewCase):
             self.assertEqual(self.client.get(f"/documents/{r.id}").status_code, 404)   # not through Documents
         # the verifier was asked
         self.assertTrue(self.db.query(models.NexusNotification).filter(
-            models.NexusNotification.recipient == HR, models.NexusNotification.title.like("Ready to verify%")).first())
+            models.NexusNotification.recipient == HR, models.NexusNotification.title.like("Ready to Verify%")).first())
         review = self._review(eid)
         self.assertTrue(review["canVerify"], review["problems"])
         self.assertEqual(review["problems"], [])

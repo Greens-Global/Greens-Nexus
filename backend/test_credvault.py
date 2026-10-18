@@ -258,7 +258,7 @@ class VaultHardeningTests(unittest.TestCase):
         self.assertEqual(self._as(OWNER).get("/credvault/requests").json(), [])
         db = database.SessionLocal()
         told = db.query(models.NexusNotification).filter(models.NexusNotification.recipient == OTHER).all()
-        self.assertTrue(any("declined" in (b.title or "") for b in told))        # the requester hears back
+        self.assertTrue(any("Declined" in (b.title or "") for b in told))        # the requester hears back
         db.close()
 
     def test_backup_owner_shares_directly(self):
@@ -291,7 +291,7 @@ class VaultHardeningTests(unittest.TestCase):
         self.assertEqual(self._cred(cid).owner_email, OTHER)
         db = database.SessionLocal()
         told = db.query(models.NexusNotification).filter(models.NexusNotification.recipient == OTHER).all()
-        self.assertTrue(any("now the owner" in (b.title or "") for b in told))
+        self.assertTrue(any("Now the Owner" in (b.title or "") for b in told))
         db.close()
 
     def test_offboarding_hands_credentials_on_and_ends_the_leavers_access(self):

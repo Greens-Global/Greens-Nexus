@@ -172,7 +172,7 @@ class OutOfFenceTests(Base):
                 timeclock._notify_out_of_fence(self.db, emp, row, geo)
                 self.db.commit()
         [b] = self.bells(MGR)
-        self.assertEqual(b.title, "Out-of-fence punches - Amy Lee")
+        self.assertEqual(b.title, "Out-of-Fence Punches - Amy Lee")
         self.assertEqual(len(b.body.split("\n")), 3)
         self.assertEqual(mail.call_count, 1)
 

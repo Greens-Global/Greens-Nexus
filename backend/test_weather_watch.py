@@ -154,7 +154,7 @@ class WatchTests(unittest.TestCase):
             self.assertEqual(len(bells), 1, em)
             self.assertEqual(bells[0].priority, 1)
             self.assertEqual(bells[0].ref_id, f"weather:{GROUP}:{DAY}")
-            self.assertIn("Rain expected for Yard Crew on Wed 10/14", bells[0].title)
+            self.assertIn("Rain Expected for Yard Crew on Wed 10/14", bells[0].title)
             self.assertIn("85% chance, 0.90 in expected during 7:00 AM - 3:30 PM", bells[0].body)
             self.assertEqual(json.loads(bells[0].action), {"view": "shifts", "sub": f"schedule:{DAY}:{GROUP}"})
             self.assertEqual(bells[0].company, ENT)
@@ -204,7 +204,7 @@ class WatchTests(unittest.TestCase):
         weather_watch.fetch_alerts.return_value = [{"event": "Severe Thunderstorm Warning", "onset": f"{DAY}T02:00", "ends": ""}]
         s = weather_watch.scan_once(self.db, NIGHT)
         self.assertEqual(s["advisories"], 1)
-        self.assertIn("Weather warning for Yard Crew", self._bells(MGR)[0].title)
+        self.assertIn("Weather Warning for Yard Crew", self._bells(MGR)[0].title)
         self.assertIn("Severe Thunderstorm Warning in force", self._bells(MGR)[0].body)
         # Morning comes: the warning was already sent, nothing doubles.
         s = weather_watch.scan_once(self.db, NOW)

@@ -1148,7 +1148,7 @@ def _send_sign_email(party: HrSignParty, req: HrSignRequest, sender: dict, custo
         from_addr=from_addr,
         display_name=_from_display(sender.get("name") or ""),
         to_email=party.email,
-        subject=f"Action needed: Please sign {req.title}",
+        subject=f"Action Needed: Please Sign {req.title}",
         html=_sign_email_html(party, req, sender, link),
         reply_to=(sender.get("email") or ""),
     )
@@ -1178,7 +1178,7 @@ def _send_sealed_email(to_name: str, to_email: str, req: HrSignRequest, pdf: byt
         from_addr=from_addr,
         display_name=_from_display(sender["name"]) if (sender and sender.get("name")) else _SOR_NAME,
         to_email=to_email,
-        subject=custom[0] if custom else f"Completed: All parties have signed {req.title}",
+        subject=custom[0] if custom else f"Completed: All Parties Have Signed {req.title}",
         html=custom[1] if custom else html,
         reply_to=((sender or {}).get("email") or ""),
         pdf=((f"{safe} (signed).pdf", pdf) if attach else None),
@@ -1248,12 +1248,12 @@ def _notify_party(db: Session, party: HrSignParty, req: HrSignRequest, sender_na
         # A timesheet is signed from Workday > Time Sheet (Timesheets to Sign),
         # which every manager can open - Documents needs an Access Group grant
         # a plain manager may not hold (Oct 16).
-        _hr_notify(db, party.email, f"Signature required: {req.title}",
+        _hr_notify(db, party.email, f"Signature Required: {req.title}",
                    f"\"{req.title}\" is ready for your signature. Open Workday > Time Sheet to review and sign it.",
                    ref_id=req.id, requested_by=sender_name,
                    action={"view": "timeclock", "sub": "timesheet"}, priority=1)
     elif party.kind == "internal":
-        _hr_notify(db, party.email, f"Signature required: {req.title}",
+        _hr_notify(db, party.email, f"Signature Required: {req.title}",
                    f"{sender['name']} sent you \"{req.title}\" to sign. Open Documents → Nexus Sign.",
                    ref_id=req.id, requested_by=sender_name,
                    action={"view": "documents", "sub": "documents-esign"})
@@ -3193,7 +3193,7 @@ def _apply_decline(db: Session, req: HrSignRequest, party: HrSignParty, reason: 
     _log(db, req.id, "declined", f"{party.name}: {party.decline_reason or 'no reason given'}",
          party_id=party.id, ip=ip, user_agent=ua)
     _link_hook("declined", db, req, party, party.decline_reason)
-    _hr_notify(db, req.created_by, f"Signature declined: {req.title}",
+    _hr_notify(db, req.created_by, f"Signature Declined: {req.title}",
                f"{party.name} declined to sign. {party.decline_reason}".strip(),
                ref_id=req.id, requested_by=party.name,
                action={"view": "documents", "sub": "documents-esign-requests"})
@@ -5226,7 +5226,7 @@ def _finalize(db: Session, req: HrSignRequest) -> None:
     # area and having to work out which document the email meant. ESign reads
     # ?request= on mount and opens that envelope.
     deep_link = f"{_app_url_fn()}/documents/documents-esign-requests?request={req.id}"
-    _hr_notify(db, req.created_by, f"Fully executed: {req.title}",
+    _hr_notify(db, req.created_by, f"Fully Executed: {req.title}",
                f"All {n_signers} signer{'s' if n_signers != 1 else ''} have signed \"{req.title}\". "
                f"The sealed document is in Documents → Nexus Sign and in your email.{filed_note}",
                ref_id=req.id,
@@ -5262,7 +5262,7 @@ def _finalize(db: Session, req: HrSignRequest) -> None:
     for p in parties:
         if p.kind == "internal":
             if p.email != req.created_by:
-                _hr_notify(db, p.email, f"Fully executed: {req.title}",
+                _hr_notify(db, p.email, f"Fully Executed: {req.title}",
                            "Every required signer has signed. The sealed copy is in "
                            "Documents → Nexus Sign and in your email.",
                            ref_id=req.id,

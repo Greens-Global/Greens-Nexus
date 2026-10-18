@@ -162,7 +162,7 @@ def request_extension(db: Session, t: models.Task, actor: str, new: str, approve
         for who in approvers:
             if who != actor:
                 task_notify(db, kind="task_due_extension_requested", for_email=who,
-                            title="Extension needs your approval",
+                            title="Extension Needs Your Approval",
                             body=f"{t.title} - {extension_reason(number, over_month, base)}: "
                                  f"{us_date(t.due_on)} → {us_date(new)}",
                             task_id=t.id, nexus_action={"view": "tasks", "sub": "mine", "label": "Review"})
@@ -262,7 +262,7 @@ def _alert_managers(db: Session, t: models.Task, actor: str) -> None:
         sent.add(mgr)
         who = ", ".join(names.get(a, a) for a in assignees)
         task_notify(db, kind="task_due_extended", for_email=mgr,
-                    title=f"Task extended {n} times",
+                    title=f"Task Extended {n} Times",
                     body=f"{t.title} ({who}) - now due {us_date(t.due_on)}",
                     task_id=t.id, nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
 
@@ -274,7 +274,7 @@ def confirm(db: Session, t: models.Task, actor: str) -> None:
     _log(db, t, "due_confirmed", actor, f"confirmed the due date {us_date(t.due_on)}")
     req = requester_of(t)
     if req and req != actor:
-        task_notify(db, kind="task_due_confirmed", for_email=req, title="Due date confirmed",
+        task_notify(db, kind="task_due_confirmed", for_email=req, title="Due Date Confirmed",
                     body=f"{t.title} - due {us_date(t.due_on)}", task_id=t.id,
                     nexus_action={"view": "tasks", "sub": "mine", "label": "View task"})
 
@@ -288,7 +288,7 @@ def propose(db: Session, t: models.Task, actor: str, due_on: str, note: str = ""
     _log(db, t, "due_proposed", actor, detail)
     req = requester_of(t)
     if req and req != actor:
-        task_notify(db, kind="task_due_proposed", for_email=req, title="New due date proposed",
+        task_notify(db, kind="task_due_proposed", for_email=req, title="New Due Date Proposed",
                     body=f"{t.title} - {us_date(t.due_on)} → {us_date(due_on)}", task_id=t.id,
                     nexus_action={"view": "tasks", "sub": "mine", "label": "Review"})
 
@@ -308,17 +308,17 @@ def respond(db: Session, t: models.Task, actor: str, accept: bool, note: str = "
         t.due_on = counter_on[:10]
         record_due_change(db, t, old, t.due_on, actor=actor, source="counter", note=note)
         t.due_agreement, t.due_proposal = "pending", None
-        title = "New due date suggested"
+        title = "New Due Date Suggested"
         detail = f"suggested {us_date(t.due_on)} instead of {us_date(prop.get('dueOn') or '')}"
     elif accept:
         old = t.due_on or ""
         t.due_on = prop.get("dueOn") or old
         record_due_change(db, t, old, t.due_on, actor=actor, source="proposal", note=note)
-        title = "Due date change accepted"
+        title = "Due Date Change Accepted"
         detail = f"accepted the new due date {us_date(t.due_on)}"
     else:
         t.due_agreement, t.due_proposal = "pending", None
-        title = "Due date change declined"
+        title = "Due Date Change Declined"
         detail = f"kept the due date {us_date(t.due_on)}"
     if note:
         detail += f": {note[:200]}"
@@ -340,10 +340,10 @@ def _answer_extension(db: Session, t: models.Task, actor: str, accept: bool, not
         t.due_agreement = "accepted"      # the date being replaced is the agreed one
         t.due_on = prop.get("dueOn") or old
         record_due_change(db, t, old, t.due_on, actor=actor, source="approved", note=note)
-        title, detail = "Extension approved", f"approved the extension to {us_date(t.due_on)}"
+        title, detail = "Extension Approved", f"approved the extension to {us_date(t.due_on)}"
     else:
         t.due_agreement, t.due_proposal = "accepted", None
-        title = "Extension declined"
+        title = "Extension Declined"
         detail = f"declined the extension to {us_date(prop.get('dueOn') or '')} - still due {us_date(t.due_on)}"
     if note:
         detail += f": {note[:200]}"

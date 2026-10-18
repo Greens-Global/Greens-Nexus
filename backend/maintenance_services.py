@@ -129,8 +129,8 @@ def open_child(db, svc: models.PropertyMaintenanceService, actor: str, *, automa
     T._notify_triage(db, t, (actor or "").lower())
     if manager and manager != (actor or "").lower():
         task_notify(db, kind="ticket_property", for_email=manager,
-                    title=(f"Scheduled service opened at {prop_name}" if automatic
-                           else f"Service ticket opened at {prop_name}"),
+                    title=(f"Scheduled Service Opened at {prop_name}" if automatic
+                           else f"Service Ticket Opened at {prop_name}"),
                     body=f"{ticket_no(t.code)} {t.subject} - due {us_date(due)}"[:500],
                     nexus_action={"view": "property-asset", "sub": f"tickets:{svc.property_asset_id}:{t.id}",
                                   "label": "View Property"})
@@ -162,7 +162,7 @@ def run_due(db, today: date | None = None) -> dict:
             name = property_links.display_name(prop) if prop is not None else "the property"
             if mgr:
                 task_notify(db, kind="ticket_property", for_email=mgr,
-                            title=f"Service due {us_date(due)} at {name}",
+                            title=f"Service Due {us_date(due)} at {name}",
                             body=(f"{(svc.template or {}).get('subject') or 'Scheduled service'} - a ticket opens "
                                   "automatically on the due date, or open it now from Maintenance > Recurring Services.")[:500],
                             nexus_action={"view": "property-asset", "sub": f"services:{svc.property_asset_id}",

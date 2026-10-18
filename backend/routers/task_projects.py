@@ -1193,7 +1193,7 @@ def raise_member_request(body: MemberRequestBody, user: dict = Depends(get_curre
     team = db.query(models.TaskTeam).filter(models.TaskTeam.id == body.team_id).first()
     team_name = team.name if team else "a team"
     task_notify(db, kind="member_request", for_email="admins",
-                title="Team member request",
+                title="Team Member Request",
                 body=f"{user['email']} requested to {m.kind} {m.user_email} for {team_name}",
                 department_id=body.team_id, request_id=m.id,
                 nexus_action={"view": "tasks", "sub": "teams", "label": "Review request"})
@@ -1225,7 +1225,7 @@ def decide_member_request(request_id: str, body: DecideBody, user: dict = Depend
                 members = [e for e in members if e != m.user_email]
             team.member_emails = members
     task_notify(db, kind=("request_approved" if m.status == "approved" else "request_rejected"),
-                for_email=m.requested_by, title=f"Member request {m.status}",
+                for_email=m.requested_by, title=f"Member Request {m.status.title()}",
                 body=f"Your request to {m.kind} {m.user_email} was {m.status}.",
                 department_id=m.department_id, request_id=m.id,
                 nexus_action={"view": "tasks", "sub": "teams", "label": "View team"})
@@ -2466,7 +2466,7 @@ def request_team_approval(team_id: str, user: dict = Depends(get_current_user),
     t.approval_status = "pending"
     t.requested_at = now_iso()
     task_notify(db, kind="team_approval_requested", for_email="admins",
-                title="A team is waiting for approval",
+                title="A Team Is Waiting for Approval",
                 body=f"{t.name} - requested by {user['email']}",
                 nexus_action={"view": "tasks", "sub": "manage", "label": "Review in Manage"})
     db.commit()
@@ -2505,7 +2505,7 @@ def decide_team_approval(team_id: str, body: TeamApprovalBody,
     t.decided_at = now_iso()
     if t.created_by:
         task_notify(db, kind="team_approval_decided", for_email=t.created_by,
-                    title=f"Your team was {decision}",
+                    title=f"Your Team Was {decision.title()}",
                     body=t.name,
                     nexus_action={"view": "tasks", "sub": "teams", "label": "View teams"})
     db.commit()

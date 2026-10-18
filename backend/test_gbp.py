@@ -372,7 +372,7 @@ class LowStarBellTests(_Case):
         gbp.sync(self.db, force=True)
         [bell] = self._bells()
         self.assertEqual(bell.recipient, AMY)                       # editor grant, not the viewer
-        self.assertIn("2-star Google review for Greens Storage Fresno", bell.title)
+        self.assertIn("2-star Google Review for Greens Storage Fresno", bell.title)
         self.assertIn("Review 8", bell.body)
         self.assertIn("marketing-reputation", bell.action)
         gbp.sync(self.db, force=True)                               # seen once, rung once

@@ -124,7 +124,7 @@ def my_calls(user: dict = Depends(get_current_user), db: Session = Depends(get_d
                     "outcome": p.get("outcome"), "reason": d.reason or "", "newStart": d.new_start or "", "newEnd": d.new_end or "",
                     "moveTo": d.move_to or "", "decidedAt": d.decided_at, "ackAt": p.get("ackAt") or "",
                     "headline": weather_call.headline(d.kind, d.new_start, d.new_end, d.move_to) if d.status == "active"
-                    else "Weather call reversed: your shift is back on"})
+                    else "Weather Call Reversed: Your Shift Is Back On"})
     return {"calls": out}
 
 

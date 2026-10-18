@@ -175,8 +175,8 @@ class CallTests(unittest.TestCase):
         self.assertEqual(by[CAL]["channels"]["sms"], "no phone on file")
         self.assertEqual(by[BOB]["channels"], {"bell": "ok", "groupChat": "ok"})
         # Bells: priority for the affected, quiet for the kept, nothing for the decider.
-        self.assertEqual([(b.priority, b.title) for b in self._bells(ANN)], [(1, "Weather call: Day canceled for weather (unpaid)")])
-        self.assertEqual([(b.priority, b.title) for b in self._bells(BOB)], [(0, "Weather call: your shift stands")])
+        self.assertEqual([(b.priority, b.title) for b in self._bells(ANN)], [(1, "Weather Call: Day canceled for weather (unpaid)")])
+        self.assertEqual([(b.priority, b.title) for b in self._bells(BOB)], [(0, "Weather Call: Your Shift Stands")])
         self.assertEqual(self._bells(MGR), [])
         # Texts: Ann only (Cal has no phone, Bob was not picked); the text names the shift and carries the link.
         self.assertEqual(weather_call._send_sms.call_count, 1)
@@ -225,7 +225,7 @@ class CallTests(unittest.TestCase):
         s = self._shift(f"s-{ANN}")
         self.assertEqual((s.start_hhmm, s.weather_status, s.weather_decision_id), ("07:00", "", ""))
         self.assertEqual({p["email"]: p for p in r.json()["people"]}[CAL]["outcome"], "cancelled")
-        self.assertIn("Weather call: your shift is canceled (unpaid)", [b.title for b in self._bells(CAL)])
+        self.assertIn("Weather Call: Your Shift Is Canceled (Unpaid)", [b.title for b in self._bells(CAL)])
         r = self._call({"kind": "end_early", "emails": [BOB], "new_end": "12:00", "reason": "Storm cell at noon", "sms": False})
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual((self._shift(f"s-{BOB}").end_hhmm, self._shift(f"s-{BOB}").weather_status), ("12:00", "shortened"))
@@ -312,7 +312,7 @@ class CallTests(unittest.TestCase):
         for em in (MGR, BOSS):
             bells = [b for b in self._bells(em) if b.ref_id == f"weather-call-silent:{j['id']}"]
             self.assertEqual(len(bells), 1, em)
-            self.assertEqual((bells[0].priority, bells[0].title), (1, "1 person has not acknowledged the weather call"))
+            self.assertEqual((bells[0].priority, bells[0].title), (1, "1 Person Has Not Acknowledged the Weather Call"))
             self.assertIn("Cal X", bells[0].body)
             self.assertEqual(json.loads(bells[0].action)["sub"], f"schedule:{DAY}:{GROUP}")
         self.assertEqual(weather_call.follow_up_once(self.db, decided + timedelta(minutes=90)), {"reminded": 0, "escalated": 0})
@@ -333,12 +333,12 @@ class CallTests(unittest.TestCase):
         self.assertEqual(weather_call._send_sms.call_count, 1, "Ann is texted; Cal has no phone")
         self.assertIn("REVERSED", weather_call._send_sms.call_args[0][1])
         titles = [b.title for b in self._bells(ANN)]
-        self.assertIn("Weather call reversed: your shift is back on", titles)
+        self.assertIn("Weather Call Reversed: Your Shift Is Back On", titles)
         note = self.db.query(models.ScheduleDayNote).filter(models.ScheduleDayNote.group_id == GROUP).first()
         self.assertTrue(note.note.startswith("Weather call reversed by Mia X"))
         self.assertEqual(self.client.post(f"/weather-call/{did}/reinstate").status_code, 409)
         self._as(ANN)
-        self.assertEqual(self.client.get("/weather-call/mine").json()["calls"][0]["headline"], "Weather call reversed: your shift is back on")
+        self.assertEqual(self.client.get("/weather-call/mine").json()["calls"][0]["headline"], "Weather Call Reversed: Your Shift Is Back On")
 
     def test_who_may_call_it(self):
         r = self._call({"kind": "cancel", "emails": [ANN], "reason": "x"}, who=OTHER)   # a manager, but not of this group
@@ -363,7 +363,7 @@ class CallTests(unittest.TestCase):
         self.assertEqual(r.json()["selectedCount"], 3)
         for em in (ANN, BOB, CAL):
             self.assertEqual(self._shift(f"s-{em}").weather_status, "kept")
-            self.assertEqual(self._bells(em)[0].title, "Weather call: your shift goes ahead")
+            self.assertEqual(self._bells(em)[0].title, "Weather Call: Your Shift Goes Ahead")
 
     def test_an_acknowledgment_that_lands_while_the_crew_is_being_told_is_kept(self):
         # Sending takes seconds per person. Ann taps the link in her text
@@ -425,7 +425,7 @@ class CallTests(unittest.TestCase):
         self.assertEqual((self._shift(f"s-{CAL}").start_hhmm, self._shift(f"s-{CAL}").weather_status), ("11:00", "kept"))
         by = {p["email"]: p for p in j["people"]}
         self.assertEqual((by[ANN]["outcome"], by[CAL]["outcome"]), ("delayed", "kept"))
-        self.assertEqual([b.title for b in self._bells(CAL)], ["Weather call: your shift goes ahead"])
+        self.assertEqual([b.title for b in self._bells(CAL)], ["Weather Call: Your Shift Goes Ahead"])
         # End early after a shift's own end leaves it alone too.
         row = self._shift(f"s-{BOB}")
         row.end_hhmm = "11:30"

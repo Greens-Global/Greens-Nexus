@@ -115,7 +115,7 @@ def log_submitted(db, project, log) -> None:
         if m == (log.author_email or "").lower():
             continue        # a manager filing their own log does not need telling
         bell(db, kind="log_submitted", recipient=m,
-             title="Daily log ready to review",
+             title="Daily Log Ready to Review",
              body=f"{who} filed {_us(log.log_date)} on {project.name}.",
              ref_id=log.id, requested_by=log.author_email or "",
              label="Review Log")
@@ -133,13 +133,13 @@ def log_reviewed(db, project, log) -> None:
         return
     if log.status == "approved":
         bell(db, kind="log_approved", recipient=author,
-             title="Daily log approved",
+             title="Daily Log Approved",
              body=f"{_us(log.log_date)} on {project.name} was approved.",
              ref_id=log.id, requested_by=log.reviewed_by or "", label="View Log")
     else:
         note = (log.review_note or "").strip()
         bell(db, kind="log_needs_info", recipient=author,
-             title="Daily log sent back",
+             title="Daily Log Sent Back",
              body=(f"{_us(log.log_date)} on {project.name}: "
                    + (note or "your manager needs more detail before approving.")),
              ref_id=log.id, requested_by=log.reviewed_by or "", label="Open Log")
@@ -151,7 +151,7 @@ def draft_cut(db, project, report) -> None:
     draft (list_reports hides drafts from executives on purpose)."""
     for m in _emails(project.manager_emails):
         bell(db, kind="report_draft", recipient=m,
-             title="Weekly report drafted",
+             title="Weekly Report Drafted",
              body=f"Week of {_us(report.week_start)} on {project.name} is ready to review and publish.",
              ref_id=report.id, label="Open Report")
 
@@ -192,13 +192,13 @@ def report_published(db, project, report, pdf: bytes = b"") -> str:
         {f'<p><a href="{link}" style="font-size:14px">Open it in Nexus</a></p>' if link else ''}
       </div>
     """
-    err = _send(to=to, subject=f"{project.name} - weekly report, week of {_us(report.week_start)}",
+    err = _send(to=to, subject=f"{project.name} - Weekly Report, Week of {_us(report.week_start)}",
                 html=html, attachment=attach)
 
     # Managers get a bell either way, so "was it sent?" has an answer in the app.
     for m in _emails(project.manager_emails):
         bell(db, kind="report_published", recipient=m,
-             title="Weekly report published",
+             title="Weekly Report Published",
              body=(f"Week of {_us(report.week_start)} on {project.name} was sent to "
                    f"{len(to)} recipient(s)." if not err
                    else f"Week of {_us(report.week_start)} on {project.name} was published, "
