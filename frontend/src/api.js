@@ -2377,7 +2377,7 @@ export const api = {
   timeExportIifFinalized:       (start, end, company) =>
     reqBlob(`/timeclock/export.iif?start=${start || ''}&end=${end || ''}&company=${encodeURIComponent(company || '')}&finalized_only=true`, { timeoutMs: 120_000 }),
   // Approve All Clean (Oct 17): items are [{id}] or [{email, start}], at most
-  // 100; each one builds its PDF and envelope, so the wait can be long.
+  // 25 per call (the screen sends 10); each builds its PDF and envelope.
   timesheetReviewApproveBulk: (items, note = '') => req('/timesheet-review/approve-bulk', { method: 'POST', body: JSON.stringify({ items, note }), timeoutMs: 120_000 }),
 };
 
