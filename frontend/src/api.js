@@ -2383,6 +2383,10 @@ export const api = {
   // Approve All Clean (Oct 17): items are [{id}] or [{email, start}], at most
   // 25 per call (the screen sends 10); each builds its PDF and envelope.
   timesheetReviewApproveBulk: (items, note = '') => req('/timesheet-review/approve-bulk', { method: 'POST', body: JSON.stringify({ items, note }), timeoutMs: 120_000 }),
+  // Retro Pay (Oct 17): finalized periods a back-dated rate change re-prices -
+  // who is owed what. Payroll guard + step-up, read only.
+  timeRetroPay: (start, end, email = '') =>
+    req(`/timeclock/retro-pay?${new URLSearchParams({ start: start || '', end: end || '', email: email || '' })}`, { timeoutMs: 120_000 }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
