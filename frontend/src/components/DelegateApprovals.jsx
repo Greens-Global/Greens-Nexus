@@ -122,7 +122,7 @@ function DelegationForm({ people, me, admin, onSave, busy }) {
   );
 }
 
-function DelegationRow({ d, who, onRevoke, busy }) {
+function DelegationRow({ d, who, onRevoke, busy, revokeLabel = 'Revoke' }) {
   const st = STATE[d.state] || STATE.upcoming;
   return (
     <div data-delegation={d.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderTop: '1px solid var(--line)', flexWrap: 'wrap' }}>
@@ -134,7 +134,7 @@ function DelegationRow({ d, who, onRevoke, busy }) {
       </div>
       <StatusLabel size="sm" label={st.label} color={st.color} />
       {onRevoke && d.state !== 'revoked' && d.state !== 'ended' && (
-        <button type="button" className="secondary-btn" disabled={busy} onClick={() => onRevoke(d)} style={{ fontSize: 12.5 }}>Revoke</button>
+        <button type="button" className="secondary-btn" disabled={busy} onClick={() => onRevoke(d)} style={{ fontSize: 12.5 }}>{revokeLabel}</button>
       )}
     </div>
   );
@@ -204,7 +204,8 @@ export default function DelegateApprovalsCard({ toastOk, toastErr }) {
       {covering.length > 0 && (
         <div style={{ marginTop: data.canDelegate ? 14 : 6 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', marginBottom: 2 }}>You Are Covering</div>
-          {covering.map(d => <DelegationRow key={d.id} d={d} who={d.delegatorName || d.delegatorEmail} />)}
+          {/* The stand-in may end it too - the delegator is told. */}
+          {covering.map(d => <DelegationRow key={d.id} d={d} who={d.delegatorName || d.delegatorEmail} onRevoke={revoke} busy={busy} revokeLabel="Stop Covering" />)}
         </div>
       )}
     </div>

@@ -56,21 +56,37 @@ def _in_admin_scope(db: Session, scope, email: str) -> bool:
 
 
 def _tell_delegate(db: Session, d: ApprovalDelegation, actor: str, revoked: bool = False) -> None:
-    """One bell to the stand-in when they are named, and when it is revoked."""
-    from routers.hr import _hr_notify
+    """One bell to the stand-in when they are named, and when it is revoked -
+    ONE notice per stand-in, delegator and day, rewritten in place, so a
+    repeated create / revoke does not stack bells. When the stand-in ends it
+    themselves, the delegator hears instead."""
+    from notify_company import notification_company
+    from notify_rollup import upsert_rollup
     from routers.timeclock import _us_span
+    span = _us_span(d.start_date, d.end_date)
+    day = datetime.now(timezone.utc).date().isoformat()
+    if revoked and actor == d.delegate_email:
+        upsert_rollup(db, recipient=d.delegator_email, key=f"deleg-end:{d.delegate_email}:{day}",
+                      title="Approval Cover Ended",
+                      line=f"{ad.display_name(db, d.delegate_email)} no longer covers your approvals ({span}). "
+                           "Pick someone else if you still need cover.",
+                      company=notification_company(db, d.delegator_email), requested_by=actor, replace=True)
+        return
     if d.delegate_email == actor:
         return
     who = ad.display_name(db, d.delegator_email)
-    span = _us_span(d.start_date, d.end_date)
+    key = f"deleg:{d.delegator_email}:{day}"
+    company = notification_company(db, d.delegate_email)
     if revoked:
-        _hr_notify(db, d.delegate_email, "Approval Cover Canceled",
-                   f"You no longer cover {who}'s approvals ({span}).", ref_id=d.id, requested_by=actor)
+        upsert_rollup(db, recipient=d.delegate_email, key=key, title="Approval Cover Canceled",
+                      line=f"You no longer cover {who}'s approvals ({span}).",
+                      company=company, requested_by=actor, replace=True)
         return
-    _hr_notify(db, d.delegate_email, "You Are Covering Approvals",
-               f"{who} asked you to cover their approvals {span} - their time sheets, punch fixes and time off "
-               f"come to you too, marked \"For {who}\"." + (f' "{d.note[:200]}"' if d.note else ""),
-               ref_id=d.id, requested_by=actor, action={"view": "timeclock", "sub": "timesheet"})
+    upsert_rollup(db, recipient=d.delegate_email, key=key, title="You Are Covering Approvals",
+                  line=f"{who} asked you to cover their approvals {span} - their time sheets, punch fixes and time "
+                       f"off come to you too, marked \"For {who}\"." + (f' "{d.note[:200]}"' if d.note else ""),
+                  action={"view": "timeclock", "sub": "timesheet"}, company=company, requested_by=actor,
+                  replace=True)
 
 
 def _create(db: Session, delegator: str, body: DelegationIn, actor: str) -> dict:
@@ -117,7 +133,9 @@ def revoke(did: str, user: dict = Depends(get_current_user), db: Session = Depen
     if not d:
         raise HTTPException(404, "Delegation not found")
     admin, scope = _hr_admin_scope(user, db)
-    if me not in (d.delegator_email, d.created_by) and not (admin and _in_admin_scope(db, scope, d.delegator_email)):
+    # The delegator, whoever set it, HR - or the stand-in declining / ending it.
+    if (me not in (d.delegator_email, d.created_by, d.delegate_email)
+            and not (admin and _in_admin_scope(db, scope, d.delegator_email))):
         raise HTTPException(404, "Delegation not found")
     if d.revoked_at:
         return ad.serialize(db, d)
@@ -136,10 +154,12 @@ def list_all(include_past: bool = False, user: dict = Depends(get_current_user),
         raise HTTPException(403, "Only HR can see everyone's delegations.")
     q = db.query(ApprovalDelegation)
     if include_past:
-        rows = sorted(q.all(), key=lambda d: (d.start_date or "", d.delegator_email), reverse=True)[:500]
+        rows = sorted(q.all(), key=lambda d: (d.start_date or "", d.delegator_email), reverse=True)
     else:
         rows = _current(db, q)
-    return [ad.serialize(db, d) for d in rows if _in_admin_scope(db, scope, d.delegator_email)]
+    # Company scope first, THEN the cap - another company's rows must not use it up.
+    rows = [d for d in rows if _in_admin_scope(db, scope, d.delegator_email)][:500]
+    return [ad.serialize(db, d) for d in rows]
 
 
 @router.post("")
@@ -153,8 +173,12 @@ def create_for(body: DelegationIn, user: dict = Depends(get_current_user), db: S
     if delegator != me:
         from models import NexusEmployee
         from sqlalchemy import func
-        if not db.query(NexusEmployee).filter(func.lower(NexusEmployee.work_email) == delegator).first():
+        emp = db.query(NexusEmployee).filter(func.lower(NexusEmployee.work_email) == delegator).first()
+        if not emp:
             raise HTTPException(422, "Pick whose approvals these are from the Nexus People list.")
+        if (emp.status or "active") not in ("active", "onboarding"):
+            raise HTTPException(422, f"{ad.display_name(db, delegator)} is no longer active, so there are no "
+                                     "approvals of theirs to cover.")
         if not _in_admin_scope(db, scope, delegator):
             raise HTTPException(403, "That person is outside the companies you manage.")
     if not _in_admin_scope(db, scope, (body.delegate_email or "").strip().lower()):

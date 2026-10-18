@@ -10457,6 +10457,7 @@ class _TimeoffPrivacy:
         self.viewer = (viewer_email or "").strip().lower()
         self._emps = None
         self._approvers = {}
+        self._stand_ins = {}
         self._any_deleg = None
 
     def _emp(self, email: str):
@@ -10485,30 +10486,44 @@ class _TimeoffPrivacy:
                 out = sorted({(r.email or "").strip().lower() for r in self.db.query(NexusRole)
                               .filter(NexusRole.role.in_(["administrator", "owner"])).all()
                               if r.email and (r.email or "").strip().lower() != em})
-        # A live stand-in of the approver decides it too, confidential ones
-        # included - the delegator's own authority, for their people only
-        # (approver delegation, Oct 17). Looked up once per request.
+        self._approvers[em] = out
+        return out
+
+    def stand_ins(self, employee_email: str) -> list:
+        """The live stand-ins of this person's approvers (approver
+        delegation, Oct 17). Kept apart from approvers(): a stand-in DECIDES
+        a confidential request like the approver, but READS one only while
+        it is pending, or once they decided it themselves - never the
+        person's confidential history. Looked up once per request."""
+        em = (employee_email or "").strip().lower()
+        if em in self._stand_ins:
+            return self._stand_ins[em]
         import approval_delegation
         if self._any_deleg is None:
             self._any_deleg = approval_delegation.any_live(self.db)
-        if self._any_deleg and out:
-            out = out + [dl for dl, _dg in approval_delegation.stand_ins(self.db, em, out) if dl not in out]
-        self._approvers[em] = out
+        base = self.approvers(em)
+        out = ([dl for dl, _dg in approval_delegation.stand_ins(self.db, em, base) if dl not in base]
+               if self._any_deleg and base else [])
+        self._stand_ins[em] = out
         return out
 
     def can_see(self, r) -> bool:
         if not _is_confidential(r):
             return True
         em = (r.employee_email or "").strip().lower()
-        return bool(self.viewer) and (self.viewer == em
-                                      or self.viewer in self.approvers(em)
-                                      or self.viewer == (r.approver or "").strip().lower())
+        if not self.viewer:
+            return False
+        if (self.viewer == em or self.viewer in self.approvers(em)
+                or self.viewer == (r.approver or "").strip().lower()):
+            return True
+        return r.status == "pending" and self.viewer in self.stand_ins(em)
 
     def can_decide(self, r) -> bool:
         em = (r.employee_email or "").strip().lower()
         if not self.viewer or self.viewer == em:
             return False
-        return not _is_confidential(r) or self.viewer in self.approvers(em)
+        return (not _is_confidential(r) or self.viewer in self.approvers(em)
+                or self.viewer in self.stand_ins(em))
 
     def reviewer_names(self, r) -> str:
         """Who decides it, for the "only X can decide this" line."""

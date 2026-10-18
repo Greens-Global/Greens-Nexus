@@ -99,11 +99,14 @@ describe('DelegateApprovalsCard', () => {
     expect(screen.getByText('Upcoming')).toBeTruthy();
     expect(screen.getByText('You Are Covering')).toBeTruthy();
     expect(screen.getByText('Olive Test')).toBeTruthy();
-    // Revoke on mine only - a covering row is not theirs to revoke.
+    // Revoke on mine; Stop Covering on the ones naming me.
     const buttons = screen.getAllByRole('button', { name: 'Revoke' });
     expect(buttons).toHaveLength(1);
     fireEvent.click(buttons[0]);
     await waitFor(() => expect(revoke).toHaveBeenCalledWith('d1'));
+    // The stand-in may end a delegation naming them.
+    fireEvent.click(await screen.findByRole('button', { name: 'Stop Covering' }));
+    await waitFor(() => expect(revoke).toHaveBeenCalledWith('d2'));
   });
 
   it('a stand-in with nothing of their own to approve still sees who they cover', async () => {

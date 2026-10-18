@@ -197,7 +197,7 @@ class TimesheetRoutingTests(DelegationCase):
         r = self._submit()
         d = self._delegate()
         self.assertEqual(len(self._waiting()), 1)
-        self._as(DEE)
+        self._as(THIRD)
         self.assertEqual(self.client.post(f"/approval-delegations/{d['id']}/revoke").status_code, 404)  # not theirs
         self._as(MGR)
         res = self.client.post(f"/approval-delegations/{d['id']}/revoke")
@@ -361,6 +361,145 @@ class PunchAndTimeOffTests(DelegationCase):
         ids = {x["id"] for x in self.client.get("/timeclock/timeoff").json()}
         self.assertIn(tid, ids)
         self.assertNotIn(old.id, ids)
+
+
+class ReviewFixTests(DelegationCase):
+    """The PR #633 review: confidential history, own-right scope, the probe,
+    the stand-in ending it, offboarding, the admin list cap, bell spam."""
+
+    def _confidential(self, status="approved", note="Surgery", approver=MGR, offset=10):
+        t = models.TimeOffRequest(id=str(uuid.uuid4()), employee_email=EMP, type="medical", start_date=_day(offset),
+                                  end_date=_day(offset), note=note, status=status, approver=approver if status != "pending" else "",
+                                  created_at=_day(-1), confidential=1)
+        self.db.add(t)
+        self.db.commit()
+        return t.id
+
+    def _backup_of_emp(self, who=DEE):
+        self.db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == EMP).update(
+            {"backup_manager_email": who})
+        self.db.commit()
+
+    # 1. A stand-in reads a confidential request only while it is pending.
+    def test_the_schedule_does_not_leak_confidential_history(self):
+        old = self._confidential("approved", offset=3)
+        new = self._confidential("pending", note="Procedure", offset=4)
+        self._delegate()
+        self._as(DEE)
+        res = self.client.get(f"/timeclock/schedule?start={_day(-30)}&end={_day(30)}")
+        self.assertEqual(res.status_code, 200, res.text)
+        offs = {t["id"]: t for t in res.json()["timeoff"]}
+        self.assertTrue(offs[old]["redacted"])
+        self.assertEqual(offs[old]["note"], "")
+        self.assertEqual(offs[new]["note"], "Procedure")      # pending: theirs to decide
+
+    def test_timeoff_list_in_own_right_does_not_open_confidential_notes(self):
+        # Dee is Erin's Backup Manager (her own right), and covers Max too.
+        self._backup_of_emp()
+        old = self._confidential("approved")
+        self._delegate()
+        self._as(DEE)
+        rows = {t["id"]: t for t in self.client.get("/timeclock/timeoff").json()}
+        self.assertIn(old, rows)                               # the history is hers by right...
+        self.assertTrue(rows[old]["redacted"])                 # ...the confidential note is not
+        self.assertEqual(rows[old]["note"], "")
+
+    # 2. Own-right people are never "for" anyone.
+    def test_own_right_people_are_not_marked_for_the_delegator(self):
+        self._backup_of_emp()
+        self._submit()
+        self._delegate()
+        rows = self._waiting()
+        self.assertEqual([r["employeeEmail"] for r in rows], [EMP])
+        self.assertNotIn("forEmail", rows[0])
+        import approval_delegation
+        self.assertNotIn(EMP, approval_delegation.delegated_people(self.db, DEE))
+
+    def test_remove_shifts_follow_up_works_in_own_right(self):
+        self._backup_of_emp()
+        t = models.TimeOffRequest(id=str(uuid.uuid4()), employee_email=EMP, type="vacation", start_date=_day(12),
+                                  end_date=_day(12), status="approved", approver=MGR, created_at=_day(-1))
+        self.db.add(t)
+        self.db.commit()
+        self._delegate()
+        self._as(DEE)
+        res = self.client.patch(f"/timeclock/timeoff/{t.id}", json={"status": "approved", "remove_shifts": True})
+        self.assertEqual(res.status_code, 200, res.text)
+
+    # 3. No probing whether an email can approve.
+    def test_someone_with_nothing_to_delegate_learns_nothing(self):
+        answers = set()
+        for to in (DEE, PLAIN, "nobody@greensglobal.com"):
+            res = self._delegate(frm=OTHER_EMP, to=to, status=409)
+            answers.add(res["detail"])
+        self.assertEqual(answers, {"There are no approvals routed to you to delegate."})
+
+    # 4. The stand-in may end it; the delegator hears.
+    def test_the_stand_in_can_end_it(self):
+        d = self._delegate()
+        self._as(DEE)
+        res = self.client.post(f"/approval-delegations/{d['id']}/revoke")
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual((res.json()["state"], res.json()["revokedBy"]), ("revoked", DEE))
+        n = self.db.query(models.NexusNotification).filter(models.NexusNotification.recipient == MGR).all()
+        self.assertEqual([x.title for x in n], ["Approval Cover Ended"])
+
+    # 5. Offboarding ends it.
+    def test_an_inactive_stand_in_or_delegator_ends_it(self):
+        r = self._submit()
+        self._delegate()
+        for who in (DEE, MGR):
+            self.db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == who).update(
+                {"status": "terminated"})
+            self.db.commit()
+            self.assertEqual(self._waiting(), [], who)
+            self.assertEqual(self._approve(r.id).status_code, 404, who)
+            self.db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == who).update(
+                {"status": "active"})
+            self.db.commit()
+        self.assertEqual(len(self._waiting()), 1)              # active again: back
+
+    def test_hr_cannot_set_one_for_someone_who_left(self):
+        self.db.add(models.NexusRole(email=HR, role="administrator", assigned_by="test"))
+        self.db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == MGR).update(
+            {"status": "terminated"})
+        self.db.commit()
+        auth._role_cache.clear()
+        self._as(HR)
+        res = self.client.post("/approval-delegations", json={
+            "delegator_email": MGR, "delegate_email": DEE, "start_date": _day(0), "end_date": _day(2)})
+        self.assertEqual(res.status_code, 422, res.text)
+
+    # 6. The admin list filters by company before the cap.
+    def test_admin_list_scopes_before_the_cap(self):
+        from routers import approval_delegations as routes
+        self.db.add(models.NexusEmployee(id="id-far", work_email="far@greensglobal.com", first_name="Far",
+                                         last_name="Away", company="ent-other", status="active"))
+        mine = self._delegate()
+        for i in range(501):
+            self.db.add(models.ApprovalDelegation(id=f"far-{i}", delegator_email="far@greensglobal.com",
+                                                  delegate_email=DEE, start_date="2099-01-01", end_date="2099-01-02",
+                                                  created_at="", revoked_at="2099-01-01"))
+        self.db.commit()
+        real = routes._hr_admin_scope
+        routes._hr_admin_scope = lambda user, db: (True, {ENTITY})
+        try:
+            self._as(HR)
+            rows = self.client.get("/approval-delegations?include_past=true").json()
+        finally:
+            routes._hr_admin_scope = real
+        self.assertEqual([r["id"] for r in rows], [mine["id"]])
+
+    # 7. One bell per stand-in, delegator and day.
+    def test_repeated_create_and_revoke_rings_once(self):
+        for _ in range(3):
+            d = self._delegate()
+            self._as(MGR)
+            self.client.post(f"/approval-delegations/{d['id']}/revoke")
+        self._delegate()
+        n = self.db.query(models.NexusNotification).filter(models.NexusNotification.recipient == DEE).all()
+        self.assertEqual(len(n), 1)
+        self.assertEqual(n[0].title, "You Are Covering Approvals")
 
 
 if __name__ == "__main__":

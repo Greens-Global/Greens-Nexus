@@ -57,11 +57,26 @@ def _today_for(db: Session, email: str) -> str:
     return _employee_today(db, _norm(email))
 
 
+def _gone(db: Session, email: str, need_row: bool) -> bool:
+    """Offboarded / inactive in People (a row that is not active or
+    onboarding). `need_row`: no People row at all counts as gone too."""
+    from models import NexusEmployee
+    row = (db.query(NexusEmployee.status)
+           .filter(func.lower(NexusEmployee.work_email) == _norm(email)).first())
+    if row is None:
+        return need_row
+    return (row.status or "active") not in ("active", "onboarding")
+
+
 def is_live(db: Session, d, today: str | None = None) -> bool:
+    """Not revoked, today inside the range, and both people still active -
+    a delegation whose delegator or stand-in left ends with them."""
     if d is None or (d.revoked_at or ""):
         return False
     t = today or _today_for(db, d.delegator_email)
-    return (d.start_date or "") <= t <= (d.end_date or "")
+    if not ((d.start_date or "") <= t <= (d.end_date or "")):
+        return False
+    return not _gone(db, d.delegate_email, True) and not _gone(db, d.delegator_email, False)
 
 
 def _prefilter(q):
@@ -154,15 +169,21 @@ def _inside(scope, company: str) -> bool:
 
 def delegated_people(db: Session, delegate: str) -> dict:
     """{employee email: delegator email} - the people `delegate` approves
-    ONLY because of a live delegation (people they already approve directly
-    are left out). Empty when no delegation is live, or when the delegate can
-    no longer open the approval screens."""
-    import backup_manager
+    ONLY because of a live delegation: everyone the delegate already reaches
+    in their own right (their whole normal approval scope - directs, backups,
+    HR-contact people, HR / team scope) is left out, so a "For X" mark, a
+    round's `for` and the audit row only ever mean "because of X". Empty when
+    no delegation is live, or when the delegate can no longer open the
+    approval screens."""
+    from auth import level_for
+    from routers.timeclock import _visible_emails
     me = _norm(delegate)
     rows = live_for_delegate(db, me)
     if not rows or not can_approve(db, me):
         return {}
-    own = backup_manager.managed_directly(db, me)
+    own = _visible_emails(db, {"email": me, "level": level_for(me, db)})
+    if own is None:
+        return {}            # they already reach everyone - nothing is "for" anyone
     scope = _walls(db, me)
     out: dict = {}
     for d in rows:
@@ -253,6 +274,10 @@ def check_new(db: Session, delegator: str, delegate: str, start: str, end: str) 
     from fastapi import HTTPException
     from models import ApprovalDelegation as D, NexusEmployee
     dg, dl = _norm(delegator), _norm(delegate)
+    # First, before anything about the picked person is judged: someone with
+    # nothing to delegate learns nothing about whether an email can approve.
+    if not can_delegate(db, dg):
+        raise HTTPException(409, "There are no approvals routed to you to delegate.")
     if not dl:
         raise HTTPException(422, "Pick who covers your approvals.")
     if dl == dg:
@@ -263,8 +288,6 @@ def check_new(db: Session, delegator: str, delegate: str, start: str, end: str) 
     if not can_approve(db, dl):
         raise HTTPException(422, f"{display_name(db, dl)} can't approve time sheets, punch fixes or time off. "
                                  "Pick a manager, or someone with an HR editor grant.")
-    if not can_delegate(db, dg):
-        raise HTTPException(409, "There are no approvals routed to you to delegate.")
     if not _inside(_walls(db, dl), _company(db, dg)):
         raise HTTPException(422, f"{display_name(db, dl)} works in another company and can't cover these approvals.")
     s, e = _day(start, "first day"), _day(end, "last day")
