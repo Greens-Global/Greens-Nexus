@@ -305,6 +305,87 @@ class HourlyPerDayPricingTests(unittest.TestCase):
         self.assertEqual(card["rateSplits"], [])
 
 
+class FinalizeFreezesEachDaysRateTests(unittest.TestCase):
+    """Finalize freezes the rate each day was priced at (Oct 17 2026, Neil) -
+    the pay on the card does not move the moment HR finalizes."""
+    START, END = "2026-09-06", "2026-09-19"
+
+    def setUp(self):
+        _wipe()
+        db = database.SessionLocal()
+        try:
+            db.add(models.NexusEmployee(id=f"emp-{HOURLY}", first_name="Hal", last_name="Test",
+                                        work_email=HOURLY, company="", status="active", deleted_at=""))
+            _punch(db, HOURLY, "2026-09-07", 8)   # Mon
+            _punch(db, HOURLY, "2026-09-10", 8)   # Thu
+            db.commit()
+        finally:
+            db.close()
+
+    def tearDown(self):
+        _wipe()
+
+    def _history(self, *rows):
+        db = database.SessionLocal()
+        try:
+            for i, (eff, rate) in enumerate(rows):
+                db.add(models.PayrollRateHistory(id=f"h-fz-{eff or 'start'}-{i}", employee_email=HOURLY, effective_date=eff,
+                                                 pay_type="hourly", hourly_rate=rate, currency="USD", overtime_rule="ca"))
+            db.commit()
+        finally:
+            db.close()
+
+    def _card(self):
+        db = database.SessionLocal()
+        try:
+            return _compute_timecard(db, HOURLY, self.START, self.END)
+        finally:
+            db.close()
+
+    def _finalize(self):
+        from routers import timeclock as tc
+        db = database.SessionLocal()
+        try:
+            tc.finalize_timecard(tc.FinalizeIn(email=HOURLY, start=self.START, end=self.END, allow_exceptions=True),
+                                 user={"email": "hr.sep30@greensglobal.com", "role": "administrator"}, db=db)
+        finally:
+            db.close()
+
+    def test_a_raise_inside_the_period_keeps_both_rates(self):
+        db = database.SessionLocal()
+        try:
+            db.add(models.PayrollRate(employee_email=HOURLY, pay_type="hourly", hourly_rate=25, overtime_rule="ca"))
+            db.commit()
+        finally:
+            db.close()
+        self._history(("", 20), ("2026-09-09", 25))
+        before = self._card()
+        self.assertEqual(before["totals"]["regPay"], 8 * 20.0 + 8 * 25.0)
+        self._finalize()
+        after = self._card()
+        self.assertEqual(after["totals"]["regPay"], before["totals"]["regPay"])
+        self.assertEqual(after["rate"], 25.0)
+        self.assertEqual([(x["from"], x["rate"]) for x in after["rateSplits"]], [("2026-09-06", 20.0), ("2026-09-09", 25.0)])
+        # A later raise back-dated into the period never re-prices it.
+        self._history(("2026-09-01", 40))
+        self.assertEqual(self._card()["totals"]["regPay"], before["totals"]["regPay"])
+
+    def test_a_raise_entered_early_with_a_later_date_does_not_leak_in(self):
+        # HR keyed next month's raise already: the current rate row says 30,
+        # but every day of this period was priced at 22 - and stays at 22.
+        db = database.SessionLocal()
+        try:
+            db.add(models.PayrollRate(employee_email=HOURLY, pay_type="hourly", hourly_rate=30, overtime_rule="ca"))
+            db.commit()
+        finally:
+            db.close()
+        self._history(("", 22), ("2026-10-01", 30))
+        before = self._card()
+        self.assertEqual(before["totals"]["regPay"], 16 * 22.0)
+        self._finalize()
+        self.assertEqual(self._card()["totals"]["regPay"], 16 * 22.0)
+
+
 class CompensationSaveTests(unittest.TestCase):
     """The Pay & Benefits save path (hr.py): PayrollRate is derived, history is appended."""
 
