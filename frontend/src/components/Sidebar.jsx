@@ -7,7 +7,7 @@ import NavTip from "./NavTip";
 import {
   LayoutDashboard, ShoppingCart, CheckSquare,
   Monitor, Wifi, Home, LayoutGrid, FileText,
-  ClipboardCheck, Calculator, Receipt,
+  ClipboardCheck, Calculator,
   FileSpreadsheet, Landmark, BarChart3,
   Users, LogIn, PenTool, Files, Megaphone, ExternalLink, Handshake,
   Settings, ChevronLeft, ChevronRight,
@@ -153,10 +153,6 @@ export const NAV = [
       { subview: "reports",         label: "Reports",            icon: BarChart3 },
     ],
   },
-  // Reimbursements (Neil, Oct 17 2026): accounting's queue of expense claims
-  // a manager approved - approve, mark paid, export. Grant-driven: the
-  // 'reimbursements' grant (backend routers/expenses.py gates the same way).
-  { view: "reimbursements", code: "RMB", label: "Reimbursements", icon: Receipt, minRole: 'supervisor' },
   {
     view: "investor-relations", code: "IR", label: "Investor Relations", icon: Landmark, minRole: 'supervisor',
     sub: [

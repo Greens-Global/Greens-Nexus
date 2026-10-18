@@ -322,7 +322,6 @@ MODULE_API_PREFIXES = {
     "credvault":          ("/credvault",),
     "egnyte":             ("/egnyte",),
     "workforce-scorecard": ("/workforce-scorecard",),   # endpoints self-gate on the grant + scope
-    "reimbursements":     ("/expenses",),   # accounting's queue; endpoints self-gate on the grant
 }
 
 

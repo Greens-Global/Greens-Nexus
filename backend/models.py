@@ -6620,7 +6620,7 @@ class ExpenseClaim(Base):
     something on the company's behalf and asks for the money back - receipt
     attached (Workday > Expenses). The manager decides
     first (Team > Requests), then accounting approves and marks it paid
-    (Reimbursements, the `reimbursements` grant). Never deleted: a rejected
+    (Accounting > Reimbursements). Never deleted: a rejected
     or canceled claim stays as the record. `history` is the timeline -
     [{at, by, action, note}], one entry per step. New table - create_all
     builds it; RLS comes from main._enable_rls_everywhere's startup sweep (and

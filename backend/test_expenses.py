@@ -57,14 +57,14 @@ class ExpensesCase(unittest.TestCase):
         self._prev = os.environ.get("NEXUS_DEV_EMAIL")
         self.db = database.SessionLocal()
         for m in (models.ExpenseClaim, models.NexusNotification, models.NexusEmployee, models.NexusRole,
-                  models.NexusGroup, models.NexusGroupMember):
+                  models.NexusGroup, models.NexusGroupMember, models.NexusAccessScope):
             self.db.query(m).delete()
         for em, first, mgr in ((EMP, "Erin", MGR), (MGR, "Max", ""), (ACCT, "Ada", ""), (OUTSIDER, "Olly", "")):
             self.db.add(models.NexusEmployee(id=f"id-{first}", work_email=em, first_name=first, last_name="Test",
                                              manager_email=mgr, status="active"))
         self.db.add(models.NexusRole(email=MGR, role="manager", assigned_by="test"))
         self.db.add(models.NexusRole(email=OUTSIDER, role="manager", assigned_by="test"))
-        self.db.add(models.NexusGroup(id="g-acct", name="Accounting", allowed_modules="reimbursements:editor"))
+        self.db.add(models.NexusGroup(id="g-acct", name="Accounting", allowed_modules="accounting:editor"))
         self.db.add(models.NexusGroupMember(group_id="g-acct", email=ACCT))
         self.db.commit()
         auth._role_cache.clear()
@@ -137,6 +137,16 @@ class ExpensesCase(unittest.TestCase):
         # Only the owner cancels, and only before approval.
         self._call(MGR, "post", f"/expenses/{c['id']}/cancel", 403)
         self.assertEqual(self._call(EMP, "post", f"/expenses/{c['id']}/cancel")["status"], "canceled")
+
+    def test_an_entity_limited_accountant_has_no_queue(self):
+        # Claims span every company: Accounting limited to some entities does not open the tab.
+        self.db.add(models.NexusAccessScope(id="s1", email=ACCT, module_id="accounting", scope_type="entity", scope_id="100"))
+        self.db.commit()
+        self._call(ACCT, "get", "/expenses/queue", 403)
+        c = self._call(EMP, "post", "/expenses", 201, json=_claim())
+        self._call(MGR, "post", f"/expenses/{c['id']}/manager-decision", json={"action": "approve"})
+        self._call(ACCT, "post", f"/expenses/{c['id']}/review", 403, json={"action": "approve"})
+        self.assertNotIn("Expense Claim To Review", self._bells(ACCT))
 
     def test_bad_claims_are_refused(self):
         self._call(EMP, "post", "/expenses", 400, json=_claim(receipt_urls=[]))

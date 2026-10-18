@@ -89,12 +89,6 @@ export const MODULE_CAPABILITIES = {
     full:   'Full manager oversight tools.',
     owner:  'Full access, plus manage who else can use it.',
   },
-  reimbursements: {
-    viewer: 'See every expense claim and its receipts, and export them.',
-    editor: 'Also approve, reject or send back manager-approved claims and mark them paid.',
-    full:   'Same as Editor.',
-    owner:  'Same as Editor, plus manage who else has it.',
-  },
   'workforce-scorecard': {
     viewer: 'See the weekly Scorecard (expected vs. punched hours) for their DIRECT reports, and receive it by email every week.',
     editor: 'Their whole reporting line - direct reports and everyone under them.',

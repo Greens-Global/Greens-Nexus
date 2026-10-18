@@ -1071,10 +1071,10 @@ export const DOCS = [
     tips: ['Each tab shows one section at a time. Use the section list at the top to switch.'],
   },
   {
-    id: 'reimbursements', name: 'Reimbursements', group: 'Modules', icon: 'Receipt', view: 'reimbursements',
+    id: 'reimbursements', name: 'Reimbursements', group: 'Modules', icon: 'Receipt', view: 'accounting',
     tagline: 'Get paid back for company expenses you paid yourself.',
-    where: 'Workday > Expenses (submit), Team > Requests (manager), Left menu > Reimbursements (accounting)',
-    access: 'Everyone submits. Managers decide for their team. Accounting needs the Reimbursements grant.',
+    where: 'Workday > Expenses (submit), Team > Requests (manager), Accounting > Reimbursements (accounting)',
+    access: 'Everyone submits. Managers decide for their team. Accounting needs Accounting access with no entity limit; approving and paying takes the Editor level.',
     purpose: 'When you pay for something on behalf of the company, file a claim with the receipt. Your manager approves it, accounting approves it and pays you back, and every step is recorded on the claim.',
     gains: [
       'One place for receipts - no more emailing photos around.',
@@ -1102,7 +1102,7 @@ export const DOCS = [
       {
         title: 'Pay a Claim (Accounting)',
         steps: [
-          'Open Reimbursements. To Review holds the claims managers approved.',
+          'Open Accounting > Reimbursements. To Review holds the claims managers approved.',
           'Open one, check the receipts and Approve it - it moves to To Pay.',
           'Once the money has gone out, open it from To Pay, enter the date, method and reference, and click Mark Paid.',
         ],
@@ -1112,7 +1112,7 @@ export const DOCS = [
       { name: 'Expenses (Workday)', desc: 'Submit a claim and follow it; fix and resubmit one that was sent back.' },
       { name: 'Expense Claims (Team > Requests)', desc: 'Pending claims to decide, and every past claim of your team.' },
       { name: 'Expenses (People profile)', desc: 'Every claim one person has filed, with receipts and the timeline.' },
-      { name: 'Reimbursements', desc: "Accounting's queue: To Review, To Pay, Paid, with CSV export." },
+      { name: 'Accounting > Reimbursements', desc: "Accounting's queue: To Review, To Pay, Paid, with CSV export." },
     ],
     tips: ['A claim is never deleted. Rejected and canceled claims stay on the record.'],
   },

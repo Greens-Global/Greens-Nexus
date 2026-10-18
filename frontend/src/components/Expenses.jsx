@@ -4,8 +4,8 @@
 //                  your claims, fix and resubmit a sent-back one.
 //   TeamExpenses   Team > Requests (pending + history of your team) and
 //                  People > person > Expenses (`email` narrows to one person).
-//   ExpenseQueue   Reimbursements (the `reimbursements` grant): accounting
-//                  approves, marks paid, exports CSV.
+//   ExpenseQueue   Accounting > Reimbursements: accounting approves, marks
+//                  paid, exports CSV.
 //
 // One detail popup (ExpenseDetail) serves all three; the buttons in its
 // footer are the only thing that differs. Files go to the private
@@ -489,7 +489,7 @@ export function ExpenseQueue() {
         ? <PaidBar busy={busy} onPaid={p => act(() => api.expenseMarkPaid(open.id, p), 'Marked paid - the employee has been notified')} />
         : null);
   return (
-    <div style={{ fontFamily: 'Inter,sans-serif', maxWidth: 1100, margin: '0 auto' }}>
+    <div style={{ fontFamily: 'Inter,sans-serif' }}>
       {msg && (
         <div role="status" style={{ padding: '10px 14px', borderRadius: 10, marginBottom: 12, fontSize: 13, fontWeight: 600,
           background: msg.ok ? 'hsla(var(--color-green),0.1)' : 'rgba(220,38,38,0.08)', color: msg.ok ? 'hsl(var(--color-green))' : '#b91c1c' }}>{msg.text}</div>
@@ -519,5 +519,3 @@ export function ExpenseQueue() {
     </div>
   );
 }
-
-export default ExpenseQueue;

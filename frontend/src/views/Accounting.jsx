@@ -35,6 +35,7 @@ import { ArrowLeftRight, BookOpen, PieChart, Scale, Target, Activity } from 'luc
 import { ChartColumn, HandCoins } from 'lucide-react';
 import ProfitabilityReport from '../components/accounting/ProfitabilityReport';
 import CompensationReport from '../components/accounting/CompensationReport';
+import { ExpenseQueue } from '../components/Expenses';
 
 // Accounting in Nexus reads the Nexus Accounting ledger (a one-way Intacct ->
 // Supabase mirror; Intacct stays the source of truth and nothing is written
@@ -124,6 +125,10 @@ const TABS = [
   // payroll allocation entry from Time Clock hours.
   { key: 'budget', label: 'Budget', Icon: Calculator },
   { key: 'partners', label: 'Vendors & Customers', Icon: Users },
+  // Oct 18 (Pranshu): expense claims a manager approved - accounting approves,
+  // marks paid, exports. Every company's claims, so not for an entity-limited
+  // person (not in LIMITED_TABS; the backend's require_unlimited agrees).
+  { key: 'reimbursements', label: 'Reimbursements', Icon: Receipt },
   // Oct 6 (Neil: "create a Tools section in accounting"): the utility screens.
   { key: 'tools', label: 'Tools', Icon: Wrench, items: [
     { key: 'data', label: 'Data', Icon: Database },
@@ -331,6 +336,7 @@ export default function Accounting({ activeSub, onSubChange }) {
               {sub === 'access' && canManage && <AccessTab />}
               {sub === 'budget' && <BudgetTab canEdit={canEdit} />}
               {sub === 'partners' && <PartnersTab canApprove={canApprovePartners} />}
+              {sub === 'reimbursements' && <ExpenseQueue />}
               {sub === 'allocations' && <AllocationsTab canEdit={canManage} />}
               {sub === 'mre' && <MreTab canEdit={canEdit} canDelete={canManage} />}
               {sub === 'imports' && <ImportHub />}

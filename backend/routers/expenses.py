@@ -5,7 +5,7 @@ enough - no separate proof of payment - and "What was it for" is required.
 
     employee submits (Workday > Expenses)  -> submitted
     manager decides  (Team > Requests)     -> manager_approved | rejected | sent_back
-    accounting       (Reimbursements)      -> approved | rejected | sent_back
+    accounting       (Accounting > Reimbursements) -> approved | rejected | sent_back
     accounting pays                        -> paid
 
 A sent-back claim is edited and resubmitted by the employee; submitted or
@@ -13,7 +13,9 @@ sent back, they can also cancel it. Who decides the manager step is the time
 off rule - timeclock._visible_emails (direct reports, Backup Manager, a
 company's HR contact for people with no manager, HR grant holders,
 administrators) - and nobody decides their own claim. The accounting step is
-the `reimbursements` module grant: viewer reads the queue, editor decides and
+a tab of Accounting (Pranshu, Oct 18: not a module of its own): the Accounting
+grant with no entity limit reads the queue (claims span every company, so it
+is a consolidated surface - require_unlimited), the editor level decides and
 pays. Bells are server-side and targeted (CLAUDE.md).
 
 Files live in the PRIVATE ticket-evidence bucket under an `expense-` prefix
@@ -31,24 +33,25 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from auth import get_current_user, require_module_grant, _module_level, _MODULE_LEVEL_RANK, _LEVELS
+from auth import get_current_user, scoped_ids, _module_level, _MODULE_LEVEL_RANK, _LEVELS
 from database import get_db
 from models import ExpenseClaim, NexusEmployee, NexusRole
 from routers.hr import _hr_notify
+from routers.accounting import ACCOUNTING_SCOPE_MODULE, require_unlimited
 from routers.items import _validate_photo_url
 from routers.timeclock import (_visible_emails, _notify_team_alert, _display_name, _now_iso,
                                require_approval_read, require_approval_write)
 
 router = APIRouter(prefix="/expenses", tags=["Expenses"])
 
-MODULE_ID = "reimbursements"
+MODULE_ID = "accounting"
 CATEGORIES = ("travel", "meals", "supplies", "software", "equipment", "other")
 MAX_AMOUNT = 1_000_000           # a typo guard, not a policy limit
 MAX_FILES = 10
 
 _EMPLOYEE_ACTION = {"view": "myhr", "sub": "expenses"}
 _MANAGER_ACTION = {"view": "shifts", "sub": "requests"}
-_ACCOUNTING_ACTION = {"view": "reimbursements", "sub": ""}
+_ACCOUNTING_ACTION = {"view": "accounting", "sub": "reimbursements"}
 
 
 class ClaimIn(BaseModel):
@@ -149,10 +152,11 @@ def _get(db: Session, claim_id: str, lock: bool = False) -> ExpenseClaim:
 
 
 def _accounting_recipients(db: Session, exclude: str) -> list:
-    """Editors of the reimbursements grant; with none, the administrators -
-    an approved claim is never left waiting on nobody."""
+    """Accounting editors who can open the tab (no entity limit); with none,
+    the administrators - an approved claim is never left waiting on nobody."""
     from workforce_scorecard import grant_holders
-    out = {em for em, rank in grant_holders(db, MODULE_ID).items() if rank >= _MODULE_LEVEL_RANK["editor"]}
+    out = {em for em, rank in grant_holders(db, MODULE_ID).items()
+           if rank >= _MODULE_LEVEL_RANK["editor"] and scoped_ids(em, ACCOUNTING_SCOPE_MODULE, db) is None}
     if not out:
         out = {(r.email or "").strip().lower() for r in db.query(NexusRole)
                .filter(NexusRole.role.in_(["administrator", "owner"])).all() if r.email}
@@ -300,14 +304,18 @@ def _tell_employee(db: Session, row: ExpenseClaim, actor: str, note: str = "") -
                ref_id=row.id, requested_by=actor, action=_EMPLOYEE_ACTION)
 
 
-# ── Accounting: Reimbursements ───────────────────────────────────────────────
+# ── Accounting > Reimbursements ──────────────────────────────────────────────
+
+def _require_reviewer(scope: dict = Depends(require_unlimited), db: Session = Depends(get_db)) -> dict:
+    if not _can_review(scope["user"], db):
+        raise HTTPException(403, "Approving and paying claims needs the Editor level on Accounting.")
+    return scope["user"]
+
 
 @router.get("/queue")
-def queue(status: str = "", user: dict = Depends(require_module_grant(MODULE_ID, "viewer")),
-          db: Session = Depends(get_db)):
-    """Every claim, newest first - the manager-approved ones are the work.
-    shortcut: company-wide; add nexus_access_scopes per company if a grant
-    holder must see only some companies' claims."""
+def queue(status: str = "", scope: dict = Depends(require_unlimited), db: Session = Depends(get_db)):
+    """Every claim, newest first - the manager-approved ones are the work."""
+    user = scope["user"]
     q = db.query(ExpenseClaim)
     if status:
         q = q.filter(ExpenseClaim.status == status)
@@ -317,7 +325,7 @@ def queue(status: str = "", user: dict = Depends(require_module_grant(MODULE_ID,
 
 
 @router.post("/{claim_id}/review")
-def accounting_decide(claim_id: str, body: DecisionIn, user: dict = Depends(require_module_grant(MODULE_ID, "editor")),
+def accounting_decide(claim_id: str, body: DecisionIn, user: dict = Depends(_require_reviewer),
                       db: Session = Depends(get_db)):
     row = _get(db, claim_id, lock=True)
     if row.employee_email == user["email"]:
@@ -333,7 +341,7 @@ def accounting_decide(claim_id: str, body: DecisionIn, user: dict = Depends(requ
 
 
 @router.post("/{claim_id}/paid")
-def mark_paid(claim_id: str, body: PaidIn, user: dict = Depends(require_module_grant(MODULE_ID, "editor")),
+def mark_paid(claim_id: str, body: PaidIn, user: dict = Depends(_require_reviewer),
               db: Session = Depends(get_db)):
     row = _get(db, claim_id, lock=True)
     if row.employee_email == user["email"]:
