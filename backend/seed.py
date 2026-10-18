@@ -120,7 +120,7 @@ if db.query(models.RampTransaction).count() == 0:
         models.RampTransaction(id='TXN-9032', vendor='Cemex Ready-Mix', cost=1200.00, date='May 21, 2026', category='Materials', memo='', missing=True),
         models.RampTransaction(id='TXN-9033', vendor='AWS Cloud Billing', cost=452.10, date='May 20, 2026', category='IT Infrastructure', memo='', missing=True),
         models.RampTransaction(id='TXN-9034', vendor='Home Depot', cost=89.50, date='May 19, 2026', category='Tools', memo='Hand tools for Site-B framing crew', missing=False),
-        models.RampTransaction(id='TXN-9035', vendor='Adobe Creative Cloud', cost=79.99, date='May 18, 2026', category='Software Licences', memo='', missing=True),
+        models.RampTransaction(id='TXN-9035', vendor='Adobe Creative Cloud', cost=79.99, date='May 18, 2026', category='Software Licenses', memo='', missing=True),
     ]
     db.add_all(ramps)
 

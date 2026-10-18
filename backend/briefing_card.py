@@ -36,7 +36,7 @@ _SECTION = {
 _ORDER = ["action_required", "needs_to_know", "completed"]
 _MODULE_LABEL = {
     "tasks": "Tasks", "tickets": "Tickets", "documents": "Documents", "time_off": "Time Off",
-    "timecard": "Time Card", "shifts": "Shifts", "items": "Items", "team": "Team",
+    "timecard": "Time Sheet", "shifts": "Shifts", "items": "Items", "team": "Team",
 }
 _MODULE_ORDER = ["tasks", "tickets", "documents", "time_off", "timecard", "shifts", "items", "team"]
 # First rows show; the next ones sit behind "Show N More" (still in the email);

@@ -968,8 +968,8 @@ def _apply(db: Session, r: models.ShiftRequest, actor: str, force: bool = False)
         # describes a shift that no longer has an owner: cancelled, the same
         # way a publish cancels them (cancel_requests_for_shifts), with this
         # request itself left alone.
-        _end_others(db, [shift.id], r.id, actor, "cancelled", RELEASED_NOTE, "Shift request cancelled",
-                    "A shift in your request was released to the open pool before it was decided, so the request was cancelled.")
+        _end_others(db, [shift.id], r.id, actor, "cancelled", RELEASED_NOTE, "Shift request canceled",
+                    "A shift in your request was released to the open pool before it was decided, so the request was canceled.")
         return []
     if r.kind == "swap":
         other = _live_shift(db, r.target_shift_id, lock=True)
@@ -1021,8 +1021,8 @@ def cancel_requests_for_shifts(db: Session, shift_ids: list, actor: str) -> int:
     """Publishing an edit or a removal of a shift (routers/timeclock.
     publish_schedule) cancels the pending swap / offer / open requests
     about it and bells the requester. Returns how many."""
-    return _end_others(db, list(shift_ids), "", actor, "cancelled", CHANGED_NOTE, "Shift request cancelled",
-                       "A shift in your request was changed or removed before it was decided, so the request was cancelled.")
+    return _end_others(db, list(shift_ids), "", actor, "cancelled", CHANGED_NOTE, "Shift request canceled",
+                       "A shift in your request was changed or removed before it was decided, so the request was canceled.")
 
 
 @router.post("/{req_id}/decide")

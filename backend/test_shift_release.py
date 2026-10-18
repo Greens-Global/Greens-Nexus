@@ -222,7 +222,7 @@ class ReleaseTests(_Case):
                          "delete")
         s = self.db.query(models.ShiftRequest).filter(models.ShiftRequest.id == swap["id"]).first()
         self.assertEqual((s.status, s.decision_note), ("cancelled", "Shift released to the open pool"))
-        self.assertIn("Shift request cancelled", self._titles(B))
+        self.assertIn("Shift request canceled", self._titles(B))
         self.assertIn("Shift request approved", self._titles(A))
         # Teammates can now ask for it; the open slot is in the pool.
         self.assertEqual([(o["id"], o["openSlots"], o["crossTeam"]) for o in self._open_for(B)], [(x, 1, False)])

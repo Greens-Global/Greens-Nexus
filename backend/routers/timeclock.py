@@ -476,7 +476,7 @@ def _notify_out_of_fence(db: Session, emp, row, geo: dict) -> None:
             + (f"<p>Location: {lat}, {lng}</p>" if lat and lng else "<p>No coordinates were captured.</p>")
             + f"<p><a href='{link}' style='display:inline-block;padding:9px 16px;background:#166534;color:#fff;"
               f"border-radius:8px;text-decoration:none;font-weight:600'>Review the Punch in Nexus</a></p>"
-            + f"<p style='color:#6b7280;font-size:12px'>Or open Nexus - People - Time - {who}'s timecard.</p>")
+            + f"<p style='color:#6b7280;font-size:12px'>Or open Nexus - People - Time - {who}'s time sheet.</p>")
     subject = f"Out-of-fence punch: {who} {verb} at {when}"
     to = [emp.manager_email]
 
@@ -1559,7 +1559,7 @@ def _exceptions_409(exc: list, can_override: bool = True):
     n = len(exc)
     raise HTTPException(409, {
         "code": "unresolved_exceptions",
-        "message": (f"Fix {'this' if n == 1 else f'these {n} problems'} on the timesheet before sign-off - "
+        "message": (f"Fix {'this' if n == 1 else f'these {n} problems'} on the time sheet before sign-off - "
                     f"{_exception_summary(exc)}."
                     + (" Or override to sign off anyway." if can_override
                        else " Or send it back to the employee to fix.")),
@@ -1645,7 +1645,7 @@ def approve_timecard(body: ApprovalIn, user: dict = Depends(require_team_write),
     email = body.email.strip().lower()
     scope = _visible_emails(db, user)
     if scope is not None and email not in scope:
-        raise HTTPException(403, "You can only approve your own team's timecards.")
+        raise HTTPException(403, "You can only approve your own team's time sheets.")
     if body.days:
         for _d in body.days:
             _guard_not_finalized(db, email, _d)
@@ -1694,7 +1694,7 @@ def approve_timecard(body: ApprovalIn, user: dict = Depends(require_team_write),
                         "workedMin": worked, "stale": False}
         total = sum(v["workedMin"] for v in out.values())
         label = _us_day(days[0]) if len(days) == 1 else f"{_us_span(days[0], days[-1])} ({len(days)} days)"
-        _hr_notify(db, email, "Timecard approved",
+        _hr_notify(db, email, "Time Sheet Approved",
                    f"Your hours for {label} ({total // 60}h {total % 60:02d}m) were approved for payroll.",
                    action={"view": "timeclock", "sub": ""})
         db.commit()
@@ -1725,7 +1725,7 @@ def approve_timecard(body: ApprovalIn, user: dict = Depends(require_team_write),
                        worked_min=worked, approved_by=user["email"], approved_at=now,
                        note=(body.note or "").strip()[:300])
     db.add(row)
-    _hr_notify(db, email, "Timecard approved",
+    _hr_notify(db, email, "Time Sheet Approved",
                f"Your hours for {_us_span(body.start, body.end)} ({worked // 60}h {worked % 60:02d}m) "
                f"were approved for payroll.",
                ref_id=row.id, action={"view": "timeclock", "sub": ""})
@@ -1806,7 +1806,7 @@ def sign_my_timecard(body: SignTimecardIn, user: dict = Depends(get_current_user
     Retired (Sep 2026): the employee now signs in Nexus Sign at the end of the
     review (timesheet_review.py), so this one-click path would be a way around
     the manager and HR. Kept as a clear refusal for any old client."""
-    raise HTTPException(410, "Timesheets are now signed in Nexus Sign. Submit your timesheet for "
+    raise HTTPException(410, "Time sheets are now signed in Nexus Sign. Submit your time sheet for "
                              "review; once your manager agrees you'll be asked to sign it.")
 
 
@@ -1877,15 +1877,15 @@ def finalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrat
         if not at:
             return f"{label} (not signed)"
         who = (s.get("name") if s else "") or by.split("@")[0].replace(".", " ").title()
-        return f"{label} {who} ({at[:10]})"
+        return f"{label} {who} ({_us_day(at)})"
 
     _sigs = "; ".join([
         _sig(_so.get("signed"), "signed by"),
         _sig(_so.get("approval"), "approved by"),
         _sig(None, "finalized by", user["email"], row.approved_at),
     ])
-    _hr_notify(db, email, "Timecard finalized",
-               f"Your timecard {_us_span(body.start, body.end)} is finalized for payroll "
+    _hr_notify(db, email, "Time Sheet Finalized",
+               f"Your time sheet {_us_span(body.start, body.end)} is finalized for payroll "
                f"({worked // 60}h {worked % 60:02d}m) and locked. Signatures: {_sigs}.",
                action={"view": "timeclock", "sub": "timesheet"})
     db.commit()
@@ -1915,8 +1915,8 @@ def unfinalize_timecard(body: FinalizeIn, user: dict = Depends(require_administr
         _rv.status = "unlocked"
         _tsr._round(db, _rv, by=user["email"], action="unlocked",
                     note="Period unlocked by HR for corrections - submit it again when the hours are right")
-        _hr_notify(db, email, "Timecard unlocked",
-                   f"HR unlocked your timecard for {_us_span(body.start, body.end)} for corrections. "
+        _hr_notify(db, email, "Time Sheet Unlocked",
+                   f"HR unlocked your time sheet for {_us_span(body.start, body.end)} for corrections. "
                    f"Once the hours are right, submit it again for review and signatures.",
                    action={"view": "timeclock", "sub": "timesheet"})
     db.commit()
@@ -2044,7 +2044,7 @@ def _notify_timecard_change(db: Session, *, employee_email: str, actor_email: st
     from notify_rollup import upsert_rollup
     em = (employee_email or "").strip().lower()
     key = f"tc-edit:{em}:{local_date or ''}"
-    title = f"Timecard edited - {_display_name(db, em)}"
+    title = f"Time Sheet Edited - {_display_name(db, em)}"
     action = _timecard_action(db, employee_email, local_date)
     company = notification_company(db, employee_email, actor_email)
     for recipient in _team_alert_recipients(db, employee_email, actor_email, owners_as_fallback=True):
@@ -2057,7 +2057,7 @@ def _tell_employee_timecard(db: Session, employee_email: str, local_date: str, l
     notice per day, growing with each change, not one per punch."""
     from notify_rollup import upsert_rollup
     em = (employee_email or "").strip().lower()
-    upsert_rollup(db, recipient=em, key=f"tc-you:{em}:{local_date or ''}", title="Your timecard was changed",
+    upsert_rollup(db, recipient=em, key=f"tc-you:{em}:{local_date or ''}", title="Your Time Sheet Was Changed",
                   line=line, action={"view": "timeclock", "sub": "timecard"},
                   company=notification_company(db, em))
 
@@ -2179,7 +2179,7 @@ def manager_add_punch(body: ManagerPunchIn, user: dict = Depends(require_team_wr
         db, employee_email=row.employee_email, actor_email=user["email"],
         local_date=row.local_date,
         body=f"{_display_name(db, user['email'])} added a {row.kind.replace('_', ' ')} punch on "
-             f"{_us_day(row.local_date)} to {_display_name(db, row.employee_email)}'s timecard"
+             f"{_us_day(row.local_date)} to {_display_name(db, row.employee_email)}'s time sheet"
              + (f": {(body.note or '').strip()[:200]}" if (body.note or "").strip() else "."),
         ref_id=row.id)
     db.commit()
@@ -3052,7 +3052,7 @@ def create_punch_request(body: PunchRequestIn, user: dict = Depends(get_current_
         if _pr_dupes(db, probe, lock=False):
             raise HTTPException(409, "You already asked for this fix.")
         if _same_live_punch(db, probe) is not None:
-            raise HTTPException(409, "That punch is already on your timecard.")
+            raise HTTPException(409, "That punch is already on your time sheet.")
         # The employee's other pending add requests count as if real: asking
         # for an in, then for its out, is how a missing pair gets requested.
         from types import SimpleNamespace
@@ -3089,7 +3089,7 @@ def create_punch_request(body: PunchRequestIn, user: dict = Depends(get_current_
     # older client still opens the person's card.
     action = {**_timecard_action(db, req.employee_email, local_date),
               "sub": "hr-time-requests", "punchRequestId": req.id}
-    _notify_approvers(db, employee_email=req.employee_email, title="Timesheet fix requested",
+    _notify_approvers(db, employee_email=req.employee_email, title="Time Sheet Fix Requested",
                       body=f"{name} asked to {what} on {_us_day(local_date)}.\nReason: {reason}",
                       ref_id=req.id, action=action)
     db.commit()
@@ -3199,7 +3199,7 @@ def _close_dupes(db: Session, reqs: list, user: dict, now: str, note: str) -> in
 
 _DUPE_APPROVED = "Duplicate of an approved request"
 _DUPE_REJECTED = "Duplicate of a rejected request"
-_DUPE_ON_CARD = "Duplicate of a punch already on the timecard"
+_DUPE_ON_CARD = "Duplicate of a punch already on the time sheet"
 
 
 def _punch_when(p) -> tuple:
@@ -3263,9 +3263,9 @@ def _cannot_apply_msg(db: Session, reqs: list, problems: set, punches_after: lis
         us_day = datetime.strptime(day, "%Y-%m-%d").strftime("%m/%d/%Y")
     except ValueError:
         us_day = d
-    return (f"{who}'s {what} on {d} can't be added as it stands: the timecard for {us_day} would then have "
+    return (f"{who}'s {what} on {d} can't be added as it stands: the time sheet for {us_day} would then have "
             f"{_PROBLEM_WORDS.get(prob, 'a punch out of order')}. With it, that day reads: "
-            f"{_punch_list_text(punches_after, day)}. Ask {who} for the missing time, or open the timecard "
+            f"{_punch_list_text(punches_after, day)}. Ask {who} for the missing time, or open the time sheet "
             f"and set the times there.")
 
 
@@ -3499,13 +3499,13 @@ def decide_punch_request(req_id: str, body: PunchRequestDecision,
                     p.decided_by, p.decided_at = user["email"], now
                     p.decision_note = (f"Approved together with the {_kind_label(r.punch_kind)} "
                                        f"at {_punch_when(r)[0]} on {_punch_when(r)[1]}.")
-                    _hr_notify(db, p.employee_email, "Timesheet fix approved",
+                    _hr_notify(db, p.employee_email, "Time Sheet Fix Approved",
                                "Your request to add a punch was approved.",
                                ref_id=p.id, action={"view": "timeclock", "sub": "timesheet"})
                 note = (note + " " if note else "") + "Also added the " + ", ".join(
                     f"{_kind_label(p.punch_kind)} at {_punch_when(p)[0]}" for p in partners) + " from the same fix."
             if voided_strays:
-                note = (note + " " if note else "") + f"Replaced {', '.join(voided_strays)} on the timecard."
+                note = (note + " " if note else "") + f"Replaced {', '.join(voided_strays)} on the time sheet."
         else:  # remove → void the target punch (kept for audit, excluded from totals)
             tp = db.query(TimePunch).filter(TimePunch.id == r.target_punch_id).first()
             if tp:
@@ -3514,14 +3514,14 @@ def decide_punch_request(req_id: str, body: PunchRequestDecision,
                 tp.adjusted_at = now
                 tp.adjust_note = f"Voided via approved punch-fix request. {note}".strip()
                 r.applied_punch_id = tp.id
-        _hr_notify(db, r.employee_email, "Timesheet fix approved",
+        _hr_notify(db, r.employee_email, "Time Sheet Fix Approved",
                    f"Your request to {'add' if r.action=='add' else 'remove'} a punch was approved."
                    + (f" Note: {note}" if note else ""),
                    ref_id=r.id, action={"view": "timeclock", "sub": "timesheet"})
         # Every copy of an applied fix is now a duplicate (no bell for those).
         _close_dupes(db, [r] + partners, user, now, _DUPE_APPROVED)
     else:  # rejected
-        _hr_notify(db, r.employee_email, "Timesheet fix rejected",
+        _hr_notify(db, r.employee_email, "Time Sheet Fix Rejected",
                    f"Your request to {'add' if r.action=='add' else 'remove'} a punch was not approved."
                    + (f" Reason: {note}" if note else ""),
                    ref_id=r.id, action={"view": "timeclock", "sub": "timesheet"})
@@ -3621,7 +3621,7 @@ def request_punch_edit(body: PunchEditIn, user: dict = Depends(get_current_user)
     row.edit_reviewed_by, row.edit_reviewed_at = "", ""
     emp = db.query(NexusEmployee).filter(NexusEmployee.work_email == email).first()
     name = f"{emp.first_name} {emp.last_name}".strip() if emp else email.split("@")[0].replace(".", " ").title()
-    _notify_approvers(db, employee_email=email, title="Timesheet edit requested",
+    _notify_approvers(db, employee_email=email, title="Time Sheet Edit Requested",
                       body=f"{name} asked to adjust their {_kind_label(row.kind)} punch on {_us_day(row.local_date)}."
                       + (f"\nReason: {row.edit_reason}" if row.edit_reason else ""),
                       ref_id=row.id, action=_timecard_action(db, email, row.local_date))
@@ -3685,7 +3685,7 @@ def decide_punch_edit(punch_id: str, body: PunchEditDecision,
                    ref_id=row.id, action={"view": "timeclock", "sub": "timesheet"})
     else:
         _hr_notify(db, row.employee_email, "Punch edit rejected",
-                   f"Your edited {row.kind} punch time was not approved; your timesheet is unchanged."
+                   f"Your edited {row.kind} punch time was not approved; your time sheet is unchanged."
                    + (f" Reason: {note}" if note else ""),
                    ref_id=row.id, action={"view": "timeclock", "sub": "timesheet"})
     row.pending_at = ""
@@ -7315,7 +7315,7 @@ def copy_schedule(body: CopyScheduleIn, user: dict = Depends(require_schedule_wr
                 published=0, created_by=user["email"], created_at=now)
             db.add(new_row)
             shift_log.record(db, "copied", new_row, user["email"], before=shift_log.snapshot(src),
-                             after=shift_log.snapshot(new_row), reason=f"Copied from {src['date']}")
+                             after=shift_log.snapshot(new_row), reason=f"Copied from {_us_day(src['date'])}")
             created += 1
     timeoff_copied = _copy_timeoff(db, user, body, s0, s1, span, repeats) if body.include_timeoff else 0
     db.commit()
@@ -7422,7 +7422,7 @@ def move_scheduled(sched_id: str, body: MoveIn, user: dict = Depends(require_sch
             db.delete(row)
     else:
         shift_log.record(db, "copied", new, user["email"], before=src_snap, after=new_snap,
-                         reason=f"Duplicated from {eff['date']}")
+                         reason=f"Duplicated from {_us_day(eff['date'])}")
     db.commit()
     return {"shift": _sched_dict(new, presets, effective=True, team_tz=team_tz), "moved": not body.duplicate,
             "sourcePending": pending_removal}
@@ -10077,7 +10077,7 @@ def bod_for_day(email: str, date: str, user: dict = Depends(get_current_user), d
     if target != user["email"]:
         visible = _visible_emails(db, user)
         if visible is not None and target not in visible:
-            raise HTTPException(403, "You don't have timesheet access to that person.")
+            raise HTTPException(403, "You don't have time sheet access to that person.")
 
     rows = (db.query(TimeBod)
             .filter(TimeBod.employee_email == target, TimeBod.local_date == date,
@@ -10680,12 +10680,12 @@ def cancel_timeoff(req_id: str, user: dict = Depends(get_current_user), db: Sess
     row.decided_at = _now_iso()
     if was_approved:
         _notify_team_alert(db, employee_email=user["email"], actor_email=user["email"],
-                           title="Time off cancelled",
-                           body=f"{_display_name(db, user['email'])} cancelled their {_bell_kind(row)} request "
+                           title="Time off canceled",
+                           body=f"{_display_name(db, user['email'])} canceled their {_bell_kind(row)} request "
                                 f"{_us_span(row.start_date, row.end_date)}"
                                 f"{_timeoff_window(getattr(row, 'start_time', '') or '', getattr(row, 'end_time', '') or '')}.",
                            ref_id=row.id, action={"view": "hr", "sub": "hr-time"})
-        _tell_reports_manager_off(db, row, "Your manager's time off is cancelled", "is no longer off")
+        _tell_reports_manager_off(db, row, "Your manager's time off is canceled", "is no longer off")
     db.commit()
     return _ser_timeoff(row, priv=_TimeoffPrivacy(db, user["email"]))
 
@@ -11003,7 +11003,7 @@ def add_time(body: AddTimeIn, user: dict = Depends(require_team_write), db: Sess
     _notify_timecard_change(
         db, employee_email=em, actor_email=user["email"], local_date=doing[0]["date"],
         body=f"{_display_name(db, user['email'])} added {hrs} over {n} day{'' if n == 1 else 's'} ({dates}) "
-             f"to {_display_name(db, em)}'s timecard: {reason[:200]}",
+             f"to {_display_name(db, em)}'s time sheet: {reason[:200]}",
         ref_id=batch_id)
     db.commit()
     return {"batchId": batch_id, "days": public, "added": n, "totalMin": total}
@@ -11031,7 +11031,7 @@ def add_time_undo(batch_id: str, user: dict = Depends(require_team_write), db: S
         _tell_employee_timecard(db, em, rows[0].local_date,
                                 f"The time a manager added for {dates} was taken back.")
     _notify_timecard_change(db, employee_email=em, actor_email=user["email"], local_date=rows[0].local_date,
-                            body=f"{_display_name(db, user['email'])} undid the time added to {_display_name(db, em)}'s timecard for {dates}.",
+                            body=f"{_display_name(db, user['email'])} undid the time added to {_display_name(db, em)}'s time sheet for {dates}.",
                             ref_id=batch_id)
     db.commit()
     return {"voided": len(rows)}

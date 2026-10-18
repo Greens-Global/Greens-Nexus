@@ -97,7 +97,7 @@ class TeamAlertTests(unittest.TestCase):
         self.assertEqual(self._recipients(), [NEIL])
 
     def test_timesheet_request_without_a_manager_is_not_a_broadcast(self):
-        timeclock._notify_approvers(self.db, employee_email=ORPHAN, title="Timesheet fix requested",
+        timeclock._notify_approvers(self.db, employee_email=ORPHAN, title="Time Sheet Fix Requested",
                                     body="please fix")
         self.db.commit()
         self.assertEqual(self._recipients(), [NEIL])

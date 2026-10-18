@@ -89,9 +89,9 @@ def _email(db, email: str, hours: int):
             "session.</p>"
             "<p><b>Forgot to punch out?</b> Open Time Clock in Nexus and use "
             "<b>\"I forgot - fix my punch-out\"</b> (or \"Add clock-out\" on the open session in "
-            "your timesheet) to set the real end time. Your approver confirms the fix.</p>"
+            "your time sheet) to set the real end time. Your approver confirms the fix.</p>"
             "<p style=\"color:#6b7280;font-size:12px\">Sessions over "
-            f"{LONG_SESSION_HOURS} hours are flagged on the timesheet until corrected.</p>"
+            f"{LONG_SESSION_HOURS} hours are flagged on the time sheet until corrected.</p>"
         )
         graph_mail.send_mail(from_email=from_email, to=[email], cc=None,
                              subject=f"Nexus - Time clock - Clocked in {hours}+ hours",

@@ -129,7 +129,7 @@ class ReopenTests(Oct16Case):
         r = self._r()
         self.assertEqual((r.status, r.sign_request_id, r.rounds[-1]["action"]), ("with_manager", "", "reopened"))
         self.assertEqual(self.db.get(models.HrSignRequest, rid).status, "voided")
-        self.assertEqual(self._bells(EMP)[-1].title, "Timesheet back for review")
+        self.assertEqual(self._bells(EMP)[-1].title, "Time Sheet Back for Review")
 
     def test_a_dry_run_changes_nothing(self):
         self._agreed()
@@ -157,7 +157,7 @@ class HrOverrideTests(Oct16Case):
         self.assertEqual((r.status, r.sign_request_id), ("approved", ""))
         self.assertEqual([e["action"] for e in r.rounds], ["agreed", "hr_edited"])
         self.assertEqual(self.db.get(models.HrSignRequest, rid).status, "voided")
-        self.assertEqual([b.title for b in self._bells(EMP)].count("Timesheet updated by HR"), 1)
+        self.assertEqual([b.title for b in self._bells(EMP)].count("Time Sheet Updated by HR"), 1)
         view = tsr.state_for(self.db, EMP, self.start, EMP, False)
         self.assertTrue(view["canEmployeeApprove"])
         tsr.employee_approve(self.db, r, EMP)                # a fresh envelope of the edited card
@@ -203,7 +203,7 @@ class PopUpTests(Oct16Case):
         self.db.add(models.NexusEmployee(id="id-Other", work_email="other.mgr@greensglobal.com",
                                          first_name="Oz", last_name="Test", company=ENTITY, status="active"))
         self.db.commit()
-        timeclock._notify_approvers(self.db, employee_email=EMP, title="Timesheet fix requested", body="x")
+        timeclock._notify_approvers(self.db, employee_email=EMP, title="Time Sheet Fix Requested", body="x")
         self.db.commit()
         to = {n.recipient for n in self.db.query(models.NexusNotification).all()}
         self.assertTrue({MGR, HR, TOP} <= to, to)

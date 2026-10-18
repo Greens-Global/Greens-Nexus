@@ -376,7 +376,7 @@ def _log_call(db: Session, r, actor: str, kind: str, reason: str, before: dict) 
 
 
 def headline(kind: str, new_start: str = "", new_end: str = "", move_to: str = "") -> str:
-    return {"cancel": "Day cancelled for weather (unpaid)",
+    return {"cancel": "Day canceled for weather (unpaid)",
             "delay": f"Start delayed to {_t12(new_start)} for weather",
             "end_early": f"Ending early at {_t12(new_end)} for weather",
             "move": f"Moved to {move_to} for weather",
@@ -495,7 +495,7 @@ def sms_text(company_name: str, g, site_name: str, day: str, p: dict, d, url: st
     where = f" at {site_name}" if site_name else ""
     head = f"{company_name or 'Nexus'}: {g.name} - {_day_label(day)}{where}."
     if p["outcome"] == "cancelled":
-        line = f"Your shift ({start}) is CANCELLED for weather (unpaid)."
+        line = f"Your shift ({start}) is CANCELED for weather (unpaid)."
     elif p["outcome"] == "delayed":
         moved = first.get("date") and first.get("date") != day
         on = f" on {_day_label(first['date'])}" if moved else ""
@@ -518,10 +518,10 @@ def _email(company_name: str, g, site_name: str, day: str, p: dict, d, url: str,
     band = theme.color("#0f3d2e")
     first = p["shifts"][0] if p.get("shifts") else {}
     start = _t12(first.get("originalStart") or first.get("start") or "")
-    what = {"cancelled": f"Your {_day_label(day)} shift is cancelled", "delayed": f"Your {_day_label(day)} shift starts later",
+    what = {"cancelled": f"Your {_day_label(day)} shift is canceled", "delayed": f"Your {_day_label(day)} shift starts later",
             "shortened": f"Your {_day_label(day)} shift ends early", "moved": f"Your {_day_label(day)} shift moves",
             "kept": f"Your {_day_label(day)} shift goes ahead"}[p["outcome"]]
-    detail = {"cancelled": f"The {start} shift at {site_name or 'the site'} is cancelled for weather. The day is unpaid.",
+    detail = {"cancelled": f"The {start} shift at {site_name or 'the site'} is canceled for weather. The day is unpaid.",
               "delayed": f"Start at {_t12(d.new_start)}{' on ' + _day_label(first['date']) if first.get('date') and first.get('date') != day else ''} instead of {start} at {site_name or 'the site'}.",
               "shortened": f"The {start} shift ends at {_t12(d.new_end)} instead.",
               "moved": f"Report to {d.move_to} instead of {site_name or 'the usual site'} at {start}.",
@@ -601,7 +601,7 @@ def _bell_person(db: Session, d, g, p: dict, decider_name: str) -> str:
     row, not a send). Returns the bell's title, which the Teams DM reuses."""
     title = f"Weather call: {headline(d.kind, d.new_start, d.new_end, d.move_to)}" if p["outcome"] != "kept" else "Weather call: your shift goes ahead"
     if p["outcome"] == "cancelled" and d.kind != "cancel":
-        title = "Weather call: your shift is cancelled (unpaid)"
+        title = "Weather call: your shift is canceled (unpaid)"
     body = f"{g.name}, {_day_label(d.work_date)}. {d.reason} Tap Acknowledge in My Shifts so {decider_name} knows you saw this."
     _bell(db, p["email"], f"weather-call:{d.id}", title, body, action=MY_SHIFTS, company=d.company, priority=1)
     return title
@@ -636,7 +636,7 @@ def notify_person(db: Session, d, g, p: dict, *, site_name: str, company_name: s
     if not reminder:
         title = f"Weather call: {headline(d.kind, d.new_start, d.new_end, d.move_to)}" if p["outcome"] != "kept" else "Weather call: your shift goes ahead"
         if p["outcome"] == "cancelled" and d.kind != "cancel":
-            title = "Weather call: your shift is cancelled (unpaid)"
+            title = "Weather call: your shift is canceled (unpaid)"
         subject, html = _email(company_name, g, site_name, d.work_date, p, d, url, decider_name)
         out["email"] = _send_email(p["email"], subject, html)
         out["teams"] = _teams_dm(db, actor, p["email"], f"<p><b>{escape(title)}</b><br>{escape(text)}</p>")
@@ -800,7 +800,7 @@ def ack_page(db: Session, token: str, *, do: bool = False) -> tuple:
     g = _group(db, d.group_id)
     first = (hit.get("shifts") or [{}])[0]
     start = _t12(first.get("originalStart") or first.get("start") or "")
-    what = {"cancelled": f"your {start} shift is cancelled (unpaid)", "delayed": f"your shift starts at {_t12(d.new_start)}",
+    what = {"cancelled": f"your {start} shift is canceled (unpaid)", "delayed": f"your shift starts at {_t12(d.new_start)}",
             "shortened": f"your shift ends at {_t12(d.new_end)}", "moved": f"report to {d.move_to}",
             "kept": f"your {start} shift goes ahead"}.get(hit.get("outcome"), "")
     if d.status == "reinstated":
