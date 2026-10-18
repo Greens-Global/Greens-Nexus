@@ -157,6 +157,26 @@ class HourlyRetroTests(unittest.TestCase):
         self._raise("2026-09-15", 25.0)
         self.assertEqual(_run()["people"], [])
 
+    def test_a_per_day_snapshot_then_a_later_backdated_raise(self):
+        # Finalized with each day's rate (20 through Sun-Mon, 25 from Tue 9/15).
+        # Afterwards HR back-dates 30 to 9/13: Sun-Mon change (20 -> 30, Sun unworked),
+        # and Tue-Wed stay at 25 (the 9/15 row still wins from that day).
+        db = database.SessionLocal()
+        try:
+            row = db.query(models.TimeApproval).filter(models.TimeApproval.id == f"{HOURLY}-{PS}-final").first()
+            days = {f"2026-09-{d:02d}": (20.0 if d < 15 else 25.0) for d in range(int(PS[-2:]), int(PE[-2:]) + 1)}
+            row.note = json.dumps({"rate": 25.0, "rates": days, "rule": "ca", "payType": "hourly", "currency": "USD",
+                                   "monthlySalary": 0.0, "fullDayHours": 8.0})
+            db.commit()
+        finally:
+            db.close()
+        self._raise("2026-09-15", 25.0)
+        self._raise("2026-09-13", 30.0)
+        it = _run()["people"][0]["periods"][0]
+        self.assertEqual((it["changedFrom"], it["changedThrough"]), ("2026-09-13", "2026-09-14"))   # Sun had no hours
+        # Mon: 8 reg x $10 + 2 OT x $15 = $110 - priced against the frozen 20, not the 25 headline.
+        self.assertEqual(it["owed"], 110.0)
+
     def test_range_and_employee_filters(self):
         self._raise("2026-09-15", 25.0)
         self.assertEqual(_run(start="2026-10-01", end="2026-10-17")["people"], [])   # period outside the range

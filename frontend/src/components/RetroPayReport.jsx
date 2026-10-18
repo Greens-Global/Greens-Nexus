@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, Download } from 'lucide-react';
 import { api } from '../api';
 import AsyncSection, { SkeletonBlocks } from './AsyncState';
@@ -27,11 +27,15 @@ export default function RetroPayReport({ initiallyOpen = false }) {
   const [data, setData] = useState(null);
   const [state, setState] = useState({ loading: false, error: '', stepUp: false });
 
+  // Only the latest Run Report lands - a slow earlier range never overwrites a newer one.
+  const seq = useRef(0);
   const load = useCallback((s, e) => {
+    const mine = ++seq.current;
     setState({ loading: true, error: '', stepUp: false });
     api.timeRetroPay(s, e)
-      .then((d) => { setData(d); setState({ loading: false, error: '', stepUp: false }); })
+      .then((d) => { if (mine !== seq.current) return; setData(d); setState({ loading: false, error: '', stepUp: false }); })
       .catch((err) => {
+        if (mine !== seq.current) return;
         setData(null);
         const su = isStepUpRequired(err);
         setState({ loading: false, stepUp: su, error: su ? '' : (err?.message || 'Could not build the Retro Pay report.') });
