@@ -61,6 +61,10 @@ _DEFAULT_SETTINGS = {
         # SLA breach alerts (ticket_sla.scan_breaches): the bell, to the
         # assignee (or the desk) and the department lead. ON by default.
         "sla_breach": True,
+        # The Monday Weekly Ticket Report email to desk supervisors
+        # (ticket_reports.py, Oct 2026). ON by default; each person can
+        # also opt out on the Reports tab.
+        "weekly_report": True,
     },
     # Email to ticket (Oct 2026, ticket_inbound.py). Off by default: reading
     # the mailbox marks its mail read and files it away. While on, every

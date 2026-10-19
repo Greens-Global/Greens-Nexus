@@ -6210,6 +6210,11 @@ class NexusPersonPref(Base):
     # Profile > Date Format (Pranshu, Oct 20 2026): how this person reads dates
     # across Nexus - one of routers/roles.DATE_FORMATS; '' = the US default.
     date_format = Column(String, default="")
+    # Ticket Reports (Oct 2026, ticket_reports.py): their own choice for the
+    # Monday Weekly Ticket Report email - NULL = unset (the desk-access
+    # mode's default: on for roster supervisors, off under legacy), 1 = on,
+    # 0 = off. No column default on purpose. ALTER lines in main.py.
+    ticket_weekly_report = Column(Integer, nullable=True, default=None)
 
 
 class TaskAutomationRun(Base):
@@ -6945,3 +6950,25 @@ class TicketInboundEmail(Base):
     received_at         = Column(String, default="")
     processed_at        = Column(String, default="", index=True)
     auth_summary        = Column(String, default="")   # mail_inbound.auth_verdict
+
+
+class TicketReportEmailLog(Base):
+    """One row per person per reported week a Weekly Ticket Report email was
+    claimed (ticket_reports.py, Oct 2026) - written BEFORE the send and unique
+    on (recipient, week_start), so a restart or a second worker can never send
+    the same week twice. New table - create_all builds it; RLS line in main.py
+    plus the _enable_rls_everywhere sweep."""
+    __tablename__ = "ticket_report_email_log"
+    __table_args__ = (UniqueConstraint("recipient", "week_start", name="uq_ticket_report_email_week"),)
+    id            = Column(String, primary_key=True)   # uuid
+    recipient     = Column(String, nullable=False, index=True)
+    week_start    = Column(String, nullable=False, index=True)   # the reported Monday, YYYY-MM-DD
+    status        = Column(String, default="sending")  # sending | sent | failed | empty
+    sent_at       = Column(String, default="")         # UTC iso; '' when nothing was mailed
+    error         = Column(String, default="")
+    attempts      = Column(Integer, default=0)         # send tries; a failed / stuck one is retried up to 3
+    updated_at    = Column(String, default="")         # last claim or result - the retry's compare-and-set
+    created_count = Column(Integer, default=0)
+    resolved_count = Column(Integer, default=0)
+    open_count    = Column(Integer, default=0)
+    created_at    = Column(String, default="")

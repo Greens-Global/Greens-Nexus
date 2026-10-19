@@ -1117,6 +1117,8 @@ def _run_migrations():
             # Inbound mail: what Exchange said about the sender (mail_inbound.auth_verdict).
             "ALTER TABLE task_inbound_email ADD COLUMN auth_summary VARCHAR DEFAULT ''",
             "ALTER TABLE ticket_inbound_email ADD COLUMN auth_summary VARCHAR DEFAULT ''",
+            # Weekly Ticket Report opt-out (Oct 2026, ticket_reports.py). models.NexusPersonPref.
+            "ALTER TABLE nexus_person_prefs ADD COLUMN ticket_weekly_report INTEGER",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2497,6 +2499,11 @@ def _run_migrations():
         # Inbound mail: what Exchange said about the sender (mail_inbound.auth_verdict).
         "ALTER TABLE task_inbound_email ADD COLUMN IF NOT EXISTS auth_summary VARCHAR DEFAULT ''",
         "ALTER TABLE ticket_inbound_email ADD COLUMN IF NOT EXISTS auth_summary VARCHAR DEFAULT ''",
+        # Ticket Reports (Oct 2026, ticket_reports.py): the weekly email's
+        # per-person opt-out, and its send log - a new table, explicit RLS.
+        # models.NexusPersonPref / TicketReportEmailLog.
+        "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS ticket_weekly_report INTEGER",
+        "ALTER TABLE ticket_report_email_log ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -3444,6 +3451,20 @@ async def lifespan(app: FastAPI):
                 print("[startup] changelog auto-draft skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] changelog auto-draft skipped: {e}")
+        # Weekly Ticket Report (Oct 2026, ticket_reports.py): Monday 7 AM in
+        # each desk supervisor's own zone, one email per person per week
+        # (claimed in ticket_report_email_log before the send). Deployed-worker
+        # gated: it mails real people, which a laptop must never do. The scan
+        # runs in a thread.
+        try:
+            from leader import is_deployed_worker
+            if is_deployed_worker():
+                from ticket_reports import weekly_loop as ticket_report_loop
+                _tasks.append(_a.create_task(ticket_report_loop()))
+            else:
+                print("[startup] weekly ticket report skipped (not the deployed worker)")
+        except Exception as e:
+            print(f"[startup] weekly ticket report skipped: {e}")
         print(f"[startup] background jobs started ({len(_tasks)} loops)")
         return _tasks
     try:
@@ -3904,3 +3925,5 @@ from routers import leave_balances as leave_balances_router  # noqa: E402
 app.include_router(leave_balances_router.router)  # Paid leave balances: policies, opening import, accrual (Neil / Charmi, 10/19)
 from routers import location_trail as location_trail_router  # noqa: E402
 app.include_router(location_trail_router.router)  # Time Clock: Location Trail While Clocked In - web pings + manager map (Neil, 10/20)
+from routers import ticket_reports as ticket_reports_router  # noqa: E402
+app.include_router(ticket_reports_router.router)   # Tickets > Reports: the server-side report, its CSV and the weekly email opt-out (Oct 2026)

@@ -2507,6 +2507,12 @@ export const api = {
   // (supervisors, last 100) and a pass now instead of waiting for the loop.
   getTicketInboundLog: (params = {}) => req(`/task-tickets/inbound/log?${new URLSearchParams(params).toString()}`),
   drainTicketInbox: () => req('/task-tickets/inbound/drain', { method: 'POST' }),
+  // Tickets > Reports (Oct 2026, backend/ticket_reports.py): the server-side
+  // report, its CSV, and the caller's own Weekly Ticket Report email switch.
+  getTicketReport: (params = {}) => req(`/task-tickets/reports?${new URLSearchParams(params).toString()}`),
+  ticketReportCsv: (params = {}) => reqBlob(`/task-tickets/reports.csv?${new URLSearchParams(params).toString()}`),
+  getTicketReportMeta: () => req("/task-tickets/reports/meta"),
+  setTicketWeeklyEmail: (on) => req("/task-tickets/reports/weekly-email", { method: "PUT", body: JSON.stringify({ on }) }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
