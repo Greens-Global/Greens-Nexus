@@ -12,15 +12,16 @@ import PayrollExportCodes from './PayrollExportCodes';
 
 const DEFAULTS = [['regular', 'Regular Pay'], ['overtime', 'Overtime Pay'], ['doubleTime', 'Double-time Pay'],
   ['holiday', 'Holiday Pay'], ['sick', 'Sick Pay'], ['vacation', 'Vacation Pay'], ['personal', 'Personal Pay']];
-const payload = (company, custom = {}) => ({
+const payload = (company, custom = {}, qb = '') => ({
   company, maxLength: 31,
+  quickbooksCompanyName: qb, quickbooksCompanyDefault: company === 'co-b' ? 'Greens India' : 'Greens Global',
   classes: DEFAULTS.map(([key, d]) => ({ key, default: d, code: custom[key] || d, custom: key in custom })),
 });
 
 beforeEach(() => {
   apiMock.getEntities.mockReset().mockResolvedValue([{ id: 'co-a', name: 'Greens Global' }, { id: 'co-b', name: 'Greens India' }]);
   apiMock.timeExportCodesGet.mockReset().mockImplementation((co) => Promise.resolve(payload(co, co === 'co-b' ? { regular: 'REG-IN' } : {})));
-  apiMock.timeExportCodesSet.mockReset().mockImplementation((co, codes) => Promise.resolve(payload(co, Object.fromEntries(Object.entries(codes).filter(([, v]) => v.trim())))));
+  apiMock.timeExportCodesSet.mockReset().mockImplementation((co, codes, qb) => Promise.resolve(payload(co, Object.fromEntries(Object.entries(codes).filter(([, v]) => v.trim())), (qb || '').trim())));
 });
 
 describe('PayrollExportCodes', () => {
@@ -30,7 +31,7 @@ describe('PayrollExportCodes', () => {
     expect(reg.getAttribute('placeholder')).toBe('Regular Pay');
     expect(reg.value).toBe('');
     expect(screen.getByLabelText('Double Time (2x) code').getAttribute('placeholder')).toBe('Double-time Pay');
-    expect(screen.getAllByRole('textbox')).toHaveLength(7);
+    expect(screen.getAllByRole('textbox')).toHaveLength(8);   // seven pay classes + the QuickBooks company name
     expect(apiMock.timeExportCodesGet).toHaveBeenCalledWith('co-a');
     // Nothing changed yet: both buttons wait.
     expect(screen.getByRole('button', { name: 'Save' }).disabled).toBe(true);
@@ -56,8 +57,19 @@ describe('PayrollExportCodes', () => {
     fireEvent.change(await screen.findByLabelText('Company'), { target: { value: 'co-b' } });
     await waitFor(() => expect(screen.getByLabelText('Regular code').value).toBe('REG-IN'));
     fireEvent.click(screen.getByRole('button', { name: 'Reset to Default' }));
-    await waitFor(() => expect(apiMock.timeExportCodesSet).toHaveBeenCalledWith('co-b', {}));
+    await waitFor(() => expect(apiMock.timeExportCodesSet).toHaveBeenCalledWith('co-b', {}, ''));
     await waitFor(() => expect(screen.getByLabelText('Regular code').value).toBe(''));
+  });
+
+  it('saves the QuickBooks company name the IIF header carries', async () => {
+    render(<PayrollExportCodes />);
+    const qb = await screen.findByLabelText('QuickBooks Company Name');
+    expect(qb.getAttribute('placeholder')).toBe('Greens Global');
+    fireEvent.change(qb, { target: { value: 'Greens Global, Inc.' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(apiMock.timeExportCodesSet).toHaveBeenCalled());
+    expect(apiMock.timeExportCodesSet.mock.calls[0][2]).toBe('Greens Global, Inc.');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Reset to Default' }).disabled).toBe(false));
   });
 
   it('shows an error with Retry when the codes cannot load', async () => {

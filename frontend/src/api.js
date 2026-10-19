@@ -2007,7 +2007,8 @@ export const api = {
   // Payroll Export Codes (Oct 17): one company's pay item names for the
   // QuickBooks IIF and Intacct memo; codes {} is Reset to Default.
   timeExportCodesGet:  (company) => req(`/timeclock/payroll/export-codes?company=${encodeURIComponent(company || '')}`),
-  timeExportCodesSet:  (company, codes) => req('/timeclock/payroll/export-codes', { method: 'PUT', body: JSON.stringify({ company, codes }) }),
+  // quickbooksCompanyName (Oct 19): the IIF header's company; undefined leaves it, '' clears it.
+  timeExportCodesSet:  (company, codes, quickbooksCompanyName) => req('/timeclock/payroll/export-codes', { method: 'PUT', body: JSON.stringify({ company, codes, quickbooksCompanyName }) }),
   // Shift differentials + call-back pay (Oct 17): one company's rule, off by default.
   timePremiumsGet:     (company) => req(`/timeclock/payroll/premiums?company=${encodeURIComponent(company || '')}`),
   timePremiumsSet:     (company, cfg) => req('/timeclock/payroll/premiums', { method: 'PUT', body: JSON.stringify({ ...cfg, company }) }),
@@ -2055,11 +2056,12 @@ export const api = {
     reqBlob(`/timeclock/export-intacct.csv?start=${start || ''}&end=${end || ''}&journal=${encodeURIComponent(journal)}&expense=${encodeURIComponent(expense)}&clearing=${encodeURIComponent(clearing)}&location=${encodeURIComponent(location)}`),
   // Accounting > Import Hub, Payroll Hours card (Neil, 10/15): the period's
   // hours by pay class (no pay) for one company, optionally approved time
-  // sheets only, and the QuickBooks IIF with the same filters.
-  timeExportHours:      (start, end, { company = '', approvedOnly = false } = {}) =>
-    req(`/timeclock/export-hours?start=${start || ''}&end=${end || ''}&company=${encodeURIComponent(company)}&approved_only=${approvedOnly ? 'true' : 'false'}`, { timeoutMs: 120_000 }),
-  timeExportIifFor:     (start, end, { company = '', approvedOnly = false } = {}) =>
-    reqBlob(`/timeclock/export.iif?start=${start || ''}&end=${end || ''}&company=${encodeURIComponent(company)}&approved_only=${approvedOnly ? 'true' : 'false'}`, { timeoutMs: 120_000 }),
+  // sheets only, and the QuickBooks IIF with the same filters. The IIF is
+  // finalized time sheets only unless finalizedOnly is false (a -DRAFT file, Oct 19).
+  timeExportHours:      (start, end, { company = '', approvedOnly = false, finalizedOnly = false } = {}) =>
+    req(`/timeclock/export-hours?start=${start || ''}&end=${end || ''}&company=${encodeURIComponent(company)}&approved_only=${approvedOnly ? 'true' : 'false'}&finalized_only=${finalizedOnly ? 'true' : 'false'}`, { timeoutMs: 120_000 }),
+  timeExportIifFor:     (start, end, { company = '', approvedOnly = false, finalizedOnly = true } = {}) =>
+    reqBlob(`/timeclock/export.iif?start=${start || ''}&end=${end || ''}&company=${encodeURIComponent(company)}&approved_only=${approvedOnly ? 'true' : 'false'}&finalized_only=${finalizedOnly ? 'true' : 'false'}`, { timeoutMs: 120_000 }),
   // Accounting > Loans & Financing (Oct 2): loans proposed from the ledger's
   // liability accounts, the ledger-driven review (balances, principal and
   // interest paid, NOI, DSCR) for a month, and the typed fields (rate,

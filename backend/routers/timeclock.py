@@ -2519,6 +2519,9 @@ def _approved_emails(db: Session, rows: list, start: str, end: str) -> set:
 
 # The IIF's pay classes in row order: (timecard day minutes, payroll_codes class).
 _IIF_PAY_CLASSES = (("regMin", "regular"), ("otMin", "overtime"), ("dtMin", "doubleTime"),
+                    # A paid company holiday: the hours its credit pays for
+                    # (full_day_hours, half on a half-day holiday) - Oct 19.
+                    ("holidayMin", "holiday"),
                     ("sickMin", "sick"), ("vacationMin", "vacation"), ("personalMin", "personal"),
                     # Only on a day that has them (pay_premiums.py) - never while off.
                     ("diffMin", "shiftDifferential"), ("callBackMin", "callBack"),
@@ -2529,7 +2532,7 @@ _IIF_PAY_CLASSES = (("regMin", "regular"), ("otMin", "overtime"), ("dtMin", "dou
 
 @router.get("/export.iif")
 def export_iif(start: str = "", end: str = "", company: str = "", approved_only: bool = False,
-               finalized_only: bool = False,
+               finalized_only: bool = True,
                user: dict = Depends(require_team_read_pay),
                _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
     """QuickBooks Desktop time import (IIF TIMEACT rows) - Charmi keys every
@@ -2538,13 +2541,19 @@ def export_iif(start: str = "", end: str = "", company: str = "", approved_only:
     in decimal hours from the SAME engine as the timecard, so what QuickBooks
     imports is exactly what was approved. EMP must match the employee's name in
     QuickBooks; the payroll item names (Regular Pay / Overtime Pay / Double-time
-    Pay / Sick Pay / Vacation Pay / Personal Pay by default, renamed per company
+    Pay / Holiday Pay / Sick Pay / Vacation Pay / Personal Pay by default, renamed per company
     under Payroll Export Codes - payroll_codes.py) must exist in QuickBooks or
     be mapped at import.
     `company` keeps one company's people; `approved_only` keeps the approved
     time sheets (_approved_emails) - both optional (Import Hub, Neil 10/15).
     `finalized_only` keeps the time cards signed and finalized for the period
-    (Oct 16: the Payroll screen's per-company batch after the period closes)."""
+    (Oct 16: the Payroll screen's per-company batch after the period closes).
+    It is ON by default (Oct 19 audit: unapproved time went out); including
+    unfinalized time takes an explicit `finalized_only=false`, and that file
+    is named "-DRAFT" - a preview, not the import.
+    COMPANYNAME is the export's company (payroll_codes.qb_company_name: HR's
+    QuickBooks Company Name, else the company's name); a file spanning
+    several companies keeps "Greens Global"."""
     scope = _export_scope(db, user, company)
     rows = _team_rows(db, start, end, only_emails=scope)
     if approved_only:
@@ -2552,6 +2561,11 @@ def export_iif(start: str = "", end: str = "", company: str = "", approved_only:
         rows = [r for r in rows if r["email"] in ok]
     if finalized_only:
         rows = [r for r in rows if _finalized_row(db, r["email"], start, end)]
+    from auth import company_of_email_map
+    co_of = company_of_email_map(db)
+    co_ids = {(company or "").strip()} if (company or "").strip() else {
+        co_of.get((r["email"] or "").lower(), "") for r in rows}
+    qb_company = payroll_codes.qb_company_name(db, co_ids)
 
     def _mdy(ds: str) -> str:
         y, m, d = ds.split("-")
@@ -2562,12 +2576,10 @@ def export_iif(start: str = "", end: str = "", company: str = "", approved_only:
 
     lines = [
         "!TIMERHDR\tVER\tREL\tCOMPANYNAME\tIMPORTEDBEFORE\tFROMTIMER\tCOMPANYCREATETIME",
-        "TIMERHDR\t8\t0\tGreens Global\tN\tY\t0",
+        f"TIMERHDR\t8\t0\t{qb_company}\tN\tY\t0",
         "!TIMEACT\tDATE\tJOB\tEMP\tITEM\tPITEM\tDURATION\tPROJ\tNOTE\tXFERTOPAYROLL\tBILLINGSTATUS",
     ]
-    from auth import company_of_email_map
     book = payroll_codes.codebook(db)
-    co_of = company_of_email_map(db)
     for r in rows:
         card = _compute_timecard(db, r["email"], start, end)
         name = _clean(r["name"])
@@ -2589,15 +2601,19 @@ def export_iif(start: str = "", end: str = "", company: str = "", approved_only:
                 if mins <= 0:
                     continue
                 pitem = _clean(codes[pay_class])
-                lines.append(f"TIMEACT\t{_mdy(d['date'])}\t{job}\t{name}\t\t{pitem}\t{mins / 60:.2f}\t\t\tY\t{billing}")
+                # Holiday pay is a paid day off, not time at a job: no JOB, not billable.
+                job_c, bill_c = ("", "0") if pay_class == "holiday" else (job, billing)
+                lines.append(f"TIMEACT\t{_mdy(d['date'])}\t{job_c}\t{name}\t\t{pitem}\t{mins / 60:.2f}\t\t\tY\t{bill_c}")
     body = "\r\n".join(lines) + "\r\n"
-    fname = f"timeclock-{start or 'all'}-to-{end or 'now'}.iif"
+    # Time not yet finalized is a preview - named so nobody imports it by mistake.
+    fname = f"timeclock-{start or 'all'}-to-{end or 'now'}{'' if finalized_only else '-DRAFT'}.iif"
     return PlainTextResponse(body, media_type="application/octet-stream",
                              headers={"Content-Disposition": f"attachment; filename={fname}"})
 
 
 @router.get("/export-hours")
 def export_hours(start: str = "", end: str = "", company: str = "", approved_only: bool = False,
+                 finalized_only: bool = False,
                  user: dict = Depends(require_team_read_pay),
                  _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
     """The period's hours per hourly employee by pay class, off the SAME engine
@@ -2618,12 +2634,20 @@ def export_hours(start: str = "", end: str = "", company: str = "", approved_onl
         approved = r["email"] in ok
         if approved_only and not approved:
             continue
-        t = _compute_timecard(db, r["email"], start, end)["totals"]
+        # The same filter as export.iif's (Oct 19), so the preview is the file.
+        if finalized_only and not _finalized_row(db, r["email"], start, end):
+            continue
+        _card = _compute_timecard(db, r["email"], start, end)
+        t = _card["totals"]
         emp = emps.get(r["email"])
         def h(k, t=t):
             return round(float(t.get(k) or 0) / 60, 2)
         hours = {"regular": h("regMin"), "overtime": h("otMin"), "doubleTime": h("dtMin"),
                  "sick": h("sickMin"), "vacation": h("vacationMin"), "personal": h("personalMin")}
+        # Paid company holiday hours (the IIF's Holiday Pay line) - only on a card that has any.
+        _hol = sum(int(d.get("holidayMin") or 0) for d in _card["days"])
+        if _hol:
+            hours["holiday"] = round(_hol / 60, 2)
         # Differential / call-back hours only when the card has any (never while off).
         if t.get("diffMin"):
             hours["shiftDifferential"] = h("diffMin")
@@ -9024,7 +9048,12 @@ def _export_codes_out(db: Session, company: str) -> dict:
     return {"company": company,
             "classes": [{"key": k, "default": d, "code": custom.get(k, d), "custom": k in custom}
                         for k, d in payroll_codes.PAY_CLASSES],
-            "maxLength": payroll_codes.MAX_LEN}
+            "maxLength": payroll_codes.MAX_LEN,
+            # The IIF header's COMPANYNAME for this company (Oct 19): HR's
+            # saved name ('' = none), and what the file uses without one.
+            "quickbooksCompanyName": payroll_codes.qb_company_override(db, company),
+            "quickbooksCompanyDefault": payroll_codes.qb_company_default(db, company),
+            "quickbooksCompanyMaxLength": payroll_codes.QB_COMPANY_MAX_LEN}
 
 
 @router.get("/payroll/export-codes")
@@ -9036,6 +9065,8 @@ def get_export_codes(company: str = "", user: dict = Depends(require_team_read),
 class ExportCodesIn(BaseModel):
     company: str = ""
     codes: dict = {}
+    # None = leave the saved QuickBooks company name alone; '' clears it.
+    quickbooksCompanyName: Optional[str] = None
 
 
 @router.put("/payroll/export-codes")
@@ -9048,6 +9079,8 @@ def set_export_codes(body: ExportCodesIn, user: dict = Depends(require_administr
         payroll_codes.save_codes(db, company, body.codes if isinstance(body.codes, dict) else {}, user["email"])
     except ValueError as e:      # two pay classes under one name
         raise HTTPException(400, str(e))
+    if body.quickbooksCompanyName is not None:
+        payroll_codes.save_qb_company_name(db, company, body.quickbooksCompanyName, user["email"])
     return _export_codes_out(db, company)
 
 
@@ -9724,6 +9757,8 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
             # normal wages already cover the hours worked); do no work at all
             # and it's half a day, same as a full holiday scaled down.
             credit = round(_full_day_hours * (0.5 if is_half else 1.0) * _rate_for_day(hd), 2)
+            # The hours that credit pays for - the IIF's Holiday Pay line (Oct 19).
+            _hol_min = int(round(_full_day_hours * 60 * (0.5 if is_half else 1.0)))
             holiday_pay += credit
             holiday_days += 1
             if worked:
@@ -9733,12 +9768,14 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
                 _days_by_date[hd]["holidayType"] = hol.get("type", "mandatory")
                 _days_by_date[hd]["holidayName"] = hol.get("name", "")
                 _days_by_date[hd]["holidayPay"] = credit
+                _days_by_date[hd]["holidayMin"] = _hol_min
             else:
                 days_out.append({"date": hd, "weekStart": _week_start_str(hd), "segments": [],
                                  "workedMin": 0, "regMin": 0, "otMin": 0, "dtMin": 0,
                                  "breakMin": 0, "paidBreakMin": 0,
                                  "isHoliday": True, "holidayName": hol.get("name", ""),
-                                 "holidayType": hol.get("type", "mandatory"), "holidayPay": credit})
+                                 "holidayType": hol.get("type", "mandatory"), "holidayPay": credit,
+                                 "holidayMin": _hol_min})
         if holiday_days:
             days_out.sort(key=lambda d: d["date"])
         holiday_pay = round(holiday_pay, 2)
