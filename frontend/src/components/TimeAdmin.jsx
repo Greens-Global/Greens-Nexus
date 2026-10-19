@@ -972,7 +972,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                     const focused = rowIds.includes(focusReq);
                     const rowSel = rowIds.some(id => selReqs.has(id));
                     return (
-                    <div key={r.id} id={`punch-req-${r.id}`} data-req-ids={rowIds.join(' ')} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderTop: i ? '1px solid var(--line)' : 'none', flexWrap: 'wrap',
+                    <div key={r.id} id={`punch-req-${r.id}`} data-req-ids={rowIds.join(' ')} className={rowSel || focused ? undefined : 'nx-needs-you'} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderTop: i ? '1px solid var(--line)' : 'none', flexWrap: 'wrap',
                       background: rowSel || focused ? 'var(--wk-brand-tint, rgba(43,69,225,0.06))' : 'transparent',
                       boxShadow: focused ? 'inset 3px 0 0 var(--wk-brand, #2b45e1)' : 'none' }}>
                       {cb(rowSel, on => toggle(rowIds, on), `Select request from ${g.name}`)}
@@ -1064,7 +1064,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
             const hm12 = (v) => { const [h, m] = (v || '').split(':').map(Number); return `${h % 12 || 12}:${String(m || 0).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`; };
             const partial = r.startTime && r.endTime;
             return (
-              <div key={r.id} style={{ display: 'grid', gridTemplateColumns: '200px 110px 1fr 70px 160px 170px', gap: 10, alignItems: 'center', padding: '10px 14px', borderBottom: '1px solid var(--line)', background: r.status === 'pending' ? 'rgba(251,191,36,0.05)' : 'transparent' }}>
+              <div key={r.id} className={r.status === 'pending' && r.canDecide !== false ? 'nx-needs-you' : undefined} style={{ display: 'grid', gridTemplateColumns: '200px 110px 1fr 70px 160px 170px', gap: 10, alignItems: 'center', padding: '10px 14px', borderBottom: '1px solid var(--line)', background: r.status === 'pending' ? 'rgba(251,191,36,0.05)' : 'transparent' }}>
                 <span style={{ fontSize: 12.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name || r.email}{r.forEmail && <ForChip name={r.forName} email={r.forEmail} />}</span>
                 <span style={{ fontSize: 12, textTransform: 'capitalize', display: 'inline-flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
                   {timeoffLabel(r)}{r.confidential && <ConfidentialMark />}

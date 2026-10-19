@@ -6539,6 +6539,20 @@ body:has(.docs-root) { overflow-x: clip; }
 .nx-md th, .nx-md td { border: 1px solid var(--line, #d1d5db); padding: 4px 8px; text-align: left; }
 .nx-md h1, .nx-md h2, .nx-md h3 { font-size: 1em; margin: 10px 0 6px; }
 
+/* Waiting on you (Pranshu, Oct 20 2026): inside a module, each item the red
+   dot / tab count counts (routers/action_counts.py) sits in a red-tinted box
+   with a red bar on its left, so it is clear WHICH row wants you. !important:
+   the rows set their own inline background (zebra, pending amber...). */
+.nx-needs-you {
+  background: var(--wk-red-bg) !important;
+  box-shadow: inset 3px 0 0 var(--wk-red) !important;
+  border-color: color-mix(in srgb, var(--wk-red) 30%, transparent) !important;
+}
+tr.nx-needs-you { box-shadow: none !important; }
+tr.nx-needs-you > td { background: var(--wk-red-bg) !important; }
+tr.nx-needs-you > td:first-child { box-shadow: inset 3px 0 0 var(--wk-red); }
+.nx-needs-you--inline { box-shadow: none !important; border-radius: 4px; padding: 0 4px; }
+
 /* People > Time > Payroll: In / Out color banding (Pranshu, Oct 19 - SwipeClock's
    green / blue). Green = the punch exactly as the clock took it, blue = entered
    or changed by HR. A shade per theme so both stay readable (AA on the card). */

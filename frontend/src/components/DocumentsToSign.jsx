@@ -40,7 +40,7 @@ export default function DocumentsToSign({ focusParty = '', toastOk, toastErr }) 
         <span style={{ fontSize: 12, color: 'var(--muted)' }}>{rows.length} waiting on your signature</span>
       </div>
       {rows.map(r => (
-        <div key={r.partyId} style={{ borderTop: '1px solid var(--line)', padding: '10px 0', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <div key={r.partyId} className="nx-needs-you" style={{ borderTop: '1px solid var(--line)', padding: '10px 0', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <div style={{ flex: 1, minWidth: 220 }}>
             <div style={{ fontSize: 13, fontWeight: 700 }}>{r.title}</div>
             <div style={{ fontSize: 12, color: 'var(--muted)' }}>

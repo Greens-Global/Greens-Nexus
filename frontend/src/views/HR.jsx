@@ -1316,7 +1316,7 @@ function EmployeeRequestsPanel({ toastOk, toastErr }) {
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {open.map(r => (
-          <div key={r.id} style={{ border: '1px solid var(--line)', borderRadius: 10, background: 'var(--card)', padding: '10px 12px' }}>
+          <div key={r.id} className="nx-needs-you" style={{ border: '1px solid var(--line)', borderRadius: 10, background: 'var(--card)', padding: '10px 12px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <div style={{ flex: 1, minWidth: 200 }}>
                 <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{r.name}</span>
@@ -6409,7 +6409,7 @@ export default function HR({ activeSub, onSubChange }) {
                   {paged.map(e => {
                     const sm = STATUS_META[e.status] || STATUS_META.active;
                     return (
-                      <tr key={e.id} onClick={() => { setOpenTab('overview'); setSelectedId(e.id); }}>
+                      <tr key={e.id} className={pendingRoles[e.id]?.canDecide ? 'nx-needs-you' : undefined} onClick={() => { setOpenTab('overview'); setSelectedId(e.id); }}>
                         <td>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 11, minWidth: 0 }}>
                             <Avatar e={e} card={false} />
@@ -6457,7 +6457,7 @@ export default function HR({ activeSub, onSubChange }) {
                       const sm = STATUS_META[e.status] || STATUS_META.active;
                       const active = selectedId === e.id;
                       return (
-                        <button key={e.id} onClick={() => { setOpenTab('overview'); setSelectedId(e.id); }}
+                        <button key={e.id} className={pendingRoles[e.id]?.canDecide && !active ? 'nx-needs-you' : undefined} onClick={() => { setOpenTab('overview'); setSelectedId(e.id); }}
                           style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '9px 14px', border: 'none', borderBottom: '1px solid var(--line)', cursor: 'pointer', background: active ? 'var(--wk-brand-tint)' : 'none', fontFamily: 'inherit' }}>
                           <Avatar e={e} />
                           <div style={{ flex: 1, minWidth: 0 }}>

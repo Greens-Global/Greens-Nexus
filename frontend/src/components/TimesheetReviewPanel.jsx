@@ -306,8 +306,9 @@ export default function TimesheetReviewPanel({ review, self, anchor, periodLabel
     </div>
   );
 
+  const sentBack = self && r.status === 'with_employee' && r.canSubmit;   // waiting on me - the Time Sheet tab's count
   return (
-    <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
+    <div className={sentBack ? 'nx-needs-you' : undefined} style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--line)', ...(sentBack ? { padding: '14px 12px', borderRadius: 10 } : null) }}>
       <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 8 }}>Time Sheet Review &amp; Signature</div>
       <p style={{ fontSize: 11.5, color: 'var(--muted)', margin: '0 0 10px' }}>
         The employee and their approver agree the hours, then the employee signs in Nexus Sign (electronically or on paper). That signature finalizes the period for payroll. Period: {periodLabel}.

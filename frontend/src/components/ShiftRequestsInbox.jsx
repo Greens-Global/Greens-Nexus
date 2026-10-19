@@ -160,7 +160,7 @@ export default function ShiftRequestsInbox({ inbox, timeoff, loading, error, onR
               const conflicts = removal[t.id] || t.conflicts || [];
               const decided = !!removal[t.id];
               return (
-                <div key={t.id} style={row}>
+                <div key={t.id} className={t.canDecide !== false && !decided ? 'nx-needs-you' : undefined} style={row}>
                   {face(t.email, t.name)}
                   <div style={{ minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em', flexWrap: 'wrap' }}>
@@ -207,7 +207,7 @@ export default function ShiftRequestsInbox({ inbox, timeoff, loading, error, onR
               {pending.map((r) => {
                 const [label, Icon] = KIND[r.kind] || [r.kind, Hand];
                 return (
-                  <div key={r.id} style={row}>
+                  <div key={r.id} className="nx-needs-you" style={row}>
                     {face(r.requester?.email, r.requester?.name)}
                     <div style={{ minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em', flexWrap: 'wrap' }}>

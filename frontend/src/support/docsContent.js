@@ -276,7 +276,7 @@ export const DOCS = [
       ],
     },
     tips: [
-      'A red dot on a module in the left menu means something there is waiting on you - a request to approve, a document to sign, a schedule to confirm. Open the module and the tab with the red number is where it is. The dot goes away once you have acted.',
+      'A red dot on a module in the left menu means something there is waiting on you - a request to approve, a document to sign, a schedule to confirm. Open the module and the tab with the red number is where it is; inside it, each item waiting on you sits in a red-tinted box with a red bar on its left. The dot and the box go away once you have acted.',
       'If you see "Your Punch Did Not Record", try again from a phone or a stable connection. Nothing was saved.',
       'Approved time off is not punched in for you automatically.',
       'If Workday shows no clock and no Time Sheet tab, you are on a salaried, time-tracking-exempt setup - Nexus does not record punches or hours for you. Raise a ticket if that is wrong.',
