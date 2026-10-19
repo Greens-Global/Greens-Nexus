@@ -146,6 +146,23 @@ def _without_meal_flags(out: dict) -> dict:
     return out
 
 
+def _without_color_flags(out: dict) -> dict:
+    """The payroll grid's color banding (Oct 19 2026) adds "clock" / "byHr" to
+    each punchMeta entry - display only, no pay; not part of this feature."""
+    for k, v in list(out.items()):
+        if not k.startswith(("card", "fixed")):
+            continue
+        c = json.loads(v)
+        meta = c.get("punchMeta") or {}
+        if not any("clock" in m or "byHr" in m for m in meta.values()):
+            continue
+        for m in meta.values():
+            m.pop("clock", None)
+            m.pop("byHr", None)
+        out[k] = json.dumps(c, sort_keys=True)
+    return out
+
+
 def _outputs(db) -> dict:
     """Every pay surface of the fixture, as text."""
     out = {}
@@ -202,7 +219,7 @@ class OffIsIdenticalTests(Base):
             return json.load(fh)
 
     def _assert_same(self, golden):
-        got = _without_meal_flags(_outputs(self.db))
+        got = _without_color_flags(_without_meal_flags(_outputs(self.db)))
         self.assertEqual(sorted(got), sorted(golden))
         for k in golden:
             self.assertEqual(got[k], golden[k], f"{k} changed while the feature is off")
