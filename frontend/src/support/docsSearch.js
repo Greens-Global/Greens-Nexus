@@ -42,7 +42,7 @@ export const FIELD_WEIGHTS = {
 // Match quality multipliers.
 const Q_EXACT = 1;
 const Q_SYNONYM = 0.85;
-const Q_PREFIX = 0.7;   // last word still being typed
+const Q_PREFIX = 0.75;  // last word still being typed (0.7 fell under MIN_SCORE once the guide grew, Oct 19)
 const Q_FUZZY = 0.75;   // one typo
 
 // A section needs at least this much to be shown at all. Calibrated in
