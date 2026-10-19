@@ -11,10 +11,20 @@ Where the competitor numbers come from - two sources, told apart by `source`:
            before it is kept. A site that blocks automated readers, or loads
            its prices with scripts, is not read - it stays a manual entry.
 
+  stortrack  the StorTrack rate feed Cubby includes in our plan, read from
+           Cubby's BigQuery warehouse by `ops_stortrack.py` a few times a
+           day. It names the competitors around each of our facilities and
+           adds the ones we do not track yet.
+
 Which facilities are nearby comes from OpenStreetMap (same module); a person
 still chooses which of them to track. Nothing in THIS module does any of that
-I/O. Every observation is kept, so a competitor's rate has a history. A feed
-from a rate-data provider can write the same rows later with another `source`.
+I/O. Every observation is kept, so a competitor's rate has a history.
+
+Every source stores the competitor's STANDARD (regular, in-store) rate as
+`rate_cents` - the price a size is listed at before any promotion - so the
+three sources compare like for like. StorTrack also tells unit variants of one
+size apart (climate controlled or not); when it does, a unit type of ours is
+compared with the matching variant (`unit_climate`).
 
 The suggestion is a rule a manager can check by hand, not a model's opinion:
 
@@ -31,6 +41,7 @@ it explains and prioritizes, it does not produce the numbers.
 Pure functions up top (the tests feed them fixed rows); the model call at the
 bottom is the only I/O.
 """
+import re
 from datetime import date, timedelta
 from statistics import median
 
@@ -53,16 +64,36 @@ def size_key(width, depth, parking: bool) -> str:
     return f"{'P' if parking else 'S'}:{a:g}x{b:g}"
 
 
-def latest_rates(observations: list[dict], today: date) -> dict[str, dict[str, dict]]:
-    """{size_key: {competitor_id: newest fresh observation}}."""
+def unit_climate(name: str):
+    """True / False when a unit type's name says whether it is climate
+    controlled, None when it does not say."""
+    n = (name or "").lower()
+    if re.search(r"non[- ]?(climate|cc)|non[- ]?heated|drive[- ]?up|outdoor|parking", n):
+        return False
+    if re.search(r"climate|cc|heated|temperature", n):
+        return True
+    return None
+
+
+def latest_rates(observations: list[dict], today: date, climate=None) -> dict[str, dict[str, dict]]:
+    """{size_key: {competitor_id: newest fresh observation}}.
+
+    `climate` (True / False) prefers a competitor's observations of the same
+    kind of unit; one that does not say (None) fits either. Among the newest
+    fitting observations of one day the lowest rate is the competitor's price
+    for that size (StorTrack lists drive-up and elevator units side by side)."""
     cutoff = (today - timedelta(days=FRESH_DAYS)).isoformat()
     out: dict[str, dict[str, dict]] = {}
+
+    def rank(o):
+        fits = climate is None or o.get("climate") is None or bool(o["climate"]) == climate
+        return (fits, o["observed_on"], o.get("created_at") or "", -o["rate_cents"])
     for o in observations:
         if (o.get("observed_on") or "") < cutoff or not o.get("rate_cents"):
             continue
         key = size_key(o.get("width"), o.get("depth"), bool(o.get("parking")))
         held = out.setdefault(key, {}).get(o["competitor_id"])
-        if held is None or (o["observed_on"], o.get("created_at") or "") > (held["observed_on"], held.get("created_at") or ""):
+        if held is None or rank(o) > rank(held):
             out[key][o["competitor_id"]] = o
     return out
 
@@ -84,11 +115,15 @@ def suggest(street: int, market: int, rented: int, vacant: int) -> tuple[int, st
 def compare(unit_types: list[dict], observations: list[dict], competitors: dict[str, str], today: date) -> list[dict]:
     """One row per unit type we rent. `unit_types` are a facility's blocks from
     cubby.summarize_facility; `competitors` is {id: name}."""
-    market = latest_rates(observations, today)
+    markets: dict = {}
     rows = []
     for t in unit_types:
         if not t.get("width") or not t.get("depth"):
             continue
+        climate = unit_climate(t.get("name"))
+        if climate not in markets:
+            markets[climate] = latest_rates(observations, today, climate)
+        market = markets[climate]
         seen = [o for cid, o in market.get(size_key(t["width"], t["depth"], t.get("parking")), {}).items() if cid in competitors]
         rates = sorted(o["rate_cents"] for o in seen)
         row = {
@@ -101,6 +136,7 @@ def compare(unit_types: list[dict], observations: list[dict], competitors: dict[
             "marketMedian": int(round(median(rates))) if rates else None,
             "lowestBy": competitors.get(min(seen, key=lambda o: o["rate_cents"])["competitor_id"], "") if seen else "",
             "newestObservation": max((o["observed_on"] for o in seen), default=""),
+            "sources": sorted({o.get("source") or "manual" for o in seen}),
             "suggested": None, "why": "", "change": 0, "monthlyImpact": 0,
         }
         if len(rates) >= MIN_COMPETITORS and row["street"]:

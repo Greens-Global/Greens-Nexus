@@ -1253,6 +1253,8 @@ export const api = {
   getOpsNearby: (facilityId) => req(`/facility-ops/market/nearby?facility_id=${encodeURIComponent(facilityId)}`, { timeoutMs: 45_000 }),
   recordOpsRate: (data) => req("/facility-ops/market/rates", { method: "POST", body: JSON.stringify(data) }),
   opsMarketAnalysis: (facilityId) => req(`/facility-ops/market/analysis?facility_id=${encodeURIComponent(facilityId)}`, { method: "POST" }),
+  // StorTrack (Oct 2026): import the newest rates from Cubby's warehouse now (managers and above).
+  syncOpsStorTrack: (facilityId) => req(`/facility-ops/market/stortrack/sync?facility_id=${encodeURIComponent(facilityId || "")}`, { method: "POST", timeoutMs: 180_000 }),
 
   // Dev
   getDevProjects: () => req("/dev-projects"),

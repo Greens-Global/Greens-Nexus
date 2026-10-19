@@ -1112,6 +1112,15 @@ def _run_migrations():
             "ALTER TABLE punch_requests ADD COLUMN employee_dismissed_at VARCHAR DEFAULT ''",
             # Leave balances (Oct 19 2026, leave_balances.py). models.NexusEmployee.leave_policy.
             "ALTER TABLE nexus_employees ADD COLUMN leave_policy VARCHAR DEFAULT ''",
+            # StorTrack into Market Rates (Oct 2026, ops_stortrack.py). models.OpsCompetitor / OpsCompetitorRate.
+            "ALTER TABLE ops_competitors ADD COLUMN stortrack_key VARCHAR DEFAULT ''",
+            "CREATE INDEX IF NOT EXISTS ix_ops_competitors_stortrack_key ON ops_competitors (stortrack_key)",
+            "ALTER TABLE ops_competitor_rates ADD COLUMN online_cents INTEGER",
+            "ALTER TABLE ops_competitor_rates ADD COLUMN promo_cents INTEGER",
+            "ALTER TABLE ops_competitor_rates ADD COLUMN climate BOOLEAN",
+            "ALTER TABLE ops_competitor_rates ADD COLUMN drive_up BOOLEAN",
+            "ALTER TABLE ops_competitor_rates ADD COLUMN elevator BOOLEAN",
+            "ALTER TABLE ops_competitor_rates ADD COLUMN space_type VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2480,6 +2489,15 @@ def _run_migrations():
         # and the ledger - a new table, explicit RLS. models.LeaveLedgerEntry.
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS leave_policy VARCHAR DEFAULT ''",
         "ALTER TABLE leave_ledger ENABLE ROW LEVEL SECURITY",
+        # StorTrack into Market Rates (Oct 2026, ops_stortrack.py). models.OpsCompetitor / OpsCompetitorRate.
+        "ALTER TABLE ops_competitors ADD COLUMN IF NOT EXISTS stortrack_key VARCHAR DEFAULT ''",
+        "CREATE INDEX IF NOT EXISTS ix_ops_competitors_stortrack_key ON ops_competitors (stortrack_key)",
+        "ALTER TABLE ops_competitor_rates ADD COLUMN IF NOT EXISTS online_cents INTEGER",
+        "ALTER TABLE ops_competitor_rates ADD COLUMN IF NOT EXISTS promo_cents INTEGER",
+        "ALTER TABLE ops_competitor_rates ADD COLUMN IF NOT EXISTS climate BOOLEAN",
+        "ALTER TABLE ops_competitor_rates ADD COLUMN IF NOT EXISTS drive_up BOOLEAN",
+        "ALTER TABLE ops_competitor_rates ADD COLUMN IF NOT EXISTS elevator BOOLEAN",
+        "ALTER TABLE ops_competitor_rates ADD COLUMN IF NOT EXISTS space_type VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

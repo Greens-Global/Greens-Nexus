@@ -223,13 +223,13 @@ describe('Operations module', () => {
     const moves = (await screen.findByText('Rate Moves')).closest('.dash-card');
     expect(moves.textContent).toContain('10% or more in the last 30 days');
     expect([...moves.querySelectorAll('tbody td')].map((td) => td.textContent))
-      .toEqual(['Example Storage', '10 x 10', '$129', '$145', '+12.4%', '10/13/2026', 'Read From Website']);
+      .toEqual(['Example Storage', '10 x 10', '$129', '$145', '+12.4%', '10/13/2026', 'Website']);
     expect(screen.getByText(/read once a day by an identified reader that follows the site's robots rules/)).toBeTruthy();
 
     // The competitor: where its rates are read from and how the last read went.
     const row = screen.getByRole('link', { name: 'www.example.com/units' }).closest('li');
     expect(row.textContent).toContain('Rates Read Read 6 rates. Checked 10/13/2026, 4:05 PM.');
-    expect(row.textContent).toContain('Latest: 10 x 10 at $145 - Read From Website');
+    expect(row.textContent).toContain('Latest: 10 x 10 at $145 Website');
     expect(row.querySelector('input[type="checkbox"]').checked).toBe(true);
 
     // Nearby, with the OpenStreetMap credit, and Add sends what OpenStreetMap knew.
