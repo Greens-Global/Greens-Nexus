@@ -2480,6 +2480,12 @@ def _run_migrations():
         # and the ledger - a new table, explicit RLS. models.LeaveLedgerEntry.
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS leave_policy VARCHAR DEFAULT ''",
         "ALTER TABLE leave_ledger ENABLE ROW LEVEL SECURITY",
+        # Operations > Revenue Management (Oct 20 2026, ops_revenue.py) - new
+        # tables, explicit RLS. models.OpsRevenueStrategy / Batch / Change / Audit.
+        "ALTER TABLE ops_revenue_strategies ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE ops_revenue_batches ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE ops_revenue_changes ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE ops_revenue_audit ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -3874,3 +3880,5 @@ from routers import leave_balances as leave_balances_router  # noqa: E402
 app.include_router(leave_balances_router.router)  # Paid leave balances: policies, opening import, accrual (Neil / Charmi, 10/19)
 from routers import location_trail as location_trail_router  # noqa: E402
 app.include_router(location_trail_router.router)  # Time Clock: Location Trail While Clocked In - web pings + manager map (Neil, 10/20)
+from routers import ops_revenue as ops_revenue_router  # noqa: E402
+app.include_router(ops_revenue_router.router)     # Operations > Revenue Management: rent changes for existing tenants (Neil, 10/20)

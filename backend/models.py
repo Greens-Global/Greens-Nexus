@@ -6897,3 +6897,96 @@ class LeaveLedgerEntry(Base):
     note           = Column(String, default="")
     created_by     = Column(String, default="")
     created_at     = Column(String, default="")
+
+
+# ── Operations > Revenue Management (Neil, Oct 20 2026, ops_revenue.py) ──────
+# Rent changes for EXISTING tenants (ECRI). New tables - create_all builds
+# them; explicit RLS lines in main.py on top of _enable_rls_everywhere.
+
+class OpsRevenueStrategy(Base):
+    """A saved, reusable rent-change rule: +X% or +$Y, capped at the street
+    rate (or street + Z%), with who qualifies and the notice it needs."""
+    __tablename__ = "ops_revenue_strategies"
+    id               = Column(String, primary_key=True)   # uuid
+    name             = Column(String, default="")
+    method           = Column(String, default="percent")  # percent | amount
+    increase_pct     = Column(Float, default=0)           # method percent: +X%
+    increase_cents   = Column(Integer, default=0)         # method amount: +$Y
+    cap_mode         = Column(String, default="street")   # street | street_plus | none
+    cap_pct          = Column(Float, default=0)           # cap_mode street_plus: street + Z%
+    round_dollar     = Column(Boolean, default=True)      # new rent rounded to a whole dollar
+    min_months_in    = Column(Integer, default=12)        # months since move-in
+    min_months_since = Column(Integer, default=12)        # months since the last increase
+    skip_balance     = Column(Boolean, default=True)      # skip tenants who owe money
+    notice_days      = Column(Integer, default=30)        # written notice before the effective date
+    active           = Column(Boolean, default=True)
+    created_by       = Column(String, default="")
+    created_at       = Column(String, default="")
+    updated_by       = Column(String, default="")
+    updated_at       = Column(String, default="")
+
+
+class OpsRevenueBatch(Base):
+    """One application of a strategy at one facility: who, when, the effective
+    date and the status (draft | approved | notified | applied | canceled)."""
+    __tablename__ = "ops_revenue_batches"
+    id             = Column(String, primary_key=True)
+    facility_id    = Column(String, index=True, nullable=False)
+    facility_name  = Column(String, default="")
+    strategy_id    = Column(String, default="")
+    strategy_name  = Column(String, default="")
+    strategy       = Column(JSON, default=dict)            # the rule as it was when the batch was built
+    scope_type     = Column(String, default="")            # unit_type | tenants | tenant
+    scope_label    = Column(String, default="")
+    effective_date = Column(String, default="")            # YYYY-MM-DD
+    notice_date    = Column(String, default="")            # YYYY-MM-DD, effective - notice days
+    status         = Column(String, default="draft", index=True)
+    created_by     = Column(String, default="")
+    created_at     = Column(String, default="")
+    approved_by    = Column(String, default="")
+    approved_at    = Column(String, default="")
+    notified_by    = Column(String, default="")
+    notified_at    = Column(String, default="")
+    applied_by     = Column(String, default="")
+    applied_at     = Column(String, default="")
+    canceled_by    = Column(String, default="")
+    canceled_at    = Column(String, default="")
+    note           = Column(Text, default="")
+
+
+class OpsRevenueChange(Base):
+    """One tenant's proposed rent change inside a batch, and how it reached
+    Cubby (pushed through the API, or entered there by staff)."""
+    __tablename__ = "ops_revenue_changes"
+    id                 = Column(String, primary_key=True)
+    batch_id           = Column(String, index=True, nullable=False)
+    facility_id        = Column(String, index=True, nullable=False)
+    lease_id           = Column(String, default="", index=True)
+    unit_id            = Column(String, default="")
+    customer_id        = Column(String, default="")
+    tenant_name        = Column(String, default="")
+    unit_name          = Column(String, default="")
+    unit_type          = Column(String, default="")
+    move_in_date       = Column(String, default="")
+    last_increase_date = Column(String, default="")
+    current_cents      = Column(Integer, default=0)
+    street_cents       = Column(Integer, default=0)
+    new_cents          = Column(Integer, default=0)
+    status             = Column(String, default="pending")    # pending | pushed | entered | failed | removed
+    cubby_change_date  = Column(String, default="")           # the dates Cubby scheduled it for
+    cubby_notice_date  = Column(String, default="")
+    pushed_by          = Column(String, default="")
+    pushed_at          = Column(String, default="")
+    push_detail        = Column(String, default="")
+
+
+class OpsRevenueAudit(Base):
+    """Every step of a batch and every Cubby push attempt, success or not."""
+    __tablename__ = "ops_revenue_audit"
+    id         = Column(String, primary_key=True)
+    batch_id   = Column(String, index=True, nullable=False)
+    change_id  = Column(String, default="")
+    actor      = Column(String, default="")
+    action     = Column(String, default="")   # created | approved | notified | applied | canceled | removed | pushed | push_failed | entered | letters | export
+    detail     = Column(JSON, default=dict)
+    created_at = Column(String, default="")
