@@ -1106,6 +1106,10 @@ def _run_migrations():
             "ALTER TABLE task_tickets ADD COLUMN sla_res_alerted_at VARCHAR DEFAULT ''",
             # Ticket default assignee per department (Oct 2026, ticket_auto_assign.py). models.TicketDepartment.
             "ALTER TABLE ticket_departments ADD COLUMN default_assignee_email VARCHAR DEFAULT ''",
+            # A decided punch-fix request cleared from the employee's list (Oct 19). models.PunchRequest.
+            "ALTER TABLE punch_requests ADD COLUMN employee_dismissed_at VARCHAR DEFAULT ''",
+            # Leave balances (Oct 19 2026, leave_balances.py). models.NexusEmployee.leave_policy.
+            "ALTER TABLE nexus_employees ADD COLUMN leave_policy VARCHAR DEFAULT ''",
             # Email to ticket (Oct 2026, ticket_inbound.py): how a ticket arrived. models.TaskTicket.
             "ALTER TABLE task_tickets ADD COLUMN source VARCHAR DEFAULT ''",
             # Inbound mail: what Exchange said about the sender (mail_inbound.auth_verdict).
@@ -2471,6 +2475,12 @@ def _run_migrations():
         # Ticket saved replies (Oct 2026) - a new table: explicit RLS on top of
         # the _enable_rls_everywhere sweep. models.TicketSavedReply.
         "ALTER TABLE ticket_saved_replies ENABLE ROW LEVEL SECURITY",
+        # A decided punch-fix request cleared from the employee's list (Oct 19). models.PunchRequest.
+        "ALTER TABLE punch_requests ADD COLUMN IF NOT EXISTS employee_dismissed_at VARCHAR DEFAULT ''",
+        # Leave balances (Oct 19 2026, leave_balances.py): the person's policy,
+        # and the ledger - a new table, explicit RLS. models.LeaveLedgerEntry.
+        "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS leave_policy VARCHAR DEFAULT ''",
+        "ALTER TABLE leave_ledger ENABLE ROW LEVEL SECURITY",
         # Email to ticket (Oct 2026, ticket_inbound.py): how a ticket arrived
         # (models.TaskTicket.source), and the inbound log - a new table:
         # explicit RLS on top of the sweep. models.TicketInboundEmail.
@@ -3875,3 +3885,5 @@ from routers import reimbursements  # noqa: E402
 app.include_router(reimbursements.router)         # Workday > Reimbursements: out-of-pocket purchases - approve, then HR pays (Neil, 10/18)
 from routers import ticket_saved_replies  # noqa: E402
 app.include_router(ticket_saved_replies.router)   # Tickets: saved replies (canned responses) for the desk's reply composer (Oct 2026)
+from routers import leave_balances as leave_balances_router  # noqa: E402
+app.include_router(leave_balances_router.router)  # Paid leave balances: policies, opening import, accrual (Neil / Charmi, 10/19)

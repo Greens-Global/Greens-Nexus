@@ -878,6 +878,9 @@ class NexusEmployee(Base):
     geofence_lng      = Column(String, default="")
     geofence_radius_m = Column(Integer, default=0)             # 0 = no personal geofence (fall back to work sites)
     geofence_label    = Column(String, default="")            # human label (address, or "From last punch MM/DD")
+    # Leave policy (Oct 19 2026, leave_balances.py): '' = the default for the
+    # person's country / California rule; else a policy id HR picked.
+    leave_policy      = Column(String, default="")
     geofence_source   = Column(String, default="")            # last_punch | address | manual
     geofence_set_by   = Column(String, default="")
     geofence_set_at   = Column(String, default="")
@@ -2915,6 +2918,9 @@ class PunchRequest(Base):
     # '' = Regular, or "Sick" / "Vacation" / "Personal" - set on the clock-in
     # when the request is approved, so the block lands as that leave.
     category       = Column(String, default="")
+    # When the employee cleared this decided request from their list - kept
+    # on the server so it stays cleared on every device (Miranda, Oct 18).
+    employee_dismissed_at = Column(String, default="")
 
 
 class MonitoringConsent(Base):
@@ -6875,6 +6881,27 @@ class TicketSavedReply(Base):
     created_at  = Column(String, default="")
     modified_at = Column(String, default="")
     use_count   = Column(Integer, default=0)
+
+
+class LeaveLedgerEntry(Base):
+    """One change to a person's paid leave balance, in HOURS (Neil / Charmi
+    call, Oct 19 2026 - leave_balances.py). A balance is the sum of its rows
+    plus the policy's grants, so every number can be traced. Kinds: opening
+    (the one-time import as of the cutover), accrual (vacation earned from a
+    finalized period's worked hours), used (sick / vacation paid in a
+    finalized period, negative), adjust (an HR correction with a note).
+    New table - create_all builds it; RLS line in main.py."""
+    __tablename__ = "leave_ledger"
+    id             = Column(String, primary_key=True)
+    employee_email = Column(String, nullable=False, index=True)
+    bucket         = Column(String, default="vacation")   # vacation | sick
+    hours          = Column(Float, default=0)             # signed
+    kind           = Column(String, default="adjust")     # opening | accrual | used | adjust
+    effective_date = Column(String, default="")           # YYYY-MM-DD
+    ref_id         = Column(String, default="", index=True)  # the finalize row (TimeApproval.id) for accrual / used
+    note           = Column(String, default="")
+    created_by     = Column(String, default="")
+    created_at     = Column(String, default="")
 
 
 class TicketInboundEmail(Base):
