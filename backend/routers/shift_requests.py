@@ -151,14 +151,20 @@ _DEFAULTS = {"openShifts": False, "swaps": False, "offers": False, "teamSchedule
              # locked out of punching the day it ships; with it off, a punch
              # with no location still lands and shows "No Location" on the
              # Time Sheet.
-             "requireLocationToPunch": False}
+             "requireLocationToPunch": False,
+             # Pay period close alerts (Oct 19 2026, timesheet_alerts.py): a
+             # Time Sheet still waiting on its approver this many days after
+             # the period ended is escalated to the approver's own manager,
+             # else the company's HR contact; 0 = no escalation.
+             "timesheetEscalateDays": 2}
 _TEXT_SETTINGS = ("timeZone", "weekStart")
 SHOW_AS = ("free", "busy")
 # key -> (min, max), clamped on read and save
 _INT_SETTINGS = {"defaultGraceMin": (0, 120), "noShowAlertMin": (0, 240), "leftEarlyMin": (0, 240),
                  "ruleMinRestHours": (0, 24), "ruleMaxDaysInRow": (0, 14), "ruleDailyOtHours": (0, 24),
                  "ruleWeeklyOtHours": (0, 80), "ruleMaxWeekHours": (0, 100),
-                 "otAlertDailyLeadMin": (0, 240), "otAlertWeeklyLeadMin": (0, 480)}
+                 "otAlertDailyLeadMin": (0, 240), "otAlertWeeklyLeadMin": (0, 480),
+                 "timesheetEscalateDays": (0, 30)}
 _KIND_SETTING = {"open": "openShifts", "swap": "swaps", "offer": "offers", "release": "releaseShifts"}
 _EMPLOYEE_ACTION = {"view": "shifts", "sub": "mine"}
 _APPROVER_ACTION = {"view": "shifts", "sub": "schedule"}   # the Shifts module (Sep 29)
@@ -357,6 +363,7 @@ class SettingsIn(BaseModel):
     otAlertDailyLeadMin: Optional[int] = None   # 0-240; minutes before daily overtime ('ca' rule); 0 = off
     otAlertWeeklyLeadMin: Optional[int] = None  # 0-480; minutes before weekly overtime; 0 = off
     requireLocationToPunch: Optional[bool] = None   # refuse a live punch with no coordinates (Oct 19; off by default)
+    timesheetEscalateDays: Optional[int] = None # 0-30; days after a pay period before an unapproved sheet escalates; 0 = off
 
 
 @router.get("/settings")

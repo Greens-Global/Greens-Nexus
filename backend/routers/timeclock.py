@@ -3579,7 +3579,25 @@ def _close_dupes(db: Session, reqs: list, user: dict, now: str, note: str) -> in
             d.status = "rejected"
             d.decided_by, d.decided_at, d.decision_note = user["email"], now, note
             closed += 1
+    _close_approver_notices(db, done, reqs[0].employee_email if reqs else "")
     return closed
+
+
+def _close_approver_notices(db: Session, ref_ids, employee_email: str) -> None:
+    """A request is decided once, by any one approver: close EVERY approver's
+    open notice for it (the manager, the reporting line, HR, stand-ins), not
+    only the decider's - the rest kept the yellow bar for a request already
+    handled (Oct 19 audit). Same as cancel_punch_request. The employee's own
+    notices are left alone; ones written in this request are not flushed yet."""
+    ids = sorted({i for i in ref_ids if i})
+    if not ids:
+        return
+    for n in (db.query(NexusNotification)
+              .filter(NexusNotification.ref_id.in_(ids), NexusNotification.type == "custom_alert",
+                      NexusNotification.actioned == False,  # noqa: E712
+                      NexusNotification.recipient != (employee_email or "").strip().lower())
+              .all()):
+        n.actioned = True
 
 
 _DUPE_APPROVED = "Duplicate of an approved request"
@@ -4105,6 +4123,7 @@ def decide_punch_edit(punch_id: str, body: PunchEditDecision,
     row.pending_at = ""
     row.edit_status = decision
     row.edit_reviewed_by, row.edit_reviewed_at = user["email"], now
+    _close_approver_notices(db, [row.id], row.employee_email)
     _audit_delegated(db, user, row.employee_email, f"{decision.title()} punch edit", "time_punches", row.id)
     db.commit()
     return _serialize(row)
@@ -11393,6 +11412,7 @@ def decide_timeoff(req_id: str, body: TimeOffDecision,
     row.status = body.status
     row.approver = user["email"]
     row.decided_at = _now_iso()
+    _close_approver_notices(db, [row.id], row.employee_email)
     # A stand-in's decision says who it was decided for (approver delegation).
     row.decide_note = _decided_note(db, user, row.employee_email, (body.note or "").strip()[:400])
     _audit_delegated(db, user, row.employee_email, f"{body.status.title()} time off request", "time_off_requests", row.id)
@@ -11435,6 +11455,8 @@ def cancel_timeoff(req_id: str, user: dict = Depends(get_current_user), db: Sess
     was_approved = row.status == "approved"
     row.status = "cancelled"
     row.decided_at = _now_iso()
+    if not was_approved:
+        _close_approver_notices(db, [row.id], row.employee_email)   # nothing left to decide
     if was_approved:
         _notify_team_alert(db, employee_email=user["email"], actor_email=user["email"],
                            title="Time Off Canceled",
