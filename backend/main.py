@@ -1108,6 +1108,9 @@ def _run_migrations():
             "ALTER TABLE ticket_departments ADD COLUMN default_assignee_email VARCHAR DEFAULT ''",
             # Email to ticket (Oct 2026, ticket_inbound.py): how a ticket arrived. models.TaskTicket.
             "ALTER TABLE task_tickets ADD COLUMN source VARCHAR DEFAULT ''",
+            # Inbound mail: what Exchange said about the sender (mail_inbound.auth_verdict).
+            "ALTER TABLE task_inbound_email ADD COLUMN auth_summary VARCHAR DEFAULT ''",
+            "ALTER TABLE ticket_inbound_email ADD COLUMN auth_summary VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2477,6 +2480,9 @@ def _run_migrations():
         # signed address did not survive - a lookup per inbound message.
         "CREATE INDEX IF NOT EXISTS ix_ticket_email_log_imid ON ticket_email_log (internet_message_id)",
         "CREATE INDEX IF NOT EXISTS ix_ticket_email_log_conv ON ticket_email_log (conversation_id)",
+        # Inbound mail: what Exchange said about the sender (mail_inbound.auth_verdict).
+        "ALTER TABLE task_inbound_email ADD COLUMN IF NOT EXISTS auth_summary VARCHAR DEFAULT ''",
+        "ALTER TABLE ticket_inbound_email ADD COLUMN IF NOT EXISTS auth_summary VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

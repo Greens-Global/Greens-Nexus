@@ -1877,6 +1877,11 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
                                                   quiet={requester} if requester_told else None)
         if not was_internal and get_notify_settings(db).get("commentsTrigger", True):
             public_comment = comment_body
+        # The drawer's reply rides on this save: a requester answering a
+        # ticket Waiting for User hands it back - unless this same save set
+        # the status itself.
+        if not was_internal and "status" not in data:
+            _resume_on_requester_reply(db, t, user)
     db.commit()
     db.refresh(t)
 
@@ -2195,14 +2200,15 @@ def _resume_on_requester_reply(db: Session, t: models.TaskTicket, user: dict) ->
     Waiting for User: the ball is back with the desk. In Progress when someone
     has it, else Open - through ticket_sla.set_status, so the SLA clock
     resumes - with the history line and the participants' "Ticket Moved"
-    bell a status change in the drawer sends. A desk agent's reply never moves
-    the status. Does not commit. True when the status moved."""
+    bell a status change in the drawer sends. Only the requester's side: the
+    assignee's own reply never moves it (a desk agent's OWN ticket, though,
+    resumes like anyone's). Does not commit. True when the status moved."""
     if (t.status or "") not in ticket_sla.WAITING_STATUSES:
         return False
     me = (user.get("email") or "").strip().lower()
     if me not in {(t.requester_email or "").strip().lower(), (t.created_by_email or "").strip().lower()} - {""}:
         return False
-    if ticket_roles.can_work_queue(user, db):
+    if me == (t.assignee_email or "").strip().lower():
         return False
     ticket_sla.set_status(t, "in_progress" if (t.assignee_email or "").strip() else "open")
     t.modified_at = now_iso()
@@ -3146,6 +3152,8 @@ def put_ticket_notify_settings(patch: dict, user: dict = Depends(require_manager
     import ticket_inbound
     try:
         patch = ticket_inbound.clean_settings_patch(db, patch, user)
+    except PermissionError as e:
+        raise HTTPException(403, str(e))
     except ValueError as e:
         raise HTTPException(400, str(e))
     return save_notify_settings(db, patch, user["email"])
@@ -3371,7 +3379,7 @@ def get_ticket_inbound_log(outcome: str = "", limit: int = 100, offset: int = 0,
         "commentId": _nz(r.comment_id), "from": r.from_email, "subject": r.subject,
         "status": r.status, "outcome": r.outcome, "reason": r.reason, "matchedBy": r.matched_by,
         "attachmentCount": r.attachment_count or 0, "receivedAt": r.received_at,
-        "processedAt": r.processed_at,
+        "processedAt": r.processed_at, "authSummary": r.auth_summary or "",
     } for r in rows], "total": total}
 
 
@@ -3381,7 +3389,12 @@ def drain_ticket_inbox(user: dict = Depends(require_manager), db: Session = Depe
     checks a new mailbox works. A plain `def`, so FastAPI runs its blocking
     Graph calls in a threadpool, never on the event loop. Uses the saved
     settings and the same switch and lock as the loop."""
+    import leader
     import ticket_inbound
+    # Only the deployed API reads the mailbox (a laptop must never take the
+    # live support mailbox's mail).
+    if not leader.is_deployed_worker():
+        raise HTTPException(409, "Only the deployed Nexus API reads the support mailbox.")
     try:
         return ticket_inbound.drain_once(db)
     except Exception as e:

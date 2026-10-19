@@ -287,7 +287,7 @@ class NewTicketTests(_Base):
         self.assertEqual(self.tickets()[0].approval_status, "pending")
 
     def test_cc_colleagues_become_collaborators(self):
-        self.ingest(_msg(cc=[COLLEAGUE, "vendor@outside.example", SUPPORT, LEFT, REQ]))
+        self.ingest(_msg(cc=[COLLEAGUE, "vendor@outside.example", SUPPORT, LEFT, REQ, INDIA]))
         t = self.tickets()[0]
         self.assertEqual(t.watcher_emails, [COLLEAGUE])
         self.assertEqual(self.bells(COLLEAGUE, "ticket_collaborator"), 1)
@@ -305,6 +305,12 @@ class NewTicketTests(_Base):
         self.assertEqual(self.ingest(msg), "duplicate")
         self.assertEqual(len(self.tickets()), 1)
         self.assertEqual(len(self.rows()), 1)
+
+    def test_a_message_seen_again_after_a_crash_says_what_may_be_missing(self):
+        msg = _msg()
+        self.ingest(msg)
+        self.assertEqual(self.ingest(msg), "duplicate")
+        self.assertIn("ticket already created; files/receipt may be missing", self.row().reason)
 
     def test_a_forward_with_nothing_typed_keeps_the_forwarded_text(self):
         body = ('<div id="divRplyFwdMsg">From: Vendor<br>Sent: Monday</div>'
@@ -341,9 +347,11 @@ class ReplyTests(_Base):
         self.assertTrue(self.ticket(tid).sla_paused_at)
 
     def test_a_requester_reply_resumes_a_waiting_ticket_in_the_app(self):
+        """The drawer sends its reply as `comment` on the one PATCH it makes
+        at Done (TicketsView -> api.updateTaskTicket)."""
         self._waiting(self.t["id"])
-        r = self.as_(REQ).post(f"/task-tickets/{self.t['id']}/comments", json={"body": "<p>Here it is</p>"})
-        self.assertEqual(r.status_code, 201, r.text)
+        r = self.as_(REQ).patch(f"/task-tickets/{self.t['id']}", json={"comment": "<p>Here it is</p>"})
+        self.assertEqual(r.status_code, 200, r.text)
         t = self.ticket(self.t["id"])
         self.assertEqual(t.status, "open")                  # nobody has it yet
         self.assertEqual(t.sla_paused_at or "", "")         # the SLA clock runs again
@@ -351,6 +359,28 @@ class ReplyTests(_Base):
         lines = [a.detail for a in self.db.query(models.TaskActivity)
                  .filter_by(entity_id=t.id, type="status_changed").all()]
         self.assertEqual(lines[-1], "changed status to Open")
+
+    def test_the_comments_endpoint_resumes_too(self):
+        self._waiting(self.t["id"])
+        r = self.as_(REQ).post(f"/task-tickets/{self.t['id']}/comments", json={"body": "<p>Here it is</p>"})
+        self.assertEqual(r.status_code, 201, r.text)
+        self.assertEqual(self.ticket(self.t["id"]).status, "open")
+
+    def test_a_save_that_sets_the_status_itself_wins(self):
+        self.as_(ADMIN).patch(f"/task-tickets/{self.t['id']}", json={"assignee_email": AGENT})
+        self._waiting(self.t["id"])
+        r = self.as_(AGENT).patch(f"/task-tickets/{self.t['id']}",
+                                  json={"comment": "<p>Still waiting</p>", "status": "waiting_vendor"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self.ticket(self.t["id"]).status, "waiting_vendor")
+
+    def test_a_desk_agents_own_ticket_resumes_like_anyones(self):
+        own = self.file_in_app(who=AGENT, subject="My laptop")
+        self.as_(ADMIN).patch(f"/task-tickets/{own['id']}", json={"assignee_email": ADMIN})
+        self._waiting(own["id"])
+        r = self.as_(AGENT).patch(f"/task-tickets/{own['id']}", json={"comment": "<p>Done that</p>"})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self.ticket(own["id"]).status, "in_progress")
 
     def test_a_requester_reply_by_email_resumes_an_assigned_ticket_to_in_progress(self):
         self.as_(ADMIN).patch(f"/task-tickets/{self.t['id']}", json={"assignee_email": AGENT})
@@ -390,25 +420,70 @@ class ReplyTests(_Base):
         self.assertEqual(self.ingest(msg), "comment")
         self.assertEqual(self.row().matched_by, "headers")
 
-    def test_a_mention_in_an_emailed_reply_pulls_the_colleague_in(self):
+    def test_an_at_mention_of_a_colleague_who_can_see_it_pulls_them_in(self):
         msg = _msg(to=[parse.reply_address(SUPPORT, self.t["id"])],
                    body=f'<p><a href="mailto:{COLLEAGUE}">@Colleague</a> can you look?</p>')
         self.ingest(msg)
         self.assertIn(COLLEAGUE, self.ticket(self.t["id"]).watcher_emails)
+
+    def test_a_plain_mailto_link_adds_nobody(self):
+        """Signatures and typed addresses are mailto links too - in an email
+        they are not mentions, and the link is unwrapped to its text."""
+        msg = _msg(to=[parse.reply_address(SUPPORT, self.t["id"])],
+                   body=f'<p>Ask <a href="mailto:{COLLEAGUE}">{COLLEAGUE}</a> about it.</p>')
+        self.ingest(msg)
+        t = self.ticket(self.t["id"])
+        self.assertNotIn(COLLEAGUE, t.watcher_emails or [])
+        body = self.comments(t.id)[-1].body
+        self.assertNotIn("mailto:", body)
+        self.assertIn(COLLEAGUE, body)
+
+    def test_an_at_mention_of_someone_behind_the_wall_adds_nobody(self):
+        msg = _msg(to=[parse.reply_address(SUPPORT, self.t["id"])],
+                   body=f'<p><a href="mailto:{INDIA}">@India</a> thoughts?</p>')
+        self.ingest(msg)
+        self.assertNotIn(INDIA, self.ticket(self.t["id"]).watcher_emails or [])
 
     def test_someone_off_the_ticket_cannot_reply_to_it(self):
         msg = _msg(sender=OTHER, to=[parse.reply_address(SUPPORT, self.t["id"])])
         self.refused(msg, "cannot comment")
         self.assertEqual(self.comments(self.t["id"]), [])
 
-    def test_a_subject_tag_of_someone_elses_ticket_is_refused_not_a_new_ticket(self):
-        self.refused(_msg(sender=OTHER, subject=f"Ticket #{int(self.t['code'])} again"), "cannot comment")
+    def test_a_subject_tag_of_someone_elses_ticket_is_just_a_new_email(self):
+        """Only the subject route falls through: "Ticket #N" in a subject is
+        not proof of a reply, and the sender cannot see #N anyway."""
+        self.assertEqual(self.ingest(_msg(sender=OTHER, subject=f"Same as Ticket #{int(self.t['code'])}")),
+                         "created")
+        self.assertEqual(self.comments(self.t["id"]), [])
+        self.assertEqual(len(self.tickets()), 2)
+        self.assertEqual(self.row().matched_by, "")
+
+    def test_the_plus_address_of_someone_elses_ticket_is_still_refused(self):
+        self.refused(_msg(sender=OTHER, to=[parse.reply_address(SUPPORT, self.t["id"])],
+                          subject=f"RE: Ticket #{int(self.t['code'])}"), "cannot comment")
 
     def test_a_reply_to_a_deleted_ticket_is_refused(self):
         tid = self.t["id"]
         r = self.as_(ADMIN).delete(f"/task-tickets/{tid}")
         self.assertEqual(r.status_code, 204, r.text)
         self.refused(_msg(to=[parse.reply_address(SUPPORT, tid)]), "no longer exists")
+
+    def test_reply_all_on_the_original_email_is_a_comment_not_a_second_ticket(self):
+        original = _msg(cc=[COLLEAGUE], imid="<orig-1@greensglobal.com>", conversation="conv-orig",
+                        subject="Wifi down on 2")
+        self.assertEqual(self.ingest(original), "created")
+        tid = next(t.id for t in self.tickets() if t.subject == "Wifi down on 2")
+        reply = _msg(sender=COLLEAGUE, cc=[REQ], subject="RE: Wifi down on 2", conversation="conv-orig",
+                     headers={"In-Reply-To": "<orig-1@greensglobal.com>"}, body="<p>Same here.</p>")
+        self.assertEqual(self.ingest(reply), "comment")
+        self.assertEqual(len(self.tickets()), 2)            # the setUp ticket and this one
+        self.assertEqual(self.comments(tid)[-1].author_email, COLLEAGUE)
+        self.db.expire_all()
+        self.assertEqual(self.db.query(models.TicketInboundEmail)
+                         .filter_by(internet_message_id=reply["internetMessageId"]).one().matched_by, "thread")
+        # The thread id alone (a client that drops In-Reply-To) is enough too.
+        again = _msg(subject="RE: Wifi down on 2", conversation="conv-orig", body="<p>Back up now.</p>")
+        self.assertEqual(self.ingest(again), "comment")
 
     def test_a_reply_with_no_new_words_is_not_a_comment(self):
         self.refused(_msg(to=[parse.reply_address(SUPPORT, self.t["id"])],
@@ -444,6 +519,35 @@ class RefusalTests(_Base):
                 self.db.query(models.TicketInboundEmail).delete()
                 self.db.commit()
                 self.refused(_msg(sender=box), "our own mailboxes", status="ignored")
+
+    def test_failed_authentication_is_refused(self):
+        for headers in ({"Authentication-Results": "spf=pass smtp.mailfrom=greensglobal.com; dmarc=fail action=none"},
+                        {"Authentication-Results": "dmarc=pass; compauth=fail reason=601"},
+                        {"X-MS-Exchange-Organization-AuthAs": "Anonymous"}):
+            with self.subTest(headers=headers):
+                self.db.query(models.TicketInboundEmail).delete()
+                self.db.commit()
+                r = self.refused(_msg(headers=headers), "sender failed authentication")
+                self.assertTrue(r.auth_summary.startswith("auth: "))
+
+    def test_passing_or_absent_authentication_is_allowed_and_recorded(self):
+        self.ingest(_msg(headers={"Authentication-Results": "spf=pass; dkim=pass; dmarc=pass action=none; compauth=pass",
+                                  "X-MS-Exchange-Organization-AuthAs": "Internal"}))
+        self.assertEqual(self.row().auth_summary,
+                         "auth: dmarc=pass compauth=pass spf=pass dkim=pass authas=Internal")
+        self.db.query(models.TicketInboundEmail).delete()
+        self.db.commit()
+        self.assertEqual(self.ingest(_msg()), "created")
+        self.assertEqual(self.row().auth_summary, "auth: no authentication headers")
+
+    def test_an_inbox_rule_forward_loop_is_refused(self):
+        for headers in ({"X-MS-Exchange-Inbox-Rules-Loop": REQ},
+                        {"X-MS-Exchange-Generated-Message-Source": "Mailbox Rules Agent"},
+                        {"X-MS-Exchange-Organization-AutoForwarded": "true"}):
+            with self.subTest(headers=headers):
+                self.db.query(models.TicketInboundEmail).delete()
+                self.db.commit()
+                self.refused(_msg(headers=headers), "forwarding rule", status="ignored")
 
     def test_no_default_department_for_the_company(self):
         self.refused(_msg(sender=INDIA), "no default department")
@@ -562,7 +666,13 @@ class GateTests(_Base):
 
     def test_the_lock_held_elsewhere_reads_nothing(self):
         self.queue = [_msg()]
-        with patch.object(mail_inbound, "try_lock", return_value=False):
+        from contextlib import contextmanager
+
+        @contextmanager
+        def held(db, key):
+            yield False
+
+        with patch.object(mail_inbound, "pass_lock", held):
             self.assertEqual(inbound.drain_once(self.db)["seen"], 0)
         self.assertEqual(self.listed, [])
 
@@ -636,6 +746,27 @@ class OutboundAndSettingsTests(_Base):
         self.assertEqual(r.json()["inboundDefaultDepartment"], {"co1": "dIT", "co2": "dIT2"})
         r = put({})                                             # dropping it from the payload does not clear it
         self.assertEqual(r.json()["inboundDefaultDepartment"], {"co2": "dIT2"})
+
+    def test_the_switch_and_mailbox_are_global_admins_only(self):
+        self.db.add(models.NexusGroup(id="ga", name="Global Admins", is_global_admin=1))
+        self.db.add(models.NexusGroupMember(group_id="ga", email="ga@greensglobal.com"))
+        self.db.commit()
+        cfg = self.as_(ADMIN).get("/task-tickets/notify/settings").json()
+        self.assertEqual(self.as_(ADMIN).put("/task-tickets/notify/settings",
+                                             json={"inboundEnabled": False}).status_code, 403)
+        self.assertEqual(self.as_(ADMIN).put("/task-tickets/notify/settings",
+                                             json={"inboundMailbox": "help@greensglobal.com"}).status_code, 403)
+        # The form's whole copy, unchanged, still saves - with a default department of their own.
+        cfg["inboundDefaultDepartment"] = {"co1": "dIT"}
+        cfg["autoCloseDays"] = 7
+        r = self.as_(ADMIN).put("/task-tickets/notify/settings", json=cfg)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertTrue(r.json()["inboundEnabled"])
+
+    def test_the_manual_drain_is_the_deployed_workers_only(self):
+        with patch("leader.is_deployed_worker", return_value=False):
+            r = self.as_(ADMIN).post("/task-tickets/inbound/drain")
+        self.assertEqual(r.status_code, 409, r.text)
 
     def test_switching_on_needs_a_mailbox(self):
         ticket_notify.save_settings(self.db, {"inboundEnabled": False, "inboundMailbox": ""}, "test")

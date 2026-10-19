@@ -377,6 +377,23 @@ class IngestTests(_MailboxCase):
         self.assertEqual(inbound.ingest_message(self.db, CFG, msg), "ignored")
         self.assertEqual(self._comments(), [])
 
+    def test_a_reply_that_failed_authentication_is_refused(self):
+        """Defense in depth behind DMARC p=reject: Exchange's own verdict."""
+        msg = self._reply_to_task(headers={"Authentication-Results": "spf=fail; dmarc=fail action=none"})
+        self.assertEqual(inbound.ingest_message(self.db, CFG, msg), "rejected")
+        self.assertEqual(self._row().reason, "sender failed authentication")
+        self.assertIn("dmarc=fail", self._row().auth_summary)
+        self.assertEqual(self._comments(), [])
+
+    def test_absent_authentication_headers_are_allowed_and_recorded(self):
+        self.assertEqual(inbound.ingest_message(self.db, CFG, self._reply_to_task()), "posted")
+        self.assertEqual(self._row().auth_summary, "auth: no authentication headers")
+
+    def test_an_inbox_rule_forward_is_automated(self):
+        msg = self._reply_to_task(headers={"X-MS-Exchange-Inbox-Rules-Loop": SENDER})
+        self.assertEqual(inbound.ingest_message(self.db, CFG, msg), "ignored")
+        self.assertEqual(self._comments(), [])
+
     def test_the_mailbox_talking_to_itself_is_ignored(self):
         msg = self._reply_to_task(sender=MAILBOX)
         self.assertEqual(inbound.ingest_message(self.db, CFG, msg), "ignored")

@@ -44,8 +44,9 @@ describe('TicketInboundLog', () => {
     expect(screen.getByText('Comment Added')).toBeInTheDocument();
     expect(screen.getByText('Refused')).toBeInTheDocument();
     expect(screen.getByText('Failed')).toBeInTheDocument();          // an unknown outcome still renders
+    expect(screen.getByText('Unknown Sender')).toBeInTheDocument();
     expect(screen.getByText('sender is not a known Nexus person')).toBeInTheDocument();
-    expect(screen.getByText('(no subject)')).toBeInTheDocument();
+    expect(screen.getByText('(No Subject)')).toBeInTheDocument();
     // Received time in the viewer's own zone, US format (MM/DD/YYYY, 12-hour).
     expect(screen.getAllByText(/^10\/19\/2026, \d{1,2}:\d{2} (AM|PM)$/).length).toBeGreaterThan(0);
     expect(api.getTicketInboundLog).toHaveBeenCalledWith({ limit: 100 });

@@ -35,13 +35,24 @@ a TaskTicket or TaskComment row from here directly.
                 cannot be set anyway). Empty when the sender mailbox only has
                 Mail.Send (graph_mail falls back to /sendMail), which is why it
                 is not the first route.
-  conversation  Outlook's thread id against what we sent - the last automatic
-                route, same as Tasks.
+  conversation  Outlook's thread id against what we sent, same as Tasks.
+  thread        In-Reply-To / References / thread id against messages that
+                already became a ticket or comment - so Reply All on the
+                ORIGINAL email (before any ticket email exists) lands on that
+                ticket instead of filing a second one.
   subject       "Ticket #12" in the subject (every ticket email's subject starts
-                with it), only for a ticket the sender may comment on.
-A message that names a ticket by any route but cannot be used (the ticket is
-gone, or the sender may not comment on it) is refused - never turned into a
-second, new ticket.
+                with it), only for a ticket the sender may comment on; when
+                there is none, the email is simply a new one.
+A message that names a ticket by address, headers, conversation or thread but
+cannot be used (the ticket is gone, or the sender may not comment on it) is
+refused - never turned into a second, new ticket.
+
+**Sender authenticity**: behind the domain's DMARC p=reject, Exchange's own
+verdict (Authentication-Results / ARC, X-MS-Exchange-Organization-AuthAs) is
+read by mail_inbound.auth_verdict - a fail is refused, and the row keeps what
+was seen. **Emailed mailto links** are unwrapped unless written as an
+@mention of someone who can see the ticket (unwrap_mailtos) - in the drawer a
+mailto link is a mention, and a mention adds a watcher.
 
 **Gated three ways**, exactly like Tasks: `inboundEnabled` (off by default),
 the deployed worker only (leader.is_deployed_worker, in main.py and again in the
@@ -59,6 +70,8 @@ stored as canonical URLs (opened through /files/view), and recorded through
 routers/tickets.record_ticket_attachment. Best effort per file, like Tasks.
 """
 import asyncio
+import html as html_lib
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -136,7 +149,10 @@ def _own_mailboxes(db, cfg: dict) -> list[str]:
 
 def clean_settings_patch(db, patch: dict, user: dict | None = None) -> dict:
     """The inbound half of a ticket notification settings save, checked.
-    Raises ValueError with the reason to show. Leaves every other key alone.
+    Raises ValueError with the reason to show (PermissionError when the
+    caller may not change it). Leaves every other key alone.
+
+      - inboundEnabled / inboundMailbox: changed by Global Admins only;
 
       - inboundMailbox: an address, and never the Tasks reply mailbox (two
         drains must never read one mailbox - each would mark the other's mail
@@ -148,6 +164,18 @@ def clean_settings_patch(db, patch: dict, user: dict | None = None) -> dict:
         kept exactly as stored, whatever the patch says about it."""
     patch = dict(patch or {})
     current = ticket_notify.get_settings(db)
+    if user is not None:
+        import auth
+        # The switch and the mailbox are the whole workspace's - Global
+        # Admins only. The settings form sends its whole copy back, so only a
+        # CHANGE is refused; company supervisors still set their own
+        # company's default department.
+        changes = (("inboundEnabled" in patch
+                    and bool(patch.get("inboundEnabled")) != bool(current.get("inboundEnabled")))
+                   or ("inboundMailbox" in patch
+                       and str(patch.get("inboundMailbox") or "").strip().lower() != mailbox_of(current)))
+        if changes and not auth.is_global_admin(user, db):
+            raise PermissionError("Only a Global Admin can turn Email to Ticket on or off or change its mailbox.")
     if "inboundMailbox" in patch:
         mb = str(patch.get("inboundMailbox") or "").strip().lower()
         if mb and ("@" not in mb or " " in mb):
@@ -226,10 +254,21 @@ def _live_ticket(db, ticket_id: str):
     return db.query(models.TaskTicket).filter(models.TaskTicket.id == ticket_id).first() if ticket_id else None
 
 
-def resolve_ticket(db, cfg: dict, msg: dict, headers: dict):
+def resolve_ticket(db, cfg: dict, msg: dict, headers: dict, user: dict | None = None):
     """(ticket, how). `how` without a ticket = the message names a ticket that
-    no longer exists (refused, never a new ticket). ("", None) = a new email.
-    See the module docstring for the four routes."""
+    no longer exists (refused, never a new ticket). (None, "") = a new email.
+    Routes, strongest first (the module docstring has why):
+
+      address       the signed plus address;
+      headers       In-Reply-To / References = mail we sent (ticket_email_log);
+      conversation  Outlook's thread id = mail we sent;
+      thread        In-Reply-To / References / thread id = a message that
+                    already became a ticket or a comment (ticket_inbound_email)
+                    - Reply All on the ORIGINAL email lands on its ticket, not
+                    on a second one;
+      subject       "Ticket #N" in the subject - only a ticket `user` may
+                    comment on (newest first, if legacy codes repeat); none =
+                    a new email."""
     tid = parse.ticket_id_from_recipients(mailbox_of(cfg), mail_inbound.recipients_of(msg))
     if tid:
         return _live_ticket(db, tid), "address"
@@ -249,11 +288,25 @@ def resolve_ticket(db, cfg: dict, msg: dict, headers: dict):
         if row:
             return _live_ticket(db, row.ticket_id), "conversation"
 
+    E = models.TicketInboundEmail
+    seen = []
+    if refs:
+        seen.append(E.internet_message_id.in_(refs))
+    if conv:
+        seen.append(E.conversation_id == conv)
+    if seen:
+        from sqlalchemy import or_
+        row = (db.query(E).filter(or_(*seen), E.ticket_id != "", E.outcome.in_(("created", "comment")))
+               .order_by(E.processed_at.desc()).first())
+        if row:
+            return _live_ticket(db, row.ticket_id), "thread"
+
     code = parse.subject_ticket_code(msg.get("subject") or "")
-    if code:
-        t = db.query(models.TaskTicket).filter(models.TaskTicket.code == code).first()
-        if t is not None:
-            return t, "subject"
+    if code and user is not None:
+        for t in (db.query(models.TaskTicket).filter(models.TaskTicket.code == code)
+                  .order_by(models.TaskTicket.created_at.desc(), models.TaskTicket.id).all()):
+            if not comment_refusal(db, user, t):
+                return t, "subject"
     return None, ""
 
 
@@ -307,6 +360,32 @@ def _description(msg: dict) -> str:
     if len(out) > body_parse.MAX_BODY_CHARS:
         out = out[:body_parse.MAX_BODY_CHARS] + "<p>[This email was truncated]</p>"
     return out
+
+
+_MAILTO_A = re.compile(r'<a href="mailto:([^"]*)">(.*?)</a>', re.I | re.S)
+
+
+def unwrap_mailtos(db, t, html: str) -> str:
+    """An emailed reply's mailto links, made safe for the mention parser.
+
+    In the drawer a mailto link IS a mention, and a mention puts that person
+    on the ticket. In an email, mailto links are mostly a signature or an
+    address someone typed - so each is unwrapped to its text, unless its text
+    starts with "@" (written as a mention) AND the address is an active
+    internal person whose company can see this ticket."""
+    from routers import tickets as T
+
+    def keep(m):
+        email = html_lib.unescape(m.group(1)).split("?", 1)[0].strip().lower()
+        text = re.sub(r"<[^>]*>", "", m.group(2))
+        if text.strip().startswith("@") and T._internal_person(db, email):
+            emp = _employee(db, email)
+            company = (t.company_id or "").strip()
+            if emp is not None and (not company or (emp.company or "") == company):
+                return m.group(0)
+        return m.group(2)
+
+    return _MAILTO_A.sub(keep, html or "")
 
 
 # ── Attachments ──────────────────────────────────────────────────────────────
@@ -363,14 +442,19 @@ def _run_after(bt: BackgroundTasks) -> None:
 
 def _collaborators(db, cfg: dict, msg: dict, author: str) -> list[str]:
     """Colleagues on the To / CC line of a new email: active internal Nexus
-    people, not the sender and not one of our own mailboxes."""
+    people of the sender's company, not the sender and not one of our own
+    mailboxes."""
+    from routers import tickets as T
     own = _own_mailboxes(db, cfg)
+    company = T.company_for(db, author)
     out = []
     for addr in mail_inbound.recipients_of(msg):
         if any(mail_inbound.same_mailbox(addr, m) for m in own):
             continue
-        email, why = resolve_sender(db, addr)
-        if email and email != author and email not in out:
+        email, _why = resolve_sender(db, addr)
+        # Only colleagues of the ticket's own company: someone behind the
+        # company wall could not open it anyway.
+        if email and email != author and email not in out and T.company_for(db, email) == company:
             out.append(email)
         if len(out) >= MAX_CC_COLLABORATORS:
             break
@@ -393,7 +477,17 @@ def ingest_message(db, cfg: dict, msg: dict) -> str:
     msg_id = msg.get("id") or ""
     imid = (msg.get("internetMessageId") or "").strip() or f"graph:{msg_id}"
     E = models.TicketInboundEmail
-    if db.query(E).filter(E.internet_message_id == imid).first():
+    earlier = db.query(E).filter(E.internet_message_id == imid).first()
+    if earlier is not None:
+        # Seen again: the outcome committed but the message was never marked
+        # handled (a crash or Graph error after the commit). Nothing is done
+        # twice - and the row says what the crash may have cost.
+        note = ("ticket already created; files/receipt may be missing" if earlier.outcome == "created"
+                else "comment already posted; files/emails may be missing" if earlier.outcome == "comment"
+                else "")
+        if note and note not in (earlier.reason or ""):
+            earlier.reason = "; ".join(x for x in (earlier.reason, note) if x)[:500]
+            db.commit()
         return "duplicate"
 
     headers = mail_inbound.headers_of(msg)
@@ -420,7 +514,12 @@ def ingest_message(db, cfg: dict, msg: dict) -> str:
     if not sender or any(mail_inbound.same_mailbox(sender, m) for m in _own_mailboxes(db, cfg)):
         return finish("refused", "mail from one of our own mailboxes", status="ignored")
     if body_parse.is_auto_reply(headers):
-        return finish("refused", "automated mail (out-of-office, bounce or list)", status="ignored")
+        return finish("refused", "automated mail (out-of-office, bounce, list or a forwarding rule)",
+                      status="ignored")
+    # Defense in depth behind DMARC p=reject (mail_inbound.auth_verdict).
+    authentic, row.auth_summary = mail_inbound.auth_verdict(msg)
+    if not authentic:
+        return finish("refused", "sender failed authentication")
     raw_len = max(len(_raw(msg.get("body"))[0]), len(_raw(msg.get("uniqueBody"))[0]))
     if raw_len > MAX_RAW_BODY_CHARS:
         return finish("refused", f"the message is too large (over {MAX_RAW_BODY_CHARS // 1000} KB of text)")
@@ -432,7 +531,7 @@ def ingest_message(db, cfg: dict, msg: dict) -> str:
     user = _user_for(db, author)
 
     # ── a reply? ──
-    t, how = resolve_ticket(db, cfg, msg, headers)
+    t, how = resolve_ticket(db, cfg, msg, headers, user)
     row.matched_by = how
     if how and t is None:
         return finish("refused", "the ticket this replies to no longer exists")
@@ -441,12 +540,12 @@ def ingest_message(db, cfg: dict, msg: dict) -> str:
         refusal = comment_refusal(db, user, t)
         if refusal:
             return finish("refused", refusal)
+        content, ctype = _new_part(msg)
+        text = unwrap_mailtos(db, t, _clean(content, ctype))
+        kept_html = body_parse.strip_quoted_html(content) if ctype != "text" else ""
+        files = _list_files(cfg, msg)          # Graph, before the row lock below
         # Locked like the route: an @mention adds watchers (a JSON read-modify-write).
         t = T._conversation_ticket_or_404(db, t.id, lock=True)
-        content, ctype = _new_part(msg)
-        text = _clean(content, ctype)
-        kept_html = body_parse.strip_quoted_html(content) if ctype != "text" else ""
-        files = _list_files(cfg, msg)
         if not text and not files:
             return finish("refused", "reply had no new text (only quoted history or a signature)",
                           status="ignored")
@@ -539,31 +638,34 @@ def drain_once(db) -> dict:
         # later. The Tasks drain keeps the mailbox, this one stands down.
         print("[ticket-inbound] support mailbox is the Tasks reply mailbox - not reading it")
         return counts
-    if not mail_inbound.try_lock(db, _LOCK_KEY):
-        return counts          # another worker is draining
-    try:
-        for stub in list_unread(mailbox):
-            msg_id = stub.get("id") or ""
-            counts["seen"] += 1
-            try:
-                msg = get_message(mailbox, msg_id)
-                outcome = ingest_message(db, cfg, msg)
-            except Exception as e:
-                # Not even judged - stays unread and is retried next pass.
-                db.rollback()
-                print(f"[ticket-inbound] {msg_id}: {e}")
-                counts["failed"] += 1
-                continue
-            counts[outcome] = counts.get(outcome, 0) + 1
-            try:
-                mail_inbound.mark_handled(mailbox, msg_id, tag="ticket-inbound")
-            except Exception as e:
-                # The outcome is committed; it comes back next pass and the
-                # unique index makes it a no-op.
-                print(f"[ticket-inbound] could not mark {msg_id} handled: {e}")
-    finally:
-        mail_inbound.release_lock(db, _LOCK_KEY)
+    # Held on its own connection for the whole pass (mail_inbound.pass_lock).
+    with mail_inbound.pass_lock(db, _LOCK_KEY) as mine:
+        if not mine:
+            return counts          # another worker is draining
+        _drain_batch(db, cfg, mailbox, counts)
     return counts
+
+
+def _drain_batch(db, cfg: dict, mailbox: str, counts: dict) -> None:
+    for stub in list_unread(mailbox):
+        msg_id = stub.get("id") or ""
+        counts["seen"] += 1
+        try:
+            msg = get_message(mailbox, msg_id)
+            outcome = ingest_message(db, cfg, msg)
+        except Exception as e:
+            # Not even judged - stays unread and is retried next pass.
+            db.rollback()
+            print(f"[ticket-inbound] {msg_id}: {e}")
+            counts["failed"] += 1
+            continue
+        counts[outcome] = counts.get(outcome, 0) + 1
+        try:
+            mail_inbound.mark_handled(mailbox, msg_id, tag="ticket-inbound")
+        except Exception as e:
+            # The outcome is committed; it comes back next pass and the
+            # unique index makes it a no-op.
+            print(f"[ticket-inbound] could not mark {msg_id} handled: {e}")
 
 
 def _drain_in_thread() -> None:

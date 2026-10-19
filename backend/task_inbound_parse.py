@@ -112,7 +112,15 @@ def task_id_from_recipients(mailbox: str, addresses) -> str:
 # The actor is already excluded from their own notification, so the remaining
 # risk is machine mail, and machine mail announces itself in the headers.
 _AUTO_HEADERS = ("x-autoreply", "x-autorespond", "x-auto-response-suppress",
-                 "x-mailer-daemon", "list-id", "list-unsubscribe")
+                 "x-mailer-daemon", "list-id", "list-unsubscribe",
+                 # Exchange inbox rules (forward / redirect): a mailbox rule
+                 # pointed back at the mailbox is a loop, and a rule-forwarded
+                 # message is not a person writing to us.
+                 "x-ms-exchange-inbox-rules-loop", "x-ms-exchange-generated-message-source",
+                 "x-ms-exchange-parent-message-id")
+# Present only when set, but read for a true value to be sure.
+_AUTO_FORWARD_HEADERS = ("x-ms-exchange-organization-autoforwarded", "x-autoforwarded",
+                         "auto-forwarded")
 _AUTO_PRECEDENCE = ("bulk", "auto_reply", "autoreply", "junk", "list")
 
 
@@ -125,6 +133,8 @@ def is_auto_reply(headers: dict) -> bool:
         return True
     # A null return path is what a bounce/DSN carries.
     if h.get("return-path", "").replace(" ", "") == "<>":
+        return True
+    if any(h.get(k, "").lower() in ("true", "yes", "1") for k in _AUTO_FORWARD_HEADERS):
         return True
     return any(k in h for k in _AUTO_HEADERS)
 

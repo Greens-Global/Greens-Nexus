@@ -62,7 +62,10 @@ Admin > Notifications (Ticket Email Notifications), Settings tab:
    the sender's company (from their People record) and that company's
    department. A company with none set has its new emails refused with "no
    default department" - Nexus never guesses one.
-4. **Save Settings**, then **Check Mailbox Now** to run one pass immediately.
+   Only a Global Admin can turn Email to Ticket on or off or change the
+   mailbox; a company's supervisors set their own company's default
+   department.
+4. **Save Settings**, then **Check Mailbox Now** (deployed API only) to run one pass immediately.
    An error here is usually the missing `Mail.ReadWrite` grant or access policy.
 
 The deployed API reads the mailbox every minute. A developer laptop never does
@@ -76,9 +79,16 @@ The deployed API reads the mailbox every minute. A developer laptop never does
 | Reply to a ticket email from someone who may comment on it | Public comment on that ticket (never an internal note), with the same bells and emails as the drawer. Files attach to the ticket. |
 | Unknown or outside sender, guest or external account, someone who left | Refused |
 | Out-of-office, bounce, mailing list, or mail from one of our own mailboxes | Refused (shown as ignored) |
-| Reply to a ticket the sender cannot see, or one that was deleted | Refused - never a second ticket |
+| Reply All on the original email (before any ticket email went out) | Comment on the ticket that email created - matched by its thread |
+| Reply to a ticket the sender cannot see, or one that was deleted | Refused - never a second ticket (a "Ticket #N" in the subject alone is not a reply: if the sender cannot see #N, it is a new email) |
+| Exchange says the sender failed authentication (dmarc=fail, compauth=fail, or not sent as Internal) | Refused - each row records what Exchange reported |
+| An inbox-rule forward (X-MS-Exchange-Inbox-Rules-Loop and similar) | Refused (shown as ignored) |
 | More than 10 new tickets from one sender in an hour | Refused (stops a forwarding loop) |
 | A message over 1 MB of text | Refused |
+
+In an emailed reply, a mailto link is kept as an @mention (and adds that
+person to the ticket) only when its text starts with "@" and the person can see
+the ticket; any other mailto link becomes plain text.
 
 Files go to the private `ticket-evidence` bucket. Shared OneDrive links are not
 filed (a ticket's files must be Nexus storage); the log row names them.

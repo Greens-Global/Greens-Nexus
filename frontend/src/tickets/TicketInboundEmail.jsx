@@ -177,7 +177,7 @@ export default function TicketInboundLog({ enabled = true, mailbox = '' }) {
       )}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
         <TicketSelect value={outcome} onChange={pick} style={{ width: 'auto', minWidth: 170 }}
-          options={[['', 'All messages'], ['created', 'Ticket Created'], ['comment', 'Comment Added'],
+          options={[['', 'All Messages'], ['created', 'Ticket Created'], ['comment', 'Comment Added'],
             ['refused', 'Refused'], ['failed', 'Failed']]} />
         <button type="button" style={btn('ghost')} onClick={load} title="Refresh" aria-label="Refresh"><RefreshCw size={14} /></button>
         {err && <span style={{ fontSize: 12.5, color: NX.red }}>{err}</span>}
@@ -205,10 +205,10 @@ export default function TicketInboundLog({ enabled = true, mailbox = '' }) {
                   ) : <span style={{ color: NX.faint }}>-</span>}
                 </span>
                 <span style={{ flexShrink: 0, width: 190, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.from}>
-                  {r.from || 'unknown sender'}
+                  {r.from || 'Unknown Sender'}
                 </span>
                 <span style={{ flex: 1, minWidth: 140, color: NX.dim, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.subject}>
-                  {r.subject || '(no subject)'}
+                  {r.subject || '(No Subject)'}
                 </span>
                 {r.attachmentCount > 0 && (
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, color: NX.faint, flexShrink: 0 }}
@@ -218,7 +218,7 @@ export default function TicketInboundLog({ enabled = true, mailbox = '' }) {
                 )}
                 {/* The reason is the point of a refused row - and on one that
                     went through it names a file that could not be filed. */}
-                <span style={{ color: NX.faint, flexShrink: 0, width: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.reason}>
+                <span style={{ color: NX.faint, flexShrink: 0, width: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={[r.reason, r.authSummary].filter(Boolean).join(' - ')}>
                   {r.reason || ''}
                 </span>
                 <span style={{ color: NX.faint, flexShrink: 0 }} title="Received">

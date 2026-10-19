@@ -4357,6 +4357,10 @@ class TaskInboundEmail(Base):
     attachment_count    = Column(Integer, default=0)   # files actually filed (see task_inbound)
     received_at         = Column(String, default="")
     processed_at        = Column(String, default="")
+    # What Exchange said about the sender (mail_inbound.auth_verdict, Oct
+    # 2026): "auth: dmarc=pass compauth=pass authas=Internal", or that no
+    # authentication headers were seen.
+    auth_summary        = Column(String, default="")
 
 
 
@@ -6910,3 +6914,4 @@ class TicketInboundEmail(Base):
     attachment_count    = Column(Integer, default=0)
     received_at         = Column(String, default="")
     processed_at        = Column(String, default="", index=True)
+    auth_summary        = Column(String, default="")   # mail_inbound.auth_verdict

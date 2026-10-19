@@ -233,6 +233,10 @@ def ingest_message(db, cfg: dict, msg: dict) -> str:
         return finish("ignored", "mail from the task mailbox itself")
     if parse.is_auto_reply(headers):
         return finish("ignored", "automated mail (out-of-office, bounce or list)")
+    # Defense in depth behind DMARC p=reject (mail_inbound.auth_verdict).
+    authentic, row.auth_summary = mail_inbound.auth_verdict(msg)
+    if not authentic:
+        return finish("rejected", "sender failed authentication")
 
     task, how = resolve_task(db, cfg, msg, headers)
     if not task:
@@ -305,12 +309,27 @@ def ingest_message(db, cfg: dict, msg: dict) -> str:
 
 
 # ── Drain ────────────────────────────────────────────────────────────────────
-def _acquire_lock(db) -> bool:
-    return mail_inbound.try_lock(db, _LOCK_KEY)
-
-
-def _release_lock(db) -> None:
-    mail_inbound.release_lock(db, _LOCK_KEY)
+def _drain_batch(db, cfg: dict, mailbox: str, counts: dict) -> None:
+    for stub in list_unread(mailbox):
+        msg_id = stub.get("id") or ""
+        counts["seen"] += 1
+        try:
+            msg = get_message(mailbox, msg_id)
+            status = ingest_message(db, cfg, msg)
+        except Exception as e:
+            # A message we could not even fetch or judge stays unread and
+            # is retried next pass; log it so a persistent one is visible.
+            print(f"[task-inbound] {msg_id}: {e}")
+            counts["failed"] += 1
+            continue
+        counts[status] = counts.get(status, 0) + 1
+        try:
+            mark_handled(mailbox, msg_id)
+        except Exception as e:
+            # The outcome is already committed. One message we cannot mark
+            # must not abandon the rest of the batch - it comes back next
+            # pass and the unique index turns it into a no-op.
+            print(f"[task-inbound] could not mark {msg_id} handled: {e}")
 
 
 def drain_once(db) -> dict:
@@ -322,31 +341,11 @@ def drain_once(db) -> dict:
     if not is_enabled(cfg):
         return counts
     mailbox = mailbox_of(cfg)
-    if not _acquire_lock(db):
-        return counts          # another worker is draining
-    try:
-        for stub in list_unread(mailbox):
-            msg_id = stub.get("id") or ""
-            counts["seen"] += 1
-            try:
-                msg = get_message(mailbox, msg_id)
-                status = ingest_message(db, cfg, msg)
-            except Exception as e:
-                # A message we could not even fetch or judge stays unread and
-                # is retried next pass; log it so a persistent one is visible.
-                print(f"[task-inbound] {msg_id}: {e}")
-                counts["failed"] += 1
-                continue
-            counts[status] = counts.get(status, 0) + 1
-            try:
-                mark_handled(mailbox, msg_id)
-            except Exception as e:
-                # The outcome is already committed. One message we cannot mark
-                # must not abandon the rest of the batch - it comes back next
-                # pass and the unique index turns it into a no-op.
-                print(f"[task-inbound] could not mark {msg_id} handled: {e}")
-    finally:
-        _release_lock(db)
+    # Held on its own connection for the whole pass (mail_inbound.pass_lock).
+    with mail_inbound.pass_lock(db, _LOCK_KEY) as mine:
+        if not mine:
+            return counts          # another worker is draining
+        _drain_batch(db, cfg, mailbox, counts)
     return counts
 
 

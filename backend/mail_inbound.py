@@ -20,6 +20,9 @@ the two drains cannot drift on the parts that are not about tasks or tickets:
 Synchronous throughout - both drains run in a worker thread (asyncio.to_thread),
 never on the event loop.
 """
+import re
+from contextlib import contextmanager
+
 import httpx
 from sqlalchemy import text as sql_text
 
@@ -259,23 +262,76 @@ def resolve_person(db, from_email: str) -> tuple[str, str]:
 
 
 # ── The pass lock ────────────────────────────────────────────────────────────
-def try_lock(db, key: int) -> bool:
-    """Session-scoped, not transaction-scoped: a drain commits after every
-    message, and a pg_advisory_XACT_lock would be released by the first of
-    those - handing the rest of the batch to whichever of the 8 workers asked
-    next. No-op on SQLite, where there is only ever one process."""
-    if db.bind.dialect.name != "postgresql":
-        return True
-    return bool(db.execute(sql_text("SELECT pg_try_advisory_lock(:k)"), {"k": key}).scalar())
+@contextmanager
+def pass_lock(db, key: int):
+    """Hold `key` for a whole drain pass: yields True when this process has it,
+    False when another worker is draining.
 
-
-def release_lock(db, key: int) -> None:
-    if db.bind.dialect.name == "postgresql":
+    On its OWN connection (engine.connect()), never the ORM session's: the
+    drain commits after every message, and a lock on the session's pooled
+    connection is at the mercy of whatever that connection does between
+    commits. And transaction-scoped (pg_try_advisory_xact_lock inside one
+    transaction held open for the pass), not session-scoped: through
+    Supabase's transaction pooler (port 6543) a SESSION lock lands on one
+    server connection and is never released when the client closes
+    (schema_guard.py's note), while a transaction pins its server connection
+    until it ends - so the lock goes when the pass does, however it ends.
+    No-op on SQLite, where there is only ever one process."""
+    bind = db.get_bind()
+    if bind.dialect.name != "postgresql":
+        yield True
+        return
+    conn = bind.connect()
+    trans = conn.begin()
+    try:
+        got = bool(conn.execute(sql_text("SELECT pg_try_advisory_xact_lock(:k)"), {"k": key}).scalar())
+        yield got
+    finally:
         try:
-            db.execute(sql_text("SELECT pg_advisory_unlock(:k)"), {"k": key})
-            db.commit()
+            trans.rollback()            # ends the transaction: the lock goes with it
         except Exception:
             pass
+        conn.close()
+
+
+# ── Sender authenticity ──────────────────────────────────────────────────────
+# Defense in depth behind the domain's own DMARC p=reject / SPF -all: what
+# Exchange Online concluded about the message, read from its headers.
+_AUTH_HEADERS = ("authentication-results", "arc-authentication-results")
+_VERDICT_RE = re.compile(r"\b(dmarc|compauth|spf|dkim)=([a-z]+)", re.I)
+
+
+def header_values(msg: dict, name: str) -> list[str]:
+    """Every value of one header - headers_of keeps only the last of a name
+    that repeats, and Authentication-Results / ARC do repeat."""
+    name = name.lower()
+    return [(h.get("value") or "") for h in (msg.get("internetMessageHeaders") or [])
+            if (h.get("name") or "").lower() == name]
+
+
+def auth_verdict(msg: dict) -> tuple[bool, str]:
+    """(allowed, summary). Refused when Exchange says the sender failed:
+    dmarc=fail or compauth=fail in Authentication-Results (or ARC), or
+    X-MS-Exchange-Organization-AuthAs present and not "Internal". Headers
+    absent = allowed - whether Graph exposes them is not yet verified, and a
+    header we cannot count on is not one to hard-require - with the summary
+    saying so, so the first real messages show what is there."""
+    seen: dict[str, str] = {}
+    for name in _AUTH_HEADERS:
+        for value in header_values(msg, name):
+            for key, verdict in _VERDICT_RE.findall(value):
+                key, verdict = key.lower(), verdict.lower()
+                # Any failure wins over a pass from another hop.
+                if seen.get(key) != "fail":
+                    seen[key] = verdict
+    auth_as = " ".join(header_values(msg, "x-ms-exchange-organization-authas")).strip()
+    parts = [f"{k}={seen[k]}" for k in ("dmarc", "compauth", "spf", "dkim") if k in seen]
+    if auth_as:
+        parts.append(f"authas={auth_as}")
+    summary = ("auth: " + " ".join(parts)) if parts else "auth: no authentication headers"
+    failed = (seen.get("dmarc") == "fail" or seen.get("compauth") == "fail"
+              or (auth_as and auth_as.lower() != "internal"))
+    return (not failed), summary[:200]
 
 
 # ── Attachments ──────────────────────────────────────────────────────────────
