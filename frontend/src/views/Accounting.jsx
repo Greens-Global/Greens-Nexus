@@ -35,6 +35,7 @@ import { ArrowLeftRight, BookOpen, PieChart, Scale, Target, Activity } from 'luc
 import { ChartColumn, HandCoins } from 'lucide-react';
 import ProfitabilityReport from '../components/accounting/ProfitabilityReport';
 import CompensationReport from '../components/accounting/CompensationReport';
+import { useActionCounts, withBadges } from '../lib/useActionCounts';
 
 // Accounting in Nexus reads the Nexus Accounting ledger (a one-way Intacct ->
 // Supabase mirror; Intacct stays the source of truth and nothing is written
@@ -145,6 +146,7 @@ export default function Accounting({ activeSub, onSubChange }) {
   // The accounting app is its own grant ("Nexus Accounting App" in Roles &
   // Access); seeing this screen does not imply it. Administrators bypass.
   const { canAccessModule, myEmail } = useRole();
+  const counts = useActionCounts();
   // The Close tab's "My Tasks" matches a task owner to my role or my name.
   const nameOf = useNameResolver();
   const meName = nameOf(myEmail) || '';
@@ -291,7 +293,7 @@ export default function Accounting({ activeSub, onSubChange }) {
         </div>
       </div>
 
-      {access && <ModuleTabs tabs={tabs} active={sub} onChange={onSubChange} />}
+      {access && <ModuleTabs tabs={withBadges(tabs, counts, 'accounting')} active={sub} onChange={onSubChange} />}
 
       {!access ? (
         <div style={{ marginTop: 16 }}><SkeletonBlocks count={3} /></div>

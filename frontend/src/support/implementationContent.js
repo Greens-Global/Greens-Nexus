@@ -63,7 +63,7 @@ export const IMPL_DISCOVERY = [
     'Which legal entities (companies) will use Nexus? Legal name, country, tax ID and addresses for each.',
     'Which email domains does each company use? (People are matched to their company by email domain.)',
     'Who is the owner (Global Admin) and who administers Nexus day to day (IT Admins)?',
-    'Who is HR for each company? Their HR contact signs every time sheet last.',
+    'Who is HR for each company? Their HR contact reviews time sheets for people with no manager, can change or finalize any time sheet, and pays reimbursements.',
     'Is there one manager over all companies (the group manager)?',
   ]},
   { area: 'People', questions: [
@@ -81,11 +81,12 @@ export const IMPL_DISCOVERY = [
     'Is screen monitoring used while clocked in? Who is exempt (usually leadership)?',
     'Should people post beginning-of-day and end-of-day messages to Teams? Which chat or channel per team? Who cannot type them (field crews)?',
     'Which holidays does each company observe, per country? Which time-off reasons (Vacation, Sick, PTO...)?',
+    'Any shift differentials (nights, weekends, sites) or call-back minimums? What are the payroll item names in QuickBooks? Any hourly staff in California?',
   ]},
   { area: 'Modules and Integrations', questions: [
     'Which modules will they use at launch? Which wait for phase two?',
     'Ticket desks: which departments take tickets, who works them, what SLAs?',
-    'Files: do they use Egnyte? Accounting: Sage Intacct? Marketing: Google Business Profile and Google Ads?',
+    'Files: do they use Egnyte? Accounting: Sage Intacct? Payroll: QuickBooks? Storage facilities: Cubby? Marketing: Google Business Profile and Google Ads?',
     'Existing data to bring in: items and equipment (spreadsheet), properties, passwords for the vault, dashboard links, SOPs and policies.',
   ]},
 ];
@@ -145,6 +146,10 @@ export const IMPL_PHASES = [
       { title: 'Optional: Actionable Messages', items: [
         'Follow docs/Actionable-Messages-Setup.md: register the originator and set the originator and audience server settings. Task emails then carry buttons that work inside Outlook.',
       ]},
+      { title: 'Optional: Teams status and Outlook shift calendars', where: 'Microsoft Entra admin center (client tenant)', items: [
+        'For Teams status on Team > Contact, add the Presence.Read.All application permission and grant admin consent (docs/Teams-Presence-Setup.md). Until then Contact simply shows no status.',
+        'To put shared shifts on Outlook calendars, add Calendars.ReadWrite (application) and grant consent (docs/Outlook-Calendar-Setup.md). Nothing is written until a company also turns it on in Shift Settings.',
+      ]},
     ],
     checks: [
       { id: 'm365.signin', text: 'An admin from the client can sign in to Nexus with their Microsoft 365 account.' },
@@ -203,7 +208,7 @@ export const IMPL_PHASES = [
     needs: ['Phase 1 (domains).'],
     decisions: [
       'For each company: legal name, country, tax ID, physical and mailing address, signatory, logo, website, main phone.',
-      'Its managers, its HR contact (the last signature on every time sheet), and the group manager over all companies.',
+      'Its managers, its HR contact (reviews time sheets for people with no manager, and can change or finalize any of them), and the group manager over all companies.',
       'Departments per company, matched to the chart of accounts.',
       'Every work site: its Google Maps link and a geofence radius. Which companies use each.',
       'Holidays per company and country, for this year and the next few.',
@@ -239,7 +244,7 @@ export const IMPL_PHASES = [
     pitfalls: [
       'Too many departments. Microsoft and every ERP push back on "maintenance support" vs "maintenance admin" - one department, sub-teams elsewhere.',
       'A location without its Google Maps link has no point on the map, so no punch can be judged on-site there.',
-      'No HR contact on a company: time sheets cannot finish their signing chain.',
+      'No HR contact on a company: time sheets of people with no manager land with the Global Admins, and nobody there can finalize an unsigned time sheet or pay a reimbursement.',
     ],
   },
 
@@ -336,27 +341,35 @@ export const IMPL_PHASES = [
   // ── 6 ────────────────────────────────────────────────────────────────────
   {
     id: 'time-pay', n: 6, title: 'Time Clock, Time Sheets and Leave', icon: 'Clock', owner: 'Client HR + Client Admin', time: 'Half a day + a test pay period',
-    summary: 'Set the pay rules, the time sheet signing chain, time off and monitoring - then run a test period.',
-    why: 'Time sheets are computed from punches with the organization’s rules: rounding, auto-lunch, California rest breaks, each person’s overtime rule, and leave classes (sick and vacation are paid at base and kept out of overtime). A time sheet is then reviewed by the person’s manager (Reports To) and signed employee, manager, then the company’s HR contact. Getting the rules right before the first live pay period avoids re-running payroll.',
+    summary: 'Set the pay rules, the time sheet approval path, time off and monitoring - then run a test period.',
+    why: 'Time sheets are computed from punches with the organization’s rules: rounding, auto-lunch, California rest breaks, each person’s overtime rule, and leave classes (sick and vacation are paid at base and kept out of overtime). After the period ends, the person’s manager (Reports To; with none, the company’s HR contact) approves the time sheet, and the employee - the only signer - signs it in Nexus Sign, which finalizes the period. Getting the rules right before the first live pay period avoids re-running payroll.',
     needs: ['Phase 5 (people, managers, pay).'],
     decisions: [
       'Punch rounding, auto-lunch deduction and California paid rest breaks.',
       'Time-off reasons beyond the standard ones.',
       'Who reviews time: managers via People > Time, HR across everyone.',
+      'Shift differentials and call-back pay (off by default, per company).',
+      'Payroll item names for the QuickBooks IIF and Intacct memo, per company.',
+      'Whether managers get a live alert before someone reaches overtime (off by default).',
     ],
     steps: [
       { title: 'Pay rules', where: 'Settings > Global Settings > Time Clock > Pay Rules', view: 'admin-console', sub: 'global-timeclock', items: [
         'Punch rounding, the auto-lunch deduction and California paid rest breaks - the rules every time sheet is computed with.',
+        'Payroll Export Codes: pick each company and type its QuickBooks payroll item names (blank keeps the default).',
+        'Shift Differentials and Call-Back Pay: turn it on only for companies that pay them, then add each differential.',
+      ]},
+      { title: 'California staff', where: 'People > the person > Pay & Benefits', view: 'hr', sub: 'hr-people', items: [
+        'For hourly staff on the California rule who waive meal periods: Send Waiver to Sign. California Review on People > Time > Payroll then checks each period.',
       ]},
       { title: 'Time off', where: 'Settings > Global Settings > Shifts > Shift Settings', view: 'admin-console', sub: 'global-shifts', items: [
-        'Add the time-off reasons the client uses. Requests route to the person’s manager; approved time off is not punched in automatically.',
+        'With the Company picker on All Companies (Default), add the time-off reasons the client uses - one list for every company. Requests route to the person’s manager; approved time off is not punched in automatically.',
       ]},
       { title: 'Monitoring computers', where: 'Workforce Analytics', view: 'employee-tracking', items: [
         'If monitoring is on: enroll each company computer (desktop agent), or have people share their screen in Chrome when clocking in.',
       ]},
       { title: 'Run a test pay period', where: 'People > Time', view: 'hr', sub: 'hr-time', items: [
         'Have a few people punch in and out for a week, with a break, a missed punch and a punch request.',
-        'Clear the Action Log (punch requests and missing punches), then submit, agree and sign one time sheet end to end through the HR contact.',
+        'Clear the Action Log (punch requests and missing punches), run Payroll Readiness, then have the manager Review & Approve one time sheet and the employee sign it.',
         'Compare totals and overtime with the client’s current payroll for the same days.',
       ]},
     ],
@@ -365,10 +378,13 @@ export const IMPL_PHASES = [
       { id: 'time.exempt', text: 'Salaried people exempt from time tracking (via their role) see no clock.' },
       { id: 'time.timeoff', text: 'Time-off reasons set; a test request was approved by the right manager.' },
       { id: 'time.monitoring', text: 'Monitoring computers enrolled, or monitoring confirmed off.' },
-      { id: 'time.test', text: 'A test time sheet was signed employee, manager, HR - totals match payroll.' },
+      { id: 'time.test', text: 'A test time sheet was approved by the manager and signed by the employee - totals match payroll.' },
+      { id: 'time.codes', text: 'Payroll export codes match the client’s QuickBooks payroll items (or the defaults are confirmed).' },
+      { id: 'time.readiness', text: 'Payroll Readiness on the test period shows everyone Ready.' },
     ],
     pitfalls: [
       'Wrong Reports To sends time sheets and time off to the wrong approver.',
+      'Export codes that do not match QuickBooks exactly create new payroll items on import.',
       'A leave punch must use a job category Nexus recognizes as Sick or Vacation (Sick Day, PTO, Annual Leave...) to be paid as leave.',
     ],
   },
@@ -376,24 +392,34 @@ export const IMPL_PHASES = [
   // ── 7 ────────────────────────────────────────────────────────────────────
   {
     id: 'shifts', n: 7, title: 'Shifts and Day Messages', icon: 'CalendarClock', owner: 'Client Admin + Managers', time: '2 to 3 hours',
-    summary: 'Shift types, scheduling groups, request rules - and where beginning/end-of-day messages go.',
+    summary: 'Shift types, scheduling groups, request and schedule rules, attendance alerts, calendars and weather - and where beginning/end-of-day messages go.',
     why: 'Shifts show who is on and who is off, today and ahead, to the whole team. Shift types are reusable time blocks (6:00 AM - 2:00 PM) placed for a team or a person; groups are the rows of the schedule. Day messages (beginning-of-day, end-of-day, breaks) post to Teams as the person, to the chat or channel set on their job role.',
     needs: ['Phase 4 (roles with Teams destinations), Phase 5 (people).'],
     decisions: [
       'Team time zone and the first day of the week.',
-      'Whether staff may request open shifts, swap or offer shifts (most offices: off).',
+      'Whether staff may request open shifts, swap, offer or release shifts, and claim open shifts across teams - all off until turned on, per company (most offices: leave off).',
       'The shift types and the scheduling groups, and who schedules each group.',
+      'Schedule rules (rest between shifts, days in a row, daily and weekly overtime, most hours a week) and whether sharing over a warning needs a reason (on by default).',
+      'No-show alert minutes (10 by default, 0 = off), and whether to alert for usual hours too and before overtime (both off by default).',
+      'Whether shared shifts go on Outlook calendars (off by default) and whether people confirm a shared schedule (on by default).',
+      'Outdoor crews only: which companies get weather alerts, and each group’s work site and weather deciders.',
     ],
     steps: [
       { title: 'Shift settings', where: 'Settings > Global Settings > Shifts > Shift Settings', view: 'admin-console', sub: 'global-shifts', items: [
-        'Time zone, week start and what staff may request or see.',
+        'Pick the Company, or All Companies (Default) for the defaults; a company with none of its own follows the defaults.',
+        'Requests And Visibility, Team Time Zone, Week Starts On and Default Grace.',
+        'Attendance (No-Show Alert, Left Early, Alert for usual hours too, and Alert managers before overtime with its daily and weekly warning minutes), Rules, and Sharing (Outlook calendars, Show In Outlook As, Ask people to confirm a shared schedule).',
       ]},
       { title: 'Shift types and groups', where: 'Settings > Global Settings > Shifts', view: 'admin-console', sub: 'global-shifts', items: [
-        'Shift Types: name, code, color and times.',
+        'Shift Types: name, code, color, times, grace, unpaid break, time zone, days and company (Shared With Every Company or one).',
         'Groups: members and schedulers. Leave Teams binding to the job roles; a group binding is only the fallback.',
+        'Outdoor crews: give the group a Work Site with coordinates (from the Location Library) and its Weather Deciders.',
+      ]},
+      { title: 'Weather alerts (outdoor crews only)', where: 'Settings > Global Settings > Shifts > Weather Alerts', view: 'admin-console', sub: 'global-shifts', items: [
+        'Switch on each company to watch (off by default), check the rain thresholds and quiet hours, and click Check Now.',
       ]},
       { title: 'Build and publish the first schedule', where: 'Team > Schedule', view: 'shifts', sub: 'schedule', items: [
-        'Fill a week per group, copy it forward, and publish.',
+        'Fill a week per group (... > Fill From Usual Hours), copy it forward (Copy Week), then Share - Review shows every change and rule warning first.',
       ]},
       { title: 'Test day messages', where: 'Workday (as a test person)', view: 'myhr', items: [
         'Punch in as someone in each role: the beginning-of-day message posts to their role’s Teams chat or channel, ending with "Sent by Nexus".',
@@ -403,9 +429,15 @@ export const IMPL_PHASES = [
       { id: 'shifts.settings', text: 'Shift settings, types and groups created.' },
       { id: 'shifts.schedule', text: 'The first schedule is published.' },
       { id: 'shifts.messages', text: 'A test beginning-of-day message posted to the right Teams chat or channel for each role.' },
+      { id: 'shifts.rules', text: 'Rules, no-show alert and reason-to-share settings agreed for every company.' },
+      { id: 'shifts.attendance', text: 'A test no-show alert reached the right manager, and the grid shows On Time / Late for a past day.' },
+      { id: 'shifts.calendar', text: 'Outlook calendars and confirm requests set on or off per company (Calendars.ReadWrite consented if on).' },
+      { id: 'shifts.weather', text: 'Weather alerts on, with a work site and deciders per outdoor group - or confirmed not needed.' },
     ],
     pitfalls: [
       'Creating a group for every sub-team to route Teams messages. Route by job role instead; groups are for scheduling.',
+      'Turning trading or a rule on in the defaults when only one company wants it. Pick that company first so the change is saved for it alone.',
+      'A US person with no payroll rate is judged on the California daily overtime rule; set pay in People first.',
     ],
   },
 
@@ -434,19 +466,20 @@ export const IMPL_PHASES = [
     summary: 'Set up how work is tracked, how help is asked for, where policies live and how documents are signed and filed.',
     why: 'These are the everyday work modules. Each has a small setup that decides how it behaves for everyone: task teams and fields, ticket desks and SLAs, the SOP library and sign-offs, document templates and e-signature, and the file store.',
     decisions: [
-      'Task teams, custom fields and statuses; how often task emails are batched.',
-      'Which departments run a ticket desk, their agents and supervisors, SLAs and help topics.',
+      'Task teams, custom fields and statuses (and which projects require each field); how often task emails are batched; who beyond Managers runs Tasks (a Tasks Owner grant opens Manage).',
+      'Which departments run a ticket desk, their agents and supervisors, response and resolution targets, help topics, and who each department or topic assigns new tickets to.',
       'Which policies need a signed acknowledgment; which trainings are required.',
       'Default document templates per type; where signed documents are filed.',
     ],
     steps: [
       { title: 'Tasks', where: 'Tasks > Manage', view: 'tasks', items: [
-        'Teams, Custom Fields, Custom Statuses, Templates and Automation Rules.',
+        'Teams, Custom Fields (with Required per project), Custom Statuses, Templates and Automation Rules.',
+        'Each project’s settings: Time Tracking (Automatic, On or Off) and its default view.',
         'Task Notifications (Settings > Global Settings > Notifications & Communications): the batching window for task emails.',
       ]},
       { title: 'Ticket desks', where: 'Settings > Global Settings > Notifications & Communications > Ticket Manager', view: 'admin-console', sub: 'global-notifications', items: [
-        'Routing & Escalation: departments that take tickets, their order and default agents.',
-        'Notifications, SLA & Ticket Types, Help Topics per department, and Desk Access (requester, agent, supervisor).',
+        'Routing & Escalation: departments that take tickets, their order, default agents, and each department’s head and default assignee.',
+        'Notifications, SLA & Ticket Types (resolution and first response hours per priority), Help Topics per department (with an optional default assignee per topic), Desk Access (requester, agent, supervisor) and Saved Replies (shared answers for the desk).',
       ]},
       { title: 'Knowledge Base', where: 'Knowledge Base > Manage', view: 'sop', items: [
         'Load the SOPs and policies, assign sign-offs, and build required training courses.',
@@ -465,6 +498,10 @@ export const IMPL_PHASES = [
       { id: 'work.documents', text: 'Document templates uploaded; a test document was signed and filed.' },
       { id: 'work.files', text: 'Egnyte connected and folder groups mapped (if used).' },
     ],
+    pitfalls: [
+      'Due and overdue ticket reminders are sent on Teams from each assignee’s manager. Tell the managers before switching them on in Ticket Manager > Notifications.',
+      'A default assignee who leaves or loses Tickets access is skipped - new tickets wait unassigned and their history says so. Recheck defaults when the desk changes.',
+    ],
   },
 
   // ── 10 ───────────────────────────────────────────────────────────────────
@@ -480,22 +517,30 @@ export const IMPL_PHASES = [
       { title: 'Asset Management', where: 'Asset Management', view: 'property-asset', items: [
         'Add each property with its PM / Asset Manager (who gets its reminders and ticket alerts).',
       ]},
-      { title: 'Accounting', where: 'Accounting > Access', view: 'accounting', items: [
-        'Connected through Nexus Accounting (Sage Intacct). Give the Accounting grant, then limit which entities each person reads on the Access tab.',
+      { title: 'Accounting', where: 'Accounting > Tools > Access', view: 'accounting', items: [
+        'Connected through Nexus Accounting (Sage Intacct). Give the Accounting grant (Editor for close work and AMA Settings, Full for Access, Allocations and Employee Compensation), then limit which entities each person reads on Tools > Access, or click Bring From Intacct to copy Intacct’s own limits.',
+        'PFS is a separate grant (Personal Financial Statements). Owners pick which PFS each person sees on the Access tab; an administrator role does not open them.',
+        'On Reporting > AMA, an editor opens Settings to pick the Ask My Accountant accounts and the accountant for each entity.',
+        'On Tools > Allocations, map every work site and company to its entity and account before the first Keep Run.',
+      ]},
+      { title: 'Operations (Cubby)', where: 'Operations', view: 'operations', items: [
+        'The Nexus team sets the Cubby API key on the server; until then Operations says Cubby is not connected. Nexus copies Cubby every 15 minutes and only reads it.',
+        'Give the Operations grant to facility managers, then add each facility’s competitors on Market Rates (Add Competitor, Set Rates Page) so the suggested rates have data.',
       ]},
       { title: 'Dashboard links', where: 'Dashboard > Links > Manage Links', view: 'dashboard', items: [
         'Add company links by category, department and company, or Batch Import them.',
       ]},
       { title: 'The rest', items: [
-        'Credential Vault: Batch Import shared passwords and set owners.',
+        'Credential Vault: Add Credential > Import From CSV for the shared passwords, then set owners and backup owners.',
         'Marketing: connect Google Business Profile and Google Ads; set lead goals and budgets per property.',
-        'Investor Relations, Construction, Operations, IT and Insights: give the grants to their owners and load their records.',
+        'Investor Relations, Construction, IT and Insights: give the grants to their owners and load their records.',
       ]},
     ],
     checks: [
       { id: 'ops.items', text: 'Item types set and the catalog imported (if used).' },
       { id: 'ops.assets', text: 'Properties added with their asset managers (if used).' },
       { id: 'ops.accounting', text: 'Accounting connected and entity access set (if used).' },
+      { id: 'ops.cubby', text: 'Cubby connected and every facility showing on Operations (if used).' },
       { id: 'ops.links', text: 'Company links on the Dashboard.' },
       { id: 'ops.others', text: 'Every other launch module has its owner and starting data.' },
     ],
@@ -511,11 +556,13 @@ export const IMPL_PHASES = [
         'Daily Briefing and Weekly Digest: on or off, send time, test recipients.',
         'HR & Compliance Reminders: visa and right-to-work expiry, contract ends, new-starter documents - days before and who is told.',
         'Equipment Reminders: overdue returns, warranties, inspections, registrations, insurance.',
+        'Ticket Manager > Notifications: SLA breach alerts (on by default, bell only) and due and overdue ticket reminders (off by default, sent on Teams from the assignee’s manager).',
       ]},
     ],
     checks: [
       { id: 'notify.briefing', text: 'Daily Briefing and Weekly Digest decided and tested.' },
       { id: 'notify.reminders', text: 'HR and equipment reminder timing set.' },
+      { id: 'notify.tickets', text: 'Ticket breach alerts and overdue reminders decided; managers told before reminders were switched on.' },
     ],
   },
 
@@ -530,7 +577,7 @@ export const IMPL_PHASES = [
       ]},
       { title: 'Prove the flows', items: [
         'A punch in and out with the day messages; a punch request approved from the Action Log.',
-        'A time-off request approved by the right manager; a time sheet signed through HR.',
+        'A time-off request approved by the right manager; a time sheet approved by the manager and signed by the employee.',
         'A ticket raised and routed; a task email received; a document signed and filed.',
         'A profile change in Nexus appearing in Microsoft 365, and one made there coming back.',
       ]},
@@ -553,14 +600,14 @@ export const IMPL_PHASES = [
     steps: [
       { title: 'Announce and train', items: [
         'Send the go-live announcement with the sign-in link and the date the old tools stop.',
-        'Everyone: Workday, punching in, time off, Help Center and Help with This Page.',
+        'Everyone: Workday, punching in (also from the time clock at the foot of the left menu), time off, Help Center, Help with This Page, Take the Tour and What’s New (Follow the modules they use).',
         'Managers: People (their team), approvals, the Action Log, Shifts.',
-        'HR: People, Checklists, Pay & Benefits, time sheet signing.',
+        'HR: People, Checklists, Pay & Benefits, time sheet approval, Payroll Readiness and the payroll exports.',
         'Admins: Settings, Access, Act As, Logs - and this guide.',
       ]},
       { title: 'Watch the first weeks', items: [
-        'Watch the first pay period closely: the Action Log daily, missing punches, unsigned time sheets.',
-        'Collect feedback through Help Center tickets; publish fixes in What’s New.',
+        'Watch the first pay period closely: the Action Log daily, missing punches, and Payroll Readiness before each payroll.',
+        'Collect feedback through Help Center tickets and What’s New > My Requests (requesters see the status change); merged fixes publish to What’s New on their own.',
       ]},
     ],
     checks: [
@@ -584,6 +631,7 @@ export const IMPL_PHASES = [
         'Quarterly: read the access matrix and Access Groups; remove what is no longer needed.',
         'Yearly: copy each company’s holiday calendar forward; review pay rules and the sign-in policy.',
         'Change a job role rather than a person when a whole job changes - it applies to everyone with that role at once.',
+        'Every payroll: run Payroll Readiness, then export. After a back-dated raise: run Retro Pay to see who is owed.',
       ]},
     ],
     checks: [
