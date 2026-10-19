@@ -6,8 +6,8 @@
 // One fetch feeds all four tabs and the facility picker, so switching either
 // is instant. Nexus only reads - payments, leases and tenant edits stay in
 // Cubby, and each tenant row links there.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { LayoutDashboard, HandCoins, Warehouse, ListChecks, Scale, FileSpreadsheet, RefreshCw } from 'lucide-react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { LayoutDashboard, HandCoins, Warehouse, ListChecks, Scale, FileSpreadsheet, RefreshCw, Map as MapIcon } from 'lucide-react';
 import ModuleTabs from '../components/ModuleTabs';
 import { ErrorBanner, LoadingState } from '../components/AsyncState';
 import { api } from '../api';
@@ -21,6 +21,8 @@ import Lookup from '../operations/Lookup';
 import SyncStatus from '../operations/SyncStatus';
 import { useRole } from '../contexts/RoleContext';
 import '../operations/ops.css';
+// Site Map (Oct 20): the 3D site model with layers. Lazy, so three.js loads only on that tab.
+const SiteMap = lazy(() => import('../operations/SiteMap'));
 
 const SYNC_POLL_MS = 3000;
 const NOT_CONNECTED = "Cubby is not connected on this server yet. An administrator needs to set CUBBY_API_KEY in the API's app settings.";
@@ -32,6 +34,7 @@ const TABS = [
   { key: 'worklist',    label: 'Worklist',        Icon: ListChecks },
   { key: 'market',      label: 'Market Rates',    Icon: Scale },
   { key: 'reports',     label: 'Reports',         Icon: FileSpreadsheet },
+  { key: 'site-map',    label: 'Site Map',        Icon: MapIcon },
 ];
 // Market Rates keeps its own records and compares one facility at a time, so
 // the period and the "as of today" note do not apply to it.
@@ -181,7 +184,7 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
             </div>
             <div className="ops-bar-right">
               <Lookup />
-              {sub !== 'market' && (
+              {sub !== 'market' && sub !== 'site-map' && (
                 <label className="ops-period">
                   <span>Period</span>
                   <select value={period} onChange={(e) => setPeriod(e.target.value)}>
@@ -191,7 +194,7 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
               )}
             </div>
           </div>
-          {sub !== 'market' && (
+          {sub !== 'market' && sub !== 'site-map' && (
             <p className="ops-note">
               Occupancy, rent and balances are as of today. Move-ins, collections and failed payments cover {range.label.toLowerCase()} ({formatDate(range.from)} - {formatDate(range.to)}).
             </p>
@@ -203,6 +206,7 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
           {sub === 'worklist' && <Worklist data={data} many={many} focus={focus} go={go} />}
           {sub === 'market' && <Market facility={scope.length === 1 ? scope[0] : null} facilities={facilities} onPick={setPicked} />}
           {sub === 'reports' && <Reports data={data} facilities={facilities} scope={scope} range={range} />}
+          {sub === 'site-map' && <Suspense fallback={<LoadingState size="section" label="Loading the site map" minHeight={420} />}><SiteMap facility={scope.length === 1 ? scope[0] : null} facilities={facilities} onPick={setPicked} /></Suspense>}
         </div>
       )}
     </div>

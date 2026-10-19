@@ -5,8 +5,21 @@
 //              tickets at a unit, and markup pins dropped on the exact spot.
 // All server traffic belongs to the parent (SiteModelSection / PublicUnitFinder);
 // this component only renders what it is given and reports what the user did.
+//
+// Oct 20 2026 (Ops review) - optional props, all off by default so Asset
+// Management renders as before:
+//   unitColors    { unitName: '#rrggbb' } - a layer's colors (owners only)
+//   legend        node shown in place of the occupancy legend
+//   hoverInfo(u)  a line for the hover tooltip (the active layer's fact)
+//   renderUnitExtra(u)  node at the foot of the unit card (layer facts, links)
+//   markers       { unitName: count } - 3D markers in place of the ticket counts
+//   pinsEnabled   false hides markup pins (a screen without the pin grant)
+//   hideSearch    true for the customer route page (one unit, nothing to search)
+//   fitRoute      choosing a unit frames the whole route from the gate (customer page)
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
-import { createSiteModelViewer, unitKindLabel, unitDirections, doorSideName, reasonLabel } from './siteModelViewer.js';
+import { createSiteModelViewer, unitKindLabel, unitDirections, doorSideName, reasonLabel, routeSteps } from './siteModelViewer.js';
+import { planRoute } from './siteModelRoute.js';
+import { SiteModelPlan2D } from './SiteModelPlan2D.jsx';
 import { formatDateTime } from '../lib/datetime.js';
 import { SiteModelHud } from './SiteModelHud.jsx';
 
@@ -32,15 +45,17 @@ export function normalizeQuery(q) {
   return m ? m[1] + m[2].padStart(3, '0') + m[3] : s;
 }
 
-export function SiteModelPanel({ model, mode = 'customer', images, pins = [], tickets = [], onAddPin, onRemovePin, onTogglePin, onOpenTicket, height = 560, initialUnit = '' }) {
+export function SiteModelPanel({ model, mode = 'customer', images, pins = [], tickets = [], onAddPin, onRemovePin, onTogglePin, onOpenTicket, height = 560, initialUnit = '', unitColors = null, legend = null, hoverInfo = null, renderUnitExtra = null, markers = null, pinsEnabled = true, hideSearch = false, fitRoute = false }) {
   const stageRef = useRef(null); const viewerRef = useRef(null);
-  const [selected, setSelected] = useState(null); const [building, setBuilding] = useState(null);
+  const [selected, setSelected] = useState(() => initialUnit || null); const [building, setBuilding] = useState(null);
   const [query, setQuery] = useState(''); const [notFound, setNotFound] = useState('');
   const [xray, setXray] = useState(false); const [level, setLevel] = useState(0);
   const [placing, setPlacing] = useState(false); const [pending, setPending] = useState(null);
   const [pinTitle, setPinTitle] = useState(''); const [pinCat, setPinCat] = useState('maintenance');
   const [hover, setHover] = useState(null); const [noGl, setNoGl] = useState(false);
   const [look, setLook] = useState(readLook);
+  const [touched, setTouched] = useState(false);
+  const colorsRef = useRef(unitColors); colorsRef.current = unitColors;
   const selectedRef = useRef(null); const xrayRef = useRef(false);
   useEffect(() => { selectedRef.current = selected; xrayRef.current = xray; }, [selected, xray]);
   const byName = useMemo(() => Object.fromEntries((model.units || []).map((u) => [u.n, u])), [model]);
@@ -52,7 +67,7 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
     let v;
     try {
       v = createSiteModelViewer(stageRef.current, model, {
-        mode, style: look, images, background: getComputedStyle(document.documentElement).getPropertyValue('--bg-secondary') || '#dfe6e9',
+        mode, style: look, images, colors: colorsRef.current, fitRoute, background: getComputedStyle(document.documentElement).getPropertyValue('--bg-secondary') || '#dfe6e9',
         onSelectUnit: (u) => { setSelected(u ? u.n : null); if (u) { setBuilding(null); setQuery(u.n); } setLevel(v ? v.getState().level : 0); },
         onSelectBuilding: (b) => setBuilding(b),
         onPlacePin: (at) => { setPending(at); setPlacing(false); },
@@ -74,10 +89,14 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
   }, [model, look]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { viewerRef.current?.setMode(mode); }, [mode]);
   useEffect(() => { viewerRef.current?.setPins(pins); }, [pins]);
-  useEffect(() => { viewerRef.current?.setMarkers(Object.fromEntries(Object.entries(ticketsByUnit).map(([k, v]) => [k, v.length]))); }, [ticketsByUnit, look]);
+  useEffect(() => { viewerRef.current?.setMarkers(markers || Object.fromEntries(Object.entries(ticketsByUnit).map(([k, v]) => [k, v.length]))); }, [ticketsByUnit, markers, look]);
+  useEffect(() => { viewerRef.current?.setUnitColors?.(unitColors); }, [unitColors]);
   useEffect(() => { viewerRef.current?.setPlacing(placing); }, [placing]);
 
   const u = selected ? byName[selected] : null;
+  const steps = useMemo(() => (u ? routeSteps(model, u) : []), [model, u]);
+  // The 2D plan draws the same route the 3D view lays on the ground.
+  const plan2d = useMemo(() => (noGl && u ? planRoute(model, u, steps) : null), [noGl, model, u, steps]);
   const bldg = (id) => (model.buildings || []).find((b) => b.id === id);
   const zone = (id) => (model.zones || []).find((z) => z.id === id);
   const live = model.live || { source: 'snapshot' };
@@ -104,18 +123,27 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 320px', gap: 14, fontFamily: FONT }} className="site-model">
       <style>{`.site-model{--sm-cols:1} @media (max-width: 900px){ .site-model{grid-template-columns:1fr !important} }`}</style>
       <div style={{ minWidth: 0 }}>
-        <form onSubmit={find} style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+        {!hideSearch && <form onSubmit={find} style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
           <input id="site-model-search" value={query} onChange={(e) => { setQuery(e.target.value); setNotFound(''); }} placeholder="Find a unit, e.g. C214" aria-label="Unit number" list="site-model-units"
             style={{ flex: 1, minWidth: 160, padding: '8px 11px', borderRadius: 8, border: '1px solid var(--border-color, #d9d6cc)', font: `500 14px ui-monospace, Menlo, monospace`, textTransform: 'uppercase', background: 'var(--bg-primary, #fff)', color: 'inherit' }} />
           <UnitList units={model.units || []} />
           <button type="submit" style={btnOn}>Find</button>
           {notFound && <span role="alert" style={{ fontSize: 12, color: '#c43d2f', alignSelf: 'center' }}>{notFound}</span>}
-        </form>
-        <div ref={stageRef} style={{ position: 'relative', height: look === 'illustrated' ? height + 80 : height, borderRadius: 12, overflow: 'hidden', border: '1px solid var(--border-color, #d9d6cc)', background: 'var(--bg-secondary, #dfe6e9)' }}>
-          {hover && <div style={{ position: 'absolute', left: hover.x + 12, top: hover.y - 26, pointerEvents: 'none', background: 'var(--bg-primary, #fff)', border: '1px solid var(--border-color, #d9d6cc)', padding: '2px 7px', borderRadius: 6, font: `500 12px ui-monospace, Menlo, monospace`, zIndex: 2 }}>{hover.n}{hover.f > 1 ? ` · L${hover.f}` : ''}</div>}
+        </form>}
+        <div ref={stageRef} onPointerDown={() => setTouched(true)} onWheel={() => setTouched(true)} style={{ position: 'relative', height: look === 'illustrated' ? height + 80 : height, borderRadius: 12, overflow: 'hidden', border: '1px solid var(--border-color, #d9d6cc)', background: 'var(--bg-secondary, #dfe6e9)' }}>
+          {hover && (() => { const hu = byName[hover.n]; const info = hu && hoverInfo ? hoverInfo(hu) : '';
+            return <div role="tooltip" style={{ position: 'absolute', left: hover.x + 12, top: hover.y - 30, pointerEvents: 'none', background: 'var(--bg-primary, #fff)', border: '1px solid var(--border-color, #d9d6cc)', padding: '4px 8px', borderRadius: 8, boxShadow: '0 4px 14px rgba(0,0,0,0.12)', zIndex: 2, lineHeight: 1.35, maxWidth: 260 }}>
+              <div style={{ font: `600 12px ui-monospace, Menlo, monospace` }}>{hover.n}{hover.f > 1 ? ` · L${hover.f}` : ''}{hu?.w && hu?.d ? <span style={{ font: `400 11px ${FONT}`, color: 'var(--text-muted, #5f6358)' }}> · {hu.w} × {hu.d} ft</span> : null}</div>
+              {owner && hu && <div style={{ fontSize: 11, color: 'var(--text-muted, #5f6358)' }}>{hu.l === 1 ? 'Leased' : hu.r === 0 ? 'Out of Service' : 'Vacant'}</div>}
+              {info ? <div style={{ fontSize: 11, fontWeight: 600 }}>{info}</div> : null}
+            </div>; })()}
           {placing && <div style={{ position: 'absolute', top: 10, left: '50%', transform: 'translateX(-50%)', background: 'var(--bg-primary, #fff)', border: '1px solid var(--border-color, #d9d6cc)', padding: '5px 12px', borderRadius: 999, fontSize: 12, zIndex: 2 }}>Click a unit, a building or the ground to place the pin</div>}
-          {noGl && <div role="status" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, textAlign: 'center', fontSize: 14, color: 'var(--text-muted, #5f6358)', zIndex: 3 }}>The 3D view is not available on this device. Search by unit number still works.</div>}
+          {noGl && <div style={{ position: 'absolute', inset: 0, zIndex: 1 }}>
+            <SiteModelPlan2D model={model} mode={mode} colors={owner ? unitColors : null} selected={selected} route={plan2d} onSelect={(x) => { setSelected(x.n); setBuilding(null); setQuery(x.n); setNotFound(''); }} />
+            <div role="status" style={{ position: 'absolute', left: 10, top: 10, fontSize: 12, background: 'rgba(255,255,255,0.9)', padding: '3px 8px', borderRadius: 6, color: '#5f6358' }}>Flat plan - the 3D view is not available on this device.</div>
+          </div>}
           {!noGl && <div style={{ position: 'absolute', left: 10, bottom: 10, display: 'flex', gap: 6, flexWrap: 'wrap', zIndex: 2 }}>
+            <button type="button" style={btn} onClick={() => { viewerRef.current?.resetView?.(); setLevel(0); }} title="Back to the whole site">Reset View</button>
             {[['overview', 'Overview'], ['plan', 'Plan'], ['gate', 'From Gate']].map(([k, l]) => <button key={k} type="button" style={btn} onClick={() => viewerRef.current?.view(k)}>{l}</button>)}
             <span style={{ display: 'inline-flex', border: '1px solid var(--border-color, #d9d6cc)', borderRadius: 8, overflow: 'hidden', background: 'var(--bg-primary, #fff)' }} role="group" aria-label="Look">
               {[['satellite', 'Satellite'], ['illustrated', 'Illustrated']].map(([k, l]) => <button key={k} type="button" aria-pressed={look === k} onClick={() => { if (look !== k) { setLook(k); saveLook(k); setPlacing(false); setLevel(0); } }} style={{ ...btn, border: 0, borderRadius: 0, ...(look === k ? { background: '#1f6f4a', color: '#fff' } : {}) }}>{l}</button>)}
@@ -125,6 +153,10 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
               {[0, ...Array.from({ length: maxLevel }, (_, i) => i + 1)].map((n) => <button key={n} type="button" aria-pressed={level === n} onClick={() => setLvl(n)} style={{ ...btn, border: 0, borderRadius: 0, ...(level === n ? { background: '#1f6f4a', color: '#fff' } : {}) }}>{n ? `L${n}` : 'All Levels'}</button>)}
             </span>}
           </div>}
+          {!noGl && !touched && <div aria-hidden="true" className="sm-hint" style={{ position: 'absolute', left: '50%', top: 12, transform: 'translateX(-50%)', background: 'rgba(29,31,26,0.78)', color: '#fff', fontSize: 12, padding: '5px 12px', borderRadius: 999, zIndex: 2, pointerEvents: 'none', whiteSpace: 'nowrap' }}>
+            <span className="sm-hint-mouse">Drag to orbit · Scroll to zoom · Right-drag to pan</span><span className="sm-hint-touch">Drag to orbit · Pinch to zoom · Two fingers to pan</span>
+          </div>}
+          <style>{`.sm-hint-touch{display:none} @media (pointer: coarse){ .sm-hint-touch{display:inline} .sm-hint-mouse{display:none} }`}</style>
           <div style={{ position: 'absolute', right: 10, top: 10, fontSize: 10, color: '#3d4038', background: 'rgba(255,255,255,0.75)', padding: '2px 6px', borderRadius: 4, zIndex: 2, maxWidth: '60%', textAlign: 'right' }}>{look === 'illustrated' ? 'Illustrated, drawn to scale' : model.image?.attribution || ''} · 1 unit = 1 m</div>
           {look === 'illustrated' && <SiteModelHud model={model} owner={owner} live={live} unit={u}
             stats={{ active: active.length, leased, vacant, bad: bad.length, leasedPct: active.length ? Math.round(100 * leased / active.length) : 0 }}
@@ -142,7 +174,7 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
               ))}
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 12px', fontSize: 12, marginTop: 8 }}>
-              {[['#5fae7d', 'Leased'], ['#e0b45a', 'Vacant'], ['#d65a4c', 'Out of Service'], ['#ff7a00', 'Selected']].map(([c, l]) => <span key={l}><i style={{ display: 'inline-block', width: 12, height: 12, borderRadius: 3, verticalAlign: -2, marginRight: 5, background: c }} />{l}</span>)}
+              {legend || [['#5fae7d', 'Leased'], ['#e0b45a', 'Vacant'], ['#d65a4c', 'Out of Service'], ['#ff7a00', 'Selected']].map(([c, l]) => <span key={l}><i style={{ display: 'inline-block', width: 12, height: 12, borderRadius: 3, verticalAlign: -2, marginRight: 5, background: c }} />{l}</span>)}
             </div>
             <div style={{ fontSize: 12, color: live.source === 'cubby' && !live.error ? '#3f8f5f' : 'var(--text-muted, #5f6358)', marginTop: 6 }}><i style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 999, marginRight: 6, verticalAlign: 0, background: live.source === 'cubby' && !live.error ? '#3f8f5f' : '#b8b4a8' }} />{liveLine}</div>
           </section>
@@ -182,6 +214,11 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
             </dl>
             <div style={{ marginTop: 10, borderTop: '1px solid var(--border-color, #d9d6cc)', paddingTop: 8, fontSize: 13 }}>
               <b>How to Get There</b>
+              {steps.length > 1 && <ol aria-label="Route steps" style={{ listStyle: 'none', display: 'flex', flexWrap: 'wrap', gap: 4, margin: '6px 0 4px', padding: 0 }}>
+                {steps.map((s, i) => <li key={i}><button type="button" onClick={() => viewerRef.current?.flyToStep?.(i)} title={noGl ? s.sub : `Show step ${i + 1} on the map`}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, border: '1px solid var(--border-color, #d9d6cc)', background: 'var(--bg-primary, #fff)', borderRadius: 999, padding: '2px 9px 2px 3px', font: `500 12px ${FONT}`, color: 'inherit', cursor: 'pointer' }}>
+                  <span style={{ width: 18, height: 18, borderRadius: 999, display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 700, color: '#fff', background: s.end ? '#ff7a00' : '#1a73e8' }}>{i + 1}</span>{s.label}</button></li>)}
+              </ol>}
               <ol style={{ margin: '4px 0 0', paddingLeft: 18 }}>{unitDirections(model, u).map((s, i) => <li key={i} style={{ margin: '3px 0' }}>{s}</li>)}</ol>
             </div>
             {owner && (ticketsByUnit[u.n]?.length ? (
@@ -189,7 +226,8 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
                 <ul style={{ listStyle: 'none', margin: '4px 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>{ticketsByUnit[u.n].map((t) => <li key={t.id}><button type="button" onClick={() => onOpenTicket?.(t)} style={{ ...btn, padding: '4px 8px', fontSize: 12, width: '100%', textAlign: 'left' }}>#{t.id} · {t.title || t.subject || 'Ticket'}</button></li>)}</ul>
               </div>
             ) : null)}
-            {owner && <div style={{ marginTop: 10 }}><button type="button" style={btn} onClick={() => { const b = bldg(u.b); setPlacing(false); setPending({ u: u.u + u.wu / 2, v: u.v + u.dv / 2, y: b ? +((u.f - 1) * b.height / b.floors).toFixed(2) : 0, unit: u.n, building: u.b }); }}>Add Pin at This Unit</button></div>}
+            {renderUnitExtra ? renderUnitExtra(u) : null}
+            {owner && pinsEnabled && <div style={{ marginTop: 10 }}><button type="button" style={btn} onClick={() => { const b = bldg(u.b); setPlacing(false); setPending({ u: u.u + u.wu / 2, v: u.v + u.dv / 2, y: b ? +((u.f - 1) * b.height / b.floors).toFixed(2) : 0, unit: u.n, building: u.b }); }}>Add Pin at This Unit</button></div>}
             {/* Per unit (Oct 14 2026): traced units say where their position came from. */}
             {u.tr === 2
               ? <div style={{ fontSize: 12, color: 'var(--text-muted, #5f6358)', marginTop: 8 }}>Position from the plans; the plans carry no unit numbers, so this number was matched by size - confirm on site.</div>
@@ -216,7 +254,7 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
               <h2 style={h2}>Needs Attention ({bad.length})</h2>
               {bad.length ? <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 200, overflow: 'auto' }}>{bad.map((x) => <li key={x.n} style={{ display: 'flex', gap: 8, fontSize: 12, alignItems: 'center' }}><button type="button" onClick={() => viewerRef.current?.selectUnit(x.n)} style={{ border: 0, background: 'transparent', font: `500 12px ui-monospace, Menlo, monospace`, color: '#1f6f4a', cursor: 'pointer', padding: '2px 4px' }}>{x.n}</button><span style={{ color: 'var(--text-muted, #5f6358)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{reasonLabel(x.why) || 'out of service'}{x.note ? ` - ${x.note}` : ''}</span></li>)}</ul> : <div style={{ fontSize: 13, color: 'var(--text-muted, #5f6358)' }}>Every unit is rentable.</div>}
             </section>
-            <section>
+            {pinsEnabled && <section>
               <h2 style={h2}>Pins ({pins.length})</h2>
               <div style={{ marginBottom: 6 }}><button type="button" style={placing ? btnOn : btn} onClick={() => setPlacing(!placing)}>{placing ? 'Click the model…' : 'Add Pin'}</button></div>
               {pins.length ? <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 220, overflow: 'auto' }}>{pins.map((p) => (
@@ -226,11 +264,11 @@ export function SiteModelPanel({ model, mode = 'customer', images, pins = [], ti
                   <button type="button" aria-label={p.status === 'done' ? 'Reopen pin' : 'Mark pin done'} title={p.status === 'done' ? 'Reopen' : 'Done'} onClick={() => onTogglePin?.(p)} style={{ ...btn, padding: '1px 7px', fontSize: 12 }}>✓</button>
                   <button type="button" aria-label="Remove pin" onClick={() => onRemovePin?.(p)} style={{ ...btn, padding: '1px 7px', fontSize: 12 }}>×</button>
                 </li>))}</ul> : <div style={{ fontSize: 13, color: 'var(--text-muted, #5f6358)' }}>No pins yet. Drop one on a unit, a building or anywhere on the site.</div>}
-            </section>
+            </section>}
             {model.layout?.flags?.length ? <section><h2 style={h2}>Layout Notes</h2><ul style={{ fontSize: 12, color: 'var(--text-muted, #5f6358)', paddingLeft: 16, margin: 0 }}>{model.layout.flags.map((f, i) => <li key={i} style={{ margin: '3px 0' }}>{f}</li>)}<li style={{ margin: '3px 0' }}>Building letters were matched to footprints from imagery and unit sizes; every assignment is marked inferred in the build config.</li></ul></section> : null}
           </>
         )}
-        <section><h2 style={h2}>Sources</h2><ul style={{ fontSize: 12, color: 'var(--text-muted, #5f6358)', paddingLeft: 16, margin: 0 }}>{(model.sources || []).map((s, i) => <li key={i} style={{ margin: '3px 0' }}>{s}</li>)}</ul></section>
+        {(model.sources || []).length > 0 && <section><h2 style={h2}>Sources</h2><ul style={{ fontSize: 12, color: 'var(--text-muted, #5f6358)', paddingLeft: 16, margin: 0 }}>{(model.sources || []).map((s, i) => <li key={i} style={{ margin: '3px 0' }}>{s}</li>)}</ul></section>}
       </aside>
     </div>
   );

@@ -3874,3 +3874,6 @@ from routers import leave_balances as leave_balances_router  # noqa: E402
 app.include_router(leave_balances_router.router)  # Paid leave balances: policies, opening import, accrual (Neil / Charmi, 10/19)
 from routers import location_trail as location_trail_router  # noqa: E402
 app.include_router(location_trail_router.router)  # Time Clock: Location Trail While Clocked In - web pings + manager map (Neil, 10/20)
+from routers import unit_map as unit_map_router  # noqa: E402
+app.include_router(unit_map_router.ops_router)     # Operations > Site Map: site model + layers per facility (Neil, 10/20)
+app.include_router(unit_map_router.public_router)  # Customer unit map /find/<token>: one unit, the route, no login (Neil, 10/20)
