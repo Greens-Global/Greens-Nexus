@@ -3169,6 +3169,7 @@ def _pr_dict(r: PunchRequest) -> dict:
         "decidedBy": r.decided_by, "decidedAt": r.decided_at, "decisionNote": r.decision_note,
         "appliedPunchId": r.applied_punch_id, "createdAt": r.created_at,
         "category": r.category or "",
+        "dismissed": bool(getattr(r, "employee_dismissed_at", "") or ""),
     }
 
 
@@ -3277,6 +3278,66 @@ def my_punch_requests(user: dict = Depends(get_current_user), db: Session = Depe
     rows = (db.query(PunchRequest).filter(PunchRequest.employee_email == user["email"])
             .order_by(PunchRequest.created_at.desc()).limit(50).all())
     return [_pr_dict(r) for r in rows]
+
+
+def _my_request(db: Session, req_id: str, email: str) -> PunchRequest:
+    r = (db.query(PunchRequest)
+         .filter(PunchRequest.id == req_id, PunchRequest.employee_email == email)
+         .with_for_update().first())
+    if not r:
+        raise HTTPException(404, "Request not found")
+    return r
+
+
+@router.post("/punch-requests/{req_id}/cancel")
+def cancel_punch_request(req_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The employee takes back their own request while it is still pending -
+    one filed by mistake otherwise sat there blocking the right one as a
+    duplicate, with no way out (Miranda, Oct 18). Nothing was on the timecard
+    yet, so nothing changes there; the approver's notice is closed."""
+    email = user["email"]
+    r = _my_request(db, req_id, email)
+    if r.status == "cancelled":
+        return _pr_dict(r)
+    if r.status != "pending":
+        raise HTTPException(409, f"This request was already {r.status} - it can't be cancelled.")
+    now = _now_iso()
+    r.status = "cancelled"
+    r.decided_by, r.decided_at, r.decision_note = email, now, "Cancelled by the employee"
+    r.employee_dismissed_at = now
+    for n in (db.query(NexusNotification)
+              .filter(NexusNotification.ref_id == r.id, NexusNotification.type == "custom_alert",
+                      NexusNotification.actioned == False)  # noqa: E712
+              .all()):
+        n.actioned = True
+    db.commit()
+    return _pr_dict(r)
+
+
+@router.post("/punch-requests/{req_id}/dismiss")
+def dismiss_punch_request(req_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Clear a decided request from the employee's own list. Stored on the
+    row, not in the browser, so it stays cleared on every device and login
+    (Miranda, Oct 18: "clear ALL these old notifications EVERY time")."""
+    r = _my_request(db, req_id, user["email"])
+    if r.status == "pending":
+        raise HTTPException(409, "This request is still waiting for your approver - cancel it instead.")
+    if not r.employee_dismissed_at:
+        r.employee_dismissed_at = _now_iso()
+        db.commit()
+    return _pr_dict(r)
+
+
+@router.post("/punch-requests/dismiss-decided")
+def dismiss_decided_punch_requests(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Clear All: every decided request of mine leaves my list."""
+    now = _now_iso()
+    n = (db.query(PunchRequest)
+         .filter(PunchRequest.employee_email == user["email"], PunchRequest.status != "pending",
+                 func.coalesce(PunchRequest.employee_dismissed_at, "") == "")
+         .update({PunchRequest.employee_dismissed_at: now}, synchronize_session=False))
+    db.commit()
+    return {"cleared": n}
 
 
 @router.get("/punch-requests")
@@ -3605,6 +3666,17 @@ def _refuse_own_decision(user: dict, employee_email: str) -> None:
         raise HTTPException(403, "Someone else must approve your own punch fix.")
 
 
+def _pr_what(r) -> str:
+    """What a request asked for, with its date, for the employee's notice:
+    'add a clock-in punch at 8:30 AM on 10/17/2026' (Miranda, Oct 18 - the
+    notices and the list never said which day)."""
+    if r.action == "add" and r.at:
+        t, d = _punch_when(r)
+        return f"add a {_kind_label(r.punch_kind)} punch at {t} on {d}"
+    day = _us_day(r.local_date)
+    return f"remove a punch on {day}" if day else "remove a punch"
+
+
 @router.patch("/punch-requests/{req_id}")
 def decide_punch_request(req_id: str, body: PunchRequestDecision,
                          user: dict = Depends(require_approval_write), db: Session = Depends(get_db)):
@@ -3692,7 +3764,7 @@ def decide_punch_request(req_id: str, body: PunchRequestDecision,
                                                     f"Approved together with the {_kind_label(r.punch_kind)} "
                                                     f"at {_punch_when(r)[0]} on {_punch_when(r)[1]}.")
                     _hr_notify(db, p.employee_email, "Time Sheet Fix Approved",
-                               "Your request to add a punch was approved.",
+                               f"Your request to {_pr_what(p)} was approved.",
                                ref_id=p.id, action={"view": "timeclock", "sub": "timesheet"})
                 note = (note + " " if note else "") + "Also added the " + ", ".join(
                     f"{_kind_label(p.punch_kind)} at {_punch_when(p)[0]}" for p in partners) + " from the same fix."
@@ -3707,14 +3779,14 @@ def decide_punch_request(req_id: str, body: PunchRequestDecision,
                 tp.adjust_note = f"Voided via approved punch-fix request. {note}".strip()
                 r.applied_punch_id = tp.id
         _hr_notify(db, r.employee_email, "Time Sheet Fix Approved",
-                   f"Your request to {'add' if r.action=='add' else 'remove'} a punch was approved."
+                   f"Your request to {_pr_what(r)} was approved."
                    + (f" Note: {note}" if note else ""),
                    ref_id=r.id, action={"view": "timeclock", "sub": "timesheet"})
         # Every copy of an applied fix is now a duplicate (no bell for those).
         _close_dupes(db, [r] + partners, user, now, _DUPE_APPROVED)
     else:  # rejected
         _hr_notify(db, r.employee_email, "Time Sheet Fix Rejected",
-                   f"Your request to {'add' if r.action=='add' else 'remove'} a punch was not approved."
+                   f"Your request to {_pr_what(r)} was not approved."
                    + (f" Reason: {note}" if note else ""),
                    ref_id=r.id, action={"view": "timeclock", "sub": "timesheet"})
         _close_dupes(db, [r], user, now, _DUPE_REJECTED)

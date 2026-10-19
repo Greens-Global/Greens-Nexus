@@ -2915,6 +2915,9 @@ class PunchRequest(Base):
     # '' = Regular, or "Sick" / "Vacation" / "Personal" - set on the clock-in
     # when the request is approved, so the block lands as that leave.
     category       = Column(String, default="")
+    # When the employee cleared this decided request from their list - kept
+    # on the server so it stays cleared on every device (Miranda, Oct 18).
+    employee_dismissed_at = Column(String, default="")
 
 
 class MonitoringConsent(Base):
