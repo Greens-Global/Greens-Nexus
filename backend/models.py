@@ -3479,6 +3479,23 @@ class TaskTicket(Base):
     # those went out after the due date, "on": the assignee's local date of
     # the last one}. A changed due date starts the counts over.
     overdue_reminder    = Column(JSON, default=dict)
+    # Honest SLA (Oct 2026, ticket_sla.py). ISO UTC datetimes. sla_due_at is
+    # the resolution deadline with every completed pause already added;
+    # sla_due_on above stays its UTC date for back-compat. The clock pauses
+    # (sla_paused_at set) while waiting on the requester and while resolved /
+    # closed. first_response_at is "" until someone other than the requester
+    # (or whoever filed it for them) replies where the requester can see it.
+    # sla_fr_alerted_at / sla_res_alerted_at: the deadline a breach alert went
+    # out for ("" = not alerted). Cleared only when the deadline moves back
+    # into the future (a pause or a priority change), so a ticket alerts again
+    # only after it passes the new deadline - never twice for one breach.
+    sla_due_at            = Column(String, default="")
+    first_response_due_at = Column(String, default="")
+    first_response_at     = Column(String, default="")
+    sla_paused_at         = Column(String, default="")
+    sla_paused_min        = Column(Integer, default=0)
+    sla_fr_alerted_at     = Column(String, default="")
+    sla_res_alerted_at    = Column(String, default="")
 
 
 class TicketEmailLog(Base):

@@ -1096,6 +1096,14 @@ def _run_migrations():
             # Ticket email retries resend the first render (Oct 18 2026). models.TicketEmailLog.
             "ALTER TABLE ticket_email_log ADD COLUMN actor_email VARCHAR DEFAULT ''",
             "ALTER TABLE ticket_email_log ADD COLUMN html TEXT DEFAULT ''",
+            # Honest SLA (Oct 2026, ticket_sla.py). models.TaskTicket.
+            "ALTER TABLE task_tickets ADD COLUMN sla_due_at VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN first_response_due_at VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN first_response_at VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN sla_paused_at VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN sla_paused_min INTEGER DEFAULT 0",
+            "ALTER TABLE task_tickets ADD COLUMN sla_fr_alerted_at VARCHAR DEFAULT ''",
+            "ALTER TABLE task_tickets ADD COLUMN sla_res_alerted_at VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2443,6 +2451,14 @@ def _run_migrations():
         # Ticket email retries resend the first render (Oct 18 2026). models.TicketEmailLog.
         "ALTER TABLE ticket_email_log ADD COLUMN IF NOT EXISTS actor_email VARCHAR DEFAULT ''",
         "ALTER TABLE ticket_email_log ADD COLUMN IF NOT EXISTS html TEXT DEFAULT ''",
+        # Honest SLA (Oct 2026, ticket_sla.py). models.TaskTicket.
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS sla_due_at VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS first_response_due_at VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS first_response_at VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS sla_paused_at VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS sla_paused_min INTEGER DEFAULT 0",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS sla_fr_alerted_at VARCHAR DEFAULT ''",
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS sla_res_alerted_at VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -2881,6 +2897,22 @@ def _startup_seeds():
             db.close()
     except Exception as e:
         print(f"[startup] ticket sla_due_on backfill skipped: {e}")
+    # Honest SLA (Oct 2026, ticket_sla.backfill): datetime deadlines, the
+    # first response from existing comments, and every deadline already past
+    # marked alerted so the deploy fires no flood of breach bells. Idempotent
+    # - only rows with no sla_due_at yet.
+    try:
+        from database import SessionLocal
+        import ticket_sla
+        db = SessionLocal()
+        try:
+            n = ticket_sla.backfill(db)
+            if n:
+                print(f"[startup] backfilled the SLA clock on {n} ticket(s)")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"[startup] ticket SLA clock backfill skipped: {e}")
     # Ticket desk access rule (Oct 2026, ticket_roles.py): pinned once, the
     # first time this database starts without one. Existing data (tickets,
     # tasks or a tasks/tickets grant) -> "legacy", so nobody on the desk loses

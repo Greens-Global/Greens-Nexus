@@ -38,6 +38,10 @@ _SETTINGS_KEY = "ticket_taxonomy_config"
 # the fallback when no admin override has ever been saved, and the seed a
 # fresh override starts from in the Admin editor.
 _DEFAULT_SLA_HOURS = {"urgent": 24, "high": 48, "medium": 72, "low": 168}
+# First-response targets (Honest SLA, Oct 2026): hours from creation to the
+# first reply the requester can see (ticket_sla.py). Same shape, validation and
+# editor as slaTargetHours; mirrored by FIRST_RESPONSE_HOURS in ticketMeta.js.
+_DEFAULT_FIRST_RESPONSE_HOURS = {"urgent": 4, "high": 8, "medium": 24, "low": 48}
 
 # The three types that were hardcoded as gated before the switch existed.
 # They stay gated until an admin turns them off, so nothing changes on
@@ -238,18 +242,18 @@ PRIORITIES = ("urgent", "high", "medium", "low")
 SLA_HOURS_MAX = 24 * 365
 
 
-def _sla_value(key: str, value: Any):
+def _sla_value(key: str, value: Any, what: str = "SLA target"):
     """(hours, None) for a usable SLA target, else (None, why not)."""
     if isinstance(value, bool):
-        return None, f"The SLA target for {key} must be a number of hours."
+        return None, f"The {what} for {key} must be a number of hours."
     try:
         hours = float(value)
     except (TypeError, ValueError):
-        return None, f"The SLA target for {key} must be a number of hours."
+        return None, f"The {what} for {key} must be a number of hours."
     if not math.isfinite(hours) or hours <= 0:
-        return None, f"The SLA target for {key} must be more than 0 hours."
+        return None, f"The {what} for {key} must be more than 0 hours."
     if hours > SLA_HOURS_MAX:
-        return None, f"The SLA target for {key} can be at most {SLA_HOURS_MAX:,} hours (one year)."
+        return None, f"The {what} for {key} can be at most {SLA_HOURS_MAX:,} hours (one year)."
     return (int(hours) if hours.is_integer() else hours), None
 
 
@@ -264,19 +268,21 @@ def _valid_stored_sla(stored: Any) -> dict:
     return out
 
 
-def _clean_sla_hours(patch: Any, stored: Any = None) -> dict:
+def _clean_sla_hours(patch: Any, stored: Any = None, field: str = "slaTargetHours",
+                     what: str = "SLA target") -> dict:
     """The caller's SLA targets. A value they are CHANGING must be a positive
     number of hours (422 otherwise). Unknown priorities are dropped, and so is
     a bad value sent back exactly as it was stored - the editor sends the whole
-    object, so one old bad value must not block every later save."""
+    object, so one old bad value must not block every later save. Also cleans
+    firstResponseHours (`field` / `what` name it in the error)."""
     if not isinstance(patch, dict):
-        raise SlaHoursError("slaTargetHours must be an object keyed by priority.")
+        raise SlaHoursError(f"{field} must be an object keyed by priority.")
     stored = stored if isinstance(stored, dict) else {}
     out = {}
     for key, value in patch.items():
         if key not in PRIORITIES:
             continue
-        hours, problem = _sla_value(key, value)
+        hours, problem = _sla_value(key, value, what)
         if hours is None:
             if key in stored and stored[key] == value:
                 continue
@@ -301,6 +307,7 @@ def valid_type(db: Session, key: str) -> bool:
 
 _DEFAULTS = {
     "slaTargetHours": _DEFAULT_SLA_HOURS,
+    "firstResponseHours": _DEFAULT_FIRST_RESPONSE_HOURS,
     # Every type key is absent by default - frontend falls back to its own
     # compiled-in TICKET_TYPE_META/TYPE_FIELDS/TICKET_TYPE_ORDER until an
     # admin actually edits a type, at which point that type's key gets an
@@ -499,6 +506,7 @@ def get_config(db: Session) -> dict:
         cfg = {}
     merged = json.loads(json.dumps(_DEFAULTS))
     merged["slaTargetHours"] = {**_DEFAULT_SLA_HOURS, **(cfg.get("slaTargetHours") or {})}
+    merged["firstResponseHours"] = {**_DEFAULT_FIRST_RESPONSE_HOURS, **(cfg.get("firstResponseHours") or {})}
     merged["types"] = {k: dict(v) for k, v in (cfg.get("types") or {}).items() if isinstance(v, dict)}
     _fill_approval_defaults(merged["types"])
     if isinstance(cfg.get("typeOrder"), list):
@@ -529,6 +537,11 @@ def save_config(db: Session, patch: dict, actor_email: str) -> dict:
     merged["slaTargetHours"] = {**_DEFAULT_SLA_HOURS, **_valid_stored_sla(stored_sla)}
     if "slaTargetHours" in patch:
         merged["slaTargetHours"].update(_clean_sla_hours(patch["slaTargetHours"], stored_sla))
+    stored_fr = merged["firstResponseHours"]
+    merged["firstResponseHours"] = {**_DEFAULT_FIRST_RESPONSE_HOURS, **_valid_stored_sla(stored_fr)}
+    if "firstResponseHours" in patch:
+        merged["firstResponseHours"].update(_clean_sla_hours(patch["firstResponseHours"], stored_fr,
+                                                             "firstResponseHours", "first response target"))
     if "types" in patch:
         # Per-type entries replace wholesale (the editor always sends a type's
         # full entry). A default-gated type whose entry arrives without the
@@ -558,21 +571,36 @@ def save_config(db: Session, patch: dict, actor_email: str) -> dict:
     return merged
 
 
-def sla_hours(db: Session, priority: str) -> float:
-    """The authoritative SLA target hours for a priority - used by
-    _sla_due_from_priority in routers/tickets.py so a saved admin override
-    takes effect immediately, server-side, without a redeploy."""
-    cfg = get_config(db)
-    hours = cfg["slaTargetHours"]
+def _hours_for(hours: dict, defaults: dict, priority: str) -> float:
     # A value saved before save_config validated it must not 500 the create.
-    for value in (hours.get(priority), hours.get("medium"), _DEFAULT_SLA_HOURS.get(priority)):
+    for value in (hours.get(priority), hours.get("medium"), defaults.get(priority)):
         try:
             h = float(value)
         except (TypeError, ValueError):
             continue
         if math.isfinite(h) and 0 < h <= SLA_HOURS_MAX:
             return h
-    return _DEFAULT_SLA_HOURS["medium"]
+    return defaults["medium"]
+
+
+def sla_hours(db: Session, priority: str) -> float:
+    """The authoritative SLA target hours for a priority - used by
+    _sla_due_from_priority in routers/tickets.py so a saved admin override
+    takes effect immediately, server-side, without a redeploy."""
+    return _hours_for(get_config(db)["slaTargetHours"], _DEFAULT_SLA_HOURS, priority)
+
+
+def first_response_hours(db: Session, priority: str) -> float:
+    """The authoritative first-response target hours for a priority
+    (ticket_sla.targets) - same fallbacks as sla_hours."""
+    return _hours_for(get_config(db)["firstResponseHours"], _DEFAULT_FIRST_RESPONSE_HOURS, priority)
+
+
+def sla_targets(db: Session, priority: str) -> tuple:
+    """(resolution hours, first-response hours) from ONE config read."""
+    cfg = get_config(db)
+    return (_hours_for(cfg["slaTargetHours"], _DEFAULT_SLA_HOURS, priority),
+            _hours_for(cfg["firstResponseHours"], _DEFAULT_FIRST_RESPONSE_HOURS, priority))
 
 
 def company_field(db: Session) -> dict:

@@ -21,7 +21,7 @@ import { CheckSquare, Ticket as TicketIcon, Check, ArrowRight, Plus } from 'luci
 
 import { api } from '../../api';
 import { LoadingState, ModalLoading } from '../../components/AsyncState';
-import { formatDate } from '../../lib/datetime';
+import { formatDate, formatTime } from '../../lib/datetime';
 import { pollWhileVisible } from '../../lib/pollWhileVisible';
 import { setPendingOpen } from '../../lib/pendingOpen';
 import { useIsMobile } from '../../lib/useIsMobile';
@@ -107,7 +107,9 @@ function WorkRow({ it, overdue, mobile, busy, onOpen, onComplete }) {
   const tone = overdue ? 'red' : (STATUS_TONE[it.status] || 'blue');
   const color = tone === 'muted' ? 'var(--muted)' : `hsl(var(--color-${tone}))`;
   const where = it.kind === 'ticket' ? (ticketNoShort(it.code) || it.project) : it.project;
-  const meta = [where, it.dueOn ? `Due ${formatDate(it.dueOn)}` : ''].filter(Boolean).join(' · ');
+  // A ticket's SLA deadline is a moment (dueAt, Honest SLA) - date and time.
+  const due = it.dueAt ? `Due ${formatDate(it.dueAt)} ${formatTime(it.dueAt)}` : it.dueOn ? `Due ${formatDate(it.dueOn)}` : '';
+  const meta = [where, due].filter(Boolean).join(' · ');
   const label = it.statusLabel || titleCase(it.status);
   // 44px on a phone; 36px on a desktop - still a comfortable pointer target.
   const target = mobile ? 44 : 36;

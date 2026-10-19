@@ -140,4 +140,18 @@ describe('TicketTaxonomySettings - SLA hours box', () => {
     await waitFor(() => expect(api.updateTicketTaxonomySettings).toHaveBeenCalledTimes(1));
     expect(api.updateTicketTaxonomySettings.mock.calls[0][0].slaTargetHours.urgent).toBe(12);
   });
+
+  // Honest SLA (Oct 2026): the first-response targets sit under the SLA ones,
+  // defaulting when the saved config predates them.
+  it('edits and saves the first response targets', async () => {
+    render(<TicketTaxonomySettings />);
+    const box = await screen.findByLabelText('Urgent first response hours');
+    expect(box.value).toBe('4');
+    fireEvent.change(box, { target: { value: '2' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save/ }));
+    await waitFor(() => expect(api.updateTicketTaxonomySettings).toHaveBeenCalledTimes(1));
+    const sent = api.updateTicketTaxonomySettings.mock.calls[0][0];
+    expect(sent.firstResponseHours).toEqual({ urgent: 2, high: 8, medium: 24, low: 48 });
+    expect(sent.slaTargetHours.urgent).toBe(24);
+  });
 });

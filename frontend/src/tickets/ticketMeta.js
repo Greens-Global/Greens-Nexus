@@ -1,16 +1,15 @@
 // Ticket Module - types, per-type intake fields, status/SLA policy and the small
 // pure helpers built on them. No JSX and no component imports: this is the
 // module's configuration layer, imported by every other ticket file.
-import { Ticket, Bug, AlertOctagon, Wrench, HelpCircle, ClipboardList, Lightbulb, RefreshCw, KeyRound, ShieldAlert, Timer, MessageSquareWarning } from 'lucide-react';
+import { Ticket, Bug, AlertOctagon, Wrench, HelpCircle, ClipboardList, Lightbulb, RefreshCw, KeyRound, ShieldAlert, Timer, MessageSquareWarning, CirclePause } from 'lucide-react';
 import { fmtDate as fmtDateRaw } from '../tasks/lib';
+import { formatDate, formatTime } from '../lib/datetime';
 import { NX } from '../tasks/theme';
 
 export const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '-');
-// The UTC day, on purpose: the server decides an SLA breach (and whether the
-// requester's Escalate is allowed) by the UTC date (_sla_breached in
-// backend/routers/tickets.py), and the screen must agree with it. A following
-// PR moves BOTH client and server to SLA datetimes together - do not switch
-// this one to the local day on its own.
+// The UTC day. Only the date fallback for a ticket with no slaDueAt still
+// compares days (the server's _sla_breached does the same for such a row);
+// everything else is a moment - see slaState.
 export const today = () => new Date().toISOString().slice(0, 10);
 
 // ── Ticket issue types ───────────────────────────────────────────────────────
@@ -375,25 +374,79 @@ export const TICKET_STATUS_ORDER = ['open', 'in_progress', 'waiting_user', 'wait
 export const CLOSED_STATES = ['resolved', 'closed'];
 
 // ── SLA policy - default resolution targets (hours) per priority: 1/2/3/7
-// days for urgent/high/medium/low (Neil, Sep 2026). Used to auto-set a
-// ticket's SLA due date on creation and whenever priority changes (the
-// backend is authoritative - see _sla_due_from_priority in
-// routers/tickets.py; this copy is for the same-request UI preview and for
-// slaState's breach/at-risk math), and to flag breaches/at-risk. ──
+// days for urgent/high/medium/low (Neil, Sep 2026), and first-response targets
+// (Honest SLA, Oct 2026). The backend is authoritative (ticket_sla.py,
+// ticket_taxonomy.py) and sends each ticket's deadlines as datetimes -
+// slaDueAt / firstResponseDueAt, already moved out by every pause. These
+// copies are for the create form's preview and the at-risk window. ──
 export const SLA_TARGET_HOURS = { urgent: 24, high: 48, medium: 72, low: 168 };
-export const slaDueFromPriority = (priority) => new Date(Date.now() + (SLA_TARGET_HOURS[priority] ?? 72) * 3600 * 1000).toISOString().slice(0, 10);
-// 'breached' | 'at_risk' | 'ok' | 'none'
+export const FIRST_RESPONSE_HOURS = { urgent: 4, high: 8, medium: 24, low: 48 };
+// The clock stops while the ticket waits on the requester or for approval
+// (and once it is resolved / closed) - ticket_sla.held. "waiting" is the legacy key.
+export const SLA_PAUSED_STATES = ['waiting_user', 'waiting'];
+export const slaDueFromPriority = (priority) => new Date(Date.now() + (SLA_TARGET_HOURS[priority] ?? 72) * 3600 * 1000).toISOString();
+const asUtc = (iso) => (/Z$|[+-]\d{2}:\d{2}$/.test(iso) ? iso : `${iso}Z`);
+const msOf = (iso) => {
+  if (!iso) return NaN;
+  return new Date(asUtc(iso)).getTime();
+};
+export const slaPaused = (t) => !CLOSED_STATES.includes(t.status)
+  && (!!t.slaPaused || SLA_PAUSED_STATES.includes(t.status) || t.approvalStatus === 'pending');
+// What the Due Date column sorts on: the deadline, else the old date - with
+// paused tickets after the running ones (their deadline is not ticking).
+export const slaSortKey = (t) => {
+  const due = t.slaDueAt || t.slaDueOn || '';
+  if (!due) return '';
+  return `${t.slaDueAt && slaPaused(t) ? 1 : 0}${due}`;
+};
+// "10/19/2026 3:00 PM" - the deadline is a moment; a row without one shows its date.
+export function fmtDueAt(t) {
+  if (t?.slaDueAt) return `${formatDate(asUtc(t.slaDueAt))} ${formatTime(asUtc(t.slaDueAt))}`;
+  return t?.slaDueOn ? fmtDate(t.slaDueOn) : '-';
+}
+export const fmtMoment = (iso) => (iso ? `${formatDate(asUtc(iso))} ${formatTime(asUtc(iso))}` : '-');
+// Due Soon = inside the last quarter of the priority's target (6 h of an
+// urgent ticket's 24, 42 h of a low one's week), and never less than an hour.
+const atRiskMs = (t) => Math.max(1, (SLA_TARGET_HOURS[t.priority] ?? 72) / 4) * 3600 * 1000;
+// 'breached' | 'at_risk' | 'ok' | 'paused' | 'none'
 export function slaState(t) {
-  if (!t.slaDueOn || CLOSED_STATES.includes(t.status)) return 'none';
+  if (CLOSED_STATES.includes(t.status)) return 'none';
+  if (t.slaDueAt) {
+    if (slaPaused(t)) return 'paused';
+    const left = msOf(t.slaDueAt) - Date.now();
+    if (Number.isNaN(left)) return 'none';
+    if (left < 0) return 'breached';
+    return left <= atRiskMs(t) ? 'at_risk' : 'ok';
+  }
+  // A row with no deadline yet (from before the datetime existed): its date.
+  if (!t.slaDueOn) return 'none';
   const now = today();
   if (t.slaDueOn < now) return 'breached';
   const soon = new Date(Date.now() + 24 * 3600 * 1000).toISOString().slice(0, 10);
   if (t.slaDueOn <= soon) return 'at_risk';
   return 'ok';
 }
+// Was the SLA met? Resolved by the deadline (to the minute), else by the date.
+export function slaMet(t) {
+  if (!t.resolvedAt) return false;
+  if (t.slaDueAt) return msOf(t.resolvedAt) <= msOf(t.slaDueAt);
+  return !!t.slaDueOn && t.resolvedAt.slice(0, 10) <= t.slaDueOn;
+}
+// The first-response clock: 'responded' | 'due' | 'overdue' | 'paused' | 'none'.
+// Resolved / closed without a reply is 'none' - the clock stopped.
+// A ticket its own assignee filed for themselves has no first-response clock.
+export function firstResponseState(t) {
+  if (t.firstResponseAt) return 'responded';
+  if (!t.firstResponseDueAt || CLOSED_STATES.includes(t.status)) return 'none';
+  if (t.requesterId && t.requesterId.toLowerCase() === (t.assigneeId || '').toLowerCase()) return 'none';
+  if (slaPaused(t)) return 'paused';
+  return msOf(t.firstResponseDueAt) < Date.now() ? 'overdue' : 'due';
+}
 export const SLA_META = {
   breached: { label: 'SLA Breached', color: NX.red, tint: 'rgba(220,38,38,0.14)', Icon: ShieldAlert },
   at_risk:  { label: 'Due Soon',     color: NX.amber, tint: 'rgba(217,119,6,0.16)', Icon: Timer },
+  // Waiting on the requester: the clock is stopped, not late (soft slate).
+  paused:   { label: 'Paused',       color: '#64748b', tint: 'rgba(100,116,139,0.14)', Icon: CirclePause },
 };
 
 // ── Comment staleness - a SEPARATE signal from the SLA due date: "nobody has

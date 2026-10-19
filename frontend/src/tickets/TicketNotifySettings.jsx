@@ -16,6 +16,7 @@ const EVENT_LABELS = {
   created: 'Ticket created', assigned: 'Ticket assigned', updated: 'Replies to the requester',
   resolved: 'Ticket resolved', reopened: 'Ticket reopened', approval_required: 'Approval required',
   overdue_reminder: 'Due and overdue reminders (Teams from the manager, and the bell)',
+  sla_breach: 'SLA breach alerts (the bell, to the assignee and the department lead)',
 };
 const STATUS_META = {
   sent: { color: NX.green, Icon: CheckCircle2 }, failed: { color: NX.red, Icon: AlertTriangle },
