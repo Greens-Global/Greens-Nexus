@@ -482,6 +482,9 @@ class TicketReportTests(unittest.TestCase):
         self.assertIn("'+cmd", out)
         self.assertEqual(R._blank(-3), -3)   # numbers stay numbers
         self.assertEqual(R._blank("\tx"), "'\tx")
+        self.assertEqual(R._blank("  =1+1"), "'  =1+1")
+        self.assertEqual(R._blank(" @x"), "' @x")
+        self.assertEqual(R._blank("a-b"), "a-b")
 
     def test_blank_filters_mean_no_value(self):
         mon = datetime(2026, 10, 13, 17, 0, tzinfo=timezone.utc)
@@ -505,6 +508,35 @@ class TicketReportTests(unittest.TestCase):
         self.assertEqual({d["key"]: d["resolved"] for d in rep["trend"]}["2026-10-13"], 1)
         self.assertEqual({a["name"]: a["resolved"] for a in rep["agents"]}["Agent"], 1)
 
+    def _move(self, t, at, detail):
+        self.db.add(models.TaskActivity(id=gen_id(), type="status_changed", actor_email=SUP, entity_kind="ticket",
+                                        entity_id=t.id, entity_code=t.code, entity_title=t.subject,
+                                        detail=detail, at=at.isoformat()))
+        self.db.commit()
+
+    def test_resolved_one_week_closed_the_next_counts_once(self):
+        t = self.ticket(datetime(2026, 10, 8, 17, 0, tzinfo=timezone.utc), priority="low")
+        self.resolve(t, datetime(2026, 10, 9, 17, 0, tzinfo=timezone.utc))
+        self._move(t, datetime(2026, 10, 9, 17, 0, tzinfo=timezone.utc), "changed status to Resolved")
+        S.set_status(t, "closed", datetime(2026, 10, 13, 17, 0, tzinfo=timezone.utc))   # keeps resolved_at
+        self._move(t, datetime(2026, 10, 13, 17, 0, tzinfo=timezone.utc), "changed status to Closed")
+        self.assertEqual(self.report(start="2026-10-05", end="2026-10-11")["kpis"]["resolved"], 1)
+        this_week = self.report()
+        self.assertEqual(this_week["kpis"]["resolved"], 0)
+        self.assertEqual(sum(d["resolved"] for d in this_week["trend"]), 0)
+
+    def test_reopened_in_range_and_resolved_after_it_is_loaded_and_counted(self):
+        t = self.ticket(datetime(2026, 9, 1, 17, 0, tzinfo=timezone.utc))
+        t.sla_due_at = "2026-09-05T17:00:00+00:00"
+        self.resolve(t, datetime(2026, 10, 30, 17, 0, tzinfo=timezone.utc))   # every stored time outside the range
+        self._move(t, datetime(2026, 10, 13, 17, 0, tzinfo=timezone.utc), "changed status to Resolved")
+        self._move(t, datetime(2026, 10, 14, 17, 0, tzinfo=timezone.utc), "changed status to Reopened")
+        k = self.report()["kpis"]
+        self.assertEqual((k["resolved"], k["reopened"]), (1, 1))
+        self.assertEqual(k["slaMeasured"], 0)   # its resolve-time deadline is gone - counted, not measured
+        # Another company's moved ticket is still walled off.
+        self.assertEqual(self.report(INDIA_AGENT)["kpis"]["resolved"], 0)
+
     def test_query_is_bounded_above(self):
         self.ticket(datetime(2026, 10, 13, 17, 0, tzinfo=timezone.utc))
         later = self.ticket(datetime(2026, 12, 1, 17, 0, tzinfo=timezone.utc))
@@ -516,7 +548,7 @@ class TicketReportTests(unittest.TestCase):
         self.assertEqual(len(ids), 1)
 
     def test_extreme_years_are_422(self):
-        for start, end in (("0001-01-01", "0001-01-02"), ("9999-12-30", "9999-12-31")):
+        for start, end in (("0001-01-01", "0001-01-02"), ("9999-12-30", "9999-12-31"), ("", "0001-01-10")):
             r = self.as_(SUP).get("/task-tickets/reports", params={"start": start, "end": end})
             self.assertEqual(r.status_code, 422, (start, r.text))
 

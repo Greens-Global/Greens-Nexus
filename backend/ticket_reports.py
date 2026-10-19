@@ -169,13 +169,16 @@ def resolve_range(start: str, end: str, zone: str, now: datetime | None = None) 
     """(start_date, end_date), inclusive local days. Blank = the last 30
     days ending today in the viewer's zone."""
     today = (now or ticket_sla.utcnow()).astimezone(_zone(zone)).date()
+    bad_year = RangeError(f"Dates must fall between {MIN_YEAR} and {MAX_YEAR}.")
     try:
         e = date.fromisoformat(end) if end else today
+        if not MIN_YEAR <= e.year <= MAX_YEAR:   # before any arithmetic on it
+            raise bad_year
         s = date.fromisoformat(start) if start else e - timedelta(days=29)
     except ValueError:
         raise RangeError("Dates must look like 2026-10-19.")
-    if s.year < MIN_YEAR or e.year > MAX_YEAR:
-        raise RangeError(f"Dates must fall between {MIN_YEAR} and {MAX_YEAR}.")
+    if not (MIN_YEAR <= s.year <= MAX_YEAR):
+        raise bad_year
     if e < s:
         raise RangeError("The end date is before the start date.")
     if (e - s).days + 1 > MAX_RANGE_DAYS:
@@ -209,7 +212,7 @@ def _columns():
     return cols
 
 
-def _load(db: Session, user: dict, lo: datetime, hi: datetime, filters: dict) -> list:
+def _load(db: Session, user: dict, lo: datetime, hi: datetime, filters: dict, moved: set = frozenset()) -> list:
     from routers.tickets import ListScope
     T = models.TaskTicket
     scope = ListScope(db, user)
@@ -223,8 +226,12 @@ def _load(db: Session, user: dict, lo: datetime, hi: datetime, filters: dict) ->
         return and_(col >= since, col < until)
     q = scope.apply(db.query(*_columns()))
     q = q.filter(or_(T.deleted_at.is_(None), T.deleted_at == ""))
+    # `moved`: tickets with a resolve / reopen line in the range (their
+    # stored times may all fall outside it - reopened, then resolved later).
+    # Still under ListScope and the filters like every other row.
     q = q.filter(or_(T.status.notin_(ticket_sla.DONE_STATUSES), within(T.created_at),
-                     within(T.resolved_at), within(T.sla_due_at)))
+                     within(T.resolved_at), within(T.sla_due_at),
+                     *([T.id.in_(sorted(moved))] if moved else [])))
     for key, col in (("company", T.company_id), ("department", T.hr_department_id),
                      ("service_area", T.service_area), ("type", T.type), ("priority", T.priority)):
         v = filters.get(key)
@@ -244,11 +251,12 @@ def _load(db: Session, user: dict, lo: datetime, hi: datetime, filters: dict) ->
 RESOLVE_LINES = ("changed status to Resolved", "changed status to Closed")
 
 
-def _status_moves(db: Session, lo: datetime, hi: datetime, ids: set) -> tuple:
+def _status_moves(db: Session, lo: datetime, hi: datetime) -> tuple:
     """(reopened ids, {id: last resolve time}) inside the range, from the
-    "status_changed" activity lines. The resolve times matter for a ticket
-    resolved in the range and reopened since - its resolved_at was cleared
-    on reopen, but it was still resolved in that range."""
+    "status_changed" activity lines, for every ticket - the caller keeps the
+    ones the viewer may see. The resolve times matter for a ticket resolved
+    in the range and reopened since - its resolved_at was cleared on reopen,
+    but it was still resolved in that range."""
     A = models.TaskActivity
     since = (lo - timedelta(days=1)).date().isoformat()
     until = (hi + timedelta(days=1)).date().isoformat()
@@ -258,7 +266,7 @@ def _status_moves(db: Session, lo: datetime, hi: datetime, ids: set) -> tuple:
                                     or_(A.detail.like("%Reopened%"), A.detail.in_(RESOLVE_LINES)),
                                     A.at >= since, A.at < until).all()):
         when = ticket_sla.parse(at)
-        if tid not in ids or when is None or not (lo <= when < hi):
+        if not tid or when is None or not (lo <= when < hi):
             continue
         if detail in RESOLVE_LINES:
             if tid not in resolved or when > resolved[tid]:
@@ -374,9 +382,11 @@ def build_report(db: Session, viewer_email: str, *, start: str = "", end: str = 
     hi = datetime.combine(e_day + timedelta(days=1), dtime.min, tz).astimezone(timezone.utc)
     filters = clean_filters(filters)
 
-    rows = _load(db, user, lo, hi, filters)
+    reopened, resolve_events = _status_moves(db, lo, hi)
+    rows = _load(db, user, lo, hi, filters, moved=reopened | set(resolve_events))
     facts = [_Fact(r, now) for r in rows]
-    reopened, resolve_events = _status_moves(db, lo, hi, {f.r.id for f in facts})
+    seen = {f.r.id for f in facts}
+    reopened = reopened & seen
 
     created_f = [f for f in facts if _in(f.created, lo, hi)]
     # resolved_f: resolved in the range and still resolved - its times and
@@ -387,7 +397,13 @@ def build_report(db: Session, viewer_email: str, *, start: str = "", end: str = 
     resolved_f = [f for f in facts if _in(f.resolved, lo, hi)]
     resolved_at = {id(f): f.resolved for f in resolved_f}
     for f in facts:
-        if id(f) not in resolved_at and f.r.id in resolve_events:
+        if id(f) in resolved_at or f.r.id not in resolve_events:
+            continue
+        # Only when resolved_at does not already account for it: empty
+        # (reopened since) or at / after the range end (resolved again
+        # later). A ticket resolved before the range and closed in it keeps
+        # its earlier resolved_at - that Closed line is not a second resolve.
+        if f.resolved is None or f.resolved >= hi:
             resolved_at[id(f)] = resolve_events[f.r.id]
     counted_f = [f for f in facts if id(f) in resolved_at]
     open_f = [f for f in facts if not f.done]
@@ -697,10 +713,11 @@ _FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
 
 def _blank(v):
     """A cell: blank for None, and a text cell a spreadsheet would run as a
-    formula (= + - @, tab, CR) gets a leading apostrophe."""
+    formula (= + - @, also after leading spaces; or a leading tab / CR)
+    gets a leading apostrophe."""
     if v is None:
         return ""
-    if isinstance(v, str) and v.startswith(_FORMULA_START):
+    if isinstance(v, str) and (v.startswith(_FORMULA_START) or v.lstrip().startswith(_FORMULA_START[:4])):
         return "'" + v
     return v
 
@@ -990,7 +1007,7 @@ def _claim(db: Session, email: str, ws: date, report: dict, now: datetime):
     k = report["kpis"]
     status = "sending" if report["hasTickets"] else "empty"
     counts = {"created_count": k["created"], "resolved_count": k["resolved"], "open_count": k["openNow"]}
-    stamp = ticket_sla.iso(now)
+    stamp = ticket_sla.iso(ticket_sla.utcnow())   # when this claim is written, not when the scan began
     row = _log_row(db, email, ws)
     if row is None:
         row = L(id=str(uuid.uuid4()), recipient=email, week_start=ws.isoformat(), status=status,
