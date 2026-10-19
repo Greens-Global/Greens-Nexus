@@ -6199,6 +6199,9 @@ class NexusPersonPref(Base):
     # The per-person salt in their calendar subscribe link (routers/
     # shift_ical.py): rotating it invalidates every link issued before.
     ical_salt   = Column(String, default="")
+    # Profile > Date Format (Pranshu, Oct 20 2026): how this person reads dates
+    # across Nexus - one of routers/roles.DATE_FORMATS; '' = the US default.
+    date_format = Column(String, default="")
 
 
 class TaskAutomationRun(Base):

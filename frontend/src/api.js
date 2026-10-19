@@ -927,6 +927,8 @@ export const api = {
 
   // Nexus Roles
   getMyRole:    ()                    => cachedGet('/roles/me'),
+  // Profile > Date Format (Oct 20 2026) - one of lib/datetime.js DATE_FORMATS.
+  saveMyDateFormat: (dateFormat)      => req('/roles/me/date-format', { method: 'PUT', body: JSON.stringify({ date_format: dateFormat }) }),
   getAllRoles:   ()                   => req('/roles'),
   assignRole:   (email, role, by, displayName) => req(`/roles/${encodeURIComponent(email)}`, { method: 'PUT', body: JSON.stringify({ role, assigned_by: by, display_name: displayName || '' }) }),
 

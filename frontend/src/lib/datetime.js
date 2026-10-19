@@ -1,8 +1,11 @@
-// Canonical US date/time formatting for all of Nexus.
+// Canonical date/time formatting for all of Nexus.
 //
 // Per CLAUDE.md: dates are MM/DD/YYYY, times are 12-hour with AM/PM - everywhere,
-// in UI, copy, and exports. Use these helpers instead of ad-hoc
-// toLocale*/Intl.DateTimeFormat calls so formatting stays consistent app-wide.
+// in UI, copy, and exports. Since Oct 20 2026 a person may pick another date
+// order in Profile > Date Format (DATE_FORMATS; saved on nexus_person_prefs,
+// read from /roles/me) and every date these helpers print follows it; times
+// stay 12-hour. Use these helpers instead of ad-hoc toLocale*/Intl.DateTimeFormat
+// calls so formatting stays consistent app-wide - and follows that choice.
 //
 // Every helper accepts a Date, an ISO/date string, or a millisecond timestamp,
 // and returns `fallback` ('' by default) for null/empty/invalid input - so a
@@ -26,13 +29,32 @@ function toDate(v) {
   return isNaN(d.getTime()) ? null : d;
 }
 
-// MM/DD/YYYY  ->  "08/04/2026"
-export function formatDate(v, fallback = '') {
+// The person's date order. The first is the default (CLAUDE.md's US rule).
+export const DATE_FORMATS = ['MM/DD/YYYY', 'DD/MM/YYYY', 'YYYY-MM-DD', 'DD MMM YYYY'];
+const FORMAT_KEY = 'nexus:date-format';
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+// Remembered on this browser so the first paint already uses it; /roles/me
+// (RoleContext) then sets the saved one.
+let dateFormat = (() => {
+  try { const v = localStorage.getItem(FORMAT_KEY); return DATE_FORMATS.includes(v) ? v : DATE_FORMATS[0]; } catch { return DATE_FORMATS[0]; }
+})();
+export function setDateFormat(fmt) {
+  dateFormat = DATE_FORMATS.includes(fmt) ? fmt : DATE_FORMATS[0];
+  try { localStorage.setItem(FORMAT_KEY, dateFormat); } catch { /* private window - the default stays */ }
+}
+export const getDateFormat = () => dateFormat;
+const dayFirst = () => dateFormat === 'DD/MM/YYYY' || dateFormat === 'DD MMM YYYY';
+const pad2 = (n) => String(n).padStart(2, '0');
+
+// "08/04/2026" (MM/DD/YYYY) | "04/08/2026" | "2026-08-04" | "04 Aug 2026"
+export function formatDate(v, fallback = '', fmt = dateFormat) {
   const d = toDate(v);
   if (!d) return fallback;
-  return new Intl.DateTimeFormat('en-US', {
-    year: 'numeric', month: '2-digit', day: '2-digit',
-  }).format(d);
+  const y = d.getFullYear(), m = pad2(d.getMonth() + 1), dd = pad2(d.getDate());
+  if (fmt === 'DD/MM/YYYY') return `${dd}/${m}/${y}`;
+  if (fmt === 'YYYY-MM-DD') return `${y}-${m}-${dd}`;
+  if (fmt === 'DD MMM YYYY') return `${dd} ${MONTHS[d.getMonth()]} ${y}`;
+  return `${m}/${dd}/${y}`;
 }
 
 // h:mm AM/PM  ->  "2:01 PM"
@@ -77,20 +99,20 @@ export function greetingFor(v = new Date()) {
   return h < 12 ? 'Good Morning' : h < 17 ? 'Good Afternoon' : 'Good Evening';
 }
 
-// MM/DD/YYYY, h:mm AM/PM  ->  "08/04/2026, 2:01 PM"
+// The date, then h:mm AM/PM  ->  "08/04/2026, 2:01 PM"
 export function formatDateTime(v, fallback = '') {
   const d = toDate(v);
   if (!d) return fallback;
-  return new Intl.DateTimeFormat('en-US', {
-    year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: 'numeric', minute: '2-digit', hour12: true,
-  }).format(d);
+  return `${formatDate(d)}, ${formatTime(d)}`;
 }
 
-// Readable, still US order  ->  "Aug 4, 2026" (use where a numeric date reads cold)
+// Readable  ->  "Aug 4, 2026" (use where a numeric date reads cold); day-first
+// people read "4 Aug 2026", YYYY-MM-DD people their own format.
 export function formatDateLong(v, fallback = '') {
   const d = toDate(v);
   if (!d) return fallback;
+  if (dateFormat === 'DD/MM/YYYY') return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+  if (dateFormat !== 'MM/DD/YYYY') return formatDate(d);
   return new Intl.DateTimeFormat('en-US', {
     year: 'numeric', month: 'short', day: 'numeric',
   }).format(d);
@@ -136,10 +158,23 @@ export function formatMonthYear(v, fallback = '') {
 }
 
 // Month and day - the cue a day header needs across a month boundary  ->  "Sep 29"
+// ("29 Sep" for day-first people)
 export function formatMonthDay(v, fallback = '') {
   const d = toDate(v);
   if (!d) return fallback;
+  if (dayFirst()) return `${d.getDate()} ${MONTHS[d.getMonth()]}`;
   return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(d);
+}
+
+// Month and day in numbers, no year  ->  "10/5" ("10/05" padded); day-first
+// people read "5/10", YYYY-MM-DD people "10-05", DD MMM YYYY people "5 Oct".
+export function formatMonthDayNumeric(v, padded = false, fallback = '') {
+  const d = toDate(v);
+  if (!d) return fallback;
+  if (dateFormat === 'DD MMM YYYY') return `${d.getDate()} ${MONTHS[d.getMonth()]}`;
+  if (dateFormat === 'YYYY-MM-DD') return `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+  const m = padded ? pad2(d.getMonth() + 1) : d.getMonth() + 1, dd = padded ? pad2(d.getDate()) : d.getDate();
+  return dateFormat === 'DD/MM/YYYY' ? `${dd}/${m}` : `${m}/${dd}`;
 }
 
 // A compact, readable range for a heading (Shifts toolbar, 10/02): month
@@ -154,6 +189,11 @@ export function formatRangeShort(start, end, fallback = '') {
   const b = toDate(end) || a;
   if (!a) return fallback;
   const mon = (d) => new Intl.DateTimeFormat('en-US', { month: 'short' }).format(d);
+  if (dayFirst()) {   // "28 Sep - 4 Oct", "5 - 11 Oct", "28 Dec 2026 - 3 Jan 2027"
+    if (a.getFullYear() !== b.getFullYear()) return `${a.getDate()} ${mon(a)} ${a.getFullYear()} - ${b.getDate()} ${mon(b)} ${b.getFullYear()}`;
+    if (a.getMonth() === b.getMonth()) return a.getDate() === b.getDate() ? `${a.getDate()} ${mon(a)}` : `${a.getDate()} - ${b.getDate()} ${mon(a)}`;
+    return `${a.getDate()} ${mon(a)} - ${b.getDate()} ${mon(b)}`;
+  }
   if (a.getFullYear() !== b.getFullYear()) {
     return `${mon(a)} ${a.getDate()}, ${a.getFullYear()} - ${mon(b)} ${b.getDate()}, ${b.getFullYear()}`;
   }

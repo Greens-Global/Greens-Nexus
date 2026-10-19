@@ -87,6 +87,7 @@ export const DOCS = [
         steps: [
           'Click your photo or initials in the top-right corner.',
           'Click Profile to check your details, photo, signature, Dark Mode and theme.',
+          'Pick your Date Format in Profile - MM/DD/YYYY, DD/MM/YYYY, YYYY-MM-DD or DD MMM YYYY - and every date in Nexus shows that way for you.',
           'Scroll to Email Settings in Profile to choose which emails Nexus sends you.',
         ],
       },
@@ -106,7 +107,7 @@ export const DOCS = [
       { name: 'Search (Ctrl+K)', desc: 'One Search Nexus bar in the same place on every screen: tasks, projects, people, portfolios, teams, items, checkouts, purchase requests and pages. Press / to jump to it (on Contact and the Knowledge Base, / goes to that page\'s own search), and Esc clears it.' },
       { name: 'Notification Bell', desc: 'Every alert meant for you: approvals, handovers, assignments, mentions, reminders and updates on tickets you raised. Repeats are grouped into one notice that updates in place, other task and ticket activity stays inside those modules, and anything you clear stays under Closed for 30 days.' },
       { name: 'Page Help (?)', desc: 'The ? in the header (or the ? key) opens the Help panel. Home has Search for Help, Ask a Question, What\'s New in Nexus, Help with This Page and Take the Tour; Messages lists your tickets; Help searches the guide, documents and courses.' },
-      { name: 'Profile Menu', desc: 'Profile (your photo, signature, appearance, world clock and Email Settings - everything that is only about you), What\'s New, Legal and Sign Out.' },
+      { name: 'Profile Menu', desc: 'Profile (your photo, signature, appearance, Date Format, world clock and Email Settings - everything that is only about you; Date Format sets how every date in Nexus reads for you, MM/DD/YYYY until you pick another), What\'s New, Legal and Sign Out.' },
       { name: 'Tour', desc: 'Every screen has a guided tour: open the ? Help panel and click Take the Tour, or Other Tours to pick another screen. Tasks, Tickets and Help Center also run theirs once on your first visit.' },
       { name: 'Time Clock in the Left Menu', desc: 'The foot of the left menu shows your shift and hours with Punch In, Start Break / End Break and Punch Out, even when the menu is folded to icons. On a phone it is a pill that opens the same clock.' },
       { name: 'Priority Bar', desc: 'A yellow bar at the top of the screen for things that need you, like a time sheet to sign or a punch fix to approve. Tap the text for the full message; Open goes to the item and clears it, and with several waiting, Show All lists them and Clear All closes them all (each stays in the bell under Closed).' },

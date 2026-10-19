@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, Camera, Sun, Moon, Palette, Check, PanelLeft, Globe2, Signature, Copy, Mail, ChevronDown, ChevronUp } from 'lucide-react';
+import { X, Camera, Sun, Moon, Palette, Check, PanelLeft, Globe2, Signature, Copy, Mail, ChevronDown, ChevronUp, CalendarDays } from 'lucide-react';
 import { api } from '../api';
 import PhotoEditorModal from './PhotoEditorModal';
 import { refreshPhotoMap } from '../lib/peoplePhotos';
 import { ZONE_GROUPS, MAX_ZONES, LOCAL_TZ, currentZones, setZones, zoneOptionLabel } from '../lib/worldClockZones';
 import { Spinner } from './AsyncState';
 import EmailSettingsPanel from '../tasks/MyEmailSettings';
+import { DATE_FORMATS, getDateFormat, setDateFormat, formatDate } from '../lib/datetime';
 
 const WK_THEMES = [['cobalt', 'Cobalt', '#2b45e1'], ['warm', 'Warm Sand', '#f5ead0']];
 
@@ -50,6 +51,7 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
   const [sigStatus, setSigStatus] = useState('');
   const [logoBusy, setLogoBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [dateFmtStatus, setDateFmtStatus] = useState('');
   // Fixed MAX_ZONES slots, '' = unset - a dropdown per slot rather than a
   // checklist of ~400 zones (Pranshu, Sep 1: "make it a drop down"). Local
   // (the detected system zone) is always shown first on the greeting and
@@ -106,6 +108,18 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
       setSignature(s); setSigStatus('Saved.');
     } catch (e) { setSigStatus(e?.message || 'Could not save.'); }
     setSigBusy(false);
+  }
+
+  // Every date on every screen is already drawn, so a reload shows the new order everywhere.
+  async function saveDateFormat(fmt) {
+    setDateFmtStatus('Saving...');
+    try {
+      await api.saveMyDateFormat(fmt);
+      setDateFormat(fmt);
+      window.location.reload();
+    } catch (err) {
+      setDateFmtStatus(err?.message || 'Could not save your date format.');
+    }
   }
 
   async function copySignature() {
@@ -300,6 +314,20 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
             </div>
           </div>
         )}
+
+        <div style={{ borderTop: '1px solid var(--line)', padding: '14px 18px 18px', fontFamily: 'Inter, sans-serif' }}>
+          <label htmlFor="profile-date-format" style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 4 }}>
+            <CalendarDays size={11} /> Date Format
+          </label>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>
+            How every date in Nexus reads for you.
+          </div>
+          <select id="profile-date-format" value={getDateFormat()} onChange={(e) => saveDateFormat(e.target.value)} disabled={dateFmtStatus === 'Saving...'}
+            style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink)', fontSize: 13, fontFamily: 'inherit' }}>
+            {DATE_FORMATS.map((f) => <option key={f} value={f}>{f} - {formatDate(new Date(), '', f)}</option>)}
+          </select>
+          {dateFmtStatus && <div style={{ fontSize: 11.5, color: dateFmtStatus === 'Saving...' ? 'var(--muted)' : 'hsl(var(--color-red))', marginTop: 6 }}>{dateFmtStatus}</div>}
+        </div>
 
         <div style={{ borderTop: '1px solid var(--line)', padding: '14px 18px 18px', fontFamily: 'Inter, sans-serif' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, fontWeight: 700, letterSpacing: '.06em', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 4 }}>

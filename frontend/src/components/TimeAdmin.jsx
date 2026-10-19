@@ -16,7 +16,7 @@ import TimeInsights from './TimeInsights';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { MonitoringAlertsLine } from './MonitoringAlerts';
 import { ErrorBanner, Spinner } from './AsyncState';
-import { formatDate } from '../lib/datetime';
+import { formatDate, formatDateTime } from '../lib/datetime';
 import { leaveRequestDays, fmtDays } from '../lib/workdayStats';
 import { takePendingOpen } from '../lib/pendingOpen';
 import TimesheetsToReview from './TimesheetsToReview';
@@ -843,7 +843,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
         const allSelected = visibleIds.length > 0 && selected.length === visibleIds.length;
         const filtered = !!(actDept || q || actKind !== 'all');
         const toggle = (ids, on) => setSelReqs(prev => { const n = new Set(prev); ids.forEach(id => on ? n.add(id) : n.delete(id)); return n; });
-        const fmtAt = (at) => at ? new Date(at + 'Z').toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }) : '';
+        const fmtAt = (at) => at ? formatDateTime(at + 'Z') : '';
         const verb = (r) => {
           const kindLabel = { in: 'clock-in', out: 'clock-out', break_start: 'break start', break_end: 'break end' }[r.punchKind] || r.punchKind;
           return r.action === 'add' ? `Add a ${kindLabel}` : 'Remove a punch';
