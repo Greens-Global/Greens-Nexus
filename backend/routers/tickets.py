@@ -261,6 +261,8 @@ def ticket_to_dict(t: models.TaskTicket) -> dict:
             "maintenanceVendor": _nz(t.maintenance_vendor), "maintenanceCost": _nz(t.maintenance_cost),
             "propertyLocked": bool(t.property_locked), "parentTicketId": _nz(t.parent_ticket_id),
             "serviceId": _nz(t.service_id),
+            # How it arrived (Oct 2026): "email" = raised by email (ticket_inbound.py).
+            "source": _nz(getattr(t, "source", "")),
             "createdAt": t.created_at or "", "modifiedAt": t.modified_at or ""}
 
 
@@ -1027,6 +1029,19 @@ def _send_auto_assignment(background_tasks: BackgroundTasks, t: models.TaskTicke
 @router.post("/task-tickets", status_code=201)
 def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
                   user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    return file_ticket(body, background_tasks, user, db)
+
+
+def file_ticket(body: TicketBody, background_tasks: BackgroundTasks, user: dict, db: Session,
+                arrived_by: str = "") -> dict:
+    """Everything POST /task-tickets does - THE way a ticket is created, so
+    one that arrives by email (ticket_inbound.py, `source="email"`) goes
+    through the same checks, approval gate, default assignee, SLA, receipts
+    and desk notices as one filed in the app. `arrived_by` (stored as
+    TaskTicket.source) is the server's, never the payload's. Raises
+    HTTPException like the route."""
+    # The ticket's channel is named `arrived_by` here only because `source`
+    # below is the task a ticket is converted from.
     now = now_iso()
     # Anyone signed in may raise a ticket - that is the whole point of a help
     # desk - and, since Oct 1 2026, on someone else's behalf (Neil: the intake
@@ -1076,6 +1091,7 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
         # Always derived from priority, never taken from the payload - set
         # by ticket_sla.start just below (sla_due_at + sla_due_on).
         sla_due_on="", resolved_at="", created_at=now, modified_at=now,
+        source=arrived_by or "",
     )
     ticket_sla.start(t, ticket_sla.targets(db, t.priority))
     # The asset manager is TOLD (one bell below), not made a watcher: every
@@ -2170,24 +2186,35 @@ def add_ticket_comment(ticket_id: str, body: TicketCommentBody, background_tasks
     # those are the desk talking among themselves and are hidden from the
     # requester.
     _require_ticket_participant(db, user, t)
-    c, internal = _record_ticket_comment(db, t, user, body.body or "", bool(body.internal))
+    return _tcomment(post_ticket_comment(db, t, user, body.body or "", bool(body.internal),
+                                         background_tasks))
+
+
+def post_ticket_comment(db: Session, t: models.TaskTicket, user: dict, text: str, internal: bool,
+                        background_tasks: BackgroundTasks) -> models.TaskComment:
+    """Everything POST /task-tickets/{id}/comments does once the caller is
+    allowed to comment (_require_ticket_participant) - THE way a reply is
+    posted, so one that arrives by email (ticket_inbound.py) brings the same
+    bells, mentions, history, first-response stamp, email and Teams message
+    as one typed in the drawer. Commits."""
+    c, internal = _record_ticket_comment(db, t, user, text or "", bool(internal))
     db.commit()
     db.refresh(c)
     if not internal and get_notify_settings(db).get("commentsTrigger", True):
         background_tasks.add_task(notify_ticket_event, t.id, "updated", user["email"],
                                    # Full comment text - the email renders it in its own
                                    # quote block, so no truncation (was capped at 280).
-                                   update_kind="New comment added", latest_comment=body.body or "")
+                                   update_kind="New comment added", latest_comment=text or "")
         # Teams DM too, carrying the reply itself (Neil, Oct 1: "whatever
         # comments got added, that comment should come out"). Without this, a
         # requester who only watches Teams never heard about a reply at all
         # (Pranshu, Sep 17 2026). Same inline-attempt-then-sweep-fallback
         # shape as update_ticket's block. Their own reply sends nothing.
-        dm_row = _queue_requester_teams_dm(db, t, user["email"], comment=body.body or "")
+        dm_row = _queue_requester_teams_dm(db, t, user["email"], comment=text or "")
         db.commit()
         if dm_row is not None:
             background_tasks.add_task(_deliver_teams_dm, dm_row.id)
-    return _tcomment(c)
+    return c
 
 
 @router.delete("/task-tickets/comments/{comment_id}", status_code=204, dependencies=[Depends(require_ticket_supervisor)])
@@ -2252,12 +2279,8 @@ def add_ticket_attachment(ticket_id: str, body: TicketAttachmentBody, background
     # Our storage only - the same rule as every other evidence upload.
     from routers.items import _validate_photo_url
     _validate_photo_url(body.url, "Attachment url")
-    a = models.TaskAttachment(id=gen_id(), task_id=ticket_id, name=body.name, size=body.size or "",
-                              kind=body.kind or "other", url=body.url or "", added_at=now_iso(), added_by=user["email"])
-    db.add(a)
-    log_activity(db, type="attached", actor_email=user["email"], entity_kind="ticket",
-                 entity_id=t.id, entity_code=t.code, entity_title=t.subject, detail=f'attached "{a.name}"')
-    _tell_requester(db, t, user["email"], f'File attached: "{a.name}"')
+    a = record_ticket_attachment(db, t, user, name=body.name, size=body.size or "",
+                                 kind=body.kind or "other", url=body.url or "")
     db.commit()
     db.refresh(a)
     # No email or Teams message: an attachment is not one of the three things
@@ -2266,6 +2289,21 @@ def add_ticket_attachment(ticket_id: str, body: TicketAttachmentBody, background
     # the requester an "updated" email, so the old attachmentsTrigger setting
     # no longer drives anything.
     return _tattachment(a)
+
+
+def record_ticket_attachment(db: Session, t: models.TaskTicket, user: dict, *, name: str,
+                             size: str, kind: str, url: str) -> models.TaskAttachment:
+    """One file on a ticket - the row, the history line and the requester's
+    bell, exactly as POST /task-tickets/{id}/attachments records it (the url
+    already checked as our storage). Shared with ticket_inbound.py, so an
+    emailed file lands like one added in the drawer. Does not commit."""
+    a = models.TaskAttachment(id=gen_id(), task_id=t.id, name=name, size=size or "",
+                              kind=kind or "other", url=url or "", added_at=now_iso(), added_by=user["email"])
+    db.add(a)
+    log_activity(db, type="attached", actor_email=user["email"], entity_kind="ticket",
+                 entity_id=t.id, entity_code=t.code, entity_title=t.subject, detail=f'attached "{a.name}"')
+    _tell_requester(db, t, user["email"], f'File attached: "{a.name}"')
+    return a
 
 
 @router.delete("/task-tickets/attachments/{attachment_id}", status_code=204, dependencies=[Depends(require_ticket_supervisor)])
@@ -3075,6 +3113,13 @@ def get_ticket_notify_settings(user: dict = Depends(require_manager), db: Sessio
 
 @router.put("/task-tickets/notify/settings", dependencies=[Depends(require_ticket_supervisor)])
 def put_ticket_notify_settings(patch: dict, user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+    # Email to ticket (Oct 2026): the support mailbox is never the Tasks one,
+    # and a default department must be one of that company's.
+    import ticket_inbound
+    try:
+        patch = ticket_inbound.clean_settings_patch(db, patch)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     return save_notify_settings(db, patch, user["email"])
 
 
@@ -3261,4 +3306,58 @@ def get_ticket_teams_dm_log(ticket_id: str = "", sent: str = "", limit: int = 20
         "chatId": r.chat_id, "sent": bool(r.sent), "attempts": r.attempts, "lastTryAt": r.last_try_at,
         "sendError": r.send_error, "createdAt": r.created_at,
     } for r in rows]
+
+
+# ── Email to ticket: the inbound log (Oct 2026, ticket_inbound.py) ────────────
+@router.get("/task-tickets/inbound/log", dependencies=[Depends(require_ticket_supervisor)])
+def get_ticket_inbound_log(outcome: str = "", limit: int = 100, offset: int = 0,
+                           user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+    """What the support mailbox has handed us and what became of it - the
+    answer to "I emailed support and nothing happened": `reason` says which
+    check refused it. Supervisors only, inside their company wall: a row about
+    a ticket follows that ticket's company, a row that became nothing follows
+    the sender's company (an unknown sender's row is a Global Admin's)."""
+    import auth
+    E = models.TicketInboundEmail
+    q = db.query(E)
+    scope = auth.company_scope(user, db)
+    if scope is not None:
+        T_ = models.TaskTicket
+        people = [e.lower() for (e,) in db.query(models.NexusEmployee.work_email)
+                  .filter(func.coalesce(models.NexusEmployee.company, "").in_(sorted(scope))).all() if e]
+        q = (q.execution_options(include_deleted=True)
+             .outerjoin(T_, T_.id == E.ticket_id)
+             .filter(or_(func.coalesce(T_.company_id, "").in_(sorted(scope)) & (E.ticket_id != ""),
+                         (func.coalesce(E.ticket_id, "") == "") & func.lower(E.from_email).in_(people))))
+    if outcome:
+        q = q.filter(E.outcome == outcome)
+    total = q.count()
+    rows = q.order_by(E.processed_at.desc()).offset(max(0, offset)).limit(max(1, min(limit, 100))).all()
+    codes = {}
+    ids = [r.ticket_id for r in rows if r.ticket_id]
+    if ids:
+        codes = {i: c for i, c in db.query(models.TaskTicket.id, models.TaskTicket.code)
+                 .execution_options(include_deleted=True).filter(models.TaskTicket.id.in_(ids)).all()}
+    return {"rows": [{
+        "id": r.id, "ticketId": _nz(r.ticket_id), "ticketCode": codes.get(r.ticket_id, "") if r.ticket_id else "",
+        "commentId": _nz(r.comment_id), "from": r.from_email, "subject": r.subject,
+        "status": r.status, "outcome": r.outcome, "reason": r.reason, "matchedBy": r.matched_by,
+        "attachmentCount": r.attachment_count or 0, "receivedAt": r.received_at,
+        "processedAt": r.processed_at,
+    } for r in rows], "total": total}
+
+
+@router.post("/task-tickets/inbound/drain", dependencies=[Depends(require_ticket_supervisor)])
+def drain_ticket_inbox(user: dict = Depends(require_manager), db: Session = Depends(get_db)):
+    """One pass now instead of waiting for the minute loop - how a supervisor
+    checks a new mailbox works. A plain `def`, so FastAPI runs its blocking
+    Graph calls in a threadpool, never on the event loop. Uses the saved
+    settings and the same switch and lock as the loop."""
+    import ticket_inbound
+    try:
+        return ticket_inbound.drain_once(db)
+    except Exception as e:
+        # Surfaced, not swallowed: on a new mailbox this is usually a missing
+        # Mail.ReadWrite grant, and "500" would not say so.
+        raise HTTPException(502, f"Could not read the support mailbox: {e}")
 

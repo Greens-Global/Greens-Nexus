@@ -2477,6 +2477,10 @@ export const api = {
   countTicketSavedReplyUse: (id) => req(`/ticket-saved-replies/${encodeURIComponent(id)}/use`, { method: 'POST' }),
   // Who may be a company's default assignee - its active desk agents (manager+).
   getTicketDeskAgents: (companyId) => req(`/task-tickets/desk-agents?company_id=${encodeURIComponent(companyId)}`),
+  // Email to ticket (Oct 2026, ticket_inbound.py): the support mailbox's log
+  // (supervisors, last 100) and a pass now instead of waiting for the loop.
+  getTicketInboundLog: (params = {}) => req(`/task-tickets/inbound/log?${new URLSearchParams(params).toString()}`),
+  drainTicketInbox: () => req('/task-tickets/inbound/drain', { method: 'POST' }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

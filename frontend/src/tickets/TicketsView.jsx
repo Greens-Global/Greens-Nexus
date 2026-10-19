@@ -1622,7 +1622,7 @@ const TicketRow = memo(function TicketRow({ t, nameOf, hrDeptName, companyName, 
               {t.linkedTaskId && <Link2 size={13} style={{ color: NX.faint, marginLeft: 6, verticalAlign: 'middle' }} />}
             </div>
             <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 2 }}>
-              {ticketNoShort(t.code) || '-'}{hrDept ? ` · ${hrDept}` : ''}
+              {ticketNoShort(t.code) || '-'}{hrDept ? ` · ${hrDept}` : ''}{t.source === 'email' ? ' · Via Email' : ''}
             </div>
           </div>
           {t.resolvedAt && <CheckCircle2 size={16} style={{ color: NX.green, flexShrink: 0 }} />}
@@ -1719,7 +1719,7 @@ const TicketRow = memo(function TicketRow({ t, nameOf, hrDeptName, companyName, 
             {t.linkedTaskId && <Link2 size={13} style={{ color: NX.faint, marginLeft: 6, verticalAlign: 'middle' }} />}
           </div>
           <div style={{ fontSize: 11.5, color: NX.faint, marginTop: 1 }}>
-            {ticketNoShort(t.code) || '-'}{hrDept ? ` · ${hrDept}` : ''}
+            {ticketNoShort(t.code) || '-'}{hrDept ? ` · ${hrDept}` : ''}{t.source === 'email' ? ' · Via Email' : ''}
           </div>
         </div>
       </div>
@@ -3356,7 +3356,16 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
           </div>
         ) : (<>
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: NX.ink, flex: 1, minWidth: 0 }}>{v.subject}</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: NX.ink, flex: 1, minWidth: 0 }}>
+              {v.subject}
+              {/* Raised by email (ticket_inbound.py) - a quiet note, not a chip. */}
+              {t.source === 'email' && (
+                <span title="Raised by an email to the support mailbox"
+                  style={{ marginLeft: 8, fontSize: 11.5, fontWeight: 500, color: NX.faint, whiteSpace: 'nowrap' }}>
+                  Via Email
+                </span>
+              )}
+            </div>
             {canEditText && (
               <button type="button" onClick={startEdit} title="Edit title and description" aria-label="Edit title and description"
                 style={{ ...btn('ghost'), padding: 5, color: NX.dim, flexShrink: 0 }}><Pencil size={15} /></button>
