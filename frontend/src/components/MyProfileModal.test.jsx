@@ -36,5 +36,7 @@ describe('Profile - Date Format (Oct 20 2026)', () => {
     const labels = [...select.options].map((o) => o.textContent);
     expect(labels.map((l) => l.split(' - ')[0])).toEqual(['MM/DD/YYYY', 'DD/MM/YYYY', 'YYYY-MM-DD', 'DD MMM YYYY']);
     expect(labels[2]).toMatch(/^YYYY-MM-DD - \d{4}-\d{2}-\d{2}$/);
+    expect(labels[0]).toMatch(/\(Default\)$/);   // the US format is marked as everyone's default
+    expect(screen.getByText('Default')).toBeTruthy();
   });
 });
