@@ -2503,6 +2503,9 @@ export const api = {
   locationTrailPing: (body)          => req('/timeclock/location-trail/ping', { method: 'POST', body: JSON.stringify(body) }),
   locationTrailLive: ()              => req('/timeclock/location-trail/live'),
   locationTrailDay:  (email, date)   => req(`/timeclock/location-trail/day?email=${encodeURIComponent(email || '')}&date=${encodeURIComponent(date)}`),
+  // Operations (Oct 20): the words that make a Cubby unit type a mailbox or a switched-off record.
+  getOpsUnitClasses:  ()     => req('/facility-ops/unit-classes'),
+  saveOpsUnitClasses: (data) => req('/facility-ops/unit-classes', { method: 'PUT', body: JSON.stringify(data) }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

@@ -85,7 +85,7 @@ describe('Operations module', () => {
   it('draws every tab from one read', async () => {
     const { rerender } = render(<FacilityOperations activeSub="overview" onSubChange={() => {}} />);
     expect(await screen.findByText('Facility Scorecard')).toBeTruthy();
-    expect(screen.getByText('76.7%')).toBeTruthy();                       // 115 rented of 150 units
+    expect(screen.getByText('82.1%')).toBeTruthy();                       // 115 rented of 140 rentable storage units
     rerender(<FacilityOperations activeSub="collections" onSubChange={() => {}} />);
     expect(screen.getByText('Tenants Past Due', { selector: '.dash-card-title' })).toBeTruthy();
     rerender(<FacilityOperations activeSub="units" onSubChange={() => {}} />);
@@ -366,7 +366,7 @@ describe('Operations figures', () => {
 
   it('flags a facility with many units off the market', () => {
     const items = attentionItems([facility('fac_c', 'Valley Center', { units: { total: 100, rented: 60, vacant: 10, unavailable: 30 } })]);
-    expect(items.map((i) => [i.tab, i.text])).toContainEqual(['units', '30 of 100 units are off the market (30%)']);
+    expect(items.map((i) => [i.tab, i.text])).toContainEqual(['units', '30 of 100 storage units are off the market (30%)']);
     expect(items[0].tab).toBe('collections');                              // money owed leads the list
   });
 
