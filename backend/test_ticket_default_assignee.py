@@ -359,5 +359,93 @@ class SettingsTests(_Base):
         self.assertEqual(self._topic()["defaultAssignees"], {"co2": INDIA})
 
 
+class ReviewFollowUpTests(_Base):
+    """Oct 18 review of the first cut."""
+
+    def _cfg(self, who=ADMIN):
+        return self.as_(who).get("/task-tickets/taxonomy/settings").json()["helpTopics"]
+
+    def _stored_it_topics(self):
+        groups = ticket_taxonomy.get_config(self.db)["helpTopics"]
+        return [tp for g in groups if "it" in g["departments"] for tp in g["topics"]]
+
+    def test_rename_keeps_another_companys_hidden_default(self):
+        self.set_topic_default("Printer or Scanner", {"co1": AGENT, "co2": INDIA})
+        self.walls_on()
+        groups = self._cfg()
+        for g in groups:
+            for tp in g["topics"]:
+                if tp["name"] == "Printer or Scanner":
+                    tp["name"] = "Printers"
+                    self.assertEqual(tp["defaultAssignees"], {"co1": AGENT})   # co2 never shown
+        res = self.as_(ADMIN).put("/task-tickets/taxonomy/settings", json={"helpTopics": groups})
+        self.assertEqual(res.status_code, 200, res.text)
+        tp = next(tp for tp in self._stored_it_topics() if tp["name"] == "Printers")
+        self.assertEqual(tp["defaultAssignees"], {"co1": AGENT, "co2": INDIA})
+
+    def test_orphan_groups_keep_another_companys_hidden_default(self):
+        # The Help Topics screen saves one group per CURRENT department name
+        # ("it") and re-sends the rest of a stored group as an orphan with
+        # those names filtered out - the stored key changes on every save.
+        self.set_topic_default("Printer or Scanner", {"co2": INDIA})
+        self.walls_on()
+        groups = self._cfg()
+        it = next(g for g in groups if "it" in g["departments"])
+        rest = [d for d in it["departments"] if d != "it"]
+        split = [{**it, "label": "IT", "departments": ["it"]},
+                 {**it, "departments": rest}] + [g for g in groups if g is not it]
+        res = self.as_(ADMIN).put("/task-tickets/taxonomy/settings", json={"helpTopics": split})
+        self.assertEqual(res.status_code, 200, res.text)
+        stored = ticket_taxonomy.get_config(self.db)["helpTopics"]
+        it_group = next(g for g in stored if g["departments"] == ["it"])
+        tp = next(tp for tp in it_group["topics"] if tp["name"] == "Printer or Scanner")
+        self.assertEqual(tp["defaultAssignees"], {"co2": INDIA})
+        # ...and Greens India's IT tickets still go to their agent.
+        t = self.file(who=INDIA, hr_department_id="dIT2")
+        self.assertEqual(self.row(t["id"]).assignee_email, INDIA)
+
+    def test_another_departments_topic_is_not_borrowed(self):
+        self.set_topic_default("Printer or Scanner", {"co1": AGENT2})   # an IT topic
+        self.set_dept_default("dOps", AGENT)
+        t = self.file(hr_department_id="dOps")   # Operations has no such topic
+        self.assertEqual(self.row(t["id"]).assignee_email, AGENT)
+        self.assertEqual(self.activity(t["id"], "auto_assigned"),
+                         ["Assigned to Agent Person automatically (department: Operations)"])
+
+    def _approve(self, tid):
+        self.as_(ADMIN).post(f"/task-tickets/{tid}/request-approval", json={"approver_email": APPROVER})
+        res = self.as_(APPROVER).post(f"/task-tickets/{tid}/approval", json={"decision": "approve"})
+        self.assertEqual(res.status_code, 200, res.text)
+
+    def test_scheduled_service_and_walkthrough_tickets_never_get_a_default(self):
+        self.set_dept_default("dIT", AGENT)
+        for col in ("service_id", "batch_id"):
+            t = self.file(type="access_request", subject=f"Gated {col}")
+            row = self.row(t["id"])
+            setattr(row, col, "x-1")
+            self.db.commit()
+            self._approve(t["id"])
+            self.assertEqual(self.row(t["id"]).assignee_email, "", col)
+            self.assertEqual(self.activity(t["id"], "auto_assigned"), [], col)
+            self.assertEqual(self.activity(t["id"], "auto_assign_gap"), [], col)
+
+    def test_desk_agents_endpoint_lists_only_that_companys_agents(self):
+        self.walls_on()
+        res = self.as_(ADMIN).get("/task-tickets/desk-agents", params={"company_id": "co1"})
+        self.assertEqual(res.status_code, 200, res.text)
+        emails = {p["email"] for p in res.json()}
+        self.assertTrue({AGENT, AGENT2} <= emails)
+        self.assertFalse(emails & {LEFT, PLAIN, INDIA, REQ})
+        self.assertEqual(self.as_(ADMIN).get("/task-tickets/desk-agents", params={"company_id": "co2"}).status_code, 404)
+        self.assertEqual(self.as_(REQ).get("/task-tickets/desk-agents", params={"company_id": "co1"}).status_code, 403)
+
+    def test_non_desk_callers_see_no_default_assignees(self):
+        self.set_topic_default("Printer or Scanner", {"co1": AGENT})
+        cfg = self.as_(REQ).get("/task-tickets/taxonomy/settings").json()
+        self.assertFalse(any("defaultAssignees" in tp for g in cfg["helpTopics"] for tp in g["topics"]))
+        cfg = self.as_(AGENT).get("/task-tickets/taxonomy/settings").json()
+        self.assertTrue(any("defaultAssignees" in tp for g in cfg["helpTopics"] for tp in g["topics"]))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -14,9 +14,13 @@ Only ever applied when the creator did not choose an assignee, and only at
 two moments: create_ticket for a ticket that needs no approval, and
 decide_approval's approve path for one that did (a ticket awaiting approval
 can never be assigned - the gate would be decoration). Recategorizing a
-ticket later never reassigns it, and tickets created by maintenance
-services / walkthroughs carry their own explicit assignment and never pass
-through here.
+ticket later never reassigns it.
+
+Maintenance scheduled-service tickets (`service_id`, maintenance_services.py)
+and Property Walkthrough lines (`batch_id`, routers/ticket_walkthroughs.py)
+keep their own routing and NEVER get a default assignee - not at creation
+(they are not created through create_ticket) and not when a gated one is
+approved (apply() refuses them).
 
 The person must still be an active desk agent of the ticket's company when
 the ticket arrives (validated on save too, but people leave and roles
@@ -109,6 +113,8 @@ def apply(db: Session, t: models.TaskTicket, actor_email: str) -> str:
     commit."""
     if (t.assignee_email or "").strip():
         return ""
+    if (getattr(t, "service_id", "") or "") or (getattr(t, "batch_id", "") or ""):
+        return ""   # scheduled service / walkthrough line: its own routing, always
     if (t.approval_status or "none") in ("pending", "rejected"):
         return ""
     if (t.status or "") not in ("open", "new", "reopened"):

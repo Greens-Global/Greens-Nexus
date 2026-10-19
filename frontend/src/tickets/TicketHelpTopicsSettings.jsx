@@ -38,6 +38,7 @@ import { TOPIC_MAX_LEN } from './ticketMeta';
 import { refreshTicketConfig } from './ticketConfig';
 import DragList from './DragList';
 import { PersonSelect, usePeople } from '../tasks/components';
+import { useDeskAgents, agentOptions } from './deskAgents';
 
 let _seq = 0;
 const tid = () => `t${++_seq}`;
@@ -61,6 +62,9 @@ function buildState(groups, depts) {
       id: tid(), name: tp.name || '', area: tp.area || 'general',
       options: (Array.isArray(tp.options) ? tp.options : []).map((o) => ({ id: tid(), name: String(o || '') })),
       defaultAssignees: (tp.defaultAssignees && typeof tp.defaultAssignees === 'object') ? { ...tp.defaultAssignees } : {},
+      // Intake questions are edited elsewhere, but must travel with the topic -
+      // a save without them used to wipe every topic's questions.
+      ...(Array.isArray(tp.questions) ? { questions: tp.questions } : {}),
     }));
   }
   const orphans = (groups || [])
@@ -80,6 +84,9 @@ export default function TicketHelpTopicsSettings() {
   const [asgFor, setAsgFor] = useState(null);   // id of the topic whose default assignees are open
   const [companies, setCompanies] = useState([]);
   const people = usePeople();
+  const asgCompanyIds = useMemo(() => (state && sel ? companies.filter((c) => depts.some((d) => d.companyId === c.id && norm(d.name) === sel)).map((c) => c.id) : []),
+    [state, sel, companies, depts]);
+  const deskAgents = useDeskAgents(asgFor ? asgCompanyIds : []);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [err, setErr] = useState('');
@@ -152,6 +159,7 @@ export default function TicketHelpTopicsSettings() {
                 .filter((o, i, arr) => o && arr.findIndex((x) => norm(x) === norm(o)) === i);
               const asg = Object.fromEntries(Object.entries(tp.defaultAssignees || {}).filter(([c, e]) => c && e));
               return { name: tp.name.trim(), area: tp.area || 'general', ...(opts.length ? { options: opts } : {}),
+                ...(Array.isArray(tp.questions) ? { questions: tp.questions } : {}),
                 ...(Object.keys(asg).length ? { defaultAssignees: asg } : {}) };
             })
             .filter((tp, i, arr) => tp.name && arr.findIndex((x) => norm(x.name) === norm(tp.name)) === i),
@@ -257,7 +265,8 @@ export default function TicketHelpTopicsSettings() {
                   <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
                     <span style={{ width: 140, flexShrink: 0, fontSize: 12.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.name}>{c.name}</span>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <PersonSelect value={(asgTopic.defaultAssignees || {})[c.id] || null} people={people}
+                      <PersonSelect value={(asgTopic.defaultAssignees || {})[c.id] || null}
+                        people={agentOptions(deskAgents[c.id], (asgTopic.defaultAssignees || {})[c.id], people)}
                         onChange={(email) => setAssignee(c.id, email || '')} placeholder="No default assignee" />
                     </div>
                   </div>

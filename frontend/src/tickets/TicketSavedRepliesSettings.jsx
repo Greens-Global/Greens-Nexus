@@ -78,7 +78,9 @@ function Editor({ draft, setDraft, canShare, topics, companies, onCancel, onSave
             {draft.shared ? 'Every agent on the desk can use it.' : 'Only you see it.'}
           </div>
         </div>
-        {draft.shared && !draft.id && companies.length > 1 && (
+        {/* A shared reply belongs to one company's desk; with several, pick
+            which (a Global Admin with no company of their own must). */}
+        {draft.shared && !draft.id && companies.length > 0 && (
           <div style={{ flex: '1 1 220px' }}>
             <label style={label} htmlFor="sr-company">Company</label>
             <select id="sr-company" value={draft.companyId} onChange={(e) => setDraft({ ...draft, companyId: e.target.value })}

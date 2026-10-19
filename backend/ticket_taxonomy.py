@@ -471,23 +471,78 @@ def _clean_default_assignees(topic: str, value: Any) -> dict:
 
 
 def topic_entry(db: Session, name: str, dept_name: str = "") -> dict | None:
-    """The curated help topic `name` (a ticket's `application`), preferring
-    the group of the ticket's department (topics are listed per department
-    name, and two departments may share a topic name). None when `name` is
+    """The curated help topic `name` (a ticket's `application`) in the group
+    of the ticket's department (topics are listed per department name, and
+    two departments may share a topic name). With a department, ONLY that
+    department's group counts - a topic of the same name under another
+    department is not this ticket's, and its default assignee must not be
+    borrowed. Without one, the first topic of that name. None when `name` is
     not a curated topic (an External Links app or a typed "Other" answer)."""
     key = (name or "").strip().lower()
     if not key:
         return None
     dept = (dept_name or "").strip().lower()
-    fallback = None
     for g in get_config(db).get("helpTopics") or []:
+        if dept and dept not in (g.get("departments") or []):
+            continue
         for tp in g.get("topics") or []:
-            if (tp.get("name") or "").strip().lower() != key:
-                continue
-            if dept and dept in (g.get("departments") or []):
+            if (tp.get("name") or "").strip().lower() == key:
                 return tp
-            fallback = fallback or tp
-    return fallback
+    return None
+
+
+def _norm_depts(group: dict) -> set:
+    return {str(d).strip().lower() for d in ((group or {}).get("departments") or []) if str(d).strip()}
+
+
+def _norm_name(topic: dict) -> str:
+    return str((topic or {}).get("name") or "").strip().lower()
+
+
+def match_stored_topics(stored: list, incoming: list, renames: bool = True) -> dict:
+    """{(group index, topic index) in `incoming`: the stored topic it is} -
+    how a save of the help topics finds what each topic carried before, for
+    the things the saving screen does not send (another company's default
+    assignees, which it was never shown) or may not send (intake questions).
+
+    A stored topic is matched at most once, in three passes:
+      1. same departments, same name;
+      2. same name in a stored group sharing a department - the Help Topics
+         screen saves one group per CURRENT department name and re-sends the
+         rest as "orphan" groups with those names filtered out, so a group's
+         department list changes on a save without anything being renamed;
+      3. a rename: an incoming topic still unmatched takes the unmatched
+         stored topic at the same position of a group sharing a department,
+         else the first unmatched one there. Off with renames=False (a
+         brand-new topic would otherwise inherit a removed one's things).
+    A stored topic nothing matches was removed."""
+    stored = [g for g in (stored or []) if isinstance(g, dict)]
+    flat = [(gi, ti, _norm_depts(g), _norm_name(tp), tp)
+            for gi, g in enumerate(stored) for ti, tp in enumerate(g.get("topics") or []) if isinstance(tp, dict)]
+    used: set = set()
+    out: dict = {}
+    todo = [(gi, ti, _norm_depts(g), _norm_name(tp))
+            for gi, g in enumerate(incoming or []) if isinstance(g, dict)
+            for ti, tp in enumerate(g.get("topics") or []) if isinstance(tp, dict) and _norm_name(tp)]
+
+    def take(key, pred):
+        for s_gi, s_ti, s_depts, s_name, tp in flat:
+            if (s_gi, s_ti) not in used and pred(s_ti, s_depts, s_name):
+                used.add((s_gi, s_ti))
+                out[key] = tp
+                return True
+        return False
+
+    for gi, ti, depts, name in todo:
+        take((gi, ti), lambda _i, d, n, depts=depts, name=name: d == depts and n == name)
+    for gi, ti, depts, name in todo:
+        if (gi, ti) not in out:
+            take((gi, ti), lambda _i, d, n, depts=depts, name=name: bool(d & depts) and n == name)
+    for gi, ti, depts, name in (todo if renames else []):
+        if (gi, ti) not in out:
+            if not take((gi, ti), lambda i, d, n, depts=depts, ti=ti: bool(d & depts) and i == ti):
+                take((gi, ti), lambda _i, d, n, depts=depts: bool(d & depts))
+    return out
 
 
 def _clean_help_topics(groups: Any) -> list:
@@ -595,7 +650,15 @@ def save_config(db: Session, patch: dict, actor_email: str) -> dict:
     if "typeOrder" in patch:
         merged["typeOrder"] = _clean_type_order(patch["typeOrder"])
     if "helpTopics" in patch:
-        merged["helpTopics"] = _clean_help_topics(patch["helpTopics"])
+        cleaned = _clean_help_topics(patch["helpTopics"])
+        # A topic saved without its intake questions keeps the ones it had -
+        # a screen that does not edit questions must not wipe them (an
+        # explicit empty list still clears them).
+        for (gi, ti), before in match_stored_topics(merged["helpTopics"], cleaned, renames=False).items():
+            tp = cleaned[gi]["topics"][ti]
+            if "questions" not in tp and isinstance(before.get("questions"), list):
+                tp["questions"] = before["questions"]
+        merged["helpTopics"] = cleaned
     if "companyField" in patch and isinstance(patch["companyField"], dict):
         incoming = patch["companyField"]
         merged["companyField"] = {

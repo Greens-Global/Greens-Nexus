@@ -2475,6 +2475,8 @@ export const api = {
   deleteTicketSavedReply: (id) => req(`/ticket-saved-replies/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   // Fire-and-forget when a reply is inserted into the composer.
   countTicketSavedReplyUse: (id) => req(`/ticket-saved-replies/${encodeURIComponent(id)}/use`, { method: 'POST' }),
+  // Who may be a company's default assignee - its active desk agents (manager+).
+  getTicketDeskAgents: (companyId) => req(`/task-tickets/desk-agents?company_id=${encodeURIComponent(companyId)}`),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

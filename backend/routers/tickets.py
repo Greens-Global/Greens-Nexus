@@ -3089,22 +3089,20 @@ def get_ticket_taxonomy_settings(user: dict = Depends(get_current_user), db: Ses
     return _walled_taxonomy(db, user, ticket_taxonomy.get_config(db))
 
 
-def _topic_key(group: dict, topic: dict) -> tuple:
-    return (tuple(sorted(group.get("departments") or [])), (topic.get("name") or "").strip().lower())
-
-
 def _walled_taxonomy(db: Session, user: dict, cfg: dict) -> dict:
-    """The config as this caller may see it: a help topic's default assignee
-    for a company outside their company wall is left out (who works another
-    company's tickets is that company's business)."""
+    """The config as this caller may see it. Who a topic's tickets go to is
+    the desk's business: a caller off the desk sees no default assignees at
+    all, and a desk caller none for a company outside their company wall."""
     import auth
-    scope = auth.company_scope(user, db)
-    if scope is None:
+    desk = _has_desk_grant(user, db)
+    scope = auth.company_scope(user, db) if desk else set()
+    if desk and scope is None:
         return cfg
     for g in cfg.get("helpTopics") or []:
         for tp in g.get("topics") or []:
             if tp.get("defaultAssignees"):
-                kept = {c: e for c, e in tp["defaultAssignees"].items() if auth.company_ok(c, scope)}
+                kept = ({c: e for c, e in tp["defaultAssignees"].items() if auth.company_ok(c, scope)}
+                        if desk else {})
                 if kept:
                     tp["defaultAssignees"] = kept
                 else:
@@ -3113,30 +3111,35 @@ def _walled_taxonomy(db: Session, user: dict, cfg: dict) -> dict:
 
 
 def _guard_topic_assignees(db: Session, user: dict, patch: dict) -> None:
-    """Help-topic default assignees in a taxonomy save (Oct 2026): a company
-    outside the caller's wall keeps exactly what it had (they never saw it -
-    _walled_taxonomy - so leaving it out of the payload must not clear it),
-    and a person newly named must be an active desk agent of that company.
-    An unchanged entry is not re-checked: someone who left is caught when a
+    """Help-topic default assignees in a taxonomy save (Oct 2026).
+
+    Another company's entries can never be dropped by this caller's save:
+    they were never shown (_walled_taxonomy), so they are put back onto the
+    topic they belong to - found by ticket_taxonomy.match_stored_topics,
+    which follows a topic through a rename and through the Help Topics
+    screen re-sending "orphan" groups with some department names filtered
+    out. Only a topic removed outright takes them with it (there is nothing
+    left for them to assign).
+
+    A person newly named must be an active desk agent of that company. An
+    unchanged entry is not re-checked: someone who left is caught when a
     ticket arrives (ticket_auto_assign logs the gap), and must not block
     every other edit to the topics until it is fixed."""
     import auth
     groups = patch.get("helpTopics")
     if not isinstance(groups, list):
         return
-    scope = auth.company_scope(user, db)
-    stored = {}
-    for g in ticket_taxonomy.get_config(db).get("helpTopics") or []:
-        for tp in g.get("topics") or []:
-            stored[_topic_key(g, tp)] = dict(tp.get("defaultAssignees") or {})
-    for g in groups:
+    # Off the desk: nothing was shown, so nothing may be set or cleared.
+    scope = auth.company_scope(user, db) if _has_desk_grant(user, db) else set()
+    stored = ticket_taxonomy.get_config(db).get("helpTopics") or []
+    matches = ticket_taxonomy.match_stored_topics(stored, groups)
+    for gi, g in enumerate(groups):
         if not isinstance(g, dict):
             continue
-        g_norm = {**g, "departments": [str(d).strip().lower() for d in (g.get("departments") or []) if str(d).strip()]}
-        for tp in g.get("topics") or []:
+        for ti, tp in enumerate(g.get("topics") or []):
             if not isinstance(tp, dict):
                 continue
-            before = stored.get(_topic_key(g_norm, tp), {})
+            before = dict((matches.get((gi, ti)) or {}).get("defaultAssignees") or {})
             incoming = tp.get("defaultAssignees")
             incoming = dict(incoming) if isinstance(incoming, dict) else {}
             out = {}
@@ -3157,6 +3160,35 @@ def _guard_topic_assignees(db: Session, user: dict, patch: dict) -> None:
                 tp["defaultAssignees"] = out
             else:
                 tp.pop("defaultAssignees", None)
+
+
+@router.get("/task-tickets/desk-agents")
+def list_desk_agents(company_id: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Who may be a default assignee for `company_id` (Oct 2026): the active
+    desk agents of that company, exactly as ticket_auto_assign.desk_agent_for
+    judges them - so the settings pickers offer nobody a save would refuse.
+    Manager+, like the screens that set a default; a 403 (not
+    require_manager's 401, which api.js reads as a dead session)."""
+    import auth   # company wall: another company's desk is 404
+    if user.get("level", 0) < 3:
+        raise HTTPException(403, "Manager access or above is required.")
+    if not company_id:
+        raise HTTPException(422, "company_id is required.")
+    auth.assert_company(company_id, user, db)
+    # Only people who could hold a desk role are checked: a tasks / tickets
+    # grant through an Access Group, or an administrator role.
+    emails = {r.email for r in db.query(models.NexusRole)
+              .filter(models.NexusRole.role.in_(["administrator", "owner"])).all() if r.email}
+    rows = (db.query(models.NexusGroupMember.email, models.NexusGroup.allowed_modules)
+            .join(models.NexusGroup, models.NexusGroup.id == models.NexusGroupMember.group_id).all())
+    for email, mods in rows:
+        if any(p.strip().partition(":")[0] in ("tasks", "tickets") for p in (mods or "").split(",")):
+            emails.add(email)
+    out = []
+    for email in {(e or "").strip().lower() for e in emails if e}:
+        if ticket_auto_assign.desk_agent_for(db, email, company_id):
+            out.append({"email": email, "name": _name_of(db, email)})
+    return sorted(out, key=lambda p: (p["name"].lower(), p["email"]))
 
 
 @router.put("/task-tickets/taxonomy/settings")

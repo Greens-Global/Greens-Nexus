@@ -19,10 +19,19 @@ is the one implementation, and PLACEHOLDERS below the one list):
   {agent_first_name} {agent_name}
 Anything else in braces is left exactly as typed.
 
-The body is rich text from the same editor as ticket comments, sanitized on
-save with the inbound-email allowlist (task_inbound_parse.sanitize_html) and
-again on render (tasks/lib.js richBodyHtml), like every comment body.
+The body is rich text from the same editor as ticket comments. Ticket
+comments have no server-side sanitizer - they are stored as written and made
+safe on render (tasks/lib.js sanitizeRichHtml). A saved reply is sanitized on
+save as well, with that same allowlist (_RichSanitizer below mirrors RICH_TAGS
+/ RICH_ATTRS), so quotes, tables and pasted screenshots survive; images only
+from our own storage (items._validate_photo_url, the rule ticket images
+follow). It is rendered through richBodyHtml again like every comment body.
+A body with no markup at all is plain text and becomes paragraphs (escaped
+once - never twice).
 """
+import re
+from html import escape
+from html.parser import HTMLParser
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -36,7 +45,7 @@ import ticket_roles
 from auth import get_current_user
 from database import get_db
 from routers.task_util import gen_id, now_iso
-from task_inbound_parse import has_text, sanitize_html
+from task_inbound_parse import has_text, plain_to_html
 
 router = APIRouter(tags=["Tickets"], dependencies=[Depends(ticket_roles.require_ticket_agent)])
 
@@ -77,14 +86,117 @@ def _to_dict(r: models.TicketSavedReply, user: dict, db: Session, supervisor: bo
     }
 
 
+# Mirrors RICH_TAGS / RICH_ATTRS / SAFE_URL in frontend/src/tasks/lib.js.
+_RICH_TAGS = {"p", "br", "b", "strong", "i", "em", "u", "s", "strike", "del", "code", "pre", "blockquote",
+              "ul", "ol", "li", "a", "img", "mark", "span", "h1", "h2", "h3", "h4", "hr",
+              "table", "thead", "tbody", "tr", "td", "th"}
+_RICH_ATTRS = {"a": ("href", "title"), "img": ("src", "alt", "title")}
+_VOID = {"br", "hr", "img"}
+# Dropped WITH their contents.
+_DROP_TREE = {"script", "style", "iframe", "object", "embed", "form", "svg", "math", "noscript",
+              "template", "head", "title", "textarea", "select"}
+_SAFE_HREF = re.compile(r"^(https?:|mailto:)", re.I)
+
+
+def _own_image(src: str) -> bool:
+    from routers.items import _validate_photo_url
+    if not re.match(r"^https?://", src or "", re.I):
+        return False
+    try:
+        _validate_photo_url(src, "Image")
+        return True
+    except HTTPException:
+        return False
+
+
+class _RichSanitizer(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.out, self.open = [], []
+        self.drop_tag, self.drop_depth = "", 0
+
+    def _attrs(self, tag, attrs):
+        allowed = _RICH_ATTRS.get(tag, ())
+        kept = []
+        for k, v in attrs:
+            k, v = (k or "").lower(), (v or "").strip()
+            if k not in allowed:
+                continue
+            if k == "href" and not _SAFE_HREF.match(v):
+                continue
+            if k == "src" and not _own_image(v):
+                continue
+            kept.append(f' {k}="{escape(v, quote=True)}"')
+        return "".join(kept)
+
+    def handle_starttag(self, tag, attrs):
+        if self.drop_depth:
+            if tag == self.drop_tag:
+                self.drop_depth += 1
+            return
+        if tag in _DROP_TREE:
+            self.drop_tag, self.drop_depth = tag, 1
+            return
+        if tag not in _RICH_TAGS:
+            return                                   # unwrap: children survive
+        a = self._attrs(tag, attrs)
+        if tag == "img":
+            if ' src="' in a:
+                self.out.append(f"<img{a}>")         # an image from anywhere else is dropped
+            return
+        if tag in _VOID:
+            self.out.append(f"<{tag}>")
+            return
+        self.out.append(f"<{tag}{a}>")
+        self.open.append(tag)
+
+    def handle_startendtag(self, tag, attrs):
+        if tag in _VOID:
+            self.handle_starttag(tag, attrs)
+
+    def handle_endtag(self, tag):
+        if self.drop_depth:
+            if tag == self.drop_tag:
+                self.drop_depth -= 1
+                if not self.drop_depth:
+                    self.drop_tag = ""
+            return
+        if tag in self.open:
+            while self.open:
+                t = self.open.pop()
+                self.out.append(f"</{t}>")
+                if t == tag:
+                    break
+
+    def handle_data(self, data):
+        if not self.drop_depth and data:
+            self.out.append(escape(data, quote=False))
+
+    def result(self) -> str:
+        while self.open:
+            self.out.append(f"</{self.open.pop()}>")
+        return "".join(self.out)
+
+
+def sanitize_reply(body: str) -> str:
+    """A saved reply's body as stored (see the module docstring)."""
+    body = body or ""
+    if not re.search(r"<[a-z/!][^>]*>", body, re.I):
+        return plain_to_html(body)                    # plain text: escaped once, as paragraphs
+    p = _RichSanitizer()
+    p.feed(body)
+    p.close()
+    return p.result().strip()
+
+
 def _clean(title, body, help_topic) -> tuple:
     title = " ".join((title or "").split())
     if not title:
         raise HTTPException(422, "Give the saved reply a title.")
     if len(title) > TITLE_MAX:
         raise HTTPException(422, f"The title is too long ({TITLE_MAX} characters max).")
-    clean = sanitize_html(body or "")
-    if not has_text(clean):
+    clean = sanitize_reply(body)
+    if not has_text(clean) and "<img" not in clean:
         raise HTTPException(422, "The saved reply needs some text.")
     if len(clean) > BODY_MAX:
         raise HTTPException(422, "The saved reply is too long - keep it to a few paragraphs.")
@@ -143,7 +255,9 @@ def create_saved_reply(body: SavedReplyIn, user: dict = Depends(get_current_user
     company = company.strip()
     if body.company_id:
         auth.assert_company(company, user, db)
-    if body.shared and not company and auth.company_scope(user, db) is not None:
+    # A shared reply belongs to one company's desk. Once companies exist,
+    # one must be named - a Global Admin with no company of their own picks.
+    if body.shared and not company and db.query(models.HrEntity.id).first() is not None:
         raise HTTPException(422, "Pick the company whose desk shares this reply.")
     title, clean, topic = _clean(body.title, body.body, body.help_topic)
     now = now_iso()

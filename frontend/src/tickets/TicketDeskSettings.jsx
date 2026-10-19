@@ -34,6 +34,7 @@ import { PersonMultiSelect, PersonSelect, usePeople } from '../tasks/components'
 import { useIsMobile } from '../lib/useIsMobile';
 import SavedCheck from '../components/SavedCheck';
 import { dialog } from '../ui/dialog';
+import { useDeskAgents, agentOptions } from './deskAgents';
 
 // The fallback chain, spelled out for whoever's reading it: a company's own
 // agents, if any -> the Default Agents list, if any -> every administrator.
@@ -89,7 +90,7 @@ function SwitchButton({ on, onClick, label }) {
   );
 }
 
-function DepartmentHeads({ companyId, companyName, depts, people, onSetHead, onSetEnabled, onReorder, onSetDefault, defaultOpen = false }) {
+function DepartmentHeads({ companyId, companyName, depts, people, agents, onSetHead, onSetEnabled, onReorder, onSetDefault, defaultOpen = false }) {
   // Collapsed by default - a company with a lot of departments (a real one
   // has 11) made its card towering over its grid neighbors, forcing scroll
   // through every card just to reach the Save button. Independent per card,
@@ -158,7 +159,7 @@ function DepartmentHeads({ companyId, companyName, depts, people, onSetHead, onS
                         straight to this person - after the help topic's own
                         default. Saved the moment it is picked. */}
                     <div style={{ flex: '1 1 160px', minWidth: 0 }} title="Default Assignee - new tickets go straight to them">
-                      <PersonSelect value={d.defaultAssigneeEmail || null} people={people}
+                      <PersonSelect value={d.defaultAssigneeEmail || null} people={agentOptions(agents, d.defaultAssigneeEmail, people)}
                         onChange={(email) => onSetDefault(d.id, email || '').catch((e) => dialog.alert(e.message || 'Could not set the default assignee.'))}
                         placeholder="No default assignee" />
                     </div>
@@ -237,6 +238,8 @@ export default function TicketDeskSettings() {
   const [selected, setSelected] = useState(DEFAULT_KEY);
   const [baseline, setBaseline] = useState('');   // last saved rosters, to flag unsaved edits
   const narrow = useIsMobile('(max-width: 900px)');
+  // Default Assignee pickers offer only this company's desk agents.
+  const deskAgents = useDeskAgents(selected !== DEFAULT_KEY ? [selected] : []);
 
   useEffect(() => {
     if (myLevel < 3) return;
@@ -358,7 +361,7 @@ export default function TicketDeskSettings() {
       status={companyStatus(byCompany[company.id] || [], agents, company.name)}
     >
       <DepartmentHeads key={company.id} defaultOpen companyId={company.id} companyName={company.name} people={people}
-        depts={depts.filter((d) => d.companyId === company.id)}
+        depts={depts.filter((d) => d.companyId === company.id)} agents={deskAgents[company.id]}
         onSetHead={setDeptHead} onSetEnabled={setDeptEnabled} onReorder={reorderDepts} onSetDefault={setDeptDefault} />
     </DeskRoster>
   ) : (
