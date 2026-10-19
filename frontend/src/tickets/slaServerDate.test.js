@@ -32,6 +32,12 @@ describe('SLA honest to the hour', () => {
     expect(slaState({ slaDueAt: '2026-10-20T16:00:00+00:00', status: 'waiting' })).toBe('paused');
   });
 
+  it('reads Paused, never breached, while awaiting approval', () => {
+    at('2026-11-01T00:00:00Z');
+    expect(slaState({ slaDueAt: '2026-10-20T16:00:00+00:00', status: 'open', approvalStatus: 'pending' })).toBe('paused');
+    expect(firstResponseState({ firstResponseDueAt: '2026-10-20T16:00:00+00:00', status: 'open', approvalStatus: 'pending' })).toBe('paused');
+  });
+
   it('resolved and closed have no SLA state', () => {
     at('2026-11-01T00:00:00Z');
     expect(slaState({ slaDueAt: '2026-10-20T16:00:00+00:00', status: 'resolved', slaPaused: true })).toBe('none');
@@ -54,8 +60,12 @@ describe('SLA honest to the hour', () => {
   });
 
   it('sorts by the deadline and judges SLA met to the minute', () => {
-    expect(slaSortKey({ slaDueAt: '2026-10-19T22:00:00+00:00', slaDueOn: '2026-10-19' })).toBe('2026-10-19T22:00:00+00:00');
-    expect(slaSortKey({ slaDueOn: '2026-10-19' })).toBe('2026-10-19');
+    const running = slaSortKey({ slaDueAt: '2026-10-25T22:00:00+00:00', status: 'open' });
+    const paused = slaSortKey({ slaDueAt: '2026-10-19T22:00:00+00:00', status: 'waiting_user', slaPaused: true });
+    expect(running < paused).toBe(true);   // paused tickets sort after the running ones
+    expect(slaSortKey({ slaDueAt: '2026-10-19T22:00:00+00:00', status: 'open' }) < running).toBe(true);
+    expect(slaSortKey({ slaDueOn: '2026-10-19', status: 'open' })).toBe('02026-10-19');
+    expect(slaSortKey({ status: 'open' })).toBe('');
     expect(slaMet({ slaDueAt: '2026-10-19T22:00:00+00:00', resolvedAt: '2026-10-19T21:59:00+00:00' })).toBe(true);
     expect(slaMet({ slaDueAt: '2026-10-19T22:00:00+00:00', resolvedAt: '2026-10-19T22:01:00+00:00' })).toBe(false);
     expect(slaMet({ slaDueOn: '2026-10-19', resolvedAt: '2026-10-19T23:00:00+00:00' })).toBe(true);
@@ -73,5 +83,7 @@ describe('first response', () => {
     expect(firstResponseState({ ...base, status: 'resolved' })).toBe('none');
     expect(firstResponseState({ ...base, firstResponseAt: '2026-10-19T19:30:00+00:00' })).toBe('responded');
     expect(firstResponseState({ status: 'open' })).toBe('none');
+    // Filed by the assignee for themselves: no first-response clock.
+    expect(firstResponseState({ ...base, requesterId: 'a@x.com', assigneeId: 'A@x.com' })).toBe('none');
   });
 });

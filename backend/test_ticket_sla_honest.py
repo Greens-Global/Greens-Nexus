@@ -57,8 +57,13 @@ class HonestSlaTests(unittest.TestCase):
         self.db = database.SessionLocal()
         for m in (models.TaskTicket, models.TaskComment, models.TaskActivity, models.TaskNotification,
                   models.NexusNotification, models.NexusSetting, models.HrDepartment,
-                  models.TicketDepartment, models.NexusEmployee, models.TicketTeamsMessage):
+                  models.TicketDepartment, models.NexusEmployee, models.TicketTeamsMessage, models.NexusRole):
             self.db.query(m).delete()
+        # The agent is on the desk by their stored role too (the backfill
+        # judges comment authors by address, not by a signed-in user).
+        self.db.add(models.NexusRole(email=AGENT["email"], role="administrator"))
+        import auth
+        auth.invalidate_role_cache()
         self.db.add(models.HrDepartment(id="d1", company_id="c1", name="Facilities", lead_email=LEAD))
         self.db.add(models.HrDepartment(id="d2", company_id="c1", name="Leaderless", lead_email=""))
         self.db.commit()
@@ -233,14 +238,45 @@ class HonestSlaTests(unittest.TestCase):
         self.assertEqual(t.first_response_at, first)
         self.assertFalse(S.response_breached(t, datetime.now(timezone.utc) + h(100)))
 
-    def test_a_ticket_born_assigned_still_needs_a_reply(self):
-        self.db.add(models.NexusEmployee(id="e-agent", work_email=AGENT["email"], first_name="Ana",
-                                         last_name="Gent", status="active"))
+    def _people(self):
+        for i, (email, first) in enumerate(((AGENT["email"], "Ana"), (REQUESTER["email"], "Rex"))):
+            self.db.add(models.NexusEmployee(id=f"e{i}", work_email=email, first_name=first,
+                                             last_name="T", status="active"))
         self.db.commit()
-        out = T.create_ticket(T.TicketBody(subject="s", priority="urgent", assignee_email=AGENT["email"]),
+
+    def test_a_ticket_born_assigned_still_needs_a_reply(self):
+        """An agent logs a phone call for someone and takes it: the clock
+        runs until a reply - and the filing agent's own reply counts."""
+        self._people()
+        out = T.create_ticket(T.TicketBody(subject="s", priority="urgent", assignee_email=AGENT["email"],
+                                           requester_email=REQUESTER["email"]),
                               BackgroundTasks(), user=AGENT, db=self.db)
         self.assertEqual(out["status"], "in_progress")
         self.assertIsNone(out["firstResponseAt"])
+        t = self.db.get(models.TaskTicket, out["id"])
+        self.assertEqual(t.created_by_email, AGENT["email"])
+        self.assertTrue(S.response_breached(t, datetime.now(timezone.utc) + h(5)))
+        self._comment(t, AGENT)
+        self.assertTrue(t.first_response_at)
+
+    def test_an_agent_filing_for_themselves_has_no_response_clock(self):
+        self._people()
+        out = T.create_ticket(T.TicketBody(subject="s", priority="urgent", assignee_email=AGENT["email"]),
+                              BackgroundTasks(), user=AGENT, db=self.db)
+        t = self.db.get(models.TaskTicket, out["id"])
+        self.assertFalse(S.response_breached(t, datetime.now(timezone.utc) + h(5)))
+        S.scan_breaches(self.db, datetime.now(timezone.utc) + h(5))
+        self.assertEqual(self.bells(), [])
+
+    def test_a_non_desk_watcher_or_mention_never_counts(self):
+        cc = {"email": "cc@greensglobal.com", "level": 1}
+        t = self.ticket(created=datetime.now(timezone.utc), watcher_emails=[cc["email"]])
+        self._comment(t, cc)
+        self.assertEqual(t.first_response_at, "")
+        S.note_comment(self.db, t, {"email": "mentioned@greensglobal.com", "level": 2}, False, S.iso(T0))
+        self.assertEqual(t.first_response_at, "")
+        self.assertTrue(S.note_comment(self.db, t, AGENT, False, (T0 + timedelta(microseconds=5)).isoformat()))
+        self.assertEqual(t.first_response_at, S.iso(T0))   # stored in the one shape
 
     def test_resolving_without_a_reply_leaves_it_empty_and_stops_the_clock(self):
         t = self.ticket()
@@ -306,8 +342,74 @@ class HonestSlaTests(unittest.TestCase):
         S.set_status(t2, "in_progress", T0 + h(30))                 # due T0+34h, in the future
         self.db.commit()
         self.assertEqual(S.scan_breaches(self.db, T0 + h(33)), 0)
-        S.scan_breaches(self.db, T0 + h(35))
-        self.assertEqual(len(self.bells(AGENT["email"])), 2)
+        S.scan_breaches(self.db, T0 + h(35))                         # same local day as the first alert
+        rows = self.bells(AGENT["email"])
+        self.assertEqual(len(rows), 1)                               # one rollup, updated in place
+        self.assertEqual(rows[0].title, "SLA Breached on 2 Tickets")
+
+    def test_awaiting_approval_pauses_both_clocks(self):
+        created = datetime.now(timezone.utc) - timedelta(days=2)
+        t = self.ticket(created=created, priority="urgent", assignee="", approval_status="pending",
+                        approver_email=AGENT["email"])
+        self.assertTrue(t.sla_paused_at)
+        now = datetime.now(timezone.utc)
+        self.assertFalse(S.breached(t, now))
+        self.assertFalse(S.response_breached(t, now))
+        self.assertFalse(T._sla_breached(t))
+        self.assertEqual(self.db.query(models.TaskTicket).filter(S.breached_filter(S.iso(now))).count(), 0)
+        self.assertEqual(S.scan_breaches(self.db, now), 0)
+        T.decide_approval(t.id, T.ApprovalBody(decision="approve"), BackgroundTasks(), user=AGENT, db=self.db)
+        self.db.refresh(t)
+        self.assertEqual(t.sla_paused_at, "")
+        self.assertAlmostEqual((S.parse(t.sla_due_at) - S.parse(t.created_at)).total_seconds(),
+                               (24 + 48) * 3600, delta=300)   # the two days waiting are added
+        self.assertAlmostEqual((S.parse(t.first_response_due_at) - S.parse(t.created_at)).total_seconds(),
+                               (4 + 48) * 3600, delta=300)
+        self.assertEqual(S.scan_breaches(self.db, datetime.now(timezone.utc)), 0)   # no immediate bells
+        self.assertEqual(self.bells(), [])
+
+    def test_reopening_a_rejected_request_waits_for_approval_again(self):
+        t = self.ticket(created=datetime.now(timezone.utc), approval_status="none")
+        t.approval_status = "pending"
+        S.sync(t)
+        self.assertTrue(t.sla_paused_at)
+
+    def test_one_rollup_per_person_per_day_across_scans(self):
+        a = self.ticket(subject="Alpha")
+        b = self.ticket(created=T0 + h(1), subject="Bravo")
+        S.scan_breaches(self.db, T0 + h(4) + timedelta(minutes=5))   # Alpha's response is late
+        S.scan_breaches(self.db, T0 + h(5) + timedelta(minutes=5))   # then Bravo's
+        for who in (AGENT["email"], LEAD):
+            rows = self.bells(who)
+            self.assertEqual(len(rows), 1)
+            self.assertIn("Alpha", rows[0].body)
+            self.assertIn("Bravo", rows[0].body)
+            self.assertEqual(rows[0].title, "SLA Breached on 2 Tickets")
+        # Both kinds on one ticket share its line.
+        c = self.ticket(created=T0 - h(20), subject="Charlie")
+        S.scan_breaches(self.db, T0 + h(5) + timedelta(minutes=10))
+        rows = self.bells(AGENT["email"])
+        self.assertEqual(len(rows), 1)
+        self.assertIn("Charlie (Response Overdue + Resolution Overdue)", rows[0].body)
+        self.assertTrue(a.id and b.id and c.id)
+
+    def test_an_offboarded_assignee_falls_back_to_the_desk(self):
+        self.db.add(models.NexusEmployee(id="gone", work_email="gone@greensglobal.com", first_name="G",
+                                         last_name="One", status="offboarded"))
+        self.db.commit()
+        self.ticket(assignee="gone@greensglobal.com")
+        S.scan_breaches(self.db, T0 + h(5))
+        self.assertEqual(self.bells("gone@greensglobal.com"), [])
+        self.assertEqual(len(self.bells(DESK)), 1)
+        self.assertEqual(len(self.bells(LEAD)), 1)
+
+    def test_no_desk_goes_to_the_ticket_administrator_before_every_admin(self):
+        ticket_notify.save_settings(self.db, {"agentEmails": [], "ticketAdminEmail": "tadmin@greensglobal.com"},
+                                    "test")
+        self.ticket(assignee="")
+        S.scan_breaches(self.db, T0 + h(5))
+        self.assertEqual(len(self.bells("tadmin@greensglobal.com")), 1)
+        self.assertEqual(self.bells(AGENT["email"]), [])   # an administrator, not paged
 
     def test_none_while_paused_or_awaiting_approval(self):
         self.ticket(status="waiting_user")
@@ -378,7 +480,7 @@ class HonestSlaTests(unittest.TestCase):
         self.assertEqual((old.sla_fr_alerted_at, old.sla_res_alerted_at), (old.first_response_due_at, old.sla_due_at))
         self.assertEqual(waiting.sla_paused_at, S.iso(now))
         self.assertEqual((fresh.sla_fr_alerted_at, fresh.sla_res_alerted_at), ("", ""))
-        self.assertEqual(S.parse(answered.first_response_at), S.parse(answered.created_at) + h(4))
+        self.assertEqual(S.parse(answered.first_response_at), (S.parse(answered.created_at) + h(4)).replace(microsecond=0))
         self.assertEqual(answered.sla_fr_alerted_at, "")
         self.assertEqual(S.scan_breaches(self.db, now + timedelta(minutes=5)), 0)   # no flood
         self.assertEqual(self.bells(), [])
@@ -411,6 +513,14 @@ class HonestSlaTests(unittest.TestCase):
         from routers import my_work
         self.assertEqual(my_work._local_day("2026-10-20T03:00:00+00:00", 420), "2026-10-19")   # PDT
         self.assertEqual(my_work._local_day("2026-10-20T03:00:00+00:00", -330), "2026-10-20")  # IST
+
+    def test_my_work_does_not_call_a_paused_ticket_overdue(self):
+        from routers import my_work
+        items = [{"id": "p", "dueOn": "2026-10-01", "slaPaused": True, "priority": "low", "title": "Paused"},
+                 {"id": "r", "dueOn": "2026-10-01", "slaPaused": False, "priority": "low", "title": "Running"}]
+        g = my_work.group_items(items, "2026-10-10")
+        self.assertEqual([i["id"] for i in g["overdue"]], ["r"])
+        self.assertEqual([i["id"] for i in g["later"]], ["p"])
 
     def test_due_display_shows_date_and_time(self):
         t = self.ticket()

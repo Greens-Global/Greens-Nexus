@@ -272,7 +272,8 @@ export function SlaBadge({ t, compact = false }) {
   if (!m) return null;
   // Waiting on the requester: a soft label, not an alarm - the clock is stopped.
   if (s === 'paused') {
-    return <StatusLabel label={m.label} color={m.color} size="sm" title="SLA paused - waiting on the requester" />;
+    return <StatusLabel label={m.label} color={m.color} size="sm"
+      title={t.approvalStatus === 'pending' ? 'SLA paused - awaiting approval' : 'SLA paused - waiting on the requester'} />;
   }
   return (
     // A step down from the status/priority chip it sits beside - it qualifies

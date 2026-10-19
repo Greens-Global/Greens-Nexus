@@ -381,8 +381,8 @@ export const CLOSED_STATES = ['resolved', 'closed'];
 // copies are for the create form's preview and the at-risk window. ──
 export const SLA_TARGET_HOURS = { urgent: 24, high: 48, medium: 72, low: 168 };
 export const FIRST_RESPONSE_HOURS = { urgent: 4, high: 8, medium: 24, low: 48 };
-// The clock stops while the ticket waits on the requester (and once it is
-// resolved / closed) - ticket_sla.PAUSED_STATUSES. "waiting" is the legacy key.
+// The clock stops while the ticket waits on the requester or for approval
+// (and once it is resolved / closed) - ticket_sla.held. "waiting" is the legacy key.
 export const SLA_PAUSED_STATES = ['waiting_user', 'waiting'];
 export const slaDueFromPriority = (priority) => new Date(Date.now() + (SLA_TARGET_HOURS[priority] ?? 72) * 3600 * 1000).toISOString();
 const asUtc = (iso) => (/Z$|[+-]\d{2}:\d{2}$/.test(iso) ? iso : `${iso}Z`);
@@ -390,9 +390,15 @@ const msOf = (iso) => {
   if (!iso) return NaN;
   return new Date(asUtc(iso)).getTime();
 };
-export const slaPaused = (t) => !CLOSED_STATES.includes(t.status) && (!!t.slaPaused || SLA_PAUSED_STATES.includes(t.status));
-// What the Due Date column sorts on: the deadline, else the old date.
-export const slaSortKey = (t) => t.slaDueAt || t.slaDueOn || '';
+export const slaPaused = (t) => !CLOSED_STATES.includes(t.status)
+  && (!!t.slaPaused || SLA_PAUSED_STATES.includes(t.status) || t.approvalStatus === 'pending');
+// What the Due Date column sorts on: the deadline, else the old date - with
+// paused tickets after the running ones (their deadline is not ticking).
+export const slaSortKey = (t) => {
+  const due = t.slaDueAt || t.slaDueOn || '';
+  if (!due) return '';
+  return `${t.slaDueAt && slaPaused(t) ? 1 : 0}${due}`;
+};
 // "10/19/2026 3:00 PM" - the deadline is a moment; a row without one shows its date.
 export function fmtDueAt(t) {
   if (t?.slaDueAt) return `${formatDate(asUtc(t.slaDueAt))} ${formatTime(asUtc(t.slaDueAt))}`;
@@ -428,9 +434,11 @@ export function slaMet(t) {
 }
 // The first-response clock: 'responded' | 'due' | 'overdue' | 'paused' | 'none'.
 // Resolved / closed without a reply is 'none' - the clock stopped.
+// A ticket its own assignee filed for themselves has no first-response clock.
 export function firstResponseState(t) {
   if (t.firstResponseAt) return 'responded';
   if (!t.firstResponseDueAt || CLOSED_STATES.includes(t.status)) return 'none';
+  if (t.requesterId && t.requesterId.toLowerCase() === (t.assigneeId || '').toLowerCase()) return 'none';
   if (slaPaused(t)) return 'paused';
   return msOf(t.firstResponseDueAt) < Date.now() ? 'overdue' : 'due';
 }

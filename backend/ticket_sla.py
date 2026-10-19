@@ -12,24 +12,32 @@ at the moment of breach. This module is the one place that rule lives now:
   `sla_due_on` is still written - the UTC date of sla_due_at - for anything
   old that reads it.
 - The clock PAUSES while the ticket waits on the requester (Waiting for User,
-  legacy "waiting") and while it is resolved or closed. Leaving a paused
+  legacy "waiting"), while it awaits approval (nobody may work it yet), and
+  while it is resolved or closed. Leaving a paused
   status adds the paused time to both deadlines (to the first-response one
   only while nobody has responded yet), so a reopened ticket continues with
-  the time it had left. Every status write goes through `set_status`.
+  the time it had left. Every status write goes through `set_status`; an
+  approval decision that starts or ends the wait calls `sync`.
 - Breached = the clock is running AND now is past the deadline - to the
   minute, never to the day.
 - The first response is the first comment the requester can see (not an
-  internal note) written by someone other than the requester and other than
-  whoever filed it for them (`note_comment`). Resolving without one leaves
-  first_response_at empty: it was never responded to; the clock just stops.
+  internal note) written by a DESK agent other than the requester
+  (`note_comment`) - a cc'd colleague or an @mentioned employee never counts,
+  and an agent who logged a phone call for someone counts once they reply.
+  A ticket the assignee filed for themselves has no first-response clock.
+  Resolving without a reply leaves first_response_at empty: it was never
+  responded to; the clock just stops. Deleting the reply that stamped it
+  keeps the stamp - a response was given.
 - Breach alerts (`scan_breaches`, inside ticket_notify's leader-gated loop,
-  in its worker thread): one bell per breach, grouped per person per scan.
+  in its worker thread): one rollup bell per person per local day, updated
+  in place as more of their tickets breach.
   A kind (first response / resolution) alerts only while its alerted mark
   (sla_fr_alerted_at / sla_res_alerted_at) is empty; the mark is cleared only
   when a pause or a priority change moves that deadline back into the
   FUTURE - so breached, paused and resumed still late is no second bell, and
   a deadline moved out and then passed again alerts once more. Sent to the
-  assignee (unassigned: the service desk the ticket is announced to) and the department lead. Bell only - no email. On unless
+  assignee (unassigned or no longer sendable: the service desk the ticket is
+  announced to) and the department lead. Bell only - no email. On unless
   enabledEvents.sla_breach is switched off in Manage > Email Notifications.
 
 Every hour counts (24/7). `deadline()` is the only "hours -> deadline" math,
@@ -37,7 +45,7 @@ so a business-hours calendar later replaces that one function.
 """
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
 import models
@@ -115,9 +123,22 @@ def is_paused_status(status: str) -> bool:
     return (status or "") in PAUSED_STATUSES
 
 
+def held(t) -> bool:
+    """Should the clock be stopped - waiting on the requester, resolved /
+    closed, or awaiting approval?"""
+    return is_paused_status(t.status) or (t.approval_status or "") == "pending"
+
+
 def running(t) -> bool:
     """Is the ticket's SLA clock running right now?"""
-    return not (t.sla_paused_at or "") and not is_paused_status(t.status)
+    return not (t.sla_paused_at or "") and not held(t)
+
+
+def first_response_applies(t) -> bool:
+    """No first-response clock on a ticket its own assignee filed for
+    themselves - there is nobody to respond to."""
+    requester = (t.requester_email or "").strip().lower()
+    return not requester or requester != (t.assignee_email or "").strip().lower()
 
 
 def _set_due(t, due: datetime) -> None:
@@ -167,7 +188,7 @@ def start(t, tgt: tuple, now: datetime | None = None) -> None:
 def _sync_pause(t, now: datetime | None = None) -> None:
     now = now or utcnow()
     paused = bool(t.sla_paused_at or "")
-    if is_paused_status(t.status):
+    if held(t):
         if not paused:
             t.sla_paused_at = iso(now)
         return
@@ -191,6 +212,12 @@ def _sync_pause(t, now: datetime | None = None) -> None:
     _rearm(t, now)
 
 
+def sync(t, now: datetime | None = None) -> None:
+    """Start or end a pause after something other than the status changed
+    whether the clock should run - an approval request or decision."""
+    _sync_pause(t, now)
+
+
 def set_status(t, status: str, now: datetime | None = None) -> None:
     """THE way a ticket's status changes: the write plus the clock - entering
     a waiting / resolved / closed status pauses it, leaving one resumes it
@@ -201,22 +228,39 @@ def set_status(t, status: str, now: datetime | None = None) -> None:
 
 # ── First response ───────────────────────────────────────────────────────────
 
-def counts_as_response(t, author_email: str, internal: bool) -> bool:
-    """A comment the requester can see, from someone who is neither the
-    requester nor whoever filed the ticket for them."""
+def counts_as_response(t, author_email: str, internal: bool, desk: bool) -> bool:
+    """A comment the requester can see, from a desk agent who is not the
+    requester. The filer is not excluded: an agent who logged a call for
+    someone and then replies has responded."""
     who = (author_email or "").strip().lower()
-    if internal or not who:
+    if internal or not who or not desk:
         return False
-    return who not in {(t.requester_email or "").strip().lower(),
-                       (t.created_by_email or "").strip().lower()}
+    return who != (t.requester_email or "").strip().lower()
 
 
-def note_comment(t, author_email: str, internal: bool, at: str) -> bool:
-    """Stamp first_response_at on the first qualifying comment. True when
-    this comment was it."""
-    if (t.first_response_at or "") or not counts_as_response(t, author_email, internal):
+def _is_desk(db: Session, email: str) -> bool:
+    """Is this address a desk agent (ticket_roles.can_work_queue), judged the
+    way get_current_user builds a signed-in user."""
+    import auth
+    import ticket_roles
+    email = (email or "").strip().lower()
+    if not email:
         return False
-    t.first_response_at = at
+    rec = auth._external_record(email) or {}
+    who = {"email": email, "level": auth.level_for(email, db), "external": bool(rec.get("external"))}
+    return ticket_roles.can_work_queue(who, db)
+
+
+def note_comment(db: Session, t, user: dict, internal: bool, at: str) -> bool:
+    """Stamp first_response_at on the first qualifying comment (`user` is
+    the signed-in author). True when this comment was it. Deleting that
+    comment later keeps the stamp - the response was given."""
+    import ticket_roles
+    if (t.first_response_at or "") or internal:
+        return False
+    if not counts_as_response(t, user.get("email"), internal, ticket_roles.can_work_queue(user, db)):
+        return False
+    t.first_response_at = iso(parse(at) or utcnow())
     return True
 
 
@@ -228,7 +272,7 @@ def resolution_breached(t, now: datetime | None = None) -> bool:
 
 
 def response_breached(t, now: datetime | None = None) -> bool:
-    if t.first_response_at or "":
+    if (t.first_response_at or "") or not first_response_applies(t):
         return False
     due = parse(t.first_response_due_at)
     return bool(due is not None and running(t) and (now or utcnow()) > due)
@@ -250,7 +294,8 @@ def breached_filter(now_s: str):
     the old date compare for a row that has no datetime yet."""
     T = models.TaskTicket
     today = now_s[:10]
-    open_ = T.status.notin_(PAUSED_STATUSES)
+    open_ = and_(T.status.notin_(PAUSED_STATUSES),
+                 or_(T.approval_status.is_(None), T.approval_status != "pending"))
     not_paused = or_(T.sla_paused_at.is_(None), T.sla_paused_at == "")
     no_at = or_(T.sla_due_at.is_(None), T.sla_due_at == "")
     return and_(open_, or_(and_(T.sla_due_at != "", not_paused, T.sla_due_at < now_s),
@@ -268,15 +313,69 @@ def _alerts_due(t, now: datetime) -> list:
 
 
 def _desk_for(db: Session, t, cfg: dict) -> list:
-    """Who hears for an unassigned ticket: the service desk it was announced
-    to (ticket_notify.ticket_agents for its company), else the Ticket
-    Administrator."""
+    """Who hears for an unassigned ticket: the service desk configured for
+    its company (else the flat roster), then the Ticket Administrator, and
+    only then every administrator (ticket_notify.ticket_agents' last
+    fallback)."""
     import ticket_notify
-    desk = [e for e in ticket_notify.ticket_agents(db, cfg, t.company_id) if ticket_notify._is_sendable(db, e)]
+    roster = list((cfg.get("agentEmailsByCompany") or {}).get(t.company_id or "") or []) if t.company_id else []
+    roster = roster or list(cfg.get("agentEmails") or [])
+    desk = [e for e in ticket_notify._dedupe(roster) if ticket_notify._is_sendable(db, e)]
     if not desk:
         admin = (cfg.get("ticketAdminEmail") or "").strip().lower()
-        desk = [admin] if admin else []
+        desk = [admin] if admin and ticket_notify._is_sendable(db, admin) else []
+    if not desk:
+        desk = [e for e in ticket_notify.ticket_agents(db, cfg, t.company_id) if ticket_notify._is_sendable(db, e)]
     return desk
+
+
+BELL_TYPE = "task_ticket_sla_breach"
+
+
+def _upsert_bell(db: Session, email: str, items: list, now: datetime) -> None:
+    """ONE rollup bell per person per local day, updated in place (the
+    shift_notify._upsert_bell pattern): newly breached tickets are added to
+    the day's row, a ticket's two kinds share one line, and the row goes back
+    to the top, unread. A row the person already actioned stays as history."""
+    import json
+    import ticket_notify
+    from routers.task_util import gen_id
+    from ticket_code import ticket_no
+    day = local_day(iso(now), ticket_notify._zone_for(db, email))
+    ref = f"ticket-sla-breach:{day}"
+    N = models.NexusNotification
+    row = (db.query(N).filter(N.recipient == email, N.ref_id == ref, N.type == BELL_TYPE,
+                              N.actioned == False)   # noqa: E712 - SQLAlchemy expression
+           .order_by(N.created_at.desc()).first())
+    listed: list = []
+    if row is not None:
+        try:
+            listed = list((json.loads(row.action or "{}") or {}).get("slaBreaches") or [])
+        except (TypeError, ValueError):
+            listed = []
+    listed = [e for e in listed if isinstance(e, dict)]
+    by_id = {e.get("id"): e for e in listed}
+    for t, kinds in items:
+        e = by_id.get(t.id)
+        if e is None:
+            e = {"id": t.id, "code": t.code or "", "subject": t.subject or "", "kinds": []}
+            by_id[t.id] = e
+            listed.append(e)
+        e["kinds"] = [k for k in ALERT_KINDS if k in set(e.get("kinds") or []) | set(kinds)]
+    n = len(listed)
+    title = "SLA Breached on 1 Ticket" if n == 1 else f"SLA Breached on {n} Tickets"
+    body = ", ".join(f"{ticket_no(e['code'])} {e['subject']} ({' + '.join(KIND_LABEL[k] for k in e['kinds'])})"
+                     for e in listed)[:300]
+    action = {"view": "tickets", "label": "View Ticket" if n == 1 else "View Tickets", "slaBreaches": listed}
+    if n == 1:
+        action["ticketId"] = listed[0]["id"]
+    stamp = now.isoformat()
+    if row is not None:
+        row.title, row.body, row.action, row.created_at, row.read_by = title, body, json.dumps(action), stamp, ""
+        return
+    db.add(N(id=gen_id(), type=BELL_TYPE, recipient=email, title=title, body=body, ref_id=ref,
+             item_name="", requested_by="", action=json.dumps(action), actioned=False, read_by="",
+             created_at=stamp))
 
 
 def scan_breaches(db: Session, now: datetime | None = None) -> int:
@@ -284,8 +383,7 @@ def scan_breaches(db: Session, now: datetime | None = None) -> int:
     Blocking DB work - only ever called from a worker thread."""
     import ticket_notify
     import ticket_overdue
-    from routers.task_util import log_activity, task_notify
-    from ticket_code import ticket_no
+    from routers.task_util import log_activity
 
     cfg = ticket_notify.get_settings(db)
     if not cfg["enabledEvents"].get("sla_breach", True):
@@ -302,7 +400,9 @@ def scan_breaches(db: Session, now: datetime | None = None) -> int:
                     or_(T.approval_status.is_(None), T.approval_status != "pending"),
                     or_(and_(T.sla_due_at != "", T.sla_due_at < now_s, blank(T.sla_res_alerted_at)),
                         and_(blank(T.first_response_at), T.first_response_due_at != "",
-                             T.first_response_due_at < now_s, blank(T.sla_fr_alerted_at))))
+                             T.first_response_due_at < now_s, blank(T.sla_fr_alerted_at),
+                             or_(T.assignee_email.is_(None),
+                                 func.lower(T.requester_email) != func.lower(T.assignee_email)))))
             .with_for_update().all())
     found = []
     for t in rows:
@@ -323,10 +423,9 @@ def scan_breaches(db: Session, now: datetime | None = None) -> int:
     for t, kinds in found:
         assignee = (t.assignee_email or "").strip().lower()
         told = []
-        if assignee:
-            if ticket_notify._is_sendable(db, assignee):
-                told.append((assignee, "assignee"))
-        else:
+        if assignee and ticket_notify._is_sendable(db, assignee):
+            told.append((assignee, "assignee"))
+        else:   # unassigned, or the assignee left: the desk hears instead
             told += [(e, "service desk") for e in _desk_for(db, t, cfg)]
         lead, _dept = ticket_overdue._lead_of(db, t)
         if not lead:
@@ -351,14 +450,7 @@ def scan_breaches(db: Session, now: datetime | None = None) -> int:
     db.commit()
 
     for email, items in by_person.items():
-        n = len(items)
-        title = "SLA Breached on 1 Ticket" if n == 1 else f"SLA Breached on {n} Tickets"
-        body = ", ".join(f"{ticket_no(t.code)} {t.subject} ({' + '.join(KIND_LABEL[k] for k in kinds)})"
-                         for t, kinds in items)[:300]
-        task_notify(db, kind="ticket_sla_breach", for_email=email, title=title, body=body,
-                    ticket_id=items[0][0].id if n == 1 else "",
-                    nexus_action={"view": "tickets", "label": "View Ticket" if n == 1 else "View Tickets"},
-                    main_bell=True)   # it needs them, like ticket_overdue's reminders
+        _upsert_bell(db, email, items, now)   # the main bell - it needs them
     db.commit()
     return len(by_person)
 
@@ -377,6 +469,7 @@ def backfill(db: Session, now: datetime | None = None) -> int:
     ids = [i for (i,) in db.query(T.id).execution_options(include_deleted=True)
            .filter(or_(T.sla_due_at.is_(None), T.sla_due_at == "")).all()]
     cache: dict = {}
+    desk: dict = {}   # author -> is a desk agent (judged by their role today)
     done = 0
     for k in range(0, len(ids), _CHUNK):
         chunk = ids[k:k + _CHUNK]
@@ -393,13 +486,20 @@ def backfill(db: Session, now: datetime | None = None) -> int:
                 cache[p] = targets(db, p)
             t.sla_paused_min = int(t.sla_paused_min or 0)
             t.sla_paused_at = ""
-            first = next((at for author, at in replies.get(t.id, [])
-                          if at and counts_as_response(t, author, False)), "")
+            first = ""
+            for author, at in replies.get(t.id, []):
+                a = (author or "").strip().lower()
+                if a and a not in desk:
+                    desk[a] = _is_desk(db, a)
+                if at and counts_as_response(t, a, False, desk.get(a, False)):
+                    first = iso(parse(at) or now)
+                    break
             t.first_response_at = first
             t.first_response_due_at = ""
             recompute(t, cache[p], now)   # also starts the pause for a waiting / done ticket
             t.sla_fr_alerted_at = (t.first_response_due_at
-                                   if not first and (parse(t.first_response_due_at) or now) < now else "")
+                                   if not first and first_response_applies(t)
+                                   and (parse(t.first_response_due_at) or now) < now else "")
             t.sla_res_alerted_at = t.sla_due_at if (parse(t.sla_due_at) or now) < now else ""
             done += 1
         db.commit()

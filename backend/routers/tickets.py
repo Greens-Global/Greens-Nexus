@@ -1087,6 +1087,7 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
         raise HTTPException(409, "This request needs approval - it can be assigned once approved.")
     if t.assignee_email and t.status == "open":
         ticket_sla.set_status(t, "in_progress")   # born assigned = already being worked (see update_ticket)
+    ticket_sla.sync(t)   # awaiting approval = the SLA clock waits too
     db.add(t)
     log_activity(db, type="created", actor_email=user["email"], entity_kind="ticket",
                  entity_id=t.id, entity_code=t.code, entity_title=t.subject,
@@ -1665,6 +1666,9 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
         t.approver_email = ""
         t.approval_note = ""
         t.approval_decided_at = ""
+    # Awaiting approval holds the SLA clock (ticket_sla.held) - start or end
+    # that pause for whatever the gate decided above.
+    ticket_sla.sync(t)
 
     # activity trail + notifications for meaningful changes
     changed = []
@@ -2070,7 +2074,7 @@ def _record_ticket_comment(db: Session, t: models.TaskTicket, user: dict, text: 
     db.add(c)
     # Honest SLA: the first reply the requester can see, from someone other
     # than them (or whoever filed it for them), stops the first-response clock.
-    ticket_sla.note_comment(t, user["email"], internal, c.created_at)
+    ticket_sla.note_comment(db, t, user, internal, c.created_at)
     # Resets the "needs a comment" staleness clock - internal notes count too,
     # any human touching the ticket is evidence someone's paying attention.
     t.last_comment_at = now_iso()
@@ -2169,7 +2173,10 @@ def delete_ticket_comment(comment_id: str, user: dict = Depends(get_current_user
     reply, even a TASK comment, with nothing left to show it had happened.
     The comment must belong to a live ticket the caller can reach, and the
     removal is logged - without the text, so an internal note's words never
-    reach the activity feed."""
+    reach the activity feed.
+
+    Deleting the reply that stamped first_response_at keeps the stamp (Honest
+    SLA): the requester was responded to, whatever happened to the text."""
     c = db.query(models.TaskComment).filter(models.TaskComment.id == comment_id).first()
     if not c:
         raise HTTPException(404, "Comment not found")
@@ -2767,6 +2774,7 @@ def decide_approval(ticket_id: str, body: ApprovalBody, background_tasks: Backgr
     t.approval_status = "approved" if decision == "approve" else "rejected"
     t.approval_note = note
     t.approval_decided_at = now_iso()
+    ticket_sla.sync(t)   # approved: the clock resumes with the wait added
     t.modified_at = now_iso()
 
     tk_action = {"view": "tickets", "label": "View Ticket"}

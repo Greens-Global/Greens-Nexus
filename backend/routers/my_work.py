@@ -31,6 +31,7 @@ from sqlalchemy import String, cast, func, or_
 from sqlalchemy.orm import Session
 
 import models
+import ticket_sla
 from auth import get_current_user
 from database import get_db
 from routers.task_util import task_assignees, wall_tasks
@@ -201,6 +202,9 @@ def _my_open_tickets(db: Session, user: dict, me: str, tz_offset_min: int = 0) -
             # is a moment, dueAt); a row with no datetime keeps its old date.
             "dueOn": _local_day(t.sla_due_at, tz_offset_min) if t.sla_due_at else (t.sla_due_on or "")[:10],
             "dueAt": t.sla_due_at or "",
+            # Waiting on the requester / for approval: the clock is stopped,
+            # so a past deadline is not "overdue" (group_items).
+            "slaPaused": bool(t.sla_due_at) and not ticket_sla.running(t),
             "status": status, "statusLabel": TICKET_STATUS_LABEL.get(status) or _title_case(status),
             "priority": t.priority or "medium", "unread": unread,
             # navigate(view) then nexus:open-ticket {ticketId} - lib/openTarget.js.
@@ -213,7 +217,10 @@ def group_items(items: list, today: str) -> dict:
     """Bucket, sort and cap - the whole rule, shared by the endpoint and tests."""
     groups = {"overdue": [], "today": [], "week": [], "later": []}
     for it in items:
-        groups[bucket_of(it.get("dueOn") or "", today)].append(it)
+        bucket = bucket_of(it.get("dueOn") or "", today)
+        if bucket == "overdue" and it.get("slaPaused"):
+            bucket = "later"   # a paused SLA is not late
+        groups[bucket].append(it)
     counts = {k: len(v) for k, v in groups.items()}
     counts["total"] = sum(counts.values())
     for k in groups:

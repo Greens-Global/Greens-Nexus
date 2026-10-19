@@ -296,11 +296,11 @@ def _overdue_tasks(db: Session, emails: set, today: str) -> dict:
     return out
 
 
-def _breached_tickets(db: Session, emails: list, today: str) -> dict:
+def _breached_tickets(db: Session, emails: list, today: str, tz_offset_min: Optional[int] = None) -> dict:
     """{email: [(due date, ticket)]} - open tickets assigned to a team member
     whose SLA deadline has passed (tickets._sla_breached - to the minute,
-    and not while paused waiting on the requester). The date is the
-    deadline's UTC day, for sorting beside the tasks' due dates."""
+    and not while paused). The date is the deadline's day on the viewer's
+    clock (_local_today's rule), for sorting beside the tasks' due dates."""
     import ticket_sla
     rows = (db.query(models.TaskTicket)
             .filter(func.lower(models.TaskTicket.assignee_email).in_(emails),
@@ -309,7 +309,9 @@ def _breached_tickets(db: Session, emails: list, today: str) -> dict:
     out: dict = {}
     for t in rows:
         if ticket_sla.breached(t):
-            out.setdefault((t.assignee_email or "").lower(), []).append(((t.sla_due_at or t.sla_due_on or "")[:10], t))
+            at = ticket_sla.parse(t.sla_due_at)
+            day = _local_today(db, at, tz_offset_min) if at is not None else (t.sla_due_on or "")[:10]
+            out.setdefault((t.assignee_email or "").lower(), []).append((day, t))
     return out
 
 
@@ -323,7 +325,7 @@ def my_team_overdue(tz_offset_min: Optional[int] = None,
         return {"people": [], "date": today}
     emails = sorted(people)
     tasks = _overdue_tasks(db, set(emails), today)
-    tickets = _breached_tickets(db, emails, today)
+    tickets = _breached_tickets(db, emails, today, tz_offset_min)
     rows = []
     for em in emails:
         ts, tk = tasks.get(em, []), tickets.get(em, [])
