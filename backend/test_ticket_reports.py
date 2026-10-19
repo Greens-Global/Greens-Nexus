@@ -320,7 +320,7 @@ class TicketReportTests(unittest.TestCase):
         i = [x[:1] for x in lines].index(["Per Agent"])
         self.assertEqual(lines[i + 1][0], "Agent")
         self.assertEqual(lines[i + 2][0], "Agent")   # the agent's own name row
-        self.assertNotIn("—", r.text)
+        self.assertNotIn("\u2014", r.text)
 
     # ── weekly email ──────────────────────────────────────────────────────────
     def test_recipients_are_supervisors_with_tickets_who_did_not_opt_out(self):
@@ -348,7 +348,7 @@ class TicketReportTests(unittest.TestCase):
         self.assertEqual(kw["to"], [SUP])
         self.assertEqual(kw["subject"], "Weekly Ticket Report 10/12/2026 - 10/18/2026")
         self.assertIn("https://nexus.test/tickets?view=reports", kw["html"])
-        self.assertNotIn("—", kw["html"])
+        self.assertNotIn("\u2014", kw["html"])
         logs = {(r.recipient, r.status) for r in self.db.query(models.TicketReportEmailLog).all()}
         self.assertEqual(logs, {(SUP, "sent"), (INDIA_SUP, "empty")})   # India sees no co1 ticket
 

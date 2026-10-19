@@ -431,12 +431,15 @@ def build_report(db: Session, viewer_email: str, *, start: str = "", end: str = 
             bump(f.due, "breached")
 
     # Per agent.
-    names: dict = {}
+    # Names in one query (two with the role fallback), not one per person -
+    # the CSV names every requester in the range.
+    wanted = {f.assignee for f in facts if f.assignee}
+    if include_tickets:
+        wanted |= {(f.r.requester_email or "").strip().lower() for f in facts if f.r.requester_email}
+    names = _names(db, wanted)
 
     def name_of(email: str) -> str:
-        if email not in names:
-            names[email] = ticket_notify._name_of(db, email) or email
-        return names[email]
+        return names.get(email) or email
 
     agent_cache: dict = {}
 
@@ -586,6 +589,33 @@ def build_report(db: Session, viewer_email: str, *, start: str = "", end: str = 
             "csat": int(f.r.csat_rating or 0) or "",
         } for f in shown]
     return report
+
+
+def _names(db: Session, emails: set) -> dict:
+    """{email: display name} the way ticket_notify._name_of words them (the
+    People record, else the role's display name, else the address's local
+    part), batched."""
+    from sqlalchemy import func
+    emails = {e for e in emails if e}
+    out: dict = {}
+    if not emails:
+        return out
+    E = models.NexusEmployee
+    for email, first, last in (db.query(E.work_email, E.first_name, E.last_name)
+                               .filter(func.lower(E.work_email).in_(sorted(emails))).all()):
+        full = f"{first or ''} {last or ''}".strip()
+        if full:
+            out[(email or "").lower()] = full
+    rest = sorted(emails - set(out))
+    if rest:
+        for email, shown in (db.query(models.NexusRole.email, models.NexusRole.display_name)
+                             .filter(models.NexusRole.email.in_(rest)).all()):
+            if shown:
+                out[(email or "").lower()] = shown
+    for email in emails - set(out):
+        local = email.split("@", 1)[0]
+        out[email] = " ".join(p.capitalize() for p in local.replace("_", ".").split(".") if p) or email
+    return out
 
 
 def _status_label(status: str) -> str:
