@@ -1755,7 +1755,7 @@ export default function SOP({ activeSub, onSubChange }) {
             {(d.require_ack || isManager) && (() => {
               const myAck = ackInfo?.signed?.find(s => s.user_email === myEmail);
               return (
-                <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 16, boxShadow: 'var(--shadow-sm)' }}>
+                <div className={d.require_ack && d.status === 'approved' && !myAck ? 'nx-needs-you' : undefined} style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-color)', borderRadius: 12, padding: 16, boxShadow: 'var(--shadow-sm)' }}>
                   <h3 style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-muted)', margin: '0 0 12px' }}>Acknowledgement</h3>
                   {isManager && (
                     <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: '0.8rem', marginBottom: d.require_ack ? 12 : 0 }}>
@@ -3438,7 +3438,7 @@ export default function SOP({ activeSub, onSubChange }) {
                     <span style={{ background: 'hsla(38,92%,50%,0.16)', color: 'hsl(32,80%,38%)', borderRadius: 999, padding: '2px 10px', fontSize: '0.78rem', fontWeight: 700 }}>{due.length}</span>
                   </div>
                   {due.map((a, i) => (
-                    <div key={a.course_id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 16px', borderTop: i ? '1px solid var(--bg-secondary)' : 'none', flexWrap: 'wrap' }}>
+                    <div key={a.course_id} className="nx-needs-you" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 16px', borderTop: i ? '1px solid var(--bg-secondary)' : 'none', flexWrap: 'wrap' }}>
                       <div style={{ flex: 1, minWidth: 160 }}>
                         <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{a.title}</div>
                         <div style={{ fontSize: '0.74rem', color: (a.overdue || a.expired) ? 'hsl(0,70%,45%)' : 'var(--text-muted)' }}>{a.est_minutes} min{a.expired ? ` · renewal due${a.renew_by ? ` (was ${fmtDate(a.renew_by)})` : ''}` : a.due_date ? ` · due ${fmtDate(a.due_date)}` : ''}{a.overdue ? ' · Overdue' : ''}</div>

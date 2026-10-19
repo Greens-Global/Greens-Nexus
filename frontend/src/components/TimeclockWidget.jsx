@@ -5,8 +5,10 @@ import { editGuard } from '../asset/lib/editGuard.js';
 import BodModal from './BodModal';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { useTimeStatus, applyPunch } from '../lib/useTimeStatus';
+import { useLocationTrail } from '../lib/useLocationTrail';
 import { punchDurable, replayPending, readPending } from '../lib/punchQueue';
 import { punchPosition, keepPositionWarm } from '../lib/geoPosition';
+import { askPunchPosition } from '../lib/punchLocation';
 import { replayPendingBods, bodDurable } from '../lib/bodQueue';
 import { useRole } from '../contexts/RoleContext';
 import { rememberTimeExempt } from '../lib/timeTracking';
@@ -55,6 +57,9 @@ export default function TimeclockWidget() {
   // tiles are one request per poll. 25s so a punch/break on ANOTHER device
   // reflects in this widget's timer without a manual refresh.
   const { status, reload: reloadStatus } = useTimeStatus({ pollMs: 25000 });
+  // Location Trail While Clocked In (Oct 20): the one place the web pings run,
+  // so a second screen never doubles them (lib/useLocationTrail.js).
+  useLocationTrail(status);
   // A page surface (the sidebar chip) is drawing the clock: this stays the
   // engine and draws nothing itself but its modals (lib/timeclockStore.js).
   const claimed = useTimeclockClaimed();
@@ -411,9 +416,11 @@ export default function TimeclockWidget() {
     // from here read "Location off" on the timecard (Charmi, Sep 29).
     let res;
     try {
-      const pos = (await (breakPosRef.current || punchPosition(kind))) ?? await punchPosition(kind);   // a miss asks once more, as before
+      const first = (await (breakPosRef.current || punchPosition(kind))) ?? await punchPosition(kind);   // a miss asks once more, as before
       breakPosRef.current = null;
-      res = await punchDurable({ kind, tzOffsetMin: new Date().getTimezoneOffset(), pos, clickedAt: breakClickRef.current || undefined });
+      // Still no fix: ask them to share it, or punch without (Visesh, Oct 20).
+      const { pos, locationOff } = await askPunchPosition(first);
+      res = await punchDurable({ kind, tzOffsetMin: new Date().getTimezoneOffset(), pos, locationOff, clickedAt: breakClickRef.current || undefined });
       if (res.ok) {
         setLostOut(false);
         applyPunch(res.punch);   // the chip flips now; the re-read confirms
@@ -466,8 +473,9 @@ export default function TimeclockWidget() {
       return false;
     }
     eodAckRef.current = false;
-    const pos = await punchPosition('out');   // short budget: the punch landing comes first
-    const res = await punchDurable({ kind: 'out', tzOffsetMin: new Date().getTimezoneOffset(), pos });
+    // No fix: ask them to share it, or clock out without (Visesh, Oct 20).
+    const { pos, locationOff } = await askPunchPosition(punchPosition('out'));   // short budget: the punch landing comes first
+    const res = await punchDurable({ kind: 'out', tzOffsetMin: new Date().getTimezoneOffset(), pos, locationOff });
     if (res.ok) {
       setLostOut(false);
       stopCapture();

@@ -19,6 +19,7 @@ import {
   MonitorDot, Gauge, CalendarClock,
 } from "lucide-react";
 import TicketToken from "./icons/TicketToken";
+import { useActionCounts, moduleCount } from "../lib/useActionCounts";
 
 // Exported: MobileMenu mirrors this exact order/grouping on phones
 // Who sees a NAV item - the rail, and the header search's Pages, agree
@@ -207,6 +208,7 @@ export const NAV = [
 
 const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate, isOpen, onClose, collapsed, onToggleCollapse }, ref) {
   const { can, myGrantedModules, isExternal } = useRole();
+  const counts = useActionCounts();
   // Dev-only Testing module: ask the backend once whether it's enabled here.
   const [qaEnabled, setQaEnabled] = useState(false);
   useEffect(() => { api.qaEnabled().then(r => setQaEnabled(!!r?.enabled)).catch(() => {}); }, []);
@@ -222,6 +224,17 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
       : <svg className="material-symbol-svg" viewBox="0 -960 960 960" style={{ width: size, height: size, flexShrink: 0 }}><path d={item.svgPath} /></svg>;
   }
 
+  // A red dot on the module icon when something there waits on me (Oct 18).
+  function iconWithDot(item) {
+    const n = moduleCount(counts, item.view);
+    return (
+      <span className="nav-ico">
+        {renderIcon(item)}
+        {n > 0 && <span className="nav-dot" role="img" aria-label={`${n} waiting`} />}
+      </span>
+    );
+  }
+
   function renderItem(item, i) {
     // ── Collapsed: icon-only rail ──
     // The module's name shows in the sidebar's own large tooltip
@@ -234,7 +247,7 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
             onClick={() => item.view && onNavigate(item.view)}
             aria-label={item.label}
           >
-            {renderIcon(item)}
+            {iconWithDot(item)}
           </li>
         </NavTip>
       );
@@ -252,7 +265,7 @@ const Sidebar = forwardRef(function Sidebar({ activeView, activeSub, onNavigate,
         className={`nav-item${activeView === item.view ? " active" : ""}`}
         onClick={() => onNavigate(item.view)}
       >
-        {renderIcon(item)}
+        {iconWithDot(item)}
         <span>{item.label}</span>
         {item.badge && <em className="nav-badge">{item.badge}</em>}
         {item.code && <span className="nav-code">{item.code}</span>}

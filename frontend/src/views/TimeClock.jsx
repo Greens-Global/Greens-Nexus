@@ -16,11 +16,13 @@ import ModuleTabs from '../components/ModuleTabs';
 import PayrollTimecard from '../components/PayrollTimecard';
 import BodModal from '../components/BodModal';
 import { useTimeStatus, patchTimeStatus } from '../lib/useTimeStatus';
+import LocationTrailNote from '../components/LocationTrailNote';
 import { punchDurable, replayPending, readPending, utcStamp } from '../lib/punchQueue';
 import { replayPendingBods, bodDurable } from '../lib/bodQueue';
 import { formatTime, formatDate, formatWeekday, formatHHMM, formatMonthDay } from '../lib/datetime';
 import { dialog } from '../ui/dialog';
 import { getPosition, punchPosition } from '../lib/geoPosition';
+import { askPunchPosition } from '../lib/punchLocation';
 import { MyHROverview } from './MyHR';
 import { leaveRequestDays, openShiftMinutes } from '../lib/workdayStats';
 import { timeOffLabel } from '../components/shiftScheduleLib';
@@ -29,6 +31,8 @@ import { formatDistance, formatAccuracy } from '../lib/distance';
 import { LeaveBalanceCard, RequestBalanceHint, useMyLeaveBalance } from '../components/LeaveBalances';
 import { recallTimeExempt, rememberTimeExempt } from '../lib/timeTracking';
 import { pairLocalAgent } from '../lib/agentPair';
+import { useActionCounts, withBadges, tabCount } from '../lib/useActionCounts';
+import DocumentsToSign from '../components/DocumentsToSign';
 
 // ── Workday ("My Workday" until Neil dropped the "My", Sep 23) - one module (Visesh, Sep 3: "combine My HR and Time Clock...
 // anything to do with their time and HR should be together"; renamed from
@@ -72,10 +76,12 @@ const TAB_META = {
 // unlocked) carry for the employee - that is the Time Sheet tab (Oct 16: it
 // used to fall through to Overview).
 // "reimbursements" (a reimbursement bell, Oct 18 2026) is the Overview with its panel open.
-const tabFor = (sub) => (sub === 'clock' || sub === 'reimbursements' || /^shifts(:|$)/.test(sub || '') ? 'overview'
+const tabFor = (sub) => (sub === 'clock' || sub === 'reimbursements' || /^(shifts|sign)(:|$)/.test(sub || '') ? 'overview'
   : sub === 'timecard' ? 'timesheet' : sub);
 // "shifts:confirm:<publish id>" (Shifts Phase 3a): a schedule to confirm - My Schedule shows its banner.
 const confirmOf = (sub) => (String(sub || '').match(/^shifts:confirm:(.+)$/) || [])[1] || '';
+// "sign:<party id>" (Oct 18): a Nexus Sign document to sign - Documents to Sign opens it.
+const signOf = (sub) => (String(sub || '').match(/^sign:(.+)$/) || [])[1] || '';
 // Work OS card-header title (sentence case, no uppercase tracking).
 const HD = { fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' };
 
@@ -484,6 +490,7 @@ function GeoChip({ p }) {
 }
 
 export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange } = {}) {
+  const counts = useActionCounts();
   // Phone layout (Oct 13): the clock card leads, the dial sits beside the
   // status and the punch button runs the full width - see the wd-* rules.
   const phone = useIsMobile('(max-width: 640px)');
@@ -601,7 +608,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     if (r?.restored) {
       setParked(null); setLostModal(false);
       toast(true, `${KIND_DONE[r.entry.kind] || 'Punch recorded'} at ${localTime(r.punch.at)}`
-        + `${r.backfilled ? ' - flagged for your approver to confirm.' : '.'}`);
+        + `${r.backfilled ? ' - marked as recorded offline, and your manager was told.' : '.'}`);
       window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));
       load();
       return { done: true, ...r };
@@ -845,16 +852,19 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     // a closing tab; full budget on the way in for the geofence check. On the way
     // IN, pair with the local agent concurrently (shared-PC device binding) so it
     // adds no latency over the geolocation wait.
-    const [pos, pairNonce] = await Promise.all([
+    const [firstPos, pairNonce] = await Promise.all([
       kind === 'out' ? punchPosition('out') : getPosition(9000),   // out: a recent fix if a fresh one is slow
       kind === 'in' ? pairLocalAgent() : Promise.resolve(''),
     ]);
+    // No fix: the person is asked to share their location (Try Again) or
+    // punch without it - never blocked (Visesh, Oct 20).
+    const { pos, locationOff } = await askPunchPosition(firstPos);
     // punchDurable retries and, if the server still can't be reached, parks the
     // punch for replay. The Teams message has already gone out by this point, so
     // a punch quietly dropped here is the one failure this screen must not have.
     const clickedAt = gateClickRef.current;
     const res = await punchDurable({
-      kind, tzOffsetMin: new Date().getTimezoneOffset(), clickedAt, pos,
+      kind, tzOffsetMin: new Date().getTimezoneOffset(), clickedAt, pos, locationOff,
       extra: pairNonce ? { pair_nonce: pairNonce } : null,
     });
     if (res.ok) {
@@ -864,7 +874,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
         : p.geoStatus === 'out_of_fence' ? ' - Out of Location, flagged for review'
         : p.geoStatus === 'remote' ? ' - remote'
         : p.geoStatus === 'low_accuracy' ? ' - location too approximate to judge (no GPS on this device)'
-        : pos ? '' : ' - location unavailable, recorded without it';
+        : pos ? '' : locationOff ? ' - Location Off, recorded without a location' : ' - No Location, recorded without a location';
       toast(true, `${KIND_DONE[kind] || KIND_META[kind].label} at ${localTime(p.at)}${where}.`);
       window.dispatchEvent(new CustomEvent('nexus:timeclock-changed')); // sync the global mini-timer
       load();
@@ -1319,12 +1329,12 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
           reading "Time Clock". Overview always leads - My HR content applies
           to everyone regardless of time-tracking-exempt status. */}
       <ModuleTabs
-        tabs={(exempt
+        tabs={withBadges((exempt
           /* Salaried/exempt (Charmi, Aug 21): no punch card, no timesheet -
              time off is the only surface that applies. */
-          ? ['overview', ...(toReview > 0 || tab === 'timesheet' ? ['timesheet'] : []), 'timeoff']
+          ? ['overview', ...(toReview > 0 || tabCount(counts, 'myhr', 'timesheet') > 0 || tab === 'timesheet' ? ['timesheet'] : []), 'timeoff']
           : ['overview', 'timesheet', 'timeoff']
-        ).map((key) => ({ key, label: TAB_META[key].label, title: TAB_META[key].title }))}
+        ).map((key) => ({ key, label: TAB_META[key].label, title: TAB_META[key].title })), counts, 'myhr')}
         active={tab} onChange={setTab} syncTitle />
 
       {msg && (
@@ -1335,8 +1345,14 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
         </div>
       )}
 
+      {/* Location Trail While Clocked In (Oct 20): says plainly that the
+          location is shared while clocked in, when the company has it on. */}
+      {tab === 'overview' && !exempt && <LocationTrailNote status={status} />}
+
       {/* Overview: the Time Clock widget first, then the employee's own HR
           page (profile, hours, documents, time off, Ask HR). */}
+      {/* Nexus Sign documents waiting on me, signed here (Oct 18) - Documents needs a grant. */}
+      {tab === 'overview' && <DocumentsToSign focusParty={signOf(activeSub)} toastOk={t => toast(true, t)} toastErr={t => toast(false, t)} />}
       {tab === 'overview' && (
         <MyHROverview focusConfirm={focusConfirm} openReimbursements={openReimb} clock={clockWidget} onOpenTimeOff={() => setTab('timeoff')} onOpenTimeSheet={exemptKnown ? undefined : () => setTab('timesheet')} />
       )}

@@ -133,7 +133,8 @@ class ExportCodesTests(unittest.TestCase):
             db.close()
 
     def _iif(self):
-        r = self.client.get(f"/timeclock/export.iif?start={START}&end={END}")
+        # The whole fixture, finalized or not: the explicit preview (Oct 19).
+        r = self.client.get(f"/timeclock/export.iif?start={START}&end={END}&finalized_only=false")
         self.assertEqual(r.status_code, 200, r.text)
         return r.text
 

@@ -1068,6 +1068,8 @@ def _run_migrations():
             # Shifts Phase 3a (Oct 14): Outlook calendar opt-out and the subscribe-link salt. models.NexusPersonPref.
             "ALTER TABLE nexus_person_prefs ADD COLUMN shift_calendar INTEGER DEFAULT 1",
             "ALTER TABLE nexus_person_prefs ADD COLUMN ical_salt VARCHAR DEFAULT ''",
+            # Profile > Date Format (Oct 20). models.NexusPersonPref.
+            "ALTER TABLE nexus_person_prefs ADD COLUMN date_format VARCHAR DEFAULT ''",
             # Shifts Phase 3a review (Oct 15): failed sync tries per queued row. models.ShiftCalendarEvent.
             "ALTER TABLE shift_calendar_events ADD COLUMN attempts INTEGER DEFAULT 0",
             # Hiring board (Neil, Oct 14): expected interview date, rejected -> inactive.
@@ -1110,6 +1112,11 @@ def _run_migrations():
             "ALTER TABLE punch_requests ADD COLUMN employee_dismissed_at VARCHAR DEFAULT ''",
             # Leave balances (Oct 19 2026, leave_balances.py). models.NexusEmployee.leave_policy.
             "ALTER TABLE nexus_employees ADD COLUMN leave_policy VARCHAR DEFAULT ''",
+            # Email to ticket (Oct 2026, ticket_inbound.py): how a ticket arrived. models.TaskTicket.
+            "ALTER TABLE task_tickets ADD COLUMN source VARCHAR DEFAULT ''",
+            # Inbound mail: what Exchange said about the sender (mail_inbound.auth_verdict).
+            "ALTER TABLE task_inbound_email ADD COLUMN auth_summary VARCHAR DEFAULT ''",
+            "ALTER TABLE ticket_inbound_email ADD COLUMN auth_summary VARCHAR DEFAULT ''",
             # Weekly Ticket Report opt-out (Oct 2026, ticket_reports.py). models.NexusPersonPref.
             "ALTER TABLE nexus_person_prefs ADD COLUMN ticket_weekly_report INTEGER",
         ]
@@ -2425,6 +2432,8 @@ def _run_migrations():
         # Shifts Phase 3a (Oct 14): Outlook calendar opt-out and the subscribe-link salt. models.NexusPersonPref.
         "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS shift_calendar INTEGER DEFAULT 1",
         "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS ical_salt VARCHAR DEFAULT ''",
+        # Profile > Date Format (Oct 20). models.NexusPersonPref.
+        "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS date_format VARCHAR DEFAULT ''",
         # Shifts Phase 3a review (Oct 15): failed sync tries per queued row. models.ShiftCalendarEvent.
         "ALTER TABLE shift_calendar_events ADD COLUMN IF NOT EXISTS attempts INTEGER DEFAULT 0",
         # Hiring board (Neil, Oct 14): expected interview date, rejected -> inactive.
@@ -2478,6 +2487,18 @@ def _run_migrations():
         # and the ledger - a new table, explicit RLS. models.LeaveLedgerEntry.
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS leave_policy VARCHAR DEFAULT ''",
         "ALTER TABLE leave_ledger ENABLE ROW LEVEL SECURITY",
+        # Email to ticket (Oct 2026, ticket_inbound.py): how a ticket arrived
+        # (models.TaskTicket.source), and the inbound log - a new table:
+        # explicit RLS on top of the sweep. models.TicketInboundEmail.
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS source VARCHAR DEFAULT ''",
+        "ALTER TABLE ticket_inbound_email ENABLE ROW LEVEL SECURITY",
+        # A reply is matched back to its ticket by threading header when the
+        # signed address did not survive - a lookup per inbound message.
+        "CREATE INDEX IF NOT EXISTS ix_ticket_email_log_imid ON ticket_email_log (internet_message_id)",
+        "CREATE INDEX IF NOT EXISTS ix_ticket_email_log_conv ON ticket_email_log (conversation_id)",
+        # Inbound mail: what Exchange said about the sender (mail_inbound.auth_verdict).
+        "ALTER TABLE task_inbound_email ADD COLUMN IF NOT EXISTS auth_summary VARCHAR DEFAULT ''",
+        "ALTER TABLE ticket_inbound_email ADD COLUMN IF NOT EXISTS auth_summary VARCHAR DEFAULT ''",
         # Ticket Reports (Oct 2026, ticket_reports.py): the weekly email's
         # per-person opt-out, and its send log - a new table, explicit RLS.
         # models.NexusPersonPref / TicketReportEmailLog.
@@ -3229,6 +3250,15 @@ async def lifespan(app: FastAPI):
             _tasks.append(_a.create_task(leasing_sync_loop()))
         except Exception as e:
             print(f"[startup] leasing sync skipped: {e}")
+        try:
+            # Pay period close alerts (Oct 19 2026): every half hour, in a
+            # thread - one notice per approver per closed period listing the
+            # Time Sheets waiting on them, escalation when approval or the
+            # employee's signature stalls. See timesheet_alerts.py.
+            from timesheet_alerts import period_close_loop
+            _tasks.append(_a.create_task(period_close_loop()))
+        except Exception as e:
+            print(f"[startup] period close alerts loop skipped: {e}")
         # The jobs below keep their own is_deployed_worker() gate INSIDE the
         # leader's job set, and the two gates answer different questions. Leader
         # election stops several DEPLOYED instances doing the same work twice;
@@ -3252,6 +3282,19 @@ async def lifespan(app: FastAPI):
                 print("[startup] task inbound email drain skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] task inbound email drain skipped: {e}")
+        # Email to ticket (Oct 2026): the support mailbox -> new tickets and
+        # replies. Same three gates as the task drain - the deployed worker
+        # only (here and again inside), off until inboundEnabled, and its own
+        # advisory lock - and its own mailbox, never the Tasks one.
+        try:
+            from leader import is_deployed_worker
+            if is_deployed_worker():
+                from ticket_inbound import ticket_inbound_loop
+                _tasks.append(_a.create_task(ticket_inbound_loop()))
+            else:
+                print("[startup] ticket inbound email drain skipped (not the deployed worker)")
+        except Exception as e:
+            print(f"[startup] ticket inbound email drain skipped: {e}")
         # One-time: relocate work-monitoring screenshots hr-docs -> time-monitoring
         # bucket. Sync-worker gated (touches live storage with the service key; a
         # laptop must never run it) + its own pg advisory lock inside. Self-idles
@@ -3868,6 +3911,8 @@ from routers import ca_breaks as ca_breaks_router  # noqa: E402
 app.include_router(ca_breaks_router.router)          # CA meal / rest premium lines + the meal waiver in Nexus Sign (Neil, 10/17)
 from routers import ca_review as ca_review_router  # noqa: E402
 app.include_router(ca_review_router.router)          # People > Time > Payroll: California Review - CA-rule flags for HR (Neil, 10/18)
+from routers import action_counts  # noqa: E402
+app.include_router(action_counts.router)             # What is waiting on me: the sidebar red dots and tab counts (Pranshu, 10/18)
 from routers import changelog_extras  # noqa: E402
 app.include_router(changelog_extras.router)          # What's New: following + digest, private RSS feed, screen hints, feedback, history, bulk, insights (Oct 16)
 from routers import changelog_lifecycle  # noqa: E402
@@ -3878,5 +3923,7 @@ from routers import ticket_saved_replies  # noqa: E402
 app.include_router(ticket_saved_replies.router)   # Tickets: saved replies (canned responses) for the desk's reply composer (Oct 2026)
 from routers import leave_balances as leave_balances_router  # noqa: E402
 app.include_router(leave_balances_router.router)  # Paid leave balances: policies, opening import, accrual (Neil / Charmi, 10/19)
+from routers import location_trail as location_trail_router  # noqa: E402
+app.include_router(location_trail_router.router)  # Time Clock: Location Trail While Clocked In - web pings + manager map (Neil, 10/20)
 from routers import ticket_reports as ticket_reports_router  # noqa: E402
 app.include_router(ticket_reports_router.router)   # Tickets > Reports: the server-side report, its CSV and the weekly email opt-out (Oct 2026)

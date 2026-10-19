@@ -18,6 +18,7 @@ import BodModal from '../../components/BodModal';
 import { punchDurable, replayPending, readPending } from '../../lib/punchQueue';
 import { bodDurable } from '../../lib/bodQueue';
 import { punchPosition } from '../../lib/geoPosition';
+import { askPunchPosition } from '../../lib/punchLocation';
 import { applyPunch, useTimeStatus, refetchTimeStatusFresh } from '../../lib/useTimeStatus';
 import { pairLocalAgent } from '../../lib/agentPair';
 import { formatTime } from '../../lib/datetime';
@@ -237,9 +238,10 @@ export function usePunchClock() {
       // No fix from the early start (its permission bubble can sit behind the
       // share picker on a first use): ask once more now, as before - a denied
       // or unsupported device answers instantly, so this never waits twice.
-      const pos = early ?? await punchPosition(kind);
+      // Still no fix: ask them to share it, or punch without (Visesh, Oct 20).
+      const { pos, locationOff } = await askPunchPosition(early ?? punchPosition(kind));
       const res = await punchDurable({
-        kind, tzOffsetMin: new Date().getTimezoneOffset(), pos,
+        kind, tzOffsetMin: new Date().getTimezoneOffset(), pos, locationOff,
         // The moment the button was pressed, when a prompt stood between it
         // and the punch (the server backdates, bounded to 15 minutes).
         clickedAt: clickedAt.current || undefined,
