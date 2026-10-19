@@ -3709,6 +3709,11 @@ def drain_task_inbox(user: dict = Depends(require_manager), db: Session = Depend
     runs its blocking Graph calls in a threadpool rather than on the event
     loop."""
     from task_inbound import drain_once
+    import leader
+    # Only the deployed API reads the mailbox: a laptop pointed at the shared
+    # database must never mark the live mailbox's mail read.
+    if not leader.is_deployed_worker():
+        raise HTTPException(409, "Only the deployed Nexus API reads the task mailbox.")
     try:
         return drain_once(db)
     except Exception as e:

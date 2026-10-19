@@ -27,6 +27,7 @@ import models
 from database import SessionLocal
 import graph_mail
 import ticket_mail_templates as tmpl
+import ticket_inbound_parse
 from routers.task_util import log_activity
 
 from app_url import app_url
@@ -61,6 +62,14 @@ _DEFAULT_SETTINGS = {
         # assignee (or the desk) and the department lead. ON by default.
         "sla_breach": True,
     },
+    # Email to ticket (Oct 2026, ticket_inbound.py). Off by default: reading
+    # the mailbox marks its mail read and files it away. While on, every
+    # ticket email's Reply-To is that mailbox's signed per-ticket address.
+    "inboundEnabled":    False,
+    "inboundMailbox":    "",    # the support mailbox read, e.g. support@...; never the Tasks one
+    # {HrEntity.id: HrDepartment.id} - where a NEW ticket from an email goes,
+    # per the sender's company. No entry = refused ("no default department").
+    "inboundDefaultDepartment": {},
 }
 
 MAX_ATTEMPTS = 5
@@ -368,8 +377,11 @@ def _finish_send(db: Session, row: models.TicketEmailLog, result: dict | None, e
 def _graph_send(row: models.TicketEmailLog, cfg: dict, subject: str, html: str) -> dict:
     from_email = (cfg.get("fromMailbox") or graph_mail.DEFAULT_FROM_EMAIL or "").strip()
     cc = [e for e in (cfg.get("defaultCc") or []) if e and e.lower() != row.recipient]
+    # Inbound on: the signed per-ticket address, so a reply comes back to this
+    # ticket (ticket_inbound_parse.outbound_reply_to); off: replyTo as ever.
     return graph_mail.send_mail(from_email=from_email, to=[row.recipient], cc=cc,
-                                subject=subject, html=html, reply_to=cfg.get("replyTo") or "")
+                                subject=subject, html=html,
+                                reply_to=ticket_inbound_parse.outbound_reply_to(cfg, row.ticket_id))
 
 
 def _deliver_row(db: Session, row: models.TicketEmailLog, t: models.TaskTicket, cfg: dict,

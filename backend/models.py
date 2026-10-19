@@ -3506,6 +3506,10 @@ class TaskTicket(Base):
     sla_paused_min        = Column(Integer, default=0)
     sla_fr_alerted_at     = Column(String, default="")
     sla_res_alerted_at    = Column(String, default="")
+    # How the ticket arrived (Oct 2026): "" = filed in the app, "email" = a
+    # new email to the support mailbox (ticket_inbound.py). Set server-side
+    # only; the drawer and list show "Via Email".
+    source                = Column(String, default="")
 
 
 class TicketEmailLog(Base):
@@ -4359,6 +4363,10 @@ class TaskInboundEmail(Base):
     attachment_count    = Column(Integer, default=0)   # files actually filed (see task_inbound)
     received_at         = Column(String, default="")
     processed_at        = Column(String, default="")
+    # What Exchange said about the sender (mail_inbound.auth_verdict, Oct
+    # 2026): "auth: dmarc=pass compauth=pass authas=Internal", or that no
+    # authentication headers were seen.
+    auth_summary        = Column(String, default="")
 
 
 
@@ -6897,3 +6905,43 @@ class LeaveLedgerEntry(Base):
     note           = Column(String, default="")
     created_by     = Column(String, default="")
     created_at     = Column(String, default="")
+
+
+class TicketInboundEmail(Base):
+    """One message the support mailbox handed us, and what became of it
+    (Ticket Inbound Email, Oct 2026 - ticket_inbound.py). TaskInboundEmail's
+    columns, with ticket_id for task_id and an `outcome`:
+
+      comment   a reply that became a comment on ticket_id;
+      created   a new email that became ticket_id;
+      refused   nothing was created - `reason` says why (unknown or external
+                sender, offboarded, automated mail, our own mailbox, no
+                permission on that ticket, no default department, the hourly
+                limit...);
+      failed    it could not be processed and is retried next pass.
+
+    `status` keeps the Tasks log's words (posted / rejected / ignored /
+    failed) so the two logs read alike. Written for EVERY message, and
+    `internet_message_id` is unique: the drain marks a message read only after
+    its outcome is committed, so a crash in between shows it again and this
+    constraint turns that into a no-op instead of a second ticket.
+
+    New table - create_all builds it; RLS: the explicit ALTER in main.py plus
+    the startup sweep."""
+    __tablename__ = "ticket_inbound_email"
+    id                  = Column(String, primary_key=True)
+    internet_message_id = Column(String, default="", index=True, unique=True)
+    graph_message_id    = Column(String, default="")
+    conversation_id     = Column(String, default="")
+    from_email          = Column(String, default="", index=True)
+    subject             = Column(String, default="")
+    ticket_id           = Column(String, default="", index=True)
+    comment_id          = Column(String, default="")
+    matched_by          = Column(String, default="")   # address | headers | conversation | subject
+    status              = Column(String, default="")   # posted | rejected | ignored | failed
+    outcome             = Column(String, default="", index=True)   # comment | created | refused | failed
+    reason              = Column(String, default="")
+    attachment_count    = Column(Integer, default=0)
+    received_at         = Column(String, default="")
+    processed_at        = Column(String, default="", index=True)
+    auth_summary        = Column(String, default="")   # mail_inbound.auth_verdict

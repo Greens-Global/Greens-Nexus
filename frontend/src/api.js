@@ -2503,6 +2503,10 @@ export const api = {
   locationTrailPing: (body)          => req('/timeclock/location-trail/ping', { method: 'POST', body: JSON.stringify(body) }),
   locationTrailLive: ()              => req('/timeclock/location-trail/live'),
   locationTrailDay:  (email, date)   => req(`/timeclock/location-trail/day?email=${encodeURIComponent(email || '')}&date=${encodeURIComponent(date)}`),
+  // Email to ticket (Oct 2026, ticket_inbound.py): the support mailbox's log
+  // (supervisors, last 100) and a pass now instead of waiting for the loop.
+  getTicketInboundLog: (params = {}) => req(`/task-tickets/inbound/log?${new URLSearchParams(params).toString()}`),
+  drainTicketInbox: () => req('/task-tickets/inbound/drain', { method: 'POST' }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

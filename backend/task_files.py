@@ -41,17 +41,23 @@ def _safe_name(name: str) -> str:
     return name[-80:]
 
 
-def store_bytes(name: str, raw: bytes, content_type: str) -> str:
+def store_bytes(name: str, raw: bytes, content_type: str, *,
+                bucket: str = TASK_FILES_BUCKET, folder: str = "tasks") -> str:
     """Upload bytes to the task-files bucket; return the public URL, or "" on
     any failure (callers keep whatever URL they already had - never worse than
-    the previous inline behavior)."""
+    the previous inline behavior).
+
+    `bucket` / `folder`: another evidence bucket - email to ticket files into
+    the PRIVATE ticket-evidence bucket the ticket drawer uses. The URL returned
+    is always the canonical .../object/public/<bucket>/<path> form the
+    database stores; a private bucket is opened through /files/view."""
     url, key = _creds()
     if not (url and key and raw):
         return ""
-    path = f"tasks/{uuid.uuid4().hex}-{_safe_name(name)}"
+    path = f"{folder}/{uuid.uuid4().hex}-{_safe_name(name)}"
     try:
         r = httpx.post(
-            f"{url}/storage/v1/object/{TASK_FILES_BUCKET}/{path}",
+            f"{url}/storage/v1/object/{bucket}/{path}",
             headers={"Authorization": f"Bearer {key}", "apikey": key,
                      "Content-Type": content_type or "application/octet-stream",
                      "Cache-Control": "31536000"},
@@ -60,7 +66,7 @@ def store_bytes(name: str, raw: bytes, content_type: str) -> str:
         return ""
     if not r.is_success:
         return ""
-    return f"{url}/storage/v1/object/public/{TASK_FILES_BUCKET}/{path}"
+    return f"{url}/storage/v1/object/public/{bucket}/{path}"
 
 
 def store_file(name: str, fileobj, size: int, content_type: str) -> str:
