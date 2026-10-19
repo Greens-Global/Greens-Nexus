@@ -2540,6 +2540,13 @@ export const api = {
     fd.append('as_of', asOf); fd.append('commit', commit ? 'true' : 'false');
     return req('/third-party/upload', { method: 'POST', body: fd, timeoutMs: 120_000 });
   },
+  // Tickets <-> properties (Neil, Ops review 10/20) - routers/ticket_property.py.
+  getTicketPropertyRules:   () => cachedGet('/ticket-property/rules', 300_000),
+  suggestTicketProperty:    (text) => req(`/ticket-property/suggest?text=${encodeURIComponent(String(text || '').slice(0, 1500))}`),
+  getTicketPropertyUnits:   (id) => cachedGet(`/ticket-property/units/${encodeURIComponent(id)}`, 300_000),
+  getPropertyLinkSuggestions: () => req('/ticket-property/link-suggestions'),
+  applyPropertyLinkSuggestion: (ticketId, body) => req(`/ticket-property/link-suggestions/${encodeURIComponent(ticketId)}`, { method: 'POST', body: JSON.stringify(body) }),
+  dismissPropertyLinkSuggestion: (ticketId) => req(`/ticket-property/link-suggestions/${encodeURIComponent(ticketId)}/dismiss`, { method: 'POST' }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

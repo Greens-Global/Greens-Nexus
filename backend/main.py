@@ -1122,6 +1122,8 @@ def _run_migrations():
             "ALTER TABLE ops_competitor_rates ADD COLUMN drive_up BOOLEAN",
             "ALTER TABLE ops_competitor_rates ADD COLUMN elevator BOOLEAN",
             "ALTER TABLE ops_competitor_rates ADD COLUMN space_type VARCHAR DEFAULT ''",
+            # Ticket -> property unit (Ops review, Oct 20) - see the Postgres list.
+            "ALTER TABLE task_tickets ADD COLUMN property_unit VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2516,6 +2518,9 @@ def _run_migrations():
         "ALTER TABLE third_party_flash_days ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE third_party_rent_rolls ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE third_party_imports ENABLE ROW LEVEL SECURITY",
+        # Ticket -> property unit (Neil, Ops review Oct 20): the unit (or
+        # "Common Area") a property ticket is about. ticket_property_link.py.
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS property_unit VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -3927,3 +3932,7 @@ from routers import ops_portfolio as ops_portfolio_router  # noqa: E402
 app.include_router(ops_portfolio_router.router)   # Operations > Portfolio: a Daily Flash for any set of properties (Neil, 10/20)
 from routers import third_party as third_party_router  # noqa: E402 - also registers third_party_models before create_all
 app.include_router(third_party_router.router)     # Operations: CubeSmart-managed stores - SRE / Daily Flash / rent roll upload, nightly fetch OFF (Neil, 10/20)
+from routers import ticket_property as ticket_property_router  # noqa: E402
+app.include_router(ticket_property_router.router)  # Tickets <-> properties: rules, suggest, units, Suggest Property Links (Neil, Ops 10/20)
+from routers import facility_maintenance_map  # noqa: E402
+app.include_router(facility_maintenance_map.router)  # Operations: open tickets + maintenance per Cubby unit, for the map layer (Neil, Ops 10/20)

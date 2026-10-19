@@ -56,9 +56,34 @@ export function ticketMaintenanceRows(data, property) {
       description: r.description || r.subject, vendor: r.vendor, ticketLabel: r.codeLabel, isOriginal: originals.has(r.ticketId),
       cost: formatCost(r.cost, r.currency), currency: r.currency || 'USD', amount: r.cost, status: 'Completed',
       nextDue: nextDue[r.ticketId] || '', notes: r.notes, docFileName: r.docName || '',
-      unit: units.has(byId[r.ticketId]?.location) ? byId[r.ticketId].location : '', source: 'Ticket', _readOnly: true,
+      unit: ticketUnit(byId[r.ticketId], units), source: 'Ticket', _readOnly: true,
       _parentRowId: r.parentTicketId && r.parentTicketId !== r.ticketId && recorded.has(r.parentTicketId)
         ? `ticket:${r.parentTicketId}` : undefined,
+    }));
+}
+
+/** A ticket's unit for the log's unit pills: its Unit field (Ops review,
+ * Oct 20 - "Common Area" is the common areas), else the older location
+ * answer when it names one of the property's units. */
+export function ticketUnit(t, units) {
+  if (!t) return '';
+  if (t.unit) return t.unit === 'Common Area' ? '' : t.unit;
+  return units.has(t.location) ? t.location : '';
+}
+
+/** Open tickets at THIS property as read-only Maintenance Log rows (Neil,
+ * Ops review Oct 20: every piece of maintenance in one place, from a ticket
+ * or a manual entry). Status is the ticket's; no cost until it is recorded.
+ * `_openTicket` keeps them out of the log summary (Last Service, spend). */
+export function openTicketLogRows(data, property) {
+  const units = new Set((property?.tenantUnits || []).map((u) => u.label));
+  return (data?.open || [])
+    .filter((t) => t.propertyId === property?.id)
+    .map((t) => ({
+      id: `ticket:${t.id}`, propertyId: t.propertyId, date: String(t.createdAt || '').slice(0, 10), system: t.system,
+      description: t.subject, vendor: '', ticketLabel: t.codeLabel, isOriginal: false, cost: '', currency: 'USD', amount: '',
+      status: (TICKET_STATUS[t.status] || [t.status])[0], nextDue: '', notes: '', docFileName: '',
+      unit: ticketUnit(t, units), source: 'Ticket', _readOnly: true, _openTicket: true,
     }));
 }
 

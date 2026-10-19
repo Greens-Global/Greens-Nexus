@@ -92,6 +92,7 @@ def _summary(t, prop_names: dict, lead_id: str, photos: dict, names: dict, desk:
         "status": status, "priority": t.priority or "medium", "type": t.type or "",
         "category": t.application or "", "system": property_links.system_for(t.application),
         "location": str((t.type_fields or {}).get("svc_unit") or ""),
+        "unit": t.property_unit or "",      # the ticket's Unit field (Ops review, Oct 20)
         "propertyId": pid, "propertyName": prop_names.get(pid) or t.property_name or "",
         "onParcel": pid != lead_id,
         "assigneeName": names.get((t.assignee_email or "").lower(), t.assignee_email or ""),
