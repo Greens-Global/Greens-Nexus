@@ -40,7 +40,8 @@ function Frame({ height, empty, children }) {
   return <div style={{ width: '100%', height }}><ResponsiveContainer width="100%" height="100%">{children}</ResponsiveContainer></div>;
 }
 
-// Rented / vacant / off-market units per facility - where the empty space is.
+// Rented / vacant / off-market STORAGE units per facility - where the empty
+// space is. Mailboxes are not in `units` (see occupancy.js).
 export function UnitMixChart({ facilities, onPick }) {
   const data = facilities.map((f) => ({ id: f.id, name: f.shortName, ...f.units }));
   const pick = onPick ? { onClick: (d) => onPick((d?.payload || d)?.id), cursor: 'pointer' } : {};
@@ -51,10 +52,10 @@ export function UnitMixChart({ facilities, onPick }) {
         <XAxis type="number" tick={AXIS} axisLine={false} tickLine={false} tickFormatter={count} />
         <YAxis type="category" dataKey="name" tick={{ ...AXIS, fontSize: 12.5, fill: 'var(--ink)' }} axisLine={false} tickLine={false} width={104} />
         <Tooltip cursor={{ fill: 'var(--ops-grid)' }} content={<Tip title={(d) => d.name} rows={(d) => [
-          ['Rented', `${count(d.rented)} (${pct(d.rented, d.total, 0)})`, 'var(--ops-s1)'],
+          ['Rented', `${count(d.rented)} (${pct(d.rented, d.rented + d.vacant, 0)} of rentable)`, 'var(--ops-s1)'],
           ['Vacant', count(d.vacant), 'var(--ops-s2)'],
           ['Off Market', count(d.unavailable), 'var(--ops-neutral)'],
-          ['Total Units', count(d.total)],
+          ['Storage Units', count(d.total)],
         ]} />} />
         <Bar dataKey="rented" stackId="u" fill="var(--ops-s1)" stroke="var(--ops-surface)" strokeWidth={2} isAnimationActive={false} {...pick} />
         <Bar dataKey="vacant" stackId="u" fill="var(--ops-s2)" stroke="var(--ops-surface)" strokeWidth={2} isAnimationActive={false} {...pick} />

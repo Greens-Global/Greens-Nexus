@@ -157,7 +157,7 @@ export function combine(facilities) {
   const types = new Map();
   for (const f of fs) {
     for (const t of f.unitTypes) {
-      const hit = types.get(t.name) || { name: t.name, total: 0, rented: 0, vacant: 0, unavailable: 0, rentSum: 0, vacantPotential: 0, streetSum: 0 };
+      const hit = types.get(t.name) || { name: t.name, kind: t.kind || 'storage', total: 0, rented: 0, vacant: 0, unavailable: 0, rentSum: 0, vacantPotential: 0, streetSum: 0 };
       for (const k of ['total', 'rented', 'vacant', 'unavailable', 'rentSum', 'vacantPotential']) hit[k] += t[k] || 0;
       hit.streetSum += (t.street || 0) * (t.total || 0);
       types.set(t.name, hit);
@@ -172,9 +172,15 @@ export function combine(facilities) {
       total: sumBy(fs, (f) => f.units.total), rented: sumBy(fs, (f) => f.units.rented),
       vacant: sumBy(fs, (f) => f.units.vacant), unavailable: sumBy(fs, (f) => f.units.unavailable),
     },
+    // Counted apart from storage (Oct 20 2026, see occupancy.js).
+    mailboxes: {
+      total: sumBy(fs, (f) => f.mailboxes?.total), rented: sumBy(fs, (f) => f.mailboxes?.rented),
+      vacant: sumBy(fs, (f) => f.mailboxes?.vacant), unavailable: sumBy(fs, (f) => f.mailboxes?.unavailable),
+    },
+    excludedUnits: sumBy(fs, (f) => f.excludedUnits),
     area: { total: sumBy(fs, (f) => f.area.total), rented: sumBy(fs, (f) => f.area.rented) },
     rent: {
-      rentRoll: sumBy(fs, (f) => f.rent.rentRoll), streetRented: sumBy(fs, (f) => f.rent.streetRented),
+      rentRoll: sumBy(fs, (f) => f.rent.rentRoll), mailboxRentRoll: sumBy(fs, (f) => f.rent.mailboxRentRoll), streetRented: sumBy(fs, (f) => f.rent.streetRented),
       vacantPotential: sumBy(fs, (f) => f.rent.vacantPotential), belowStreetGap: sumBy(fs, (f) => f.rent.belowStreetGap),
       belowStreetCount: sumBy(fs, (f) => f.rent.belowStreetCount),
     },
@@ -252,7 +258,7 @@ export function attentionItems(facilities) {
     const locks = f.locks.toPlace.length;
     if (locks) add(2, locks, f, 'worklist', 'locks-place', `${locks} ${locks === 1 ? 'unit needs' : 'units need'} an overlock`);
     if (f.units.total && f.units.unavailable / f.units.total >= 0.15) {
-      add(3, f.units.unavailable, f, 'units', 'off-market', `${count(f.units.unavailable)} of ${count(f.units.total)} units are off the market (${pct(f.units.unavailable, f.units.total, 0)})`);
+      add(3, f.units.unavailable, f, 'units', 'off-market', `${count(f.units.unavailable)} of ${count(f.units.total)} storage units are off the market (${pct(f.units.unavailable, f.units.total, 0)})`);
     }
     const stale = f.leads.rows.filter((l) => l.status === 'NEW' && l.ageDays >= 2).length;
     if (stale) add(4, stale, f, 'worklist', 'leads', `${stale} new ${stale === 1 ? 'lead has' : 'leads have'} waited 2+ days`);

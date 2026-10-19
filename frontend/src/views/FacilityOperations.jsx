@@ -200,7 +200,8 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
 
           {sub === 'overview' && <Overview data={data} facilities={facilities} scope={scope} many={many} range={range} focus={focus} go={go} onPick={setPicked} onJump={jump} />}
           {sub === 'collections' && <Collections data={data} scope={scope} trend={state.data.trend} many={many} range={range} focus={focus} go={go} />}
-          {sub === 'units' && <Units data={data} many={many} focus={focus} go={go} />}
+          {sub === 'units' && <Units data={data} many={many} focus={focus} go={go}
+            unitClasses={state.data.unitClasses} canEditClasses={canSeeKeyHint} onClassesSaved={() => load(true)} />}
           {sub === 'worklist' && <Worklist data={data} many={many} focus={focus} go={go} />}
           {sub === 'market' && <RateManagement facility={scope.length === 1 ? scope[0] : null} facilities={facilities} onPick={setPicked} />}
           {sub === 'reports' && <Reports data={data} facilities={facilities} scope={scope} range={range} />}

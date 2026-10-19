@@ -24,6 +24,7 @@ import models
 import ops_market
 import ops_market_engine
 import ops_stortrack
+import ops_unit_classes
 from auth import get_current_user, require_level_or_module, require_manager
 from database import get_db
 
@@ -380,3 +381,26 @@ async def stortrack_sync(facility_id: str = "", user: dict = Depends(require_man
         facility = await _facility(facility_id)
         out["market"] = await asyncio.to_thread(_market, db, facility)
     return out
+
+# ── Unit classes (Neil, Oct 20 2026): which Cubby unit types are mailboxes ────
+# Cubby has no mailbox flag; ops_unit_classes matches words in the pricing
+# group name. Anyone on the screen can read the words; a manager (or an
+# Operations editor) changes them, and the next read uses them. Plain `def`
+# endpoints: FastAPI runs them in its thread pool, off the event loop.
+
+class UnitClassesBody(BaseModel):
+    mailbox: list[str] = Field(default_factory=list, max_length=ops_unit_classes.MAX_WORDS)
+    excluded: list[str] = Field(default_factory=list, max_length=ops_unit_classes.MAX_WORDS)
+
+
+@router.get("/unit-classes")
+def unit_classes(db: Session = Depends(get_db)):
+    return {**ops_unit_classes.load(db), "defaults": ops_unit_classes.DEFAULTS}
+
+
+@router.put("/unit-classes")
+def save_unit_classes(body: UnitClassesBody, db: Session = Depends(get_db),
+                      user: dict = Depends(require_level_or_module(3, "operations", "editor"))):
+    saved = ops_unit_classes.save(db, body.model_dump(), user.get("email") or "")
+    cubby.forget()   # this worker re-reads now; the others within a minute (cubby.READ_TTL)
+    return {**saved, "defaults": ops_unit_classes.DEFAULTS}
