@@ -21,6 +21,8 @@ import Lookup from '../operations/Lookup';
 import SyncStatus from '../operations/SyncStatus';
 import Revenue from '../operations/Revenue';
 import Portfolio from '../operations/Portfolio';
+import ThirdPartyPanel from '../operations/ThirdPartyPanel';
+import { isThirdParty, managedLabel, dataAsOf } from '../operations/thirdParty';
 import { useRole } from '../contexts/RoleContext';
 import '../operations/ops.css';
 
@@ -74,6 +76,20 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
 
   useEffect(() => { load(); }, [load]);
 
+  // Stores another operator runs (CubeSmart, Oct 20 2026): their own read, so a
+  // Cubby problem never hides them and theirs never hides Cubby's.
+  const [thirdParty, setThirdParty] = useState([]);
+  const loadThirdParty = useCallback(async () => {
+    try {
+      const r = await api.getThirdPartyFacilities?.();
+      if (r) setThirdParty(r.facilities || []);
+    } catch (err) {
+      console.error('Operations: could not load the operator-managed stores', err);
+    }
+  }, []);
+  useEffect(() => { loadThirdParty(); }, [loadThirdParty]);
+  useEffect(() => pollWhileVisible(() => loadThirdParty(), 5 * 60 * 1000), [loadThirdParty]);
+
   // Refresh asks the server for a Cubby sync (it runs in the background), polls
   // until it is done, then re-reads the figures. A sync someone else started
   // counts too: wait for it instead of starting another.
@@ -117,7 +133,7 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
   // on screen stay put until the new ones arrive.
   useEffect(() => pollWhileVisible(() => load(), 5 * 60 * 1000), [load]);
 
-  const facilities = useMemo(() => state.data?.facilities || [], [state.data]);
+  const facilities = useMemo(() => [...(state.data?.facilities || []), ...thirdParty], [state.data, thirdParty]);
   const scope = useMemo(
     () => (picked === 'all' ? facilities : facilities.filter((f) => f.id === picked)),
     [facilities, picked],
@@ -145,7 +161,7 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
           <h2>Operations</h2>
           <p>
             {state.data
-              ? <>{`${state.data.organization || 'Storage facilities'} - ${facilities.length} facilities from Cubby, updates automatically - `}<SyncStatus data={state.data} syncing={refreshing} /></>
+              ? <>{`${state.data.organization || 'Storage facilities'} - ${(state.data.facilities || []).length} facilities from Cubby${thirdParty.length ? `, ${thirdParty.length} managed by an operator` : ''}, updates automatically - `}<SyncStatus data={state.data} syncing={refreshing} /></>
               : 'Storage facility figures from Cubby'}
           </p>
         </div>
@@ -189,7 +205,11 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
             {sub !== 'market' && <div className="ops-pills" role="group" aria-label="Facility">
               <button type="button" className="ops-pill" aria-pressed={picked === 'all'} onClick={() => setPicked('all')}>All Facilities</button>
               {facilities.map((f) => (
-                <button type="button" key={f.id} className="ops-pill" aria-pressed={picked === f.id} onClick={() => setPicked(f.id)}>{f.shortName}</button>
+                <button type="button" key={f.id} className="ops-pill" aria-pressed={picked === f.id} onClick={() => setPicked(f.id)}
+                  title={isThirdParty(f) ? `${managedLabel(f)} - ${dataAsOf(f)}` : undefined}>
+                  {f.shortName}
+                  {isThirdParty(f) && <span className="ops-pill-tag">{managedLabel(f)}</span>}
+                </button>
               ))}
             </div>}
             <div className="ops-bar-right">
@@ -210,6 +230,7 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
             </p>
           )}
 
+          {sub === 'overview' && <ThirdPartyPanel facilities={scope.filter(isThirdParty)} canUpload={canSeeKeyHint} onSaved={loadThirdParty} />}
           {sub === 'overview' && <Overview data={data} facilities={facilities} scope={scope} many={many} range={range} focus={focus} go={go} onPick={setPicked} onJump={jump} />}
           {sub === 'collections' && <Collections data={data} scope={scope} trend={state.data.trend} many={many} range={range} focus={focus} go={go} />}
           {sub === 'units' && <Units data={data} many={many} focus={focus} go={go}

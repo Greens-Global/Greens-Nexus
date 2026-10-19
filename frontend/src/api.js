@@ -2530,6 +2530,16 @@ export const api = {
   opsRevenueEntered:    (id, cid) => req(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/changes/${encodeURIComponent(cid)}/entered`, { method: 'POST' }),
   opsRevenueExport:     (id) => req(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/export`),
   opsRevenueLetters:    (id) => reqBlob(`/facility-ops/revenue/batches/${encodeURIComponent(id)}/letters.pdf`),
+  // Operations: stores another operator runs (CubeSmart, Oct 20 2026). Upload
+  // with commit=false is a validation preview; commit=true saves (upsert).
+  getThirdPartyFacilities: () => req('/third-party/ops-facilities'),
+  getThirdPartyProperties: () => req('/third-party/properties'),
+  uploadThirdPartyReport: (file, { kind = 'auto', propertyId = '', asOf = '', commit = false } = {}) => {
+    const fd = new FormData();
+    fd.append('file', file); fd.append('kind', kind); fd.append('property_id', propertyId);
+    fd.append('as_of', asOf); fd.append('commit', commit ? 'true' : 'false');
+    return req('/third-party/upload', { method: 'POST', body: fd, timeoutMs: 120_000 });
+  },
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
