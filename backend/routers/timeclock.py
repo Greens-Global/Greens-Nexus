@@ -395,30 +395,21 @@ def _has_fence(site) -> bool:
 
 _NO_LOCATION = {"geo_status": "no_location", "work_site_id": "", "work_site_name": "", "distance_m": 0}
 
-# Require Location to Punch (Neil's checklist, Oct 19 2026): a per-company
-# switch in the shift settings (routers/shift_requests._DEFAULTS, off by
-# default). When it is on, POST /punch refuses a punch with no coordinates.
-LOCATION_REQUIRED_MSG = ("Your location is required to punch. Turn on location for this "
-                         "site in your browser, then try again.")
+# A punch is NEVER refused for want of a location (Visesh, Oct 20 2026 -
+# replaces the one-day "Require Location to Punch" switch): it records and the
+# Time Sheet says why there is none. "location_off" = the person's browser has
+# location blocked for Nexus; "no_location" = no fix (timeout, no GPS, etc.).
+_LOCATION_OFF = {**_NO_LOCATION, "geo_status": "location_off"}
 
 
 def _has_coords(lat, lng) -> bool:
     """Both coordinates present and numeric - what "the punch has a location"
-    means for the Require Location to Punch rule."""
+    means."""
     try:
         return bool((lat or "").strip() and (lng or "").strip()
                     and math.isfinite(float(lat)) and math.isfinite(float(lng)))
     except (TypeError, ValueError, AttributeError):
         return False
-
-
-def _location_required(db: Session, email: str) -> bool:
-    """Whether this person's company requires a location on every live punch."""
-    from routers.shift_requests import settings_for as _sr_settings_for
-    try:
-        return bool(_sr_settings_for(db, email).get("requireLocationToPunch"))
-    except Exception:
-        return False   # a settings read failure never blocks punching
 
 
 def _location_trail_on(db: Session, email: str) -> bool:
@@ -658,7 +649,8 @@ def _geofence_site(db: Session, plat: float, plng: float, accuracy_m: int, sites
 # nearest site only as a reviewer hint - billing it there put Jeremy's PBK
 # hours on RJK DRK Residence, 73 km away (Sep 30).
 _OFF_SITE_LABEL = {"out_of_fence": "Out of Location", "low_accuracy": "Approx. Location",
-                   "no_site": "No Site Mapped", "no_location": "No location"}
+                   "no_site": "No Site Mapped", "no_location": "No Location",
+                   "location_off": "Location Off"}
 
 
 def _seg_site(seg: dict) -> tuple:
@@ -929,6 +921,9 @@ class PunchIn(BaseModel):
     # device token (see /agent/pair). On clock-IN it binds this employee to that
     # physical PC for the shift; '' = no agent / personal device (unbound, as today).
     pair_nonce: Optional[str] = ""
+    # No coordinates because the browser has location BLOCKED for Nexus (not
+    # just slow): recorded as "Location Off" instead of "No Location".
+    location_off: Optional[bool] = False
 
 
 @router.get("/status")
@@ -978,7 +973,6 @@ def my_status(tz_offset_min: int = 0, user: dict = Depends(get_current_user), db
         "geofencedSites": sites,
         # Require Location to Punch (Oct 19 2026): the clients block a punch
         # with no location up front instead of letting the server refuse it.
-        "locationRequired": _location_required(db, email),
         # Location Trail While Clocked In (Oct 20 2026): the web app's ping
         # hook runs only when this is true (lib/useLocationTrail.js).
         "locationTrail": _location_trail_on(db, email),
@@ -1089,13 +1083,6 @@ def punch(body: PunchIn, request: Request,
             # stays for older clients.
             raise HTTPException(409, {"code": "stale_open_shift", "message": _msg, "text": _msg})
         raise HTTPException(409, f"Can't punch '{body.kind}' right now - allowed: {', '.join(allowed)}")
-    # Require Location to Punch (Oct 19 2026): per company, off by default.
-    # Checked before the day-message gates so the person fixes location first.
-    # 400 (not 409): the offline queue treats it as a real refusal, never parks it.
-    # Clock-out is never refused (Visesh, Oct 19): an open shift is worse than
-    # a punch without a location - it lands and reads "No Location".
-    if body.kind != "out" and not _has_coords(body.lat, body.lng) and _location_required(db, email):
-        raise HTTPException(400, {"code": "location_required", "message": LOCATION_REQUIRED_MSG})
     # Beginning / End-of-day messages are POLICY, enforced here for every
     # surface (Neil, Oct 16: "enforced per policy everywhere based on roles"),
     # not only by whichever screen the person punched from. Roles flagged
@@ -1166,8 +1153,8 @@ def punch(body: PunchIn, request: Request,
         if prev and (datetime.now(timezone.utc) - prev).total_seconds() < 60:
             raise HTTPException(409, "Duplicate punch - you just did that.")
     geo = _geofence(db, body.lat, body.lng, body.accuracy_m or 0, email=email)
-    if not (body.lat or "").strip():
-        geo = {"geo_status": "no_location", "work_site_id": "", "work_site_name": "", "distance_m": 0}
+    if not _has_coords(body.lat, body.lng):
+        geo = dict(_LOCATION_OFF if body.location_off else _NO_LOCATION)
     ip, ua = _client_meta(request)
     row = TimePunch(id=str(uuid.uuid4()), employee_email=email, kind=body.kind, at=at,
                     local_date=_local_date(at, body.tz_offset_min or 0),

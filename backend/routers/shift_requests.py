@@ -144,14 +144,6 @@ _DEFAULTS = {"openShifts": False, "swaps": False, "offers": False, "teamSchedule
              # team on 8-hour days would hear about every person every day;
              # 0 turns one threshold off.
              "otAlertOn": False, "otAlertDailyLeadMin": 30, "otAlertWeeklyLeadMin": 120,
-             # Require Location to Punch (Neil's checklist, Oct 19 2026,
-             # routers/timeclock.py punch()): with this on, a live clock in /
-             # out / break punch that carries no coordinates is refused and the
-             # person is told to turn location on. OFF by default so nobody is
-             # locked out of punching the day it ships; with it off, a punch
-             # with no location still lands and shows "No Location" on the
-             # Time Sheet.
-             "requireLocationToPunch": False,
              # Pay period close alerts (Oct 19 2026, timesheet_alerts.py): a
              # Time Sheet still waiting on its approver this many days after
              # the period ended is escalated to the approver's own manager,
@@ -373,7 +365,6 @@ class SettingsIn(BaseModel):
     otAlertOn: Optional[bool] = None            # live overtime alert to the manager (Oct 17; off by default)
     otAlertDailyLeadMin: Optional[int] = None   # 0-240; minutes before daily overtime ('ca' rule); 0 = off
     otAlertWeeklyLeadMin: Optional[int] = None  # 0-480; minutes before weekly overtime; 0 = off
-    requireLocationToPunch: Optional[bool] = None   # refuse a live punch with no coordinates (Oct 19; off by default)
     timesheetEscalateDays: Optional[int] = None # 0-30; days after a pay period before an unapproved sheet escalates; 0 = off
     locationTrailOn: Optional[bool] = None      # web location trail while clocked in (Oct 20; off by default)
     breakNudgeMin: Optional[int] = None         # 0-240; minutes on an open break before "Still on Break?"; manager at 2x; 0 = off
