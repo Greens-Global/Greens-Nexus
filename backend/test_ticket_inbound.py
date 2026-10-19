@@ -530,6 +530,15 @@ class RefusalTests(_Base):
                 r = self.refused(_msg(headers=headers), "sender failed authentication")
                 self.assertTrue(r.auth_summary.startswith("auth: "))
 
+    def test_an_explicit_pass_wins_over_a_non_internal_authas(self):
+        self.assertEqual(self.ingest(_msg(headers={"Authentication-Results": "dmarc=pass action=none",
+                                                   "X-MS-Exchange-Organization-AuthAs": "Anonymous"})), "created")
+        self.assertIn("authas=Anonymous", self.row().auth_summary)
+        self.db.query(models.TicketInboundEmail).delete()
+        self.db.commit()
+        self.assertEqual(self.ingest(_msg(headers={"Authentication-Results": "compauth=pass reason=100",
+                                                   "X-MS-Exchange-Organization-AuthAs": "Anonymous"})), "created")
+
     def test_passing_or_absent_authentication_is_allowed_and_recorded(self):
         self.ingest(_msg(headers={"Authentication-Results": "spf=pass; dkim=pass; dmarc=pass action=none; compauth=pass",
                                   "X-MS-Exchange-Organization-AuthAs": "Internal"}))

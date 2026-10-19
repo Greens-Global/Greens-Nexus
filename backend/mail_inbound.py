@@ -312,7 +312,8 @@ def header_values(msg: dict, name: str) -> list[str]:
 def auth_verdict(msg: dict) -> tuple[bool, str]:
     """(allowed, summary). Refused when Exchange says the sender failed:
     dmarc=fail or compauth=fail in Authentication-Results (or ARC), or
-    X-MS-Exchange-Organization-AuthAs present and not "Internal". Headers
+    X-MS-Exchange-Organization-AuthAs present and not "Internal" with no
+    dmarc=pass / compauth=pass beside it (an explicit pass wins). Headers
     absent = allowed - whether Graph exposes them is not yet verified, and a
     header we cannot count on is not one to hard-require - with the summary
     saying so, so the first real messages show what is there."""
@@ -329,8 +330,13 @@ def auth_verdict(msg: dict) -> tuple[bool, str]:
     if auth_as:
         parts.append(f"authas={auth_as}")
     summary = ("auth: " + " ".join(parts)) if parts else "auth: no authentication headers"
+    # An explicit pass wins over AuthAs: mail from our own people can reach us
+    # through a hop Exchange does not stamp Internal (the relay, a connector),
+    # and refusing it would refuse their replies. AuthAs counts only when
+    # nothing passed.
+    passed = seen.get("dmarc") == "pass" or seen.get("compauth") == "pass"
     failed = (seen.get("dmarc") == "fail" or seen.get("compauth") == "fail"
-              or (auth_as and auth_as.lower() != "internal"))
+              or (auth_as and auth_as.lower() != "internal" and not passed))
     return (not failed), summary[:200]
 
 

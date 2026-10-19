@@ -385,6 +385,18 @@ class IngestTests(_MailboxCase):
         self.assertIn("dmarc=fail", self._row().auth_summary)
         self.assertEqual(self._comments(), [])
 
+    def test_a_non_internal_authas_alone_is_refused(self):
+        msg = self._reply_to_task(headers={"X-MS-Exchange-Organization-AuthAs": "Anonymous"})
+        self.assertEqual(inbound.ingest_message(self.db, CFG, msg), "rejected")
+        self.assertEqual(self._row().reason, "sender failed authentication")
+
+    def test_a_dmarc_pass_wins_over_a_non_internal_authas(self):
+        """Tasks inbound may be live: our own people's replies must not start
+        bouncing because one hop was not stamped Internal."""
+        msg = self._reply_to_task(headers={"Authentication-Results": "spf=pass; dmarc=pass action=none",
+                                           "X-MS-Exchange-Organization-AuthAs": "Anonymous"})
+        self.assertEqual(inbound.ingest_message(self.db, CFG, msg), "posted")
+
     def test_absent_authentication_headers_are_allowed_and_recorded(self):
         self.assertEqual(inbound.ingest_message(self.db, CFG, self._reply_to_task()), "posted")
         self.assertEqual(self._row().auth_summary, "auth: no authentication headers")
