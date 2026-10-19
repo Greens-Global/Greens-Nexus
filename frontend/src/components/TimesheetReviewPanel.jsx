@@ -34,6 +34,8 @@ const ACTION_LABEL = {
   // CA-rule staff only (Oct 17 2026): the meal and rest break question.
   break_attested: 'confirmed the meal and rest break statement by signing',
   break_not_collected: 'signed on paper without the meal and rest break statement',
+  // Oct 20: signed, but a pay setting moved the totals - not finalized.
+  totals_changed: 'Totals changed after approval - sent back to the manager',
 };
 // Oct 16 (Neil): only the employee signs. The lead approver - the manager, or
 // the company's HR contact / a Global Admin when nobody is set - approves by

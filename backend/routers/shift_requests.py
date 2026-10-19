@@ -143,14 +143,39 @@ _DEFAULTS = {"openShifts": False, "swaps": False, "offers": False, "teamSchedule
              # weekly overtime on the payroll week. OFF by default - a CA
              # team on 8-hour days would hear about every person every day;
              # 0 turns one threshold off.
-             "otAlertOn": False, "otAlertDailyLeadMin": 30, "otAlertWeeklyLeadMin": 120}
+             "otAlertOn": False, "otAlertDailyLeadMin": 30, "otAlertWeeklyLeadMin": 120,
+             # Require Location to Punch (Neil's checklist, Oct 19 2026,
+             # routers/timeclock.py punch()): with this on, a live clock in /
+             # out / break punch that carries no coordinates is refused and the
+             # person is told to turn location on. OFF by default so nobody is
+             # locked out of punching the day it ships; with it off, a punch
+             # with no location still lands and shows "No Location" on the
+             # Time Sheet.
+             "requireLocationToPunch": False,
+             # Pay period close alerts (Oct 19 2026, timesheet_alerts.py): a
+             # Time Sheet still waiting on its approver this many days after
+             # the period ended is escalated to the approver's own manager,
+             # else the company's HR contact; 0 = no escalation.
+             "timesheetEscalateDays": 2,
+             # Location Trail While Clocked In (Neil's checklist, Oct 20 2026,
+             # routers/location_trail.py): the web app shares the person's
+             # location about every 5 minutes while they are clocked in (not
+             # on break) and their browser already allows location. OFF by
+             # default - nothing is collected until a company turns it on.
+             "locationTrailOn": False,
+             # A break that never ended (Oct 20 2026, break_watch.py): the
+             # employee gets one "Still on Break?" bell after this many
+             # minutes on an open break, their manager one rollup at twice
+             # that; 0 = off.
+             "breakNudgeMin": 60}
 _TEXT_SETTINGS = ("timeZone", "weekStart")
 SHOW_AS = ("free", "busy")
 # key -> (min, max), clamped on read and save
 _INT_SETTINGS = {"defaultGraceMin": (0, 120), "noShowAlertMin": (0, 240), "leftEarlyMin": (0, 240),
                  "ruleMinRestHours": (0, 24), "ruleMaxDaysInRow": (0, 14), "ruleDailyOtHours": (0, 24),
                  "ruleWeeklyOtHours": (0, 80), "ruleMaxWeekHours": (0, 100),
-                 "otAlertDailyLeadMin": (0, 240), "otAlertWeeklyLeadMin": (0, 480)}
+                 "otAlertDailyLeadMin": (0, 240), "otAlertWeeklyLeadMin": (0, 480),
+                 "timesheetEscalateDays": (0, 30), "breakNudgeMin": (0, 240)}
 _KIND_SETTING = {"open": "openShifts", "swap": "swaps", "offer": "offers", "release": "releaseShifts"}
 _EMPLOYEE_ACTION = {"view": "shifts", "sub": "mine"}
 _APPROVER_ACTION = {"view": "shifts", "sub": "schedule"}   # the Shifts module (Sep 29)
@@ -348,6 +373,10 @@ class SettingsIn(BaseModel):
     otAlertOn: Optional[bool] = None            # live overtime alert to the manager (Oct 17; off by default)
     otAlertDailyLeadMin: Optional[int] = None   # 0-240; minutes before daily overtime ('ca' rule); 0 = off
     otAlertWeeklyLeadMin: Optional[int] = None  # 0-480; minutes before weekly overtime; 0 = off
+    requireLocationToPunch: Optional[bool] = None   # refuse a live punch with no coordinates (Oct 19; off by default)
+    timesheetEscalateDays: Optional[int] = None # 0-30; days after a pay period before an unapproved sheet escalates; 0 = off
+    locationTrailOn: Optional[bool] = None      # web location trail while clocked in (Oct 20; off by default)
+    breakNudgeMin: Optional[int] = None         # 0-240; minutes on an open break before "Still on Break?"; manager at 2x; 0 = off
 
 
 @router.get("/settings")

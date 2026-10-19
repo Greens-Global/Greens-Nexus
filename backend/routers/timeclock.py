@@ -10,7 +10,8 @@ Design decisions are research-backed (Jul 2026 deep-research pass):
 - Intelligent clock: the API tells the client which punch kinds are currently
   valid; the server enforces the same state machine.
 - Missed punches are detect-surface-correct: employees may backfill their own
-  gap (flagged source=self_manual), managers may add/adjust/void with a full
+  gap only through a punch fix request (an offline-queued punch syncs as
+  source=offline), managers may add/adjust/void with a full
   audit trail (original_at frozen, voided rows retained).
 - NO rounding (exact minutes are always wage-and-hour-safe) and NO automatic
   break deduction - breaks exist only as explicit punches. Compliance items
@@ -394,6 +395,41 @@ def _has_fence(site) -> bool:
 
 _NO_LOCATION = {"geo_status": "no_location", "work_site_id": "", "work_site_name": "", "distance_m": 0}
 
+# Require Location to Punch (Neil's checklist, Oct 19 2026): a per-company
+# switch in the shift settings (routers/shift_requests._DEFAULTS, off by
+# default). When it is on, POST /punch refuses a punch with no coordinates.
+LOCATION_REQUIRED_MSG = ("Your location is required to punch. Turn on location for this "
+                         "site in your browser, then try again.")
+
+
+def _has_coords(lat, lng) -> bool:
+    """Both coordinates present and numeric - what "the punch has a location"
+    means for the Require Location to Punch rule."""
+    try:
+        return bool((lat or "").strip() and (lng or "").strip()
+                    and math.isfinite(float(lat)) and math.isfinite(float(lng)))
+    except (TypeError, ValueError, AttributeError):
+        return False
+
+
+def _location_required(db: Session, email: str) -> bool:
+    """Whether this person's company requires a location on every live punch."""
+    from routers.shift_requests import settings_for as _sr_settings_for
+    try:
+        return bool(_sr_settings_for(db, email).get("requireLocationToPunch"))
+    except Exception:
+        return False   # a settings read failure never blocks punching
+
+
+def _location_trail_on(db: Session, email: str) -> bool:
+    """Location Trail While Clocked In is on for this person's company
+    (routers/location_trail.py stores the web pings)."""
+    from routers.shift_requests import settings_for as _sr_settings_for
+    try:
+        return bool(_sr_settings_for(db, email).get("locationTrailOn"))
+    except Exception:
+        return False
+
 
 def _geo_context(db: Session, email: str = "") -> dict:
     """What this person's punches are judged against, loaded ONCE per request
@@ -774,7 +810,7 @@ def _day_summaries(punches: list, round_min: int = 0, break_cfg: dict = None, ge
         # geo = live verdicts (_live_geo) when the caller judged the punches.
         if ((geo or {}).get(p.id) or {}).get("geo_status", p.geo_status) == "out_of_fence":
             flag(d, "out_of_fence")
-        if p.source in ("manual", "self_manual"):
+        if p.source in MANUAL_SOURCES:
             flag(d, "manual")
         if p.adjusted_by:
             flag(d, "adjusted")
@@ -940,6 +976,12 @@ def my_status(tz_offset_min: int = 0, user: dict = Depends(get_current_user), db
         "days": summaries,
         "todayUtc": today,
         "geofencedSites": sites,
+        # Require Location to Punch (Oct 19 2026): the clients block a punch
+        # with no location up front instead of letting the server refuse it.
+        "locationRequired": _location_required(db, email),
+        # Location Trail While Clocked In (Oct 20 2026): the web app's ping
+        # hook runs only when this is true (lib/useLocationTrail.js).
+        "locationTrail": _location_trail_on(db, email),
         "bodRequired": (has_bod is None and has_in is None) and not _bod_ex,
         # Role-flagged people skip EVERY message prompt (BOD, EOD, break start/
         # end) - punches go straight through (Neil, Aug 25).
@@ -1047,6 +1089,13 @@ def punch(body: PunchIn, request: Request,
             # stays for older clients.
             raise HTTPException(409, {"code": "stale_open_shift", "message": _msg, "text": _msg})
         raise HTTPException(409, f"Can't punch '{body.kind}' right now - allowed: {', '.join(allowed)}")
+    # Require Location to Punch (Oct 19 2026): per company, off by default.
+    # Checked before the day-message gates so the person fixes location first.
+    # 400 (not 409): the offline queue treats it as a real refusal, never parks it.
+    # Clock-out is never refused (Visesh, Oct 19): an open shift is worse than
+    # a punch without a location - it lands and reads "No Location".
+    if body.kind != "out" and not _has_coords(body.lat, body.lng) and _location_required(db, email):
+        raise HTTPException(400, {"code": "location_required", "message": LOCATION_REQUIRED_MSG})
     # Beginning / End-of-day messages are POLICY, enforced here for every
     # surface (Neil, Oct 16: "enforced per policy everywhere based on roles"),
     # not only by whichever screen the person punched from. Roles flagged
@@ -1176,40 +1225,98 @@ def punch(body: PunchIn, request: Request,
 
 class SelfPunchIn(BaseModel):
     kind: str
-    at: str                      # UTC ISO - the missed moment
+    at: str                      # UTC ISO - the moment the button was pressed
     tz_offset_min: Optional[int] = 0
-    note: str                    # required: why the punch was missed
+    note: str                    # required: why the punch was late to arrive
+    # Oct 19: only the offline punch queue (frontend lib/punchQueue.js) may use
+    # this route. It says so, and sends when it parked the punch.
+    offline_queue: bool = False
+    queued_at: str = ""          # UTC ISO - when the queue parked it
+
+
+# Oct 19 (time-integrity audit): /punch/manual let an employee add any punch
+# up to 7 days back with no approval and no location. It exists only for the
+# offline punch queue - a punch that could not reach the server, replayed
+# later - so it now takes only that: a punch made at most a day ago, parked
+# by the queue right when it failed. Anything else is a missed punch, and a
+# missed punch goes through a punch fix request the manager approves.
+OFFLINE_PUNCH_MAX_AGE = timedelta(hours=24)
+# How long after the button press the queue may park it: three retries plus
+# the day-message gate before the punch is sent. Generous on purpose.
+OFFLINE_PARK_WINDOW = timedelta(hours=1)
+# Punches that did not come from a live clock-in/out (the card flags them).
+MANUAL_SOURCES = ("manual", "self_manual", "offline")
+
+
+def _use_punch_request(message: str):
+    # 400, not 409: the offline queue reads a 409 as "it landed already".
+    raise HTTPException(400, {"code": "use_punch_request", "message": message})
 
 
 @router.post("/punch/manual")
 def self_manual_punch(body: SelfPunchIn, user: dict = Depends(get_current_user),
                       db: Session = Depends(get_db)):
-    """Detect-surface-correct: an employee backfills a punch they missed. Always
-    flagged (source=self_manual) so managers review it - never silent."""
+    """The offline punch queue's replay of a punch the server never received,
+    after the /punch clicked_at window has passed. Recorded as source=offline
+    with no location, and the employee's manager and HR are told (one notice
+    per person per day, growing). Not a way to add missed punches - those are
+    punch fix requests (POST /punch-requests)."""
     if body.kind not in KINDS:
         raise HTTPException(400, f"kind must be one of {KINDS}")
+    if not body.offline_queue:
+        _use_punch_request("Missed punches go through a punch fix request: add it from your Time Sheet "
+                           "and your manager approves it.")
     t = _parse_iso(body.at)
     if t is None:
         raise HTTPException(400, "at must be an ISO timestamp")
-    if t > datetime.now(timezone.utc):
-        raise HTTPException(400, "A missed punch can't be in the future.")
-    if t < datetime.now(timezone.utc) - timedelta(days=7):
-        raise HTTPException(400, "Older than 7 days - ask a manager to add it.")
+    t = t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+    now_dt = datetime.now(timezone.utc)
+    if t > now_dt:
+        raise HTTPException(400, "A punch can't be in the future.")
+    if t < now_dt - OFFLINE_PUNCH_MAX_AGE:
+        _use_punch_request("This offline punch is more than 24 hours old, so it can't be added directly. "
+                           "Send a punch fix request from your Time Sheet and your manager approves it.")
+    q = _parse_iso(body.queued_at) if body.queued_at else None
+    q = (q if q.tzinfo else q.replace(tzinfo=timezone.utc)) if q else None
+    if q is None or q > now_dt + timedelta(minutes=5) or q < t - timedelta(minutes=1) \
+            or q > t + OFFLINE_PARK_WINDOW:
+        _use_punch_request("This punch was not recorded by the offline punch queue. Send a punch fix "
+                           "request from your Time Sheet and your manager approves it.")
     if not (body.note or "").strip():
         raise HTTPException(400, "Add a short note explaining the missed punch.")
-    _guard_not_finalized(db, user["email"], _local_date(body.at, body.tz_offset_min or 0))
-    _guard_review(db, user["email"], _local_date(body.at, body.tz_offset_min or 0), user["email"])
-    _guard_punch_order(db, user["email"], kind=body.kind, at=body.at,
-                       local_date=_local_date(body.at, body.tz_offset_min or 0))
+    email = user["email"]
+    local_date = _local_date(body.at, body.tz_offset_min or 0)
+    _guard_not_finalized(db, email, local_date)
+    _guard_review(db, email, local_date, email)
+    _guard_punch_order(db, email, kind=body.kind, at=body.at, local_date=local_date)
     now = _now_iso()
-    row = TimePunch(id=str(uuid.uuid4()), employee_email=user["email"], kind=body.kind,
-                    at=body.at[:19], local_date=_local_date(body.at, body.tz_offset_min or 0),
+    row = TimePunch(id=str(uuid.uuid4()), employee_email=email, kind=body.kind,
+                    at=body.at[:19], local_date=local_date,
                     tz_offset_min=body.tz_offset_min or 0, geo_status="no_location",
-                    note=body.note.strip()[:300], source="self_manual",
-                    created_by=user["email"], created_at=now)
+                    note=body.note.strip()[:300], source="offline",
+                    created_by=email, created_at=now)
     db.add(row)
+    _notify_offline_punch(db, row)
     db.commit()
     return _serialize(row)
+
+
+def _notify_offline_punch(db: Session, row) -> None:
+    """Tell the employee's manager and HR contact (else the Global Admins) that
+    a punch arrived late from the offline queue, with no location. ONE notice
+    per person per day, growing with each punch (notify_rollup) - never one
+    per punch."""
+    from notify_rollup import upsert_rollup
+    em = (row.employee_email or "").strip().lower()
+    t, d = _punch_when(row)
+    name = _display_name(db, em)
+    line = f"{name}'s {_kind_label(row.kind)} at {t} on {d} was recorded offline and synced later (no location)."
+    action = _timecard_action(db, em, row.local_date)
+    company = notification_company(db, em, em)
+    for recipient in _team_alert_recipients(db, em, em, owners_as_fallback=True):
+        upsert_rollup(db, recipient=recipient, key=f"tc-offline:{em}:{row.local_date or ''}",
+                      title=f"Offline Punch Recorded - {name}", line=line, action=action,
+                      company=company, requested_by=em)
 
 
 @router.get("/me")
@@ -1358,6 +1465,10 @@ def team_timesheet(start: str = "", end: str = "",
               for e in db.query(NexusEmployee.work_email, NexusEmployee.company).all() if e.work_email}
     for r in rows:
         r["companyId"] = co_ids.get(r["email"], "")
+        # The EMPLOYEE's IANA zone (the one their own Time Sheet reads in), so
+        # People > Time shows and edits punches on their clock, not the
+        # viewer's browser (Oct 20). One lookup per person per call.
+        r["timeZone"] = _employee_tz(db, r["email"])
     return _no_pay(db, user, {"rows": rows})
 
 
@@ -1727,10 +1838,29 @@ class ApprovalIn(BaseModel):
     allow_exceptions: bool = False
 
 
+_OWN_APPROVAL = "You can't approve your own time sheet - your manager or HR approves it."
+_OWN_EDIT = ("You can't change your own time sheet directly. Send a punch fix request from your "
+             "Time Sheet and your manager or HR approves it.")
+
+
+def _refuse_own_time(user: dict, employee_email: str, message: str) -> None:
+    """Nobody approves or directly changes their own time (Oct 19, time-
+    integrity audit). A manager's or administrator's team scope includes
+    themself, so the manager routes let them approve their own days (which
+    the IIF export counts as approved, past review and the signature) and
+    add, move or void their own punches. HR is the same: timesheet_review.
+    is_hr is never true on your own card. Their own fixes go through a punch
+    fix request, which reaches their manager / HR contact / the Global
+    Admins (_notify_approvers) - one Global Admin decides another's."""
+    if (employee_email or "").strip().lower() == (user.get("email") or "").strip().lower():
+        raise HTTPException(403, message)
+
+
 @router.post("/approvals")
 def approve_timecard(body: ApprovalIn, user: dict = Depends(require_team_write),
                      db: Session = Depends(get_db)):
     email = body.email.strip().lower()
+    _refuse_own_time(user, email, _OWN_APPROVAL)
     scope = _visible_emails(db, user)
     if scope is not None and email not in scope:
         raise HTTPException(403, "You can only approve your own team's time sheets.")
@@ -1912,6 +2042,8 @@ def finalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrat
     punch edits/adds/approvals 403 until /unfinalize. Admin-only by design:
     managers approve, HR finalizes."""
     email = body.email.strip().lower()
+    # Finalizing is the last sign-off - never on your own card (Oct 19).
+    _refuse_own_time(user, email, "You can't finalize your own time sheet - another administrator or HR does.")
     if not body.start or not body.end:
         raise HTTPException(400, "start and end are required")
     if _finalized_row(db, email, body.start, body.end):
@@ -2260,6 +2392,7 @@ def adjust_punch(punch_id: str, body: PunchAdjust,
     scope = _visible_emails(db, user)
     if scope is not None and row.employee_email not in scope:
         raise HTTPException(403, "You can only adjust your own team's punches.")
+    _refuse_own_time(user, row.employee_email, _OWN_EDIT)
     _guard_not_finalized(db, row.employee_email, row.local_date)
     _guard_review(db, row.employee_email, row.local_date, user["email"])
     if body.at is not None:
@@ -2343,6 +2476,7 @@ def manager_add_punch(body: ManagerPunchIn, user: dict = Depends(require_team_wr
     scope = _visible_emails(db, user)
     if scope is not None and body.employee_email.strip().lower() not in scope:
         raise HTTPException(403, "You can only add punches for your own team.")
+    _refuse_own_time(user, body.employee_email, _OWN_EDIT)
     _guard_not_finalized(db, body.employee_email.strip().lower(),
                          _local_date(body.at, body.tz_offset_min or 0))
     _guard_review(db, body.employee_email.strip().lower(),
@@ -2519,6 +2653,9 @@ def _approved_emails(db: Session, rows: list, start: str, end: str) -> set:
 
 # The IIF's pay classes in row order: (timecard day minutes, payroll_codes class).
 _IIF_PAY_CLASSES = (("regMin", "regular"), ("otMin", "overtime"), ("dtMin", "doubleTime"),
+                    # A paid company holiday: the hours its credit pays for
+                    # (full_day_hours, half on a half-day holiday) - Oct 19.
+                    ("holidayMin", "holiday"),
                     ("sickMin", "sick"), ("vacationMin", "vacation"), ("personalMin", "personal"),
                     # Only on a day that has them (pay_premiums.py) - never while off.
                     ("diffMin", "shiftDifferential"), ("callBackMin", "callBack"),
@@ -2529,7 +2666,7 @@ _IIF_PAY_CLASSES = (("regMin", "regular"), ("otMin", "overtime"), ("dtMin", "dou
 
 @router.get("/export.iif")
 def export_iif(start: str = "", end: str = "", company: str = "", approved_only: bool = False,
-               finalized_only: bool = False,
+               finalized_only: bool = True,
                user: dict = Depends(require_team_read_pay),
                _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
     """QuickBooks Desktop time import (IIF TIMEACT rows) - Charmi keys every
@@ -2538,13 +2675,19 @@ def export_iif(start: str = "", end: str = "", company: str = "", approved_only:
     in decimal hours from the SAME engine as the timecard, so what QuickBooks
     imports is exactly what was approved. EMP must match the employee's name in
     QuickBooks; the payroll item names (Regular Pay / Overtime Pay / Double-time
-    Pay / Sick Pay / Vacation Pay / Personal Pay by default, renamed per company
+    Pay / Holiday Pay / Sick Pay / Vacation Pay / Personal Pay by default, renamed per company
     under Payroll Export Codes - payroll_codes.py) must exist in QuickBooks or
     be mapped at import.
     `company` keeps one company's people; `approved_only` keeps the approved
     time sheets (_approved_emails) - both optional (Import Hub, Neil 10/15).
     `finalized_only` keeps the time cards signed and finalized for the period
-    (Oct 16: the Payroll screen's per-company batch after the period closes)."""
+    (Oct 16: the Payroll screen's per-company batch after the period closes).
+    It is ON by default (Oct 19 audit: unapproved time went out); including
+    unfinalized time takes an explicit `finalized_only=false`, and that file
+    is named "-DRAFT" - a preview, not the import.
+    COMPANYNAME is the export's company (payroll_codes.qb_company_name: HR's
+    QuickBooks Company Name, else the company's name); a file spanning
+    several companies keeps "Greens Global"."""
     scope = _export_scope(db, user, company)
     rows = _team_rows(db, start, end, only_emails=scope)
     if approved_only:
@@ -2552,6 +2695,11 @@ def export_iif(start: str = "", end: str = "", company: str = "", approved_only:
         rows = [r for r in rows if r["email"] in ok]
     if finalized_only:
         rows = [r for r in rows if _finalized_row(db, r["email"], start, end)]
+    from auth import company_of_email_map
+    co_of = company_of_email_map(db)
+    co_ids = {(company or "").strip()} if (company or "").strip() else {
+        co_of.get((r["email"] or "").lower(), "") for r in rows}
+    qb_company = payroll_codes.qb_company_name(db, co_ids)
 
     def _mdy(ds: str) -> str:
         y, m, d = ds.split("-")
@@ -2562,12 +2710,10 @@ def export_iif(start: str = "", end: str = "", company: str = "", approved_only:
 
     lines = [
         "!TIMERHDR\tVER\tREL\tCOMPANYNAME\tIMPORTEDBEFORE\tFROMTIMER\tCOMPANYCREATETIME",
-        "TIMERHDR\t8\t0\tGreens Global\tN\tY\t0",
+        f"TIMERHDR\t8\t0\t{qb_company}\tN\tY\t0",
         "!TIMEACT\tDATE\tJOB\tEMP\tITEM\tPITEM\tDURATION\tPROJ\tNOTE\tXFERTOPAYROLL\tBILLINGSTATUS",
     ]
-    from auth import company_of_email_map
     book = payroll_codes.codebook(db)
-    co_of = company_of_email_map(db)
     for r in rows:
         card = _compute_timecard(db, r["email"], start, end)
         name = _clean(r["name"])
@@ -2589,15 +2735,19 @@ def export_iif(start: str = "", end: str = "", company: str = "", approved_only:
                 if mins <= 0:
                     continue
                 pitem = _clean(codes[pay_class])
-                lines.append(f"TIMEACT\t{_mdy(d['date'])}\t{job}\t{name}\t\t{pitem}\t{mins / 60:.2f}\t\t\tY\t{billing}")
+                # Holiday pay is a paid day off, not time at a job: no JOB, not billable.
+                job_c, bill_c = ("", "0") if pay_class == "holiday" else (job, billing)
+                lines.append(f"TIMEACT\t{_mdy(d['date'])}\t{job_c}\t{name}\t\t{pitem}\t{mins / 60:.2f}\t\t\tY\t{bill_c}")
     body = "\r\n".join(lines) + "\r\n"
-    fname = f"timeclock-{start or 'all'}-to-{end or 'now'}.iif"
+    # Time not yet finalized is a preview - named so nobody imports it by mistake.
+    fname = f"timeclock-{start or 'all'}-to-{end or 'now'}{'' if finalized_only else '-DRAFT'}.iif"
     return PlainTextResponse(body, media_type="application/octet-stream",
                              headers={"Content-Disposition": f"attachment; filename={fname}"})
 
 
 @router.get("/export-hours")
 def export_hours(start: str = "", end: str = "", company: str = "", approved_only: bool = False,
+                 finalized_only: bool = False,
                  user: dict = Depends(require_team_read_pay),
                  _su: dict = Depends(require_stepup), db: Session = Depends(get_db)):
     """The period's hours per hourly employee by pay class, off the SAME engine
@@ -2618,12 +2768,20 @@ def export_hours(start: str = "", end: str = "", company: str = "", approved_onl
         approved = r["email"] in ok
         if approved_only and not approved:
             continue
-        t = _compute_timecard(db, r["email"], start, end)["totals"]
+        # The same filter as export.iif's (Oct 19), so the preview is the file.
+        if finalized_only and not _finalized_row(db, r["email"], start, end):
+            continue
+        _card = _compute_timecard(db, r["email"], start, end)
+        t = _card["totals"]
         emp = emps.get(r["email"])
         def h(k, t=t):
             return round(float(t.get(k) or 0) / 60, 2)
         hours = {"regular": h("regMin"), "overtime": h("otMin"), "doubleTime": h("dtMin"),
                  "sick": h("sickMin"), "vacation": h("vacationMin"), "personal": h("personalMin")}
+        # Paid company holiday hours (the IIF's Holiday Pay line) - only on a card that has any.
+        _hol = sum(int(d.get("holidayMin") or 0) for d in _card["days"])
+        if _hol:
+            hours["holiday"] = round(_hol / 60, 2)
         # Differential / call-back hours only when the card has any (never while off).
         if t.get("diffMin"):
             hours["shiftDifferential"] = h("diffMin")
@@ -3438,8 +3596,15 @@ def list_punch_requests(status: str = "pending", user: dict = Depends(require_ap
         q = q.filter(PunchRequest.employee_email != (user.get("email") or "").lower())
     rows = [_pr_dict(r) for r in q.order_by(PunchRequest.created_at.desc()).limit(200).all()]
     meta = _people_meta(db, [r["employeeEmail"] for r in rows])
+    zones: dict = {}
     for r in rows:
         r["department"] = meta.get((r["employeeEmail"] or "").lower(), {}).get("department", "")
+        # The EMPLOYEE's zone, so the approver reads the time they asked for
+        # (Oct 19: Miranda's 8:30 AM Pacific showed as 9:00 PM to India).
+        em = (r["employeeEmail"] or "").lower()
+        if em not in zones:
+            zones[em] = _employee_tz(db, em)
+        r["timeZone"] = zones[em]
     return _mark_for(db, user, rows, "employeeEmail")
 
 
@@ -3515,7 +3680,25 @@ def _close_dupes(db: Session, reqs: list, user: dict, now: str, note: str) -> in
             d.status = "rejected"
             d.decided_by, d.decided_at, d.decision_note = user["email"], now, note
             closed += 1
+    _close_approver_notices(db, done, reqs[0].employee_email if reqs else "")
     return closed
+
+
+def _close_approver_notices(db: Session, ref_ids, employee_email: str) -> None:
+    """A request is decided once, by any one approver: close EVERY approver's
+    open notice for it (the manager, the reporting line, HR, stand-ins), not
+    only the decider's - the rest kept the yellow bar for a request already
+    handled (Oct 19 audit). Same as cancel_punch_request. The employee's own
+    notices are left alone; ones written in this request are not flushed yet."""
+    ids = sorted({i for i in ref_ids if i})
+    if not ids:
+        return
+    for n in (db.query(NexusNotification)
+              .filter(NexusNotification.ref_id.in_(ids), NexusNotification.type == "custom_alert",
+                      NexusNotification.actioned == False,  # noqa: E712
+                      NexusNotification.recipient != (employee_email or "").strip().lower())
+              .all()):
+        n.actioned = True
 
 
 _DUPE_APPROVED = "Duplicate of an approved request"
@@ -4041,6 +4224,7 @@ def decide_punch_edit(punch_id: str, body: PunchEditDecision,
     row.pending_at = ""
     row.edit_status = decision
     row.edit_reviewed_by, row.edit_reviewed_at = user["email"], now
+    _close_approver_notices(db, [row.id], row.employee_email)
     _audit_delegated(db, user, row.employee_email, f"{decision.title()} punch edit", "time_punches", row.id)
     db.commit()
     return _serialize(row)
@@ -8480,6 +8664,16 @@ def _employee_zone_key(db: Session, email: str) -> str:
     return "india" if emp and (emp[0] or "").strip().upper() in ("IN", "INDIA") else "california"
 
 
+# The IANA zone of each display zone key (frontend lib/displayTz.js TZ_OPTIONS).
+_ZONE_KEY_TZ = {"california": "America/Los_Angeles", "india": "Asia/Kolkata"}
+
+
+def _employee_tz(db: Session, email: str) -> str:
+    """The IANA zone the employee's own Time Sheet reads in (_employee_zone_key),
+    for approver screens that must show the employee's clock (Oct 19)."""
+    return _ZONE_KEY_TZ.get(_employee_zone_key(db, email), "America/Los_Angeles")
+
+
 def _employee_now(db: Session, email: str) -> datetime:
     """The employee's LOCAL wall-clock time (naive), for comparing against a shift
     start time. Same offset source as _employee_today."""
@@ -9024,7 +9218,12 @@ def _export_codes_out(db: Session, company: str) -> dict:
     return {"company": company,
             "classes": [{"key": k, "default": d, "code": custom.get(k, d), "custom": k in custom}
                         for k, d in payroll_codes.PAY_CLASSES],
-            "maxLength": payroll_codes.MAX_LEN}
+            "maxLength": payroll_codes.MAX_LEN,
+            # The IIF header's COMPANYNAME for this company (Oct 19): HR's
+            # saved name ('' = none), and what the file uses without one.
+            "quickbooksCompanyName": payroll_codes.qb_company_override(db, company),
+            "quickbooksCompanyDefault": payroll_codes.qb_company_default(db, company),
+            "quickbooksCompanyMaxLength": payroll_codes.QB_COMPANY_MAX_LEN}
 
 
 @router.get("/payroll/export-codes")
@@ -9036,6 +9235,8 @@ def get_export_codes(company: str = "", user: dict = Depends(require_team_read),
 class ExportCodesIn(BaseModel):
     company: str = ""
     codes: dict = {}
+    # None = leave the saved QuickBooks company name alone; '' clears it.
+    quickbooksCompanyName: Optional[str] = None
 
 
 @router.put("/payroll/export-codes")
@@ -9048,6 +9249,8 @@ def set_export_codes(body: ExportCodesIn, user: dict = Depends(require_administr
         payroll_codes.save_codes(db, company, body.codes if isinstance(body.codes, dict) else {}, user["email"])
     except ValueError as e:      # two pay classes under one name
         raise HTTPException(400, str(e))
+    if body.quickbooksCompanyName is not None:
+        payroll_codes.save_qb_company_name(db, company, body.quickbooksCompanyName, user["email"])
     return _export_codes_out(db, company)
 
 
@@ -9436,7 +9639,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
             open_break_at, open_break_id, seg_breaks = "", "", []
             if open_in_geo == "out_of_fence":
                 sflags.add("out_of_fence")
-            if p.source in ("manual", "self_manual"):
+            if p.source in MANUAL_SOURCES:
                 sflags.add("manual")
             if p.adjusted_by:
                 sflags.add("adjusted")
@@ -9724,6 +9927,8 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
             # normal wages already cover the hours worked); do no work at all
             # and it's half a day, same as a full holiday scaled down.
             credit = round(_full_day_hours * (0.5 if is_half else 1.0) * _rate_for_day(hd), 2)
+            # The hours that credit pays for - the IIF's Holiday Pay line (Oct 19).
+            _hol_min = int(round(_full_day_hours * 60 * (0.5 if is_half else 1.0)))
             holiday_pay += credit
             holiday_days += 1
             if worked:
@@ -9733,12 +9938,14 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
                 _days_by_date[hd]["holidayType"] = hol.get("type", "mandatory")
                 _days_by_date[hd]["holidayName"] = hol.get("name", "")
                 _days_by_date[hd]["holidayPay"] = credit
+                _days_by_date[hd]["holidayMin"] = _hol_min
             else:
                 days_out.append({"date": hd, "weekStart": _week_start_str(hd), "segments": [],
                                  "workedMin": 0, "regMin": 0, "otMin": 0, "dtMin": 0,
                                  "breakMin": 0, "paidBreakMin": 0,
                                  "isHoliday": True, "holidayName": hol.get("name", ""),
-                                 "holidayType": hol.get("type", "mandatory"), "holidayPay": credit})
+                                 "holidayType": hol.get("type", "mandatory"), "holidayPay": credit,
+                                 "holidayMin": _hol_min})
         if holiday_days:
             days_out.sort(key=lambda d: d["date"])
         holiday_pay = round(holiday_pay, 2)
@@ -9801,7 +10008,8 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
     # punch came from, its exact time, and who entered or changed it. A manual
     # or changed punch reads bold on the card.
     _src = {"web": "Web browser", "mobile": "Mobile app", "manual": "Entered by a manager",
-            "self_manual": "Missed punch entered by the employee", "auto_eod": "Auto clock-out at end of day"}
+            "self_manual": "Missed punch entered by the employee",
+            "offline": "Recorded offline, synced later", "auto_eod": "Auto clock-out at end of day"}
     _names = {}
 
     def _who(e):
@@ -9810,7 +10018,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
         return _names.get(e, "")
     punch_meta = {p.id: {"kind": p.kind, "at": p.at, "originalAt": p.original_at or "",
                          "source": _src.get(p.source or "", p.source or ""), "ip": p.ip or "",
-                         "site": p.work_site_name or "", "manual": p.source in ("manual", "self_manual"),
+                         "site": p.work_site_name or "", "manual": p.source in MANUAL_SOURCES,
                          "createdBy": _who(p.created_by), "createdAt": p.created_at or "",
                          "adjustedBy": _who(p.adjusted_by), "adjustedAt": p.adjusted_at or "",
                          "adjustNote": p.adjust_note or ""} for p in punches}
@@ -10175,6 +10383,8 @@ def set_payroll_rate(body: RateIn, user: dict = Depends(require_team_write),
     scope = _visible_emails(db, user)
     if scope is not None and em not in scope:
         raise HTTPException(403, "Outside your team")
+    from own_pay import refuse_own_pay   # nobody sets their own rate (Oct 20)
+    refuse_own_pay(db, user, em, min_level=4, module_id="hr", exclude_level=3)
     row = db.query(PayrollRate).filter(PayrollRate.employee_email == em).first()
     if not row:
         row = PayrollRate(employee_email=em)
@@ -11306,6 +11516,7 @@ def decide_timeoff(req_id: str, body: TimeOffDecision,
     row.status = body.status
     row.approver = user["email"]
     row.decided_at = _now_iso()
+    _close_approver_notices(db, [row.id], row.employee_email)
     # A stand-in's decision says who it was decided for (approver delegation).
     row.decide_note = _decided_note(db, user, row.employee_email, (body.note or "").strip()[:400])
     _audit_delegated(db, user, row.employee_email, f"{body.status.title()} time off request", "time_off_requests", row.id)
@@ -11348,6 +11559,8 @@ def cancel_timeoff(req_id: str, user: dict = Depends(get_current_user), db: Sess
     was_approved = row.status == "approved"
     row.status = "cancelled"
     row.decided_at = _now_iso()
+    if not was_approved:
+        _close_approver_notices(db, [row.id], row.employee_email)   # nothing left to decide
     if was_approved:
         _notify_team_alert(db, employee_email=user["email"], actor_email=user["email"],
                            title="Time Off Canceled",
@@ -11640,6 +11853,7 @@ def add_time(body: AddTimeIn, user: dict = Depends(require_team_write), db: Sess
     """Write the days the plan admits. `dry_run` answers with the plan only -
     the modal's preview, so what is shown is exactly what will be written."""
     em = _add_time_scope(db, user, body.employee_email)
+    _refuse_own_time(user, em, _OWN_EDIT)
     reason = (body.reason or "").strip()
     if len(reason) < 3:
         raise HTTPException(400, "Say why this time is being added - it goes on every punch.")
@@ -11687,6 +11901,7 @@ def add_time_undo(batch_id: str, user: dict = Depends(require_team_write), db: S
     if not rows:
         raise HTTPException(404, "Nothing left to undo for this batch.")
     em = _add_time_scope(db, user, rows[0].employee_email)
+    _refuse_own_time(user, em, _OWN_EDIT)
     for ds in sorted({r.local_date for r in rows}):
         _guard_not_finalized(db, em, ds)
         _guard_review(db, em, ds, user["email"])

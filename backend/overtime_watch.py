@@ -350,4 +350,10 @@ async def overtime_loop():
         s = await asyncio.to_thread(_tick)
         if s and s.get("alerts"):
             print(f"[overtime-watch] {s}")
+        # A break that never ended (Oct 20 2026) rides the same tick - see
+        # break_watch.py; its tick() never raises.
+        import break_watch
+        b = await asyncio.to_thread(break_watch.tick)
+        if b and (b.get("nudged") or b.get("escalated")):
+            print(f"[break-watch] {b}")
         await asyncio.sleep(SCAN_SEC)
