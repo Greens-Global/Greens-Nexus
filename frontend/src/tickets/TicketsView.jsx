@@ -55,6 +55,8 @@ import AnchoredMenu from '../components/AnchoredMenu';
 import TicketOpening, { TicketNotFound } from './TicketOpening';
 import { confirmSwitchTicket } from './drawerGuard';
 import { PropertySelect } from './PropertySelect';
+import { TicketPropertyIntake, TicketPropertyDetail, SuggestPropertyLinksButton } from './TicketPropertyFields';
+import { useTicketPropertyRules, propertyRequiredFor, usePropertyUnits } from './ticketPropertyLink';
 import { uploadTicketEvidence } from './evidenceUpload';
 import { groupTakesProperty, isBuildingGroup } from './propertyMeta';
 import { StatusLabel, PrioritySignal } from '../components/StatusLabel';
@@ -1108,6 +1110,7 @@ export default function TicketsView() {
             >
               <Download size={15} />Export
             </button>
+            {privileged && <SuggestPropertyLinksButton style={{ ...btn('outline'), padding: '7px 11px', fontSize: 13 }} />}
             <MoreMenu views={ticketViews} onApply={applyTicketView} onSave={() => setNamingView(true)} onDelete={removeTicketView}
               groupBy={groupBy} setGroupBy={setGroupBy} showGroup={view === 'list'} />
             {view === 'list' && (
@@ -2140,6 +2143,13 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
   // Ask "Which property?" only for a team that takes one - a building, site
   // operations or site security team (the server enforces the same rule).
   const deptTakesProperty = groupTakesProperty(helpGroupFor(deptName));
+  // Ops review (Neil, Oct 20): a Buildings & Maintenance ticket names its
+  // property, and at a Cubby store its unit - TicketPropertyFields.jsx. The
+  // desk may file without (the server's rule too).
+  const propRules = useTicketPropertyRules();
+  const { canWorkQueue: deskIntake } = useTicketAccess();
+  const mustNameProperty = deptTakesProperty && !deskIntake && propertyRequiredFor(propRules, form.application);
+  const propUnits = usePropertyUnits(deptTakesProperty ? (form.propertyAssetId || '') : '');
   // Raised from a property (Asset Management): start on the team that handles
   // buildings once the departments arrive - once, and never over a pick.
   // Adjusting state while rendering (React's pattern for "derive once from
@@ -2196,8 +2206,11 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
     for (const f of typeFieldDefs) {
       if (f.req && isBlankFieldValue(tf[f.key])) out.add(f.key);
     }
+    if (mustNameProperty && !form.propertyAssetId) out.add('propertyAssetId');
+    if (mustNameProperty && form.propertyAssetId && propUnits.required && !String(form.propertyUnit || '').trim()) out.add('propertyUnit');
     return out;
-  }, [form.subject, form.companyId, form.hrDepartmentId, form.application, showCompanyPicker, deptOptions, typeFieldDefs, tf]);
+  }, [form.subject, form.companyId, form.hrDepartmentId, form.application, showCompanyPicker, deptOptions, typeFieldDefs, tf,
+    mustNameProperty, form.propertyAssetId, form.propertyUnit, propUnits.required]);
 
   // ── Mobile capture shortcuts (mirrors CreateTaskModal) ──
   // Photo / attach / scan sit in the footer so they're one tap away on a phone.
@@ -2304,7 +2317,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
         slaDueOn: slaDueFromPriority(form.priority).slice(0, 10),
         typeFields,
         ...(fromTask ? { fromTaskId: fromTask.id, closeSourceTask: closeSource } : {}),
-        ...(form.propertyAssetId && deptTakesProperty ? { propertyAssetId: form.propertyAssetId } : {}),
+        ...(form.propertyAssetId && deptTakesProperty ? { propertyAssetId: form.propertyAssetId, propertyUnit: String(form.propertyUnit || '').trim() } : {}),
         // Raised from the property itself: it stays that property's ticket.
         ...(forProperty && form.propertyAssetId === forProperty.id ? { propertyLocked: true } : {}),
       });
@@ -2392,7 +2405,7 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
   // come before the questions they add.
   // Convert to Ticket: what came across, and each required field still empty.
   const fieldLabel = (k) => ({ subject: 'Title', companyId: 'Company', hrDepartmentId: 'Department',
-    application: 'What Do You Need Help With?' }[k] || typeFieldDefs.find((f) => f.key === k)?.label || k);
+    application: 'What Do You Need Help With?', propertyAssetId: 'Property', propertyUnit: 'Unit' }[k] || typeFieldDefs.find((f) => f.key === k)?.label || k);
   const carried = fromTask ? ['title', 'description', 'priority', 'requester',
     ...((form.watcherIds || []).length ? ['collaborators'] : []),
     ...(fromTask.fileCount ? [`${fromTask.fileCount} file${fromTask.fileCount > 1 ? 's' : ''}`] : [])] : [];
@@ -2575,18 +2588,14 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
       </div>
 
       {deptTakesProperty && (
-        <div style={field}>
-          <label style={label}>Property</label>
-          {forProperty ? (
-            // Raised from the property itself - fixed, not a choice.
-            <div style={{ ...inputStyle, display: 'flex', alignItems: 'center', background: NX.surface2, color: NX.ink }}>{forProperty.name}</div>
-          ) : (
-            <PropertySelect value={form.propertyAssetId} onChange={(v) => set('propertyAssetId', v)} style={sel} />
-          )}
-          {sub(forProperty
-            ? `Shows on ${forProperty.name}'s Maintenance in Asset Management.`
-            : 'Optional - pick it and the ticket shows on that property in Asset Management.')}
-        </div>
+        // Property + Unit (Ops review, Oct 20). Raised from the property
+        // itself (forProperty), the property is fixed, not a choice.
+        <TicketPropertyIntake fixed={forProperty} value={form.propertyAssetId} unit={form.propertyUnit || ''}
+          onChange={(v) => { set('propertyAssetId', v); set('propertyUnit', ''); }}
+          onUnitChange={(v) => set('propertyUnit', v)}
+          required={mustNameProperty} unitRequired={mustNameProperty && propUnits.required}
+          invalidProperty={err('propertyAssetId')} invalidUnit={err('propertyUnit')}
+          text={`${form.subject} ${form.description || ''}`} units={propUnits} style={sel} />
       )}
 
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: 12 }}>
@@ -3578,6 +3587,8 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
             </>)}
           </div>
         )}
+        {/* Unit + View Property (Ops review, Oct 20) - TicketPropertyFields.jsx. */}
+        <TicketPropertyDetail v={v} canEdit={fullAccess} stage={stage} style={sel} />
         {/* Derived from the application by the server, and re-derived whenever
             it changes. A manager can still override it here for an app the
             directory has mapped wrongly - correcting the mapping itself is a

@@ -130,7 +130,9 @@ class PropertyTicketTests(unittest.TestCase):
         self.assertEqual(bells[0].title, "New Ticket at Greens Storage Temecula")
 
     def test_a_ticket_without_a_property_is_unchanged(self):
-        out = self._one()
+        # The service desk may still file one without (a requester must now
+        # name it - test_ticket_property_link.py, Ops review Oct 20).
+        out = self._one(user=ADMIN)
         self.assertEqual((out["propertyAssetId"], out["propertyName"]), (None, None))   # blank = None, like every field
         self.assertEqual(self._bells(MANAGER), [])
 

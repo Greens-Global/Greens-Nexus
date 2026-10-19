@@ -59,7 +59,7 @@ export function TicketSummaryModal({ t, propertyId, canFollow = false, onClose, 
     try { await api.followPropertyTicket(propertyId, t.id); onFollowed(t); }
     catch (e) { setErr(e.message || 'Could not follow this ticket.'); setBusy(false); }
   };
-  const rows = [['Status', sLabel], ['Category', t.category], ['Location', t.location], ['Assigned To', t.assigneeName || 'Unassigned'],
+  const rows = [['Status', sLabel], ['Category', t.category], ['Unit', t.unit], ['Location', t.location],['Assigned To', t.assigneeName || 'Unassigned'],
     ['Raised By', t.requesterName], ['Opened', formatDate(t.createdAt)], ['Closed', formatDate(t.resolvedAt)],
     ['Resolution', t.resolutionNote], ['Vendor', t.vendor], ['Cost', money(t.cost)]].filter(([, v]) => v);
   return (

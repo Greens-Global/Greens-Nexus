@@ -3506,6 +3506,10 @@ class TaskTicket(Base):
     sla_paused_min        = Column(Integer, default=0)
     sla_fr_alerted_at     = Column(String, default="")
     sla_res_alerted_at    = Column(String, default="")
+    # The unit (or "Common Area") a property ticket is about (Neil, Ops review
+    # Oct 20). Checked against the facility's Cubby units when the property is
+    # a Cubby store, else free text - see ticket_property_link.clean_unit.
+    property_unit         = Column(String, default="")
 
 
 class TicketEmailLog(Base):

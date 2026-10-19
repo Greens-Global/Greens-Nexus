@@ -2503,6 +2503,13 @@ export const api = {
   locationTrailPing: (body)          => req('/timeclock/location-trail/ping', { method: 'POST', body: JSON.stringify(body) }),
   locationTrailLive: ()              => req('/timeclock/location-trail/live'),
   locationTrailDay:  (email, date)   => req(`/timeclock/location-trail/day?email=${encodeURIComponent(email || '')}&date=${encodeURIComponent(date)}`),
+  // Tickets <-> properties (Neil, Ops review 10/20) - routers/ticket_property.py.
+  getTicketPropertyRules:   () => cachedGet('/ticket-property/rules', 300_000),
+  suggestTicketProperty:    (text) => req(`/ticket-property/suggest?text=${encodeURIComponent(String(text || '').slice(0, 1500))}`),
+  getTicketPropertyUnits:   (id) => cachedGet(`/ticket-property/units/${encodeURIComponent(id)}`, 300_000),
+  getPropertyLinkSuggestions: () => req('/ticket-property/link-suggestions'),
+  applyPropertyLinkSuggestion: (ticketId, body) => req(`/ticket-property/link-suggestions/${encodeURIComponent(ticketId)}`, { method: 'POST', body: JSON.stringify(body) }),
+  dismissPropertyLinkSuggestion: (ticketId) => req(`/ticket-property/link-suggestions/${encodeURIComponent(ticketId)}/dismiss`, { method: 'POST' }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

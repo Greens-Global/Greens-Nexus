@@ -1112,6 +1112,8 @@ def _run_migrations():
             "ALTER TABLE punch_requests ADD COLUMN employee_dismissed_at VARCHAR DEFAULT ''",
             # Leave balances (Oct 19 2026, leave_balances.py). models.NexusEmployee.leave_policy.
             "ALTER TABLE nexus_employees ADD COLUMN leave_policy VARCHAR DEFAULT ''",
+            # Ticket -> property unit (Ops review, Oct 20) - see the Postgres list.
+            "ALTER TABLE task_tickets ADD COLUMN property_unit VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2480,6 +2482,9 @@ def _run_migrations():
         # and the ledger - a new table, explicit RLS. models.LeaveLedgerEntry.
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS leave_policy VARCHAR DEFAULT ''",
         "ALTER TABLE leave_ledger ENABLE ROW LEVEL SECURITY",
+        # Ticket -> property unit (Neil, Ops review Oct 20): the unit (or
+        # "Common Area") a property ticket is about. ticket_property_link.py.
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS property_unit VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -3874,3 +3879,7 @@ from routers import leave_balances as leave_balances_router  # noqa: E402
 app.include_router(leave_balances_router.router)  # Paid leave balances: policies, opening import, accrual (Neil / Charmi, 10/19)
 from routers import location_trail as location_trail_router  # noqa: E402
 app.include_router(location_trail_router.router)  # Time Clock: Location Trail While Clocked In - web pings + manager map (Neil, 10/20)
+from routers import ticket_property as ticket_property_router  # noqa: E402
+app.include_router(ticket_property_router.router)  # Tickets <-> properties: rules, suggest, units, Suggest Property Links (Neil, Ops 10/20)
+from routers import facility_maintenance_map  # noqa: E402
+app.include_router(facility_maintenance_map.router)  # Operations: open tickets + maintenance per Cubby unit, for the map layer (Neil, Ops 10/20)
