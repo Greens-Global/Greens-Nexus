@@ -225,5 +225,92 @@ class OfflinePunchTests(SelfTimeCase):
         self.assertEqual(self._emp_punches(), [])
 
 
+OWN_PAY = "You can't change your own pay - another administrator or HR sets it."
+
+
+class NoSelfPayTests(SelfTimeCase):
+    """Oct 20: nobody sets their own pay rate - PUT /timeclock/payroll/rate,
+    Pay & Benefits (PUT /hr/employees/{eid}/compensation) - unless nobody
+    else could ever set it (the sole-owner dead end)."""
+
+    def _rate(self, em):
+        self.db.expire_all()
+        r = self.db.query(models.PayrollRate).filter(models.PayrollRate.employee_email == em).first()
+        return float(r.hourly_rate or 0) if r else None
+
+    def _comp(self, eid, base, bank=None):
+        body = {"compensation": {"base": str(base), "payBasis": "hourly", "frequency": "biweekly",
+                                 "currency": "USD", "effectiveDate": ""}}
+        if bank is not None:
+            body["bank"] = bank
+        return self.client.put(f"/hr/employees/{eid}/compensation", json=body)
+
+    def test_an_administrator_cannot_set_their_own_rate(self):
+        self._as(ADMIN)
+        res = self.client.put("/timeclock/payroll/rate", json={"email": ADMIN.upper(), "hourly_rate": 99})
+        self.assertEqual(res.status_code, 403, res.text)
+        self.assertEqual(res.json()["detail"], OWN_PAY)
+        self.assertIsNone(self._rate(ADMIN))
+        res = self.client.put("/timeclock/payroll/rate", json={"email": EMP, "hourly_rate": 25})
+        self.assertEqual(res.status_code, 200, res.text)
+        self.assertEqual(self._rate(EMP), 25.0)
+
+    def test_one_global_admin_sets_another_but_not_their_own(self):
+        self._as(OWNER1)
+        self.assertEqual(self.client.put("/timeclock/payroll/rate",
+                                         json={"email": OWNER2, "hourly_rate": 40}).status_code, 200)
+        self.assertEqual(self._rate(OWNER2), 40.0)
+        self._as(OWNER2)
+        self.assertEqual(self.client.put("/timeclock/payroll/rate",
+                                         json={"email": OWNER2, "hourly_rate": 400}).status_code, 403)
+        self.assertEqual(self._rate(OWNER2), 40.0)
+
+    def test_pay_and_benefits_refuses_your_own_pay_but_not_your_bank(self):
+        self._as(OWNER1)
+        res = self._comp("id-Oona", 50)
+        self.assertEqual(res.status_code, 403, res.text)
+        self.assertEqual(res.json()["detail"], OWN_PAY)
+        got = self.client.get("/hr/employees/id-Oona/compensation").json()
+        self.assertTrue(got["ownPayLocked"])
+        # Saving the record unchanged with a new bank account goes through.
+        same = dict(got["compensation"])
+        bank = [{"holder": "Oona Test", "bankName": "First", "number": "123", "routingOrIfsc": "9", "type": "checking"}]
+        res = self.client.put("/hr/employees/id-Oona/compensation", json={"compensation": same, "bank": bank})
+        self.assertEqual(res.status_code, 200, res.text)
+        # ...and another owner's pay is theirs to set.
+        self.assertEqual(self._comp("id-Otto", 45).status_code, 200)
+        self.assertFalse(self.client.get("/hr/employees/id-Otto/compensation").json()["ownPayLocked"])
+        self.assertEqual(self._rate(OWNER2), 45.0)
+
+    def test_the_only_person_who_can_set_pay_is_not_stuck(self):
+        # Nobody else is an administrator, an owner or holds a pay grant: the
+        # owner's own rate would otherwise never be settable.
+        self.db.query(models.NexusRole).filter(models.NexusRole.email != OWNER1,
+                                               models.NexusRole.role.in_(["administrator", "owner"])).delete(
+            synchronize_session=False)
+        self.db.query(models.NexusGroupMember).filter(models.NexusGroupMember.email != OWNER1).delete(
+            synchronize_session=False)
+        self.db.commit()
+        auth._role_cache.clear()
+        self._as(OWNER1)
+        self.assertEqual(self.client.put("/timeclock/payroll/rate",
+                                         json={"email": OWNER1, "hourly_rate": 60}).status_code, 200)
+        self.assertEqual(self._rate(OWNER1), 60.0)
+        self.assertFalse(self.client.get("/hr/employees/id-Oona/compensation").json()["ownPayLocked"])
+        self.assertEqual(self._comp("id-Oona", 61).status_code, 200)
+
+    def test_someone_who_left_does_not_count_as_another_setter(self):
+        self.db.query(models.NexusRole).filter(models.NexusRole.email.in_([ADMIN])).delete(
+            synchronize_session=False)
+        self.db.query(models.NexusEmployee).filter(models.NexusEmployee.work_email == OWNER2).update(
+            {"status": "offboarded"})
+        self.db.query(models.NexusGroupMember).filter(models.NexusGroupMember.email != OWNER1).delete(
+            synchronize_session=False)
+        self.db.commit()
+        auth._role_cache.clear()
+        self._as(OWNER1)
+        self.assertEqual(self._comp("id-Oona", 70).status_code, 200)
+
+
 if __name__ == "__main__":
     unittest.main()

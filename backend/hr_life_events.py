@@ -2024,6 +2024,9 @@ def plan_promotion(db: Session, user: dict, eid: str, inputs: dict, pay: Optiona
         clean = clean_pay(pay)
     except ValueError as e:
         raise PacketError(str(e))
+    from own_pay import OWN_PAY, own_pay_locked
+    if clean and own_pay_locked(db, user, emp.work_email, min_level=5, module_id="hr_comp"):
+        raise PacketError(OWN_PAY, 403)   # nobody raises their own pay (Oct 20)
     if details["role_id"] == details["old_role_id"] and not clean and details["job_title"] == details["old_title"]:
         raise PacketError("Nothing changes - pick a new role, title or pay.")
     entity = db.query(HrEntity).filter(HrEntity.id == emp.company).first()

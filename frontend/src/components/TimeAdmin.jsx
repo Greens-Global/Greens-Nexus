@@ -137,7 +137,9 @@ const HD = { fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' };
 
 export default function TimeAdmin({ toastOk, toastErr, initialView }) {
   // The manager tier sees its team's hours, never pay (Oct 6).
-  const { hrTeam } = useRole() || {};
+  const { hrTeam, myEmail } = useRole() || {};
+  // Your own time is approved and fixed by your manager or HR, never here (Oct 20, _refuse_own_time).
+  const isMe = (em) => !!em && !!myEmail && em.toLowerCase() === myEmail.toLowerCase();
   // payroll (the timecard) | actions (punch requests + missing punches) | timeoff | hours.
   // Attendance, Screenshots and By Location left People (Neil, 10/06): who is
   // on lives in Shifts > Schedule, screenshots and location hours in Workforce
@@ -644,7 +646,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
               </button>
             )}
             {r.breakMin > 0 && <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{r.breakMin}m break</span>}
-            {!LEGACY_APPROVE ? null : isRowApproved(r) ? (
+            {(!LEGACY_APPROVE || isMe(r.email)) ? null : isRowApproved(r) ? (
               <span title="Every worked day in this period is signed off and unchanged since"
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, color: 'hsl(var(--color-green))', background: 'hsla(var(--color-green),0.1)', padding: '3px 9px', borderRadius: 999 }}>
                 <CheckCircle size={11} /> Approved
@@ -943,7 +945,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                     </div>
                     {g.rows.length > 0 && <span style={pill('var(--wk-brand-tint, rgba(43,69,225,0.08))', 'var(--wk-brand, #2b45e1)')}><Inbox size={11} /> {g.rows.length} Request{g.rows.length === 1 ? '' : 's'}</span>}
                     {g.blocking > 0 && actKind !== 'requests' && <span style={pill('rgba(220,38,38,0.08)', 'hsl(var(--color-red))')}><AlertTriangle size={11} /> {g.blocking} Missing</span>}
-                    {g.email && g.missing.length > 0 && (
+                    {g.email && g.missing.length > 0 && !isMe(g.email) && (
                       <button className="secondary-btn" onClick={() => setAddTimeFor({ email: g.email, name: g.name, dates: g.missing.filter(e => e.blocking).map(e => e.date) })}
                         title="Add the missing time - one or several days at once"
                         style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
@@ -1107,7 +1109,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                   <div style={{ fontSize: 15, fontWeight: 800 }}>{p.name}</div>
                   <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{p.email} · {formatDate(start)} - {formatDate(end)}</div>
                 </div>
-                {LEGACY_APPROVE && (() => {
+                {LEGACY_APPROVE && !isMe(p.email) && (() => {
                   const dk = Object.keys(p.days || {});
                   if (isRowApproved(p)) {
                     return <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, fontWeight: 700, color: 'hsl(var(--color-green))', background: 'hsla(var(--color-green),0.1)', padding: '4px 11px', borderRadius: 999 }}><CheckCircle size={12} /> Approved</span>;
@@ -1166,7 +1168,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                 {Object.keys(p.days || {}).sort().map(date => (
                   <AdminDayRow key={date} date={date} email={p.email} d={p.days[date]}
                     approval={(p.dayApprovals || {})[date]}
-                    onApprove={() => approveDays(p.email, [date])} />
+                    onApprove={isMe(p.email) ? null : () => approveDays(p.email, [date])} />
                 ))}
                 {Object.keys(p.days || {}).length === 0 && <div style={{ fontSize: 12, color: 'var(--muted)' }}>No punches in this range.</div>}
 
