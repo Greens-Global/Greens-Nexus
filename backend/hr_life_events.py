@@ -2778,4 +2778,11 @@ async def life_events_loop():
             await asyncio.to_thread(apply_due_separations)
         except Exception as e:
             print(f"[life-events] offboarding pass failed: {e}")
+        try:
+            # Signed Time Sheets whose Egnyte filing failed (Oct 20 2026) -
+            # a bounded retry, see timesheet_filing.py.
+            import timesheet_filing
+            await asyncio.to_thread(timesheet_filing.process_due)
+        except Exception as e:
+            print(f"[life-events] time sheet filing retry failed: {e}")
         await asyncio.sleep(LOOP_EVERY_SEC)
