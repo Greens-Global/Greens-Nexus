@@ -37,6 +37,7 @@ vi.mock('../tasks/TasksContext', () => ({
 }));
 
 const { TicketDrawer } = await import('./TicketsView');
+const { dialog } = await import('../ui/dialog');
 
 afterEach(() => { cleanup(); updateTicket.mockClear(); vi.restoreAllMocks(); });
 
@@ -48,7 +49,7 @@ describe('TicketDrawer saves on Done only', () => {
     render(<TicketDrawer ticketId="t1" onClose={onClose} />);
     fireEvent.change(prioritySelect(), { target: { value: 'high' } });
     expect(updateTicket).not.toHaveBeenCalled();
-    expect(screen.getByText('Unsaved changes')).toBeTruthy();
+    expect(screen.getByText('Unsaved Changes')).toBeTruthy();
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Done' })); });
     expect(updateTicket).toHaveBeenCalledTimes(1);
     expect(updateTicket).toHaveBeenCalledWith('t1', { priority: 'high' });
@@ -65,12 +66,12 @@ describe('TicketDrawer saves on Done only', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('asks before throwing unsaved changes away', () => {
+  it('asks before throwing unsaved changes away', async () => {
     const onClose = vi.fn();
-    const ask = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const ask = vi.spyOn(dialog, 'confirm').mockResolvedValue(false);
     render(<TicketDrawer ticketId="t1" onClose={onClose} />);
     fireEvent.change(prioritySelect(), { target: { value: 'high' } });
-    fireEvent.keyDown(window, { key: 'Escape' });
+    await act(async () => { fireEvent.keyDown(window, { key: 'Escape' }); });
     expect(ask).toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
     expect(updateTicket).not.toHaveBeenCalled();

@@ -14,6 +14,7 @@ import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { NX, FONT, btn, card } from '../tasks/theme';
 import SavedCheck from '../components/SavedCheck';
+import { dialog } from '../ui/dialog';
 
 const ROLE_LABEL = { requester: 'Requester', agent: 'Agent', supervisor: 'Supervisor' };
 
@@ -69,7 +70,8 @@ export default function TicketDeskAccessSettings() {
 
   const save = async () => {
     if (choice === 'explicit' && changes.length > 0
-      && !window.confirm(`${changes.length} ${changes.length === 1 ? 'person' : 'people'} will lose desk access or desk powers. Switch anyway?`)) return;
+      && !(await dialog.confirm(`${changes.length} ${changes.length === 1 ? 'person' : 'people'} will lose desk access or desk powers. Switch anyway?`,
+        { title: 'Switch Desk Access?', confirmText: 'Switch Anyway', danger: true }))) return;
     setSaving(true); setErr(''); setSaved(false);
     try {
       const next = await api.updateTicketDeskAccess(choice);
@@ -164,7 +166,7 @@ export default function TicketDeskAccessSettings() {
         <button onClick={save} disabled={saving || !dirty} style={{ ...btn('primary'), opacity: saving || !dirty ? 0.6 : 1 }}>
           <Save size={14} /> {saving ? 'Saving…' : 'Save'}
         </button>
-        {dirty && !saving && <span style={{ fontSize: 12.5, color: NX.amber, fontWeight: 600 }}>Unsaved changes</span>}
+        {dirty && !saving && <span style={{ fontSize: 12.5, color: NX.amber, fontWeight: 600 }}>Unsaved Changes</span>}
         <SavedCheck show={saved} />
         {err && <span style={{ fontSize: 12.5, color: NX.red, fontWeight: 600 }}>{err}</span>}
       </div>

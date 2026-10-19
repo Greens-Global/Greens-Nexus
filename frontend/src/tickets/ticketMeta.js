@@ -6,6 +6,11 @@ import { fmtDate as fmtDateRaw } from '../tasks/lib';
 import { NX } from '../tasks/theme';
 
 export const fmtDate = (iso) => (iso ? fmtDateRaw(iso) : '-');
+// The UTC day, on purpose: the server decides an SLA breach (and whether the
+// requester's Escalate is allowed) by the UTC date (_sla_breached in
+// backend/routers/tickets.py), and the screen must agree with it. A following
+// PR moves BOTH client and server to SLA datetimes together - do not switch
+// this one to the local day on its own.
 export const today = () => new Date().toISOString().slice(0, 10);
 
 // ── Ticket issue types ───────────────────────────────────────────────────────
@@ -320,8 +325,8 @@ export const TICKET_RESOLUTION = [
 ];
 export const resolutionLabel = (k) => (TICKET_RESOLUTION.find((r) => r.key === k) || {}).label || '';
 export const LINK_TYPES = [
-  { key: 'relates', label: 'Relates to' }, { key: 'duplicate', label: 'Duplicates' },
-  { key: 'blocks', label: 'Blocks' }, { key: 'blocked_by', label: 'Blocked by' },
+  { key: 'relates', label: 'Relates To' }, { key: 'duplicate', label: 'Duplicates' },
+  { key: 'blocks', label: 'Blocks' }, { key: 'blocked_by', label: 'Blocked By' },
 ];
 export const linkTypeLabel = (k) => (LINK_TYPES.find((l) => l.key === k) || {}).label || k;
 

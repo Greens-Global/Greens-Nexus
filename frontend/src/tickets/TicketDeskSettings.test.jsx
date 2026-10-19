@@ -57,7 +57,7 @@ describe('TicketDeskSettings', () => {
     const save = await screen.findByRole('button', { name: /Save/ });
     expect(save).toBeDisabled();
     fireEvent.click(screen.getByText('Agents: 0'));
-    expect(screen.getByText('Unsaved changes')).toBeInTheDocument();
+    expect(screen.getByText('Unsaved Changes')).toBeInTheDocument();
     expect(save).toBeEnabled();
   });
 

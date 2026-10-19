@@ -33,6 +33,7 @@ import { NX, FONT, btn, card } from '../tasks/theme';
 import { PersonMultiSelect, PersonSelect, usePeople } from '../tasks/components';
 import { useIsMobile } from '../lib/useIsMobile';
 import SavedCheck from '../components/SavedCheck';
+import { dialog } from '../ui/dialog';
 
 // The fallback chain, spelled out for whoever's reading it: a company's own
 // agents, if any -> the Default Agents list, if any -> every administrator.
@@ -136,19 +137,19 @@ function DepartmentHeads({ companyId, companyName, depts, people, onSetHead, onS
               them in (Neil, Sep 30: IT first, then Construction, Admin,
               Operations). Saved the moment it is dropped. */}
           <DragList items={depts} getKey={(d) => d.id} label="department" gap={6}
-            onReorder={(next) => onReorder(companyId, next).catch((e) => alert(e.message || 'Could not reorder departments.'))}
+            onReorder={(next) => onReorder(companyId, next).catch((e) => dialog.alert(e.message || 'Could not reorder departments.'))}
             renderItem={(d, handle) => {
               const on = d.enabled !== false;
               return (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   {handle}
                   <SwitchButton on={on} label={`Offer ${d.name} on Submit a Ticket`}
-                    onClick={() => onSetEnabled(d.id, !on).catch((e) => alert(e.message || 'Could not update department.'))} />
+                    onClick={() => onSetEnabled(d.id, !on).catch((e) => dialog.alert(e.message || 'Could not update department.'))} />
                   <span style={{ width: 110, flexShrink: 0, fontSize: 12.5, color: on ? NX.ink : NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                     title={on ? d.name : `${d.name} - off for tickets`}>{d.name}</span>
                   <div style={{ flex: 1, opacity: on ? 1 : 0.6 }}>
                     <PersonSelect value={d.leadEmail || null} people={people}
-                      onChange={(email) => onSetHead(d.id, email || '').catch((e) => alert(e.message || 'Could not set department head.'))}
+                      onChange={(email) => onSetHead(d.id, email || '').catch((e) => dialog.alert(e.message || 'Could not set department head.'))}
                       placeholder="No department head set" />
                   </div>
                 </div>
@@ -371,7 +372,7 @@ export default function TicketDeskSettings() {
             <button onClick={save} disabled={saving || !dirty} style={{ ...btn('primary'), opacity: saving || !dirty ? 0.6 : 1 }}>
               <Save size={14} /> {saving ? 'Saving…' : 'Save'}
             </button>
-            {dirty && !saving && <span style={{ fontSize: 12.5, color: NX.amber, fontWeight: 600 }}>Unsaved changes</span>}
+            {dirty && !saving && <span style={{ fontSize: 12.5, color: NX.amber, fontWeight: 600 }}>Unsaved Changes</span>}
             <SavedCheck show={saved} />
             {err && <span style={{ fontSize: 12.5, color: NX.red, fontWeight: 600 }}>{err}</span>}
           </div>

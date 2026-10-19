@@ -37,6 +37,7 @@ import { buildSupportTourSteps } from './supportTourSteps';
 import { LatestCommentPreview } from '../tickets/LatestComment';
 import { StatusLabel } from '../components/StatusLabel';
 import { registerTour } from '../lib/tours';
+import { confirmSwitchTicket } from '../tickets/drawerGuard';
 
 // Documentation tab (Sep 24): the written guide to every module. Lazy so its
 // content and drawn screenshots only load when someone opens the tab. The
@@ -101,8 +102,8 @@ const TicketDetail = lazy(async () => {
     import('../tickets/TicketsView'),
   ]);
   return {
-    default: ({ ticketId, onClose, startEditing, initialTab }) => (
-      <TasksProvider><TicketDrawer ticketId={ticketId} onClose={onClose} startEditing={startEditing} initialTab={initialTab} /></TasksProvider>
+    default: ({ ticketId, onClose, startEditing, initialTab, dirtyRef }) => (
+      <TasksProvider><TicketDrawer ticketId={ticketId} onClose={onClose} startEditing={startEditing} initialTab={initialTab} dirtyRef={dirtyRef} /></TasksProvider>
     ),
   };
 });
@@ -270,8 +271,22 @@ export default function Support({ activeSub, onSubChange }) {
     return () => { live = false; };
   }, []);
   // { id, edit } - `edit` opens the drawer straight into its editor (the pencil).
-  const [viewing, setViewing] = useState(null);
-  const setViewingTicketId = useCallback((id) => setViewing(id ? { id } : null), []);
+  // `n` numbers each open, and keys the drawer: clicking the same row again
+  // (after a drawer that could not show the ticket) mounts a fresh one
+  // rather than leaving the old one where it was.
+  const [viewing, setViewingState] = useState(null);
+  const openSeq = useRef(0);
+  const setViewing = useCallback((v) => {
+    if (!v) { setViewingState(null); return; }
+    openSeq.current += 1;
+    setViewingState({ ...v, n: openSeq.current });
+  }, []);
+  const setViewingTicketId = useCallback((id) => setViewing(id ? { id } : null), [setViewing]);
+  // Whether the open drawer holds unsaved edits (TicketDrawer keeps it
+  // current) - a bell click opening another ticket asks before dropping them.
+  const drawerDirtyRef = useRef(false);
+  const viewingIdRef = useRef(null);
+  useEffect(() => { viewingIdRef.current = viewing?.id || null; }, [viewing]);
   const [listTab, setListTab] = useState('open');   // 'open' | 'following' | 'closed'
   const [action, setAction] = useState(null);       // { mode: 'confirm' | 'reopen' | 'self_resolve' | 'resolve', ticket }
   const [tickets, setTickets] = useState(null);
@@ -323,7 +338,12 @@ export default function Support({ activeSub, onSubChange }) {
   // access) and then fires this - a mount-time query param alone can't reach
   // a Support page that's already mounted.
   useEffect(() => {
-    const openTicket = (e) => { const id = e.detail?.ticketId; if (id) setViewingTicketId(id); };
+    const openTicket = async (e) => {
+      const id = e.detail?.ticketId;
+      if (!id || id === viewingIdRef.current) return;
+      if (drawerDirtyRef.current && !(await confirmSwitchTicket())) return;
+      setViewingTicketId(id);
+    };
     window.addEventListener('nexus:open-ticket', openTicket);
     // Support isn't lazy(), but the view it's switched into might not be
     // mounted yet the instant the bell dispatches nexus:navigate - the same
@@ -760,7 +780,8 @@ export default function Support({ activeSub, onSubChange }) {
           {/* Reload on close too - the drawer can change the ticket (within
               the requester's own edit access) and marks it seen, and the
               table above should reflect both without a manual refresh. */}
-          <TicketDetail ticketId={viewing.id} startEditing={!!viewing.edit} initialTab={viewing.tab || null} onClose={() => { setViewing(null); load(); }} />
+          <TicketDetail key={viewing.n} ticketId={viewing.id} startEditing={!!viewing.edit} initialTab={viewing.tab || null}
+            dirtyRef={drawerDirtyRef} onClose={() => { setViewing(null); load(); }} />
         </Suspense>
       )}
 
