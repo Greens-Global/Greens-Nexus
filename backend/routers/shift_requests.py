@@ -143,7 +143,15 @@ _DEFAULTS = {"openShifts": False, "swaps": False, "offers": False, "teamSchedule
              # weekly overtime on the payroll week. OFF by default - a CA
              # team on 8-hour days would hear about every person every day;
              # 0 turns one threshold off.
-             "otAlertOn": False, "otAlertDailyLeadMin": 30, "otAlertWeeklyLeadMin": 120}
+             "otAlertOn": False, "otAlertDailyLeadMin": 30, "otAlertWeeklyLeadMin": 120,
+             # Require Location to Punch (Neil's checklist, Oct 19 2026,
+             # routers/timeclock.py punch()): with this on, a live clock in /
+             # out / break punch that carries no coordinates is refused and the
+             # person is told to turn location on. OFF by default so nobody is
+             # locked out of punching the day it ships; with it off, a punch
+             # with no location still lands and shows "No Location" on the
+             # Time Sheet.
+             "requireLocationToPunch": False}
 _TEXT_SETTINGS = ("timeZone", "weekStart")
 SHOW_AS = ("free", "busy")
 # key -> (min, max), clamped on read and save
@@ -348,6 +356,7 @@ class SettingsIn(BaseModel):
     otAlertOn: Optional[bool] = None            # live overtime alert to the manager (Oct 17; off by default)
     otAlertDailyLeadMin: Optional[int] = None   # 0-240; minutes before daily overtime ('ca' rule); 0 = off
     otAlertWeeklyLeadMin: Optional[int] = None  # 0-480; minutes before weekly overtime; 0 = off
+    requireLocationToPunch: Optional[bool] = None   # refuse a live punch with no coordinates (Oct 19; off by default)
 
 
 @router.get("/settings")

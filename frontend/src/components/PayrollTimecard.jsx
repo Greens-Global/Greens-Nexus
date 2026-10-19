@@ -192,7 +192,7 @@ function outOfLocationHint(site, dist) {
 }
 // Clickable (Sep 30 - "still not able to click on locations"): the cell was
 // only ever a tooltip, so nothing happened on click. With `onOpen` every chip -
-// a site name, Out of Location, Location off, the Out-punch tail - is one
+// a site name, Out of Location, No Location, the Out-punch tail - is one
 // button that opens that shift's punches on the Geofence Punch map.
 const locChipBtn = {
   background: 'none', border: 'none', padding: 0, margin: 0, font: 'inherit', color: 'inherit', textAlign: 'left',
@@ -208,14 +208,14 @@ export function LocCell({ seg, onOpen }) {
   const outTail = outDiffers ? (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: geoOut === 'out_of_fence' ? '#b45309' : geoOut === 'no_location' ? '#b91c1c' : 'var(--muted)' }}
       title={geoOut === 'out_of_fence' ? `Out punch: ${outOfLocationHint(seg.workSiteOut, seg.distanceOut)}` : geoOut === 'no_location' ? 'Out punch: no location shared' : geoOut === 'no_site' ? 'Out punch: none of their locations is on the map yet' : geoOut === 'low_accuracy' ? 'Out punch: only a rough location (no GPS) - too rough to tell which site' : `Out punch: ${seg.workSiteOut || geoOut}`}>
-      <ArrowRight size={10} /> {geoOut === 'out_of_fence' ? 'Out of Location' : geoOut === 'no_location' ? 'Out: location off' : geoOut === 'no_site' ? 'Out: no site mapped' : geoOut === 'low_accuracy' ? 'Out: approx.' : (seg.workSiteOut || (geoOut === 'remote' ? 'Remote' : 'Out'))}
+      <ArrowRight size={10} /> {geoOut === 'out_of_fence' ? 'Out of Location' : geoOut === 'no_location' ? 'Out: No Location' : geoOut === 'no_site' ? 'Out: no site mapped' : geoOut === 'low_accuracy' ? 'Out: approx.' : (seg.workSiteOut || (geoOut === 'remote' ? 'Remote' : 'Out'))}
     </span>
   ) : null;
   let chip, title, style = { display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12 };
   if (geo === 'no_location') {
     style = { ...style, color: '#b91c1c', fontWeight: 700 };
     title = 'No location was shared for this punch - turned off or not allowed in the browser.';
-    chip = <><MapPinOff size={12} style={{ flexShrink: 0 }} /> <span className="loc-chip-text">Location off</span>{outTail}</>;
+    chip = <><MapPinOff size={12} style={{ flexShrink: 0 }} /> <span className="loc-chip-text">No Location</span>{outTail}</>;
   } else if (geo === 'out_of_fence') {
     style = { ...style, color: '#b45309', fontWeight: 700 };
     title = outOfLocationHint(site, seg.distance);

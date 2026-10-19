@@ -394,6 +394,31 @@ def _has_fence(site) -> bool:
 
 _NO_LOCATION = {"geo_status": "no_location", "work_site_id": "", "work_site_name": "", "distance_m": 0}
 
+# Require Location to Punch (Neil's checklist, Oct 19 2026): a per-company
+# switch in the shift settings (routers/shift_requests._DEFAULTS, off by
+# default). When it is on, POST /punch refuses a punch with no coordinates.
+LOCATION_REQUIRED_MSG = ("Your location is required to punch. Turn on location for this "
+                         "site in your browser, then try again.")
+
+
+def _has_coords(lat, lng) -> bool:
+    """Both coordinates present and numeric - what "the punch has a location"
+    means for the Require Location to Punch rule."""
+    try:
+        return bool((lat or "").strip() and (lng or "").strip()
+                    and math.isfinite(float(lat)) and math.isfinite(float(lng)))
+    except (TypeError, ValueError, AttributeError):
+        return False
+
+
+def _location_required(db: Session, email: str) -> bool:
+    """Whether this person's company requires a location on every live punch."""
+    from routers.shift_requests import settings_for as _sr_settings_for
+    try:
+        return bool(_sr_settings_for(db, email).get("requireLocationToPunch"))
+    except Exception:
+        return False   # a settings read failure never blocks punching
+
 
 def _geo_context(db: Session, email: str = "") -> dict:
     """What this person's punches are judged against, loaded ONCE per request
@@ -940,6 +965,9 @@ def my_status(tz_offset_min: int = 0, user: dict = Depends(get_current_user), db
         "days": summaries,
         "todayUtc": today,
         "geofencedSites": sites,
+        # Require Location to Punch (Oct 19 2026): the clients block a punch
+        # with no location up front instead of letting the server refuse it.
+        "locationRequired": _location_required(db, email),
         "bodRequired": (has_bod is None and has_in is None) and not _bod_ex,
         # Role-flagged people skip EVERY message prompt (BOD, EOD, break start/
         # end) - punches go straight through (Neil, Aug 25).
@@ -1047,6 +1075,11 @@ def punch(body: PunchIn, request: Request,
             # stays for older clients.
             raise HTTPException(409, {"code": "stale_open_shift", "message": _msg, "text": _msg})
         raise HTTPException(409, f"Can't punch '{body.kind}' right now - allowed: {', '.join(allowed)}")
+    # Require Location to Punch (Oct 19 2026): per company, off by default.
+    # Checked before the day-message gates so the person fixes location first.
+    # 400 (not 409): the offline queue treats it as a real refusal, never parks it.
+    if not _has_coords(body.lat, body.lng) and _location_required(db, email):
+        raise HTTPException(400, {"code": "location_required", "message": LOCATION_REQUIRED_MSG})
     # Beginning / End-of-day messages are POLICY, enforced here for every
     # surface (Neil, Oct 16: "enforced per policy everywhere based on roles"),
     # not only by whichever screen the person punched from. Roles flagged

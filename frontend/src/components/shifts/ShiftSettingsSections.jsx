@@ -270,6 +270,9 @@ export function ShiftSettingsPanel({ toastOk, toastErr }) {
                 <MinutesField label="Weekly Overtime Warning" aria="Weekly overtime warning" max={480} value={cfg.otAlertWeeklyLeadMin} fallback={120} onSave={(n) => save({ otAlertWeeklyLeadMin: n })}
                   hint="Minutes before 40 hours of regular time in a payroll week (Sunday to Saturday). 0 turns it off." />
               </div>
+              {/* Require Location to Punch (Oct 19 2026, routers/timeclock.py punch()). */}
+              <label style={{ ...CHECK, marginTop: 10 }}><input type="checkbox" checked={cfg.requireLocationToPunch === true} onChange={(e) => save({ requireLocationToPunch: e.target.checked })} /> Require Location to Punch</label>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Off unless turned on here. When on, a clock in, clock out or break punch from Nexus is refused unless the browser shares a location, and the person is shown how to turn location on. When off, a punch without a location still records and shows No Location on the Time Sheet. Missed punch requests and manager edits are not affected.</div>
             </div>
             <div>
               <div style={LBL}>Rules</div>
