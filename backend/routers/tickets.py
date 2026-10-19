@@ -837,6 +837,49 @@ def _queue_assignment_dms(db: Session, t: models.TaskTicket, prev_assignee: str)
     return rows
 
 
+class ListScope:
+    """What the unscoped ticket list (GET /task-tickets without `mine`) lets
+    this caller see - the ONE definition, shared with the Ticket Reports
+    (ticket_reports.py) so a report can never show a ticket the list hides.
+
+    `apply(q)` narrows any query over task_tickets in SQL: the company wall,
+    and - off the desk - a loose participant match. `admits(row)` is the exact
+    final guard (the watcher match in SQL is a LIKE on the JSON text, never
+    the decision). A row only needs the columns _ticket_readers reads, so a
+    column-only query works as well as full ORM rows."""
+
+    def __init__(self, db: Session, user: dict):
+        import auth
+        self.me = (user.get("email") or "").lower()
+        # Company wall (Aug 2026): once armed, the desk queue is confined to the
+        # caller's own companies - a ticket carries the requester's company_id, and a
+        # Global Admin (scope None) still sees them all. Off = unchanged.
+        self.company = auth.company_scope(user, db)
+        self.desk = _has_desk_grant(user, db)
+
+    def _person_sql(self, *cols):
+        T_ = models.TaskTicket
+        conds = [func.lower(func.coalesce(c, "")) == self.me for c in cols]
+        conds.append(func.lower(cast(T_.watcher_emails, String)).like(f'%"{self.me}"%'))
+        return or_(*conds)
+
+    def apply(self, q, *, people: bool = True):
+        T_ = models.TaskTicket
+        if self.company is not None:
+            q = q.filter(func.coalesce(T_.company_id, "").in_(sorted(self.company)))
+        # Without the desk grant the scope is forced, not requested: the unscoped
+        # list IS the agent queue. Forced scope = exactly who may open a ticket
+        # (_ticket_readers): a ticket filed for a colleague, or waiting on my
+        # approval, opens from here too.
+        if people and not self.desk:
+            q = q.filter(or_(self._person_sql(T_.requester_email, T_.created_by_email, T_.assignee_email),
+                             func.lower(func.coalesce(T_.approver_email, "")) == self.me))
+        return q
+
+    def admits(self, t) -> bool:
+        return self.desk or self.me in _ticket_readers(t)
+
+
 @router.get("/task-tickets")
 def list_tickets(mine: bool = False, user: dict = Depends(get_current_user),
                  db: Session = Depends(get_db)):
@@ -863,22 +906,13 @@ def list_tickets(mine: bool = False, user: dict = Depends(get_current_user),
     # database and filtered in Python), with the Python checks below kept as
     # the exact final guard - the watcher match in SQL is a text match on the
     # JSON list, deliberately loose (LIKE wildcards), never the decision.
-    import auth
     T_ = models.TaskTicket
-    q = db.query(T_)
-    # Company wall (Aug 2026): once armed, the desk queue is confined to the
-    # caller's own companies - a ticket carries the requester's company_id, and a
-    # Global Admin (scope None) still sees them all. Off = unchanged.
-    _cscope = auth.company_scope(user, db)
-    if _cscope is not None:
-        q = q.filter(func.coalesce(T_.company_id, "").in_(sorted(_cscope)))
-    me = (user.get("email") or "").lower()
-    desk = _has_desk_grant(user, db)
-
-    def _person_sql(*cols):
-        conds = [func.lower(func.coalesce(c, "")) == me for c in cols]
-        conds.append(func.lower(cast(T_.watcher_emails, String)).like(f'%"{me}"%'))
-        return or_(*conds)
+    scope = ListScope(db, user)
+    _cscope, me, desk = scope.company, scope.me, scope.desk
+    _person_sql = scope._person_sql
+    # Company wall only here; the participant filter for an off-desk caller
+    # is scope.apply's own (the not-desk branch below).
+    q = scope.apply(db.query(T_), people=False)
 
     def _watching(t) -> bool:
         return me in [(w or "").lower() for w in (t.watcher_emails or [])]
@@ -899,9 +933,8 @@ def list_tickets(mine: bool = False, user: dict = Depends(get_current_user),
     # Forced scope = exactly who may open a ticket (_ticket_readers): a ticket
     # filed for a colleague, or waiting on my approval, opens from here too.
     elif not desk:
-        q = q.filter(or_(_person_sql(T_.requester_email, T_.created_by_email, T_.assignee_email),
-                         func.lower(func.coalesce(T_.approver_email, "")) == me))
-        rows = [t for t in q.all() if me in _ticket_readers(t)]
+        q = scope.apply(q)
+        rows = [t for t in q.all() if scope.admits(t)]
     else:
         rows = q.all()
     # Latest comment per ticket - at most two queries for the whole list (the
