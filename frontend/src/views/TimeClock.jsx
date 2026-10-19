@@ -19,12 +19,14 @@ import { useTimeStatus, patchTimeStatus } from '../lib/useTimeStatus';
 import { punchDurable, replayPending, readPending, utcStamp } from '../lib/punchQueue';
 import { replayPendingBods, bodDurable } from '../lib/bodQueue';
 import { formatTime, formatDate, formatWeekday, formatHHMM, formatMonthDay } from '../lib/datetime';
+import { dialog } from '../ui/dialog';
 import { getPosition, punchPosition } from '../lib/geoPosition';
 import { MyHROverview } from './MyHR';
 import { leaveRequestDays, openShiftMinutes } from '../lib/workdayStats';
 import { timeOffLabel } from '../components/shiftScheduleLib';
 import WorkdayShiftRequests from '../components/shifts/WorkdayShiftRequests';
 import { formatDistance, formatAccuracy } from '../lib/distance';
+import { LeaveBalanceCard, RequestBalanceHint, useMyLeaveBalance } from '../components/LeaveBalances';
 import { recallTimeExempt, rememberTimeExempt } from '../lib/timeTracking';
 import { pairLocalAgent } from '../lib/agentPair';
 
@@ -541,15 +543,34 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   // stack fresh when one is created (a timeclock-changed event fires on success).
   const loadMyRequests = useCallback(() => { api.timeMyPunchRequests().then(setMyReqs).catch(() => {}); }, []);
   // Decided requests (approved/rejected) can be dismissed once the employee has
-  // seen them; pending ones stay until decided. Dismissals persist per-browser.
-  const [dismissedReqs, setDismissedReqs] = useState(() => {
+  // seen them; pending ones can be cancelled. Dismissals are saved on the
+  // server (Miranda, Oct 18: a browser-only dismissal came back on every
+  // login); the old browser list still hides what it hid before.
+  const [dismissedReqs] = useState(() => {
     try { return new Set(JSON.parse(localStorage.getItem('nx-timereq-dismissed') || '[]')); } catch { return new Set(); }
   });
-  const dismissReq = (id) => setDismissedReqs(prev => {
-    const n = new Set(prev); n.add(id);
-    try { localStorage.setItem('nx-timereq-dismissed', JSON.stringify([...n])); } catch { /* ignore */ }
-    return n;
-  });
+  const [reqBusy, setReqBusy] = useState('');
+  const dismissReq = (id) => {
+    setMyReqs(rs => rs.map(r => (r.id === id ? { ...r, dismissed: true } : r)));
+    api.timeDismissPunchRequest(id).catch(() => loadMyRequests());
+  };
+  const dismissAllReqs = () => {
+    setMyReqs(rs => rs.map(r => (r.status !== 'pending' ? { ...r, dismissed: true } : r)));
+    api.timeDismissDecidedPunchRequests().catch(() => loadMyRequests());
+  };
+  const cancelReq = async (r) => {
+    const what = r.action === 'add' ? `the ${(KIND_LABEL[r.punchKind] || r.punchKind).toLowerCase()} at ${localTime(r.at)}` : 'this punch removal';
+    if (!await dialog.confirm(`Cancel your request for ${what}? Nothing on your time sheet changes.`,
+      { title: 'Cancel Request', confirmText: 'Cancel Request', cancelText: 'Keep It', danger: true })) return;
+    setReqBusy(r.id);
+    try {
+      await api.timeCancelPunchRequest(r.id);
+      toast(true, 'Request cancelled.');
+      window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));
+    } catch (e) { toast(false, e?.message || 'Could not cancel the request.'); }
+    setReqBusy('');
+    loadMyRequests();
+  };
   const [, setTick] = useState(0);             // re-render for the live timer
   useEffect(() => { loadMyRequests(); }, [loadMyRequests]);
   const msgTimer = useRef(null);
@@ -666,6 +687,8 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   const [toBusy, setToBusy] = useState(false);
   const [toCancelling, setToCancelling] = useState(null);
   useEffect(() => { api.timeOffMine().then(setTimeoff).catch(() => setTimeoff([])); }, []);
+  // Paid leave balances (Oct 19 2026) - shown once HR has set them up.
+  const [leaveBal, reloadLeaveBal] = useMyLeaveBalance();
   // The admins' requests on/off switch (Sep 29, Shifts settings). The
   // reasons themselves are the fixed REQUEST_TIMEOFF_TYPES list (Neil, Oct 1).
   const [toTypes, setToTypes] = useState(null);
@@ -707,6 +730,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       toast(true, 'Time-off request sent - your manager gets a notification.');
       setToForm({ type: 'personal', start: '', end: '', allDay: true, startTime: '', endTime: '', note: '', confidential: false });
       api.timeOffMine().then(setTimeoff).catch(() => {});
+      reloadLeaveBal();
     } catch (e) { toast(false, e?.message || 'Could not send the request.'); }
     setToBusy(false);
   }
@@ -718,6 +742,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       await api.timeOffCancel(id);
       toast(true, 'Request cancelled.');
       api.timeOffMine().then(setTimeoff).catch(() => {});
+      reloadLeaveBal();
     } catch (e) { toast(false, e?.message || 'Could not cancel the request.'); }
     setToCancelling(null);
   }
@@ -1346,11 +1371,20 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
         const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
         const day = (r) => r.localDate || today;
         const inPeriod = (r) => day(r) >= pStart && day(r) <= pEnd;
-        const visible = myReqs.filter(r => (r.status === 'pending' || !dismissedReqs.has(r.id)) && inPeriod(r));
+        const visible = myReqs.filter(r => r.status !== 'cancelled'
+          && (r.status === 'pending' || !(r.dismissed || dismissedReqs.has(r.id))) && inPeriod(r));
         if (!visible.length) return null;
+        const decidedCount = visible.filter(r => r.status !== 'pending').length;
         return (
         <div style={{ marginBottom: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--muted)' }}>Change Requests This Period</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--muted)' }}>Change Requests This Period</span>
+            <span style={{ flex: 1 }} />
+            {decidedCount > 1 && (
+              <button onClick={dismissAllReqs} title="Clear every approved and rejected request from this list"
+                style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 11.5, fontWeight: 700, padding: '2px 4px' }}>Clear All</button>
+            )}
+          </div>
           {visible.slice(0, 20).map(r => {
             const c = r.status === 'approved' ? 'hsl(var(--color-green))'
               : r.status === 'rejected' ? 'hsl(var(--color-red))' : '#b45309';
@@ -1373,7 +1407,17 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
                 {decided
                   ? <button onClick={() => dismissReq(r.id)} title="Dismiss" aria-label="Dismiss this request"
                       style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'inline-flex', padding: 2, flexShrink: 0 }}><X size={14} /></button>
-                  : <span style={{ fontSize: 11, color: 'var(--muted)', fontStyle: 'italic', flexShrink: 0 }}>waiting for approver</span>}
+                  : <>
+                      <span style={{ fontSize: 11, color: 'var(--muted)', fontStyle: 'italic', flexShrink: 0 }}>waiting for approver</span>
+                      {/* Take a request back while it's pending (Miranda, Oct 18: one
+                          filed by mistake blocked the right one as "already asked"). */}
+                      <button onClick={() => cancelReq(r)} disabled={reqBusy === r.id} title="Cancel this request"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', flexShrink: 0,
+                          cursor: reqBusy === r.id ? 'default' : 'pointer', fontSize: 11, fontWeight: 700, color: '#b91c1c',
+                          padding: '2px 6px', opacity: reqBusy === r.id ? 0.5 : 1 }}>
+                        {reqBusy === r.id ? <Spinner size={11} /> : <X size={11} />} Cancel
+                      </button>
+                    </>}
               </div>
             );
           })}
@@ -1386,6 +1430,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       {/* Time off */}
 
       {tab === 'timeoff' && (<>
+      <LeaveBalanceCard balance={leaveBal} />
       <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '16px 18px', marginBottom: 12, boxShadow: 'var(--wk-shadow)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 14 }}>
           <span className="wkc-chip"><CalendarDays size={14} /></span>
@@ -1429,6 +1474,9 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
               style={{ justifySelf: 'start', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 12, fontWeight: 600, color: 'var(--wk-brand)' }}>
               {toPast ? 'Only Upcoming Dates' : 'Request for a Past Date'}
             </button>
+
+            <RequestBalanceHint balance={leaveBal} type={toForm.type}
+              hours={toPartialOk ? toTotalHours : toTotalDays * (Number(leaveBal?.policy?.hoursPerDay) || 8)} />
 
             {/* Specific hours: only offered on a one-day range, since that's
                 all the backend accepts a start/end time on. */}

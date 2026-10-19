@@ -32,6 +32,7 @@ import { SkeletonBlocks, ErrorBanner, Spinner, LoadingState } from '../component
 import { ensureStepUp, isStepUpRequired, StepUpNeeded } from '../stepup/StepUp';
 import { useRole, MODULES, MODULE_LEVELS, ROLES } from '../contexts/RoleContext';
 import TimeAdmin from '../components/TimeAdmin';
+import LeaveBalancesAdmin from '../components/LeaveBalances';
 import ModuleTabs from '../components/ModuleTabs';
 import PhotoEditorModal from '../components/PhotoEditorModal';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
@@ -6252,6 +6253,7 @@ export default function HR({ activeSub, onSubChange }) {
           }} />
       )}
       {sub === 'hr-org' && <OrgChartTab employees={employees} externals={extEmployees} entities={entities} onUpdated={onSaved} toastOk={toastOk} toastErr={toastErr} />}
+      {sub === 'hr-leave' && <LeaveBalancesAdmin toastOk={toastOk} toastErr={toastErr} />}
       {sub === 'hr-leave' && <LeaveTab employees={employees} toastOk={toastOk} toastErr={toastErr} />}
       {/* Approval Delegations (Oct 17): HR sees and sets everyone's stand-ins. */}
       {sub === 'hr-leave' && <ApprovalDelegationsAdmin toastOk={toastOk} toastErr={toastErr} />}
