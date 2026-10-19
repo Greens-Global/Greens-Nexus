@@ -7,6 +7,7 @@ import { isBypassing } from '../lib/dialogGuard';
 import { Camera, CheckCircle, XCircle, RotateCcw, AlertCircle, User, Package, ZoomIn, MapPin } from 'lucide-react';
 import { api } from '../api';
 import { emailToName } from '../lib/utils';
+import { formatMonthDay } from '../lib/datetime';
 import { supabase } from '../lib/supabase';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { usePeopleDirectory } from '../lib/queries';
@@ -294,7 +295,7 @@ export function MyPermanentPanel({ assignments, userEmail, refresh, toast }) {
               <div>
                 <div style={{ fontWeight: 700, fontSize: 14 }}>{a.itemName}</div>
                 <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-                  Assigned by {a.assignedBy || '-'}{a.acceptedAt ? ` · accepted ${new Date(a.acceptedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}
+                  Assigned by {a.assignedBy || '-'}{a.acceptedAt ? ` · accepted ${formatMonthDay(a.acceptedAt)}` : ''}
                 </div>
               </div>
               <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>

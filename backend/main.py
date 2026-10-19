@@ -1068,6 +1068,8 @@ def _run_migrations():
             # Shifts Phase 3a (Oct 14): Outlook calendar opt-out and the subscribe-link salt. models.NexusPersonPref.
             "ALTER TABLE nexus_person_prefs ADD COLUMN shift_calendar INTEGER DEFAULT 1",
             "ALTER TABLE nexus_person_prefs ADD COLUMN ical_salt VARCHAR DEFAULT ''",
+            # Profile > Date Format (Oct 20). models.NexusPersonPref.
+            "ALTER TABLE nexus_person_prefs ADD COLUMN date_format VARCHAR DEFAULT ''",
             # Shifts Phase 3a review (Oct 15): failed sync tries per queued row. models.ShiftCalendarEvent.
             "ALTER TABLE shift_calendar_events ADD COLUMN attempts INTEGER DEFAULT 0",
             # Hiring board (Neil, Oct 14): expected interview date, rejected -> inactive.
@@ -2423,6 +2425,8 @@ def _run_migrations():
         # Shifts Phase 3a (Oct 14): Outlook calendar opt-out and the subscribe-link salt. models.NexusPersonPref.
         "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS shift_calendar INTEGER DEFAULT 1",
         "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS ical_salt VARCHAR DEFAULT ''",
+        # Profile > Date Format (Oct 20). models.NexusPersonPref.
+        "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS date_format VARCHAR DEFAULT ''",
         # Shifts Phase 3a review (Oct 15): failed sync tries per queued row. models.ShiftCalendarEvent.
         "ALTER TABLE shift_calendar_events ADD COLUMN IF NOT EXISTS attempts INTEGER DEFAULT 0",
         # Hiring board (Neil, Oct 14): expected interview date, rejected -> inactive.

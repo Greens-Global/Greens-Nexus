@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { formatRangeShort, weekOfYear } from './datetime';
+import { describe, it, expect, afterEach } from 'vitest';
+import { formatRangeShort, weekOfYear, formatDate, formatDateTime, formatDateLong, formatMonthDay, setDateFormat, getDateFormat } from './datetime';
 
 describe('formatRangeShort (the Schedule date block, 10/02)', () => {
   it('names both months across a month boundary', () => {
@@ -53,6 +53,35 @@ describe('wallClock (Oct 2 - punches on the employee clock)', () => {
     expect(punchTime('2026-10-01T21:00:00', -330, '2026-10-01')).toMatch(/^2:30 AM, Oct 2/);
     // Same zone as the viewer: no zone tag.
     expect(punchTime('2026-10-01T21:00:00', tz, '2026-10-01')).not.toMatch(/GMT/);
+  });
+});
+
+describe('Profile > Date Format (Oct 20 2026)', () => {
+  afterEach(() => setDateFormat('MM/DD/YYYY'));
+  const cases = [
+    ['MM/DD/YYYY', '10/19/2026', 'Oct 19, 2026', 'Oct 19'],
+    ['DD/MM/YYYY', '19/10/2026', '19 Oct 2026', '19 Oct'],
+    ['YYYY-MM-DD', '2026-10-19', '2026-10-19', 'Oct 19'],
+    ['DD MMM YYYY', '19 Oct 2026', '19 Oct 2026', '19 Oct'],
+  ];
+  it.each(cases)('%s', (fmt, short, long, monthDay) => {
+    setDateFormat(fmt);
+    expect(formatDate('2026-10-19')).toBe(short);            // a bare date never rolls back a day
+    expect(formatDate(new Date(2026, 9, 19, 23, 30))).toBe(short);
+    expect(formatDateLong('2026-10-19')).toBe(long);
+    expect(formatMonthDay('2026-10-19')).toBe(monthDay);
+    expect(formatDateTime(new Date(2026, 9, 19, 14, 1)).replace(/\s/g, ' ')).toBe(`${short}, 2:01 PM`);
+  });
+  it('defaults to MM/DD/YYYY and refuses anything else', () => {
+    expect(getDateFormat()).toBe('MM/DD/YYYY');
+    setDateFormat('nonsense');
+    expect(getDateFormat()).toBe('MM/DD/YYYY');
+    expect(formatDate('')).toBe('');
+  });
+  it('day-first people read ranges day-first', () => {
+    setDateFormat('DD/MM/YYYY');
+    expect(formatRangeShort('2026-09-28', '2026-10-04')).toBe('28 Sep - 4 Oct');
+    expect(formatRangeShort('2026-10-05', '2026-10-11')).toBe('5 - 11 Oct');
   });
 });
 

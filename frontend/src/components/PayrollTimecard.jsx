@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { ChevronLeft, ChevronRight, ArrowRight, ArrowDown, Pencil, Plus, X, CheckCircle, Download, AlertTriangle, MapPin, MapPinOff, PlayCircle, Info, SlidersHorizontal, Lock } from 'lucide-react';
 import { api } from '../api';
-import { formatDate, formatDateTime } from '../lib/datetime';
+import { formatDate, formatDateTime, formatMonthDayNumeric } from '../lib/datetime';
 import { TZ_OPTIONS, useDisplayTz, setDisplayTz, formatTimeTz, utcToInputTz, inputToUtcTz, tzOffsetForInput, useOwnZone } from '../lib/displayTz';
 import { dialog } from '../ui/dialog';
 import { useWorkSites } from '../lib/queries';
@@ -819,7 +819,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
 
   // Always US month/day (Oct 16): [] took the browser's locale, so an India-locale
   // browser read 'Sun 11/10' for October 11.
-  const dow = (ds) => `${new Date(ds + 'T00:00').toLocaleDateString('en-US', { weekday: 'short' })} ${ds.slice(5, 7)}/${ds.slice(8, 10)}`;
+  const dow = (ds) => `${new Date(ds + 'T00:00').toLocaleDateString('en-US', { weekday: 'short' })} ${formatMonthDayNumeric(ds, true)}`;
   const pm = data?.punchMeta || {};
   // What a row's Edit opens: the shift's form, or the break fixer on a Break row.
   const isBreakRow = (r) => r.type === 'break';
@@ -1005,7 +1005,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
             const wkEnd = new Date(new Date(it.week + 'T00:00').getTime() + 6 * DAY);
             return (
               <div key={'wk' + i} className="pr-days-week">
-                <span>Week of {new Date(it.week + 'T00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })} to {wkEnd.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })}</span>
+                <span>Week of {formatMonthDayNumeric(it.week)} to {formatMonthDayNumeric(wkEnd)}</span>
                 <span>{hhmm(weekTotals[it.week]?.min || 0)}</span>
               </div>
             );
@@ -1342,7 +1342,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                 <tr key={i}>
                   {/* The week's total stands out in a yellow tint (Pranshu, Oct 16). */}
                   <td colSpan={span} style={{ ...gc, background: 'rgba(234,179,8,0.18)', fontWeight: 700, fontSize: 12 }}>
-                    Total hours clocked for week of {new Date(r.week + 'T00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })} to {new Date(new Date(r.week + 'T00:00').getTime() + 6 * DAY).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })}: {hhmm(weekTotals[r.week]?.min || 0)}
+                    Total hours clocked for week of {formatMonthDayNumeric(r.week)} to {formatMonthDayNumeric(new Date(new Date(r.week + 'T00:00').getTime() + 6 * DAY))}: {hhmm(weekTotals[r.week]?.min || 0)}
                   </td>
                 </tr>
               ) : r.type === 'auto' ? (
@@ -1724,7 +1724,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
   const monthLabel = data.periodStart ? new Date(data.periodStart + 'T00:00').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }) : '';
   // Always US month/day (Oct 16): [] took the browser's locale, so an India-locale
   // browser read 'Sun 11/10' for October 11.
-  const dow = (ds) => `${new Date(ds + 'T00:00').toLocaleDateString('en-US', { weekday: 'short' })} ${ds.slice(5, 7)}/${ds.slice(8, 10)}`;
+  const dow = (ds) => `${new Date(ds + 'T00:00').toLocaleDateString('en-US', { weekday: 'short' })} ${formatMonthDayNumeric(ds, true)}`;
   const STATUS = {
     working: { label: 'Working', bg: 'var(--wk-brand-tint)', fg: 'var(--wk-brand)' },
     present: { label: 'Present', bg: 'hsla(var(--color-green),0.12)', fg: 'hsl(var(--color-green))' },

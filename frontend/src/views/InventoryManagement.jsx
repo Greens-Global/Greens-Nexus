@@ -12,7 +12,7 @@ import { supabase }         from '../lib/supabase';
 import { useMsal }          from '@azure/msal-react';
 import { cleanName }        from '../lib/utils';
 import { useNameResolver }  from '../lib/useNameResolver';
-import { formatDate, formatDateLong, formatTime } from '../lib/datetime';
+import { formatDate, formatDateLong, formatDateTime, formatMonthDay, formatTime, formatWeekday } from '../lib/datetime';
 import { useAssignments, MyPermanentPanel, AssignmentsQueue, AssignItemModal } from '../components/Assignments';
 import { renderNotifBody } from '../components/NotificationBell';
 import { useUnsavedGuard } from '../lib/useUnsavedGuard';
@@ -1661,7 +1661,7 @@ function orderActivitySummary(orderItems) {
 function fmtAuditStamp(iso) {
   if (!iso) return '';
   const d = new Date(/[zZ]$|[+-]\d{2}:\d{2}$/.test(iso) ? iso : iso + 'Z');
-  return d.toLocaleString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true }) + ' PT';
+  return formatDateTime(d, '', 'America/Los_Angeles') + ' PT';
 }
 
 // Audit rows store raw emails and full checkout IDs - display friendly forms:
@@ -1831,7 +1831,8 @@ function auditDayLabel(key) {
   if (key === todayKey) return 'Today';
   if (key === yKey)     return 'Yesterday';
   const [y, m, d] = key.split('-').map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday:'short', day:'numeric', month:'short', year:'numeric' });
+  const day = new Date(y, m - 1, d);
+  return `${formatWeekday(day, 'short')}, ${formatDate(day)}`;
 }
 function auditTime(iso) {
   if (!iso) return '';
@@ -2748,7 +2749,7 @@ const MyCheckoutsPanel = memo(function MyCheckoutsPanel({ checkouts, userEmail, 
     return Array.from(map.values());
   })();
 
-  const fmtDateShort = iso => new Date(iso).toLocaleDateString('en-US', { month:'short', day:'numeric' });
+  const fmtDateShort = iso => formatMonthDay(iso);
 
   const myAssignments = assignments.filter(a => a.assigneeEmail === userEmail);
   const liveAssignCount = myAssignments.filter(a => ['pending_acceptance','active','return_initiated'].includes(a.status)).length;
@@ -6980,7 +6981,7 @@ const ManagerCheckoutsTab = memo(function ManagerCheckoutsTab({ checkouts, items
     refreshCheckouts();
   }
 
-  const fmtDate = iso => new Date(iso).toLocaleDateString('en-US', { month:'short', day:'numeric' });
+  const fmtDate = iso => formatMonthDay(iso);
 
   const liveAssignments = assignments.filter(a => ['pending_acceptance','active','return_initiated'].includes(a.status)).length;
   return (
