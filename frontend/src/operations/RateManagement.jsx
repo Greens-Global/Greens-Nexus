@@ -167,7 +167,7 @@ export function ReviewModal({ view, onClose, onPushed, onChecklist }) {
       <button type="button" className="secondary-btn" onClick={() => onChecklist(chosen)} disabled={!chosen.length}
         style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Download size={14} aria-hidden="true" /> Export Checklist</button>
       <button type="button" className="secondary-btn" onClick={onClose}>Cancel</button>
-      {view.canPush && (
+      {view.canPush && view.pushConnected !== false && (
         <button type="button" className="primary-btn" onClick={push} disabled={busy || !chosen.length}
           style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <Send size={14} aria-hidden="true" /> {busy ? 'Pushing' : `Push ${chosen.length} to Cubby`}
@@ -180,7 +180,8 @@ export function ReviewModal({ view, onClose, onPushed, onChecklist }) {
       <p className="ops-note" style={{ marginTop: 0 }}>
         Each unit type is sent to Cubby on its own, so every row gets its own result. The Sell rate is Cubby&apos;s web rate;
         the Set rate (standard) moves by the same amount unless one was typed.
-        {view.canPush ? '' : ' Only managers and above can push. Export the checklist to hand it on.'}
+        {!view.canPush ? ' Only managers and above can push. Export the checklist to hand it on.'
+          : view.pushConnected === false ? ' Pushing needs a Manager-role Cubby key on this server. Until then, export the checklist and enter the rates in Cubby.' : ''}
       </p>
       {ready.length === 0 ? <div className="ops-empty">No changes are ready. Enter a Proposed rate in the table first.</div> : (
         <div className="req-table-wrapper">

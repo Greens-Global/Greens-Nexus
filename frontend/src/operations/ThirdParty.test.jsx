@@ -133,7 +133,8 @@ describe('Operations facility picker', () => {
     expect(within(panel).queryByText('Stale')).toBeNull();
     expect(within(panel).getByText('Accrued Rent')).toBeInTheDocument();
     // the Overview KPIs come from the store's reports
-    expect(screen.getByRole('button', { name: /^Occupancy, 85\.1%/ })).toBeInTheDocument();
+    // storage occupancy is rented of rentable (rented + vacant) since the mailbox split: 2491 / 2905
+    expect(screen.getByRole('button', { name: /^Storage Occupancy, 85\.7%/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^Monthly Rent Roll, \$187(\.2)?K/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Upload Report/ })).toBeInTheDocument();
   });

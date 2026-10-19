@@ -102,6 +102,7 @@ def db():
 @pytest.fixture
 def cubby_api(monkeypatch):
     monkeypatch.setenv("CUBBY_API_KEY", "test-key")
+    monkeypatch.setenv("CUBBY_MANAGER_API_KEY", "test-key")
     fake = FakeCubby()
     monkeypatch.setattr(ops_rate_mgmt.httpx, "post", fake)
     ops_rate_mgmt.forget()
@@ -262,6 +263,12 @@ def test_push_needs_confirmation_and_skips_what_has_no_draft(db, cubby_api):
 
 def test_push_without_a_cubby_key_is_a_503(db, cubby_api, monkeypatch):
     monkeypatch.delenv("CUBBY_API_KEY")
+    r = _client(4, "administrator").post("/facility-ops/rates/push", json={"facility_id": FAC, "unit_types": ["8' x 10'"], "confirm": True})
+    assert r.status_code == 503 and cubby_api.changes() == []
+
+
+def test_push_needs_the_manager_key_not_the_sync_key(db, cubby_api, monkeypatch):
+    monkeypatch.delenv("CUBBY_MANAGER_API_KEY")
     r = _client(4, "administrator").post("/facility-ops/rates/push", json={"facility_id": FAC, "unit_types": ["8' x 10'"], "confirm": True})
     assert r.status_code == 503 and cubby_api.changes() == []
 

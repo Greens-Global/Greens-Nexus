@@ -108,7 +108,7 @@ def _view(db: Session, facility: dict, groups: list, fac: dict, groups_error: st
         "competitors": [{"id": c["id"], "name": c["name"], "ratesUrl": c["ratesUrl"], "watch": c["watch"]} for c in comps],
         "freshDays": market["freshDays"], "minCompetitors": market["minCompetitors"],
         "pushes": [_push_dict(p) for p in pushes],
-        "canEdit": _can_edit(user, db), "canPush": user.get("level", 0) >= 3,
+        "canEdit": _can_edit(user, db), "canPush": user.get("level", 0) >= 3, "pushConnected": ops_rate_mgmt.write_configured(),
     }
 
 
@@ -170,8 +170,8 @@ async def push(body: PushBody, user: dict = Depends(require_manager), db: Sessio
     each result. A failed row keeps its draft so it can be tried again."""
     if not body.confirm:
         raise HTTPException(status_code=422, detail="Confirm the push in the review first")
-    if not cubby.configured():
-        raise HTTPException(status_code=503, detail="Cubby is not connected on this server, so rates cannot be pushed")
+    if not cubby.configured() or not ops_rate_mgmt.write_configured():
+        raise HTTPException(status_code=503, detail="Pushing rates needs a Manager-role Cubby key (CUBBY_MANAGER_API_KEY) on this server - use Export Checklist meanwhile")
     facility = await facility_ops._facility(body.facility_id)
     groups, fac, err = await _groups(body.facility_id, fresh=True)   # never push against a stale read
     if err:

@@ -26,6 +26,7 @@ actually sell at. No second calculation path.
 Pure functions up top (the tests feed them fixed rows); the Cubby calls at the
 bottom are the only I/O, and they are blocking - call them in a thread.
 """
+import os
 import re
 import threading
 import time
@@ -177,11 +178,26 @@ def attention(rows: list[dict], groups_error: str = "") -> list[str]:
 
 # ── Cubby (blocking I/O) ──────────────────────────────────────────────────────
 
-def _call(path: str, body: dict) -> dict:
-    """POST to Cubby with the body as given (change-rates takes no `where`)."""
+def write_configured() -> bool:
+    """A Manager-role Cubby key is set. Writes use it - the same one Revenue
+    Management uses (ops_revenue.WRITE_KEY_ENV); the read-only sync key never writes."""
+    import ops_revenue
+    return bool(os.environ.get(ops_revenue.WRITE_KEY_ENV, "").strip())
+
+
+def _call(path: str, body: dict, write: bool = False) -> dict:
+    """POST to Cubby with the body as given (change-rates takes no `where`).
+    `write` calls use the Manager-role key (CUBBY_MANAGER_API_KEY)."""
+    if write:
+        import ops_revenue
+        key = os.environ.get(ops_revenue.WRITE_KEY_ENV, "").strip()
+        if not key:
+            raise cubby.CubbyError(503, f"{ops_revenue.WRITE_KEY_ENV} is not set - pushing rates needs a Manager-role Cubby key")
+    else:
+        key = cubby._key()
     try:
         r = httpx.post(f"{cubby.BASE}/{path}", json=body,
-                       headers={"Authorization": f"Bearer {cubby._key()}"}, timeout=60)
+                       headers={"Authorization": f"Bearer {key}"}, timeout=60)
     except httpx.HTTPError as e:
         raise cubby.CubbyError(0, f"Cubby could not be reached ({type(e).__name__})") from e
     try:
@@ -228,7 +244,7 @@ def forget(facility_id: str = "") -> None:
 def change_rate(pricing_group_id: str, standard_rate: int, web_rate: int) -> dict:
     """One pricing group's new Set (standard) and Sell (web) rates, in cents."""
     return _call("pricing-groups/change-rates", {"pricingGroups": [
-        {"pricingGroupId": pricing_group_id, "standardRate": int(standard_rate), "webRate": int(web_rate)}]})
+        {"pricingGroupId": pricing_group_id, "standardRate": int(standard_rate), "webRate": int(web_rate)}]}, write=True)
 
 
 def address_of(fac: dict) -> str:
