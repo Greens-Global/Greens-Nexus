@@ -255,7 +255,7 @@ def manual_time_flags(punches: list) -> list:
     """Manual adds, self-backfilled punches and punch edits with no reason."""
     by_day = {}
     for p in punches:
-        manual = (p.source or "") in ("manual", "self_manual")
+        manual = (p.source or "") in ("manual", "self_manual", "offline")
         edited = bool(p.adjusted_by) or (p.edit_status or "") == "approved"
         if not (manual or edited):
             continue
@@ -263,7 +263,7 @@ def manual_time_flags(punches: list) -> list:
         if any(r and r.lower() not in _INTERNAL_NOTES for r in reasons):
             continue
         by_day.setdefault(p.local_date, []).append(
-            ("self-backfilled" if p.source == "self_manual" else "manual add" if manual else "edit", p.id))
+            ("self-backfilled" if p.source in ("self_manual", "offline") else "manual add" if manual else "edit", p.id))
     out = []
     for ds, items in sorted(by_day.items()):
         kinds = sorted({k for k, _ in items})

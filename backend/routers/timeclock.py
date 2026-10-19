@@ -10,7 +10,8 @@ Design decisions are research-backed (Jul 2026 deep-research pass):
 - Intelligent clock: the API tells the client which punch kinds are currently
   valid; the server enforces the same state machine.
 - Missed punches are detect-surface-correct: employees may backfill their own
-  gap (flagged source=self_manual), managers may add/adjust/void with a full
+  gap only through a punch fix request (an offline-queued punch syncs as
+  source=offline), managers may add/adjust/void with a full
   audit trail (original_at frozen, voided rows retained).
 - NO rounding (exact minutes are always wage-and-hour-safe) and NO automatic
   break deduction - breaks exist only as explicit punches. Compliance items
@@ -799,7 +800,7 @@ def _day_summaries(punches: list, round_min: int = 0, break_cfg: dict = None, ge
         # geo = live verdicts (_live_geo) when the caller judged the punches.
         if ((geo or {}).get(p.id) or {}).get("geo_status", p.geo_status) == "out_of_fence":
             flag(d, "out_of_fence")
-        if p.source in ("manual", "self_manual"):
+        if p.source in MANUAL_SOURCES:
             flag(d, "manual")
         if p.adjusted_by:
             flag(d, "adjusted")
@@ -1209,40 +1210,98 @@ def punch(body: PunchIn, request: Request,
 
 class SelfPunchIn(BaseModel):
     kind: str
-    at: str                      # UTC ISO - the missed moment
+    at: str                      # UTC ISO - the moment the button was pressed
     tz_offset_min: Optional[int] = 0
-    note: str                    # required: why the punch was missed
+    note: str                    # required: why the punch was late to arrive
+    # Oct 19: only the offline punch queue (frontend lib/punchQueue.js) may use
+    # this route. It says so, and sends when it parked the punch.
+    offline_queue: bool = False
+    queued_at: str = ""          # UTC ISO - when the queue parked it
+
+
+# Oct 19 (time-integrity audit): /punch/manual let an employee add any punch
+# up to 7 days back with no approval and no location. It exists only for the
+# offline punch queue - a punch that could not reach the server, replayed
+# later - so it now takes only that: a punch made at most a day ago, parked
+# by the queue right when it failed. Anything else is a missed punch, and a
+# missed punch goes through a punch fix request the manager approves.
+OFFLINE_PUNCH_MAX_AGE = timedelta(hours=24)
+# How long after the button press the queue may park it: three retries plus
+# the day-message gate before the punch is sent. Generous on purpose.
+OFFLINE_PARK_WINDOW = timedelta(hours=1)
+# Punches that did not come from a live clock-in/out (the card flags them).
+MANUAL_SOURCES = ("manual", "self_manual", "offline")
+
+
+def _use_punch_request(message: str):
+    # 400, not 409: the offline queue reads a 409 as "it landed already".
+    raise HTTPException(400, {"code": "use_punch_request", "message": message})
 
 
 @router.post("/punch/manual")
 def self_manual_punch(body: SelfPunchIn, user: dict = Depends(get_current_user),
                       db: Session = Depends(get_db)):
-    """Detect-surface-correct: an employee backfills a punch they missed. Always
-    flagged (source=self_manual) so managers review it - never silent."""
+    """The offline punch queue's replay of a punch the server never received,
+    after the /punch clicked_at window has passed. Recorded as source=offline
+    with no location, and the employee's manager and HR are told (one notice
+    per person per day, growing). Not a way to add missed punches - those are
+    punch fix requests (POST /punch-requests)."""
     if body.kind not in KINDS:
         raise HTTPException(400, f"kind must be one of {KINDS}")
+    if not body.offline_queue:
+        _use_punch_request("Missed punches go through a punch fix request: add it from your Time Sheet "
+                           "and your manager approves it.")
     t = _parse_iso(body.at)
     if t is None:
         raise HTTPException(400, "at must be an ISO timestamp")
-    if t > datetime.now(timezone.utc):
-        raise HTTPException(400, "A missed punch can't be in the future.")
-    if t < datetime.now(timezone.utc) - timedelta(days=7):
-        raise HTTPException(400, "Older than 7 days - ask a manager to add it.")
+    t = t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+    now_dt = datetime.now(timezone.utc)
+    if t > now_dt:
+        raise HTTPException(400, "A punch can't be in the future.")
+    if t < now_dt - OFFLINE_PUNCH_MAX_AGE:
+        _use_punch_request("This offline punch is more than 24 hours old, so it can't be added directly. "
+                           "Send a punch fix request from your Time Sheet and your manager approves it.")
+    q = _parse_iso(body.queued_at) if body.queued_at else None
+    q = (q if q.tzinfo else q.replace(tzinfo=timezone.utc)) if q else None
+    if q is None or q > now_dt + timedelta(minutes=5) or q < t - timedelta(minutes=1) \
+            or q > t + OFFLINE_PARK_WINDOW:
+        _use_punch_request("This punch was not recorded by the offline punch queue. Send a punch fix "
+                           "request from your Time Sheet and your manager approves it.")
     if not (body.note or "").strip():
         raise HTTPException(400, "Add a short note explaining the missed punch.")
-    _guard_not_finalized(db, user["email"], _local_date(body.at, body.tz_offset_min or 0))
-    _guard_review(db, user["email"], _local_date(body.at, body.tz_offset_min or 0), user["email"])
-    _guard_punch_order(db, user["email"], kind=body.kind, at=body.at,
-                       local_date=_local_date(body.at, body.tz_offset_min or 0))
+    email = user["email"]
+    local_date = _local_date(body.at, body.tz_offset_min or 0)
+    _guard_not_finalized(db, email, local_date)
+    _guard_review(db, email, local_date, email)
+    _guard_punch_order(db, email, kind=body.kind, at=body.at, local_date=local_date)
     now = _now_iso()
-    row = TimePunch(id=str(uuid.uuid4()), employee_email=user["email"], kind=body.kind,
-                    at=body.at[:19], local_date=_local_date(body.at, body.tz_offset_min or 0),
+    row = TimePunch(id=str(uuid.uuid4()), employee_email=email, kind=body.kind,
+                    at=body.at[:19], local_date=local_date,
                     tz_offset_min=body.tz_offset_min or 0, geo_status="no_location",
-                    note=body.note.strip()[:300], source="self_manual",
-                    created_by=user["email"], created_at=now)
+                    note=body.note.strip()[:300], source="offline",
+                    created_by=email, created_at=now)
     db.add(row)
+    _notify_offline_punch(db, row)
     db.commit()
     return _serialize(row)
+
+
+def _notify_offline_punch(db: Session, row) -> None:
+    """Tell the employee's manager and HR contact (else the Global Admins) that
+    a punch arrived late from the offline queue, with no location. ONE notice
+    per person per day, growing with each punch (notify_rollup) - never one
+    per punch."""
+    from notify_rollup import upsert_rollup
+    em = (row.employee_email or "").strip().lower()
+    t, d = _punch_when(row)
+    name = _display_name(db, em)
+    line = f"{name}'s {_kind_label(row.kind)} at {t} on {d} was recorded offline and synced later (no location)."
+    action = _timecard_action(db, em, row.local_date)
+    company = notification_company(db, em, em)
+    for recipient in _team_alert_recipients(db, em, em, owners_as_fallback=True):
+        upsert_rollup(db, recipient=recipient, key=f"tc-offline:{em}:{row.local_date or ''}",
+                      title=f"Offline Punch Recorded - {name}", line=line, action=action,
+                      company=company, requested_by=em)
 
 
 @router.get("/me")
@@ -1760,10 +1819,29 @@ class ApprovalIn(BaseModel):
     allow_exceptions: bool = False
 
 
+_OWN_APPROVAL = "You can't approve your own time sheet - your manager or HR approves it."
+_OWN_EDIT = ("You can't change your own time sheet directly. Send a punch fix request from your "
+             "Time Sheet and your manager or HR approves it.")
+
+
+def _refuse_own_time(user: dict, employee_email: str, message: str) -> None:
+    """Nobody approves or directly changes their own time (Oct 19, time-
+    integrity audit). A manager's or administrator's team scope includes
+    themself, so the manager routes let them approve their own days (which
+    the IIF export counts as approved, past review and the signature) and
+    add, move or void their own punches. HR is the same: timesheet_review.
+    is_hr is never true on your own card. Their own fixes go through a punch
+    fix request, which reaches their manager / HR contact / the Global
+    Admins (_notify_approvers) - one Global Admin decides another's."""
+    if (employee_email or "").strip().lower() == (user.get("email") or "").strip().lower():
+        raise HTTPException(403, message)
+
+
 @router.post("/approvals")
 def approve_timecard(body: ApprovalIn, user: dict = Depends(require_team_write),
                      db: Session = Depends(get_db)):
     email = body.email.strip().lower()
+    _refuse_own_time(user, email, _OWN_APPROVAL)
     scope = _visible_emails(db, user)
     if scope is not None and email not in scope:
         raise HTTPException(403, "You can only approve your own team's time sheets.")
@@ -1945,6 +2023,8 @@ def finalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrat
     punch edits/adds/approvals 403 until /unfinalize. Admin-only by design:
     managers approve, HR finalizes."""
     email = body.email.strip().lower()
+    # Finalizing is the last sign-off - never on your own card (Oct 19).
+    _refuse_own_time(user, email, "You can't finalize your own time sheet - another administrator or HR does.")
     if not body.start or not body.end:
         raise HTTPException(400, "start and end are required")
     if _finalized_row(db, email, body.start, body.end):
@@ -2293,6 +2373,7 @@ def adjust_punch(punch_id: str, body: PunchAdjust,
     scope = _visible_emails(db, user)
     if scope is not None and row.employee_email not in scope:
         raise HTTPException(403, "You can only adjust your own team's punches.")
+    _refuse_own_time(user, row.employee_email, _OWN_EDIT)
     _guard_not_finalized(db, row.employee_email, row.local_date)
     _guard_review(db, row.employee_email, row.local_date, user["email"])
     if body.at is not None:
@@ -2376,6 +2457,7 @@ def manager_add_punch(body: ManagerPunchIn, user: dict = Depends(require_team_wr
     scope = _visible_emails(db, user)
     if scope is not None and body.employee_email.strip().lower() not in scope:
         raise HTTPException(403, "You can only add punches for your own team.")
+    _refuse_own_time(user, body.employee_email, _OWN_EDIT)
     _guard_not_finalized(db, body.employee_email.strip().lower(),
                          _local_date(body.at, body.tz_offset_min or 0))
     _guard_review(db, body.employee_email.strip().lower(),
@@ -9538,7 +9620,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
             open_break_at, open_break_id, seg_breaks = "", "", []
             if open_in_geo == "out_of_fence":
                 sflags.add("out_of_fence")
-            if p.source in ("manual", "self_manual"):
+            if p.source in MANUAL_SOURCES:
                 sflags.add("manual")
             if p.adjusted_by:
                 sflags.add("adjusted")
@@ -9907,7 +9989,8 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
     # punch came from, its exact time, and who entered or changed it. A manual
     # or changed punch reads bold on the card.
     _src = {"web": "Web browser", "mobile": "Mobile app", "manual": "Entered by a manager",
-            "self_manual": "Missed punch entered by the employee", "auto_eod": "Auto clock-out at end of day"}
+            "self_manual": "Missed punch entered by the employee",
+            "offline": "Recorded offline, synced later", "auto_eod": "Auto clock-out at end of day"}
     _names = {}
 
     def _who(e):
@@ -9916,7 +9999,7 @@ def _compute_timecard(db: Session, em: str, start: str, end: str, round_min: Opt
         return _names.get(e, "")
     punch_meta = {p.id: {"kind": p.kind, "at": p.at, "originalAt": p.original_at or "",
                          "source": _src.get(p.source or "", p.source or ""), "ip": p.ip or "",
-                         "site": p.work_site_name or "", "manual": p.source in ("manual", "self_manual"),
+                         "site": p.work_site_name or "", "manual": p.source in MANUAL_SOURCES,
                          "createdBy": _who(p.created_by), "createdAt": p.created_at or "",
                          "adjustedBy": _who(p.adjusted_by), "adjustedAt": p.adjusted_at or "",
                          "adjustNote": p.adjust_note or ""} for p in punches}
@@ -11749,6 +11832,7 @@ def add_time(body: AddTimeIn, user: dict = Depends(require_team_write), db: Sess
     """Write the days the plan admits. `dry_run` answers with the plan only -
     the modal's preview, so what is shown is exactly what will be written."""
     em = _add_time_scope(db, user, body.employee_email)
+    _refuse_own_time(user, em, _OWN_EDIT)
     reason = (body.reason or "").strip()
     if len(reason) < 3:
         raise HTTPException(400, "Say why this time is being added - it goes on every punch.")
@@ -11796,6 +11880,7 @@ def add_time_undo(batch_id: str, user: dict = Depends(require_team_write), db: S
     if not rows:
         raise HTTPException(404, "Nothing left to undo for this batch.")
     em = _add_time_scope(db, user, rows[0].employee_email)
+    _refuse_own_time(user, em, _OWN_EDIT)
     for ds in sorted({r.local_date for r in rows}):
         _guard_not_finalized(db, em, ds)
         _guard_review(db, em, ds, user["email"])

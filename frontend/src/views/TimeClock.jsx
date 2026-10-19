@@ -602,7 +602,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     if (r?.restored) {
       setParked(null); setLostModal(false);
       toast(true, `${KIND_DONE[r.entry.kind] || 'Punch recorded'} at ${localTime(r.punch.at)}`
-        + `${r.backfilled ? ' - flagged for your approver to confirm.' : '.'}`);
+        + `${r.backfilled ? ' - marked as recorded offline, and your manager was told.' : '.'}`);
       window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));
       load();
       return { done: true, ...r };
