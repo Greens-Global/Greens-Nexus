@@ -12,6 +12,7 @@ const getFacilityOps = vi.fn();
 const facilityOpsLookup = vi.fn();
 const facilityOpsReport = vi.fn();
 const getOpsMarket = vi.fn();
+const getOpsRates = vi.fn();
 const recordOpsRate = vi.fn();
 const getOpsNearby = vi.fn();
 const addOpsCompetitor = vi.fn();
@@ -24,7 +25,7 @@ vi.mock('../api', () => ({ api: {
   checkOpsCompetitor: (...a) => checkOpsCompetitor(...a), updateOpsCompetitor: (...a) => updateOpsCompetitor(...a),
   getFacilityOps: (...a) => getFacilityOps(...a), facilityOpsLookup: (...a) => facilityOpsLookup(...a),
   facilityOpsReport: (...a) => facilityOpsReport(...a), getOpsMarket: (...a) => getOpsMarket(...a),
-  recordOpsRate: (...a) => recordOpsRate(...a),
+  recordOpsRate: (...a) => recordOpsRate(...a), getOpsRates: (...a) => getOpsRates(...a),
   getCubbySync: (...a) => getCubbySync(...a), startCubbySync: (...a) => startCubbySync(...a),
 } }));
 let isManager = false;
@@ -38,6 +39,18 @@ vi.mock('../components/ModuleTabs', () => ({
 }));
 
 const FacilityOperations = (await import('./FacilityOperations')).default;
+
+// Rate Management (Oct 20 2026) is the market tab now: its facility is a dropdown, and the
+// competitor set and manual entry (the Market screen) open from Comp Set & Manual Entry.
+const RATES_VIEW = { facilityId: 'fac_a', facility: 'Temecula', name: 'Greens Storage Temecula', asOf: '2026-10-13', address: '', billingCycle: 'MONTHLY',
+  lastSurvey: '', cubbyGroups: { ok: true, count: 0, error: '' }, compSet: { active: 0, web: 0, stortrack: 0, manual: 0, closed: 0 },
+  kpis: { vsMarket: null, rateable: 0, belowMarket: 0, occupancy: 0, units: 0, rented: 0, offline: 0, ready: 0, readyDelta: 0 },
+  attention: [], rows: [], competitors: [], freshDays: 120, minCompetitors: 2, pushes: [], canEdit: true, canPush: true };
+async function openCompSet(id = 'fac_a') {
+  getOpsRates.mockResolvedValue({ ...RATES_VIEW, facilityId: id });
+  fireEvent.change(await screen.findByLabelText('Facility'), { target: { value: id } });
+  fireEvent.click(await screen.findByRole('button', { name: /Comp Set & Manual Entry/ }));
+}
 const { default: SyncStatus } = await import('../operations/SyncStatus');
 const { syncDelayed } = await import('../operations/sync');
 
@@ -192,9 +205,9 @@ describe('Operations module', () => {
     getOpsMarket.mockResolvedValue({ facilityId: 'fac_a', facility: 'Temecula', asOf: '2026-10-13', freshDays: 120, minCompetitors: 2, rows: [row],
       competitors: [{ id: 'c1', name: 'StorQuest', distanceMiles: 1.2, rates: [{ observedOn: '2026-10-01' }] }] });
     render(<FacilityOperations activeSub="market" onSubChange={() => {}} />);
-    expect(await screen.findByText('Choose a Facility')).toBeTruthy();
+    expect((await screen.findAllByText('Choose a Facility')).length).toBeGreaterThan(0);
     expect(getOpsMarket).not.toHaveBeenCalled();
-    fireEvent.click(screen.getAllByRole('button', { name: 'Temecula' })[0]);
+    await openCompSet();
     expect(await screen.findByText('9% Below')).toBeTruthy();                 // $200 against a $220 median
     expect(screen.getByText('$205')).toBeTruthy();
     expect(getOpsMarket).toHaveBeenCalledWith('fac_a');
@@ -217,7 +230,7 @@ describe('Operations module', () => {
     addOpsCompetitor.mockResolvedValue({ ...market, competitors: [competitor, blocked] });
     checkOpsCompetitor.mockResolvedValue({ ...market, competitors: [{ ...competitor, lastDetail: 'Read 7 rates' }, blocked] });
     render(<FacilityOperations activeSub="market" onSubChange={() => {}} />);
-    fireEvent.click((await screen.findAllByRole('button', { name: 'Temecula' }))[0]);
+    await openCompSet();
 
     // The move: $129 to $145, up 12.4%, seen 10/13.
     const moves = (await screen.findByText('Rate Moves')).closest('.dash-card');
@@ -253,7 +266,7 @@ describe('Operations module', () => {
     getOpsNearby.mockRejectedValue(Object.assign(new Error('boom'), { status: 424 }));
     vi.spyOn(console, 'error').mockImplementation(() => {});
     render(<FacilityOperations activeSub="market" onSubChange={() => {}} />);
-    fireEvent.click((await screen.findAllByRole('button', { name: 'Temecula' }))[0]);
+    await openCompSet();
     expect(await screen.findByText(/The nearby list could not be loaded just now/)).toBeTruthy();
     expect(screen.getByText('Our Rates Against the Market')).toBeTruthy();
     expect(screen.queryByText('Rate Moves')).toBeNull();
