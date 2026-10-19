@@ -156,7 +156,12 @@ _DEFAULTS = {"openShifts": False, "swaps": False, "offers": False, "teamSchedule
              # Time Sheet still waiting on its approver this many days after
              # the period ended is escalated to the approver's own manager,
              # else the company's HR contact; 0 = no escalation.
-             "timesheetEscalateDays": 2}
+             "timesheetEscalateDays": 2,
+             # A break that never ended (Oct 20 2026, break_watch.py): the
+             # employee gets one "Still on Break?" bell after this many
+             # minutes on an open break, their manager one rollup at twice
+             # that; 0 = off.
+             "breakNudgeMin": 60}
 _TEXT_SETTINGS = ("timeZone", "weekStart")
 SHOW_AS = ("free", "busy")
 # key -> (min, max), clamped on read and save
@@ -164,7 +169,7 @@ _INT_SETTINGS = {"defaultGraceMin": (0, 120), "noShowAlertMin": (0, 240), "leftE
                  "ruleMinRestHours": (0, 24), "ruleMaxDaysInRow": (0, 14), "ruleDailyOtHours": (0, 24),
                  "ruleWeeklyOtHours": (0, 80), "ruleMaxWeekHours": (0, 100),
                  "otAlertDailyLeadMin": (0, 240), "otAlertWeeklyLeadMin": (0, 480),
-                 "timesheetEscalateDays": (0, 30)}
+                 "timesheetEscalateDays": (0, 30), "breakNudgeMin": (0, 240)}
 _KIND_SETTING = {"open": "openShifts", "swap": "swaps", "offer": "offers", "release": "releaseShifts"}
 _EMPLOYEE_ACTION = {"view": "shifts", "sub": "mine"}
 _APPROVER_ACTION = {"view": "shifts", "sub": "schedule"}   # the Shifts module (Sep 29)
@@ -364,6 +369,7 @@ class SettingsIn(BaseModel):
     otAlertWeeklyLeadMin: Optional[int] = None  # 0-480; minutes before weekly overtime; 0 = off
     requireLocationToPunch: Optional[bool] = None   # refuse a live punch with no coordinates (Oct 19; off by default)
     timesheetEscalateDays: Optional[int] = None # 0-30; days after a pay period before an unapproved sheet escalates; 0 = off
+    breakNudgeMin: Optional[int] = None         # 0-240; minutes on an open break before "Still on Break?"; manager at 2x; 0 = off
 
 
 @router.get("/settings")
