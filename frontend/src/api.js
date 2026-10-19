@@ -2490,6 +2490,12 @@ export const api = {
   countTicketSavedReplyUse: (id) => req(`/ticket-saved-replies/${encodeURIComponent(id)}/use`, { method: 'POST' }),
   // Who may be a company's default assignee - its active desk agents (manager+).
   getTicketDeskAgents: (companyId) => req(`/task-tickets/desk-agents?company_id=${encodeURIComponent(companyId)}`),
+  // Tickets > Reports (Oct 2026, backend/ticket_reports.py): the server-side
+  // report, its CSV, and the caller's own Weekly Ticket Report email switch.
+  getTicketReport: (params = {}) => req(`/task-tickets/reports?${new URLSearchParams(params).toString()}`),
+  ticketReportCsv: (params = {}) => reqBlob(`/task-tickets/reports.csv?${new URLSearchParams(params).toString()}`),
+  getTicketWeeklyEmail: () => req("/task-tickets/reports/weekly-email"),
+  setTicketWeeklyEmail: (on) => req("/task-tickets/reports/weekly-email", { method: "PUT", body: JSON.stringify({ on }) }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

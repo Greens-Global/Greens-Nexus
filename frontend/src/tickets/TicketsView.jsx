@@ -26,12 +26,11 @@ import TaskDetailDrawer from '../tasks/TaskDetailDrawer';
 import { Avatar, PriorityChip, StatusChip, EmptyState, Modal, PersonSelect, usePeople, useIsMobile, UnassignedAvatar, SelectMenu, useImageZoom, useEscapeLayer } from '../tasks/components';
 import { dialog as appDialog } from '../ui/dialog';
 import MobileTaskBar, { BottomSheet } from '../tasks/MobileTaskBar';
-import { Card, LightBar, Donut } from '../tasks/views/charts';
 import { useTableColumns, ColResizer } from '../tasks/tableCols';
 import {
   fmtDate, requiredHint, TICKET_TYPE_META, TICKET_TYPE_ORDER, TICKET_TYPE_KEYS, TYPE_FIELDS, NO_RECORDING_TYPES,
   TICKET_RESOLUTION, LINK_TYPES, TICKET_STATUS_META, TICKET_STATUS_ORDER, CLOSED_STATES,
-  SLA_TARGET_HOURS, SLA_META, slaState, slaDueFromPriority, slaSortKey, fmtDueAt, slaMet, isBlankFieldValue, toEmailList,
+  SLA_TARGET_HOURS, SLA_META, slaState, slaDueFromPriority, slaSortKey, fmtDueAt, isBlankFieldValue, toEmailList,
   commentStale, COMMENT_STALE_META, COMMENT_STALE_HOURS,
   label, field, resolutionLabel, linkTypeLabel, APPROVAL_META, intakeFields,
   ticketNo, ticketNoShort, normalizeCode,
@@ -65,6 +64,7 @@ import { useTicketAccess } from './ticketAccess';
 import CreateModeTabs from './CreateModeTabs';
 import { registerTour } from '../lib/tours';
 import SavedReplyPicker from './SavedReplyPicker';
+import TicketReports from './TicketReports';
 
 // Tour id this module reports to the server (routers/user_tours.py) - see
 // the Task module's identical TASK_TOUR_ID in views/Tasks.jsx.
@@ -714,6 +714,13 @@ export default function TicketsView() {
   // doesn't reopen it.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    // The Weekly Ticket Report email links to ?view=reports.
+    if (params.get('view') === 'reports') {
+      setView('reports');
+      params.delete('view');
+      const left = params.toString();
+      window.history.replaceState({}, '', window.location.pathname + (left ? `?${left}` : ''));
+    }
     const tid = params.get('ticket');
     if (!tid) return;
     setOpenId(tid);
@@ -882,6 +889,21 @@ export default function TicketsView() {
       return true;
     });
   }, [tickets, scope, myEmail, searchQ, statusFilter, priorityFilter, typeFilter, slaFilter, nameOf, hrDeptFilter, assigneeFilter, serviceAreaFilter]);
+
+  // Reports (server-side, TicketReports.jsx) take the list's filters that the
+  // report endpoint understands; status, SLA, scope and search are list-only.
+  const reportFilters = useMemo(() => {
+    const v = (x) => (x === 'all' ? '' : x);
+    return { priority: v(priorityFilter), type: v(typeFilter), department: v(hrDeptFilter),
+      assignee: v(assigneeFilter), service_area: v(serviceAreaFilter) };
+  }, [priorityFilter, typeFilter, hrDeptFilter, assigneeFilter, serviceAreaFilter]);
+  const reportFilterLabels = useMemo(() => [
+    priorityFilter !== 'all' && `Priority: ${PRIORITY_META[priorityFilter]?.label || priorityFilter}`,
+    typeFilter !== 'all' && `Type: ${TICKET_TYPE_META[typeFilter]?.label || typeFilter}`,
+    hrDeptFilter !== 'all' && `Department: ${hrDeptName(hrDeptFilter) || hrDeptFilter}`,
+    assigneeFilter !== 'all' && `Assignee: ${nameOf(assigneeFilter) || assigneeFilter}`,
+    serviceAreaFilter !== 'all' && `Service Area: ${serviceAreaLabel(serviceAreaFilter) || serviceAreaFilter}`,
+  ].filter(Boolean), [priorityFilter, typeFilter, hrDeptFilter, assigneeFilter, serviceAreaFilter, hrDeptName, nameOf]);
 
   // List-view sort - applied before grouping so it holds within each bucket too.
   const sortTickets = useCallback((list) => {
@@ -1201,7 +1223,7 @@ export default function TicketsView() {
         // both change on one re-render (rotating the phone, List <-> Board).
         paddingTop: view === 'board' ? 12 : 16, paddingLeft: view === 'board' ? 12 : 16, paddingRight: view === 'board' ? 12 : 16, paddingBottom: isMobile ? 8 : 76 }}>
         {view === 'reports' ? (
-          <TicketReports tickets={visible} nameOf={nameOf} hrDeptName={hrDeptName} />
+          <TicketReports listFilters={reportFilters} filterLabels={reportFilterLabels} companies={companies} />
         ) : view === 'board' ? (
           <TicketBoard tickets={visible} nameOf={nameOf} onOpen={setOpenId} onMove={moveOnBoard} mobile={isMobile}
             canMove={(t) => ticketRights(t, myEmail, privileged).canEditStatus} />
@@ -3997,110 +4019,6 @@ function CsatWidget({ ticket, canRate, onRate, onComment }) {
       ) : ticket.csatComment ? (
         <p style={{ margin: '6px 0 0', fontSize: 12.5, color: NX.dim, fontStyle: 'italic' }}>“{ticket.csatComment}”</p>
       ) : null}
-    </div>
-  );
-}
-
-// ── Reports - open-by-status/type/assignee, avg resolution, SLA compliance ─────
-function TicketReports({ tickets, nameOf, hrDeptName }) {
-  const stats = useMemo(() => {
-    const open = tickets.filter((t) => !CLOSED_STATES.includes(t.status));
-    const byStatus = TICKET_STATUS_ORDER.map((s) => ({ label: TICKET_STATUS_META[s].label, value: tickets.filter((t) => t.status === s).length, color: TICKET_STATUS_META[s].color })).filter((d) => d.value > 0);
-    // Every type that has tickets - a type switched off, or retired, still counts.
-    const byType = Object.keys(TICKET_TYPE_META).map((ty) => ({ label: TICKET_TYPE_META[ty].label, value: tickets.filter((t) => (t.type || 'request') === ty).length, color: TICKET_TYPE_META[ty].color })).filter((d) => d.value > 0);
-    const byPriority = PRIORITY_ORDER.map((p) => ({ label: PRIORITY_META[p].label, value: tickets.filter((t) => t.priority === p).length, color: PRIORITY_META[p].color })).filter((d) => d.value > 0);
-    const PAL = ['#2563eb', '#16a34a', '#f59e0b', '#7c3aed', '#dc2626', '#0891b2', '#db2777', '#65a30d'];
-    // top assignees among open tickets
-    const acc = new Map();
-    for (const t of open) { const k = t.assigneeId || ''; acc.set(k, (acc.get(k) || 0) + 1); }
-    const byAssignee = [...acc.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)
-      .map(([k, n], i) => ({ label: k ? (nameOf(k) || k) : 'Unassigned', value: n, color: PAL[i % 8] }));
-    // Where tickets come from. HR Department is the routing dimension - it decides
-    // which lead triages the ticket - so it's the cut worth showing.
-    const deptAcc = new Map();
-    for (const t of tickets) { const k = t.hrDepartmentId || ''; deptAcc.set(k, (deptAcc.get(k) || 0) + 1); }
-    const byDepartment = [...deptAcc.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)
-      .map(([k, n], i) => ({ label: k ? (hrDeptName(k) || k) : 'No Department', value: n, color: PAL[i % 8] }));
-    // Which apps generate the work, and which service areas carry it. The two
-    // cuts the desk cannot get from any other dimension: department says whose
-    // problem it is, these say what the problem is IN.
-    const appAcc = new Map();
-    for (const t of tickets) { const k = t.application || ''; if (!k) continue; appAcc.set(k, (appAcc.get(k) || 0) + 1); }
-    const byApplication = [...appAcc.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)
-      .map(([k, n], i) => ({ label: k, value: n, color: PAL[i % 8] }));
-    const areaAcc = new Map();
-    for (const t of tickets) { const k = t.serviceArea || ''; areaAcc.set(k, (areaAcc.get(k) || 0) + 1); }
-    const byServiceArea = [...areaAcc.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8)
-      .map(([k, n], i) => ({ label: k ? (serviceAreaLabel(k) || k) : 'Not Set', value: n, color: PAL[i % 8] }));
-    // recurrence signal - cluster by normalised subject; 2+ = a repeat worth investigating
-    const norm = (s) => (s || '').toLowerCase().replace(/[0-9]+/g, '').replace(/[^a-z ]+/g, ' ').replace(/\s+/g, ' ').trim();
-    const recAcc = new Map();
-    for (const t of tickets) { const k = norm(t.subject); if (!k) continue; if (!recAcc.has(k)) recAcc.set(k, { label: t.subject, count: 0 }); recAcc.get(k).count += 1; }
-    const recurring = [...recAcc.values()].filter((g) => g.count >= 2).sort((a, b) => b.count - a.count).slice(0, 6);
-    // avg resolution time (days) for resolved tickets with both timestamps
-    const resolved = tickets.filter((t) => t.resolvedAt && t.createdAt);
-    const avgDays = resolved.length
-      ? (resolved.reduce((s, t) => s + Math.max(0, (new Date(t.resolvedAt) - new Date(t.createdAt))), 0) / resolved.length) / 86400000
-      : null;
-    // SLA compliance among closed tickets that had a due date: resolved on/before due
-    const closedWithSla = tickets.filter((t) => CLOSED_STATES.includes(t.status) && (t.slaDueAt || t.slaDueOn) && t.resolvedAt);
-    const met = closedWithSla.filter(slaMet).length;
-    const compliance = closedWithSla.length ? Math.round((met / closedWithSla.length) * 100) : null;
-    const breaching = tickets.filter((t) => slaState(t) === 'breached').length;
-    const atRisk = tickets.filter((t) => slaState(t) === 'at_risk').length;
-    const rated = tickets.filter((t) => (t.csatRating || 0) > 0);
-    const avgCsat = rated.length ? rated.reduce((s, t) => s + t.csatRating, 0) / rated.length : null;
-    return { total: tickets.length, open: open.length, byStatus, byType, byPriority, byAssignee, byDepartment, byApplication, byServiceArea, recurring, avgDays, compliance, breaching, atRisk, avgCsat };
-  }, [tickets, nameOf, hrDeptName]);
-
-  if (tickets.length === 0) return <EmptyState icon={BarChart3} title="No Data" hint="No tickets match your filters." />;
-
-  const Stat = ({ label: lab, value, color }) => (
-    <div style={{ flex: '1 1 130px', borderRadius: 14, border: `1px solid ${NX.border}`, background: NX.surface, padding: '14px 16px' }}>
-      <div style={{ fontSize: 24, fontWeight: 800, color: color || NX.ink }}>{value}</div>
-      <div style={{ fontSize: 12, color: NX.dim, marginTop: 2 }}>{lab}</div>
-    </div>
-  );
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-        <Stat label="Total Tickets" value={stats.total} />
-        <Stat label="Open" value={stats.open} color={NX.blue} />
-        <Stat label="SLA Breached" value={stats.breaching} color={stats.breaching ? NX.red : NX.ink} />
-        <Stat label="Due Soon" value={stats.atRisk} color={stats.atRisk ? NX.amber : NX.ink} />
-        <Stat label="Avg Resolution" value={stats.avgDays == null ? '-' : `${stats.avgDays.toFixed(1)}d`} />
-        <Stat label="SLA Compliance" value={stats.compliance == null ? '-' : `${stats.compliance}%`} color={stats.compliance != null && stats.compliance < 80 ? NX.red : NX.green} />
-        <Stat label="Avg CSAT" value={stats.avgCsat == null ? '-' : `${stats.avgCsat.toFixed(1)}★`} color={stats.avgCsat != null && stats.avgCsat >= 4 ? NX.green : NX.ink} />
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
-        <Card title="By status"><Donut segments={stats.byStatus} total={stats.byStatus.reduce((s, d) => s + d.value, 0)} /></Card>
-        <Card title="By type"><LightBar data={stats.byType} /></Card>
-        <Card title="By priority"><LightBar data={stats.byPriority} /></Card>
-        <Card title="By department"><LightBar data={stats.byDepartment} /></Card>
-        <Card title="By service area"><LightBar data={stats.byServiceArea} /></Card>
-        <Card title="By Help Topic">
-          {stats.byApplication.length === 0
-            ? <div style={{ padding: '20px 0', textAlign: 'center', fontSize: 12, color: NX.faint }}>No tickets name an application yet.</div>
-            : <LightBar data={stats.byApplication} />}
-        </Card>
-        <Card title="Open by assignee"><LightBar data={stats.byAssignee} /></Card>
-        <Card title="Recurring issues (repeat signal)">
-          {stats.recurring.length === 0
-            ? <div style={{ padding: '20px 0', textAlign: 'center', fontSize: 12, color: NX.faint }}>No repeats yet - every subject is unique.</div>
-            : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {stats.recurring.map((g) => (
-                  <div key={g.label} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span style={{ ...chip(NX.red, 'rgba(220,38,38,0.14)'), flexShrink: 0 }}>×{g.count}</span>
-                    <span style={{ fontSize: 12.5, color: NX.ink, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.label}</span>
-                  </div>
-                ))}
-                <div style={{ fontSize: 11, color: NX.faint, marginTop: 2 }}>Repeats often signal a fix-once/capital-replacement opportunity, not more repairs.</div>
-              </div>
-            )}
-        </Card>
-      </div>
     </div>
   );
 }
