@@ -2175,7 +2175,7 @@ function InlineTime({ seg, k, meta, showRaw, locked, onSaved, toastErr, self, lo
         </span>
       )}
       {isPending && (
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: '#b45309', fontWeight: 700 }}
+        <span className={self ? undefined : 'nx-needs-you nx-needs-you--inline'} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: '#b45309', fontWeight: 700 }}
           title={`${self ? 'Your proposed time' : 'Proposed by employee'}${pendReason ? ': ' + pendReason : ''} - not counted until approved`}>
           &rarr; {t12(pendingAt)} <span style={{ fontStyle: 'italic' }}>pending</span>
           {!self && !locked && punchId && (

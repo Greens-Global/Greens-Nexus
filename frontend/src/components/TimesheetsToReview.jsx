@@ -158,7 +158,7 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount 
           )}
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {rows.map(r => (
-              <div key={rowKey(r)} data-review={r.employeeEmail} style={{ borderTop: '1px solid var(--line)', padding: '10px 0' }}>
+              <div key={rowKey(r)} data-review={r.employeeEmail} className={r.id ? 'nx-needs-you' : undefined} style={{ borderTop: '1px solid var(--line)', padding: '10px 0' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                   <div style={{ flex: 1, minWidth: 220 }}>
                     <div style={{ fontSize: 13, fontWeight: 700 }}>
@@ -216,7 +216,7 @@ export default function TimesheetsToReview({ onOpen, toastOk, toastErr, onCount 
           </div>
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {toSign.map(s => (
-              <div key={s.partyId || `resign-${s.id}`} data-sign={s.employeeEmail} style={{ borderTop: '1px solid var(--line)', padding: '10px 0', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <div key={s.partyId || `resign-${s.id}`} data-sign={s.employeeEmail} className="nx-needs-you" style={{ borderTop: '1px solid var(--line)', padding: '10px 0', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                 <div style={{ flex: 1, minWidth: 220 }}>
                   <div style={{ fontSize: 13, fontWeight: 700 }}>{s.role === 'employee' ? 'Your Time Sheet' : s.name}</div>
                   <div style={{ fontSize: 12, color: 'var(--muted)' }}>
