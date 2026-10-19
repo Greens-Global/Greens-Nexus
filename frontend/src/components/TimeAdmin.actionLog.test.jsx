@@ -56,4 +56,14 @@ describe('People > Time Action Log', () => {
     fireEvent.click(within(card).getByText('Approve'));
     await waitFor(() => expect(decide).toHaveBeenCalledWith('q1', { status: 'approved', note: '' }));
   });
+
+  it('takes a decided request off the list before the server answers (Oct 19)', async () => {
+    decide.mockReset().mockReturnValue(new Promise(() => {}));   // the save never comes back
+    render(<TimeAdmin toastOk={() => {}} toastErr={() => {}} initialView="actions" />);
+    await screen.findByText('Amy Ops');
+    const card = screen.getByText('Amy Ops').closest('div[style*="border-radius: 14px"]');
+    fireEvent.click(within(card).getByText('Approve'));
+    await waitFor(() => expect(screen.queryByText('"Manager meeting"')).toBeNull());   // both copies gone
+    expect(decide).toHaveBeenCalledWith('q1', { status: 'approved', note: '' });
+  });
 });
