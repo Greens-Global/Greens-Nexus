@@ -237,7 +237,7 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
             unitClasses={state.data.unitClasses} canEditClasses={canSeeKeyHint} onClassesSaved={() => load(true)} />}
           {sub === 'worklist' && <Worklist data={data} many={many} focus={focus} go={go} />}
           {sub === 'market' && <RateManagement facility={scope.length === 1 ? scope[0] : null} facilities={facilities} onPick={setPicked} />}
-          {sub === 'reports' && <Reports data={data} facilities={facilities} scope={scope} range={range} />}
+          {sub === 'reports' && <Reports data={data} facilities={facilities} scope={scope} range={range} onPick={setPicked} />}
           {sub === 'revenue' && (canRevenue
             ? <Revenue facility={scope.length === 1 ? scope[0] : null} facilities={facilities} onPick={setPicked} />
             : <div className="dash-card"><div className="ops-empty">Revenue Management is for managers and administrators.</div></div>)}
