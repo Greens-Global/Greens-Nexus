@@ -27,6 +27,8 @@ export default function PayrollExportCodes({ toastOk, toastErr }) {
   const [company, setCompany] = useState('');
   const [data, setData] = useState(null);
   const [draft, setDraft] = useState({});
+  // The QuickBooks company name the IIF header carries (Oct 19); blank = the company's own name.
+  const [qbDraft, setQbDraft] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState('');
 
@@ -52,24 +54,26 @@ export default function PayrollExportCodes({ toastOk, toastErr }) {
     setErr('');
     setData(null);
     api.timeExportCodesGet(company)
-      .then((d) => { if (mine === seq.current) { setData(d); setDraft(draftOf(d)); } })
+      .then((d) => { if (mine === seq.current) { setData(d); setDraft(draftOf(d)); setQbDraft(d?.quickbooksCompanyName || ''); } })
       .catch((e) => { if (mine === seq.current) setErr(e?.message || 'Could not load the payroll export codes.'); });
   }, [company, companies]);
   useEffect(() => { load(); }, [load]);
 
-  const save = async (codes, kind) => {
+  const save = async (codes, qbName, kind) => {
     setBusy(kind);
     try {
-      const saved = await api.timeExportCodesSet(company, codes);
+      const saved = await api.timeExportCodesSet(company, codes, qbName);
       setData(saved);
       setDraft(draftOf(saved));
+      setQbDraft(saved?.quickbooksCompanyName || '');
       toastOk?.(kind === 'reset' ? 'Payroll export codes reset to default.' : 'Payroll export codes saved.');
     } catch (e) { toastErr?.(e?.message || 'Could not save the payroll export codes.'); }
     setBusy('');
   };
 
-  const anyCustom = (data?.classes || []).some((c) => c.custom);
-  const dirty = (data?.classes || []).some((c) => (draft[c.key] || '').trim() !== (c.custom ? c.code : ''));
+  const anyCustom = (data?.classes || []).some((c) => c.custom) || !!data?.quickbooksCompanyName;
+  const dirty = (data?.classes || []).some((c) => (draft[c.key] || '').trim() !== (c.custom ? c.code : ''))
+    || qbDraft.trim() !== (data?.quickbooksCompanyName || '');
 
   return (
     <div data-testid="payroll-export-codes" style={{ border: '1px solid var(--line)', borderRadius: 12, background: 'var(--card)', padding: '14px 16px', marginBottom: 12 }}>
@@ -107,11 +111,18 @@ export default function PayrollExportCodes({ toastOk, toastErr }) {
               </label>
             ))}
           </div>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: 'var(--muted)', marginTop: 12, maxWidth: 440 }}>
+            <span>QuickBooks Company Name</span>
+            <input className="form-input" type="text" maxLength={data.quickbooksCompanyMaxLength || 100}
+              placeholder={data.quickbooksCompanyDefault || ''} aria-label="QuickBooks Company Name"
+              value={qbDraft} onChange={(e) => setQbDraft(e.target.value)} style={{ fontSize: 12.5 }} />
+            <span style={{ fontSize: 11.5 }}>The company name in the QuickBooks IIF header. It must match the QuickBooks company file; leave it blank to use the company's name.</span>
+          </label>
           <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
             <button type="button" className="primary-btn" style={{ fontSize: 12 }} disabled={!!busy || !dirty}
-              onClick={() => save(draft, 'save')}>Save</button>
+              onClick={() => save(draft, qbDraft, 'save')}>Save</button>
             <button type="button" className="secondary-btn" style={{ fontSize: 12 }} disabled={!!busy || !anyCustom}
-              onClick={() => save({}, 'reset')}>Reset to Default</button>
+              onClick={() => save({}, '', 'reset')}>Reset to Default</button>
           </div>
         </>
       )}
