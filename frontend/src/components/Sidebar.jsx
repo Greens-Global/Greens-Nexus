@@ -138,6 +138,7 @@ export const NAV = [
       { subview: "market",      label: "Market Rates",    icon: Scale },
       { subview: "reports",     label: "Reports",         icon: FileSpreadsheet },
       { subview: "revenue",     label: "Revenue Management", icon: TrendingUp },
+      { subview: "portfolio",   label: "Portfolio",       icon: Gauge },
     ],
   },
   // Development was removed from the nav (Neil, Aug 11) - the module isn't

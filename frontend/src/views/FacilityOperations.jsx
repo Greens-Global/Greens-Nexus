@@ -7,7 +7,7 @@
 // is instant. Nexus only reads - payments, leases and tenant edits stay in
 // Cubby, and each tenant row links there.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { LayoutDashboard, HandCoins, Warehouse, ListChecks, Scale, FileSpreadsheet, RefreshCw, TrendingUp } from 'lucide-react';
+import { LayoutDashboard, HandCoins, Warehouse, ListChecks, Scale, FileSpreadsheet, RefreshCw, TrendingUp, Gauge } from 'lucide-react';
 import ModuleTabs from '../components/ModuleTabs';
 import { ErrorBanner, LoadingState } from '../components/AsyncState';
 import { api } from '../api';
@@ -20,6 +20,7 @@ import Reports from '../operations/Reports';
 import Lookup from '../operations/Lookup';
 import SyncStatus from '../operations/SyncStatus';
 import Revenue from '../operations/Revenue';
+import Portfolio from '../operations/Portfolio';
 import { useRole } from '../contexts/RoleContext';
 import '../operations/ops.css';
 
@@ -35,6 +36,8 @@ const TABS = [
   { key: 'reports',     label: 'Reports',         Icon: FileSpreadsheet },
   // Rent changes for existing tenants (Neil, Oct 20) - managers and admins, or an Operations Full grant.
   { key: 'revenue',     label: 'Revenue Management', Icon: TrendingUp },
+  // The Daily Flash for any set of properties, with its own picker and month (Neil, Oct 20).
+  { key: 'portfolio',   label: 'Portfolio',       Icon: Gauge },
 ];
 // Tabs that pick one facility themselves and are not about a period.
 const NO_PERIOD = new Set(['market', 'revenue']);
@@ -177,7 +180,9 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
         </p>
       )}
 
-      {state.status === 'ready' && facilities.length > 0 && (
+      {state.status === 'ready' && facilities.length > 0 && sub === 'portfolio' && <Portfolio />}
+
+      {state.status === 'ready' && facilities.length > 0 && sub !== 'portfolio' && (
         <div className="ops-root">
           <div className="ops-bar-top">
             {/* Rate Management picks its facility from a dropdown of its own (Neil, Oct 20). */}

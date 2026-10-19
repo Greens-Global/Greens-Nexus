@@ -1260,6 +1260,8 @@ export const api = {
   saveOpsRateDraft: (data) => req("/facility-ops/rates/draft", { method: "PUT", body: JSON.stringify(data) }),
   pushOpsRates: (facilityId, unitTypes) => req("/facility-ops/rates/push", { method: "POST", body: JSON.stringify({ facility_id: facilityId, unit_types: unitTypes, confirm: true }), timeoutMs: 180_000 }),
   getOpsRateHistory: (facilityId, unitType) => req(`/facility-ops/rates/history?facility_id=${encodeURIComponent(facilityId)}&unit_type=${encodeURIComponent(unitType)}`),
+  // Operations > Portfolio (Oct 20): the Daily Flash for any set of properties. ids = [] means every connected one.
+  getOpsPortfolio: (ids, month) => req(`/facility-ops/portfolio?ids=${encodeURIComponent((ids || []).join(","))}${month ? `&month=${encodeURIComponent(month)}` : ""}`),
 
   // Dev
   getDevProjects: () => req("/dev-projects"),

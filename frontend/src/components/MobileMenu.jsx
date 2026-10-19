@@ -61,6 +61,7 @@ export const SUBMENUS = {
     { sub: 'market',      label: 'Market Rates' },
     { sub: 'reports',     label: 'Reports' },
     { sub: 'revenue',     label: 'Revenue Management' },
+    { sub: 'portfolio',   label: 'Portfolio' },
   ],
   hr: [
     { sub: 'hr-people', label: 'People' },
