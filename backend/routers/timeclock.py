@@ -3438,8 +3438,15 @@ def list_punch_requests(status: str = "pending", user: dict = Depends(require_ap
         q = q.filter(PunchRequest.employee_email != (user.get("email") or "").lower())
     rows = [_pr_dict(r) for r in q.order_by(PunchRequest.created_at.desc()).limit(200).all()]
     meta = _people_meta(db, [r["employeeEmail"] for r in rows])
+    zones: dict = {}
     for r in rows:
         r["department"] = meta.get((r["employeeEmail"] or "").lower(), {}).get("department", "")
+        # The EMPLOYEE's zone, so the approver reads the time they asked for
+        # (Oct 19: Miranda's 8:30 AM Pacific showed as 9:00 PM to India).
+        em = (r["employeeEmail"] or "").lower()
+        if em not in zones:
+            zones[em] = _employee_tz(db, em)
+        r["timeZone"] = zones[em]
     return _mark_for(db, user, rows, "employeeEmail")
 
 
@@ -8478,6 +8485,16 @@ def _employee_zone_key(db: Session, email: str) -> str:
     emp = (db.query(NexusEmployee.country)
            .filter(func.lower(NexusEmployee.work_email) == email.lower()).first())
     return "india" if emp and (emp[0] or "").strip().upper() in ("IN", "INDIA") else "california"
+
+
+# The IANA zone of each display zone key (frontend lib/displayTz.js TZ_OPTIONS).
+_ZONE_KEY_TZ = {"california": "America/Los_Angeles", "india": "Asia/Kolkata"}
+
+
+def _employee_tz(db: Session, email: str) -> str:
+    """The IANA zone the employee's own Time Sheet reads in (_employee_zone_key),
+    for approver screens that must show the employee's clock (Oct 19)."""
+    return _ZONE_KEY_TZ.get(_employee_zone_key(db, email), "America/Los_Angeles")
 
 
 def _employee_now(db: Session, email: str) -> datetime:

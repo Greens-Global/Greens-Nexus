@@ -83,6 +83,17 @@ class ActionLogTests(unittest.TestCase):
         reqs = list_punch_requests("pending", user=ADMIN, db=self.db)
         self.assertEqual([(r["id"], r["department"]) for r in reqs], [("r1", "Construction")])
 
+    def test_requests_carry_the_employees_zone(self):
+        """The approver reads the time on the EMPLOYEE's clock (Oct 19: a
+        Pacific 8:30 AM showed as 9:00 PM to an approver in India), so each
+        request carries the zone the employee's Time Sheet reads in."""
+        reqs = list_punch_requests("pending", user=ADMIN, db=self.db)
+        self.assertEqual(reqs[0]["timeZone"], "America/Los_Angeles")
+        self.db.query(models.TimePunch).filter(models.TimePunch.id == "p2").update({"tz_offset_min": -330})
+        self.db.commit()
+        reqs = list_punch_requests("pending", user=ADMIN, db=self.db)
+        self.assertEqual(reqs[0]["timeZone"], "Asia/Kolkata")
+
 
 if __name__ == "__main__":
     unittest.main()

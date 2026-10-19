@@ -16,7 +16,7 @@ import TimeInsights from './TimeInsights';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { MonitoringAlertsLine } from './MonitoringAlerts';
 import { ErrorBanner, Spinner } from './AsyncState';
-import { formatDate } from '../lib/datetime';
+import { formatDate, zonedDateTime } from '../lib/datetime';
 import { leaveRequestDays, fmtDays } from '../lib/workdayStats';
 import { takePendingOpen } from '../lib/pendingOpen';
 import TimesheetsToReview from './TimesheetsToReview';
@@ -843,7 +843,14 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
         const allSelected = visibleIds.length > 0 && selected.length === visibleIds.length;
         const filtered = !!(actDept || q || actKind !== 'all');
         const toggle = (ids, on) => setSelReqs(prev => { const n = new Set(prev); ids.forEach(id => on ? n.add(id) : n.delete(id)); return n; });
-        const fmtAt = (at) => at ? new Date(at + 'Z').toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }) : '';
+        // On the EMPLOYEE's clock, labeled when it is not the viewer's (Oct 19:
+        // Miranda's 8:30 AM Pacific read 9:00 PM to her approver in India).
+        const fmtAt = (at, tz) => { const z = zonedDateTime(at, tz); return z ? `${z.date}, ${z.label}` : ''; };
+        const yourTime = (at, tz) => {
+          if (!zonedDateTime(at, tz)?.differs) return undefined;
+          const mine = zonedDateTime(at);
+          return `Your time: ${mine.date}, ${mine.time}`;
+        };
         const verb = (r) => {
           const kindLabel = { in: 'clock-in', out: 'clock-out', break_start: 'break start', break_end: 'break end' }[r.punchKind] || r.punchKind;
           return r.action === 'add' ? `Add a ${kindLabel}` : 'Remove a punch';
@@ -960,7 +967,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                       {cb(rowSel, on => toggle(rowIds, on), `Select request from ${g.name}`)}
                       <span style={pill('var(--wk-hover)', 'var(--ink)')}>Request</span>
                       <div style={{ flex: 1, minWidth: 240, display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: 13, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{fmtAt(r.at) || 'No time'}</span>
+                        <span title={yourTime(r.at, r.timeZone)} style={{ fontSize: 13, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{fmtAt(r.at, r.timeZone) || 'No time'}</span>
                         <span style={{ fontSize: 12.5, color: 'var(--ink)' }}>{verb(r)}</span>
                         {rowIds.length > 1 && (
                           <span title="The employee asked for the same punch more than once. Approving or rejecting it closes every copy."

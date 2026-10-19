@@ -55,3 +55,39 @@ describe('wallClock (Oct 2 - punches on the employee clock)', () => {
     expect(punchTime('2026-10-01T21:00:00', tz, '2026-10-01')).not.toMatch(/GMT/);
   });
 });
+
+describe("zonedDateTime (an approver reads the employee's clock, Oct 19)", () => {
+  it("shows a Pacific employee's 8:30 AM to an approver in India, labeled", async () => {
+    const { zonedDateTime } = await import('./datetime');
+    // 8:30 AM PDT on 10/17 = 15:30 UTC (9:00 PM IST).
+    expect(zonedDateTime('2026-10-17T15:30:00', 'America/Los_Angeles', 'Asia/Kolkata'))
+      .toEqual({ date: '10/17/2026', time: '8:30 AM', zone: 'PT', differs: true, label: '8:30 AM PT' });
+  });
+  it('leaves the label off when the viewer shares the zone', async () => {
+    const { zonedDateTime } = await import('./datetime');
+    const r = zonedDateTime('2026-10-17T15:30:00', 'America/Los_Angeles', 'America/Los_Angeles');
+    expect(r.differs).toBe(false);
+    expect(r.label).toBe('8:30 AM');
+  });
+  it("rolls the date onto the employee's calendar", async () => {
+    const { zonedDateTime } = await import('./datetime');
+    // 10:00 PM PDT on 10/17 = 05:00 UTC on 10/18.
+    const r = zonedDateTime('2026-10-18T05:00:00', 'America/Los_Angeles', 'Asia/Kolkata');
+    expect(r.date).toBe('10/17/2026');
+    expect(r.label).toBe('10:00 PM PT');
+  });
+  it("reads the viewer's clock, unlabeled, without a zone or with a bad one", async () => {
+    const { zonedDateTime } = await import('./datetime');
+    for (const tz of ['', 'Not/AZone']) {
+      const r = zonedDateTime('2026-10-17T15:30:00', tz);
+      expect(r.differs).toBe(false);
+      expect(r.zone).toBe('');
+    }
+    expect(zonedDateTime('', 'America/Los_Angeles')).toBeNull();
+  });
+  it('formatDateTime and formatDate take an optional zone', async () => {
+    const { formatDateTime, formatDate } = await import('./datetime');
+    expect(formatDateTime('2026-10-17T15:30:00Z', '', 'Asia/Kolkata')).toBe('10/17/2026, 9:00 PM');
+    expect(formatDate('2026-10-18T05:00:00Z', '', 'America/Los_Angeles')).toBe('10/17/2026');
+  });
+});

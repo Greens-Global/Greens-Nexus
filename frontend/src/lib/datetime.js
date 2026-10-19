@@ -27,11 +27,13 @@ function toDate(v) {
 }
 
 // MM/DD/YYYY  ->  "08/04/2026"
-export function formatDate(v, fallback = '') {
+// Optional `timeZone` (IANA) reads an INSTANT on that zone's calendar; leave it
+// off for a bare date (YYYY-MM-DD), which is already a calendar day.
+export function formatDate(v, fallback = '', timeZone) {
   const d = toDate(v);
   if (!d) return fallback;
   return new Intl.DateTimeFormat('en-US', {
-    year: 'numeric', month: '2-digit', day: '2-digit',
+    year: 'numeric', month: '2-digit', day: '2-digit', ...(timeZone ? { timeZone } : {}),
   }).format(d);
 }
 
@@ -78,12 +80,13 @@ export function greetingFor(v = new Date()) {
 }
 
 // MM/DD/YYYY, h:mm AM/PM  ->  "08/04/2026, 2:01 PM"
-export function formatDateTime(v, fallback = '') {
+// Optional `timeZone` (IANA) reads it on that zone's clock instead of the viewer's.
+export function formatDateTime(v, fallback = '', timeZone) {
   const d = toDate(v);
   if (!d) return fallback;
   return new Intl.DateTimeFormat('en-US', {
     year: 'numeric', month: '2-digit', day: '2-digit',
-    hour: 'numeric', minute: '2-digit', hour12: true,
+    hour: 'numeric', minute: '2-digit', hour12: true, ...(timeZone ? { timeZone } : {}),
   }).format(d);
 }
 
@@ -188,4 +191,43 @@ export function wallClock(iso, tzOffsetMin) {
   const east = -off, abs = Math.abs(east);
   const zone = `GMT${east >= 0 ? '+' : '-'}${Math.floor(abs / 60)}${abs % 60 ? `:${String(abs % 60).padStart(2, '0')}` : ''}`;
   return { time, date: d.toISOString().slice(0, 10), zone };
+}
+
+// Short label for an IANA zone: 'America/Los_Angeles' -> "PT", 'Asia/Kolkata'
+// -> "IST"; any other zone gets Intl's short name ("GMT+9"), '' for none.
+const ZONE_ABBR = {
+  'America/Los_Angeles': 'PT', 'America/Denver': 'MT', 'America/Phoenix': 'MST',
+  'America/Chicago': 'CT', 'America/New_York': 'ET',
+  'Asia/Kolkata': 'IST', 'Asia/Calcutta': 'IST', UTC: 'UTC',
+};
+export function zoneAbbr(timeZone, v = new Date()) {
+  if (!timeZone) return '';
+  if (ZONE_ABBR[timeZone]) return ZONE_ABBR[timeZone];
+  try {
+    return new Intl.DateTimeFormat('en-US', { timeZone, timeZoneName: 'short' })
+      .formatToParts(toDate(v) || new Date()).find((p) => p.type === 'timeZoneName')?.value || '';
+  } catch { return ''; }
+}
+
+// A stored UTC instant on the EMPLOYEE's clock, for an approver (Oct 19 -
+// Miranda asked for 8:30 AM Pacific and her approver in India read 9:00 PM).
+// `timeZone` is the employee's IANA zone (the one their Time Sheet reads in);
+// a naive 'YYYY-MM-DDTHH:MM[:SS]' is UTC, as the timeclock stores it.
+//   zonedDateTime('2026-10-17T15:30:00', 'America/Los_Angeles', 'Asia/Kolkata')
+//     -> { date: '10/17/2026', time: '8:30 AM', zone: 'PT', differs: true, label: '8:30 AM PT' }
+// `differs` = the viewer's own clock (`viewerZone`, default the browser's)
+// reads another time, so `label` carries the zone only then. No zone, or an
+// unknown one, reads the viewer's clock unlabeled. Null for no/bad value.
+export function zonedDateTime(v, timeZone, viewerZone) {
+  const naive = typeof v === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(v);
+  const d = toDate(naive ? `${v}Z` : v);
+  if (!d) return null;
+  let tz = timeZone || '';
+  try { if (tz) new Intl.DateTimeFormat('en-US', { timeZone: tz }); } catch { tz = ''; }
+  let mine = viewerZone || '';
+  try { if (mine) new Intl.DateTimeFormat('en-US', { timeZone: mine }); } catch { mine = ''; }
+  const date = formatDate(d, '', tz || undefined), time = formatTimeIn(d, tz || undefined);
+  const differs = !!tz && (formatDateTime(d, '', tz) !== formatDateTime(d, '', mine || undefined));
+  const zone = tz ? zoneAbbr(tz, d) : '';
+  return { date, time, zone, differs, label: differs && zone ? `${time} ${zone}` : time };
 }
