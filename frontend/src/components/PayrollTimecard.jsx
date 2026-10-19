@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { ChevronLeft, ChevronRight, ArrowRight, ArrowDown, Pencil, Plus, X, CheckCircle, Download, AlertTriangle, MapPin, MapPinOff, PlayCircle, Info, SlidersHorizontal } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ArrowRight, ArrowDown, Pencil, Plus, X, CheckCircle, Download, AlertTriangle, MapPin, MapPinOff, PlayCircle, Info, SlidersHorizontal, Lock } from 'lucide-react';
 import { api } from '../api';
 import { formatDate, formatDateTime, formatMonthDayNumeric } from '../lib/datetime';
 import { TZ_OPTIONS, useDisplayTz, setDisplayTz, formatTimeTz, utcToInputTz, inputToUtcTz, tzOffsetForInput, useOwnZone } from '../lib/displayTz';
@@ -30,6 +30,17 @@ import { confirmExportReadiness } from '../lib/payrollReadiness';
 
 // Launch (Neil, 10/16): the only sign-off is review + Nexus Sign, so the HR
 // "Finalize Without Signatures" override is hidden. Flip to true to show it.
+// Your OWN card opened from People > Time (Oct 20): the server refuses a
+// manager's or HR's approvals and direct edits on their own time
+// (_refuse_own_time), so the card hides them and says where fixes go.
+const OWN_CARD_HINT = 'Your manager or HR approves your time - send a punch fix request from Workday > Time Sheet.';
+function OwnCardHint() {
+  return (
+    <div data-testid="own-card-hint" style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: 'var(--ink)', background: 'var(--wk-hover)', border: '1px solid var(--wk-line2)', borderRadius: 9, padding: '8px 12px', marginBottom: 10, fontWeight: 500 }}>
+      <Lock size={13} style={{ flexShrink: 0 }} /> {OWN_CARD_HINT}
+    </div>
+  );
+}
 const LEGACY_FINALIZE = false;
 
 // ── Payroll timecard (SwipeClock 1:1, manager-editable) ───────────────────────
@@ -192,7 +203,7 @@ function outOfLocationHint(site, dist) {
 }
 // Clickable (Sep 30 - "still not able to click on locations"): the cell was
 // only ever a tooltip, so nothing happened on click. With `onOpen` every chip -
-// a site name, Out of Location, Location off, the Out-punch tail - is one
+// a site name, Out of Location, No Location, the Out-punch tail - is one
 // button that opens that shift's punches on the Geofence Punch map.
 const locChipBtn = {
   background: 'none', border: 'none', padding: 0, margin: 0, font: 'inherit', color: 'inherit', textAlign: 'left',
@@ -208,14 +219,14 @@ export function LocCell({ seg, onOpen }) {
   const outTail = outDiffers ? (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, color: geoOut === 'out_of_fence' ? '#b45309' : geoOut === 'no_location' ? '#b91c1c' : 'var(--muted)' }}
       title={geoOut === 'out_of_fence' ? `Out punch: ${outOfLocationHint(seg.workSiteOut, seg.distanceOut)}` : geoOut === 'no_location' ? 'Out punch: no location shared' : geoOut === 'no_site' ? 'Out punch: none of their locations is on the map yet' : geoOut === 'low_accuracy' ? 'Out punch: only a rough location (no GPS) - too rough to tell which site' : `Out punch: ${seg.workSiteOut || geoOut}`}>
-      <ArrowRight size={10} /> {geoOut === 'out_of_fence' ? 'Out of Location' : geoOut === 'no_location' ? 'Out: location off' : geoOut === 'no_site' ? 'Out: no site mapped' : geoOut === 'low_accuracy' ? 'Out: approx.' : (seg.workSiteOut || (geoOut === 'remote' ? 'Remote' : 'Out'))}
+      <ArrowRight size={10} /> {geoOut === 'out_of_fence' ? 'Out of Location' : geoOut === 'no_location' ? 'Out: No Location' : geoOut === 'no_site' ? 'Out: no site mapped' : geoOut === 'low_accuracy' ? 'Out: approx.' : (seg.workSiteOut || (geoOut === 'remote' ? 'Remote' : 'Out'))}
     </span>
   ) : null;
   let chip, title, style = { display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12 };
   if (geo === 'no_location') {
     style = { ...style, color: '#b91c1c', fontWeight: 700 };
     title = 'No location was shared for this punch - turned off or not allowed in the browser.';
-    chip = <><MapPinOff size={12} style={{ flexShrink: 0 }} /> <span className="loc-chip-text">Location off</span>{outTail}</>;
+    chip = <><MapPinOff size={12} style={{ flexShrink: 0 }} /> <span className="loc-chip-text">No Location</span>{outTail}</>;
   } else if (geo === 'out_of_fence') {
     style = { ...style, color: '#b45309', fontWeight: 700 };
     title = outOfLocationHint(site, seg.distance);
@@ -617,6 +628,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     : label;
   const T = data?.totals;
   const fin = data?.finalized;         // HR finalization - the period is LOCKED
+  const ownCard = !self && !!myEmail && (data?.email || email || '').toLowerCase() === myEmail.toLowerCase();
+  const noEdit = !!fin || ownCard;     // nothing on the card is editable here (finalized, or your own)
   // Full-width rows across the hourly table: Date, Edit, In, Out, Deducted
   // Time, Category, Total Hours, OT, Loc, [Pay Rate], [Wage] - SwipeClock's
   // order (Neil, Oct 16): the actions up front, the outputs at the end.
@@ -819,12 +832,12 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     <>
                     {r.seg && !r.seg.in
                     // A clock-out with no clock-in (Oct 1) - see the fixed-salary inCell.
-                    ? ((self && fin) ? <span title="Period finalized - locked" style={{ color: '#b91c1c', fontWeight: 700 }}>Missing</span>
+                    ? (((self && fin) || ownCard) ? <span title={ownCard ? OWN_CARD_HINT : 'Period finalized - locked'} style={{ color: '#b91c1c', fontWeight: 700 }}>Missing</span>
                         : <button onClick={() => !fin && editRow(r)}
                             title={fin ? 'Period finalized - locked' : self ? 'Add the missing clock-in - goes to your approver' : 'Add the missing clock-in, or delete the clock-out'}
                             style={{ background: 'none', border: 'none', padding: 0, cursor: fin ? 'default' : 'pointer', color: '#b91c1c', fontWeight: 700, font: 'inherit' }}>Missing</button>)
                     : r.seg
-                    ? <InlineTime seg={r.seg} k="in" meta={pm[r.seg.inId]} showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={hourlyLocate} onLocate={() => setGeoMap(hourlyLocate)} />
+                    ? <InlineTime seg={r.seg} k="in" meta={pm[r.seg.inId]} showRaw={showRaw} locked={noEdit} onSaved={load} toastErr={toastErr} self={self} locateEmail={hourlyLocate} onLocate={() => setGeoMap(hourlyLocate)} />
                     : '-'}
     </>
   );
@@ -832,7 +845,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
     <>
                     {r.seg ? (r.seg.out
                       ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                          <InlineTime seg={r.seg} k="out" meta={pm[r.seg.outId]} showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={hourlyLocate} onLocate={() => setGeoMap(hourlyLocate)} />
+                          <InlineTime seg={r.seg} k="out" meta={pm[r.seg.outId]} showRaw={showRaw} locked={noEdit} onSaved={load} toastErr={toastErr} self={self} locateEmail={hourlyLocate} onLocate={() => setGeoMap(hourlyLocate)} />
                           {(r.seg.flags || []).includes('auto_clock_out') && (
                             <span title="Nexus closed this shift automatically - no clock-out was recorded. 0 paid hours until the real end time is set."
                               style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', color: '#b91c1c', background: 'rgba(185,28,28,0.1)', padding: '2px 7px', borderRadius: 6 }}>
@@ -840,8 +853,8 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                             </span>
                           )}
                         </span>
-                      : (self && fin)
-                        ? <span title="Period finalized - locked" style={{ color: '#b91c1c', fontWeight: 700 }}>Missing</span>
+                      : ((self && fin) || ownCard)
+                        ? <span title={ownCard ? OWN_CARD_HINT : 'Period finalized - locked'} style={{ color: '#b91c1c', fontWeight: 700 }}>Missing</span>
                         : <button onClick={() => !fin && editRow(r)}
                             title={fin ? 'Period finalized - locked' : isBreakRow(r) ? (self ? 'The break was never ended - ask your approver to add its end' : 'The break was never ended - set its real end, or delete the break')
                               : self ? 'Add the missing clock-out - goes to your approver' : 'Add the missing clock-out'}
@@ -928,7 +941,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                       <span style={{ flex: 1 }} />
                       {self
                         ? <span style={{ fontSize: 11, color: 'var(--muted)' }}>with your approver - not in your hours yet</span>
-                        : !fin && (
+                        : !noEdit && (
                           <span style={{ display: 'inline-flex', gap: 6 }}>
                             <button onClick={() => decideReq(r.req.id, 'approved')} title="Approve - adds this punch to the time sheet"
                               style={{ borderRadius: 999, padding: '3px 12px', cursor: 'pointer', font: 'inherit', fontSize: 11.5, fontWeight: 700, border: 'none', background: 'hsl(var(--color-green))', color: '#fff' }}>Approve</button>
@@ -946,7 +959,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
   // Vacation or Personal (Neil, Aug 3: "no option to just add a punch"). An
   // employee's Add and break fix go to their approver as requests.
   const btn = { border: '1px solid var(--line-strong,var(--line))', borderRadius: 3, padding: '0 5px', background: 'var(--wk-hover)', color: 'var(--ink)', font: 'inherit', fontSize: 11, fontWeight: 700, cursor: 'pointer', lineHeight: 1.6 };
-  const hEdit = (r) => !fin && (
+  const hEdit = (r) => !noEdit && (
     <span style={{ display: 'inline-flex', gap: 3, alignItems: 'center' }}>
       {r.seg && (!self || isBreakRow(r)) && (
         <button type="button" onClick={() => editRow(r)} style={btn}
@@ -1005,7 +1018,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           // with a note, carries the note and Work Log in its own footer.
           const foot = worked.length > 0 || !!(self ? myNote(ds) : (notes[ds]?.note || notes[ds]?.employeeNote));
           const inline = !foot;
-          const canAdd = !fin;
+          const canAdd = !noEdit;
           const noteCell = self
             ? <NoteCell date={ds} note={myNote(ds)} onSave={saveMyNote} placeholder="Add a note for your manager" />
             : <><NoteCell date={ds} note={notes[ds]} onSave={saveNote} /><EmployeeNoteLine note={notes[ds]} /></>;
@@ -1041,7 +1054,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                     <span>{hOut(r)}</span>
                     <span style={{ flex: 1 }} />
                     {worked.length > 1 && <span style={{ ...small, fontVariantNumeric: 'tabular-nums' }}>{hhmm(r.seg.workedMin)}</span>}
-                    {(!self || isBreakRow(r)) && !fin && (
+                    {(!self || isBreakRow(r)) && !noEdit && (
                       <button type="button" className="pr-dcard-icon" onClick={() => editRow(r)}
                         title={isBreakRow(r) ? 'Fix or delete this break' : 'Edit punch'} aria-label={`Edit the punch on ${dow(ds)}`}>
                         <Pencil size={14} />
@@ -1057,7 +1070,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
                   )}
                 </div>
               ))}
-              {worked.length > 0 && !self && !fin && (
+              {worked.length > 0 && !self && !noEdit && (
                 <button type="button" className="pr-dcard-add pr-dcard-add-more" onClick={() => setEditDay({ date: ds, seg: null })}
                   title="Add another punch for this day">
                   <Plus size={13} /> Add Another Punch
@@ -1159,7 +1172,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
         onPrev={() => shiftMonth(-1)} onNext={() => shiftMonth(1)}
         onFinalize={finalize} onUnfinalize={unfinalize}
         editDay={editDay} setEditDay={setEditDay} load={load} toastOk={toastOk} toastErr={toastErr}
-        setWorkLogDay={setWorkLogDay} dayNotes={notes} saveNote={saveNote} saveMyNote={saveMyNote} myNote={myNote} selfTop={selfTop} />
+        setWorkLogDay={setWorkLogDay} dayNotes={notes} saveNote={saveNote} saveMyNote={saveMyNote} myNote={myNote} selfTop={selfTop} ownCard={ownCard} />
     );
     return (
       <>
@@ -1224,7 +1237,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           <PlayCircle size={14} /> Simulate
         </button>
         )}
-        {!self && email && (
+        {!self && email && !ownCard && (
         <button data-tour="pr-add-time" onClick={() => setAddTime(true)} title="Add a shift, or several days of them, for someone who did not clock in right"
           style={{ display: 'inline-flex', alignItems: 'center', gap: 5, background: 'none', border: '1px solid var(--wk-line2)', borderRadius: 999, padding: '5px 12px', fontFamily: 'var(--wk-font)', fontSize: 12, fontWeight: 700, color: 'var(--ink)', cursor: 'pointer' }}>
           <Plus size={14} /> Add Time
@@ -1258,6 +1271,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
           <Pencil size={13} style={{ flexShrink: 0 }} /> Tap any clock-in or clock-out time to request a change. It goes to your approver, and your pay stays the same until they approve it.
         </div>
       )}
+      {ownCard && <OwnCardHint />}
       {!stepLocked && data && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
           {data.dept && <span><strong style={{ color: 'var(--ink)' }}>Department:</strong> {data.dept}</span>}
@@ -1584,7 +1598,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
               {isAdmin && fin && (
                 <button className="secondary-btn" onClick={unfinalize} disabled={busy} title="HR: unlock this finalized period for corrections"
                   style={{ fontSize: 12.5 }}>Unlock</button>)}
-              {isAdmin && !fin && LEGACY_FINALIZE && (
+              {isAdmin && !fin && !ownCard && LEGACY_FINALIZE && (
                 <button className="secondary-btn" onClick={finalize} disabled={busy} title="HR override: finalize for payroll without the review and signatures"
                   style={{ fontSize: 12.5 }}>Finalize Without Signatures</button>)}
             </div>
@@ -1610,7 +1624,7 @@ export default function PayrollTimecard({ toastOk, toastErr, selfMode = false, i
       {noteModal && (
         <NoteModal dates={dates} dow={dow} self={self} noteFor={noteOf} onSave={self ? saveMyNote : saveNote} toastOk={toastOk} onClose={() => setNoteModal(false)} />
       )}
-      {addTime && !self && email && (
+      {addTime && !self && email && !ownCard && (
         <AddTimeModal email={email} name={nameFor(email)} start={start} end={end} onClose={() => setAddTime(false)}
           onDone={() => { _timecardCache.clear(); load(); }} toastOk={toastOk} toastErr={toastErr} />
       )}
@@ -1677,12 +1691,13 @@ const t12s = (iso) => iso ? formatTimeTz(iso, { seconds: true }) : '';
 // Monthly card for a FIXED-salary employee. Same day grid + inline edit/add +
 // signatures as the hourly card, but the pay math is the fixed model: salary,
 // per-day present/half/absent/weekend status, deductions and weekend overtime.
-function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM, showRaw, setShowRaw, isAdmin, busy, setBusy, onPrev, onNext, onFinalize, onUnfinalize, editDay, setEditDay, load, toastOk, toastErr, setWorkLogDay, dayNotes = {}, saveNote, saveMyNote, myNote = () => null, selfTop = null }) {
+function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM, showRaw, setShowRaw, isAdmin, busy, setBusy, onPrev, onNext, onFinalize, onUnfinalize, editDay, setEditDay, load, toastOk, toastErr, setWorkLogDay, dayNotes = {}, saveNote, saveMyNote, myNote = () => null, selfTop = null, ownCard = false }) {
   const showPay = !data.payHidden;   // the manager tier never sees pay
   const [geoMap, setGeoMap] = useState('');   // email whose Geofence Punch view is open
   useDisplayTz();   // re-render this card (and its time cells) when the tz switch flips
   const T = data.totals || {};
   const fin = data.finalized;
+  const noEdit = !!fin || ownCard;   // finalized, or your own card (Oct 20)
   const mgrAp = data.approval;
   const [breakFix, setBreakFix] = useState(null);       // { date, breaks } - fixing a break punch
   const [noteModal, setNoteModal] = useState(false);    // Add Note in the toolbar
@@ -1808,6 +1823,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
           <Pencil size={13} style={{ flexShrink: 0 }} /> Tap a time to change it, or "+ add" on a past day to log a missed punch - it goes to your approver.
         </div>
       )}
+      {ownCard && <OwnCardHint />}
       {showPay && !data.rateSet && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 12, color: '#b45309', marginBottom: 10 }}>
           <AlertTriangle size={13} /> No salary set - set it on this person's Pay &amp; Benefits tab. Pay shows {fmtM(0)} until then.
@@ -1854,8 +1870,8 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
               const myN = myNote(fd.date);
               const hrNote = self ? (myN?.note || '') : (note?.note || '');
 
-              const missing = (seg, side) => (self && fin)
-                ? <span style={{ color: '#b91c1c', fontWeight: 700 }}>Missing</span>
+              const missing = (seg, side) => ((self && fin) || ownCard)
+                ? <span title={ownCard ? OWN_CARD_HINT : undefined} style={{ color: '#b91c1c', fontWeight: 700 }}>Missing</span>
                 : <button onClick={() => !fin && (side === 'brk' ? setBreakFix({ date: fd.date, breaks: formal }) : setEditDay({ date: fd.date, seg }))}
                     title={fin ? 'Locked' : side === 'brk' ? (self ? 'The break was never ended - ask your approver to add its end' : 'The break was never ended - set its real end, or delete the break')
                       : side === 'in' ? (self ? 'Add the missing clock-in - goes to your approver' : 'Add the missing clock-in, or delete the clock-out') : 'Add the missing clock-out'}
@@ -1865,7 +1881,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                 if (!at) return missing(seg, k);
                 return (
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                    <InlineTime seg={seg} k={k} meta={pm[k === 'in' ? seg.inId : seg.outId]} showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} locateEmail={locateEmail} onLocate={() => setGeoMap(locateEmail)} />
+                    <InlineTime seg={seg} k={k} meta={pm[k === 'in' ? seg.inId : seg.outId]} showRaw={showRaw} locked={noEdit} onSaved={load} toastErr={toastErr} self={self} locateEmail={locateEmail} onLocate={() => setGeoMap(locateEmail)} />
                     {k === 'out' && (seg.flags || []).includes('auto_clock_out') && (
                       <span title="Nexus closed this shift automatically - no clock-out was recorded. The day is held until the real end time is set."
                         style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '.03em', textTransform: 'uppercase', color: '#b91c1c', background: 'rgba(185,28,28,0.1)', padding: '2px 7px', borderRadius: 6 }}>
@@ -1875,7 +1891,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                   </span>
                 );
               };
-              const addBtn = (!fin && !fd.future) && (
+              const addBtn = (!noEdit && !fd.future) && (
                 <button type="button" onClick={() => setEditDay({ date: fd.date, seg: null })} style={btn}
                   title={self ? 'Ask for time on this day - Regular, Break, Sick, Vacation or Personal - goes to your approver' : 'Add time to this day - Regular, Break, Sick, Vacation or Personal'}>Add</button>
               );
@@ -1915,7 +1931,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                     {si === 0 && dayCells}
                     <td style={gc}>{si === 0 && dayPill}</td>
                     <td style={gc}>
-                      {!fin && (
+                      {!noEdit && (
                         <span style={{ display: 'inline-flex', gap: 3, alignItems: 'center' }}>
                           {!self && <button type="button" onClick={() => setEditDay({ date: fd.date, seg })} style={btn} title="Edit this shift - its times, location or Type, or delete a punch">Edit</button>}
                           {si === segs.length - 1 && addBtn}
@@ -1935,11 +1951,11 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                     <tr key={fd.date + '-s' + si + '-b' + bi} className={rowCls}>
                       <td style={{ ...gc, color: 'var(--muted)', fontStyle: 'italic' }}>Break</td>
                       <td style={gc}>
-                        {!fin && <button type="button" onClick={() => setBreakFix({ date: fd.date, breaks: formal })} style={btn}
+                        {!noEdit && <button type="button" onClick={() => setBreakFix({ date: fd.date, breaks: formal })} style={btn}
                           title={self ? 'Ask your approver to fix or remove this break' : 'Fix the start or end of this break, or delete it'}>Edit</button>}
                       </td>
-                      <td style={gc}><InlineTime seg={bseg} k="in" meta={pm[b.startId]} showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} /></td>
-                      <td style={gc} title={`${hhmm(b.min)} break`}>{bseg.out ? <InlineTime seg={bseg} k="out" meta={pm[b.endId]} showRaw={showRaw} locked={!!fin} onSaved={load} toastErr={toastErr} self={self} /> : missing(seg, 'brk')}</td>
+                      <td style={gc}><InlineTime seg={bseg} k="in" meta={pm[b.startId]} showRaw={showRaw} locked={noEdit} onSaved={load} toastErr={toastErr} self={self} /></td>
+                      <td style={gc} title={`${hhmm(b.min)} break`}>{bseg.out ? <InlineTime seg={bseg} k="out" meta={pm[b.endId]} showRaw={showRaw} locked={noEdit} onSaved={load} toastErr={toastErr} self={self} /> : missing(seg, 'brk')}</td>
                     </tr>
                   );
                 });
@@ -1994,7 +2010,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
                         <span style={{ flex: 1 }} />
                         {self
                           ? <span style={{ fontSize: 11, color: 'var(--muted)' }}>with your approver - not in your hours yet</span>
-                          : !fin && (
+                          : !noEdit && (
                             <span style={{ display: 'inline-flex', gap: 6 }}>
                               <button onClick={() => decideReq(r.id, 'approved')} title="Approve - adds this punch to the time sheet" style={{ ...reqBtn, border: 'none', background: 'hsl(var(--color-green))', color: '#fff' }}>Approve</button>
                               <button onClick={() => decideReq(r.id, 'rejected')} title="Reject - the employee is notified" style={{ ...reqBtn, border: '1px solid var(--wk-line2)', background: 'var(--card)', color: 'var(--ink)' }}>Reject</button>
@@ -2057,7 +2073,7 @@ function FixedTimecard({ data, self, email, people, setEmail, nameFor, cur, fmtM
             <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
               {isAdmin && fin && (
                 <button className="secondary-btn" onClick={onUnfinalize} disabled={busy} style={{ fontSize: 12.5 }}>Unlock</button>)}
-              {isAdmin && !fin && LEGACY_FINALIZE && (
+              {isAdmin && !fin && !ownCard && LEGACY_FINALIZE && (
                 <button className="secondary-btn" onClick={onFinalize} disabled={busy} title="HR override: finalize for payroll without the review and signatures"
                   style={{ fontSize: 12.5 }}>Finalize Without Signatures</button>)}
             </div>

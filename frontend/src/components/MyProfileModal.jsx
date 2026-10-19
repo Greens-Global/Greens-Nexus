@@ -324,7 +324,7 @@ export default function MyProfileModal({ onClose, theme, onThemeToggle, wkTheme,
           </div>
           <select id="profile-date-format" value={getDateFormat()} onChange={(e) => saveDateFormat(e.target.value)} disabled={dateFmtStatus === 'Saving...'}
             style={{ width: '100%', padding: '7px 10px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink)', fontSize: 13, fontFamily: 'inherit' }}>
-            {DATE_FORMATS.map((f) => <option key={f} value={f}>{f} - {formatDate(new Date(), '', f)}</option>)}
+            {DATE_FORMATS.map((f) => <option key={f} value={f}>{f} - {formatDate(new Date(), '', undefined, f)}</option>)}
           </select>
           {dateFmtStatus && <div style={{ fontSize: 11.5, color: dateFmtStatus === 'Saving...' ? 'var(--muted)' : 'hsl(var(--color-red))', marginTop: 6 }}>{dateFmtStatus}</div>}
         </div>

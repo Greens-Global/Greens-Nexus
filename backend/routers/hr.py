@@ -4006,8 +4006,11 @@ def get_compensation(eid: str, user: dict = Depends(require_comp_read_or_manager
         _direct_report_or_404(user, row, db)
         return {"compensation": row.compensation or {}, "bank": [], "readOnly": True,
                 "payroll": payroll_fields(db, row), "rateHistory": rate_history_out(db, row)}
+    from own_pay import own_pay_locked
     return {"compensation": row.compensation or {}, "bank": row.bank or [],
-            "payroll": payroll_fields(db, row), "rateHistory": rate_history_out(db, row)}
+            "payroll": payroll_fields(db, row), "rateHistory": rate_history_out(db, row),
+            # Your own record: pay is read-only (another admin or HR sets it), bank stays yours.
+            "ownPayLocked": own_pay_locked(db, user, row.work_email, min_level=5, module_id="hr_comp")}
 
 
 # ── Pay-record link: the inline "Payroll wage" (PayrollRate, drives the timecard)
@@ -4240,6 +4243,10 @@ def save_compensation(eid: str, body: CompensationIn, user: dict = Depends(requi
     if not row:
         raise HTTPException(404, "Employee not found")
     _assert_scope(row, hr_scope(user, db))
+    from own_pay import comp_pay_changed, refuse_own_pay
+    if body.compensation is not None and comp_pay_changed(db, row, body.compensation):
+        # Nobody sets their own pay (Oct 20); their bank details and an unchanged save stay open.
+        refuse_own_pay(db, user, row.work_email, min_level=5, module_id="hr_comp")
     effective = ""
     if body.compensation is not None:
         incoming = dict(body.compensation or {})
