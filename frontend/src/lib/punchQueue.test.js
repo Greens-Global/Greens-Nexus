@@ -105,7 +105,9 @@ describe('replayPending', () => {
     expect(r.restored).toBe(true);
     expect(r.backfilled).toBe(true);
     expect(timePunch).not.toHaveBeenCalled();
-    expect(timeSelfPunch).toHaveBeenCalledWith(expect.objectContaining({ kind: 'break_end', at }));
+    // Only the queue may use the offline path, and it says so (Oct 19).
+    expect(timeSelfPunch).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'break_end', at, offline_queue: true, queued_at: expect.any(String) }));
   });
 
   it('drops a parked punch the employee already redid on another device', async () => {
@@ -136,10 +138,10 @@ describe('replayPending', () => {
   it('stops carrying a punch the server can no longer place', async () => {
     await park(iso(Date.now() - 40 * 60000));
     timeStatus.mockResolvedValue({ allowed: ['break_end', 'out'] });
-    timeSelfPunch.mockRejectedValue(httpErr(400, 'Older than 7 days - ask a manager to add it.'));
+    timeSelfPunch.mockRejectedValue(httpErr(400, "This offline punch is more than 24 hours old, so it can't be added directly. Send a punch fix request from your Time Sheet and your manager approves it."));
     const r = await run(() => replayPending());
     expect(r.dropped).toBe(true);
-    expect(r.error.message).toMatch(/Older than 7 days/);
+    expect(r.error.message).toMatch(/punch fix request/);
     expect(readPending()).toBeNull();
   });
 
