@@ -2007,6 +2007,13 @@ def finalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrat
                f"Your time sheet {_us_span(body.start, body.end)} is finalized for payroll "
                f"({worked // 60}h {worked % 60:02d}m) and locked. Signatures: {_sigs}.",
                action={"view": "timeclock", "sub": "timesheet"})
+    # Paid leave (leave_balances.py, Oct 19): the vacation this period earned
+    # and the sick / vacation it paid. Never blocks payroll.
+    try:
+        import leave_balances
+        leave_balances.record_period(db, email, body.start, body.end, row.id, user["email"])
+    except Exception as _leave_err:  # noqa: BLE001
+        print(f"[leave] could not record {email} {body.start}-{body.end}: {_leave_err}")
     db.commit()
     return {"finalized": {"by": row.approved_by, "at": row.approved_at, "workedMin": worked}}
 
@@ -2024,6 +2031,9 @@ def unfinalize_timecard(body: FinalizeIn, user: dict = Depends(require_administr
         raise HTTPException(404, "No finalization found for this period")
     row.revoked = 1
     row.revoked_by = user["email"]
+    # Its leave rows go with it; finalizing again writes them afresh.
+    import leave_balances
+    leave_balances.remove_period(db, row.id)
     # A period signed through Nexus Sign keeps its review row as "completed",
     # which refused every new submission - so an unlocked period could never be
     # re-agreed or re-signed (Oct 16). Close that review out as "unlocked"; the
@@ -3242,6 +3252,16 @@ def create_punch_request(body: PunchRequestIn, user: dict = Depends(get_current_
     name = f"{emp.first_name} {emp.last_name}".strip() if emp else email.split("@")[0].replace(".", " ").title()
     category = ((body.category or "").strip()[:80]
                 if action == "add" and (body.punch_kind or "in") == "in" else "")
+    if category:
+        # Paid leave needs paid leave left (Neil, Oct 19: before 90 days
+        # "they can mark that they're sick, but they don't get the ability to
+        # credit sick pay"). Only once balances are set up (leave_balances.py).
+        import leave_balances
+        _bucket = leave_balances.bucket_of(category)
+        _have = leave_balances.available(db, email, _bucket) if _bucket else None
+        if _have is not None and _have <= 0:
+            raise HTTPException(400, f"You have no paid {_bucket} time available, so this can't be marked "
+                                     f"{category}. Choose Regular, or ask HR about your balance.")
     req = PunchRequest(id=str(uuid.uuid4()), employee_email=email, employee_name=name,
                        action=action, punch_kind=body.punch_kind or "in", at=at_utc,
                        local_date=local_date, tz_offset_min=body.tz_offset_min or 0,
@@ -10913,12 +10933,34 @@ def request_timeoff(body: TimeOffIn, user: dict = Depends(get_current_user),
     _notify_team_alert(db, employee_email=user["email"], actor_email=user["email"],
                        title="Time-Off Request",
                        body=f"{who} requested {_bell_kind(row)} "
-                            f"{_us_span(body.start_date, body.end_date)}{_timeoff_window(st, et)}.{_bell_reason(row)}",
+                            f"{_us_span(body.start_date, body.end_date)}{_timeoff_window(st, et)}."
+                            f"{_bell_reason(row)}{_leave_balance_note(db, user['email'], row)}",
                        ref_id=row.id, action={"view": "hr", "sub": "hr-time"}, owners_as_fallback=True,
                        extra_recipients=[*_approver_stand_ins(db, user["email"], user["email"]),
                                          *_skip_level_manager(db, user["email"])])
     db.commit()
     return _ser_timeoff(row, priv=_TimeoffPrivacy(db, user["email"]))
+
+
+def _leave_balance_note(db: Session, email: str, row) -> str:
+    """" Vacation balance: 32 h, 8 h after this." for the approver's bell
+    (leave_balances.py) - only once balances are set up, never for a
+    confidential request (its type is shared, its balance is not needed)."""
+    try:
+        import leave_balances
+        bucket = leave_balances.bucket_of(row.type)
+        if not bucket or _is_confidential(row):
+            return ""
+        b = leave_balances.balances(db, email)
+        if not b.get("live"):
+            return ""
+        have = float(b[bucket]["available"]) - float(b[bucket]["upcoming"])
+        need = leave_balances.request_hours(row, float(b["policy"].get("hoursPerDay") or 8))
+        left = have - need
+        tail = f"{left:g} h after this" if left >= 0 else f"{-left:g} h more than they have - the rest would be unpaid"
+        return f" {bucket.title()} balance: {have:g} h, {tail}."
+    except Exception:  # noqa: BLE001 - a balance problem never blocks a request
+        return ""
 
 
 def _skip_level_manager(db: Session, email: str) -> list[str]:
