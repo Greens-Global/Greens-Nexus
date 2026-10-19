@@ -692,4 +692,12 @@ async def cubby_snapshot_loop():
                 await asyncio.to_thread(cubby_sync.record_not_configured)
         except Exception as e:  # noqa: BLE001
             print(f"[cubby] loop error: {type(e).__name__}: {getattr(e, 'message', '')}")
+        # StorTrack (Market Rates, Oct 2026): rides this loop at a lower
+        # cadence - ops_stortrack acts only every few hours and does nothing
+        # without the warehouse key. Its own try, so it can never stop Cubby.
+        try:
+            import ops_stortrack
+            await asyncio.to_thread(ops_stortrack.sync_if_due)
+        except Exception as e:  # noqa: BLE001
+            print(f"[stortrack] loop error: {type(e).__name__}")
         await asyncio.sleep(SYNC_EVERY_SEC)

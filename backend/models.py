@@ -6056,6 +6056,10 @@ class OpsCompetitor(Base):
     last_status     = Column(String, default="")    # ok | no_rates_found | blocked_by_robots | blocked | unreachable | not_connected | error
     last_detail     = Column(String, default="")
     watch           = Column(Boolean, default=True) # read by the daily run
+    # StorTrack (Cubby's competitor rate feed, ops_stortrack.py, Oct 2026):
+    # "name|street|zip" normalized, set on a competitor the feed added or
+    # matched, so the next import finds it again.
+    stortrack_key   = Column(String, default="", index=True)
 
 
 class OpsCompetitorRate(Base):
@@ -6075,6 +6079,16 @@ class OpsCompetitorRate(Base):
     source        = Column(String, default="manual")              # manual | import | web (read from the competitor's page)
     entered_by    = Column(String, default="")
     created_at    = Column(String, default="")
+    # StorTrack (ops_stortrack.py, Oct 2026; source "stortrack"). rate_cents
+    # stays the standard (regular) rate like every other source; the feed
+    # also carries the web price and the promotional price, and tells unit
+    # variants of one size apart. None = the source did not say.
+    online_cents  = Column(Integer)
+    promo_cents   = Column(Integer)
+    climate       = Column(Boolean)
+    drive_up      = Column(Boolean)
+    elevator      = Column(Boolean)
+    space_type    = Column(String, default="")
 
 
 # ---------------------------------------------------------------------------
