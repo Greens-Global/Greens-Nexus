@@ -2191,6 +2191,19 @@ function InlineTime({ seg, k, meta, showRaw, locked, onSaved, toastErr, self, lo
 // the change is on record. An employee (self) still sends a request for their
 // approver, as before. Before this a break that never ended could not be fixed
 // by a manager at all, and it blocks sign-off.
+// "YYYY-MM-DDTHH:mm" (a datetime-local value) plus m minutes, in local time.
+function addMinutesInput(v, m) {
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return v;
+  d.setMinutes(d.getMinutes() + m);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+const BREAK_REASONS_SELF = ['Forgot to punch back in', 'A customer came in', 'Took a call', "It didn't record"];
+const BREAK_REASONS_MANAGER = ['Confirmed with the employee', 'Forgot to punch back in', 'A customer came in'];
+const QUICK_CHIP = { fontSize: 11.5, fontWeight: 600, padding: '3px 10px', borderRadius: 999, border: '1px solid var(--wk-line2)', background: 'var(--card)', color: 'var(--ink)', cursor: 'pointer', fontFamily: 'inherit' };
+const QUICK_CHIP_ON = { borderColor: 'var(--wk-brand)', color: 'var(--wk-brand)', background: 'hsla(var(--color-green),0.08)' };
+
 export function BreakFixModal({ day, email = '', self = true, busy, setBusy, onDone, onClose, toastOk, toastErr }) {
   // A break the day's clock-out closed (implicit) is one whose END never landed -
   // by far the common case, so open on it with its start time already known.
@@ -2198,8 +2211,14 @@ export function BreakFixModal({ day, email = '', self = true, busy, setBusy, onD
   // Adding a WHOLE break is the Add punch form with Type = Break (Neil, Oct 13).
   const [kind, setKind] = useState(unended ? 'break_end' : 'break_start');
   const [endAt, setEndAt] = useState(`${day.date}T12:30`);
+  // A break that never ended opens on 30 minutes after it started, with one-tap
+  // 30 min / 45 min / 1 hour - the weekly "I went to lunch, a customer came in,
+  // I never punched back in" (Charmi, Oct 19). It used to open on the break's
+  // own start time, which can never be saved, so every fix began with typing.
+  const unendedStart = unended?.start ? utcToInput(unended.start) : '';
   const [at, setAt] = useState(() => {
-    const anchor = unended?.start || (day.breaks || [])[0]?.end || '';
+    if (unendedStart) return addMinutesInput(unendedStart, 30);
+    const anchor = (day.breaks || [])[0]?.end || '';
     return anchor ? utcToInput(anchor) : `${day.date}T12:00`;
   });
   const [reason, setReason] = useState('');
@@ -2216,6 +2235,11 @@ export function BreakFixModal({ day, email = '', self = true, busy, setBusy, onD
   async function removeBreak() {
     const b = deletable[delIdx];
     if (!b) return;
+    // A manager's delete is immediate, so it asks first and says how to put it
+    // back (Charmi, Oct 19: "then I won't be able to add it back").
+    if (!self && !await dialog.confirm(
+      `Delete the ${brLabel(b)} break? Its punches come off the time sheet (the record keeps them). To put a break back later, use Add Punch with Type Break.`,
+      { title: 'Delete Break', confirmText: 'Delete Break', cancelText: 'Keep It', danger: true })) return;
     // End first, then start: never leave a lone break_end behind.
     const ids = [b.endId, b.startId].filter(Boolean);
     setBusy(true);
@@ -2308,6 +2332,19 @@ export function BreakFixModal({ day, email = '', self = true, busy, setBusy, onD
           ) : (
           <label style={{ fontSize: 11, color: 'var(--muted)' }}>{kind === 'both' ? 'Break start' : label} time
             <input autoFocus type="datetime-local" className="form-input" value={at} onChange={e => setAt(e.target.value)} style={{ width: '100%', fontSize: 13 }} />
+            {kind === 'break_end' && unendedStart && (
+              <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                {[30, 45, 60].map(m => {
+                  const v = addMinutesInput(unendedStart, m);
+                  return (
+                    <button key={m} type="button" onClick={() => setAt(v)} aria-pressed={at === v}
+                      style={{ ...QUICK_CHIP, ...(at === v ? QUICK_CHIP_ON : {}) }}>
+                      Back After {m === 60 ? '1 Hour' : `${m} Min`}
+                    </button>
+                  );
+                })}
+              </span>
+            )}
           </label>
           )}
           {kind === 'both' && (
@@ -2318,6 +2355,14 @@ export function BreakFixModal({ day, email = '', self = true, busy, setBusy, onD
           <label style={{ fontSize: 11, color: 'var(--muted)' }}>{self ? 'Reason (sent to your approver - not the time)' : 'Reason (kept on record and shown to the employee)'}
             <input className="form-input" value={reason} onChange={e => setReason(e.target.value)}
               placeholder={self ? "Why it's missing - e.g. ended my break on my phone and it didn't record" : 'Why - e.g. confirmed with them they were back at 1:00 PM'} style={{ width: '100%', fontSize: 13 }} />
+            {!isDelete && (
+              <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                {(self ? BREAK_REASONS_SELF : BREAK_REASONS_MANAGER).map(r => (
+                  <button key={r} type="button" onClick={() => setReason(r)} aria-pressed={reason === r}
+                    style={{ ...QUICK_CHIP, ...(reason === r ? QUICK_CHIP_ON : {}) }}>{r}</button>
+                ))}
+              </span>
+            )}
           </label>
         </div>
         <div style={{ display: 'flex', gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
