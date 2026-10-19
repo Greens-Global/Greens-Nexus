@@ -34,7 +34,8 @@ describe('SiteModelPanel', () => {
     expect(screen.getByText('Find Your Unit')).toBeTruthy();
     fireEvent.change(screen.getByLabelText('Unit number'), { target: { value: 'c214' } });
     fireEvent.submit(screen.getByLabelText('Unit number').closest('form'));
-    expect(screen.getByText('C214')).toBeTruthy();
+    // the unit card's number and the last route step both read C214
+    expect(screen.getAllByText('C214').length).toBeGreaterThan(0);
     expect(screen.getByText(/Building C, Level 2/)).toBeTruthy();
     expect(screen.getByText('How to Get There')).toBeTruthy();
     expect(screen.queryByText('Inventory')).toBeNull();
@@ -85,7 +86,7 @@ describe('SiteModelPanel', () => {
     fireEvent.change(screen.getByLabelText('Unit number'), { target: { value: 'C214' } });
     fireEvent.submit(screen.getByLabelText('Unit number').closest('form'));
     expect(screen.getByLabelText('Route to C214')).toBeTruthy();
-    expect(screen.getByText('Level 2')).toBeTruthy();
+    expect(screen.getAllByText('Level 2').length).toBeGreaterThan(1);   // the route card and the route step chips
     expect(screen.queryByText('Out of Service')).toBeNull();   // customers never see occupancy
     unmount();
     render(<SiteModelPanel model={model} mode="owner" images={{}} />);

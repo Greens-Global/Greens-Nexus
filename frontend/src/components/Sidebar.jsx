@@ -17,6 +17,7 @@ import {
   Briefcase, FileSignature, ArrowDownToLine, ArrowUpFromLine,
   HardDrive, FolderOpen, ClipboardList,
   MonitorDot, Gauge, CalendarClock,
+  Map as MapIcon,
 } from "lucide-react";
 import TicketToken from "./icons/TicketToken";
 import { useActionCounts, moduleCount } from "../lib/useActionCounts";
@@ -139,6 +140,7 @@ export const NAV = [
       { subview: "reports",     label: "Reports",         icon: FileSpreadsheet },
       { subview: "revenue",     label: "Revenue Management", icon: TrendingUp },
       { subview: "portfolio",   label: "Portfolio",       icon: Gauge },
+      { subview: "site-map",    label: "Site Map",        icon: MapIcon },
     ],
   },
   // Development was removed from the nav (Neil, Aug 11) - the module isn't

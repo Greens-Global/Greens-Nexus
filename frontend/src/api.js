@@ -2563,6 +2563,14 @@ export const api = {
   deleteOpsSavedReport: (id) => req(`/ops-reports/saved/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   shareOpsSavedReport: (id, recipient, message = '') => req(`/ops-reports/saved/${encodeURIComponent(id)}/share`, { method: 'POST', body: JSON.stringify({ recipient, message }) }),
   sendOpsSavedReport: (id, toMe = false) => req(`/ops-reports/saved/${encodeURIComponent(id)}/send`, { method: 'POST', body: JSON.stringify({ to_me: toMe }) }),
+  // Operations > Site Map (Oct 20): the site model per Cubby facility with the
+  // layer facts, the customer link for a unit, and the Customer Entrance pin.
+  getOpsSiteMapFacilities: ()            => req('/facility-ops/site-map/facilities'),
+  getOpsSiteMap:           (facilityId)  => req(`/facility-ops/site-map?facility_id=${encodeURIComponent(facilityId)}`),
+  getOpsCustomerLink:      (facilityId, unit) => req('/facility-ops/site-map/customer-link', { method: 'POST', body: JSON.stringify({ facility_id: facilityId, unit }) }),
+  saveOpsEntrance:         (body)        => req('/facility-ops/site-map/entrance', { method: 'PUT', body: JSON.stringify(body) }),
+  // Maintenance layer: built by the maintenance work (another branch); a 404 means not connected yet.
+  getOpsMaintenanceMap:    (facilityId)  => req(`/facility-ops/maintenance-map?facility_id=${encodeURIComponent(facilityId)}`),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
@@ -2590,5 +2598,19 @@ export const submitPublicIntake = (token, values) => _publicIntake(token, {
 export async function fetchPublicSiteModel(id) {
   const res = await fetch(`${BASE}/site-models/public/${encodeURIComponent(id)}`);
   if (!res.ok) throw new Error(res.status === 404 ? 'No map for this property' : `Could not load the map (${res.status})`);
+  return res.json();
+}
+
+// Customer unit map (/find/<token>, /find/u?f=..&k=..&unit=..) - one customer's
+// unit and the route to it, no login (routers/unit_map.py).
+export async function fetchPublicUnitMap(token) {
+  const res = await fetch(`${BASE}/unit-map/t/${encodeURIComponent(token)}`);
+  if (!res.ok) { let d = ''; try { d = (await res.json()).detail; } catch { /* not JSON */ } throw new Error(typeof d === 'string' && d ? d : res.status === 429 ? 'Too many requests - try again in a minute.' : `Could not load the map (${res.status})`); }
+  return res.json();
+}
+export async function fetchPublicUnitMapTemplate(params) {
+  const q = new URLSearchParams({ f: params.f || '', k: params.k || '', unit: params.unit || '' });
+  const res = await fetch(`${BASE}/unit-map/u?${q}`);
+  if (!res.ok) { let d = ''; try { d = (await res.json()).detail; } catch { /* not JSON */ } throw new Error(typeof d === 'string' && d ? d : `Could not load the map (${res.status})`); }
   return res.json();
 }

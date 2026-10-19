@@ -70,6 +70,7 @@ const PublicSign          = lazy(() => import("./views/PublicSign"));
 const PublicIntake        = lazy(() => import("./views/PublicIntake"));
 const PublicVerify        = lazy(() => import("./views/PublicVerify"));
 const PublicUnitFinder    = lazy(() => import("./views/PublicUnitFinder"));
+const PublicFindUnit      = lazy(() => import("./views/PublicFindUnit"));   // /find/<token>: one customer's unit + route (Oct 20)
 const ExternalActivate    = lazy(() => import("./views/ExternalActivate"));
 const PrivacyPolicy       = lazy(() => import("./views/PrivacyPolicy"));
 const TermsConditions     = lazy(() => import("./views/TermsConditions"));
@@ -532,6 +533,16 @@ export default function App() {
     return (
       <Suspense fallback={<ViewLoading minHeight="100dvh" />}>
         <PublicUnitFinder propertyId={pid} />
+      </Suspense>
+    );
+  }
+  // Customer unit map (/find/<token>, Oct 20 2026) - the link in a rental
+  // confirmation: one unit and the route to it, no login (routers/unit_map.py).
+  if (parsePath().view === 'find') {
+    const token = window.location.pathname.split('/').filter(Boolean)[1] || '';
+    return (
+      <Suspense fallback={<ViewLoading minHeight="100dvh" />}>
+        <PublicFindUnit token={token} search={window.location.search} />
       </Suspense>
     );
   }

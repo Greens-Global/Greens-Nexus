@@ -6,8 +6,8 @@
 // One fetch feeds all four tabs and the facility picker, so switching either
 // is instant. Nexus only reads - payments, leases and tenant edits stay in
 // Cubby, and each tenant row links there.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { LayoutDashboard, HandCoins, Warehouse, ListChecks, Scale, FileSpreadsheet, RefreshCw, TrendingUp, Gauge } from 'lucide-react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { LayoutDashboard, HandCoins, Warehouse, ListChecks, Scale, FileSpreadsheet, RefreshCw, TrendingUp, Gauge, Map as MapIcon } from 'lucide-react';
 import ModuleTabs from '../components/ModuleTabs';
 import { ErrorBanner, LoadingState } from '../components/AsyncState';
 import { api } from '../api';
@@ -25,6 +25,8 @@ import ThirdPartyPanel from '../operations/ThirdPartyPanel';
 import { isThirdParty, managedLabel, dataAsOf } from '../operations/thirdParty';
 import { useRole } from '../contexts/RoleContext';
 import '../operations/ops.css';
+// Site Map (Oct 20): the 3D site model with layers. Lazy, so three.js loads only on that tab.
+const SiteMap = lazy(() => import('../operations/SiteMap'));
 
 const SYNC_POLL_MS = 3000;
 const NOT_CONNECTED = "Cubby is not connected on this server yet. An administrator needs to set CUBBY_API_KEY in the API's app settings.";
@@ -40,9 +42,10 @@ const TABS = [
   { key: 'revenue',     label: 'Revenue Management', Icon: TrendingUp },
   // The Daily Flash for any set of properties, with its own picker and month (Neil, Oct 20).
   { key: 'portfolio',   label: 'Portfolio',       Icon: Gauge },
+  { key: 'site-map',    label: 'Site Map',        Icon: MapIcon },
 ];
 // Tabs that pick one facility themselves and are not about a period.
-const NO_PERIOD = new Set(['market', 'revenue']);
+const NO_PERIOD = new Set(['market', 'revenue', 'site-map']);
 // Market Rates keeps its own records and compares one facility at a time, so
 // the period and the "as of today" note do not apply to it.
 const TAB_KEYS = new Set(TABS.map((t) => t.key));
@@ -241,6 +244,7 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
           {sub === 'revenue' && (canRevenue
             ? <Revenue facility={scope.length === 1 ? scope[0] : null} facilities={facilities} onPick={setPicked} />
             : <div className="dash-card"><div className="ops-empty">Revenue Management is for managers and administrators.</div></div>)}
+          {sub === 'site-map' && <Suspense fallback={<LoadingState size="section" label="Loading the site map" minHeight={420} />}><SiteMap facility={scope.length === 1 ? scope[0] : null} facilities={facilities} onPick={setPicked} /></Suspense>}
         </div>
       )}
     </div>
