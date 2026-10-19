@@ -198,14 +198,15 @@ class PunchLocationRequired(unittest.TestCase):
 
     # ── exempt ─────────────────────────────────────────────────────────────
 
-    def test_missed_punch_backfill_is_exempt(self):
-        """/punch/manual is a correction flagged for review, not a live punch:
-        there is no 'now' location to give for a time that already passed."""
+    def test_offline_queue_replay_is_exempt(self):
+        """/punch/manual only takes offline-queue replays now (time self-approval
+        fix): a punch made while offline has no 'now' location to give."""
         self._require()
         at = datetime.now(timezone.utc).replace(microsecond=0)
         at = (at - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%S")
         r = self.client.post("/timeclock/punch/manual",
-                             json={"kind": "in", "at": at, "tz_offset_min": 0, "note": "forgot"})
+                             json={"kind": "in", "at": at, "tz_offset_min": 0, "note": "offline",
+                                   "offline_queue": True, "queued_at": at})
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(r.json()["geoStatus"], "no_location")
 
