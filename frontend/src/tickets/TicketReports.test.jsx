@@ -44,14 +44,17 @@ vi.mock('../api', () => ({
   api: {
     getTicketReport: vi.fn(() => Promise.resolve(JSON.parse(JSON.stringify(REPORT)))),
     ticketReportCsv: vi.fn(() => Promise.resolve({ blob: new Blob(['a,b']), filename: 'ticket-report.csv' })),
-    getTicketWeeklyEmail: vi.fn(() => Promise.resolve({ on: true, eligible: true, deskEnabled: true })),
-    setTicketWeeklyEmail: vi.fn((on) => Promise.resolve({ on, eligible: true, deskEnabled: true })),
+    getTicketReportMeta: vi.fn(() => Promise.resolve({ zone: 'America/Los_Angeles', today: '2026-10-19',
+      weeklyEmail: { on: true, eligible: true, deskEnabled: true, defaultOn: true, choice: null, mode: 'explicit' } })),
+    setTicketWeeklyEmail: vi.fn((on) => Promise.resolve({ on, eligible: true, deskEnabled: true, defaultOn: true, choice: on, mode: 'explicit' })),
   },
 }));
+vi.mock('../ui/dialog', () => ({ dialog: { alert: vi.fn(() => Promise.resolve()) } }));
 
 const { api } = await import('../api');
 const TicketReports = (await import('./TicketReports')).default;
-const { presetRange, fmtHours } = await import('./ticketReportRange');
+const { presetRange, fmtHours, weeklyHint } = await import('./ticketReportRange');
+const { dialog } = await import('../ui/dialog');
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -69,7 +72,8 @@ describe('TicketReports', () => {
     const params = api.getTicketReport.mock.calls[0][0];
     expect(params).toMatchObject({ priority: 'high', department: 'd1' });
     expect(params).not.toHaveProperty('type');
-    expect(params.start).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    // Last 30 Days counted from the SERVER's today in the viewer's zone.
+    expect([params.start, params.end]).toEqual(['2026-09-20', '2026-10-19']);
     expect(screen.getByText('09/20/2026 - 10/19/2026')).toBeTruthy();
     expect(screen.getByText('Priority: High')).toBeTruthy();
     expect(screen.getByText('78%')).toBeTruthy();                 // SLA Met
@@ -117,7 +121,49 @@ describe('TicketReports', () => {
   });
 });
 
+describe('TicketReports errors and the weekly switch', () => {
+  it('tells the person when the CSV export fails', async () => {
+    api.ticketReportCsv.mockImplementationOnce(() => Promise.reject(new Error('Server busy')));
+    render(<TicketReports />);
+    await screen.findByText('Sam Patel');
+    fireEvent.click(screen.getByRole('button', { name: /Export CSV/ }));
+    await waitFor(() => expect(dialog.alert).toHaveBeenCalledWith(expect.stringContaining('Server busy'), { title: 'Export Failed' }));
+  });
+
+  it('shows Off and disabled when the desk switch is off', async () => {
+    api.getTicketReportMeta.mockImplementationOnce(() => Promise.resolve({ zone: 'UTC', today: '2026-10-19',
+      weeklyEmail: { on: true, eligible: true, deskEnabled: false, defaultOn: true, choice: null } }));
+    render(<TicketReports />);
+    const b = await screen.findByRole('button', { name: /Weekly Email: Off/ });
+    expect(b.disabled).toBe(true);
+    expect(screen.getByText(/turned off for the whole desk/)).toBeTruthy();
+  });
+
+  it('toggles and reports a failed save', async () => {
+    render(<TicketReports />);
+    fireEvent.click(await screen.findByRole('button', { name: /Weekly Email: On/ }));
+    expect(await screen.findByRole('button', { name: /Weekly Email: Off/ })).toBeTruthy();
+    expect(api.setTicketWeeklyEmail).toHaveBeenCalledWith(false);
+    api.setTicketWeeklyEmail.mockImplementationOnce(() => Promise.reject(new Error('nope')));
+    fireEvent.click(screen.getByRole('button', { name: /Weekly Email: Off/ }));
+    await waitFor(() => expect(dialog.alert).toHaveBeenCalledWith(expect.stringContaining('nope'), { title: 'Not Saved' }));
+  });
+
+  it('hides the switch for someone who is never mailed', async () => {
+    api.getTicketReportMeta.mockImplementationOnce(() => Promise.resolve({ zone: 'UTC', today: '2026-10-19', weeklyEmail: { eligible: false } }));
+    render(<TicketReports />);
+    await screen.findByText('Sam Patel');
+    expect(screen.queryByRole('button', { name: /Weekly Email/ })).toBeNull();
+  });
+});
+
 describe('ticketReportRange', () => {
+  it('words the weekly hint per mode', () => {
+    expect(weeklyHint({ deskEnabled: true, defaultOn: false, on: false })).toMatch(/Off unless you turn it on/);
+    expect(weeklyHint({ deskEnabled: true, defaultOn: true, on: true })).toMatch(/As a desk supervisor/);
+    expect(weeklyHint({ deskEnabled: false })).toMatch(/whole desk/);
+  });
+
   const mon = new Date(2026, 9, 19);   // Monday 10/19/2026
   it('builds the presets', () => {
     expect(presetRange('this_week', mon)).toEqual(['2026-10-19', '2026-10-19']);

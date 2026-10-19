@@ -2494,7 +2494,7 @@ export const api = {
   // report, its CSV, and the caller's own Weekly Ticket Report email switch.
   getTicketReport: (params = {}) => req(`/task-tickets/reports?${new URLSearchParams(params).toString()}`),
   ticketReportCsv: (params = {}) => reqBlob(`/task-tickets/reports.csv?${new URLSearchParams(params).toString()}`),
-  getTicketWeeklyEmail: () => req("/task-tickets/reports/weekly-email"),
+  getTicketReportMeta: () => req("/task-tickets/reports/meta"),
   setTicketWeeklyEmail: (on) => req("/task-tickets/reports/weekly-email", { method: "PUT", body: JSON.stringify({ on }) }),
 };
 

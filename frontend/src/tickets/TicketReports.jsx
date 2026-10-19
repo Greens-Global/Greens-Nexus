@@ -7,11 +7,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Download, ArrowUp, ArrowDown, ArrowUpDown, Mail } from 'lucide-react';
 import { api } from '../api';
+import { dialog as appDialog } from '../ui/dialog';
 import { NX, FONT, btn, input as inputStyle, chip, PRIORITY_META } from '../tasks/theme';
 import { Card } from '../tasks/views/charts';
 import AsyncSection, { SkeletonBlocks } from '../components/AsyncState';
 import { formatDate, formatMonthDay } from '../lib/datetime';
-import { presetRange, fmtHours } from './ticketReportRange';
+import { presetRange, fmtHours, weeklyHint } from './ticketReportRange';
 
 const PRESETS = [
   ['this_week', 'This Week'], ['last_week', 'Last Week'], ['last_30', 'Last 30 Days'],
@@ -199,50 +200,67 @@ function BreakdownTable({ rows }) {
   );
 }
 
-function WeeklyEmailSwitch() {
-  const [pref, setPref] = useState(null);
+function WeeklyEmailSwitch({ pref, onChange }) {
   const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    Promise.resolve().then(() => api.getTicketWeeklyEmail()).then((p) => { if (alive) setPref(p); }).catch(() => {});
-    return () => { alive = false; };
-  }, []);
   if (!pref?.eligible) return null;
+  const off = !pref.deskEnabled;
+  const on = !off && pref.on;
   const toggle = async () => {
     setBusy(true);
-    try { setPref(await api.setTicketWeeklyEmail(!pref.on)); } catch { /* keep the old value */ }
+    try { onChange(await api.setTicketWeeklyEmail(!pref.on)); }
+    catch (e) { appDialog.alert(`Could not change the weekly email: ${e?.message || 'please try again.'}`, { title: 'Not Saved' }); }
     finally { setBusy(false); }
   };
-  const title = !pref.deskEnabled ? 'The weekly email is turned off for the whole desk in the notification settings'
-    : pref.on ? 'You get last week\'s report every Monday morning' : 'You do not get the Monday report';
   return (
-    <button type="button" onClick={toggle} disabled={busy} title={title} aria-pressed={pref.on}
-      style={{ ...btn('outline'), padding: '7px 11px', fontSize: 13, opacity: busy ? 0.6 : 1 }}>
-      <Mail size={14} /> Weekly Email: {pref.on ? 'On' : 'Off'}
+    <button type="button" onClick={toggle} disabled={busy || off} title={weeklyHint(pref)} aria-pressed={on}
+      style={{ ...btn('outline'), padding: '7px 11px', fontSize: 13, opacity: busy || off ? 0.6 : 1, cursor: off ? 'not-allowed' : 'pointer' }}>
+      <Mail size={14} /> Weekly Email: {on ? 'On' : 'Off'}
     </button>
   );
 }
 
+// "YYYY-MM-DD" -> that local day as a Date (the presets count from it).
+const dayOf = (s) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || '');
+  return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date();
+};
+
 // `listFilters`: the list's current filters that the server understands -
-// { priority, type, department, assignee, service_area } ('' = any).
+// { priority, type, department, assignee, service_area } ('' = any,
+// 'none' = the field is blank).
 // `filterLabels`: their human labels for the chips.
 export default function TicketReports({ listFilters = {}, filterLabels = [], companies = [] }) {
+  // The viewer's zone and today there, from the server: the presets count
+  // days the way the server buckets them, not the way this browser does.
+  const [meta, setMeta] = useState(null);
   const [preset, setPreset] = useState('last_30');
-  const [custom, setCustom] = useState(() => presetRange('last_30'));
+  const [customRange, setCustom] = useState(null);
   const [company, setCompany] = useState('');
   const [state, setState] = useState({ loading: true, error: null, data: null });
   const [exporting, setExporting] = useState(false);
 
-  const [start, end] = preset === 'custom' ? custom : presetRange(preset);
+  useEffect(() => {
+    let alive = true;
+    Promise.resolve().then(() => api.getTicketReportMeta())
+      .then((m) => { if (alive) setMeta(m || {}); })
+      .catch(() => { if (alive) setMeta({}); });   // fall back to this browser's date
+    return () => { alive = false; };
+  }, []);
+  const today = useMemo(() => dayOf(meta?.today), [meta]);
+  const custom = customRange || presetRange('last_30', today);
+
+  const [start, end] = preset === 'custom' ? custom : presetRange(preset, today);
   const params = useMemo(() => {
     const p = { start, end, company };
     for (const [k, v] of Object.entries(listFilters)) if (v) p[k] = v;
     return Object.fromEntries(Object.entries(p).filter(([, v]) => v));
   }, [start, end, company, listFilters]);
   const key = JSON.stringify(params);
+  const ready = meta !== null;
 
   const load = useCallback(() => {
     let alive = true;
+    if (!ready) return () => { alive = false; };
     Promise.resolve()
       .then(() => {
         if (alive) setState((s) => ({ loading: true, error: null, data: s.data }));
@@ -252,7 +270,7 @@ export default function TicketReports({ listFilters = {}, filterLabels = [], com
       .catch((error) => { if (alive) setState({ loading: false, error, data: null }); });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
+  }, [key, ready]);
   useEffect(() => load(), [load]);
 
   const exportCsv = async () => {
@@ -263,9 +281,12 @@ export default function TicketReports({ listFilters = {}, filterLabels = [], com
       a.href = URL.createObjectURL(blob);
       a.download = filename || 'ticket-report.csv';
       a.click();
-      URL.revokeObjectURL(a.href);
-    } catch { /* the button stays; a retry is one click */ }
-    finally { setExporting(false); }
+      // Revoked a beat later, as TicketsView's export does - an immediate
+      // revoke can cancel the download in some browsers.
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    } catch (e) {
+      appDialog.alert(`The CSV couldn't be exported: ${e?.message || 'please try again.'}`, { title: 'Export Failed' });
+    } finally { setExporting(false); }
   };
 
   const data = state.data;
@@ -299,7 +320,7 @@ export default function TicketReports({ listFilters = {}, filterLabels = [], com
           </select>
         )}
         <div style={{ display: 'flex', gap: 8, marginLeft: 'auto', flexWrap: 'wrap' }}>
-          <WeeklyEmailSwitch />
+          <WeeklyEmailSwitch pref={meta?.weeklyEmail} onChange={(p) => setMeta((m) => ({ ...m, weeklyEmail: p }))} />
           <button type="button" onClick={exportCsv} disabled={exporting || customBad} style={{ ...btn('outline'), padding: '7px 11px', fontSize: 13, opacity: exporting ? 0.6 : 1 }}>
             <Download size={14} /> {exporting ? 'Exporting…' : 'Export CSV'}
           </button>
@@ -311,11 +332,14 @@ export default function TicketReports({ listFilters = {}, filterLabels = [], com
         {filterLabels.map((l) => <span key={l} style={chip(NX.blue, 'rgba(37,99,235,0.12)')}>{l}</span>)}
         {filterLabels.length > 0 && <span style={{ color: NX.faint }}>From the list&apos;s filters</span>}
       </div>
+      {meta?.weeklyEmail?.eligible && (
+        <div style={{ fontSize: 11.5, color: NX.faint, marginTop: -8 }}>{weeklyHint(meta.weeklyEmail)}</div>
+      )}
 
       {customBad ? (
         <div style={{ fontSize: 13, color: NX.dim, padding: 12 }}>Pick a start date on or before the end date.</div>
       ) : (
-        <AsyncSection loading={state.loading && !data} error={state.error} onRetry={load}
+        <AsyncSection loading={!ready || (state.loading && !data)} error={state.error} onRetry={load}
           errorMessage="The report couldn't be loaded right now - please try again."
           isEmpty={!!data && !data.hasTickets}
           emptyContent={<div style={{ fontSize: 13, color: NX.faint, textAlign: 'center', padding: 32 }}>No tickets in this range.</div>}

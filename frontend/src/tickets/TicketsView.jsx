@@ -892,17 +892,19 @@ export default function TicketsView() {
 
   // Reports (server-side, TicketReports.jsx) take the list's filters that the
   // report endpoint understands; status, SLA, scope and search are list-only.
+  // The list's '' ("No Department" / "Not Set") travels as 'none'.
   const reportFilters = useMemo(() => {
     const v = (x) => (x === 'all' ? '' : x);
-    return { priority: v(priorityFilter), type: v(typeFilter), department: v(hrDeptFilter),
-      assignee: v(assigneeFilter), service_area: v(serviceAreaFilter) };
+    const blank = (x) => (x === '' ? 'none' : v(x));
+    return { priority: v(priorityFilter), type: v(typeFilter), department: blank(hrDeptFilter),
+      assignee: v(assigneeFilter), service_area: blank(serviceAreaFilter) };
   }, [priorityFilter, typeFilter, hrDeptFilter, assigneeFilter, serviceAreaFilter]);
   const reportFilterLabels = useMemo(() => [
     priorityFilter !== 'all' && `Priority: ${PRIORITY_META[priorityFilter]?.label || priorityFilter}`,
     typeFilter !== 'all' && `Type: ${TICKET_TYPE_META[typeFilter]?.label || typeFilter}`,
-    hrDeptFilter !== 'all' && `Department: ${hrDeptName(hrDeptFilter) || hrDeptFilter}`,
+    hrDeptFilter !== 'all' && `Department: ${hrDeptFilter === '' ? 'No Department' : (hrDeptName(hrDeptFilter) || hrDeptFilter)}`,
     assigneeFilter !== 'all' && `Assignee: ${nameOf(assigneeFilter) || assigneeFilter}`,
-    serviceAreaFilter !== 'all' && `Service Area: ${serviceAreaLabel(serviceAreaFilter) || serviceAreaFilter}`,
+    serviceAreaFilter !== 'all' && `Service Area: ${serviceAreaFilter === '' ? 'Not Set' : (serviceAreaLabel(serviceAreaFilter) || serviceAreaFilter)}`,
   ].filter(Boolean), [priorityFilter, typeFilter, hrDeptFilter, assigneeFilter, serviceAreaFilter, hrDeptName, nameOf]);
 
   // List-view sort - applied before grouping so it holds within each bucket too.

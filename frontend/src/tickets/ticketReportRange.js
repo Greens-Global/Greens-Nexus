@@ -1,5 +1,5 @@
-// Tickets > Reports helpers (TicketReports.jsx): the date presets and the
-// duration wording. Kept apart from the component so it stays a
+// Tickets > Reports helpers (TicketReports.jsx): the date presets, the
+// duration wording and the Weekly Email hint. Kept apart from the component so it stays a
 // components-only module (fast refresh) and the presets can be tested.
 
 // Local YYYY-MM-DD (what the API takes) - never shown to anyone.
@@ -18,4 +18,19 @@ export function presetRange(key, today = new Date()) {
 export function fmtHours(h) {
   if (h == null) return '-';
   return h < 48 ? `${h.toFixed(1)} hrs` : `${(h / 24).toFixed(1)} days`;
+}
+
+// What the Weekly Email switch means for this person (the server decides
+// who is mailed - backend/ticket_reports.py weekly_status).
+export function weeklyHint(pref) {
+  if (!pref) return '';
+  if (!pref.deskEnabled) return 'The Monday email is turned off for the whole desk in the ticket notification settings.';
+  if (pref.defaultOn) {
+    return pref.on
+      ? 'As a desk supervisor you get last week\'s report every Monday morning. You can turn it off.'
+      : 'You turned off the Monday report. Desk supervisors get it unless they turn it off.';
+  }
+  return pref.on
+    ? 'You turned on last week\'s report every Monday morning.'
+    : 'Off unless you turn it on - each supervisor chooses for themselves.';
 }
