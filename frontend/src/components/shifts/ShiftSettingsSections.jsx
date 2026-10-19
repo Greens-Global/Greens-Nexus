@@ -273,6 +273,9 @@ export function ShiftSettingsPanel({ toastOk, toastErr }) {
               {/* Require Location to Punch (Oct 19 2026, routers/timeclock.py punch()). */}
               <label style={{ ...CHECK, marginTop: 10 }}><input type="checkbox" checked={cfg.requireLocationToPunch === true} onChange={(e) => save({ requireLocationToPunch: e.target.checked })} /> Require Location to Punch</label>
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Off unless turned on here. When on, a clock in, clock out or break punch from Nexus is refused unless the browser shares a location, and the person is shown how to turn location on. When off, a punch without a location still records and shows No Location on the Time Sheet. Missed punch requests and manager edits are not affected.</div>
+              {/* Location Trail While Clocked In (Oct 20 2026, routers/location_trail.py). */}
+              <label style={{ ...CHECK, marginTop: 10 }}><input type="checkbox" checked={cfg.locationTrailOn === true} onChange={(e) => save({ locationTrailOn: e.target.checked })} /> Location Trail While Clocked In</label>
+              <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Off unless turned on here. When on, Nexus shares each person's location about every 5 minutes while they are clocked in, paused on breaks and stopped at clock out, and only when their browser already allows location. The Time Clock page tells them it is on. Managers see live positions and each day's trail in People - Time - Location Trail. A browser cannot share while the phone screen is locked or Nexus is closed, so the trail has gaps then. Points are kept for 90 days.</div>
             </div>
             <div>
               <div style={LBL}>Rules</div>

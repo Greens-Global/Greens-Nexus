@@ -16,6 +16,7 @@ import ModuleTabs from '../components/ModuleTabs';
 import PayrollTimecard from '../components/PayrollTimecard';
 import BodModal from '../components/BodModal';
 import { useTimeStatus, patchTimeStatus } from '../lib/useTimeStatus';
+import LocationTrailNote from '../components/LocationTrailNote';
 import { punchDurable, replayPending, readPending, utcStamp } from '../lib/punchQueue';
 import { replayPendingBods, bodDurable } from '../lib/bodQueue';
 import { formatTime, formatDate, formatWeekday, formatHHMM, formatMonthDay } from '../lib/datetime';
@@ -1356,6 +1357,10 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
           {msg.ok ? <CheckCircle size={15} /> : <AlertTriangle size={15} />} {msg.text}
         </div>
       )}
+
+      {/* Location Trail While Clocked In (Oct 20): says plainly that the
+          location is shared while clocked in, when the company has it on. */}
+      {tab === 'overview' && !exempt && <LocationTrailNote status={status} />}
 
       {/* Overview: the Time Clock widget first, then the employee's own HR
           page (profile, hours, documents, time off, Ask HR). */}

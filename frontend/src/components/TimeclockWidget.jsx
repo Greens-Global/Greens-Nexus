@@ -5,6 +5,7 @@ import { editGuard } from '../asset/lib/editGuard.js';
 import BodModal from './BodModal';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { useTimeStatus, applyPunch } from '../lib/useTimeStatus';
+import { useLocationTrail } from '../lib/useLocationTrail';
 import { punchDurable, replayPending, readPending } from '../lib/punchQueue';
 import { punchPosition, keepPositionWarm } from '../lib/geoPosition';
 import { requiredPunchPosition, showLocationRequired, locationPermission, isLocationRequiredError, LOCATION_SHORT } from '../lib/punchLocation';
@@ -56,6 +57,9 @@ export default function TimeclockWidget() {
   // tiles are one request per poll. 25s so a punch/break on ANOTHER device
   // reflects in this widget's timer without a manual refresh.
   const { status, reload: reloadStatus } = useTimeStatus({ pollMs: 25000 });
+  // Location Trail While Clocked In (Oct 20): the one place the web pings run,
+  // so a second screen never doubles them (lib/useLocationTrail.js).
+  useLocationTrail(status);
   // A page surface (the sidebar chip) is drawing the clock: this stays the
   // engine and draws nothing itself but its modals (lib/timeclockStore.js).
   const claimed = useTimeclockClaimed();
