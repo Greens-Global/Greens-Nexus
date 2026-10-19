@@ -9,6 +9,7 @@ import { NX, FONT, btn, input as inputStyle, card } from '../tasks/theme';
 import { SkeletonBlocks, LoadingState } from '../components/AsyncState';
 import { TicketSelect } from './TicketAtoms';
 import SavedCheck from '../components/SavedCheck';
+import TicketInboundLog, { TicketInboundSettings } from './TicketInboundEmail';
 
 const fieldLabel = { display: 'block', fontSize: 12.5, fontWeight: 600, color: NX.dim, marginBottom: 6 };
 const field = { marginBottom: 14 };
@@ -17,6 +18,7 @@ const EVENT_LABELS = {
   resolved: 'Ticket resolved', reopened: 'Ticket reopened', approval_required: 'Approval required',
   overdue_reminder: 'Due and overdue reminders (Teams from the manager, and the bell)',
   sla_breach: 'SLA breach alerts (the bell, to the assignee and the department lead)',
+  weekly_report: 'Weekly ticket report (Monday morning email to desk supervisors; each can opt out on Reports)',
 };
 const STATUS_META = {
   sent: { color: NX.green, Icon: CheckCircle2 }, failed: { color: NX.red, Icon: AlertTriangle },
@@ -46,7 +48,7 @@ function Field({ label, hint, children }) {
 
 export default function TicketNotifySettings() {
   const { myLevel } = useRole();
-  const [tab, setTab] = useState('settings');   // settings | log
+  const [tab, setTab] = useState('settings');   // settings | log | inbound
   const [cfg, setCfg] = useState(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -87,7 +89,7 @@ export default function TicketNotifySettings() {
   return (
     <div style={{ fontFamily: FONT, color: NX.ink }}>
       <div style={{ display: 'flex', gap: 4, marginBottom: 18, borderBottom: `1px solid ${NX.border}` }}>
-        {[['settings', 'Settings'], ['log', 'Delivery Log']].map(([k, lab]) => (
+        {[['settings', 'Settings'], ['log', 'Delivery Log'], ['inbound', 'Inbound Email']].map(([k, lab]) => (
           <button key={k} onClick={() => setTab(k)} style={{
             ...btn('ghost'), fontSize: 13, fontWeight: 600, padding: '8px 12px', borderRadius: 0,
             color: tab === k ? NX.blue : NX.dim, borderBottom: `2px solid ${tab === k ? NX.blue : 'transparent'}`,
@@ -114,7 +116,7 @@ export default function TicketNotifySettings() {
               <Field label="Default CC" hint="Comma-separated. Applied to every ticket notification.">
                 <input value={ccInput} onChange={(e) => setCcInput(e.target.value)} placeholder="ops@companydomain.com, qa@companydomain.com" style={inputStyle} />
               </Field>
-              <Field label="Reply-to address">
+              <Field label="Reply-to address" hint={cfg.inboundEnabled ? 'While Email to Ticket is on, ticket emails reply to the support mailbox below instead.' : undefined}>
                 <input value={cfg.replyTo || ''} onChange={(e) => set('replyTo', e.target.value)} placeholder="support@companydomain.com" style={inputStyle} />
               </Field>
               <Field label="Company logo URL" hint="Shown in the email header. Blank uses the default Nexus branding.">
@@ -124,6 +126,7 @@ export default function TicketNotifySettings() {
                 <input type="number" min={0} value={cfg.autoCloseDays ?? 0} onChange={(e) => set('autoCloseDays', Math.max(0, Number(e.target.value) || 0))}
                   style={{ ...inputStyle, width: 120 }} />
               </Field>
+              <TicketInboundSettings cfg={cfg} set={set} />
             </div>
 
             <div style={{ ...card, padding: 18 }}>
@@ -156,8 +159,10 @@ export default function TicketNotifySettings() {
             <SavedCheck show={saved} />
           </div>
         </>
-      ) : (
+      ) : tab === 'log' ? (
         <DeliveryLog />
+      ) : (
+        <TicketInboundLog enabled={!!cfg.inboundEnabled} mailbox={cfg.inboundMailbox || ''} />
       )}
     </div>
   );

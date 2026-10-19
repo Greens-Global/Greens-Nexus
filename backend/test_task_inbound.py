@@ -311,6 +311,14 @@ class IngestTests(_MailboxCase):
         self.assertIn("not a known Nexus person", self._row().reason)
         self.assertEqual(self._comments(), [])
 
+    def test_a_colleagues_name_at_an_outside_domain_is_not_that_colleague(self):
+        """The local-part match is for the onmicrosoft relay only: on any other
+        domain it would let sagar.shoundik@gmail.com comment as Sagar."""
+        msg = self._reply_to_task(sender="sagar.shoundik@gmail.example")
+        self.assertEqual(inbound.ingest_message(self.db, CFG, msg), "rejected")
+        self.assertIn("not a known Nexus person", self._row().reason)
+        self.assertEqual(self._comments(), [])
+
     def test_the_onmicrosoft_relay_is_the_same_person(self):
         """Outlook may deliver as the guest relay; matching only the full
         address would refuse a colleague's own reply."""
@@ -366,6 +374,35 @@ class IngestTests(_MailboxCase):
     def test_an_out_of_office_is_ignored(self):
         msg = self._reply_to_task(headers={"Auto-Submitted": "auto-replied"},
                                   body="<p>I am on leave until Monday.</p>")
+        self.assertEqual(inbound.ingest_message(self.db, CFG, msg), "ignored")
+        self.assertEqual(self._comments(), [])
+
+    def test_a_reply_that_failed_authentication_is_refused(self):
+        """Defense in depth behind DMARC p=reject: Exchange's own verdict."""
+        msg = self._reply_to_task(headers={"Authentication-Results": "spf=fail; dmarc=fail action=none"})
+        self.assertEqual(inbound.ingest_message(self.db, CFG, msg), "rejected")
+        self.assertEqual(self._row().reason, "sender failed authentication")
+        self.assertIn("dmarc=fail", self._row().auth_summary)
+        self.assertEqual(self._comments(), [])
+
+    def test_a_non_internal_authas_alone_is_refused(self):
+        msg = self._reply_to_task(headers={"X-MS-Exchange-Organization-AuthAs": "Anonymous"})
+        self.assertEqual(inbound.ingest_message(self.db, CFG, msg), "rejected")
+        self.assertEqual(self._row().reason, "sender failed authentication")
+
+    def test_a_dmarc_pass_wins_over_a_non_internal_authas(self):
+        """Tasks inbound may be live: our own people's replies must not start
+        bouncing because one hop was not stamped Internal."""
+        msg = self._reply_to_task(headers={"Authentication-Results": "spf=pass; dmarc=pass action=none",
+                                           "X-MS-Exchange-Organization-AuthAs": "Anonymous"})
+        self.assertEqual(inbound.ingest_message(self.db, CFG, msg), "posted")
+
+    def test_absent_authentication_headers_are_allowed_and_recorded(self):
+        self.assertEqual(inbound.ingest_message(self.db, CFG, self._reply_to_task()), "posted")
+        self.assertEqual(self._row().auth_summary, "auth: no authentication headers")
+
+    def test_an_inbox_rule_forward_is_automated(self):
+        msg = self._reply_to_task(headers={"X-MS-Exchange-Inbox-Rules-Loop": SENDER})
         self.assertEqual(inbound.ingest_message(self.db, CFG, msg), "ignored")
         self.assertEqual(self._comments(), [])
 

@@ -1124,6 +1124,13 @@ def _run_migrations():
             "ALTER TABLE ops_competitor_rates ADD COLUMN space_type VARCHAR DEFAULT ''",
             # Ticket -> property unit (Ops review, Oct 20) - see the Postgres list.
             "ALTER TABLE task_tickets ADD COLUMN property_unit VARCHAR DEFAULT ''",
+            # Email to ticket (Oct 2026, ticket_inbound.py): how a ticket arrived. models.TaskTicket.
+            "ALTER TABLE task_tickets ADD COLUMN source VARCHAR DEFAULT ''",
+            # Inbound mail: what Exchange said about the sender (mail_inbound.auth_verdict).
+            "ALTER TABLE task_inbound_email ADD COLUMN auth_summary VARCHAR DEFAULT ''",
+            "ALTER TABLE ticket_inbound_email ADD COLUMN auth_summary VARCHAR DEFAULT ''",
+            # Weekly Ticket Report opt-out (Oct 2026, ticket_reports.py). models.NexusPersonPref.
+            "ALTER TABLE nexus_person_prefs ADD COLUMN ticket_weekly_report INTEGER",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2525,6 +2532,23 @@ def _run_migrations():
         # new tables, explicit RLS. models.OpsReportCache, models.OpsSavedReport.
         "ALTER TABLE ops_report_cache ENABLE ROW LEVEL SECURITY",
         "ALTER TABLE ops_saved_reports ENABLE ROW LEVEL SECURITY",
+        # Email to ticket (Oct 2026, ticket_inbound.py): how a ticket arrived
+        # (models.TaskTicket.source), and the inbound log - a new table:
+        # explicit RLS on top of the sweep. models.TicketInboundEmail.
+        "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS source VARCHAR DEFAULT ''",
+        "ALTER TABLE ticket_inbound_email ENABLE ROW LEVEL SECURITY",
+        # A reply is matched back to its ticket by threading header when the
+        # signed address did not survive - a lookup per inbound message.
+        "CREATE INDEX IF NOT EXISTS ix_ticket_email_log_imid ON ticket_email_log (internet_message_id)",
+        "CREATE INDEX IF NOT EXISTS ix_ticket_email_log_conv ON ticket_email_log (conversation_id)",
+        # Inbound mail: what Exchange said about the sender (mail_inbound.auth_verdict).
+        "ALTER TABLE task_inbound_email ADD COLUMN IF NOT EXISTS auth_summary VARCHAR DEFAULT ''",
+        "ALTER TABLE ticket_inbound_email ADD COLUMN IF NOT EXISTS auth_summary VARCHAR DEFAULT ''",
+        # Ticket Reports (Oct 2026, ticket_reports.py): the weekly email's
+        # per-person opt-out, and its send log - a new table, explicit RLS.
+        # models.NexusPersonPref / TicketReportEmailLog.
+        "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS ticket_weekly_report INTEGER",
+        "ALTER TABLE ticket_report_email_log ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -3303,6 +3327,19 @@ async def lifespan(app: FastAPI):
                 print("[startup] task inbound email drain skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] task inbound email drain skipped: {e}")
+        # Email to ticket (Oct 2026): the support mailbox -> new tickets and
+        # replies. Same three gates as the task drain - the deployed worker
+        # only (here and again inside), off until inboundEnabled, and its own
+        # advisory lock - and its own mailbox, never the Tasks one.
+        try:
+            from leader import is_deployed_worker
+            if is_deployed_worker():
+                from ticket_inbound import ticket_inbound_loop
+                _tasks.append(_a.create_task(ticket_inbound_loop()))
+            else:
+                print("[startup] ticket inbound email drain skipped (not the deployed worker)")
+        except Exception as e:
+            print(f"[startup] ticket inbound email drain skipped: {e}")
         # One-time: relocate work-monitoring screenshots hr-docs -> time-monitoring
         # bucket. Sync-worker gated (touches live storage with the service key; a
         # laptop must never run it) + its own pg advisory lock inside. Self-idles
@@ -3481,6 +3518,20 @@ async def lifespan(app: FastAPI):
                 print("[startup] Ops report schedules skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] Ops report schedules skipped: {e}")
+        # Weekly Ticket Report (Oct 2026, ticket_reports.py): Monday 7 AM in
+        # each desk supervisor's own zone, one email per person per week
+        # (claimed in ticket_report_email_log before the send). Deployed-worker
+        # gated: it mails real people, which a laptop must never do. The scan
+        # runs in a thread.
+        try:
+            from leader import is_deployed_worker
+            if is_deployed_worker():
+                from ticket_reports import weekly_loop as ticket_report_loop
+                _tasks.append(_a.create_task(ticket_report_loop()))
+            else:
+                print("[startup] weekly ticket report skipped (not the deployed worker)")
+        except Exception as e:
+            print(f"[startup] weekly ticket report skipped: {e}")
         print(f"[startup] background jobs started ({len(_tasks)} loops)")
         return _tasks
     try:
@@ -3957,3 +4008,5 @@ app.include_router(ops_reports_router.router)     # Operations > Reports: Cubby'
 from routers import unit_map as unit_map_router  # noqa: E402
 app.include_router(unit_map_router.ops_router)     # Operations > Site Map: site model + layers per facility (Neil, 10/20)
 app.include_router(unit_map_router.public_router)  # Customer unit map /find/<token>: one unit, the route, no login (Neil, 10/20)
+from routers import ticket_reports as ticket_reports_router  # noqa: E402
+app.include_router(ticket_reports_router.router)   # Tickets > Reports: the server-side report, its CSV and the weekly email opt-out (Oct 2026)

@@ -3512,6 +3512,12 @@ class TaskTicket(Base):
     property_unit         = Column(String, default="")
 
 
+    # How the ticket arrived (Oct 2026): "" = filed in the app, "email" = a
+    # new email to the support mailbox (ticket_inbound.py). Set server-side
+    # only; the drawer and list show "Via Email".
+    source                = Column(String, default="")
+
+
 class TicketEmailLog(Base):
     """One attempted Outlook notification for a ticket event (Ticket
     Notification Workflow, Jul 2026). One row per (ticket, event, recipient) -
@@ -4363,6 +4369,10 @@ class TaskInboundEmail(Base):
     attachment_count    = Column(Integer, default=0)   # files actually filed (see task_inbound)
     received_at         = Column(String, default="")
     processed_at        = Column(String, default="")
+    # What Exchange said about the sender (mail_inbound.auth_verdict, Oct
+    # 2026): "auth: dmarc=pass compauth=pass authas=Internal", or that no
+    # authentication headers were seen.
+    auth_summary        = Column(String, default="")
 
 
 
@@ -6220,6 +6230,11 @@ class NexusPersonPref(Base):
     # Profile > Date Format (Pranshu, Oct 20 2026): how this person reads dates
     # across Nexus - one of routers/roles.DATE_FORMATS; '' = the US default.
     date_format = Column(String, default="")
+    # Ticket Reports (Oct 2026, ticket_reports.py): their own choice for the
+    # Monday Weekly Ticket Report email - NULL = unset (the desk-access
+    # mode's default: on for roster supervisors, off under legacy), 1 = on,
+    # 0 = off. No column default on purpose. ALTER lines in main.py.
+    ticket_weekly_report = Column(Integer, nullable=True, default=None)
 
 
 class TaskAutomationRun(Base):
@@ -7086,3 +7101,65 @@ class OpsSavedReport(Base):
     last_error       = Column(String, default="")
     created_at       = Column(String, default="")
     updated_at       = Column(String, default="")
+
+
+class TicketInboundEmail(Base):
+    """One message the support mailbox handed us, and what became of it
+    (Ticket Inbound Email, Oct 2026 - ticket_inbound.py). TaskInboundEmail's
+    columns, with ticket_id for task_id and an `outcome`:
+
+      comment   a reply that became a comment on ticket_id;
+      created   a new email that became ticket_id;
+      refused   nothing was created - `reason` says why (unknown or external
+                sender, offboarded, automated mail, our own mailbox, no
+                permission on that ticket, no default department, the hourly
+                limit...);
+      failed    it could not be processed and is retried next pass.
+
+    `status` keeps the Tasks log's words (posted / rejected / ignored /
+    failed) so the two logs read alike. Written for EVERY message, and
+    `internet_message_id` is unique: the drain marks a message read only after
+    its outcome is committed, so a crash in between shows it again and this
+    constraint turns that into a no-op instead of a second ticket.
+
+    New table - create_all builds it; RLS: the explicit ALTER in main.py plus
+    the startup sweep."""
+    __tablename__ = "ticket_inbound_email"
+    id                  = Column(String, primary_key=True)
+    internet_message_id = Column(String, default="", index=True, unique=True)
+    graph_message_id    = Column(String, default="")
+    conversation_id     = Column(String, default="")
+    from_email          = Column(String, default="", index=True)
+    subject             = Column(String, default="")
+    ticket_id           = Column(String, default="", index=True)
+    comment_id          = Column(String, default="")
+    matched_by          = Column(String, default="")   # address | headers | conversation | subject
+    status              = Column(String, default="")   # posted | rejected | ignored | failed
+    outcome             = Column(String, default="", index=True)   # comment | created | refused | failed
+    reason              = Column(String, default="")
+    attachment_count    = Column(Integer, default=0)
+    received_at         = Column(String, default="")
+    processed_at        = Column(String, default="", index=True)
+    auth_summary        = Column(String, default="")   # mail_inbound.auth_verdict
+
+
+class TicketReportEmailLog(Base):
+    """One row per person per reported week a Weekly Ticket Report email was
+    claimed (ticket_reports.py, Oct 2026) - written BEFORE the send and unique
+    on (recipient, week_start), so a restart or a second worker can never send
+    the same week twice. New table - create_all builds it; RLS line in main.py
+    plus the _enable_rls_everywhere sweep."""
+    __tablename__ = "ticket_report_email_log"
+    __table_args__ = (UniqueConstraint("recipient", "week_start", name="uq_ticket_report_email_week"),)
+    id            = Column(String, primary_key=True)   # uuid
+    recipient     = Column(String, nullable=False, index=True)
+    week_start    = Column(String, nullable=False, index=True)   # the reported Monday, YYYY-MM-DD
+    status        = Column(String, default="sending")  # sending | sent | failed | empty
+    sent_at       = Column(String, default="")         # UTC iso; '' when nothing was mailed
+    error         = Column(String, default="")
+    attempts      = Column(Integer, default=0)         # send tries; a failed / stuck one is retried up to 3
+    updated_at    = Column(String, default="")         # last claim or result - the retry's compare-and-set
+    created_count = Column(Integer, default=0)
+    resolved_count = Column(Integer, default=0)
+    open_count    = Column(Integer, default=0)
+    created_at    = Column(String, default="")
