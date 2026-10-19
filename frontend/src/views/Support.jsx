@@ -662,7 +662,7 @@ export default function Support({ activeSub, onSubChange }) {
                       {/* The whole row opens the ticket's real detail drawer
                           (Ticket module). role="button" + cursor:pointer since
                           a grid row isn't natively interactive. */}
-                      <div role="button" tabIndex={0} className={mineToAct(t) && !['resolved', 'closed'].includes(t.status) && (t.status === 'waiting_user' || isUnread(t)) ? 'nx-row-hover nx-needs-you' : 'nx-row-hover'} onClick={() => setViewing({ id: t.id })}
+                      <div role="button" tabIndex={0} className={mineToAct(t) && !['resolved', 'closed'].includes(t.status) && (t.status === 'waiting_user' || isUnread(t)) ? 'nx-row-hover nx-needs-you--row' : 'nx-row-hover'} onClick={() => setViewing({ id: t.id })}
                         onKeyDown={(e) => {
                           // Only the row's OWN keys: Enter on a button inside
                           // it (Mark Resolved, Confirm, Reopen, the latest

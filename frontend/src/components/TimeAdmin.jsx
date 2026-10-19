@@ -468,6 +468,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
 
   const totalMin = (rows || []).reduce((a, r) => a + r.workedMin, 0);
   const pendingCount = timeoff.filter(r => r.status === 'pending').length;
+  const decidableCount = timeoff.filter(r => r.status === 'pending' && r.canDecide !== false).length;
   // Timesheets submitted to me and not decided yet - reported by the
   // TimesheetsToReview list itself so the tile and the list never disagree.
   // (The old "Approved x/y" tile counted per-day sign-offs that no screen
@@ -582,10 +583,10 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
           base) instead of floating pills that merged into the content. */}
       <div className="scroll-tabs" style={{ display: 'flex', gap: 2, marginBottom: 18, borderBottom: '1px solid var(--wk-line)' }}>
         {[['payroll', 'Payroll', Banknote],
-          ['actions', 'Action Log', Inbox, new Set(punchReqs.map(punchReqKey)).size + exBlocking],
-          ['timeoff', 'Time Off', CalendarOff, pendingCount],
+          ['actions', 'Action Log', Inbox, new Set(punchReqs.map(punchReqKey)).size + exBlocking, true],
+          ['timeoff', 'Time Off', CalendarOff, pendingCount, decidableCount > 0],
           // Location Trail While Clocked In (Oct 20): live team positions and a day's trail.
-          ['trail', 'Location Trail', MapPin]].map(([key, label, Icon, badge]) => {
+          ['trail', 'Location Trail', MapPin]].map(([key, label, Icon, badge, waiting]) => {
           const on = view === key;
           return (
             <button key={key} onClick={() => { setView(key); setTimeoffPendingOnly(false); }}
@@ -596,7 +597,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                 transition: 'color .12s, border-color .12s' }}>
               <Icon size={15} /> {label}
               {badge > 0 && (
-                <span style={{ background: on ? 'var(--wk-brand)' : 'var(--wk-faint)', color: '#fff', borderRadius: 20, fontSize: 11, fontWeight: 700, padding: '1px 7px', lineHeight: 1.4 }}>{badge}</span>
+                <span title={waiting ? 'Waiting on you' : undefined} style={{ background: waiting ? 'var(--wk-red)' : on ? 'var(--wk-brand)' : 'var(--wk-faint)', color: '#fff', borderRadius: 20, fontSize: 11, fontWeight: 700, padding: '1px 7px', lineHeight: 1.4 }}>{badge}</span>
               )}
             </button>
           );
@@ -972,7 +973,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                     const focused = rowIds.includes(focusReq);
                     const rowSel = rowIds.some(id => selReqs.has(id));
                     return (
-                    <div key={r.id} id={`punch-req-${r.id}`} data-req-ids={rowIds.join(' ')} className={rowSel || focused ? undefined : 'nx-needs-you'} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderTop: i ? '1px solid var(--line)' : 'none', flexWrap: 'wrap',
+                    <div key={r.id} id={`punch-req-${r.id}`} data-req-ids={rowIds.join(' ')} className={rowSel || focused ? undefined : 'nx-needs-you--row'} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px', borderTop: i ? '1px solid var(--line)' : 'none', flexWrap: 'wrap',
                       background: rowSel || focused ? 'var(--wk-brand-tint, rgba(43,69,225,0.06))' : 'transparent',
                       boxShadow: focused ? 'inset 3px 0 0 var(--wk-brand, #2b45e1)' : 'none' }}>
                       {cb(rowSel, on => toggle(rowIds, on), `Select request from ${g.name}`)}
@@ -1064,7 +1065,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
             const hm12 = (v) => { const [h, m] = (v || '').split(':').map(Number); return `${h % 12 || 12}:${String(m || 0).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`; };
             const partial = r.startTime && r.endTime;
             return (
-              <div key={r.id} className={r.status === 'pending' && r.canDecide !== false ? 'nx-needs-you' : undefined} style={{ display: 'grid', gridTemplateColumns: '200px 110px 1fr 70px 160px 170px', gap: 10, alignItems: 'center', padding: '10px 14px', borderBottom: '1px solid var(--line)', background: r.status === 'pending' ? 'rgba(251,191,36,0.05)' : 'transparent' }}>
+              <div key={r.id} className={r.status === 'pending' && r.canDecide !== false ? 'nx-needs-you--row' : undefined} style={{ display: 'grid', gridTemplateColumns: '200px 110px 1fr 70px 160px 170px', gap: 10, alignItems: 'center', padding: '10px 14px', borderBottom: '1px solid var(--line)', background: r.status === 'pending' ? 'rgba(251,191,36,0.05)' : 'transparent' }}>
                 <span style={{ fontSize: 12.5, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.name || r.email}{r.forEmail && <ForChip name={r.forName} email={r.forEmail} />}</span>
                 <span style={{ fontSize: 12, textTransform: 'capitalize', display: 'inline-flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
                   {timeoffLabel(r)}{r.confidential && <ConfidentialMark />}
