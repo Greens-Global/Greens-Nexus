@@ -1253,6 +1253,8 @@ export const api = {
   getOpsNearby: (facilityId) => req(`/facility-ops/market/nearby?facility_id=${encodeURIComponent(facilityId)}`, { timeoutMs: 45_000 }),
   recordOpsRate: (data) => req("/facility-ops/market/rates", { method: "POST", body: JSON.stringify(data) }),
   opsMarketAnalysis: (facilityId) => req(`/facility-ops/market/analysis?facility_id=${encodeURIComponent(facilityId)}`, { method: "POST" }),
+  // Operations > Portfolio (Oct 20): the Daily Flash for any set of properties. ids = [] means every connected one.
+  getOpsPortfolio: (ids, month) => req(`/facility-ops/portfolio?ids=${encodeURIComponent((ids || []).join(","))}${month ? `&month=${encodeURIComponent(month)}` : ""}`),
 
   // Dev
   getDevProjects: () => req("/dev-projects"),

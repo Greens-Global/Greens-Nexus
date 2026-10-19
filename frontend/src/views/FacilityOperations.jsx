@@ -7,7 +7,7 @@
 // is instant. Nexus only reads - payments, leases and tenant edits stay in
 // Cubby, and each tenant row links there.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { LayoutDashboard, HandCoins, Warehouse, ListChecks, Scale, FileSpreadsheet, RefreshCw } from 'lucide-react';
+import { LayoutDashboard, HandCoins, Warehouse, ListChecks, Scale, FileSpreadsheet, RefreshCw, Gauge } from 'lucide-react';
 import ModuleTabs from '../components/ModuleTabs';
 import { ErrorBanner, LoadingState } from '../components/AsyncState';
 import { api } from '../api';
@@ -19,6 +19,7 @@ import Market from '../operations/Market';
 import Reports from '../operations/Reports';
 import Lookup from '../operations/Lookup';
 import SyncStatus from '../operations/SyncStatus';
+import Portfolio from '../operations/Portfolio';
 import { useRole } from '../contexts/RoleContext';
 import '../operations/ops.css';
 
@@ -32,6 +33,8 @@ const TABS = [
   { key: 'worklist',    label: 'Worklist',        Icon: ListChecks },
   { key: 'market',      label: 'Market Rates',    Icon: Scale },
   { key: 'reports',     label: 'Reports',         Icon: FileSpreadsheet },
+  // The Daily Flash for any set of properties, with its own picker and month (Neil, Oct 20).
+  { key: 'portfolio',   label: 'Portfolio',       Icon: Gauge },
 ];
 // Market Rates keeps its own records and compares one facility at a time, so
 // the period and the "as of today" note do not apply to it.
@@ -170,7 +173,9 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
         </p>
       )}
 
-      {state.status === 'ready' && facilities.length > 0 && (
+      {state.status === 'ready' && facilities.length > 0 && sub === 'portfolio' && <Portfolio />}
+
+      {state.status === 'ready' && facilities.length > 0 && sub !== 'portfolio' && (
         <div className="ops-root">
           <div className="ops-bar-top">
             <div className="ops-pills" role="group" aria-label="Facility">

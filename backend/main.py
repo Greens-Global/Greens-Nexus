@@ -3874,3 +3874,5 @@ from routers import leave_balances as leave_balances_router  # noqa: E402
 app.include_router(leave_balances_router.router)  # Paid leave balances: policies, opening import, accrual (Neil / Charmi, 10/19)
 from routers import location_trail as location_trail_router  # noqa: E402
 app.include_router(location_trail_router.router)  # Time Clock: Location Trail While Clocked In - web pings + manager map (Neil, 10/20)
+from routers import ops_portfolio as ops_portfolio_router  # noqa: E402
+app.include_router(ops_portfolio_router.router)   # Operations > Portfolio: a Daily Flash for any set of properties (Neil, 10/20)
