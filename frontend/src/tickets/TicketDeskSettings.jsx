@@ -34,6 +34,7 @@ import { PersonMultiSelect, PersonSelect, usePeople } from '../tasks/components'
 import { useIsMobile } from '../lib/useIsMobile';
 import SavedCheck from '../components/SavedCheck';
 import { dialog } from '../ui/dialog';
+import { useDeskAgents, agentOptions } from './deskAgents';
 
 // The fallback chain, spelled out for whoever's reading it: a company's own
 // agents, if any -> the Default Agents list, if any -> every administrator.
@@ -89,7 +90,7 @@ function SwitchButton({ on, onClick, label }) {
   );
 }
 
-function DepartmentHeads({ companyId, companyName, depts, people, onSetHead, onSetEnabled, onReorder, defaultOpen = false }) {
+function DepartmentHeads({ companyId, companyName, depts, people, agents, onSetHead, onSetEnabled, onReorder, onSetDefault, defaultOpen = false }) {
   // Collapsed by default - a company with a lot of departments (a real one
   // has 11) made its card towering over its grid neighbors, forcing scroll
   // through every card just to reach the Save button. Independent per card,
@@ -112,14 +113,14 @@ function DepartmentHeads({ companyId, companyName, depts, people, onSetHead, onS
         }}>
           <Siren size={13} style={{ color: NX.dim }} />
           <div style={{ fontSize: 12, fontWeight: 700, color: NX.ink, flex: 1 }}>
-            Departments &amp; Escalation ({depts.length}{offCount ? `, ${offCount} Off` : ''})
+            Departments, Escalation &amp; Default Assignee ({depts.length}{offCount ? `, ${offCount} Off` : ''})
           </div>
           {open ? <ChevronDown size={14} style={{ color: NX.dim }} /> : <ChevronRight size={14} style={{ color: NX.dim }} />}
         </button>
       ) : (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
           <Siren size={13} style={{ color: NX.dim }} />
-          <div style={{ fontSize: 12, fontWeight: 700, color: NX.ink }}>Departments &amp; Escalation</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: NX.ink }}>Departments, Escalation &amp; Default Assignee</div>
         </div>
       )}
       {!hasDepts && (
@@ -147,10 +148,21 @@ function DepartmentHeads({ companyId, companyName, depts, people, onSetHead, onS
                     onClick={() => onSetEnabled(d.id, !on).catch((e) => dialog.alert(e.message || 'Could not update department.'))} />
                   <span style={{ width: 110, flexShrink: 0, fontSize: 12.5, color: on ? NX.ink : NX.faint, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                     title={on ? d.name : `${d.name} - off for tickets`}>{d.name}</span>
-                  <div style={{ flex: 1, opacity: on ? 1 : 0.6 }}>
-                    <PersonSelect value={d.leadEmail || null} people={people}
-                      onChange={(email) => onSetHead(d.id, email || '').catch((e) => dialog.alert(e.message || 'Could not set department head.'))}
-                      placeholder="No department head set" />
+                  <div style={{ flex: 1, minWidth: 0, display: 'flex', gap: 8, flexWrap: 'wrap', opacity: on ? 1 : 0.6 }}>
+                    <div style={{ flex: '1 1 160px', minWidth: 0 }} title="Department Head - gets escalations">
+                      <PersonSelect value={d.leadEmail || null} people={people}
+                        onChange={(email) => onSetHead(d.id, email || '').catch((e) => dialog.alert(e.message || 'Could not set department head.'))}
+                        placeholder="No department head set" />
+                    </div>
+                    {/* Default Assignee (Oct 2026, ticket_auto_assign.py): a
+                        new ticket filed here that nobody assigned goes
+                        straight to this person - after the help topic's own
+                        default. Saved the moment it is picked. */}
+                    <div style={{ flex: '1 1 160px', minWidth: 0 }} title="Default Assignee - new tickets go straight to them">
+                      <PersonSelect value={d.defaultAssigneeEmail || null} people={agentOptions(agents, d.defaultAssigneeEmail, people)}
+                        onChange={(email) => onSetDefault(d.id, email || '').catch((e) => dialog.alert(e.message || 'Could not set the default assignee.'))}
+                        placeholder="No default assignee" />
+                    </div>
                   </div>
                 </div>
               );
@@ -158,6 +170,9 @@ function DepartmentHeads({ companyId, companyName, depts, people, onSetHead, onS
           <div style={{ fontSize: 11, color: NX.faint, marginTop: 6, lineHeight: 1.5 }}>
             The department head is the same one set under People &gt; Companies &gt; Departments - changing it here changes it everywhere.
             A ticket filed against a department with no head falls back to this company's ticket agents when escalated.
+            The default assignee (second picker) takes every new ticket filed here that nobody assigned - unless its help
+            topic has a default of its own (Help Topics tab). It must be someone on this company's ticket desk; tickets
+            awaiting approval go to them once approved.
             Tickets already filed against a department that is off keep it.
           </div>
         </>
@@ -223,6 +238,8 @@ export default function TicketDeskSettings() {
   const [selected, setSelected] = useState(DEFAULT_KEY);
   const [baseline, setBaseline] = useState('');   // last saved rosters, to flag unsaved edits
   const narrow = useIsMobile('(max-width: 900px)');
+  // Default Assignee pickers offer only this company's desk agents.
+  const deskAgents = useDeskAgents(selected !== DEFAULT_KEY ? [selected] : []);
 
   useEffect(() => {
     if (myLevel < 3) return;
@@ -263,6 +280,10 @@ export default function TicketDeskSettings() {
   const setDeptHead = (deptId, email) => {
     const companyId = (depts.find((d) => d.id === deptId) || {}).companyId;
     return api.setTicketDepartmentHead(deptId, email).then((rows) => mergeDepts(companyId, rows));
+  };
+  const setDeptDefault = (deptId, email) => {
+    const companyId = (depts.find((d) => d.id === deptId) || {}).companyId;
+    return api.setTicketDepartmentDefaultAssignee(deptId, email).then((rows) => mergeDepts(companyId, rows));
   };
   const setDeptEnabled = (deptId, enabled) => {
     const companyId = (depts.find((d) => d.id === deptId) || {}).companyId;
@@ -340,8 +361,8 @@ export default function TicketDeskSettings() {
       status={companyStatus(byCompany[company.id] || [], agents, company.name)}
     >
       <DepartmentHeads key={company.id} defaultOpen companyId={company.id} companyName={company.name} people={people}
-        depts={depts.filter((d) => d.companyId === company.id)}
-        onSetHead={setDeptHead} onSetEnabled={setDeptEnabled} onReorder={reorderDepts} />
+        depts={depts.filter((d) => d.companyId === company.id)} agents={deskAgents[company.id]}
+        onSetHead={setDeptHead} onSetEnabled={setDeptEnabled} onReorder={reorderDepts} onSetDefault={setDeptDefault} />
     </DeskRoster>
   ) : (
     <DeskRoster

@@ -1104,6 +1104,8 @@ def _run_migrations():
             "ALTER TABLE task_tickets ADD COLUMN sla_paused_min INTEGER DEFAULT 0",
             "ALTER TABLE task_tickets ADD COLUMN sla_fr_alerted_at VARCHAR DEFAULT ''",
             "ALTER TABLE task_tickets ADD COLUMN sla_res_alerted_at VARCHAR DEFAULT ''",
+            # Ticket default assignee per department (Oct 2026, ticket_auto_assign.py). models.TicketDepartment.
+            "ALTER TABLE ticket_departments ADD COLUMN default_assignee_email VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2459,6 +2461,11 @@ def _run_migrations():
         "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS sla_paused_min INTEGER DEFAULT 0",
         "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS sla_fr_alerted_at VARCHAR DEFAULT ''",
         "ALTER TABLE task_tickets ADD COLUMN IF NOT EXISTS sla_res_alerted_at VARCHAR DEFAULT ''",
+        # Ticket default assignee per department (Oct 2026, ticket_auto_assign.py). models.TicketDepartment.
+        "ALTER TABLE ticket_departments ADD COLUMN IF NOT EXISTS default_assignee_email VARCHAR DEFAULT ''",
+        # Ticket saved replies (Oct 2026) - a new table: explicit RLS on top of
+        # the _enable_rls_everywhere sweep. models.TicketSavedReply.
+        "ALTER TABLE ticket_saved_replies ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -3836,3 +3843,5 @@ from routers import changelog_lifecycle  # noqa: E402
 app.include_router(changelog_lifecycle.router)       # What's New: request statuses, known issues / rollbacks, deprecations, tours, live in production (Oct 18)
 from routers import reimbursements  # noqa: E402
 app.include_router(reimbursements.router)         # Workday > Reimbursements: out-of-pocket purchases - approve, then HR pays (Neil, 10/18)
+from routers import ticket_saved_replies  # noqa: E402
+app.include_router(ticket_saved_replies.router)   # Tickets: saved replies (canned responses) for the desk's reply composer (Oct 2026)

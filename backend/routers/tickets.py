@@ -35,6 +35,7 @@ import ticket_notify
 import ticket_taxonomy
 import ticket_roles
 import ticket_sla
+import ticket_auto_assign
 from ticket_roles import require_ticket_agent, require_ticket_supervisor
 import ticket_mail_templates as tmpl
 import property_links
@@ -1011,6 +1012,18 @@ def _with_creator(watchers: list | None, requester: str | None, creator: str) ->
     return out
 
 
+def _send_auto_assignment(background_tasks: BackgroundTasks, t: models.TaskTicket, actor: str,
+                          dm_rows: list, only_roles: tuple | None = None) -> None:
+    """After the commit: the same "assigned" email and Teams messages a
+    manual assignment sends (update_ticket), for a ticket that just went to
+    its default assignee (ticket_auto_assign)."""
+    extra = {"only_roles": only_roles} if only_roles else {}
+    background_tasks.add_task(notify_ticket_event, t.id, "assigned", actor, **extra)
+    for r in dm_rows or []:
+        if r is not None:
+            background_tasks.add_task(_deliver_teams_dm, r.id)
+
+
 @router.post("/task-tickets", status_code=201)
 def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
                   user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -1092,6 +1105,11 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
     log_activity(db, type="created", actor_email=user["email"], entity_kind="ticket",
                  entity_id=t.id, entity_code=t.code, entity_title=t.subject,
                  detail=json.dumps(_ticket_snapshot(t)))
+    # Default assignee (Oct 2026, ticket_auto_assign.py): nobody chose one and
+    # nothing gates it - the help topic's, else the department's default takes
+    # it. A gated ticket gets its default at approval (decide_approval).
+    auto_assigned = (ticket_auto_assign.apply(db, t, user["email"])
+                     if not t.assignee_email and t.approval_status == "none" else "")
     if source is not None:
         _copy_task_files(db, source, t, user["email"])
         # The converted task points back at its ticket - its drawer's "From
@@ -1128,9 +1146,17 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
                         ticket_id=t.id, nexus_action=tk_action)
     if prop is not None:
         _tell_asset_manager(db, t, prop_manager, user["email"])
+    # Auto-assigned: the bell went out above like any assignment at intake;
+    # the "assigned" email and the assignee's Teams message follow, and the
+    # desk is not asked to assign what already has an owner.
+    auto_dms = _queue_assignment_dms(db, t, "") if auto_assigned else []
     db.commit()
     db.refresh(t)
-    background_tasks.add_task(notify_ticket_event, t.id, "created", user["email"])
+    if auto_assigned:
+        background_tasks.add_task(notify_ticket_event, t.id, "created", user["email"], only_roles=("requester",))
+        _send_auto_assignment(background_tasks, t, user["email"], auto_dms, only_roles=("it_admin", "assignee"))
+    else:
+        background_tasks.add_task(notify_ticket_event, t.id, "created", user["email"])
     # No approval email here: a gated ticket has no approver yet, so there is
     # nobody to send one to. request_approval sends it once an IT Admin names one.
     out = ticket_to_dict(t)
@@ -2283,8 +2309,12 @@ def list_ticket_activity(ticket_id: str, user: dict = Depends(get_current_user),
     # An internal note's "commented" row carries a preview of the note, so it
     # follows the Conversation tab's rule (list_ticket_comments): whoever may
     # not read internal notes does not get their activity lines either.
-    if not _sees_internal(db, t, user, _has_desk_grant(user, db)):
+    desk = _has_desk_grant(user, db)
+    if not _sees_internal(db, t, user, desk):
         rows = [a for a in rows if not _is_internal_activity(a.detail)]
+    if not desk:
+        # A default assignee that no longer qualifies is the desk's to fix.
+        rows = [a for a in rows if a.type != "auto_assign_gap"]
     return [{"id": a.id, "type": a.type or "", "actorId": _nz(a.actor_email), "at": a.at or "", "detail": a.detail or ""} for a in rows]
 
 
@@ -2457,6 +2487,8 @@ def _dept_dict(s: models.TicketDepartment, live: Optional[models.HrDepartment]) 
             # The head is the department's own (global since Oct 15 2026); s.lead_email is history.
             "leadEmail": (live.lead_email if live else s.lead_email) or "", "backupEmail": s.backup_email or "",
             "enabled": s.enabled is not False,
+            # Who a new unassigned ticket filed here goes to (ticket_auto_assign).
+            "defaultAssigneeEmail": (getattr(s, "default_assignee_email", "") or ""),
             # Deleted from the company's department list: kept in the full
             # list only so tickets filed against it still show its name.
             "removed": live is None}
@@ -2522,7 +2554,7 @@ def list_ticket_departments(mine: bool = False, user: dict = Depends(get_current
     if scope is not None:
         for d in out:
             if not auth.company_ok(d.get("companyId") or "", scope):
-                d["leadEmail"] = d["backupEmail"] = ""
+                d["leadEmail"] = d["backupEmail"] = d["defaultAssigneeEmail"] = ""
     return out
 
 
@@ -2554,6 +2586,8 @@ class TicketDepartmentUpdate(BaseModel):
     lead_email:   Optional[str] = None
     backup_email: Optional[str] = None
     enabled:      Optional[bool] = None
+    # Default assignee (Oct 2026): "" clears it.
+    default_assignee_email: Optional[str] = None
 
 
 @router.patch("/ticket-departments/{dept_id}", dependencies=[Depends(require_ticket_supervisor)])
@@ -2579,8 +2613,19 @@ def update_ticket_department(dept_id: str, body: TicketDepartmentUpdate,
         row.backup_email = (body.backup_email or "").strip().lower()
     if body.enabled is not None:
         row.enabled = bool(body.enabled)
+    if body.default_assignee_email is not None:
+        email = (body.default_assignee_email or "").strip().lower()
+        if email and email != (row.default_assignee_email or "") \
+                and not ticket_auto_assign.desk_agent_for(db, email, g.company_id or ""):
+            raise HTTPException(400, ticket_auto_assign.not_agent_reason(db, email, _company_name(db, g.company_id)))
+        row.default_assignee_email = email
     db.commit()
     return _dept_list(db, g.company_id)
+
+
+def _company_name(db: Session, company_id: str) -> str:
+    e = db.query(models.HrEntity).filter(models.HrEntity.id == company_id).first() if company_id else None
+    return (e.name or "") if e else ""
 
 
 class TicketDepartmentOrder(BaseModel):
@@ -2778,11 +2823,22 @@ def decide_approval(ticket_id: str, body: ApprovalBody, background_tasks: Backgr
     t.modified_at = now_iso()
 
     tk_action = {"view": "tickets", "label": "View Ticket"}
+    auto_assigned, auto_dms = "", []
     if decision == "approve":
         log_activity(db, type="approved", actor_email=user["email"], entity_kind="ticket",
                      entity_id=t.id, entity_code=t.code, entity_title=t.subject,
                      detail="approved this request" + (f": {note}" if note else ""))
-        # Released - now it enters the normal triage queue.
+        # Released: an unassigned ticket now goes to its default assignee
+        # (ticket_auto_assign) - held until here, since a ticket awaiting
+        # approval can never be assigned - with the notice a manual
+        # assignment sends. Otherwise it enters the normal triage queue.
+        auto_assigned = ticket_auto_assign.apply(db, t, actor) if not t.assignee_email else ""
+        if auto_assigned:
+            if auto_assigned != actor:
+                task_notify(db, kind="ticket_assigned", for_email=auto_assigned,
+                            title="You Were Assigned a Ticket", body=f"{ticket_no(t.code)} · {t.subject}",
+                            ticket_id=t.id, nexus_action=tk_action)
+            auto_dms = _queue_assignment_dms(db, t, "")
         _notify_triage(db, t, actor)
         if t.requester_email and t.requester_email != actor:
             task_notify(db, kind="ticket_approved", for_email=t.requester_email,
@@ -2803,8 +2859,11 @@ def decide_approval(ticket_id: str, body: ApprovalBody, background_tasks: Backgr
     db.commit()
     db.refresh(t)
     # Approved → the dept head now gets the "needs assignment" email that was
-    # held back at creation while the ticket sat behind the approval gate.
-    if decision == "approve":
+    # held back at creation while the ticket sat behind the approval gate -
+    # or, when it went to its default assignee, the "assigned" email instead.
+    if decision == "approve" and auto_assigned:
+        _send_auto_assignment(background_tasks, t, actor, auto_dms)
+    elif decision == "approve":
         background_tasks.add_task(notify_ticket_event, t.id, "created", actor, only_roles=("it_admin",))
     return ticket_to_dict(t)
 
@@ -3027,7 +3086,109 @@ def put_ticket_notify_settings(patch: dict, user: dict = Depends(require_manager
 # which looked like Nexus randomly logging people out (Sep 17 2026).
 @router.get("/task-tickets/taxonomy/settings")
 def get_ticket_taxonomy_settings(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    return ticket_taxonomy.get_config(db)
+    return _walled_taxonomy(db, user, ticket_taxonomy.get_config(db))
+
+
+def _walled_taxonomy(db: Session, user: dict, cfg: dict) -> dict:
+    """The config as this caller may see it. Who a topic's tickets go to is
+    the desk's business: a caller off the desk sees no default assignees at
+    all, and a desk caller none for a company outside their company wall."""
+    import auth
+    desk = _has_desk_grant(user, db)
+    scope = auth.company_scope(user, db) if desk else set()
+    if desk and scope is None:
+        return cfg
+    for g in cfg.get("helpTopics") or []:
+        for tp in g.get("topics") or []:
+            if tp.get("defaultAssignees"):
+                kept = ({c: e for c, e in tp["defaultAssignees"].items() if auth.company_ok(c, scope)}
+                        if desk else {})
+                if kept:
+                    tp["defaultAssignees"] = kept
+                else:
+                    tp.pop("defaultAssignees", None)
+    return cfg
+
+
+def _guard_topic_assignees(db: Session, user: dict, patch: dict) -> None:
+    """Help-topic default assignees in a taxonomy save (Oct 2026).
+
+    Another company's entries can never be dropped by this caller's save:
+    they were never shown (_walled_taxonomy), so they are put back onto the
+    topic they belong to - found by ticket_taxonomy.match_stored_topics,
+    which follows a topic through a rename and through the Help Topics
+    screen re-sending "orphan" groups with some department names filtered
+    out. Only a topic removed outright takes them with it (there is nothing
+    left for them to assign).
+
+    A person newly named must be an active desk agent of that company. An
+    unchanged entry is not re-checked: someone who left is caught when a
+    ticket arrives (ticket_auto_assign logs the gap), and must not block
+    every other edit to the topics until it is fixed."""
+    import auth
+    groups = patch.get("helpTopics")
+    if not isinstance(groups, list):
+        return
+    # Off the desk: nothing was shown, so nothing may be set or cleared.
+    scope = auth.company_scope(user, db) if _has_desk_grant(user, db) else set()
+    stored = ticket_taxonomy.get_config(db).get("helpTopics") or []
+    matches = ticket_taxonomy.match_stored_topics(stored, groups)
+    for gi, g in enumerate(groups):
+        if not isinstance(g, dict):
+            continue
+        for ti, tp in enumerate(g.get("topics") or []):
+            if not isinstance(tp, dict):
+                continue
+            before = dict((matches.get((gi, ti)) or {}).get("defaultAssignees") or {})
+            incoming = tp.get("defaultAssignees")
+            incoming = dict(incoming) if isinstance(incoming, dict) else {}
+            out = {}
+            for cid, email in incoming.items():
+                cid = str(cid or "").strip()
+                email = str(email or "").strip().lower()
+                if not cid or not email:
+                    continue
+                if not auth.company_ok(cid, scope):
+                    continue   # not theirs to set - restored from `before` below
+                if email != before.get(cid) and not ticket_auto_assign.desk_agent_for(db, email, cid):
+                    raise HTTPException(400, ticket_auto_assign.not_agent_reason(db, email, _company_name(db, cid)))
+                out[cid] = email
+            for cid, email in before.items():
+                if not auth.company_ok(cid, scope):
+                    out[cid] = email
+            if out:
+                tp["defaultAssignees"] = out
+            else:
+                tp.pop("defaultAssignees", None)
+
+
+@router.get("/task-tickets/desk-agents")
+def list_desk_agents(company_id: str = "", user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Who may be a default assignee for `company_id` (Oct 2026): the active
+    desk agents of that company, exactly as ticket_auto_assign.desk_agent_for
+    judges them - so the settings pickers offer nobody a save would refuse.
+    Manager+, like the screens that set a default; a 403 (not
+    require_manager's 401, which api.js reads as a dead session)."""
+    import auth   # company wall: another company's desk is 404
+    if user.get("level", 0) < 3:
+        raise HTTPException(403, "Manager access or above is required.")
+    if not company_id:
+        raise HTTPException(422, "company_id is required.")
+    auth.assert_company(company_id, user, db)
+    # Only people who could hold a desk role are checked: a tasks / tickets
+    # grant through an Access Group, or an administrator role.
+    emails = {r.email for r in db.query(models.NexusRole)
+              .filter(models.NexusRole.role.in_(["administrator", "owner"])).all() if r.email}
+    rows = (db.query(models.NexusGroupMember.email, models.NexusGroup.allowed_modules)
+            .join(models.NexusGroup, models.NexusGroup.id == models.NexusGroupMember.group_id).all())
+    for email, mods in rows:
+        if any(p.strip().partition(":")[0] in ("tasks", "tickets") for p in (mods or "").split(",")):
+            emails.add(email)
+    out = []
+    for email in {(e or "").strip().lower() for e in emails if e}:
+        if ticket_auto_assign.desk_agent_for(db, email, company_id):
+            out.append({"email": email, "name": _name_of(db, email)})
+    return sorted(out, key=lambda p: (p["name"].lower(), p["email"]))
 
 
 @router.put("/task-tickets/taxonomy/settings")
@@ -3038,8 +3199,9 @@ def put_ticket_taxonomy_settings(patch: dict, user: dict = Depends(require_manag
     if (ticket_roles.desk_access_mode(db) == ticket_roles.EXPLICIT
             and not ticket_roles.can_manage_desk(user, db)):
         raise HTTPException(403, "Only a ticket supervisor can change the desk's settings.")
+    _guard_topic_assignees(db, user, patch)
     try:
-        return ticket_taxonomy.save_config(db, patch, user["email"])
+        return _walled_taxonomy(db, user, ticket_taxonomy.save_config(db, patch, user["email"]))
     except ticket_taxonomy.SlaHoursError as e:
         raise HTTPException(422, str(e))
     except ticket_taxonomy.TaxonomyError as e:

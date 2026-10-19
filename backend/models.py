@@ -1518,6 +1518,10 @@ class TicketDepartment(Base):
     # ticket.") Off hides it from the Submit a Ticket picker only - tickets
     # already filed against it keep showing its name.
     enabled    = Column(Boolean, default=True)
+    # Default assignee (Oct 2026, ticket_auto_assign.py): a new ticket filed
+    # against this department that nobody assigned goes straight to this
+    # person, after the help topic's own default. "" = none.
+    default_assignee_email = Column(String, default="")
 
 
 class HrWorkSite(Base):
@@ -6840,3 +6844,26 @@ class ExpenseReimbursement(Base):
     history         = Column(JSON, default=list)      # [{at, by, action, note}]
     created_at      = Column(String, default="")
     updated_at      = Column(String, default="")
+
+
+class TicketSavedReply(Base):
+    """A saved reply (canned response) for the service desk (Oct 2026,
+    routers/ticket_saved_replies.py). Inserted into the ticket drawer's reply
+    composer with its placeholders filled ({requester_first_name},
+    {ticket_number}...) and edited there - never sent on its own.
+
+    owner_email "" = shared with the company's desk (created, edited and
+    deleted by ticket supervisors only); otherwise personal to that agent.
+    body is rich text, sanitized on save. New table - create_all builds it;
+    RLS: the explicit ALTER in main.py plus the startup sweep."""
+    __tablename__ = "ticket_saved_replies"
+    id          = Column(String, primary_key=True)
+    company_id  = Column(String, default="", index=True)   # HrEntity id
+    owner_email = Column(String, default="", index=True)   # "" = shared
+    title       = Column(String, default="")
+    body        = Column(Text, default="")
+    help_topic  = Column(String, default="")               # optional, for suggesting
+    created_by  = Column(String, default="")
+    created_at  = Column(String, default="")
+    modified_at = Column(String, default="")
+    use_count   = Column(Integer, default=0)

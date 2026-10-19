@@ -2465,6 +2465,18 @@ export const api = {
   caReviewReopen:        (data) => req('/ca-review/reopen', { method: 'POST', body: JSON.stringify(data) }),
   caReviewSettings:      () => req('/ca-review/settings'),
   caReviewSaveSettings:  (data) => req('/ca-review/settings', { method: 'PUT', body: JSON.stringify(data) }),
+  // Ticket default assignee per department (Oct 2026, ticket_auto_assign.py) - "" clears it.
+  setTicketDepartmentDefaultAssignee: (deptId, email) => req(`/ticket-departments/${deptId}`, { method: 'PATCH', body: JSON.stringify({ default_assignee_email: email }) }),
+  // Ticket saved replies (Oct 2026, routers/ticket_saved_replies.py). companyId
+  // narrows the shared ones to a ticket's company; personal ones always come.
+  getTicketSavedReplies: (companyId = '') => req(`/ticket-saved-replies${companyId ? `?company_id=${encodeURIComponent(companyId)}` : ''}`),
+  createTicketSavedReply: (data) => req('/ticket-saved-replies', { method: 'POST', body: JSON.stringify(data) }),
+  updateTicketSavedReply: (id, data) => req(`/ticket-saved-replies/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteTicketSavedReply: (id) => req(`/ticket-saved-replies/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  // Fire-and-forget when a reply is inserted into the composer.
+  countTicketSavedReplyUse: (id) => req(`/ticket-saved-replies/${encodeURIComponent(id)}/use`, { method: 'POST' }),
+  // Who may be a company's default assignee - its active desk agents (manager+).
+  getTicketDeskAgents: (companyId) => req(`/task-tickets/desk-agents?company_id=${encodeURIComponent(companyId)}`),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -
