@@ -60,6 +60,7 @@ import {
   Globe, Package, Search, Wrench, CalendarClock, ShieldCheck, Palette, FileCheck,
   Tags,
   Clock, Users, CloudRain, UserPlus, FileText, ClipboardList,
+  MessageSquareText,
 } from 'lucide-react';
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
@@ -71,6 +72,7 @@ import TicketNotifySettings from '../tickets/TicketNotifySettings';
 import TicketTaxonomySettings from '../tickets/TicketTaxonomySettings';
 import TicketHelpTopicsSettings from '../tickets/TicketHelpTopicsSettings';
 import TicketDeskAccessSettings from '../tickets/TicketDeskAccessSettings';
+import TicketSavedRepliesSettings from '../tickets/TicketSavedRepliesSettings';
 import DailyBriefingSettings from '../components/DailyBriefingSettings';
 import WeeklyDigestSettings from '../components/WeeklyDigestSettings';
 import WorkforceScorecardSettings from '../components/WorkforceScorecardSettings';
@@ -167,7 +169,7 @@ const GLOBAL_SECTIONS = [
     keywords: 'geofence location address time clock punch map work site' },
   { id: 'service-desk', category: 'notifications', icon: Headset, title: 'Ticket Manager',
     sub: 'Everything about tickets: who receives and escalates them, which events send email, and the response targets and ticket types requesters choose from.',
-    keywords: 'tickets agents routing queue departments escalation notifications email mailbox cc reply-to auto-close delivery log sla priority hours response types intake questions fields help topics what do you need help with' },
+    keywords: 'tickets agents routing queue departments escalation notifications email mailbox cc reply-to auto-close delivery log sla priority hours response types intake questions fields help topics what do you need help with saved replies canned responses default assignee auto assign' },
   { id: 'task-notifications', category: 'notifications', icon: Bell, title: 'Task Notifications',
     sub: 'The mailbox task emails come from, due-date reminders, how updates are batched into one email, and how email replies are posted.',
     keywords: 'email mailbox reminders overdue batch replies delivery log' },
@@ -329,6 +331,8 @@ const SERVICE_DESK_TABS = [
   { key: 'topics',        label: 'Help Topics',          Icon: Tags,    Panel: TicketHelpTopicsSettings },
   // Who works the desk, and as agent or supervisor (Oct 2026, ticket_roles.py).
   { key: 'access',        label: 'Desk Access',          Icon: ShieldCheck, Panel: TicketDeskAccessSettings },
+  // The desk's canned responses (Oct 2026, routers/ticket_saved_replies.py).
+  { key: 'replies',       label: 'Saved Replies',        Icon: MessageSquareText, Panel: TicketSavedRepliesSettings },
 ];
 
 function ServiceDeskSection({ defaultOpen }) {

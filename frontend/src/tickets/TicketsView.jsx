@@ -6,7 +6,7 @@
 // Ticket statuses get their own color map here (STATUS_META in tasks/theme.js
 // is for tasks, not tickets). Inline-styled to match the rest of the app.
 import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Plus, Pencil, Search, Link2, Trash2, CheckCircle2, Clock, ClipboardList, Paperclip, Send, X, Download, MessageSquare, History, List as ListIcon, Columns3, BarChart3, ShieldAlert, ArrowUp, ArrowDown, ArrowUpDown, ChevronDown, Star, Lock, Bookmark, SlidersHorizontal, Image as ImageIcon, ScanText, Camera, ImagePlus, Video, Upload as UploadIcon, Mic, CircleDot, Play, MousePointer2, Check } from 'lucide-react';
+import { AlertTriangle, Plus, Pencil, Search, Link2, Trash2, CheckCircle2, Clock, ClipboardList, Paperclip, Send, X, Download, MessageSquare, MessageSquareText, Zap, History, List as ListIcon, Columns3, BarChart3, ShieldAlert, ArrowUp, ArrowDown, ArrowUpDown, ChevronDown, Star, Lock, Bookmark, SlidersHorizontal, Image as ImageIcon, ScanText, Camera, ImagePlus, Video, Upload as UploadIcon, Mic, CircleDot, Play, MousePointer2, Check } from 'lucide-react';
 import TicketToken from '../components/icons/TicketToken';
 import { api } from '../api';
 import { useTasks } from '../tasks/TasksContext';
@@ -64,6 +64,7 @@ import { useFrequentCollaborators } from '../tasks/frequentPeople';
 import { useTicketAccess } from './ticketAccess';
 import CreateModeTabs from './CreateModeTabs';
 import { registerTour } from '../lib/tours';
+import SavedReplyPicker from './SavedReplyPicker';
 
 // Tour id this module reports to the server (routers/user_tours.py) - see
 // the Task module's identical TASK_TOUR_ID in views/Tasks.jsx.
@@ -3691,7 +3692,10 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
             // who raised the ticket just replies (Neil, Sep 30: "they should
             // not see public reply versus an internal note").
             canInternal={(privileged || isAssignee || !isRequester) && deskAccess.canReadInternal}
-            canDelete={deskAccess.canDelete} />
+            canDelete={deskAccess.canDelete}
+            // Saved Replies are the desk's (Oct 2026) - never the requester view.
+            savedReplies={deskAccess.canWorkQueue && (privileged || isAssignee || !isRequester)}
+            ticket={t} myEmail={myEmail} />
         )}
         {tab === 'attachments' && <TicketAttachments ticketId={t.id} ticketType={t.type} canDelete={deskAccess.canDelete} />}
         {tab === 'activity' && <TicketActivity ticketId={t.id} nameOf={nameOf} companies={companies} allDepts={allDepts} />}
@@ -4110,9 +4114,13 @@ function TicketReports({ tickets, nameOf, hrDeptName }) {
 // The reply being written is the drawer's (`reply` / `onReplyChange`): it is
 // posted with the rest of the ticket's changes when Done is clicked, never on
 // its own - see TicketDrawer's `commit`.
-function TicketConversation({ ticketId, ticketType, nameOf, canInternal = true, canDelete = false, newSince, reply, onReplyChange, onDone }) {
+function TicketConversation({ ticketId, ticketType, nameOf, canInternal = true, canDelete = false, newSince, reply, onReplyChange, onDone, savedReplies = false, ticket = null, myEmail = '' }) {
   const [rows, setRows] = useState(null);
   const [attaching, setAttaching] = useState(false);
+  const [pickingReply, setPickingReply] = useState(false);
+  // A saved reply lands in the composer, filled in, for editing - added after
+  // whatever is already written, never sent on its own.
+  const insertSaved = (html) => onReplyChange((r) => ({ ...r, body: isEmptyDoc(r.body) ? html : `${r.body || ''}${html}` }));
   const { body, internal } = reply;
   const setBody = (b) => onReplyChange((r) => ({ ...r, body: b }));
   const setInternal = (i) => onReplyChange((r) => ({ ...r, internal: i }));
@@ -4215,6 +4223,12 @@ function TicketConversation({ ticketId, ticketType, nameOf, canInternal = true, 
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
         <RecordUploadButtons compact disabled={attaching} showRecord={!NO_RECORDING_TYPES.includes(ticketType)}
           onFile={attach} onRecordingChange={returnToTicketAfterRecording(ticketId)} />
+        {savedReplies && (
+          <button type="button" onClick={() => setPickingReply(true)}
+            style={{ ...btn('outline'), padding: '5px 10px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <MessageSquareText size={13} /> Saved Replies
+          </button>
+        )}
         {attaching && <Spinner size={14} />}
         <span style={{ fontSize: 11, color: NX.faint }}>Saved to Attachments and linked in your reply. Ctrl+V pastes a screenshot straight into the reply.</span>
       </div>
@@ -4227,6 +4241,10 @@ function TicketConversation({ ticketId, ticketType, nameOf, canInternal = true, 
           </span>
         )}
       </div>
+      {pickingReply && (
+        <SavedReplyPicker ticket={ticket} agentEmail={myEmail} nameOf={nameOf}
+          onInsert={insertSaved} onClose={() => setPickingReply(false)} />
+      )}
     </div>
   );
 }
@@ -4508,6 +4526,22 @@ function TicketActivity({ ticketId, nameOf, companies = [], allDepts = [] }) {
         let removed = null;
         if (a.type === 'comment_deleted') {
           try { removed = JSON.parse(a.detail); } catch { /* plain-text row */ }
+        }
+        // Default assignee (Oct 2026): written by Nexus, not by a person, so
+        // the line is the sentence itself - "Assigned to Sam Patel
+        // automatically (help topic: Printer or Scanner)".
+        if (a.type === 'auto_assigned' || a.type === 'auto_assign_gap') {
+          const gap = a.type === 'auto_assign_gap';
+          return (
+            <div key={a.id} style={{ display: 'flex', gap: 8, alignItems: 'center', fontSize: 13 }}>
+              <span aria-hidden style={{ width: 22, height: 22, borderRadius: '50%', display: 'grid', placeItems: 'center', flexShrink: 0,
+                background: gap ? 'rgba(245,158,11,0.16)' : NX.surface2, color: gap ? NX.amber : NX.dim }}>
+                {gap ? <AlertTriangle size={12} /> : <Zap size={12} />}
+              </span>
+              <span style={{ color: gap ? NX.amber : NX.dim, fontWeight: gap ? 600 : 400 }}>{a.detail}</span>
+              <span style={{ color: NX.faint, marginLeft: 'auto', fontSize: 11, whiteSpace: 'nowrap' }}>{formatDateTime(a.at)}</span>
+            </div>
+          );
         }
         return (
           <div key={a.id} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>

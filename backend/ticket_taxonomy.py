@@ -449,6 +449,47 @@ def question_label(db: Session, key: str) -> str:
     return ""
 
 
+# Default assignee per help topic (Oct 2026, ticket_auto_assign.py): a new
+# ticket about this topic that nobody assigned goes straight to this person.
+# Help topics are shared by every company with a department of that name, so
+# the person is chosen PER COMPANY: {HrEntity.id: email}. Who may be named
+# (an active desk agent of that company) and who may change which company's
+# entry (the company wall) is checked in routers/tickets.py, which knows the
+# caller; here the shape is cleaned only.
+def _clean_default_assignees(topic: str, value: Any) -> dict:
+    if value in (None, ""):
+        return {}
+    if not isinstance(value, dict):
+        raise TaxonomyError(f"The default assignees of {topic!r} must be an object keyed by company.")
+    out = {}
+    for company_id, email in value.items():
+        cid = str(company_id or "").strip()
+        em = str(email or "").strip().lower()
+        if cid and em:
+            out[cid] = em
+    return out
+
+
+def topic_entry(db: Session, name: str, dept_name: str = "") -> dict | None:
+    """The curated help topic `name` (a ticket's `application`), preferring
+    the group of the ticket's department (topics are listed per department
+    name, and two departments may share a topic name). None when `name` is
+    not a curated topic (an External Links app or a typed "Other" answer)."""
+    key = (name or "").strip().lower()
+    if not key:
+        return None
+    dept = (dept_name or "").strip().lower()
+    fallback = None
+    for g in get_config(db).get("helpTopics") or []:
+        for tp in g.get("topics") or []:
+            if (tp.get("name") or "").strip().lower() != key:
+                continue
+            if dept and dept in (g.get("departments") or []):
+                return tp
+            fallback = fallback or tp
+    return fallback
+
+
 def _clean_help_topics(groups: Any) -> list:
     if not isinstance(groups, list):
         raise TaxonomyError("helpTopics must be a list.")
@@ -470,6 +511,9 @@ def _clean_help_topics(groups: Any) -> list:
                 topic["options"] = options
             if "questions" in tp and tp["questions"] is not None:
                 topic["questions"] = _clean_questions(name, tp["questions"])
+            defaults = _clean_default_assignees(name, tp.get("defaultAssignees"))
+            if defaults:
+                topic["defaultAssignees"] = defaults
             topics.append(topic)
         out.append({"label": str(g.get("label") or "").strip(), "departments": depts, "topics": topics})
     return out
