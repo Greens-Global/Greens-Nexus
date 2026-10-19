@@ -47,13 +47,20 @@ The numbers:
 Weekly email (`weekly_loop`, started in main.py's lifespan, every scan in a
 worker thread): Monday from 7:00 AM in each recipient's own zone
 (ticket_notify._zone_for), for the previous Monday-Sunday, built by
-build_report scoped to that person. Recipients: ticket supervisors
-(ticket_roles.can_manage_desk) who are active internal staff, have not
-opted out (NexusPersonPref.ticket_weekly_report) and have tickets in scope.
-The desk-wide switch is enabledEvents.weekly_report in the ticket
-notification settings (on by default). TicketReportEmailLog, unique on
-(recipient, week_start), is claimed BEFORE the send - a restart or a second
-worker never sends the same week twice.
+build_report scoped to that person. Who (weekly_status), active internal
+staff with tickets in scope, and:
+  - explicit desk access: the roster supervisors (tickets full / owner
+    grant) and the Ticket Administrator - on unless they turned it off;
+  - legacy desk access (every tasks / tickets grant holder supervises):
+    opt-in only - nobody unless they turned it on themselves.
+The per-person value (NexusPersonPref.ticket_weekly_report) is unset / on /
+off. The desk-wide switch is enabledEvents.weekly_report in the ticket
+notification settings (on by default). The first loop tick stamps an
+armed-at time; a week whose Monday 7 AM came before it is never sent.
+TicketReportEmailLog, unique on (recipient, week_start), is claimed BEFORE
+the send - a restart or a second worker never sends the same week twice; a
+failed or stuck send is re-claimed that Monday (conditional UPDATE), up to
+three tries.
 """
 import asyncio
 import csv
@@ -65,7 +72,7 @@ from datetime import date, datetime, time as dtime, timedelta, timezone
 from html import escape
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import or_
+from sqlalchemy import and_, func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -94,6 +101,8 @@ AGE_BUCKETS = (("0-1", "0-1 Days", 1), ("1-3", "1-3 Days", 3), ("3-7", "3-7 Days
                ("7-14", "7-14 Days", 14), ("14-30", "14-30 Days", 30), ("30+", "30+ Days", None))
 FILTER_KEYS = ("company", "department", "type", "priority", "assignee", "service_area")
 MAX_RANGE_DAYS = 366
+MIN_YEAR, MAX_YEAR = 2000, 2100   # anything outside is a 422, never a date overflow
+NONE = "none"                     # filter value: the field is blank ("No Department", "Not Set")
 DAILY_UP_TO_DAYS = 31
 UNASSIGNED, OTHER = "", "__other__"
 SEND_HOUR = 7                  # Monday 7:00 AM in the recipient's own zone
@@ -165,6 +174,8 @@ def resolve_range(start: str, end: str, zone: str, now: datetime | None = None) 
         s = date.fromisoformat(start) if start else e - timedelta(days=29)
     except ValueError:
         raise RangeError("Dates must look like 2026-10-19.")
+    if s.year < MIN_YEAR or e.year > MAX_YEAR:
+        raise RangeError(f"Dates must fall between {MIN_YEAR} and {MAX_YEAR}.")
     if e < s:
         raise RangeError("The end date is before the start date.")
     if (e - s).days + 1 > MAX_RANGE_DAYS:
@@ -198,27 +209,29 @@ def _columns():
     return cols
 
 
-def _load(db: Session, user: dict, lo: datetime, filters: dict) -> list:
+def _load(db: Session, user: dict, lo: datetime, hi: datetime, filters: dict) -> list:
     from routers.tickets import ListScope
     T = models.TaskTicket
     scope = ListScope(db, user)
-    # A day of margin on the string compare: stored timestamps are ISO UTC,
-    # and the exact range test is done in Python on parsed values below.
+    # A day of margin either side of the string compare: stored timestamps
+    # are ISO UTC, and the exact range test is done in Python on parsed
+    # values below. Open tickets are always loaded - "open now" needs them.
     since = (lo - timedelta(days=1)).date().isoformat()
+    until = (hi + timedelta(days=1)).date().isoformat()
+
+    def within(col):
+        return and_(col >= since, col < until)
     q = scope.apply(db.query(*_columns()))
     q = q.filter(or_(T.deleted_at.is_(None), T.deleted_at == ""))
-    q = q.filter(or_(T.status.notin_(ticket_sla.DONE_STATUSES), T.created_at >= since,
-                     T.resolved_at >= since, T.sla_due_at >= since))
-    if filters.get("company"):
-        q = q.filter(T.company_id == filters["company"])
-    if filters.get("department"):
-        q = q.filter(T.hr_department_id == filters["department"])
-    if filters.get("type"):
-        q = q.filter(T.type == filters["type"])
-    if filters.get("priority"):
-        q = q.filter(T.priority == filters["priority"])
-    if filters.get("service_area"):
-        q = q.filter(T.service_area == filters["service_area"])
+    q = q.filter(or_(T.status.notin_(ticket_sla.DONE_STATUSES), within(T.created_at),
+                     within(T.resolved_at), within(T.sla_due_at)))
+    for key, col in (("company", T.company_id), ("department", T.hr_department_id),
+                     ("service_area", T.service_area), ("type", T.type), ("priority", T.priority)):
+        v = filters.get(key)
+        if v == NONE and key in ("company", "department", "service_area"):
+            q = q.filter(func.coalesce(col, "") == "")
+        elif v:
+            q = q.filter(col == v)
     rows = [r for r in q.all() if scope.admits(r)]
     who = filters.get("assignee")
     if who == "unassigned":
@@ -228,17 +241,31 @@ def _load(db: Session, user: dict, lo: datetime, filters: dict) -> list:
     return rows
 
 
-def _reopened_ids(db: Session, lo: datetime, hi: datetime, ids: set) -> set:
+RESOLVE_LINES = ("changed status to Resolved", "changed status to Closed")
+
+
+def _status_moves(db: Session, lo: datetime, hi: datetime, ids: set) -> tuple:
+    """(reopened ids, {id: last resolve time}) inside the range, from the
+    "status_changed" activity lines. The resolve times matter for a ticket
+    resolved in the range and reopened since - its resolved_at was cleared
+    on reopen, but it was still resolved in that range."""
     A = models.TaskActivity
     since = (lo - timedelta(days=1)).date().isoformat()
-    out = set()
-    for tid, at in (db.query(A.entity_id, A.at)
-                    .filter(A.entity_kind == "ticket", A.type == "status_changed",
-                            A.detail.like("%Reopened%"), A.at >= since).all()):
+    until = (hi + timedelta(days=1)).date().isoformat()
+    reopened, resolved = set(), {}
+    for tid, at, detail in (db.query(A.entity_id, A.at, A.detail)
+                            .filter(A.entity_kind == "ticket", A.type == "status_changed",
+                                    or_(A.detail.like("%Reopened%"), A.detail.in_(RESOLVE_LINES)),
+                                    A.at >= since, A.at < until).all()):
         when = ticket_sla.parse(at)
-        if tid in ids and when is not None and lo <= when < hi:
-            out.add(tid)
-    return out
+        if tid not in ids or when is None or not (lo <= when < hi):
+            continue
+        if detail in RESOLVE_LINES:
+            if tid not in resolved or when > resolved[tid]:
+                resolved[tid] = when
+        else:
+            reopened.add(tid)
+    return reopened, resolved
 
 
 # ── Per-ticket facts ─────────────────────────────────────────────────────────
@@ -347,12 +374,22 @@ def build_report(db: Session, viewer_email: str, *, start: str = "", end: str = 
     hi = datetime.combine(e_day + timedelta(days=1), dtime.min, tz).astimezone(timezone.utc)
     filters = clean_filters(filters)
 
-    rows = _load(db, user, lo, filters)
+    rows = _load(db, user, lo, hi, filters)
     facts = [_Fact(r, now) for r in rows]
-    reopened = _reopened_ids(db, lo, hi, {f.r.id for f in facts})
+    reopened, resolve_events = _status_moves(db, lo, hi, {f.r.id for f in facts})
 
     created_f = [f for f in facts if _in(f.created, lo, hi)]
+    # resolved_f: resolved in the range and still resolved - its times and
+    # deadline are the ones it was resolved with, so it feeds the medians,
+    # SLA met % and CSAT. counted_f adds tickets resolved in the range and
+    # reopened since (the activity trail): they COUNT as resolved, but the
+    # deadline they were resolved against is gone, so they are not measured.
     resolved_f = [f for f in facts if _in(f.resolved, lo, hi)]
+    resolved_at = {id(f): f.resolved for f in resolved_f}
+    for f in facts:
+        if id(f) not in resolved_at and f.r.id in resolve_events:
+            resolved_at[id(f)] = resolve_events[f.r.id]
+    counted_f = [f for f in facts if id(f) in resolved_at]
     open_f = [f for f in facts if not f.done]
 
     fr_mins = [m for m in (f.first_response_min() for f in created_f) if m is not None]
@@ -363,9 +400,9 @@ def build_report(db: Session, viewer_email: str, *, start: str = "", end: str = 
 
     kpis = {
         "created": len(created_f),
-        "resolved": len(resolved_f),
+        "resolved": len(counted_f),
         "openNow": len(open_f),
-        "backlogChange": len(created_f) - len(resolved_f),
+        "backlogChange": len(created_f) - len(counted_f),
         "firstResponseMedianHours": _hours(_median(fr_mins)),
         "firstResponseAvgHours": _hours(_mean(fr_mins)),
         "firstResponseCount": len(fr_mins),
@@ -411,7 +448,8 @@ def build_report(db: Session, viewer_email: str, *, start: str = "", end: str = 
     trend = {}
     cur = bucket_of(s_day)
     while cur <= e_day:
-        trend[cur] = {"key": cur.isoformat(), "label": us_day(cur), "created": 0, "resolved": 0, "breached": 0}
+        shown = max(cur, s_day)   # the first week starts where the range does
+        trend[cur] = {"key": shown.isoformat(), "label": us_day(shown), "created": 0, "resolved": 0, "breached": 0}
         cur += timedelta(days=1 if daily else 7)
 
     def bump(when: datetime, field: str) -> None:
@@ -421,8 +459,8 @@ def build_report(db: Session, viewer_email: str, *, start: str = "", end: str = 
 
     for f in created_f:
         bump(f.created, "created")
-    for f in resolved_f:
-        bump(f.resolved, "resolved")
+    for f in counted_f:
+        bump(resolved_at[id(f)], "resolved")
     for f in facts:
         if not _in(f.due, lo, hi):
             continue
@@ -473,9 +511,10 @@ def build_report(db: Session, viewer_email: str, *, start: str = "", end: str = 
         age = f.clock_age_min(now)
         if age is not None and (g["oldest"] is None or age > g["oldest"]):
             g["oldest"] = age
+    for f in counted_f:
+        group(agent_key(f))["resolved"] += 1
     for f in resolved_f:
         g = group(agent_key(f))
-        g["resolved"] += 1
         m = f.resolution_min()
         if m is not None:
             g["res"].append(m)
@@ -527,7 +566,7 @@ def build_report(db: Session, viewer_email: str, *, start: str = "", end: str = 
             return acc[k]
         for f in created_f:
             row(key_of(f.r))["created"] += 1
-        for f in resolved_f:
+        for f in counted_f:
             row(key_of(f.r))["resolved"] += 1
         for f in open_f:
             row(key_of(f.r))["open"] += 1
@@ -560,10 +599,10 @@ def build_report(db: Session, viewer_email: str, *, start: str = "", end: str = 
         "agents": agents,
         "breakdowns": breakdowns,
         "recurring": recurring,
-        "hasTickets": bool(created_f or resolved_f or open_f),
+        "hasTickets": bool(created_f or counted_f or open_f),
     }
     if include_tickets:
-        keep = {id(f) for f in created_f + resolved_f + open_f}
+        keep = {id(f) for f in created_f + counted_f + open_f}
         shown = [f for f in facts if id(f) in keep]
         shown.sort(key=lambda f: f.created or now, reverse=True)
         report["tickets"] = [{
@@ -653,8 +692,17 @@ CSV_AGENT_COLUMNS = (
 )
 
 
+_FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
+
+
 def _blank(v):
-    return "" if v is None else v
+    """A cell: blank for None, and a text cell a spreadsheet would run as a
+    formula (= + - @, tab, CR) gets a leading apostrophe."""
+    if v is None:
+        return ""
+    if isinstance(v, str) and v.startswith(_FORMULA_START):
+        return "'" + v
+    return v
 
 
 def to_csv(report: dict) -> str:
@@ -680,11 +728,28 @@ def csv_filename(report: dict) -> str:
     return f"ticket-report-{s}-to-{e}.csv"
 
 
-# ── Per-person opt-out ───────────────────────────────────────────────────────
+# ── Who gets the weekly email ────────────────────────────────────────────────
+#
+# Per desk-access mode (ticket_roles.desk_access_mode):
+#   explicit - the desk's supervisors by their tickets grant (full / owner),
+#              plus the configured Ticket Administrator. ON by default for
+#              them; each can turn it off.
+#   legacy   - every tasks / tickets grant holder supervises, so the email is
+#              OPT-IN: nobody gets it unless they turned it on themselves.
+# The per-person value has three states: NULL (unset = this mode's default),
+# 1 (on), 0 (off).
 
-def weekly_opted_in(db: Session, email: str) -> bool:
+ARMED_KEY = "ticket_weekly_report_armed"
+MAX_ATTEMPTS = 3
+STALE_SENDING = timedelta(minutes=30)
+
+
+def weekly_choice(db: Session, email: str):
+    """The person's own stored choice: True / False, or None when unset."""
     row = db.get(models.NexusPersonPref, (email or "").strip().lower())
-    return row is None or int(row.ticket_weekly_report if row.ticket_weekly_report is not None else 1) != 0
+    if row is None or row.ticket_weekly_report is None:
+        return None
+    return int(row.ticket_weekly_report) != 0
 
 
 def set_weekly_opt_in(db: Session, email: str, on: bool) -> bool:
@@ -699,54 +764,123 @@ def set_weekly_opt_in(db: Session, email: str, on: bool) -> bool:
     return bool(on)
 
 
-# ── Weekly email ─────────────────────────────────────────────────────────────
+def _roster_supervisor(db: Session, email: str, cfg: dict) -> bool:
+    """explicit mode: supervises by their tickets grant, or is the desk's
+    Ticket Administrator. An administrator's role level alone does not
+    count - they can still read every report, and opt in."""
+    import auth
+    import ticket_roles
+    if email == (cfg.get("ticketAdminEmail") or "").strip().lower():
+        return True
+    grants = auth._grants_for(email, db)
+    return ticket_roles._role_from_grants(grants, ticket_roles.EXPLICIT) == ticket_roles.SUPERVISOR
 
-def _candidates(db: Session) -> list:
-    """Everyone who could hold a desk role: administrators / owners, and
-    the members of an Access Group granting tasks or tickets - the people
-    /task-tickets/desk-agents checks."""
+
+def weekly_status(db: Session, email: str, cfg: dict | None = None, mode: str | None = None) -> dict:
+    """What the Reports tab's Weekly Email switch shows, and what the loop
+    decides on: {eligible, on (effective), choice (stored or None), mode,
+    defaultOn, deskEnabled}. Not eligible = never mailed."""
+    import ticket_notify
+    import ticket_roles
+    from routers.tickets import _internal_person
+    email = (email or "").strip().lower()
+    cfg = cfg or ticket_notify.get_settings(db)
+    mode = mode or ticket_roles.desk_access_mode(db)
+    desk_on = bool(cfg["enabledEvents"].get("weekly_report", True))
+    if not _internal_person(db, email):
+        eligible, default_on = False, False
+    elif mode == ticket_roles.EXPLICIT:
+        eligible = default_on = _roster_supervisor(db, email, cfg)
+        # Not a roster supervisor: an administrator may still opt in.
+        if not eligible and ticket_roles.can_manage_desk(viewer_for(db, email), db):
+            eligible = True
+    else:
+        eligible, default_on = ticket_roles.can_manage_desk(viewer_for(db, email), db), False
+    choice = weekly_choice(db, email) if eligible else None
+    on = eligible and (choice if choice is not None else default_on)
+    return {"eligible": eligible, "on": bool(on), "choice": choice, "mode": mode,
+            "defaultOn": default_on, "deskEnabled": desk_on}
+
+
+def _candidates(db: Session, cfg: dict) -> list:
+    """Everyone who could hold a desk role: administrators / owners, the
+    members of an Access Group granting tasks or tickets (the people
+    /task-tickets/desk-agents checks), and the Ticket Administrator."""
     emails = {r.email for r in db.query(models.NexusRole.email)
               .filter(models.NexusRole.role.in_(["administrator", "owner"])).all() if r.email}
     for email, mods in (db.query(models.NexusGroupMember.email, models.NexusGroup.allowed_modules)
                         .join(models.NexusGroup, models.NexusGroup.id == models.NexusGroupMember.group_id).all()):
         if any(p.strip().partition(":")[0] in ("tasks", "tickets") for p in (mods or "").split(",")):
             emails.add(email)
+    if cfg.get("ticketAdminEmail"):
+        emails.add(cfg["ticketAdminEmail"])
     return sorted({(e or "").strip().lower() for e in emails if e})
 
 
-def is_recipient(db: Session, email: str) -> bool:
-    """A ticket supervisor (ticket_roles.can_manage_desk), active internal
-    staff on the People list, who has not opted out."""
-    import ticket_roles
-    from routers.tickets import _internal_person
-    if not _internal_person(db, email):
-        return False
-    if not ticket_roles.can_manage_desk(viewer_for(db, email), db):
-        return False
-    return weekly_opted_in(db, email)
+def armed_at(db: Session, now: datetime) -> datetime:
+    """When the weekly email first armed - stamped on the first loop tick.
+    A week whose Monday 7 AM came before this is never sent, so a deploy on
+    a Monday afternoon mails nobody until the next Monday."""
+    row = db.query(models.NexusSetting).filter(models.NexusSetting.key == ARMED_KEY).first()
+    when = ticket_sla.parse(row.value) if row and row.value else None
+    if when is None:
+        if row is None:
+            row = models.NexusSetting(key=ARMED_KEY)
+            db.add(row)
+        row.value = ticket_sla.iso(now)
+        row.updated_by = "system"
+        row.updated_at = ticket_sla.iso(now)
+        db.commit()
+        when = ticket_sla.parse(row.value)
+    return when
 
 
-def week_due(db: Session, email: str, now: datetime) -> date | None:
+def _log_row(db: Session, email: str, ws: date):
+    L = models.TicketReportEmailLog
+    return db.query(L).filter(L.recipient == email, L.week_start == ws.isoformat()).first()
+
+
+def _retryable(row, now: datetime) -> bool:
+    """A failed send, or one stuck "sending" for 30 minutes (its worker
+    died), may be tried again - up to MAX_ATTEMPTS in all."""
+    if int(row.attempts or 0) >= MAX_ATTEMPTS:
+        return False
+    if row.status == "failed":
+        return True
+    touched = ticket_sla.parse(row.updated_at or row.created_at)
+    return row.status == "sending" and (touched is None or now - touched >= STALE_SENDING)
+
+
+def week_due(db: Session, email: str, now: datetime, armed: datetime | None = None) -> date | None:
     """The Monday of the week to report, when the email is due for `email`
     now: Monday from SEND_HOUR in their own zone, for the previous
-    Monday-Sunday, unless that week is already logged."""
+    Monday-Sunday - unless that send time came before the feature armed,
+    or the week is already sent (a failed or stuck send is retried that
+    Monday, up to MAX_ATTEMPTS)."""
     import ticket_notify
-    local = now.astimezone(_zone(ticket_notify._zone_for(db, email)))
+    tz = _zone(ticket_notify._zone_for(db, email))
+    local = now.astimezone(tz)
     if local.isoweekday() != 1 or local.time() < dtime(SEND_HOUR, 0):
         return None
+    if armed is not None and datetime.combine(local.date(), dtime(SEND_HOUR, 0), tz) < armed:
+        return None
     ws = local.date() - timedelta(days=7)
-    L = models.TicketReportEmailLog
-    if db.query(L.id).filter(L.recipient == email, L.week_start == ws.isoformat()).first() is not None:
+    row = _log_row(db, email, ws)
+    if row is not None and not _retryable(row, now):
         return None
     return ws
 
 
-def recipients_due(db: Session, now: datetime) -> list:
+def recipients_due(db: Session, now: datetime, armed: datetime | None = None) -> list:
     """[(email, week_start)] due now."""
+    import ticket_notify
+    import ticket_roles
+    cfg = ticket_notify.get_settings(db)
+    mode = ticket_roles.desk_access_mode(db)
     out = []
-    for email in _candidates(db):
-        ws = week_due(db, email, now)
-        if ws is not None and is_recipient(db, email):
+    for email in _candidates(db, cfg):
+        ws = week_due(db, email, now, armed)
+        if ws is not None and weekly_status(db, email, cfg, mode)["on"]:
             out.append((email, ws))
     return out
 
@@ -840,33 +974,59 @@ def render_email(report: dict, first_name: str, base_url: str, logo_url: str = "
       <a href="{escape(url)}" style="display:inline-block;background:{brand};color:#ffffff;text-decoration:none;font-size:13.5px;font-weight:700;padding:11px 28px;border-radius:8px">Open Ticket Reports</a>
     </td></tr>
     <tr><td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 28px;font-size:11.5px;color:#6b7280;line-height:1.5">
-      You get this every Monday because you supervise the service desk. To stop it, turn off Weekly Email on the Tickets &gt; Reports tab.{th.footer_lines()}
+      You get this every Monday because you supervise the service desk or turned it on yourself. To stop it, turn off Weekly Email on the Tickets &gt; Reports tab.{th.footer_lines()}
     </td></tr>
   </table>
 </div>"""
     return subject, html
 
 
+def _claim(db: Session, email: str, ws: date, report: dict, now: datetime):
+    """Take the week for this person - the row is written BEFORE the send.
+    A new week inserts (unique on recipient + week); a retry re-claims the
+    failed / stuck row with a conditional UPDATE, and only the worker whose
+    UPDATE hit the row (rowcount 1) sends. None = someone else holds it."""
+    L = models.TicketReportEmailLog
+    k = report["kpis"]
+    status = "sending" if report["hasTickets"] else "empty"
+    counts = {"created_count": k["created"], "resolved_count": k["resolved"], "open_count": k["openNow"]}
+    stamp = ticket_sla.iso(now)
+    row = _log_row(db, email, ws)
+    if row is None:
+        row = L(id=str(uuid.uuid4()), recipient=email, week_start=ws.isoformat(), status=status,
+                attempts=1, created_at=stamp, updated_at=stamp, **counts)
+        db.add(row)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            return None
+        return row
+    if not _retryable(row, now):
+        return None
+    won = (db.query(L).filter(L.id == row.id, L.status == row.status,
+                              func.coalesce(L.updated_at, "") == (row.updated_at or ""))
+           .update({L.status: status, L.attempts: func.coalesce(L.attempts, 0) + 1, L.updated_at: stamp,
+                    L.error: "", **{getattr(L, c): v for c, v in counts.items()}},
+                   synchronize_session=False))
+    db.commit()
+    if won != 1:
+        return None
+    db.refresh(row)
+    return row
+
+
 def send_weekly(db: Session, email: str, ws: date, now: datetime | None = None) -> str:
     """Build, claim and send one person's report for the week starting `ws`.
     Returns the logged status (sent / failed / empty), or "" when another
-    worker already holds the week. Commits."""
+    worker holds the week or it is already done. Commits."""
     import graph_mail
     import ticket_notify
     from app_url import app_url
     now = now or ticket_sla.utcnow()
     report = build_report(db, email, start=ws.isoformat(), end=(ws + timedelta(days=6)).isoformat(), now=now)
-    k = report["kpis"]
-    row = models.TicketReportEmailLog(
-        id=str(uuid.uuid4()), recipient=email, week_start=ws.isoformat(),
-        status="sending" if report["hasTickets"] else "empty",
-        created_count=k["created"], resolved_count=k["resolved"], open_count=k["openNow"],
-        created_at=ticket_sla.iso(now))
-    db.add(row)
-    try:
-        db.commit()          # the claim - unique on (recipient, week_start)
-    except IntegrityError:
-        db.rollback()
+    row = _claim(db, email, ws, report, now)
+    if row is None:
         return ""
     if not report["hasTickets"]:
         return "empty"
@@ -882,6 +1042,7 @@ def send_weekly(db: Session, email: str, ws: date, now: datetime | None = None) 
         row.status, row.sent_at = "sent", ticket_sla.iso(ticket_sla.utcnow())
     except graph_mail.GraphMailError as e:
         row.status, row.error = "failed", str(e)[:1000]
+    row.updated_at = ticket_sla.iso(ticket_sla.utcnow())
     db.commit()
     return row.status
 
@@ -894,10 +1055,11 @@ def scan_once(now: datetime | None = None) -> int:
     db = SessionLocal()
     sent = 0
     try:
+        now = now or ticket_sla.utcnow()
+        armed = armed_at(db, now)   # the first tick arms it, whatever the switch says
         if not ticket_notify.get_settings(db)["enabledEvents"].get("weekly_report", True):
             return 0
-        now = now or ticket_sla.utcnow()
-        for email, ws in recipients_due(db, now):
+        for email, ws in recipients_due(db, now, armed):
             try:
                 if send_weekly(db, email, ws, now) == "sent":
                     sent += 1

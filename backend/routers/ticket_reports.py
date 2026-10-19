@@ -16,7 +16,6 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 import ticket_reports
-import ticket_roles
 from auth import get_current_user, require_any_module_grant
 from database import get_db
 
@@ -59,22 +58,27 @@ class WeeklyPrefBody(BaseModel):
 
 
 def _pref(db: Session, user: dict) -> dict:
+    return ticket_reports.weekly_status(db, user["email"])
+
+
+@router.get("/task-tickets/reports/meta")
+def get_ticket_report_meta(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """What the Reports tab needs before its first report: the viewer's
+    zone and today's date there (the date presets are counted from it, the
+    same days the server buckets by), and their Weekly Email switch."""
     import ticket_notify
-    return {"on": ticket_reports.weekly_opted_in(db, user["email"]),
-            # Only ticket supervisors are sent the email; the switch is shown to them.
-            "eligible": ticket_roles.can_manage_desk(user, db),
-            "deskEnabled": bool(ticket_notify.get_settings(db)["enabledEvents"].get("weekly_report", True))}
-
-
-@router.get("/task-tickets/reports/weekly-email")
-def get_weekly_email_pref(user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    """The caller's own Weekly Ticket Report opt-out."""
-    return _pref(db, user)
+    import ticket_sla
+    zone = ticket_notify._zone_for(db, user["email"])
+    today = ticket_sla.utcnow().astimezone(ticket_reports._zone(zone)).date()
+    return {"zone": zone, "today": today.isoformat(), "weeklyEmail": _pref(db, user)}
 
 
 @router.put("/task-tickets/reports/weekly-email")
 def put_weekly_email_pref(body: WeeklyPrefBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The caller's own Weekly Ticket Report choice."""
     if body.on is None:
         raise HTTPException(422, "on is required.")
+    if not _pref(db, user)["eligible"]:
+        raise HTTPException(403, "The weekly ticket report goes to desk supervisors only.")
     ticket_reports.set_weekly_opt_in(db, user["email"], body.on)
     return _pref(db, user)

@@ -1111,7 +1111,7 @@ def _run_migrations():
             # Leave balances (Oct 19 2026, leave_balances.py). models.NexusEmployee.leave_policy.
             "ALTER TABLE nexus_employees ADD COLUMN leave_policy VARCHAR DEFAULT ''",
             # Weekly Ticket Report opt-out (Oct 2026, ticket_reports.py). models.NexusPersonPref.
-            "ALTER TABLE nexus_person_prefs ADD COLUMN ticket_weekly_report INTEGER DEFAULT 1",
+            "ALTER TABLE nexus_person_prefs ADD COLUMN ticket_weekly_report INTEGER",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2481,7 +2481,7 @@ def _run_migrations():
         # Ticket Reports (Oct 2026, ticket_reports.py): the weekly email's
         # per-person opt-out, and its send log - a new table, explicit RLS.
         # models.NexusPersonPref / TicketReportEmailLog.
-        "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS ticket_weekly_report INTEGER DEFAULT 1",
+        "ALTER TABLE nexus_person_prefs ADD COLUMN IF NOT EXISTS ticket_weekly_report INTEGER",
         "ALTER TABLE ticket_report_email_log ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop

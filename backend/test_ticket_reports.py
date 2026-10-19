@@ -118,6 +118,7 @@ class TicketReportTests(unittest.TestCase):
         auth.invalidate_role_cache()
         self.addCleanup(cache.settings_config.invalidate)
         self.addCleanup(cache.module_grants.invalidate)
+        R.set_weekly_opt_in(self.db, SUP_OPTOUT, False)   # the one supervisor who said no
 
     # ── helpers ───────────────────────────────────────────────────────────────
     def as_(self, email):
@@ -287,7 +288,9 @@ class TicketReportTests(unittest.TestCase):
         self.assertEqual(daily["trend"][0]["label"], "10/12/2026")
         weekly = self.report(start="2026-08-01", end="2026-10-18")
         self.assertEqual(weekly["range"]["granularity"], "week")
-        self.assertEqual(weekly["trend"][0]["key"], "2026-07-27")   # the Monday of 08/01
+        self.assertEqual(weekly["trend"][0]["key"], "2026-08-01")   # clamped to the range start
+        self.assertEqual(weekly["trend"][0]["label"], "08/01/2026")
+        self.assertEqual(weekly["trend"][1]["key"], "2026-08-03")   # then Mondays
         self.assertEqual(sum(w["created"] for w in weekly["trend"]), 1)
 
     def test_recurring_subjects(self):
@@ -323,22 +326,53 @@ class TicketReportTests(unittest.TestCase):
         self.assertNotIn("\u2014", r.text)
 
     # ── weekly email ──────────────────────────────────────────────────────────
-    def test_recipients_are_supervisors_with_tickets_who_did_not_opt_out(self):
+    def arm(self, at=NOW - timedelta(days=30)):
+        self.db.add(models.NexusSetting(key=R.ARMED_KEY, value=S.iso(at)))
+        self.db.commit()
+
+    def legacy(self):
+        row = self.db.query(models.NexusSetting).filter_by(key="ticket_desk_access").one()
+        row.value = json.dumps({"mode": "legacy"})
+        self.db.commit()
+        cache.settings_config.invalidate()
+
+    def test_roster_supervisors_get_it_agents_do_not(self):
         self.ticket(datetime(2026, 10, 13, 17, 0, tzinfo=timezone.utc))
         R.set_weekly_opt_in(self.db, SUP_OPTOUT, False)
         due = dict(R.recipients_due(self.db, NOW))
-        self.assertIn(SUP, due)
+        self.assertIn(SUP, due)                # roster supervisor: on by default
         self.assertEqual(due[SUP].isoformat(), "2026-10-12")
-        self.assertIn(INDIA_SUP, due)          # a supervisor; whether they have tickets is decided at send
+        self.assertIn(INDIA_SUP, due)          # whether they have tickets is decided at send
         for nobody in (AGENT, AGENT2, REQ, TASKER, SUP_OPTOUT, LEFT_SUP):
-            self.assertNotIn(nobody, due)
+            self.assertNotIn(nobody, due)      # agents, requesters, the opted out, a leaver
+        # An agent cannot opt themselves in.
+        self.assertEqual(self.as_(AGENT).put("/task-tickets/reports/weekly-email", json={"on": True}).status_code, 403)
         # Before 7 AM local, or on a Tuesday: not due.
         self.assertEqual(R.recipients_due(self.db, datetime(2026, 10, 19, 13, 0, tzinfo=timezone.utc)), [])
         self.assertEqual(R.recipients_due(self.db, NOW + timedelta(days=1)), [])
 
+    def test_the_ticket_administrator_gets_it_under_roster_access(self):
+        ticket_notify.save_settings(self.db, {"ticketAdminEmail": AGENT2}, "test")
+        self.assertIn(AGENT2, dict(R.recipients_due(self.db, NOW)))
+
+    def test_legacy_grant_holders_are_not_mailed_unless_they_opt_in(self):
+        self.ticket(datetime(2026, 10, 13, 17, 0, tzinfo=timezone.utc))
+        self.legacy()
+        self.arm()
+        self.assertEqual(R.recipients_due(self.db, NOW), [])          # nobody by default
+        st = R.weekly_status(self.db, TASKER)
+        self.assertEqual((st["eligible"], st["on"], st["choice"], st["defaultOn"]), (True, False, None, False))
+        r = self.as_(TASKER).put("/task-tickets/reports/weekly-email", json={"on": True})
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["on"], True)
+        with patch("graph_mail.send_mail") as send:
+            self.assertEqual(R.scan_once(NOW), 1)
+        self.assertEqual([c.kwargs["to"] for c in send.call_args_list], [[TASKER]])
+
     def test_one_send_per_person_per_week_and_nothing_when_empty(self):
         self.ticket(datetime(2026, 10, 13, 17, 0, tzinfo=timezone.utc), subject="Gate stuck")
         R.set_weekly_opt_in(self.db, SUP_OPTOUT, False)
+        self.arm()
         with patch("graph_mail.send_mail") as send:
             self.assertEqual(R.scan_once(NOW), 1)
             self.assertEqual(R.scan_once(NOW + h(1)), 0)
@@ -352,32 +386,139 @@ class TicketReportTests(unittest.TestCase):
         logs = {(r.recipient, r.status) for r in self.db.query(models.TicketReportEmailLog).all()}
         self.assertEqual(logs, {(SUP, "sent"), (INDIA_SUP, "empty")})   # India sees no co1 ticket
 
+    def test_first_run_guard(self):
+        self.ticket(datetime(2026, 10, 13, 17, 0, tzinfo=timezone.utc))
+        with patch("graph_mail.send_mail") as send:
+            # Merged Monday 9 AM Los Angeles - after that Monday's 7 AM: nothing today.
+            self.assertEqual(R.scan_once(NOW), 0)
+            self.assertEqual(R.scan_once(NOW + h(3)), 0)
+            send.assert_not_called()
+            self.assertEqual(S.parse(self.db.query(models.NexusSetting).filter_by(key=R.ARMED_KEY).one().value), NOW)
+            self.ticket(datetime(2026, 10, 20, 17, 0, tzinfo=timezone.utc))
+            # The next Monday goes out.
+            self.assertEqual(R.scan_once(NOW + timedelta(days=7)), 1)
+        self.assertEqual(send.call_args.kwargs["to"], [SUP])
+
     def test_a_claimed_week_is_never_sent_again(self):
         self.ticket(datetime(2026, 10, 13, 17, 0, tzinfo=timezone.utc))
-        # A row left "sending" by a worker that died mid-send still holds the week.
-        self.db.add(models.TicketReportEmailLog(id=gen_id(), recipient=SUP, week_start="2026-10-12",
-                                                status="sending", created_at=S.iso(NOW)))
+        self.arm()
+        # A row "sending" for under 30 minutes still holds the week.
+        self.db.add(models.TicketReportEmailLog(id=gen_id(), recipient=SUP, week_start="2026-10-12", attempts=1,
+                                                status="sending", created_at=S.iso(NOW), updated_at=S.iso(NOW)))
         self.db.commit()
         with patch("graph_mail.send_mail") as send:
-            R.scan_once(NOW)
+            R.scan_once(NOW + timedelta(minutes=10))
             self.assertEqual(R.send_weekly(self.db, SUP, datetime(2026, 10, 12).date(), NOW), "")
         self.assertEqual([c.kwargs["to"] for c in send.call_args_list if c.kwargs["to"] == [SUP]], [])
+        # ...and after 30 minutes the dead worker's claim is taken over, once.
+        with patch("graph_mail.send_mail") as send:
+            self.assertEqual(R.scan_once(NOW + timedelta(minutes=45)), 1)
+            self.assertEqual(R.scan_once(NOW + timedelta(minutes=95)), 0)
+        self.assertEqual(send.call_count, 1)
+        row = self.db.query(models.TicketReportEmailLog).filter_by(recipient=SUP).one()
+        self.db.refresh(row)
+        self.assertEqual((row.status, row.attempts), ("sent", 2))
+
+    def test_a_failed_send_is_retried_that_monday_up_to_three_times(self):
+        import graph_mail
+        self.ticket(datetime(2026, 10, 13, 17, 0, tzinfo=timezone.utc))
+        self.arm()
+        with patch("graph_mail.send_mail", side_effect=graph_mail.GraphMailError("throttled")) as send:
+            for k in range(5):
+                R.scan_once(NOW + timedelta(minutes=10 * k))
+        self.assertEqual(send.call_count, 3)
+        row = self.db.query(models.TicketReportEmailLog).filter_by(recipient=SUP).one()
+        self.assertEqual((row.status, row.attempts, row.error), ("failed", 3, "throttled"))
+        # A failure then a success: sent on the retry.
+        self.db.delete(row)
+        self.db.commit()
+        with patch("graph_mail.send_mail", side_effect=[graph_mail.GraphMailError("x"), {}]) as send:
+            R.scan_once(NOW)
+            self.assertEqual(R.scan_once(NOW + timedelta(minutes=10)), 1)
+        self.assertEqual(send.call_count, 2)
+        # A conditional UPDATE that loses (someone else re-claimed) sends nothing.
+        row = self.db.query(models.TicketReportEmailLog).filter_by(recipient=SUP).one()
+        row.status, row.attempts = "failed", 1
+        self.db.commit()
+        stale = R._log_row(self.db, SUP, datetime(2026, 10, 12).date())
+        self.db.query(models.TicketReportEmailLog).filter_by(id=stale.id).update({"updated_at": "changed"})
+        self.db.commit()
+        self.db.expire_all()
+        with patch("ticket_reports._log_row", return_value=type("Row", (), {
+                "id": stale.id, "status": "failed", "attempts": 1, "updated_at": "old", "created_at": ""})()):
+            self.assertIsNone(R._claim(self.db, SUP, datetime(2026, 10, 12).date(), self.report(), NOW))
 
     def test_the_desk_switch_turns_it_off(self):
         self.ticket(datetime(2026, 10, 13, 17, 0, tzinfo=timezone.utc))
+        self.arm()
         ticket_notify.save_settings(self.db, {"enabledEvents": {"weekly_report": False}}, "test")
         with patch("graph_mail.send_mail") as send:
             self.assertEqual(R.scan_once(NOW), 0)
         send.assert_not_called()
-        self.assertTrue(ticket_notify.get_settings(self.db)["enabledEvents"]["weekly_report"] is False)
+        self.assertFalse(self.as_(SUP).get("/task-tickets/reports/meta").json()["weeklyEmail"]["deskEnabled"])
 
-    def test_weekly_email_pref_route(self):
-        r = self.as_(SUP).get("/task-tickets/reports/weekly-email")
-        self.assertEqual(r.json(), {"on": True, "eligible": True, "deskEnabled": True})
+    def test_meta_and_weekly_email_pref_route(self):
+        r = self.as_(SUP).get("/task-tickets/reports/meta")
+        self.assertEqual(r.status_code, 200, r.text)
+        body = r.json()
+        self.assertEqual(body["zone"], "America/Los_Angeles")
+        self.assertRegex(body["today"], r"^\d{4}-\d{2}-\d{2}$")
+        self.assertEqual((body["weeklyEmail"]["on"], body["weeklyEmail"]["eligible"]), (True, True))
         r = self.as_(SUP).put("/task-tickets/reports/weekly-email", json={"on": False})
-        self.assertEqual(r.json()["on"], False)
-        self.assertFalse(R.weekly_opted_in(self.db, SUP))
-        self.assertFalse(self.as_(AGENT).get("/task-tickets/reports/weekly-email").json()["eligible"])
+        self.assertEqual((r.json()["on"], r.json()["choice"]), (False, False))
+        self.assertIs(R.weekly_choice(self.db, SUP), False)
+        self.assertFalse(self.as_(AGENT).get("/task-tickets/reports/meta").json()["weeklyEmail"]["eligible"])
+
+    # ── review fixes ──────────────────────────────────────────────────────────
+    def test_csv_neutralizes_formulas(self):
+        t = self.ticket(datetime(2026, 10, 13, 17, 0, tzinfo=timezone.utc), subject="=HYPERLINK(\"http://x\")")
+        t.application = "+cmd"
+        self.db.commit()
+        self.ticket(datetime(2026, 10, 13, 18, 0, tzinfo=timezone.utc), subject="@SUM(A1)")
+        out = R.to_csv(self.report(include_tickets=True))
+        rows = list(csv.reader(io.StringIO(out)))
+        subjects = {r[1] for r in rows[3:5]}
+        self.assertEqual(subjects, {"'=HYPERLINK(\"http://x\")", "'@SUM(A1)"})
+        self.assertIn("'+cmd", out)
+        self.assertEqual(R._blank(-3), -3)   # numbers stay numbers
+        self.assertEqual(R._blank("\tx"), "'\tx")
+
+    def test_blank_filters_mean_no_value(self):
+        mon = datetime(2026, 10, 13, 17, 0, tzinfo=timezone.utc)
+        self.ticket(mon, subject="No dept", hr_department_id="", service_area="")
+        self.ticket(mon, subject="Facilities", service_area="facilities")
+        rows = self.report(filters={"department": "none"}, include_tickets=True)["tickets"]
+        self.assertEqual([t["subject"] for t in rows], ["No dept"])
+        rows = self.report(filters={"service_area": "none"}, include_tickets=True)["tickets"]
+        self.assertEqual([t["subject"] for t in rows], ["No dept"])
+
+    def test_resolved_then_reopened_still_counts_as_resolved(self):
+        start = datetime(2026, 10, 13, 16, 0, tzinfo=timezone.utc)
+        t = self.ticket(start)
+        self.db.add(models.TaskActivity(id=gen_id(), entity_kind="ticket", entity_id=t.id, type="status_changed",
+                                        actor_email=AGENT, at=(start + h(2)).isoformat(), detail="changed status to Resolved"))
+        self.db.add(models.TaskActivity(id=gen_id(), entity_kind="ticket", entity_id=t.id, type="status_changed",
+                                        actor_email=REQ, at=(start + timedelta(days=8)).isoformat(), detail="changed status to Reopened"))
+        self.db.commit()   # open again now, resolved_at cleared
+        rep = self.report()
+        self.assertEqual((rep["kpis"]["resolved"], rep["kpis"]["slaMeasured"], rep["kpis"]["openNow"]), (1, 0, 1))
+        self.assertEqual({d["key"]: d["resolved"] for d in rep["trend"]}["2026-10-13"], 1)
+        self.assertEqual({a["name"]: a["resolved"] for a in rep["agents"]}["Agent"], 1)
+
+    def test_query_is_bounded_above(self):
+        self.ticket(datetime(2026, 10, 13, 17, 0, tzinfo=timezone.utc))
+        later = self.ticket(datetime(2026, 12, 1, 17, 0, tzinfo=timezone.utc))
+        self.resolve(later, datetime(2026, 12, 2, 17, 0, tzinfo=timezone.utc))   # done, all after the range
+        lo = datetime(2026, 10, 12, 7, 0, tzinfo=timezone.utc)
+        hi = datetime(2026, 10, 19, 7, 0, tzinfo=timezone.utc)
+        ids = {r.id for r in R._load(self.db, {"email": SUP, "level": 2}, lo, hi, {})}
+        self.assertNotIn(later.id, ids)
+        self.assertEqual(len(ids), 1)
+
+    def test_extreme_years_are_422(self):
+        for start, end in (("0001-01-01", "0001-01-02"), ("9999-12-30", "9999-12-31")):
+            r = self.as_(SUP).get("/task-tickets/reports", params={"start": start, "end": end})
+            self.assertEqual(r.status_code, 422, (start, r.text))
 
     def test_us_dates_only_in_the_report_labels(self):
         rep = self.report()

@@ -6199,10 +6199,11 @@ class NexusPersonPref(Base):
     # The per-person salt in their calendar subscribe link (routers/
     # shift_ical.py): rotating it invalidates every link issued before.
     ical_salt   = Column(String, default="")
-    # Ticket Reports (Oct 2026, ticket_reports.py): 1 = the Monday Weekly
-    # Ticket Report email reaches them (when they supervise the desk and the
-    # desk-wide switch is on); 0 = they opted out. ALTER lines in main.py.
-    ticket_weekly_report = Column(Integer, default=1)
+    # Ticket Reports (Oct 2026, ticket_reports.py): their own choice for the
+    # Monday Weekly Ticket Report email - NULL = unset (the desk-access
+    # mode's default: on for roster supervisors, off under legacy), 1 = on,
+    # 0 = off. No column default on purpose. ALTER lines in main.py.
+    ticket_weekly_report = Column(Integer, nullable=True, default=None)
 
 
 class TaskAutomationRun(Base):
@@ -6914,6 +6915,8 @@ class TicketReportEmailLog(Base):
     status        = Column(String, default="sending")  # sending | sent | failed | empty
     sent_at       = Column(String, default="")         # UTC iso; '' when nothing was mailed
     error         = Column(String, default="")
+    attempts      = Column(Integer, default=0)         # send tries; a failed / stuck one is retried up to 3
+    updated_at    = Column(String, default="")         # last claim or result - the retry's compare-and-set
     created_count = Column(Integer, default=0)
     resolved_count = Column(Integer, default=0)
     open_count    = Column(Integer, default=0)
