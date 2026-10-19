@@ -26,6 +26,7 @@ import { leaveRequestDays, openShiftMinutes } from '../lib/workdayStats';
 import { timeOffLabel } from '../components/shiftScheduleLib';
 import WorkdayShiftRequests from '../components/shifts/WorkdayShiftRequests';
 import { formatDistance, formatAccuracy } from '../lib/distance';
+import { LeaveBalanceCard, RequestBalanceHint, useMyLeaveBalance } from '../components/LeaveBalances';
 import { recallTimeExempt, rememberTimeExempt } from '../lib/timeTracking';
 import { pairLocalAgent } from '../lib/agentPair';
 
@@ -686,6 +687,8 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
   const [toBusy, setToBusy] = useState(false);
   const [toCancelling, setToCancelling] = useState(null);
   useEffect(() => { api.timeOffMine().then(setTimeoff).catch(() => setTimeoff([])); }, []);
+  // Paid leave balances (Oct 19 2026) - shown once HR has set them up.
+  const [leaveBal, reloadLeaveBal] = useMyLeaveBalance();
   // The admins' requests on/off switch (Sep 29, Shifts settings). The
   // reasons themselves are the fixed REQUEST_TIMEOFF_TYPES list (Neil, Oct 1).
   const [toTypes, setToTypes] = useState(null);
@@ -727,6 +730,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       toast(true, 'Time-off request sent - your manager gets a notification.');
       setToForm({ type: 'personal', start: '', end: '', allDay: true, startTime: '', endTime: '', note: '', confidential: false });
       api.timeOffMine().then(setTimeoff).catch(() => {});
+      reloadLeaveBal();
     } catch (e) { toast(false, e?.message || 'Could not send the request.'); }
     setToBusy(false);
   }
@@ -738,6 +742,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       await api.timeOffCancel(id);
       toast(true, 'Request cancelled.');
       api.timeOffMine().then(setTimeoff).catch(() => {});
+      reloadLeaveBal();
     } catch (e) { toast(false, e?.message || 'Could not cancel the request.'); }
     setToCancelling(null);
   }
@@ -1425,6 +1430,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       {/* Time off */}
 
       {tab === 'timeoff' && (<>
+      <LeaveBalanceCard balance={leaveBal} />
       <div style={{ background: 'var(--card)', border: '1px solid var(--wk-line2)', borderRadius: 16, padding: '16px 18px', marginBottom: 12, boxShadow: 'var(--wk-shadow)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 9, marginBottom: 14 }}>
           <span className="wkc-chip"><CalendarDays size={14} /></span>
@@ -1468,6 +1474,9 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
               style={{ justifySelf: 'start', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: 12, fontWeight: 600, color: 'var(--wk-brand)' }}>
               {toPast ? 'Only Upcoming Dates' : 'Request for a Past Date'}
             </button>
+
+            <RequestBalanceHint balance={leaveBal} type={toForm.type}
+              hours={toPartialOk ? toTotalHours : toTotalDays * (Number(leaveBal?.policy?.hoursPerDay) || 8)} />
 
             {/* Specific hours: only offered on a one-day range, since that's
                 all the backend accepts a start/end time on. */}
