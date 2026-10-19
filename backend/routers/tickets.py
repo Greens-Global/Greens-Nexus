@@ -14,10 +14,10 @@ attachment tables, keyed by ticket id - same storage, separate router.
 import json
 import re
 import html as html_lib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
-from sqlalchemy import func, text
-from sqlalchemy.orm import Session
+from sqlalchemy import String, cast, func, or_, text
+from sqlalchemy.orm import Session, defer
 from pydantic import BaseModel
 from typing import Optional, Any
 
@@ -31,6 +31,7 @@ import code_sequence
 from ticket_notify import (notify_ticket_event, get_settings as get_notify_settings,
                            save_settings as save_notify_settings, ticket_agents, all_agents,
                            _name_of)
+import ticket_notify
 import ticket_taxonomy
 import ticket_roles
 from ticket_roles import require_ticket_agent, require_ticket_supervisor
@@ -105,15 +106,57 @@ def _has_desk_grant(user: dict, db: Session) -> bool:
 
 def _require_ticket_participant(db: Session, user: dict, t) -> None:
     """A ticket's own requester/watchers/assignee may read and comment on it
-    without any module grant - it is their support request. Everyone else needs
-    the desk grant."""
+    without any module grant - it is their support request. So may whoever
+    filed it for someone else, and the person it is waiting on for approval
+    (_ticket_readers). Everyone else needs the desk grant."""
     import auth   # company wall: another company's ticket is 404 (before any grant)
     auth.assert_company(getattr(t, "company_id", "") or "", user, db)
     if _has_desk_grant(user, db):
         return
-    if (user.get("email") or "").lower() in _ticket_participants(t):
+    if (user.get("email") or "").lower() in _ticket_readers(t):
         return
     raise HTTPException(403, "You don't have access to this ticket")
+
+
+def _ticket_readers(t) -> set:
+    """Who may open a ticket without the desk grant: its participants
+    (requester, assignee, watchers), whoever FILED it - a ticket raised on a
+    colleague's behalf shows under the filer's Support > Following, so it
+    must open for them even after they leave the collaborators - and the
+    named approver while their decision is pending (they could not see what
+    they were asked to approve). Not who is NOTIFIED - that stays
+    _ticket_participants."""
+    people = _ticket_participants(t)
+    creator = (t.created_by_email or "").strip().lower()
+    if creator:
+        people.add(creator)
+    approver = (t.approver_email or "").strip().lower()
+    if approver and (t.approval_status or "none") == "pending":
+        people.add(approver)
+    return people
+
+
+def active_person(db: Session, email: str) -> bool:
+    """On the curated Nexus People list: a record, not offboarded, not
+    deleted. The one check for a person named in a ticket payload (an
+    assignee at intake, a walkthrough line's assignee, an approver)."""
+    email = (email or "").strip().lower()
+    if not email:
+        return False
+    emp = (db.query(models.NexusEmployee)
+           .filter(func.lower(models.NexusEmployee.work_email) == email).first())
+    return (emp is not None and (emp.status or "") != "offboarded"
+            and not (getattr(emp, "deleted_at", "") or ""))
+
+
+def _internal_person(db: Session, email: str) -> bool:
+    """active_person, and a member of staff - not a guest or external
+    identity (an approver signs off for the company)."""
+    if not active_person(db, email):
+        return False
+    emp = (db.query(models.NexusEmployee)
+           .filter(func.lower(models.NexusEmployee.work_email) == (email or "").strip().lower()).first())
+    return (emp.identity_type or "") not in ("guest", "external")
 
 
 def _nz(v):
@@ -124,9 +167,12 @@ def _nz(v):
 # model is defined here rather than imported so this router has no dependency on
 # the task module.
 class SavedViewBody(BaseModel):
-    id: Optional[str] = None
+    id: Optional[str] = None           # accepted for old clients, never used - ids are the server's
     name: str
     filters: Optional[Any] = None
+    view: Optional[str] = None
+    sort: Optional[Any] = None
+    group: Optional[str] = None
 
 
 def saved_view_to_dict(s: models.TaskSavedView) -> dict:
@@ -148,7 +194,7 @@ def list_ticket_views(user: dict = Depends(get_current_user), db: Session = Depe
 
 @router.post("/task-ticket-views", status_code=201, dependencies=[Depends(require_ticket_desk)])
 def create_ticket_view(body: SavedViewBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    s = models.TaskSavedView(id=body.id or gen_id(), owner_email=user["email"].lower(), name=body.name,
+    s = models.TaskSavedView(id=gen_id(), owner_email=user["email"].lower(), name=body.name,
                              view=body.view or "list", filters=body.filters or {}, sort=body.sort or {},
                              group=body.group or "none", scope="ticket", created_at=now_iso())
     db.add(s)
@@ -219,14 +265,25 @@ def ticket_to_dict(t: models.TaskTicket) -> dict:
 # shows, rather than nothing); list_tickets only asks for internal ones for a
 # caller who would see them in the drawer too (same rule as
 # list_ticket_comments) - a requester always gets the public thread only.
-def _latest_comments(db: Session, internal_ok: bool, ticket_id: str | None = None) -> dict:
+_LATEST_IN_MAX = 1000   # past this many ids an IN list costs more than the join
+
+
+def _latest_comments(db: Session, internal_ok: bool, ticket_id: str | None = None,
+                     ticket_ids: list | None = None) -> dict:
+    """`ticket_ids`: only these tickets (a scoped list) - not the latest reply
+    on every ticket in the database."""
     C = models.TaskComment
+    if ticket_ids is not None and not ticket_ids:
+        return {}
+    ids = list(ticket_ids) if ticket_ids is not None and len(ticket_ids) <= _LATEST_IN_MAX else None
 
     def _scoped(q):
         if not internal_ok:
             q = q.filter((C.internal.is_(False)) | (C.internal.is_(None)))
         if ticket_id is not None:
             q = q.filter(C.task_id == ticket_id)
+        if ids is not None:
+            q = q.filter(C.task_id.in_(ids))
         return q
 
     newest = _scoped(db.query(C.task_id.label("tid"), func.max(C.created_at).label("mx"))
@@ -234,9 +291,11 @@ def _latest_comments(db: Session, internal_ok: bool, ticket_id: str | None = Non
                      ).group_by(C.task_id).subquery()
     rows = _scoped(db.query(C.task_id, C.author_email, C.body, C.created_at, C.internal)
                    .join(newest, (C.task_id == newest.c.tid) & (C.created_at == newest.c.mx))).all()
+    # A ticket sharing a task's id has the task's thread - never shown as its own.
+    clash = ticket_notify.clashing_ids(db, ids if ids is not None else ([ticket_id] if ticket_id else None))
     out: dict = {}
     for tid, author, body, created, internal in rows:
-        if tid in out:   # two replies in the same instant - either is "the latest"
+        if tid in out or tid in clash:   # two replies in the same instant - either is "the latest"
             continue
         out[tid] = {"authorId": _nz((author or "").lower()), "preview": _comment_preview(body or "", 160),
                     "createdAt": created or "", "internal": bool(internal)}
@@ -461,7 +520,7 @@ def _is_agent(db: Session, user: dict) -> bool:
 
 
 def _notify_triage(db: Session, t: models.TaskTicket, actor: str,
-                   title: str = "New ticket to assign") -> None:
+                   title: str = "New Ticket to Assign") -> None:
     """Tell the IT Admin pool an unassigned ticket is waiting to be handed out.
 
     Called at creation for tickets needing no approval, and again once an
@@ -469,7 +528,7 @@ def _notify_triage(db: Session, t: models.TaskTicket, actor: str,
     can act on it and simply sits."""
     if t.assignee_email:
         return
-    tk_action = {"view": "tickets", "label": "View ticket"}
+    tk_action = {"view": "tickets", "label": "View Ticket"}
     for em in dict.fromkeys(e.lower() for e in _it_admins(db, t.company_id)):
         if em == actor:
             continue   # they raised/approved it themselves; they can already see it
@@ -672,14 +731,14 @@ def _tell_requester(db: Session, t: models.TaskTicket, actor_email: str, what: s
     if requester and requester != (actor_email or "").lower():
         task_notify(db, kind="ticket_updated", for_email=requester, title="Your Ticket Was Updated",
                     body=f"{ticket_no(t.code)} · {t.subject} - {what}"[:500], ticket_id=t.id,
-                    nexus_action={"view": "tickets", "label": "View ticket"})
+                    nexus_action={"view": "tickets", "label": "View Ticket"})
 
 
 def _notify_participants(db: Session, t: models.TaskTicket, actor_email: str, kind: str,
                          title: str, body: str, exclude: set | None = None):
     """Notify a ticket's participants (watchers/assignee/requester) except the actor
     and anyone in `exclude` (e.g. the requester, for internal notes)."""
-    action = {"view": "tickets", "label": "View ticket"}
+    action = {"view": "tickets", "label": "View Ticket"}
     skip = {(actor_email or "").lower()} | {e.lower() for e in (exclude or set())}
     for email in _ticket_participants(t):
         if email in skip:
@@ -791,33 +850,57 @@ def list_tickets(mine: bool = False, user: dict = Depends(get_current_user),
     the agent queue and carries every ticket in the company, so a client-side
     filter would still ship all of them to an employee's browser. Default is
     unchanged, so the Tickets module is unaffected."""
-    rows = db.query(models.TaskTicket).all()
+    # Scoped in SQL (Oct 18 2026 review: this read every ticket in the
+    # database and filtered in Python), with the Python checks below kept as
+    # the exact final guard - the watcher match in SQL is a text match on the
+    # JSON list, deliberately loose (LIKE wildcards), never the decision.
+    import auth
+    T_ = models.TaskTicket
+    q = db.query(T_)
     # Company wall (Aug 2026): once armed, the desk queue is confined to the
     # caller's own companies - a ticket carries the requester's company_id, and a
     # Global Admin (scope None) still sees them all. Off = unchanged.
-    import auth
     _cscope = auth.company_scope(user, db)
     if _cscope is not None:
-        rows = [t for t in rows if (t.company_id or "") in _cscope]
+        q = q.filter(func.coalesce(T_.company_id, "").in_(sorted(_cscope)))
     me = (user.get("email") or "").lower()
+    desk = _has_desk_grant(user, db)
+
+    def _person_sql(*cols):
+        conds = [func.lower(func.coalesce(c, "")) == me for c in cols]
+        conds.append(func.lower(cast(T_.watcher_emails, String)).like(f'%"{me}"%'))
+        return or_(*conds)
+
+    def _watching(t) -> bool:
+        return me in [(w or "").lower() for w in (t.watcher_emails or [])]
+
     if mine:
         # For me, filed by me on someone else's behalf (Oct 1), or watched by
         # me (Oct 12) - the page puts the last two under Following.
-        rows = [t for t in rows if (t.requester_email or "").lower() == me
-                or (t.created_by_email or "").lower() == me
-                or me in [(w or "").lower() for w in (t.watcher_emails or [])]]
+        # ...and a request waiting on MY approval: an approver without the
+        # desk has only Support to find it in.
+        q = q.filter(or_(_person_sql(T_.requester_email, T_.created_by_email),
+                         func.lower(func.coalesce(T_.approver_email, "")) == me))
+        rows = [t for t in q.all() if (t.requester_email or "").lower() == me
+                or (t.created_by_email or "").lower() == me or _watching(t)
+                or ((t.approval_status or "none") == "pending" and (t.approver_email or "").lower() == me)]
     # Without the desk grant the scope is forced, not requested: the unscoped
     # list IS the agent queue, so honouring `mine` only when asked would leave
     # the whole company's tickets one query parameter away from any employee.
-    elif not _has_desk_grant(user, db):
-        rows = [t for t in rows
-                if (t.requester_email or "").lower() == me
-                or me in [(w or "").lower() for w in (t.watcher_emails or [])]]
+    # Forced scope = exactly who may open a ticket (_ticket_readers): a ticket
+    # filed for a colleague, or waiting on my approval, opens from here too.
+    elif not desk:
+        q = q.filter(or_(_person_sql(T_.requester_email, T_.created_by_email, T_.assignee_email),
+                         func.lower(func.coalesce(T_.approver_email, "")) == me))
+        rows = [t for t in q.all() if me in _ticket_readers(t)]
+    else:
+        rows = q.all()
     # Latest comment per ticket - at most two queries for the whole list (the
-    # public thread, plus the full one only when the caller is on the desk).
-    desk = _has_desk_grant(user, db)
-    public_latest = _latest_comments(db, internal_ok=False)
-    any_latest = _latest_comments(db, internal_ok=True) if desk else public_latest
+    # public thread, plus the full one only when the caller is on the desk),
+    # limited to the tickets actually being returned.
+    ids = [t.id for t in rows] if (_cscope is not None or mine or not desk) else None
+    public_latest = _latest_comments(db, internal_ok=False, ticket_ids=ids)
+    any_latest = _latest_comments(db, internal_ok=True, ticket_ids=ids) if desk else public_latest
     out = []
     for t in rows:
         d = ticket_to_dict(t)
@@ -857,6 +940,56 @@ def _valid_requester(db: Session, user: dict, requested: str | None) -> str:
     return email
 
 
+# Every status a ticket can hold ("new" reads as Open - ticket_to_dict).
+TICKET_STATUSES = tuple(k for k in tmpl.TICKET_STATUS_META if k != "new")
+
+
+def _clean_intake(db: Session, user: dict, body: "TicketBody") -> None:
+    """The intake fields as the server will store them, refused when they are
+    not something the form could have offered:
+      - status: always Open for a requester (a ticket filed Closed or
+        Resolved skipped the desk entirely); the desk may file it in any real
+        status;
+      - type: one the desk knows (ticket_taxonomy.valid_type);
+      - priority: urgent / high / medium / low;
+      - assignee: the desk only, and only someone on the Nexus People list -
+        the same rule a walkthrough line follows (active_person);
+      - images: our storage only (items._validate_photo_url)."""
+    desk = _has_desk_grant(user, db)
+    if not desk:
+        body.status = "open"
+    else:
+        st = (body.status or "open").strip().lower()
+        st = "open" if st == "new" else st
+        if st not in TICKET_STATUSES:
+            raise HTTPException(422, "Unknown ticket status.")
+        body.status = st
+    typ = (body.type or "").strip() or "request"
+    if not ticket_taxonomy.valid_type(db, typ):
+        raise HTTPException(422, "Unknown ticket type.")
+    body.type = typ
+    pr = (body.priority or "").strip().lower() or "medium"
+    if pr not in ticket_taxonomy.PRIORITIES:
+        raise HTTPException(422, "Unknown priority - use Urgent, High, Medium or Low.")
+    body.priority = pr
+    assignee = (body.assignee_email or "").strip().lower()
+    if assignee:
+        if not desk:
+            raise HTTPException(403, "Only the service desk can assign a ticket while filing it.")
+        if not active_person(db, assignee):
+            raise HTTPException(400, "The assignee must be someone on the Nexus People list.")
+    body.assignee_email = assignee
+    from routers.items import _validate_photo_url
+    images = []
+    for u in body.images or []:
+        if not isinstance(u, str):
+            raise HTTPException(422, "Images must be links to uploaded files.")
+        _validate_photo_url(u, "Ticket image")
+        if u.strip():
+            images.append(u.strip())
+    body.images = images
+
+
 def _with_creator(watchers: list | None, requester: str | None, creator: str) -> list:
     """The payload's watchers, plus whoever filed the ticket when it is for
     somebody else - so the person who raised it on a colleague's behalf can
@@ -884,6 +1017,9 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
     # caller for everyone else); now it is open to all, so the address is
     # checked against the curated People list instead - see _valid_requester.
     body.requester_email = _valid_requester(db, user, body.requester_email)
+    # Never trust the form (Oct 18 2026 review): the status, type, priority,
+    # assignee and images are checked here, not taken as sent.
+    _clean_intake(db, user, body)
     source = _source_task(db, user, body.from_task_id) if body.from_task_id else None
     if source is not None:
         body.linked_task_id = source.id
@@ -897,7 +1033,10 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
     # Same never-trust-the-client-alone posture requester_email just got above.
     company_id = _intake_company(db, user, body.company_id, (body.requester_email or user["email"]))
     t = models.TaskTicket(
-        id=body.id or gen_id(), code=_next_ticket_code(db), subject=body.subject,
+        # Always the server's. Comments and files share the task tables, keyed
+        # only by id - a ticket created with a task's id read that task's
+        # thread and files. body.id is accepted (old clients) and ignored.
+        id=gen_id(), code=_next_ticket_code(db), subject=body.subject,
         description=body.description or "", type=body.type or "request",
         status=(body.status if (body.status and body.status != "new") else "open"), priority=body.priority or "medium",
         requester_email=(body.requester_email or user["email"]).strip().lower(),
@@ -953,7 +1092,7 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
             source.source_ticket_id = t.id
         _log_task_link(db, t, source, user["email"].lower(), "task_converted",
                        "converted from task", "converted this task into")
-    tk_action = {"view": "tickets", "label": "View ticket"}
+    tk_action = {"view": "tickets", "label": "View Ticket"}
     if t.assignee_email and t.assignee_email != user["email"].lower():
         task_notify(db, kind="ticket_assigned", for_email=t.assignee_email,
                     title="You Were Assigned a Ticket", body=f"{ticket_no(t.code)} · {t.subject}", ticket_id=t.id, nexus_action=tk_action)
@@ -1158,6 +1297,19 @@ def _log_task_link(db: Session, tk: models.TaskTicket, task: models.Task, actor:
                  entity_title=task.title, detail=f"{task_says} {ticket_no(tk.code)} · {tk.subject}")
 
 
+def _require_linkable_tasks(db: Session, user: dict, task_ids: list) -> None:
+    """Every task being ADDED to a ticket's Tasks must be one the caller can
+    see (Oct 18 2026 review: a requester could link any task by id, and the
+    ticket then showed its title and wrote into its history). A task already
+    on the ticket is not re-checked."""
+    from routers.task_util import require_task_role
+    for tid in dict.fromkeys(i for i in task_ids if i):
+        task = db.query(models.Task).filter(models.Task.id == tid).first()
+        if task is None:
+            raise HTTPException(404, "That task doesn't exist (or was deleted) - remove it and save again.")
+        require_task_role(db, user, task, "viewer")
+
+
 def _sync_ticket_tasks(db: Session, tk: models.TaskTicket, before: list, actor: str) -> None:
     after = _ticket_task_ids(tk)
     added = [i for i in after if i not in before]
@@ -1255,7 +1407,10 @@ def _ticket_edit_scope(db: Session, t: models.TaskTicket, user: dict) -> set | N
 @router.patch("/task-tickets/{ticket_id}")
 def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: BackgroundTasks,
                   user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    t = db.query(models.TaskTicket).filter(models.TaskTicket.id == ticket_id).first()
+    # Row-locked: every field below is a read-modify-write (watchers and task
+    # ids are JSON lists), and two saves at once used to drop one's changes -
+    # or both bell "You Were Assigned" off the same stale assignee.
+    t = db.query(models.TaskTicket).filter(models.TaskTicket.id == ticket_id).with_for_update().first()
     if not t:
         raise HTTPException(404, "Ticket not found")
     import auth   # company wall: another company's ticket is 404
@@ -1393,7 +1548,7 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
         data["maintenance_vendor"] = " ".join((data["maintenance_vendor"] or "").split())[:200]
     prev_property = t.property_asset_id or ""
     prev_vendor, prev_cost = (t.maintenance_vendor or ""), (t.maintenance_cost or "")
-    prev_status, prev_assignee, prev_priority = t.status, (t.assignee_email or ""), t.priority
+    prev_status, prev_assignee, prev_priority = t.status, (t.assignee_email or "").strip().lower(), t.priority
     prev_type, prev_approval = (t.type or ""), (t.approval_status or "none")
     prev_due = t.sla_due_on
     # Captured for the audit trail below (_log_field_changes) - BEFORE the
@@ -1409,6 +1564,13 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     prev_type_fields = dict(t.type_fields or {})
     prev_watchers = [(e or "").lower() for e in (t.watcher_emails or []) if e]
     prev_task_ids = _ticket_task_ids(t)
+    if "task_ids" in data or "linked_task_id" in data:
+        next_ids = data.get("task_ids", t.task_ids)
+        next_ids = [i for i in (next_ids or []) if i] if isinstance(next_ids, list) else []
+        linked = data.get("linked_task_id", t.linked_task_id) or ""
+        if linked and linked not in next_ids:
+            next_ids.append(linked)
+        _require_linkable_tasks(db, user, [i for i in next_ids if i not in prev_task_ids])
     # sla_due_on is never applied from the payload directly - it is derived
     # from priority a few lines down, same as create_ticket never trusting
     # body.sla_due_on. Still accepted on the model for backward-compat
@@ -1447,7 +1609,7 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     # Assigning an Open (or Reopened) ticket starts the work (Neil, Sep 30:
     # "if I assign it, it should automatically change the status from open to
     # in progress"). Only when the same request did not set a status itself.
-    if ("assignee_email" in data and (t.assignee_email or "") and (t.assignee_email or "") != prev_assignee
+    if ("assignee_email" in data and (t.assignee_email or "") and (t.assignee_email or "").lower() != prev_assignee
             and "status" not in data and t.status in ("open", "reopened")):
         t.status = "in_progress"
 
@@ -1495,9 +1657,9 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
         log_activity(db, type=kind, actor_email=user["email"], entity_kind="ticket",
                      entity_id=t.id, entity_code=t.code, entity_title=t.subject, detail=detail)
         changed.append(kind)
-    tk_action = {"view": "tickets", "label": "View ticket"}
+    tk_action = {"view": "tickets", "label": "View Ticket"}
     status_changed = t.status != prev_status   # includes the assignment's auto In Progress
-    assignee_changed = "assignee_email" in data and (t.assignee_email or "") != prev_assignee
+    assignee_changed = "assignee_email" in data and (t.assignee_email or "").strip().lower() != prev_assignee
     # The requester hears about EVERY change someone else makes to their
     # ticket, in their bell (Oct 1) - one notice per save, built after the
     # audit lines below so it can say what changed.
@@ -1796,9 +1958,26 @@ def restore_ticket(ticket_id: str, user: dict = Depends(get_current_user), db: S
 
 # ── Ticket conversation / attachments / activity (reuse the task tables, keyed
 #    by the ticket id; ids are globally unique so tasks and tickets never collide) ──
-def _ticket_or_404(db: Session, ticket_id: str) -> models.TaskTicket:
-    t = db.query(models.TaskTicket).filter(models.TaskTicket.id == ticket_id).first()
+def _ticket_or_404(db: Session, ticket_id: str, lock: bool = False) -> models.TaskTicket:
+    """`lock`: SELECT ... FOR UPDATE, for a read-modify-write of the ticket
+    (watchers, links, approval) - two requests at once otherwise drop one."""
+    q = db.query(models.TaskTicket).filter(models.TaskTicket.id == ticket_id)
+    t = (q.with_for_update() if lock else q).first()
     if not t:
+        raise HTTPException(404, "Ticket not found")
+    return t
+
+
+def _conversation_ticket_or_404(db: Session, ticket_id: str, lock: bool = False) -> models.TaskTicket:
+    """The ticket whose comments / attachments are being read or written.
+    Those rows live in the TASK tables, keyed only by id, so an id that is
+    also a task's (a ticket created with a task's id before ids became the
+    server's, Oct 18 2026) would read or write that task's thread and files.
+    Such an id is refused outright, live or trashed task alike."""
+    t = _ticket_or_404(db, ticket_id, lock=lock)
+    clash = (db.query(models.Task.id).execution_options(include_deleted=True)
+             .filter(models.Task.id == ticket_id).first())
+    if clash is not None:
         raise HTTPException(404, "Ticket not found")
     return t
 
@@ -1842,7 +2021,7 @@ def ticket_summary(ticket_id: str, user: dict = Depends(get_current_user), db: S
 def list_ticket_comments(ticket_id: str, user: dict = Depends(get_current_user),
                          db: Session = Depends(get_db)):
     # Their own support request is readable without a desk grant.
-    t = _ticket_or_404(db, ticket_id)
+    t = _conversation_ticket_or_404(db, ticket_id)
     _require_ticket_participant(db, user, t)
     rows = db.query(models.TaskComment).filter(models.TaskComment.task_id == ticket_id).order_by(models.TaskComment.created_at).all()
     # Internal notes are the desk talking among themselves - never shown to
@@ -1927,14 +2106,15 @@ def _record_ticket_comment(db: Session, t: models.TaskTicket, user: dict, text: 
         task_notify(db, kind="ticket_comment", for_email=who, main_bell=True,
                     title="You Were Mentioned in a Ticket Comment",
                     body=f"{ticket_no(t.code)} · {t.subject}", ticket_id=t.id,
-                    nexus_action={"view": "tickets", "label": "View ticket"})
+                    nexus_action={"view": "tickets", "label": "View Ticket"})
     return c, internal
 
 
 @router.post("/task-tickets/{ticket_id}/comments", status_code=201)
 def add_ticket_comment(ticket_id: str, body: TicketCommentBody, background_tasks: BackgroundTasks,
                        user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    t = _ticket_or_404(db, ticket_id)
+    # Locked: an @mention adds watchers (a JSON read-modify-write).
+    t = _conversation_ticket_or_404(db, ticket_id, lock=True)
     # Replying on your own ticket needs no grant; an internal note does, since
     # those are the desk talking among themselves and are hidden from the
     # requester.
@@ -1972,7 +2152,7 @@ def delete_ticket_comment(comment_id: str, user: dict = Depends(get_current_user
     c = db.query(models.TaskComment).filter(models.TaskComment.id == comment_id).first()
     if not c:
         raise HTTPException(404, "Comment not found")
-    t = _ticket_or_404(db, c.task_id)   # a task's comment is not this endpoint's
+    t = _conversation_ticket_or_404(db, c.task_id)   # a task's comment is not this endpoint's
     _require_ticket_participant(db, user, t)   # company wall (404) + access
     me = (user.get("email") or "").lower()
     if (c.author_email or "").lower() != me and not _ticket_privileged(db, t, user):
@@ -2005,7 +2185,7 @@ def mark_ticket_seen(ticket_id: str, user: dict = Depends(get_current_user), db:
 @router.get("/task-tickets/{ticket_id}/attachments")
 def list_ticket_attachments(ticket_id: str, user: dict = Depends(get_current_user),
                             db: Session = Depends(get_db)):
-    _require_ticket_participant(db, user, _ticket_or_404(db, ticket_id))
+    _require_ticket_participant(db, user, _conversation_ticket_or_404(db, ticket_id))
     rows = db.query(models.TaskAttachment).filter(models.TaskAttachment.task_id == ticket_id).all()
     return [_tattachment(a) for a in rows]
 
@@ -2013,8 +2193,11 @@ def list_ticket_attachments(ticket_id: str, user: dict = Depends(get_current_use
 @router.post("/task-tickets/{ticket_id}/attachments", status_code=201)
 def add_ticket_attachment(ticket_id: str, body: TicketAttachmentBody, background_tasks: BackgroundTasks,
                           user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    t = _ticket_or_404(db, ticket_id)
+    t = _conversation_ticket_or_404(db, ticket_id)
     _require_ticket_participant(db, user, t)
+    # Our storage only - the same rule as every other evidence upload.
+    from routers.items import _validate_photo_url
+    _validate_photo_url(body.url, "Attachment url")
     a = models.TaskAttachment(id=gen_id(), task_id=ticket_id, name=body.name, size=body.size or "",
                               kind=body.kind or "other", url=body.url or "", added_at=now_iso(), added_by=user["email"])
     db.add(a)
@@ -2042,7 +2225,7 @@ def delete_ticket_attachment(attachment_id: str, user: dict = Depends(get_curren
     a = db.query(models.TaskAttachment).filter(models.TaskAttachment.id == attachment_id).first()
     if not a:
         raise HTTPException(404, "Attachment not found")
-    t = _ticket_or_404(db, a.task_id)   # a task's attachment is not this endpoint's
+    t = _conversation_ticket_or_404(db, a.task_id)   # a task's attachment is not this endpoint's
     _require_ticket_participant(db, user, t)   # company wall (404) + access
     me = (user.get("email") or "").lower()
     if (a.added_by or "").lower() != me and not _ticket_privileged(db, t, user):
@@ -2302,7 +2485,17 @@ def list_ticket_departments(mine: bool = False, user: dict = Depends(get_current
         if not company:
             return []
         return _ticket_depts(db, company, enabled_only=True)
-    return _ticket_depts(db, include_removed=True)
+    # Every company's departments stay listed (a ticket filed against one has
+    # to show its name anywhere), but who heads another company's
+    # departments is that company's business, not every employee's.
+    import auth
+    scope = auth.company_scope(user, db)
+    out = _ticket_depts(db, include_removed=True)
+    if scope is not None:
+        for d in out:
+            if not auth.company_ok(d.get("companyId") or "", scope):
+                d["leadEmail"] = d["backupEmail"] = ""
+    return out
 
 
 def _dept_list(db: Session, company_id: str) -> list[dict]:
@@ -2346,6 +2539,8 @@ def update_ticket_department(dept_id: str, body: TicketDepartmentUpdate,
     g = db.query(models.HrDepartment).filter(models.HrDepartment.id == dept_id).first()
     if not g:
         raise HTTPException(404, "Department not found")
+    import auth   # company wall: another company's department is 404
+    auth.assert_company(g.company_id or "", user, db)
     _sync_ticket_departments(db, g.company_id)
     row = db.query(models.TicketDepartment).filter(models.TicketDepartment.id == dept_id).first()
     if not row:
@@ -2373,6 +2568,8 @@ def reorder_ticket_departments(body: TicketDepartmentOrder, user: dict = Depends
     Construction, Admin, Operations). Ids missing from the list (a department
     added in another tab meanwhile) keep their relative order after the rest;
     ids from another company are ignored."""
+    import auth   # company wall: another company's departments are 404
+    auth.assert_company(body.company_id or "", user, db)
     _sync_ticket_departments(db, body.company_id)
     rows = (db.query(models.TicketDepartment).filter(models.TicketDepartment.company_id == body.company_id)
             .order_by(models.TicketDepartment.sort_order, models.TicketDepartment.name).all())
@@ -2422,7 +2619,7 @@ def list_ticket_components(db: Session = Depends(get_db)):
 def create_ticket_component(body: ComponentBody, db: Session = Depends(get_db)):
     if not (body.name or "").strip():
         raise HTTPException(422, "Component name is required")
-    c = models.TaskTicketComponent(id=body.id or gen_id(), name=body.name.strip(), created_at=now_iso())
+    c = models.TaskTicketComponent(id=gen_id(), name=body.name.strip(), created_at=now_iso())
     db.add(c)
     db.commit()
     db.refresh(c)
@@ -2461,7 +2658,9 @@ class ApprovalRequestBody(BaseModel):
 def request_approval(ticket_id: str, body: ApprovalRequestBody, background_tasks: BackgroundTasks,
                      user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """IT Admin routes a parked request to the person who signs it off."""
-    t = _ticket_or_404(db, ticket_id)
+    t = _ticket_or_404(db, ticket_id, lock=True)
+    import auth   # company wall: another company's ticket is 404
+    auth.assert_company(t.company_id or "", user, db)
     actor = user["email"].lower()
     # Desk only. This is the control itself - if the requester could pick who
     # approves their own request, there is no approval.
@@ -2477,6 +2676,16 @@ def request_approval(ticket_id: str, body: ApprovalRequestBody, background_tasks
         raise HTTPException(422, "An approver is required.")
     if approver == (t.requester_email or "").lower():
         raise HTTPException(422, "A request cannot be approved by the person who raised it.")
+    # A person on the Nexus People list, staff - the approver can open the
+    # ticket from here on (_ticket_readers), so a typo or an outside address
+    # would hand the request to whoever owns that mailbox.
+    if not _internal_person(db, approver):
+        raise HTTPException(422, "The approver must be a member of staff on the Nexus People list.")
+    # ...and able to reach this ticket through the company wall, or they could
+    # neither open it nor decide it (both 404 for another company's ticket).
+    approver_user = {"email": approver, "level": auth.level_for(approver, db)}
+    if not auth.company_ok(t.company_id or "", auth.company_scope(approver_user, db)):
+        raise HTTPException(422, "The approver must work for this ticket's company.")
 
     resent = bool(t.approver_email) and t.approver_email != approver
     t.approver_email = approver
@@ -2486,11 +2695,15 @@ def request_approval(ticket_id: str, body: ApprovalRequestBody, background_tasks
                  entity_id=t.id, entity_code=t.code, entity_title=t.subject,
                  detail=("re-routed" if resent else "sent") + f" for approval to {approver}"
                         + (f": {note}" if note else ""))
-    tk_action = {"view": "tickets", "label": "View ticket"}
+    tk_action = {"view": "tickets", "label": "View Ticket"}
+    # An approver off the desk cannot use the Tickets module; Support opens
+    # the same ticket (nexus:open-ticket via the action's ticketId).
+    approver_action = (tk_action if ticket_notify.on_desk(db, approver)
+                       else {"view": "support", "label": "View Ticket"})
     if approver != actor:
         task_notify(db, kind="ticket_needs_approval", for_email=approver,
                     title="A Ticket Needs Your Approval",
-                    body=f"{ticket_no(t.code)} · {t.subject}", ticket_id=t.id, nexus_action=tk_action)
+                    body=f"{ticket_no(t.code)} · {t.subject}", ticket_id=t.id, nexus_action=approver_action)
     _tell_requester(db, t, user["email"], f"Sent to {_name_of(db, approver)} for approval")
     db.commit()
     db.refresh(t)
@@ -2503,10 +2716,16 @@ class ApprovalBody(BaseModel):
     note: Optional[str] = ""
 
 
-@router.post("/task-tickets/{ticket_id}/approval", dependencies=[Depends(require_ticket_desk)])
+# No desk dependency: the named approver is usually NOT on the desk (a
+# manager signing off an access request), and the route's desk gate locked
+# them out of the very decision they were asked for (Oct 18 2026 review). The
+# approver-or-administrator check below is the gate.
+@router.post("/task-tickets/{ticket_id}/approval")
 def decide_approval(ticket_id: str, body: ApprovalBody, background_tasks: BackgroundTasks,
                     user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    t = _ticket_or_404(db, ticket_id)
+    t = _ticket_or_404(db, ticket_id, lock=True)   # two decisions at once must not both land
+    import auth   # company wall: another company's ticket is 404
+    auth.assert_company(t.company_id or "", user, db)
     actor = user["email"].lower()
     decision = (body.decision or "").strip().lower()
     if decision not in ("approve", "reject"):
@@ -2517,7 +2736,7 @@ def decide_approval(ticket_id: str, body: ApprovalBody, background_tasks: Backgr
         raise HTTPException(409, f"This ticket was already {t.approval_status}.")
     # Only the named approver decides. Administrators can act too, so a departed or
     # unavailable approver can't deadlock a request forever.
-    if actor != (t.approver_email or "") and user.get("level", 1) < 4:
+    if actor != (t.approver_email or "").strip().lower() and user.get("level", 1) < 4:
         raise HTTPException(403, "Only the named approver can decide this ticket.")
 
     note = (body.note or "").strip()
@@ -2529,7 +2748,7 @@ def decide_approval(ticket_id: str, body: ApprovalBody, background_tasks: Backgr
     t.approval_decided_at = now_iso()
     t.modified_at = now_iso()
 
-    tk_action = {"view": "tickets", "label": "View ticket"}
+    tk_action = {"view": "tickets", "label": "View Ticket"}
     if decision == "approve":
         log_activity(db, type="approved", actor_email=user["email"], entity_kind="ticket",
                      entity_id=t.id, entity_code=t.code, entity_title=t.subject,
@@ -2572,10 +2791,14 @@ class TicketLinkBody(BaseModel):
 
 @router.post("/task-tickets/{ticket_id}/links", status_code=201, dependencies=[Depends(require_ticket_desk)])
 def add_ticket_link(ticket_id: str, body: TicketLinkBody, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
-    t = _ticket_or_404(db, ticket_id)
-    _require_ticket_participant(db, user, t)       # company wall: another company's ticket is 404
     if body.ticket_id == ticket_id:
         raise HTTPException(422, "A ticket cannot be linked to itself")
+    # Both rows locked (links are JSON lists on BOTH tickets), always in id
+    # order so two links between the same pair cannot deadlock.
+    for tid in sorted((ticket_id, body.ticket_id)):
+        _ticket_or_404(db, tid, lock=True)
+    t = _ticket_or_404(db, ticket_id)
+    _require_ticket_participant(db, user, t)       # company wall: another company's ticket is 404
     other = _ticket_or_404(db, body.ticket_id)
     _require_ticket_participant(db, user, other)   # a link writes to BOTH tickets
     typ = body.type if body.type in _LINK_INVERSE else "relates"
@@ -2592,11 +2815,19 @@ def add_ticket_link(ticket_id: str, body: TicketLinkBody, user: dict = Depends(g
 def remove_ticket_link(ticket_id: str, target_id: str, user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     # Sep 30 review: this took no user, so the desk grant alone let anyone
     # unlink tickets in another company, and nothing recorded who did it.
-    t = _ticket_or_404(db, ticket_id)
+    # Both rows locked in id order, like add_ticket_link - two unlinks of the
+    # same pair from either end cannot deadlock.
+    locked = {}
+    for tid in sorted({ticket_id, target_id}):
+        locked[tid] = (db.query(models.TaskTicket).filter(models.TaskTicket.id == tid)
+                       .with_for_update().first())
+    t = locked.get(ticket_id)
+    if t is None:
+        raise HTTPException(404, "Ticket not found")
     _require_ticket_participant(db, user, t)
     had = any(l.get("ticketId") == target_id for l in (t.links or []))
     t.links = [l for l in (t.links or []) if l.get("ticketId") != target_id]
-    other = db.query(models.TaskTicket).filter(models.TaskTicket.id == target_id).first()
+    other = locked.get(target_id) if target_id != ticket_id else None
     if other:
         _require_ticket_participant(db, user, other)
         other.links = [l for l in (other.links or []) if l.get("ticketId") != ticket_id]
@@ -2607,6 +2838,24 @@ def remove_ticket_link(ticket_id: str, target_id: str, user: dict = Depends(get_
     db.commit()
     db.refresh(t)
     return ticket_to_dict(t)
+
+
+ESCALATE_COOLDOWN_MIN = 30
+
+
+def _company_admins(db: Session, company_id: str) -> list:
+    """Administrators whose company scope admits this company (a Global Admin
+    always does) - the escalation bell's audience."""
+    import auth
+    from routers.task_util import admin_emails
+    out = []
+    for e in dict.fromkeys((x or "").strip().lower() for x in admin_emails(db)):
+        if not e:
+            continue
+        who = {"email": e, "level": auth.level_for(e, db)}
+        if auth.company_ok(company_id, auth.company_scope(who, db)):
+            out.append(e)
+    return out
 
 
 # ── Escalate - a distress flare, not a priority bump: alerts the department
@@ -2625,7 +2874,7 @@ def escalate_ticket(ticket_id: str, background_tasks: BackgroundTasks,
     head on file falls back to the company's ticket agents via
     notify_ticket_event's own recipient resolution, so it's never emailed to
     nobody."""
-    t = _ticket_or_404(db, ticket_id)
+    t = _ticket_or_404(db, ticket_id, lock=True)   # the cooldown check is a read-then-write
     _require_ticket_participant(db, user, t)
     email = (user["email"] or "").lower()
     is_requester = (t.requester_email or "").lower() == email
@@ -2641,6 +2890,16 @@ def escalate_ticket(ticket_id: str, background_tasks: BackgroundTasks,
         if is_requester:
             raise HTTPException(403, "You can escalate once the SLA due date has passed - it hasn't yet.")
         raise HTTPException(403, "Only the requester or assignee can escalate this ticket")
+    # One flare per ticket per ESCALATE_COOLDOWN_MIN: every escalation mails
+    # the department head and bells the company's administrators, and a
+    # repeated click was a spam cannon.
+    since = (datetime.now(timezone.utc) - timedelta(minutes=ESCALATE_COOLDOWN_MIN)).isoformat()
+    recent = (db.query(models.TaskActivity.id)
+              .filter(models.TaskActivity.entity_kind == "ticket", models.TaskActivity.entity_id == t.id,
+                      models.TaskActivity.type == "escalated", models.TaskActivity.at >= since).first())
+    if recent is not None:
+        raise HTTPException(429, f"This ticket was escalated in the last {ESCALATE_COOLDOWN_MIN} minutes - "
+                                 "the department head has already been alerted.")
 
     t.modified_at = now_iso()
     log_activity(db, type="escalated", actor_email=user["email"], entity_kind="ticket",
@@ -2648,9 +2907,14 @@ def escalate_ticket(ticket_id: str, background_tasks: BackgroundTasks,
                  detail="Escalated - flagged for the department head's urgent attention")
     _notify_participants(db, t, user["email"], kind="ticket_escalated",
                          title="Ticket Escalated", body=f"{ticket_no(t.code)} · {t.subject} needs urgent attention")
-    task_notify(db, kind="ticket_escalated", for_email="admins", title="A Ticket Was Escalated",
-                body=f"{ticket_no(t.code)} · {t.subject}",
-                ticket_id=t.id, nexus_action={"view": "tickets", "label": "View ticket"})
+    # The administrators of THIS ticket's company - not every company's
+    # ("admins" fanned out across the company wall).
+    told = _ticket_participants(t) | {email}
+    for admin in _company_admins(db, t.company_id or ""):
+        if admin not in told:
+            task_notify(db, kind="ticket_escalated", for_email=admin, title="A Ticket Was Escalated",
+                        body=f"{ticket_no(t.code)} · {t.subject}",
+                        ticket_id=t.id, nexus_action={"view": "tickets", "label": "View Ticket"})
     db.commit()
     db.refresh(t)
     background_tasks.add_task(notify_ticket_event, t.id, "escalated", user["email"])
@@ -2747,14 +3011,32 @@ def put_ticket_taxonomy_settings(patch: dict, user: dict = Depends(require_manag
         raise HTTPException(403, "Only a ticket supervisor can change the desk's settings.")
     try:
         return ticket_taxonomy.save_config(db, patch, user["email"])
+    except ticket_taxonomy.SlaHoursError as e:
+        raise HTTPException(422, str(e))
     except ticket_taxonomy.TaxonomyError as e:
         raise HTTPException(400, str(e))
+
+
+def _log_scope(db: Session, user: dict, q, ticket_col):
+    """A delivery log confined to the caller's companies: rows about tickets
+    (deleted ones included - the log outlives them) inside the wall. A
+    Global Admin, or walls off, sees every row."""
+    import auth
+    scope = auth.company_scope(user, db)
+    if scope is None:
+        return q
+    T_ = models.TaskTicket
+    return (q.execution_options(include_deleted=True)
+            .join(T_, T_.id == ticket_col)
+            .filter(func.coalesce(T_.company_id, "").in_(sorted(scope))))
 
 
 @router.get("/task-tickets/notify/log", dependencies=[Depends(require_ticket_supervisor)])
 def get_ticket_notify_log(ticket_id: str = "", status: str = "", limit: int = 20, offset: int = 0,
                           user: dict = Depends(require_manager), db: Session = Depends(get_db)):
-    q = db.query(models.TicketEmailLog)
+    # The stored email bodies are for retries, not this list - never loaded here.
+    q = _log_scope(db, user, db.query(models.TicketEmailLog).options(defer(models.TicketEmailLog.html)),
+                   models.TicketEmailLog.ticket_id)
     if ticket_id:
         q = q.filter(models.TicketEmailLog.ticket_id == ticket_id)
     if status:
@@ -2777,7 +3059,7 @@ def get_ticket_teams_dm_log(ticket_id: str = "", sent: str = "", limit: int = 20
     (_queue_requester_teams_dm / teams_post.py) - lets the desk see whether a
     queued row delivered, and if not, why (send_error), without DB access.
     `sent`: "1" or "0" to filter, blank for both."""
-    q = db.query(models.TicketTeamsMessage)
+    q = _log_scope(db, user, db.query(models.TicketTeamsMessage), models.TicketTeamsMessage.ticket_id)
     if ticket_id:
         q = q.filter(models.TicketTeamsMessage.ticket_id == ticket_id)
     if sent in ("0", "1"):

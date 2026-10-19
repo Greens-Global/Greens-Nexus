@@ -1093,6 +1093,9 @@ def _run_migrations():
             "ALTER TABLE changelog_feedback ADD COLUMN notified_status VARCHAR DEFAULT ''",
             "ALTER TABLE changelog_feedback ADD COLUMN module VARCHAR DEFAULT ''",
             "ALTER TABLE changelog_entry_views ADD COLUMN tour_done_at VARCHAR DEFAULT ''",
+            # Ticket email retries resend the first render (Oct 18 2026). models.TicketEmailLog.
+            "ALTER TABLE ticket_email_log ADD COLUMN actor_email VARCHAR DEFAULT ''",
+            "ALTER TABLE ticket_email_log ADD COLUMN html TEXT DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2437,6 +2440,9 @@ def _run_migrations():
         # Expense reimbursements (Oct 18 2026) - a new table: explicit RLS on
         # top of the _enable_rls_everywhere sweep. models.ExpenseReimbursement.
         "ALTER TABLE expense_reimbursements ENABLE ROW LEVEL SECURITY",
+        # Ticket email retries resend the first render (Oct 18 2026). models.TicketEmailLog.
+        "ALTER TABLE ticket_email_log ADD COLUMN IF NOT EXISTS actor_email VARCHAR DEFAULT ''",
+        "ALTER TABLE ticket_email_log ADD COLUMN IF NOT EXISTS html TEXT DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

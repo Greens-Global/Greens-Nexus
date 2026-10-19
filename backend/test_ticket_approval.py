@@ -86,15 +86,21 @@ class _Case(unittest.TestCase):
         self.db.add(models.NexusEmployee(id=str(uuid.uuid4()), first_name="Sagar",
                                          work_email=REQUESTER, manager_email=APPROVER,
                                          company="co", status="active"))
+        # The approver and the agent are people on the Nexus People list - an
+        # approver must be (request_approval), and so must an intake assignee
+        # (create_ticket, Oct 18 2026 review).
+        for email, first in ((APPROVER, "Neil"), (AGENT, "Agent"), (OTHER_ADMIN, "Other")):
+            self.db.add(models.NexusEmployee(id=str(uuid.uuid4()), first_name=first, work_email=email,
+                                             company="co", status="active"))
         self.db.commit()
 
     # ── helpers ──────────────────────────────────────────────────────────
     def _user(self, email, level=1):
         return {"email": email, "level": level}
 
-    def _create(self, type_="access_request", actor=REQUESTER, **kw):
+    def _create(self, type_="access_request", actor=REQUESTER, level=1, **kw):
         body = tickets.TicketBody(subject="S", type=type_, hr_department_id=self.dept.id, **kw)
-        return tickets.create_ticket(body, BackgroundTasks(), user=self._user(actor), db=self.db)
+        return tickets.create_ticket(body, BackgroundTasks(), user=self._user(actor, level), db=self.db)
 
     def _row(self, ticket_id):
         return self.db.query(models.TaskTicket).filter(models.TaskTicket.id == ticket_id).first()
@@ -131,11 +137,11 @@ class IntakeGateTests(_Case):
 
     def test_a_gated_ticket_cannot_be_born_assigned(self):
         with self.assertRaises(HTTPException) as e:
-            self._create("access_request", assignee_email=AGENT)
+            self._create("access_request", actor=ADMIN, level=4, assignee_email=AGENT)
         self.assertEqual(e.exception.status_code, 409)
 
     def test_an_ungated_ticket_may_still_be_raised_pre_assigned(self):
-        self.assertEqual(self._create("bug", assignee_email=AGENT)["assigneeId"], AGENT)
+        self.assertEqual(self._create("bug", actor=ADMIN, level=4, assignee_email=AGENT)["assigneeId"], AGENT)
 
 
 class RoutingTests(_Case):
@@ -164,7 +170,7 @@ class RoutingTests(_Case):
         self.assertTrue(self._bells(OTHER_ADMIN))
 
     def test_a_pre_assigned_ticket_goes_to_the_assignee_instead(self):
-        self._create("bug", assignee_email=AGENT)
+        self._create("bug", actor=OTHER_ADMIN, level=4, assignee_email=AGENT)
         self.assertTrue(self._bells(AGENT))
         self.assertEqual(self._bells(ADMIN), [])
 
@@ -275,7 +281,7 @@ class DecisionTests(_Case):
         self.db.query(models.TaskNotification).delete()
         self.db.commit()
         self._decide(t["id"], "approve")
-        self.assertEqual([n.title for n in self._bells(ADMIN)], ["New ticket to assign"])
+        self.assertEqual([n.title for n in self._bells(ADMIN)], ["New Ticket to Assign"])
 
     def test_only_the_named_approver_decides(self):
         t = self._create("access_request")
@@ -540,7 +546,8 @@ class ApprovalSwitchTests(_Case):
         t = self._create("access_request")
         self.assertEqual(t["approvalStatus"], "none")
         # Straight to the regular queue - it can be born assigned, like any ungated ticket.
-        self.assertEqual(self._create("access_request", assignee_email=AGENT)["assigneeId"], AGENT)
+        self.assertEqual(self._create("access_request", actor=ADMIN, level=4,
+                                      assignee_email=AGENT)["assigneeId"], AGENT)
 
     def test_re_typing_reads_the_current_switch(self):
         """Re-typing is a fresh decision, so it follows the switch as it is now."""

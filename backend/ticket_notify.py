@@ -285,55 +285,139 @@ def _next_event_version(db: Session, ticket_id: str, event_type: str) -> int:
     return (last.event_version + 1) if last else 1
 
 
-def _send_one(db: Session, *, t: models.TaskTicket, event_type: str, event_version: int,
-              recipient: str, role: str, subject: str, html: str, cfg: dict) -> None:
-    key = f"{t.id}:{event_type}:{event_version}:{recipient}"
-    existing = db.query(models.TicketEmailLog).filter(models.TicketEmailLog.idempotency_key == key).first()
-    if existing and existing.status in ("sent", "pending"):
-        return   # already sent, or another worker is currently sending it
+_CLAIM_TRIES = 5
 
-    now = datetime.now(timezone.utc).isoformat()
-    row = existing or models.TicketEmailLog(
-        id=str(uuid.uuid4()), ticket_id=t.id, ticket_code=t.code, event_type=event_type,
-        event_version=event_version, idempotency_key=key, recipient=recipient, recipient_role=role,
-        subject=subject, status="pending", attempts=0, created_at=now,
-    )
-    if not existing:
-        db.add(row)
-    row.status = "pending"
-    row.subject = subject
-    row.attempts = (row.attempts or 0) + 1
-    row.updated_at = now
+
+def _claim_rows(db: Session, t: models.TaskTicket, event_type: str, actor_email: str,
+                mails: list) -> list:
+    """Insert one pending log row per (recipient, role, subject, html) for a
+    NEW event version, and return them. The version is claimed by the insert
+    itself: two quick events of the same type on one ticket (two replies a
+    second apart) used to read the same "next" version, build the same
+    idempotency key, and the second email was silently dropped as "already
+    sent". The key is unique, so a racing insert fails, rolls back and takes
+    the next version instead."""
+    from sqlalchemy.exc import IntegrityError
+    for _ in range(_CLAIM_TRIES):
+        version = _next_event_version(db, t.id, event_type)
+        now = datetime.now(timezone.utc).isoformat()
+        rows = [models.TicketEmailLog(
+            id=str(uuid.uuid4()), ticket_id=t.id, ticket_code=t.code, event_type=event_type,
+            event_version=version, idempotency_key=f"{t.id}:{event_type}:{version}:{recipient}",
+            recipient=recipient, recipient_role=role, subject=subject, html=html,
+            actor_email=(actor_email or "").strip().lower(), status="pending", attempts=0,
+            created_at=now, updated_at=now) for recipient, role, subject, html in mails]
+        db.add_all(rows)
+        try:
+            db.commit()
+            return rows
+        except IntegrityError:
+            db.rollback()
+    return []
+
+
+# A row moves pending/failed -> "sending" through ONE conditional UPDATE, so
+# exactly one worker sends it: the request's background task working through
+# its recipients (one slow Graph call each) and the retry sweep looking for
+# stale rows can no longer both pick up the same row and email it twice.
+_IN_FLIGHT = ("pending", "sending", "retrying")   # "retrying": rows from before the claim existed
+
+
+def _claim_send(db: Session, row: models.TicketEmailLog, expect_status: str,
+                expect_updated: str | None = None) -> bool:
+    """Take the row for one send attempt: status -> "sending", the claim time
+    in updated_at (what the stale sweep measures), attempts + 1. Only when
+    it is still in `expect_status` (and, for a stale row, still carries the
+    updated_at the sweep saw). False = someone else has it."""
+    q = db.query(models.TicketEmailLog).filter(models.TicketEmailLog.id == row.id,
+                                               models.TicketEmailLog.status == expect_status)
+    if expect_updated is not None:
+        q = q.filter(models.TicketEmailLog.updated_at == expect_updated)
+    n = q.update({"status": "sending", "updated_at": datetime.now(timezone.utc).isoformat(),
+                  "attempts": func.coalesce(models.TicketEmailLog.attempts, 0) + 1},
+                 synchronize_session=False)
     db.commit()
+    if n:
+        db.refresh(row)
+    return bool(n)
 
-    from_email = (cfg.get("fromMailbox") or graph_mail.DEFAULT_FROM_EMAIL or "").strip()
-    cc = [e for e in (cfg.get("defaultCc") or []) if e and e.lower() != recipient]
-    try:
-        result = graph_mail.send_mail(from_email=from_email, to=[recipient], cc=cc,
-                                       subject=subject, html=html, reply_to=cfg.get("replyTo") or "")
+
+def _finish_send(db: Session, row: models.TicketEmailLog, result: dict | None, error: str = "") -> None:
+    """Record how a claimed send went. The stored body is kept only while a
+    retry may still need it: cleared once sent, and once the last attempt
+    has failed."""
+    if result is not None:
         row.status = "sent"
         row.graph_message_id = result.get("messageId", "")
         row.conversation_id = result.get("conversationId", "")
         row.internet_message_id = result.get("internetMessageId", "")
         row.error = ""
-        detail = f"{event_type.title()} email sent to {recipient} ({role})"
-    except graph_mail.GraphMailError as e:
+        row.html = ""
+    else:
         row.status = "failed"
-        row.error = str(e)[:1000]
-        detail = f"{event_type.title()} email to {recipient} ({role}) failed - will retry: {row.error[:200]}"
+        row.error = (error or "")[:1000]
+        if (row.attempts or 0) >= MAX_ATTEMPTS:
+            row.html = ""
     row.updated_at = datetime.now(timezone.utc).isoformat()
     db.commit()
+
+
+def _graph_send(row: models.TicketEmailLog, cfg: dict, subject: str, html: str) -> dict:
+    from_email = (cfg.get("fromMailbox") or graph_mail.DEFAULT_FROM_EMAIL or "").strip()
+    cc = [e for e in (cfg.get("defaultCc") or []) if e and e.lower() != row.recipient]
+    return graph_mail.send_mail(from_email=from_email, to=[row.recipient], cc=cc,
+                                subject=subject, html=html, reply_to=cfg.get("replyTo") or "")
+
+
+def _deliver_row(db: Session, row: models.TicketEmailLog, t: models.TaskTicket, cfg: dict,
+                 expect_status: str = "pending") -> None:
+    """One send attempt for a row, if this worker wins the claim."""
+    if not _claim_send(db, row, expect_status):
+        return
+    try:
+        _finish_send(db, row, _graph_send(row, cfg, row.subject, row.html or ""))
+        detail = f"{row.event_type.title()} email sent to {row.recipient} ({row.recipient_role})"
+    except graph_mail.GraphMailError as e:
+        _finish_send(db, row, None, str(e))
+        detail = (f"{row.event_type.title()} email to {row.recipient} ({row.recipient_role}) failed - "
+                  f"will retry: {row.error[:200]}")
     log_activity(db, type="notify_sent" if row.status == "sent" else "notify_failed",
                  actor_email="system", entity_kind="ticket", entity_id=t.id,
                  entity_code=t.code, entity_title=t.subject, detail=detail)
     db.commit()
 
 
-def _comment_thread(db: Session, ticket_id: str, limit: int = 3) -> list[dict]:
+def _send_one(db: Session, *, t: models.TaskTicket, event_type: str, event_version: int,
+              recipient: str, role: str, subject: str, html: str, cfg: dict, actor_email: str = "") -> None:
+    """A send under a FIXED version (the walkthrough's one email, version 1):
+    a replayed submit finds its row and sends nothing again."""
+    key = f"{t.id}:{event_type}:{event_version}:{recipient}"
+    existing = db.query(models.TicketEmailLog).filter(models.TicketEmailLog.idempotency_key == key).first()
+    if existing and existing.status in ("sent", *_IN_FLIGHT):
+        return   # already sent, or another worker is currently sending it
+
+    now = datetime.now(timezone.utc).isoformat()
+    row = existing or models.TicketEmailLog(
+        id=str(uuid.uuid4()), ticket_id=t.id, ticket_code=t.code, event_type=event_type,
+        event_version=event_version, idempotency_key=key, recipient=recipient, recipient_role=role,
+        subject=subject, status="pending", attempts=0, created_at=now, updated_at=now,
+    )
+    if not existing:
+        db.add(row)
+    row.subject = subject
+    row.html = html
+    row.actor_email = (actor_email or "").strip().lower()
+    db.commit()
+    _deliver_row(db, row, t, cfg, expect_status=row.status)
+
+
+def _comment_thread(db: Session, ticket_id: str, limit: int = 3, zone: str = "") -> list[dict]:
     """Last `limit` PUBLIC comments on a ticket, newest first, with the author's
     profile photo from Nexus People (nexus_employees.photo_url - the avatars
     bucket is public, so the URLs embed directly in email). Internal agent notes
     are always excluded: update emails go to the requester."""
+    if clashing_ids(db, [ticket_id]):
+        return []
     rows = (db.query(models.TaskComment)
             .filter(models.TaskComment.task_id == ticket_id,
                     models.TaskComment.internal == False)  # noqa: E712 - SQLA expression
@@ -347,12 +431,12 @@ def _comment_thread(db: Session, ticket_id: str, limit: int = 3) -> list[dict]:
     return [{
         "name": _name_of(db, r.author_email or "") or (r.author_email or ""),
         "photoUrl": photos.get((r.author_email or "").lower(), ""),
-        "at": _fmt(r.created_at),
+        "at": _fmt(r.created_at, zone),
         "body": r.body or "",
     } for r in rows]
 
 
-def _ticket_context(db: Session, t: models.TaskTicket, actor_email: str) -> dict:
+def _ticket_context(db: Session, t: models.TaskTicket, actor_email: str, zone: str = "") -> dict:
     dept_name = ""
     if t.hr_department_id:
         dept = db.query(models.TicketDepartment).filter(models.TicketDepartment.id == t.hr_department_id).first()
@@ -369,24 +453,60 @@ def _ticket_context(db: Session, t: models.TaskTicket, actor_email: str) -> dict
         "requesterId": t.requester_email or "", "requesterName": _name_of(db, t.requester_email or ""),
         "assigneeId": t.assignee_email or "", "assigneeName": _name_of(db, t.assignee_email or ""),
         "actorEmail": actor_email, "actorName": _name_of(db, actor_email),
-        "createdAtDisplay": _fmt(t.created_at), "eventAtDisplay": _fmt(datetime.now(timezone.utc).isoformat()),
-        "dueDateDisplay": _fmt(t.sla_due_on) if t.sla_due_on else "",
+        **_time_fields(t, zone),
         "resolutionLabel": (t.resolution or "").replace("_", " ").title(),
         "resolutionDuration": _duration(t.created_at, t.resolved_at) if t.resolved_at else "",
         "resolutionNote": t.resolution_note or "",
     }
 
 
-def _fmt(iso: str) -> str:
+def _time_fields(t: models.TaskTicket, zone: str = "") -> dict:
+    """The context's dates and times, in one reader's time zone."""
+    return {"createdAtDisplay": _fmt(t.created_at, zone),
+            "eventAtDisplay": _fmt(datetime.now(timezone.utc).isoformat(), zone),
+            "dueDateDisplay": _fmt(t.sla_due_on, zone) if t.sla_due_on else ""}
+
+
+_FALLBACK_ZONE = "America/Los_Angeles"
+
+
+def _zone_for(db: Session, email: str) -> str:
+    """The recipient's own time zone (daily_briefing._person_zone: their
+    shift preset's zone, else the company default) - an email's times read
+    in the reader's clock, never UTC."""
+    try:
+        import daily_briefing
+        return daily_briefing._person_zone(db, (email or "").strip().lower(), daily_briefing.get_settings(db))
+    except Exception:
+        return _FALLBACK_ZONE
+
+
+def _fmt(iso: str, zone: str = "") -> str:
+    """MM/DD/YYYY for a date; "MM/DD/YYYY 2:15 PM PDT" for a timestamp, in
+    `zone` (US 12-hour, with the zone's abbreviation). Never a raw ISO
+    string: an unreadable timestamp falls back to its date, else to ""."""
+    from datetime import date
+    from zoneinfo import ZoneInfo
     if not iso:
         return ""
+    raw = str(iso)
     try:
-        if len(iso) <= 10:
-            return datetime.fromisoformat(iso).strftime("%m/%d/%Y")
-        d = datetime.fromisoformat(iso.replace("Z", "+00:00"))
-        return f"{d.strftime('%m/%d/%Y')} {d.strftime('%I:%M %p').lstrip('0')} UTC"
+        if len(raw) <= 10:
+            return date.fromisoformat(raw).strftime("%m/%d/%Y")
+        d = datetime.fromisoformat(raw.replace("Z", "+00:00"))
     except ValueError:
-        return iso[:10]
+        try:
+            return date.fromisoformat(raw[:10]).strftime("%m/%d/%Y")
+        except ValueError:
+            return ""
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=timezone.utc)   # stored timestamps are UTC
+    try:
+        tz = ZoneInfo(zone or _FALLBACK_ZONE)
+    except Exception:
+        tz = ZoneInfo(_FALLBACK_ZONE)
+    local = d.astimezone(tz)
+    return f"{local.strftime('%m/%d/%Y')} {local.strftime('%I:%M %p').lstrip('0')} {local.strftime('%Z')}"
 
 
 def _duration(start_iso: str, end_iso: str) -> str:
@@ -430,6 +550,79 @@ def requester_hears(event_type: str, actor_email: str, requester_email: str, kw:
     return True
 
 
+def on_desk(db: Session, email: str) -> bool:
+    """Does this person work the ticket queue (ticket_roles.can_work_queue,
+    built from their stored role like a signed-in user)? Decides whether a
+    link sends them to the Tickets module or to Support."""
+    import auth
+    import ticket_roles
+    email = (email or "").strip().lower()
+    if not email:
+        return False
+    try:
+        rec = auth._external_record(email) or {}
+        who = {"email": email, "level": auth.level_for(email, db), "external": bool(rec.get("external"))}
+        return ticket_roles.can_work_queue(who, db)
+    except Exception:
+        return True   # unknown: the old link
+
+
+def clashing_ids(db: Session, ids=None) -> set:
+    """Ticket ids that are also task ids. Comments and files live in the task
+    tables keyed only by id, so such a ticket's "thread" is the task's - it
+    is never read as a ticket's (Oct 18 2026 review). `ids`: only these."""
+    q = (db.query(models.TaskTicket.id).execution_options(include_deleted=True)
+         .join(models.Task, models.Task.id == models.TaskTicket.id))
+    if ids is not None:
+        ids = list(ids)
+        if not ids:
+            return set()
+        q = q.filter(models.TaskTicket.id.in_(ids))
+    return {i for (i,) in q.all()}
+
+
+def _render(db: Session, t: models.TaskTicket, event_type: str, role: str, ctx: dict, cfg: dict,
+            kw: dict, zone: str = "", recipient: str = "") -> tuple | None:
+    """(subject, html) for one recipient of one event, or None for an event
+    with no email. THE one renderer - the first send and a legacy row's retry
+    (one stored before the body was kept) both come through here."""
+    logo_url = cfg.get("logoUrl") or ""
+    base = app_url()
+    if event_type == "created":
+        return (tmpl.created_email_requester(t=ctx, base_url=base, logo_url=logo_url) if role == "requester"
+                else tmpl.created_email_triage(t=ctx, base_url=base, logo_url=logo_url))
+    if event_type == "assigned":
+        return tmpl.assigned_email(t=ctx, base_url=base, logo_url=logo_url,
+                                   audience="assignee" if role == "assignee" else "other",
+                                   for_requester=role == "requester",
+                                   latest_comment=kw.get("latest_comment", ""))
+    if event_type == "updated":
+        # Comment updates render as a conversation thread (avatars + full
+        # bodies, newest first) instead of a details table.
+        thread = (_comment_thread(db, t.id, zone=zone)
+                  if kw.get("update_kind") == "New comment added" else None)
+        return tmpl.update_email(t=ctx, base_url=base, logo_url=logo_url,
+                                 update_kind=kw.get("update_kind", "Ticket updated"),
+                                 prev_status=kw.get("prev_status", ""),
+                                 latest_comment=kw.get("latest_comment", ""),
+                                 thread=thread)
+    if event_type == "resolved":
+        return tmpl.resolved_email(t=ctx, base_url=base, logo_url=logo_url,
+                                   audience="requester" if role == "requester" else "other",
+                                   latest_comment=kw.get("latest_comment", ""))
+    if event_type == "reopened":
+        return tmpl.reopened_email(t=ctx, base_url=base, logo_url=logo_url,
+                                   reason=kw.get("reopen_reason", ""),
+                                   latest_comment=kw.get("latest_comment", ""))
+    if event_type == "approval_required":
+        return tmpl.approval_email(t=ctx, base_url=base, logo_url=logo_url,
+                                   for_requester=bool(recipient) and not on_desk(db, recipient))
+    if event_type == "escalated":
+        return tmpl.escalated_email(t=ctx, base_url=base, logo_url=logo_url,
+                                    audience="dept_head" if role == "dept_head" else "other")
+    return None
+
+
 def notify_ticket_event(ticket_id: str, event_type: str, actor_email: str, **kw) -> None:
     """event_type ∈ created|assigned|updated|resolved|reopened|approval_required|escalated.
     kw: prev_status, update_kind, latest_comment, reopen_reason (all optional,
@@ -461,48 +654,20 @@ def notify_ticket_event(ticket_id: str, event_type: str, actor_email: str, **kw)
             return
         ctx = _ticket_context(db, t, actor_email)
         ctx["autoCloseDays"] = cfg.get("autoCloseDays") or 0
-        version = _next_event_version(db, ticket_id, event_type)
-        logo_url = cfg.get("logoUrl") or ""
 
+        mails = []
         for recipient, role in recipients:
-            if event_type == "created":
-                subject, html = (tmpl.created_email_requester(t=ctx, base_url=app_url(), logo_url=logo_url)
-                                  if role == "requester" else
-                                  tmpl.created_email_triage(t=ctx, base_url=app_url(), logo_url=logo_url))
-            elif event_type == "assigned":
-                subject, html = tmpl.assigned_email(t=ctx, base_url=app_url(), logo_url=logo_url,
-                                                     audience="assignee" if role == "assignee" else "other",
-                                                     for_requester=role == "requester",
-                                                     latest_comment=kw.get("latest_comment", ""))
-            elif event_type == "updated":
-                # Comment updates render as a conversation thread (avatars + full
-                # bodies, newest first) instead of a details table.
-                thread = (_comment_thread(db, t.id)
-                          if kw.get("update_kind") == "New comment added" else None)
-                subject, html = tmpl.update_email(t=ctx, base_url=app_url(), logo_url=logo_url,
-                                                   update_kind=kw.get("update_kind", "Ticket updated"),
-                                                   prev_status=kw.get("prev_status", ""),
-                                                   latest_comment=kw.get("latest_comment", ""),
-                                                   thread=thread)
-            elif event_type == "resolved":
-                subject, html = tmpl.resolved_email(t=ctx, base_url=app_url(), logo_url=logo_url,
-                                                     audience="requester" if role == "requester" else "other",
-                                                     latest_comment=kw.get("latest_comment", ""))
-            elif event_type == "reopened":
-                subject, html = tmpl.reopened_email(t=ctx, base_url=app_url(), logo_url=logo_url,
-                                                     reason=kw.get("reopen_reason", ""),
-                                                     latest_comment=kw.get("latest_comment", ""))
-            elif event_type == "approval_required":
-                subject, html = tmpl.approval_email(t=ctx, base_url=app_url(), logo_url=logo_url)
-            elif event_type == "escalated":
-                subject, html = tmpl.escalated_email(t=ctx, base_url=app_url(), logo_url=logo_url,
-                                                     audience="dept_head" if role == "dept_head" else "other")
-            else:
-                continue
-            _send_one(db, t=t, event_type=event_type, event_version=version,
-                      recipient=recipient, role=role, subject=subject, html=html, cfg=cfg)
+            zone = _zone_for(db, recipient)
+            # Every date and time in the reader's own clock.
+            mail = _render(db, t, event_type, role, {**ctx, **_time_fields(t, zone)}, cfg, kw, zone,
+                           recipient=recipient)
+            if mail is not None:
+                mails.append((recipient, role, mail[0], mail[1]))
+        for row in _claim_rows(db, t, event_type, actor_email, mails):
+            _deliver_row(db, row, t, cfg)
     except Exception as e:
         try:
+            db.rollback()
             log_activity(db, type="notify_error", actor_email="system", entity_kind="ticket",
                          entity_id=ticket_id, entity_code="", entity_title="",
                          detail=f"Notification pipeline error ({event_type}): {e}")
@@ -566,7 +731,8 @@ def notify_walkthrough(batch_id: str, actor_email: str) -> None:
         for recipient, role in _walkthrough_recipients(db, b, tickets, cfg, actor_email):
             subject, html = _walkthrough_mail(db, b, tickets, role, recipient, cfg)
             _send_one(db, t=tickets[0], event_type="walkthrough", event_version=1,
-                      recipient=recipient, role=role, subject=subject, html=html, cfg=cfg)
+                      recipient=recipient, role=role, subject=subject, html=html, cfg=cfg,
+                      actor_email=actor_email)
     except Exception as e:
         try:
             log_activity(db, type="notify_error", actor_email="system", entity_kind="ticket",
@@ -584,80 +750,92 @@ def notify_walkthrough(batch_id: str, actor_email: str) -> None:
 #    exists in this codebase to hook into instead) ───────────────────────────
 
 def _retry_failed_once(db: Session) -> None:
-    cutoff = datetime.now(timezone.utc)
-    rows = (db.query(models.TicketEmailLog)
-            .filter(models.TicketEmailLog.status.in_(["failed", "pending"]),
-                    models.TicketEmailLog.attempts < MAX_ATTEMPTS).all())
+    now = datetime.now(timezone.utc)
+    L = models.TicketEmailLog
+    # Failed rows with attempts left, and in-flight rows (pending / sending)
+    # whose CLAIM is older than the stale window - the worker died mid-send
+    # (a restart, a crash). An in-flight row out of attempts is finalized as
+    # failed; a failed row out of attempts still holding a body has it cleared.
+    rows = (db.query(L).filter(L.status.in_(["failed", *_IN_FLIGHT]))
+            .filter((L.attempts < MAX_ATTEMPTS) | (L.status != "failed") | (func.coalesce(L.html, "") != ""))
+            .all())
     for row in rows:
-        if row.status == "pending":
+        stale = row.status in _IN_FLIGHT
+        if stale:
             try:
-                started = datetime.fromisoformat(row.updated_at.replace("Z", "+00:00"))
+                claimed_at = datetime.fromisoformat((row.updated_at or "").replace("Z", "+00:00"))
             except (ValueError, AttributeError):
-                started = cutoff
-            if (cutoff - started).total_seconds() < _STALE_PENDING_SEC:
+                claimed_at = now
+            if (now - claimed_at).total_seconds() < _STALE_PENDING_SEC:
                 continue   # a send may genuinely be in flight right now - leave it
+        if (row.attempts or 0) >= MAX_ATTEMPTS:
+            q = db.query(L).filter(L.id == row.id, L.status == row.status)
+            if stale:
+                q = q.filter(L.updated_at == row.updated_at)
+            q.update({"status": "failed", "html": "",
+                      "error": row.error or "Gave up - the last attempt never finished",
+                      "updated_at": now.isoformat()}, synchronize_session=False)
+            db.commit()
+            continue
         t = db.query(models.TaskTicket).filter(models.TaskTicket.id == row.ticket_id).first()
         if not t:
             row.status = "failed"
             row.error = "Ticket no longer exists"
+            row.html = ""
             db.commit()
             continue
         cfg = get_settings(db)
-        from_email = (cfg.get("fromMailbox") or graph_mail.DEFAULT_FROM_EMAIL or "").strip()
-        cc = [e for e in (cfg.get("defaultCc") or []) if e and e.lower() != row.recipient]
-        row.status = "retrying"
-        row.attempts += 1
-        row.updated_at = datetime.now(timezone.utc).isoformat()
-        db.commit()
-        # The original HTML isn't stored (would roughly double the table's
-        # size for every ticket email ever sent); a retry re-renders it from
-        # current ticket state, which is a closer-to-reality re-send anyway
-        # if something changed in the intervening minutes.
-        ctx = _ticket_context(db, t, row.recipient)
+        if not _claim_send(db, row, row.status, row.updated_at if stale else None):
+            continue   # another worker took it
         try:
-            b = (db.get(models.TicketBatch, t.batch_id)
-                 if row.event_type == "walkthrough" and t.batch_id else None)
-            if b is not None:
-                # Rebuilt from the batch - not a generic "Ticket updated" about its first ticket.
-                tickets = (db.query(models.TaskTicket).filter(models.TaskTicket.id.in_(b.ticket_ids or []))
-                           .order_by(models.TaskTicket.code).all()) or [t]
-                subject, html = _walkthrough_mail(db, b, tickets, row.recipient_role, row.recipient, cfg)
+            if row.html:
+                # The email exactly as it was first rendered - same content,
+                # same actor, same reply text.
+                subject, html = row.subject, row.html
             else:
-                subject, html = _rebuild_email(row.event_type, ctx, row.recipient_role, cfg)
-            result = graph_mail.send_mail(from_email=from_email, to=[row.recipient], cc=cc,
-                                           subject=row.subject or subject, html=html, reply_to=cfg.get("replyTo") or "")
-            row.status = "sent"
-            row.graph_message_id = result.get("messageId", "")
-            row.conversation_id = result.get("conversationId", "")
-            row.internet_message_id = result.get("internetMessageId", "")
-            row.error = ""
+                subject, html = _rebuild_row(db, t, row, cfg)
+            _finish_send(db, row, _graph_send(row, cfg, row.subject or subject, html))
             log_activity(db, type="notify_sent", actor_email="system", entity_kind="ticket",
                          entity_id=t.id, entity_code=t.code, entity_title=t.subject,
                          detail=f"Retry succeeded - {row.event_type} email sent to {row.recipient}")
         except graph_mail.GraphMailError as e:
-            row.status = "failed" if row.attempts < MAX_ATTEMPTS else "failed"
-            row.error = str(e)[:1000]
+            _finish_send(db, row, None, str(e))
             log_activity(db, type="notify_failed", actor_email="system", entity_kind="ticket",
                          entity_id=t.id, entity_code=t.code, entity_title=t.subject,
                          detail=f"Retry {row.attempts}/{MAX_ATTEMPTS} failed for {row.recipient}: {row.error[:200]}")
-        row.updated_at = datetime.now(timezone.utc).isoformat()
         db.commit()
 
 
-def _rebuild_email(event_type: str, ctx: dict, role: str, cfg: dict) -> tuple[str, str]:
-    logo_url = cfg.get("logoUrl") or ""
-    if event_type == "created":
-        return (tmpl.created_email_requester(t=ctx, base_url=app_url(), logo_url=logo_url) if role == "requester"
-                else tmpl.created_email_triage(t=ctx, base_url=app_url(), logo_url=logo_url))
-    if event_type == "assigned":
-        return tmpl.assigned_email(t=ctx, base_url=app_url(), logo_url=logo_url,
-                                    audience="assignee" if role == "assignee" else "other",
-                                    for_requester=role == "requester")
-    if event_type == "resolved":
-        return tmpl.resolved_email(t=ctx, base_url=app_url(), logo_url=logo_url, audience="requester" if role == "requester" else "other")
-    if event_type == "reopened":
-        return tmpl.reopened_email(t=ctx, base_url=app_url(), logo_url=logo_url, reason="")
-    return tmpl.update_email(t=ctx, base_url=app_url(), logo_url=logo_url, update_kind="Ticket updated")
+def _rebuild_row(db: Session, t: models.TaskTicket, row: models.TicketEmailLog, cfg: dict) -> tuple[str, str]:
+    """A row with no stored body (written before bodies were kept): rebuilt
+    from the ticket, with the real actor when the row names one - never the
+    recipient as the actor."""
+    if row.event_type == "walkthrough" and t.batch_id:
+        b = db.get(models.TicketBatch, t.batch_id)
+        if b is not None:
+            # Rebuilt from the batch - not a generic "Ticket updated" about its first ticket.
+            tickets = (db.query(models.TaskTicket).filter(models.TaskTicket.id.in_(b.ticket_ids or []))
+                       .order_by(models.TaskTicket.code).all()) or [t]
+            return _walkthrough_mail(db, b, tickets, row.recipient_role, row.recipient, cfg)
+    zone = _zone_for(db, row.recipient)
+    ctx = _ticket_context(db, t, row.actor_email or "", zone)
+    ctx["autoCloseDays"] = cfg.get("autoCloseDays") or 0
+    return _rebuild_email(row.event_type, ctx, row.recipient_role, cfg, db=db, t=t, zone=zone,
+                          recipient=row.recipient)
+
+
+def _rebuild_email(event_type: str, ctx: dict, role: str, cfg: dict, *, db: Session | None = None,
+                   t: models.TaskTicket | None = None, zone: str = "", recipient: str = "") -> tuple[str, str]:
+    """Every event type notify_ticket_event sends (approval_required and
+    escalated included), rendered by the same _render as the first send. An
+    "updated" email is always a reply; an old row's reply text is not known,
+    so it shows the ticket's latest public thread."""
+    kw = {"update_kind": "New comment added"} if (event_type == "updated" and t is not None) else {}
+    mail = _render(db, t, event_type, role, ctx, cfg, kw, zone, recipient=recipient)
+    if mail is not None:
+        return mail
+    return tmpl.update_email(t=ctx, base_url=app_url(), logo_url=cfg.get("logoUrl") or "",
+                             update_kind="Ticket updated")
 
 
 def _auto_close_once(db: Session) -> None:

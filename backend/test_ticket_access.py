@@ -257,7 +257,10 @@ class TicketAccessTests(unittest.TestCase):
         # checks _may_patch_ticket itself (test_ticket_requester_status_lock).
         must_be_guarded = {
             ("DELETE", "/task-tickets/{ticket_id}"),
-            ("POST", "/task-tickets/{ticket_id}/approval"),
+            # Not /approval (Oct 18 2026): the named approver is usually not on
+            # the desk, and the desk guard locked them out of their own
+            # decision. decide_approval checks approver-or-administrator itself
+            # (test_ticket_review_fixes).
             ("POST", "/task-ticket-components"),
             ("PUT", "/task-tickets/notify/settings"),
         }
