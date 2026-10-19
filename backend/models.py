@@ -6897,3 +6897,40 @@ class LeaveLedgerEntry(Base):
     note           = Column(String, default="")
     created_by     = Column(String, default="")
     created_at     = Column(String, default="")
+
+
+# ── Operations > Reports (Neil, Ops review, Oct 20 2026) ─────────────────────
+# ops_reports.py / ops_report_builder.py. New tables - create_all builds them;
+# explicit RLS lines in main.py on top of the startup sweep.
+
+class OpsReportCache(Base):
+    """One Cubby report answer per (report, facility, month): the general
+    ledgers, merchant disbursements, lease compliance. Cleaned of contact
+    fields and card / check digits before it is written."""
+    __tablename__ = "ops_report_cache"
+    id          = Column(String, primary_key=True)          # "<kind>:<facility_id>:<YYYY-MM | current>"
+    kind        = Column(String, default="")
+    facility_id = Column(String, default="", index=True)
+    period      = Column(String, default="")
+    payload     = Column(JSON, default=dict)
+    fetched_at  = Column(String, default="")                # UTC iso
+
+
+class OpsSavedReport(Base):
+    """A Report Builder spec saved under a name. Private to its owner unless
+    shared with the Operations team; optionally emailed on a schedule."""
+    __tablename__ = "ops_saved_reports"
+    id               = Column(String, primary_key=True)
+    owner_email      = Column(String, default="", index=True)
+    name             = Column(String, default="")
+    spec             = Column(JSON, default=dict)           # ops_report_builder.validate() output - never SQL
+    shared           = Column(Boolean, default=False)
+    schedule         = Column(String, default="")           # '' | weekly | monthly
+    schedule_day     = Column(Integer, default=0)           # weekly: 0 = Monday .. 6; monthly: 1-28
+    recipients       = Column(JSON, default=list)           # Nexus People work emails
+    last_sent_period = Column(String, default="")           # the claim: a period is sent once
+    last_sent_at     = Column(String, default="")
+    last_attempt_at  = Column(String, default="")
+    last_error       = Column(String, default="")
+    created_at       = Column(String, default="")
+    updated_at       = Column(String, default="")

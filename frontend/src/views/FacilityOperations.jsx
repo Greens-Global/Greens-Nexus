@@ -202,7 +202,7 @@ export default function FacilityOperations({ activeSub, onSubChange }) {
           {sub === 'units' && <Units data={data} many={many} focus={focus} go={go} />}
           {sub === 'worklist' && <Worklist data={data} many={many} focus={focus} go={go} />}
           {sub === 'market' && <Market facility={scope.length === 1 ? scope[0] : null} facilities={facilities} onPick={setPicked} />}
-          {sub === 'reports' && <Reports data={data} facilities={facilities} scope={scope} range={range} />}
+          {sub === 'reports' && <Reports data={data} facilities={facilities} scope={scope} range={range} onPick={setPicked} />}
         </div>
       )}
     </div>

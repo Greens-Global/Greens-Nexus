@@ -2503,6 +2503,22 @@ export const api = {
   locationTrailPing: (body)          => req('/timeclock/location-trail/ping', { method: 'POST', body: JSON.stringify(body) }),
   locationTrailLive: ()              => req('/timeclock/location-trail/live'),
   locationTrailDay:  (email, date)   => req(`/timeclock/location-trail/day?email=${encodeURIComponent(email || '')}&date=${encodeURIComponent(date)}`),
+  // Operations > Reports (Neil, Oct 20): Cubby's reports as interactive tables,
+  // tenant / unit drill-down, and the Report Builder (saved, shared, scheduled).
+  opsReportCatalog: () => req('/ops-reports/catalog'),
+  opsReport: (kind, { facilityId = '', start = '', end = '' } = {}) =>
+    req(`/ops-reports/run/${encodeURIComponent(kind)}?${new URLSearchParams({ facility_id: facilityId, start, end })}`),
+  opsTenant: (facilityId, customerId) => req(`/ops-reports/tenant?${new URLSearchParams({ facility_id: facilityId, customer_id: customerId })}`),
+  opsTenantLedger: (facilityId, customerId) => req(`/ops-reports/tenant/ledger?${new URLSearchParams({ facility_id: facilityId, customer_id: customerId })}`),
+  opsUnit: (facilityId, unitId) => req(`/ops-reports/unit?${new URLSearchParams({ facility_id: facilityId, unit_id: unitId })}`),
+  opsBuilderRegistry: () => req('/ops-reports/builder/registry'),
+  opsBuilderRun: (spec) => req('/ops-reports/builder/run', { method: 'POST', body: JSON.stringify({ spec }) }),
+  opsSavedReports: () => req('/ops-reports/saved'),
+  createOpsSavedReport: (data) => req('/ops-reports/saved', { method: 'POST', body: JSON.stringify(data) }),
+  updateOpsSavedReport: (id, data) => req(`/ops-reports/saved/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  deleteOpsSavedReport: (id) => req(`/ops-reports/saved/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  shareOpsSavedReport: (id, recipient, message = '') => req(`/ops-reports/saved/${encodeURIComponent(id)}/share`, { method: 'POST', body: JSON.stringify({ recipient, message }) }),
+  sendOpsSavedReport: (id, toMe = false) => req(`/ops-reports/saved/${encodeURIComponent(id)}/send`, { method: 'POST', body: JSON.stringify({ to_me: toMe }) }),
 };
 
 // Public signing page (/sign/{token}) talks to /esign/public/* with plain fetch -

@@ -2480,6 +2480,10 @@ def _run_migrations():
         # and the ledger - a new table, explicit RLS. models.LeaveLedgerEntry.
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS leave_policy VARCHAR DEFAULT ''",
         "ALTER TABLE leave_ledger ENABLE ROW LEVEL SECURITY",
+        # Operations > Reports (Oct 20 2026, ops_reports.py / ops_report_builder.py):
+        # new tables, explicit RLS. models.OpsReportCache, models.OpsSavedReport.
+        "ALTER TABLE ops_report_cache ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE ops_saved_reports ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -3414,6 +3418,18 @@ async def lifespan(app: FastAPI):
                 print("[startup] changelog auto-draft skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] changelog auto-draft skipped: {e}")
+        # Ops Report Builder schedules (Oct 20 2026): saved reports emailed
+        # weekly / monthly to their recipients. Deployed worker only - a laptop
+        # must not mail the team.
+        try:
+            from leader import is_deployed_worker
+            if is_deployed_worker():
+                from ops_report_builder import ops_report_schedule_loop
+                _tasks.append(_a.create_task(ops_report_schedule_loop()))
+            else:
+                print("[startup] Ops report schedules skipped (not the deployed worker)")
+        except Exception as e:
+            print(f"[startup] Ops report schedules skipped: {e}")
         print(f"[startup] background jobs started ({len(_tasks)} loops)")
         return _tasks
     try:
@@ -3874,3 +3890,5 @@ from routers import leave_balances as leave_balances_router  # noqa: E402
 app.include_router(leave_balances_router.router)  # Paid leave balances: policies, opening import, accrual (Neil / Charmi, 10/19)
 from routers import location_trail as location_trail_router  # noqa: E402
 app.include_router(location_trail_router.router)  # Time Clock: Location Trail While Clocked In - web pings + manager map (Neil, 10/20)
+from routers import ops_reports as ops_reports_router  # noqa: E402
+app.include_router(ops_reports_router.router)     # Operations > Reports: Cubby's reports interactive + Report Builder (Neil, 10/20)

@@ -26,6 +26,8 @@ vi.mock('../api', () => ({ api: {
   facilityOpsReport: (...a) => facilityOpsReport(...a), getOpsMarket: (...a) => getOpsMarket(...a),
   recordOpsRate: (...a) => recordOpsRate(...a),
   getCubbySync: (...a) => getCubbySync(...a), startCubbySync: (...a) => startCubbySync(...a),
+  // Reports > Reports (Oct 20) loads its list on open; the export test below uses Quick Exports.
+  opsReportCatalog: () => Promise.resolve({ categories: [], reports: [] }),
 } }));
 let isManager = false;
 vi.mock('../contexts/RoleContext', () => ({ useRole: () => ({ can: (r) => (r === 'manager' ? isManager : true) }) }));
@@ -176,6 +178,7 @@ describe('Operations module', () => {
   it('exports a list from the screen and a report from Cubby', async () => {
     facilityOpsReport.mockResolvedValue({ title: 'Rent Roll', asOf: '2026-10-13', columns: ['Unit'], rows: [['A12']] });
     render(<FacilityOperations activeSub="reports" onSubChange={() => {}} />);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Quick Exports' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Download Tenants Past Due as a spreadsheet' }));
     expect(downloadCsv.mock.calls[0][0]).toBe('Tenants Past Due - All Facilities - 10-13-2026.csv');
     expect(downloadCsv.mock.calls[0][2]).toHaveLength(2);
