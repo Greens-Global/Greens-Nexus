@@ -408,7 +408,8 @@ export function hoursFromNexus(rows) {
         'P.REG': round2(h.regular || 0),
         'P.OHR': round2((h.overtime || 0) + (h.doubleTime || 0)),
         'P.SHR': round2(h.sick || 0),
-        'P.VHR': round2((h.vacation || 0) + (h.personal || 0)),
+        // Paid holiday hours ride with vacation, as classifyHoursItem files them.
+        'P.VHR': round2((h.vacation || 0) + (h.personal || 0) + (h.holiday || 0)),
       },
     };
   });

@@ -270,7 +270,7 @@ class PayrollExportTests(Oct16Case):
         return out.body.decode()
 
     def test_the_iif_batch_takes_finalized_time_cards_of_one_company(self):
-        self.assertIn("Erin Test", self._iif(company=ENTITY))
+        self.assertIn("Erin Test", self._iif(company=ENTITY, finalized_only=False))
         self.assertNotIn("Erin Test", self._iif(company=ENTITY, finalized_only=True))
         timeclock.finalize_timecard(timeclock.FinalizeIn(email=EMP, start=self.start, end=self.end),
                                     user={"email": HR, "level": 4}, db=self.db)

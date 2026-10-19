@@ -228,6 +228,48 @@ def fingerprint(db: Session, email: str, start: str, end: str) -> str:
     return hashlib.sha256(json.dumps(body).encode()).hexdigest()
 
 
+# What the signed PDF prints as totals (build_pdf), by pay type - the numbers a
+# signature vouches for.
+_SIGNED_KEYS = {
+    "hourly": (("regMin", "Regular"), ("otMin", "Overtime"), ("dtMin", "Double Time"), ("sickMin", "Sick"),
+               ("vacationMin", "Vacation"), ("workedMin", "Total Worked"),
+               ("mealPremiumMin", "Meal Premium"), ("restPremiumMin", "Rest Premium")),
+    "fixed": (("workedMin", "Worked"), ("missedFullDays", "Missed Full Days"),
+              ("missedHalfDays", "Missed Half Days"), ("weekendDaysWorked", "Weekend Days Worked")),
+}
+TOTALS_CHANGED_NOTE = "Pay settings changed after approval - sent back for a fresh signature"
+
+
+def signed_totals(card: dict, pay_type: str) -> dict:
+    """The totals and per-day hours a Time Sheet PDF prints - frozen on the
+    round that sent it for signature, compared again when the signature
+    comes back (totals_drift)."""
+    t = card.get("totals") or {}
+    keys = _SIGNED_KEYS["fixed" if pay_type == "fixed" else "hourly"]
+    return {"payType": pay_type, "totals": {k: int(t.get(k) or 0) for k, _l in keys},
+            "days": {d: int(m) for d, m in day_minutes(card, pay_type).items()}}
+
+
+def totals_drift(sent: dict, now: dict) -> list:
+    """Plain-words differences between what was signed and what finalize
+    would record now ([] = the same). Hours are h/m; day counts are counts."""
+    if not sent:
+        return []
+    out = []
+    if sent.get("payType") != now.get("payType"):
+        out.append(f"Pay type {sent.get('payType')} -> {now.get('payType')}")
+        return out
+    labels = dict(_SIGNED_KEYS["fixed" if now.get("payType") == "fixed" else "hourly"])
+    for k, label in labels.items():
+        a, b = int((sent.get("totals") or {}).get(k, 0)), int((now.get("totals") or {}).get(k, 0))
+        if a != b:
+            fmt = _hm if k.endswith("Min") else str
+            out.append(f"{label} {fmt(a)} -> {fmt(b)}")
+    for c in _changes(sent.get("days") or {}, now.get("days") or {}):
+        out.append(f"{us_date(c['date'])} {_hm(c['before'])} -> {_hm(c['after'])}")
+    return out
+
+
 def _changes(before: dict, after: dict) -> list:
     out = []
     for d in sorted(set(before) | set(after)):
@@ -945,13 +987,15 @@ def _sig_fields(last_page: int) -> list:
     return fields
 
 
-def build_pdf(db: Session, r: TimesheetReview) -> tuple[bytes, int]:
+def build_pdf(db: Session, r: TimesheetReview, card: dict | None = None) -> tuple[bytes, int]:
     """The agreed timesheet as a PDF: every day, the totals, the review history
-    and a signature block on the last page. Returns (bytes, last page index)."""
+    and a signature block on the last page. Returns (bytes, last page index).
+    `card`: the computed card to print (_send_envelope freezes its totals)."""
     from reportlab.lib.pagesizes import letter
     from reportlab.pdfgen import canvas
 
-    card = card_for(db, r.employee_email, r.period_start, r.period_end, r.pay_type)
+    if card is None:
+        card = card_for(db, r.employee_email, r.period_start, r.period_end, r.pay_type)
     emp = _employee(db, r.employee_email)
     ent = db.query(HrEntity).filter(HrEntity.id == (emp.company if emp else "")).first() if emp else None
     # Every punch prints in the zone it was recorded in (its own tz_offset_min),
@@ -1080,7 +1124,8 @@ def build_pdf(db: Session, r: TimesheetReview) -> tuple[bytes, int]:
               "approved": "reviewed and approved", "reopened": "reopened it", "hr_edited": "edited it (HR)",
               "employee_approved": "approved it to sign", "unlocked": "unlocked it", "recalled": "recalled it",
               "break_attested": "confirmed the meal and rest break statement by signing",
-              "break_not_collected": "signed on paper without the meal and rest break statement"}
+              "break_not_collected": "signed on paper without the meal and rest break statement",
+              "totals_changed": "Totals changed after approval - sent back to the manager"}
     for e in (r.rounds or []):
         if y < margin + 30:
             new_page()
@@ -1191,7 +1236,8 @@ def approval_log(db: Session, r: TimesheetReview, offset: int = 0) -> list:
 
 def _send_envelope(db: Session, r: TimesheetReview, actor: str, *, ip: str, user_agent: str) -> str:
     from routers import esign
-    pdf, last_page = build_pdf(db, r)
+    card = card_for(db, r.employee_email, r.period_start, r.period_end, r.pay_type)
+    pdf, last_page = build_pdf(db, r, card)
     emp = _employee(db, r.employee_email)
     safe = esign._safe_filename(f"Time Sheet {display_name(db, r.employee_email)} {us_date(r.period_start).replace('/', '-')}")
     path = f"esign/{uuid.uuid4()}/{safe}.pdf"
@@ -1213,6 +1259,15 @@ def _send_envelope(db: Session, r: TimesheetReview, actor: str, *, ip: str, user
         excluded_ack=True, document_class="employment")
     req = db.query(HrSignRequest).filter(HrSignRequest.id == out["id"]).first()
     req.link_kind, req.link_id = LINK_KIND, r.id
+    # Freeze the totals this PDF prints on the round that sent it (Oct 20,
+    # Neil's audit): a pay setting changed while it waits for the signature
+    # (rounding, auto-lunch, breaks, the overtime rule, the pay type) would
+    # otherwise finalize numbers the employee never saw - on_completed
+    # compares and reopens instead (totals_drift).
+    rounds = list(r.rounds or [])
+    if rounds:
+        rounds[-1] = {**rounds[-1], "envelope": req.id, "signed": signed_totals(card, r.pay_type)}
+        r.rounds = rounds
     if needs_break_attestation(db, r):
         # build_pdf printed the CA meal and rest break statement above the
         # signature line; on_progress reads this to know a paper copy has it.
@@ -1246,6 +1301,13 @@ def egnyte_folder(db: Session, req) -> str:
         return f"{base.rstrip('/')}/{sub}" if sub else base
     except Exception as e:      # filing must never block sealing
         print(f"[timesheet-review] no Egnyte folder for {getattr(req, 'id', '')}: {type(e).__name__}: {e}")
+        # Egnyte trouble making the folder is a failed filing, not "nothing to
+        # file": logged, so timesheet_filing's retry pass picks it up (Oct 20).
+        try:
+            from routers.esign import _log
+            _log(db, req.id, "archive_failed", f"Egnyte folder not ready: {type(e).__name__}")
+        except Exception:
+            pass
         return ""
 
 
@@ -1343,8 +1405,20 @@ def on_completed(db: Session, req) -> None:
         return
     tc = _tc()
     parties = {p.role_key: p for p in db.query(HrSignParty).filter(HrSignParty.request_id == req.id).all()}
-    worked = int((card_for(db, r.employee_email, r.period_start, r.period_end, r.pay_type)
-                  .get("totals") or {}).get("workedMin") or 0)
+    card = card_for(db, r.employee_email, r.period_start, r.period_end, r.pay_type)
+    # The numbers signed must be the numbers finalized (Oct 20): recompute the
+    # card and compare it with what the PDF printed. A pay setting that moved
+    # while it waited sends it back rather than finalizing silently. An
+    # envelope sent before this check existed carries nothing to compare.
+    sent = next((e.get("signed") for e in reversed(r.rounds or []) if e.get("envelope") == req.id), None)
+    if sent:
+        now = signed_totals(card, r.pay_type)
+        now["payType"] = period_for(db, r.employee_email, r.period_start)[2]
+        drift = totals_drift(sent, now)
+        if drift:
+            _reopen_totals_changed(db, r, req, drift)
+            return
+    worked = int((card.get("totals") or {}).get("workedMin") or 0)
     base = dict(employee_email=r.employee_email, period_start=r.period_start, period_end=r.period_end,
                 worked_min=worked)
     for kind in ("employee_sign", "manager"):
@@ -1370,6 +1444,28 @@ def on_completed(db: Session, req) -> None:
         tc.finalize_timecard(tc.FinalizeIn(email=r.employee_email, start=r.period_start, end=r.period_end,
                                            allow_exceptions=True),
                              user={"email": approver or r.hr_email, "level": 4}, db=db)
+
+
+def _reopen_totals_changed(db: Session, r: TimesheetReview, req, drift: list) -> None:
+    """The employee signed, but the card no longer computes to what they
+    signed: nothing is finalized. The review goes back to the manager - where
+    any change after approval sends it (reopen) - so a fresh approval sends
+    the current numbers for a fresh signature. The signed envelope stays in
+    Nexus Sign as the record of what was signed, logged as superseded; it is
+    never used for payroll."""
+    from routers.esign import _log
+    detail = "; ".join(drift[:6]) + (f"; and {len(drift) - 6} more" if len(drift) > 6 else "")
+    _log(db, req.id, "superseded", f"{TOTALS_CHANGED_NOTE}: {detail}"[:900])
+    r.status, r.sign_request_id, r.agreed_fingerprint = "with_manager", "", ""
+    _round(db, r, by="", action="totals_changed", note=TOTALS_CHANGED_NOTE, extra={"drift": drift[:20]})
+    who = display_name(db, r.employee_email)
+    msg = (f"{who} signed the time sheet for {_label(r)}, but its totals changed after it was approved "
+           f"({detail}). It was not finalized - it is back with the manager to approve again, and "
+           f"{who} signs the updated version.")
+    _notify_reviewer(db, r, "Time Sheet Back for Review", msg)
+    _notify(db, r.employee_email, "Time Sheet Back for Review",
+            f"Your time sheet for {_label(r)} changed after you signed it ({detail}). Your manager reviews "
+            "it again, then it comes back to you to sign.", r)
 
 
 def safe(fn, *a, **kw) -> None:

@@ -16,7 +16,7 @@ import TimeInsights from './TimeInsights';
 import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { MonitoringAlertsLine } from './MonitoringAlerts';
 import { ErrorBanner, Spinner } from './AsyncState';
-import { formatDate } from '../lib/datetime';
+import { formatDate, zonedDateTime, zonedInputValue, zonedInputToUtc, zoneOffsetMin } from '../lib/datetime';
 import { leaveRequestDays, fmtDays } from '../lib/workdayStats';
 import { takePendingOpen } from '../lib/pendingOpen';
 import TimesheetsToReview from './TimesheetsToReview';
@@ -28,6 +28,7 @@ import { useRole } from '../contexts/RoleContext';
 import PayrollReadiness from './PayrollReadiness';
 import { ForChip } from './DelegateApprovals';
 import CaReview from './CaReview';
+import LiveCrewMap from './LiveCrewMap';
 
 // Launch (Neil, 10/16): timecards are approved by Agree in the timesheet
 // review and signed in Nexus Sign, so the per-day / per-period Approve
@@ -54,7 +55,11 @@ function ConfidentialMark() {
 // stamp who adjusted; voids hide from totals but stay in the record.
 
 const KIND_LABEL = { in: 'In', out: 'Out', break_start: 'Break start', break_end: 'Break end' };
-const localTime = (iso) => iso ? new Date(iso + 'Z').toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }) : '-';
+// A punch on the EMPLOYEE's clock (`tz` = the team row's timeZone), labeled
+// "8:30 AM PT" only when the viewer's clock reads differently (Oct 20).
+const localTime = (iso, tz) => (iso && zonedDateTime(iso, tz)?.label) || '-';
+// The employee's zone label when it is not the viewer's ('' otherwise).
+const zoneTag = (tz) => { const z = zonedDateTime(new Date(), tz); return z?.differs ? z.zone : ''; };
 const fmtMin = (m) => `${Math.floor((m || 0) / 60)}h ${String((m || 0) % 60).padStart(2, '0')}m`;
 // The viewer's LOCAL calendar date - toISOString is UTC, which after 5 PM
 // Pacific made "This week" run Tuesday to Monday (Oct 16).
@@ -62,7 +67,7 @@ const isoDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2
 
 // One day inside the person drawer - click to reveal the working/idle
 // breakdown and the desktop agent's app/window log for that day.
-function AdminDayRow({ date, email, d, approval, onApprove }) {
+function AdminDayRow({ date, email, d, approval, onApprove, timeZone }) {
   const [open, setOpen] = useState(false);
   return (
     <div style={{ padding: '9px 0', borderBottom: '1px solid var(--line)' }}>
@@ -103,7 +108,7 @@ function AdminDayRow({ date, email, d, approval, onApprove }) {
           ) : (d.punches || []).map((p, i) => (
             <span key={i} style={{ fontSize: 11.5, color: 'var(--muted)' }}>
               <span style={{ fontWeight: 700, color: 'var(--ink)', textTransform: 'capitalize' }}>{String(p.kind || '').replace(/_/g, ' ')}</span>
-              {' '}{(() => { try { return new Date(p.at + (p.at.endsWith('Z') ? '' : 'Z')).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }); } catch { return p.at; } })()}
+              {' '}{localTime(p.at, timeZone)}
             </span>
           ))}
         </div>
@@ -111,10 +116,9 @@ function AdminDayRow({ date, email, d, approval, onApprove }) {
     </div>
   );
 }
-const utcToInput = (iso) => {
-  const d = new Date(iso + 'Z');
-  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-};
+// The Adjust input shows the punch on the EMPLOYEE's clock; saveEdit turns
+// what was typed back into UTC on that same clock (Oct 20).
+const utcToInput = (iso, tz) => zonedInputValue(iso, tz);
 
 function weekRange(offset = 0) {
   const now = new Date();
@@ -137,7 +141,9 @@ const HD = { fontSize: 13.5, fontWeight: 600, color: 'var(--ink)' };
 
 export default function TimeAdmin({ toastOk, toastErr, initialView }) {
   // The manager tier sees its team's hours, never pay (Oct 6).
-  const { hrTeam } = useRole() || {};
+  const { hrTeam, myEmail } = useRole() || {};
+  // Your own time is approved and fixed by your manager or HR, never here (Oct 20, _refuse_own_time).
+  const isMe = (em) => !!em && !!myEmail && em.toLowerCase() === myEmail.toLowerCase();
   // payroll (the timecard) | actions (punch requests + missing punches) | timeoff | hours.
   // Attendance, Screenshots and By Location left People (Neil, 10/06): who is
   // on lives in Shifts > Schedule, screenshots and location hours in Workforce
@@ -434,7 +440,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
     if (busy) return; setBusy(true);
     try {
       await api.timeAdjustPunch(edit.id, {
-        at: edit.atInput ? new Date(edit.atInput).toISOString().slice(0, 19) : undefined,
+        at: edit.atInput ? zonedInputToUtc(edit.atInput, edit.timeZone) || undefined : undefined,
         note: edit.note, void: edit.voided, adjust_note: edit.adjustNote || '',
       });
       toastOk('Punch updated - the original time stays on record.');
@@ -448,9 +454,12 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
     if (!addP.at) { toastErr('Pick the punch time.'); return; }
     setBusy(true);
     try {
+      // Typed on the employee's clock; the offset is their zone's on that
+      // date (DST-correct), so the punch lands on their local day (Oct 20).
+      const tz = (rows || []).find(x => x.email === addFor)?.timeZone;
+      const at = zonedInputToUtc(addP.at, tz);
       await api.timeAddPunch({ employee_email: addFor, kind: addP.kind,
-        at: new Date(addP.at).toISOString().slice(0, 19),
-        tz_offset_min: new Date().getTimezoneOffset(), note: addP.note });
+        at, tz_offset_min: zoneOffsetMin(tz, at), note: addP.note });
       toastOk('Punch added.');
       setAddFor(null); setAddP({ kind: 'out', at: '', note: '' }); load(true);
     } catch (e) { toastErr(e?.message || 'Could not add the punch.'); }
@@ -574,7 +583,9 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
       <div className="scroll-tabs" style={{ display: 'flex', gap: 2, marginBottom: 18, borderBottom: '1px solid var(--wk-line)' }}>
         {[['payroll', 'Payroll', Banknote],
           ['actions', 'Action Log', Inbox, new Set(punchReqs.map(punchReqKey)).size + exBlocking],
-          ['timeoff', 'Time Off', CalendarOff, pendingCount]].map(([key, label, Icon, badge]) => {
+          ['timeoff', 'Time Off', CalendarOff, pendingCount],
+          // Location Trail While Clocked In (Oct 20): live team positions and a day's trail.
+          ['trail', 'Location Trail', MapPin]].map(([key, label, Icon, badge]) => {
           const on = view === key;
           return (
             <button key={key} onClick={() => { setView(key); setTimeoffPendingOnly(false); }}
@@ -644,7 +655,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
               </button>
             )}
             {r.breakMin > 0 && <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{r.breakMin}m break</span>}
-            {!LEGACY_APPROVE ? null : isRowApproved(r) ? (
+            {(!LEGACY_APPROVE || isMe(r.email)) ? null : isRowApproved(r) ? (
               <span title="Every worked day in this period is signed off and unchanged since"
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, fontWeight: 700, color: 'hsl(var(--color-green))', background: 'hsla(var(--color-green),0.1)', padding: '3px 9px', borderRadius: 999 }}>
                 <CheckCircle size={11} /> Approved
@@ -687,8 +698,8 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                           background: p.voided ? 'transparent' : p.geoStatus === 'out_of_fence' ? 'rgba(180,83,9,0.1)' : 'var(--mist)',
                           border: '1px solid var(--line)', color: p.voided ? 'var(--line)' : 'var(--ink)',
                           textDecoration: p.voided ? 'line-through' : 'none' }}>
-                          <b>{KIND_LABEL[p.kind]}</b> {localTime(p.at)}
-                          {p.originalAt && <span title={`Originally ${localTime(p.originalAt)} - adjusted by ${p.adjustedBy}`} style={{ color: '#b45309', fontWeight: 700 }}>✎</span>}
+                          <b>{KIND_LABEL[p.kind]}</b> {localTime(p.at, r.timeZone)}
+                          {p.originalAt && <span title={`Originally ${localTime(p.originalAt, r.timeZone)} - adjusted by ${p.adjustedBy}`} style={{ color: '#b45309', fontWeight: 700 }}>✎</span>}
                           {p.lat && (
                             <a href={`https://www.google.com/maps?q=${p.lat},${p.lng}`} target="_blank" rel="noopener noreferrer"
                               title={`${p.geoStatus === 'in_fence' ? `At ${p.workSiteName}` : `${formatDistance(p.distanceM)} from ${p.workSiteName || 'nearest site'}`} (${formatAccuracy(p.accuracyM)})`}
@@ -696,8 +707,8 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                               <MapPin size={11} />
                             </a>
                           )}
-                          {p.source !== 'web' && <span title={p.source === 'self_manual' ? `Self-corrected: ${p.note}` : `Added by ${p.createdBy}`} style={{ fontSize: 10, fontWeight: 800, color: '#b45309' }}>M</span>}
-                          <button onClick={() => setEdit({ ...p, atInput: utcToInput(p.at), adjustNote: '' })} title="Adjust / void"
+                          {p.source !== 'web' && <span title={p.source === 'self_manual' ? `Self-corrected: ${p.note}` : p.source === 'offline' ? `Recorded offline: ${p.note}` : `Added by ${p.createdBy}`} style={{ fontSize: 10, fontWeight: 800, color: '#b45309' }}>M</span>}
+                          <button onClick={() => setEdit({ ...p, timeZone: r.timeZone, atInput: utcToInput(p.at, r.timeZone), adjustNote: '' })} title="Adjust / void"
                             style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', display: 'flex', padding: 1 }}>
                             <Pencil size={11} />
                           </button>
@@ -843,7 +854,14 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
         const allSelected = visibleIds.length > 0 && selected.length === visibleIds.length;
         const filtered = !!(actDept || q || actKind !== 'all');
         const toggle = (ids, on) => setSelReqs(prev => { const n = new Set(prev); ids.forEach(id => on ? n.add(id) : n.delete(id)); return n; });
-        const fmtAt = (at) => at ? new Date(at + 'Z').toLocaleString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }) : '';
+        // On the EMPLOYEE's clock, labeled when it is not the viewer's (Oct 19:
+        // Miranda's 8:30 AM Pacific read 9:00 PM to her approver in India).
+        const fmtAt = (at, tz) => { const z = zonedDateTime(at, tz); return z ? `${z.date}, ${z.label}` : ''; };
+        const yourTime = (at, tz) => {
+          if (!zonedDateTime(at, tz)?.differs) return undefined;
+          const mine = zonedDateTime(at);
+          return `Your time: ${mine.date}, ${mine.time}`;
+        };
         const verb = (r) => {
           const kindLabel = { in: 'clock-in', out: 'clock-out', break_start: 'break start', break_end: 'break end' }[r.punchKind] || r.punchKind;
           return r.action === 'add' ? `Add a ${kindLabel}` : 'Remove a punch';
@@ -936,7 +954,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                     </div>
                     {g.rows.length > 0 && <span style={pill('var(--wk-brand-tint, rgba(43,69,225,0.08))', 'var(--wk-brand, #2b45e1)')}><Inbox size={11} /> {g.rows.length} Request{g.rows.length === 1 ? '' : 's'}</span>}
                     {g.blocking > 0 && actKind !== 'requests' && <span style={pill('rgba(220,38,38,0.08)', 'hsl(var(--color-red))')}><AlertTriangle size={11} /> {g.blocking} Missing</span>}
-                    {g.email && g.missing.length > 0 && (
+                    {g.email && g.missing.length > 0 && !isMe(g.email) && (
                       <button className="secondary-btn" onClick={() => setAddTimeFor({ email: g.email, name: g.name, dates: g.missing.filter(e => e.blocking).map(e => e.date) })}
                         title="Add the missing time - one or several days at once"
                         style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
@@ -960,7 +978,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                       {cb(rowSel, on => toggle(rowIds, on), `Select request from ${g.name}`)}
                       <span style={pill('var(--wk-hover)', 'var(--ink)')}>Request</span>
                       <div style={{ flex: 1, minWidth: 240, display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: 13, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{fmtAt(r.at) || 'No time'}</span>
+                        <span title={yourTime(r.at, r.timeZone)} style={{ fontSize: 13, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{fmtAt(r.at, r.timeZone) || 'No time'}</span>
                         <span style={{ fontSize: 12.5, color: 'var(--ink)' }}>{verb(r)}</span>
                         {rowIds.length > 1 && (
                           <span title="The employee asked for the same punch more than once. Approving or rejecting it closes every copy."
@@ -1009,6 +1027,10 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
       })()}
 
       {/* Time-off register - requests table, pending rows carry the decisions */}
+      {view === 'trail' && (
+        <LiveCrewMap toastErr={toastErr} people={(rows || []).map(r => ({ email: r.email, name: r.name }))} />
+      )}
+
       {view === 'timeoff' && (
         <>
         <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
@@ -1100,7 +1122,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                   <div style={{ fontSize: 15, fontWeight: 800 }}>{p.name}</div>
                   <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>{p.email} · {formatDate(start)} - {formatDate(end)}</div>
                 </div>
-                {LEGACY_APPROVE && (() => {
+                {LEGACY_APPROVE && !isMe(p.email) && (() => {
                   const dk = Object.keys(p.days || {});
                   if (isRowApproved(p)) {
                     return <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11.5, fontWeight: 700, color: 'hsl(var(--color-green))', background: 'hsla(var(--color-green),0.1)', padding: '4px 11px', borderRadius: 999 }}><CheckCircle size={12} /> Approved</span>;
@@ -1157,9 +1179,9 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                   Days <span style={{ fontWeight: 500, color: 'var(--muted)' }}>- click one for its punches</span>
                 </div>
                 {Object.keys(p.days || {}).sort().map(date => (
-                  <AdminDayRow key={date} date={date} email={p.email} d={p.days[date]}
+                  <AdminDayRow key={date} date={date} email={p.email} d={p.days[date]} timeZone={p.timeZone}
                     approval={(p.dayApprovals || {})[date]}
-                    onApprove={() => approveDays(p.email, [date])} />
+                    onApprove={isMe(p.email) ? null : () => approveDays(p.email, [date])} />
                 ))}
                 {Object.keys(p.days || {}).length === 0 && <div style={{ fontSize: 12, color: 'var(--muted)' }}>No punches in this range.</div>}
 
@@ -1197,9 +1219,9 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
             </div>
             <div style={{ padding: '16px 20px', display: 'grid', gap: 10 }}>
               {edit.originalAt && (
-                <p style={{ margin: 0, fontSize: 11.5, color: '#b45309' }}>Original time on record: {localTime(edit.originalAt)} (adjusted by {edit.adjustedBy})</p>
+                <p style={{ margin: 0, fontSize: 11.5, color: '#b45309' }}>Original time on record: {localTime(edit.originalAt, edit.timeZone)} (adjusted by {edit.adjustedBy})</p>
               )}
-              <div><label style={FL}>Time</label>
+              <div><label style={FL}>Time{zoneTag(edit.timeZone) ? ` (${zoneTag(edit.timeZone)}, the employee's clock)` : ''}</label>
                 <input className="form-input" type="datetime-local" value={edit.atInput}
                   onChange={e => setEdit(x => ({ ...x, atInput: e.target.value }))} style={{ width: '100%' }} /></div>
               <div><label style={FL}>Punch note</label>
@@ -1299,7 +1321,7 @@ export default function TimeAdmin({ toastOk, toastErr, initialView }) {
                 <select className="form-input" value={addP.kind} onChange={e => setAddP(p => ({ ...p, kind: e.target.value }))} style={{ width: '100%' }}>
                   {Object.entries(KIND_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
                 </select></div>
-              <div><label style={FL}>Time</label>
+              <div><label style={FL}>{(() => { const t = zoneTag((rows || []).find(x => x.email === addFor)?.timeZone); return t ? `Time (${t}, the employee's clock)` : 'Time'; })()}</label>
                 <input className="form-input" type="datetime-local" value={addP.at} onChange={e => setAddP(p => ({ ...p, at: e.target.value }))} style={{ width: '100%' }} /></div>
               <div><label style={FL}>Note</label>
                 <input className="form-input" placeholder="e.g. forgot to punch out" value={addP.note}

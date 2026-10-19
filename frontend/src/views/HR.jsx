@@ -5408,6 +5408,7 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
   const [comp, setComp] = useState(COMP_DEFAULTS);
   const [bank, setBank] = useState([]);
   const [payroll, setPayroll] = useState({});   // what the timecard currently uses (read-only context)
+  const [ownPayLocked, setOwnPayLocked] = useState(false);   // your own record: another admin or HR sets your pay (Oct 20)
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const setC = (k, v) => setComp(p => ({ ...p, [k]: v }));
@@ -5427,7 +5428,7 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
         if (nextComp.overtimeRule === undefined || nextComp.overtimeRule === null) nextComp.overtimeRule = '';
         if (!(r.compensation || {}).fullDayHours && pr.fullDayHours) nextComp.fullDayHours = String(pr.fullDayHours);
         const nextBank = r.bank || [];
-        setComp(nextComp); setBank(nextBank); setPayroll(pr);
+        setComp(nextComp); setBank(nextBank); setPayroll(pr); setOwnPayLocked(!!r.ownPayLocked);
         baselineRef.current = { comp: nextComp, bank: nextBank };
       })
       .catch(e => toastErr(e?.message || 'Could not load compensation.'))
@@ -5477,6 +5478,12 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}><Spinner size="section" /></div>
         ) : (
           <div style={{ overflowY: 'auto', flex: 1, padding: '18px 24px' }}>
+            {ownPayLocked && (
+              <div data-testid="own-pay-hint" style={{ fontSize: 12, color: 'var(--muted)', background: 'var(--bg-2, rgba(0,0,0,0.03))', border: '1px solid var(--line)', borderRadius: 10, padding: '8px 12px', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Lock size={12} /> Another administrator or HR sets your pay - you can still update your bank accounts.
+              </div>
+            )}
+            <fieldset disabled={ownPayLocked} data-testid="comp-pay-fields" style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', letterSpacing: '.04em', marginBottom: 10 }}>BASE PAY</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
               <div><label style={FL}>BASE AMOUNT</label><input className="form-input" style={{ width: '100%' }} type="number" value={comp.base} onChange={e => setC('base', e.target.value)} placeholder="e.g. 90000" /></div>
@@ -5511,6 +5518,7 @@ function CompensationModal({ employee, onClose, toastOk, toastErr }) {
                 <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 4 }}>Set on the person's role in Settings &gt; Access, beside the screen-share exemption.</div>
               </div>
             </div>
+            </fieldset>
 
             {comp.history?.length > 0 && (
               <div style={{ marginTop: 16 }}>

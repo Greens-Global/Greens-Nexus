@@ -16,11 +16,13 @@ import ModuleTabs from '../components/ModuleTabs';
 import PayrollTimecard from '../components/PayrollTimecard';
 import BodModal from '../components/BodModal';
 import { useTimeStatus, patchTimeStatus } from '../lib/useTimeStatus';
+import LocationTrailNote from '../components/LocationTrailNote';
 import { punchDurable, replayPending, readPending, utcStamp } from '../lib/punchQueue';
 import { replayPendingBods, bodDurable } from '../lib/bodQueue';
 import { formatTime, formatDate, formatWeekday, formatHHMM, formatMonthDay } from '../lib/datetime';
 import { dialog } from '../ui/dialog';
 import { getPosition, punchPosition } from '../lib/geoPosition';
+import { requiredPunchPosition, showLocationRequired, locationPermission, isLocationRequiredError, needsLocation } from '../lib/punchLocation';
 import { MyHROverview } from './MyHR';
 import { leaveRequestDays, openShiftMinutes } from '../lib/workdayStats';
 import { timeOffLabel } from '../components/shiftScheduleLib';
@@ -606,7 +608,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     if (r?.restored) {
       setParked(null); setLostModal(false);
       toast(true, `${KIND_DONE[r.entry.kind] || 'Punch recorded'} at ${localTime(r.punch.at)}`
-        + `${r.backfilled ? ' - flagged for your approver to confirm.' : '.'}`);
+        + `${r.backfilled ? ' - marked as recorded offline, and your manager was told.' : '.'}`);
       window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));
       load();
       return { done: true, ...r };
@@ -786,6 +788,13 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
         return;
       }
     }
+    // Require Location to Punch (Oct 19 2026): a browser that has already
+    // said no is told how to fix it BEFORE the day message, so nobody writes
+    // a message for a punch that cannot record.
+    if (needsLocation(status, kind) && await locationPermission() === 'denied') {
+      await showLocationRequired('denied');
+      return;
+    }
     // Role-flagged people (Neil, Aug 25: field workers who cannot type) skip
     // every message prompt - the punch goes straight through.
     if (status?.bodExempt) {
@@ -850,10 +859,18 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
     // a closing tab; full budget on the way in for the geofence check. On the way
     // IN, pair with the local agent concurrently (shared-PC device binding) so it
     // adds no latency over the geolocation wait.
-    const [pos, pairNonce] = await Promise.all([
+    const [firstPos, pairNonce] = await Promise.all([
       kind === 'out' ? punchPosition('out') : getPosition(9000),   // out: a recent fix if a fresh one is slow
       kind === 'in' ? pairLocalAgent() : Promise.resolve(''),
     ]);
+    // Require Location to Punch (Oct 19 2026): no fix -> one more try with a
+    // longer timeout, then a blocking how-to instead of a location-less punch.
+    const pos = needsLocation(status, kind) ? await requiredPunchPosition(firstPos) : firstPos;
+    if (needsLocation(status, kind) && !pos) {
+      setBusy('');
+      await showLocationRequired();
+      return;
+    }
     // punchDurable retries and, if the server still can't be reached, parks the
     // punch for replay. The Teams message has already gone out by this point, so
     // a punch quietly dropped here is the one failure this screen must not have.
@@ -889,6 +906,12 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       if (res.unreachable) {
         setParked({ kind, at: clickedAt || utcStamp(), held: !!res.queued });
         setLostModal(true);
+      } else if (isLocationRequiredError(e)) {
+        // The switch went on after this page loaded: same how-to as above.
+        setBusy('');
+        load();
+        await showLocationRequired();
+        return;
       } else toast(false, e?.message || 'Punch failed.');
     }
     setBusy('');
@@ -1339,6 +1362,10 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
           {msg.ok ? <CheckCircle size={15} /> : <AlertTriangle size={15} />} {msg.text}
         </div>
       )}
+
+      {/* Location Trail While Clocked In (Oct 20): says plainly that the
+          location is shared while clocked in, when the company has it on. */}
+      {tab === 'overview' && !exempt && <LocationTrailNote status={status} />}
 
       {/* Overview: the Time Clock widget first, then the employee's own HR
           page (profile, hours, documents, time off, Ask HR). */}
