@@ -57,6 +57,9 @@ _DEFAULT_SETTINGS = {
         # Due-date / overdue reminders to the assignee (ticket_overdue.py).
         # Off by default: they go out from managers' Teams accounts.
         "overdue_reminder": False,
+        # SLA breach alerts (ticket_sla.scan_breaches): the bell, to the
+        # assignee (or the desk) and the department lead. ON by default.
+        "sla_breach": True,
     },
 }
 
@@ -464,7 +467,9 @@ def _time_fields(t: models.TaskTicket, zone: str = "") -> dict:
     """The context's dates and times, in one reader's time zone."""
     return {"createdAtDisplay": _fmt(t.created_at, zone),
             "eventAtDisplay": _fmt(datetime.now(timezone.utc).isoformat(), zone),
-            "dueDateDisplay": _fmt(t.sla_due_on, zone) if t.sla_due_on else ""}
+            # The deadline is a moment (Honest SLA): date AND time in the
+            # reader's zone; a row with no datetime yet shows its old date.
+            "dueDateDisplay": _fmt(t.sla_due_at or t.sla_due_on, zone) if (t.sla_due_at or t.sla_due_on) else ""}
 
 
 _FALLBACK_ZONE = "America/Los_Angeles"
@@ -854,7 +859,8 @@ def _auto_close_once(db: Session) -> None:
             continue
         if (now - resolved).total_seconds() < days * 86400:
             continue
-        t.status = "closed"
+        import ticket_sla
+        ticket_sla.set_status(t, "closed", now)
         t.modified_at = now.isoformat()
         db.commit()
         log_activity(db, type="auto_closed", actor_email="system", entity_kind="ticket",
@@ -879,6 +885,12 @@ def _ticket_scan_once() -> None:
         except Exception as e:   # reminders must never stop the retries above
             db.rollback()
             print(f"[ticket-overdue] pass failed: {e}")
+        try:
+            import ticket_sla
+            ticket_sla.scan_breaches(db)
+        except Exception as e:   # breach alerts must never stop the rest either
+            db.rollback()
+            print(f"[ticket-sla] breach scan failed: {e}")
     finally:
         db.close()
 

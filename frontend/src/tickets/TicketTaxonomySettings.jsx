@@ -20,7 +20,7 @@ import { ListTree, Building2, Plus, ChevronDown, ChevronUp, Save, RotateCcw } fr
 import { api } from '../api';
 import { useRole } from '../contexts/RoleContext';
 import { NX, FONT, btn, input as inputStyle, card } from '../tasks/theme';
-import { TICKET_TYPE_META, TICKET_TYPE_KEYS, TICKET_TYPE_ORDER } from './ticketMeta';
+import { TICKET_TYPE_META, TICKET_TYPE_KEYS, TICKET_TYPE_ORDER, FIRST_RESPONSE_HOURS } from './ticketMeta';
 import DragList from './DragList';
 import { refreshTicketConfig } from './ticketConfig';
 
@@ -180,7 +180,7 @@ function TypeRow({ typeKey, meta, shown, onToggleShown, handle = null, typeCfg, 
 
 export default function TicketTaxonomySettings() {
   const { myLevel } = useRole();
-  const [cfg, setCfg] = useState(null);       // raw server config: { slaTargetHours, types, typeOrder, companyField }
+  const [cfg, setCfg] = useState(null);       // raw server config: { slaTargetHours, firstResponseHours, types, typeOrder, companyField }
   const [order, setOrder] = useState([]);     // working copy of the shown/ordered type keys
   const [companies, setCompanies] = useState([]);
   const [saving, setSaving] = useState(false);
@@ -190,6 +190,7 @@ export default function TicketTaxonomySettings() {
   // clamped to a whole number of at least 1 on blur / save. Clamping every
   // keystroke turned clearing "48" to retype it into "148" (the empty box
   // snapped to 1, then the 4 and 8 were typed after it).
+  // Keyed "<field>.<priority>" - the resolution and first-response boxes.
   const [slaText, setSlaText] = useState({});
 
   const load = () => api.getTicketTaxonomySettings()
@@ -215,20 +216,24 @@ export default function TicketTaxonomySettings() {
   const hidden = allKeys.filter((k) => !shownOrder.includes(k));
 
   const clampHours = (v) => Math.max(1, Math.round(Number(v)) || 1);
-  const typeSla = (k, raw) => {
-    setSlaText((m) => ({ ...m, [k]: raw }));
+  // First-response targets (Honest SLA, Oct 2026) - a config saved before
+  // they existed has none, so the defaults show until one is saved.
+  const frHours = { ...FIRST_RESPONSE_HOURS, ...(cfg.firstResponseHours || {}) };
+  const typeSla = (k, raw, field = 'slaTargetHours') => {
+    setSlaText((m) => ({ ...m, [`${field}.${k}`]: raw }));
     // A usable number goes into the config as it is typed, so the days hint
     // follows along; an empty or partial box waits for blur.
     const n = Number(raw);
     if (raw.trim() !== '' && Number.isFinite(n) && n >= 1) {
-      setCfg((c) => ({ ...c, slaTargetHours: { ...c.slaTargetHours, [k]: Math.round(n) } }));
+      setCfg((c) => ({ ...c, [field]: { ...(field === 'firstResponseHours' ? frHours : c[field]), [k]: Math.round(n) } }));
     }
   };
-  const settleSla = (k) => {
-    if (!(k in slaText)) return;
-    const n = clampHours(slaText[k]);
-    setCfg((c) => ({ ...c, slaTargetHours: { ...c.slaTargetHours, [k]: n } }));
-    setSlaText((m) => { const next = { ...m }; delete next[k]; return next; });
+  const settleSla = (k, field = 'slaTargetHours') => {
+    const key = `${field}.${k}`;
+    if (!(key in slaText)) return;
+    const n = clampHours(slaText[key]);
+    setCfg((c) => ({ ...c, [field]: { ...(field === 'firstResponseHours' ? frHours : c[field]), [k]: n } }));
+    setSlaText((m) => { const next = { ...m }; delete next[key]; return next; });
   };
   const setTypeCfg = (key, patch) => setCfg((c) => ({ ...c, types: { ...c.types, [key]: { ...(c.types[key] || {}), ...patch } } }));
   const setCompanyField = (patch) => setCfg((c) => ({ ...c, companyField: { ...c.companyField, ...patch } }));
@@ -248,9 +253,13 @@ export default function TicketTaxonomySettings() {
     try {
       // Anything still being typed is settled the same way blur would.
       const slaTargetHours = { ...cfg.slaTargetHours };
-      for (const [k, raw] of Object.entries(slaText)) slaTargetHours[k] = clampHours(raw);
+      const firstResponseHours = { ...frHours };
+      for (const [key, raw] of Object.entries(slaText)) {
+        const [field, k] = key.split('.');
+        (field === 'firstResponseHours' ? firstResponseHours : slaTargetHours)[k] = clampHours(raw);
+      }
       setSlaText({});
-      const next = await api.updateTicketTaxonomySettings({ slaTargetHours, types: cfg.types, typeOrder: order ? shownOrder : null, companyField: cfg.companyField });
+      const next = await api.updateTicketTaxonomySettings({ slaTargetHours, firstResponseHours, types: cfg.types, typeOrder: order ? shownOrder : null, companyField: cfg.companyField });
       setCfg(next);
       setOrder(Array.isArray(next.typeOrder) ? next.typeOrder : null);
       await refreshTicketConfig();
@@ -281,8 +290,23 @@ export default function TicketTaxonomySettings() {
             {PRIORITIES.map(([k, lab]) => (
               <Field key={k} label={lab} hint={`${(cfg.slaTargetHours[k] / 24).toFixed(1)} days`}>
                 <input type="number" min={1} step={1} inputMode="numeric" aria-label={`${lab} SLA hours`}
-                  value={k in slaText ? slaText[k] : String(cfg.slaTargetHours[k] ?? '')}
+                  value={`slaTargetHours.${k}` in slaText ? slaText[`slaTargetHours.${k}`] : String(cfg.slaTargetHours[k] ?? '')}
                   onChange={(e) => typeSla(k, e.target.value)} onBlur={() => settleSla(k)} style={inputStyle} />
+              </Field>
+            ))}
+          </div>
+          <div style={{ fontSize: 13, fontWeight: 700, margin: '16px 0 4px' }}>First Response Target Hours</div>
+          <div style={{ fontSize: 12, color: NX.faint, marginBottom: 12 }}>
+            How soon someone other than the requester must reply where the requester can see it. Internal notes do not
+            count. Both clocks pause while a ticket is waiting on the requester, and every hour counts.
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
+            {PRIORITIES.map(([k, lab]) => (
+              <Field key={k} label={lab} hint={`${frHours[k]} hours`}>
+                <input type="number" min={1} step={1} inputMode="numeric" aria-label={`${lab} first response hours`}
+                  value={`firstResponseHours.${k}` in slaText ? slaText[`firstResponseHours.${k}`] : String(frHours[k] ?? '')}
+                  onChange={(e) => typeSla(k, e.target.value, 'firstResponseHours')}
+                  onBlur={() => settleSla(k, 'firstResponseHours')} style={inputStyle} />
               </Field>
             ))}
           </div>

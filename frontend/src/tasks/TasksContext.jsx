@@ -77,6 +77,8 @@ const CAMEL_TO_SNAKE = {
   // Property Tickets (Oct 6) - see backend TicketBody / TicketUpdate.
   propertyAssetId: 'property_asset_id', maintenanceVendor: 'maintenance_vendor', maintenanceCost: 'maintenance_cost',
   propertyLocked: 'property_locked',
+  // Honest SLA (Oct 2026) - server-derived; mapped so it never goes out camelCased.
+  slaDueAt: 'sla_due_at',
 };
 function toBody(patch) {
   const out = {};

@@ -29,9 +29,9 @@ import MobileTaskBar, { BottomSheet } from '../tasks/MobileTaskBar';
 import { Card, LightBar, Donut } from '../tasks/views/charts';
 import { useTableColumns, ColResizer } from '../tasks/tableCols';
 import {
-  fmtDate, today, requiredHint, TICKET_TYPE_META, TICKET_TYPE_ORDER, TICKET_TYPE_KEYS, TYPE_FIELDS, NO_RECORDING_TYPES,
+  fmtDate, requiredHint, TICKET_TYPE_META, TICKET_TYPE_ORDER, TICKET_TYPE_KEYS, TYPE_FIELDS, NO_RECORDING_TYPES,
   TICKET_RESOLUTION, LINK_TYPES, TICKET_STATUS_META, TICKET_STATUS_ORDER, CLOSED_STATES,
-  SLA_TARGET_HOURS, SLA_META, slaState, slaDueFromPriority, isBlankFieldValue, toEmailList,
+  SLA_TARGET_HOURS, SLA_META, slaState, slaDueFromPriority, slaSortKey, fmtDueAt, slaMet, isBlankFieldValue, toEmailList,
   commentStale, COMMENT_STALE_META, COMMENT_STALE_HOURS,
   label, field, resolutionLabel, linkTypeLabel, APPROVAL_META, intakeFields,
   ticketNo, ticketNoShort, normalizeCode,
@@ -44,7 +44,7 @@ import {
 import { HELP_SUBTOPIC_KEY, HELP_SUBTOPIC_LABEL, topicOptions, helpWithLabel } from './ticketMeta';
 import { useTicketConfig, COMPANY_FIELD, typeRequiresApproval } from './ticketConfig';
 import {
-  TypeFieldInput, TicketTypeIcon, SlaBadge, TicketStatusChip, TicketSelect, TicketPeopleMultiSelect,
+  TypeFieldInput, TicketTypeIcon, SlaBadge, FirstResponseIndicator, TicketStatusChip, TicketSelect, TicketPeopleMultiSelect,
 } from './TicketAtoms';
 import { SkeletonBlocks, Spinner } from '../components/AsyncState';
 import GuidedTour from '../components/GuidedTour';
@@ -102,7 +102,8 @@ const TICKET_COLUMNS = [
   // the pair ran past the column and painted over the one after it.
   { key: 'state', label: 'Status', width: 180, shrink: 170, sort: (t) => TICKET_STATUS_ORDER.indexOf(t.status) },
   { key: 'priority', label: 'Priority', width: 180, shrink: 160, sort: (t) => PRIORITY_ORDER.indexOf(t.priority) },
-  { key: 'due', label: 'Due Date', width: 110, shrink: 92, sort: (t) => t.slaDueOn || '' },
+  // Wide enough for the deadline's date AND time ("10/19/2026 3:00 PM").
+  { key: 'due', label: 'Due Date', width: 150, shrink: 120, sort: slaSortKey },
   { key: 'requester', label: 'Requester', width: 150, shrink: 110, sort: (t, ctx) => (ctx.nameOf(t.requesterId) || '').toLowerCase() },
   { key: 'assignee', label: 'Assignee', width: 150, shrink: 110, sort: (t, ctx) => (ctx.nameOf(t.assigneeId) || '').toLowerCase() },
   { key: 'created', label: 'Created', width: 110, shrink: 92, sort: (t) => t.createdAt || '' },
@@ -252,7 +253,7 @@ const typeOptions = () => TICKET_TYPE_KEYS.map((ty) => [ty, TICKET_TYPE_META[ty]
 // dropdown (Neil, Sep 30) - where a requester (or the desk re-typing a
 // ticket) actually picks one.
 const typeIntakeOptions = () => TICKET_TYPE_ORDER.map((ty) => ({ id: ty, label: TICKET_TYPE_META[ty].label, desc: TICKET_TYPE_META[ty].hint || '' }));
-const slaFilterOptions = [['all', 'Any SLA'], ['breached', 'SLA Breached'], ['at_risk', 'Due Soon'], ['ok', 'On Track']];
+const slaFilterOptions = [['all', 'Any SLA'], ['breached', 'SLA Breached'], ['at_risk', 'Due Soon'], ['ok', 'On Track'], ['paused', 'Paused']];
 // Open/Unassigned are buckets, not statuses - they must be listed or the
 // control renders blank when a summary tile selects one.
 const statusFilterOptions = () => [['all', 'All Statuses'], ['open', 'Open (Not Resolved)'],
@@ -274,7 +275,7 @@ function downloadTicketsCsv(rows, nameOf, companyName, hrDeptName) {
     helpWithLabel(t), serviceAreaLabel(t.serviceArea) || '',
     companyName(t.companyId) || '', hrDeptName(t.hrDepartmentId) || '',
     TICKET_STATUS_META[t.status]?.label || t.status || '', PRIORITY_META[t.priority]?.label || t.priority || '',
-    t.slaDueOn ? fmtDate(t.slaDueOn) : '', t.requesterId ? (nameOf(t.requesterId) || t.requesterId) : '',
+    (t.slaDueAt || t.slaDueOn) ? fmtDueAt(t) : '', t.requesterId ? (nameOf(t.requesterId) || t.requesterId) : '',
     t.assigneeId ? (nameOf(t.assigneeId) || t.assigneeId) : '', t.createdAt ? fmtDate(t.createdAt) : '',
     t.resolvedAt ? fmtDate(t.resolvedAt) : '', t.resolutionNote || '', richToPlain(t.description),
     latestCommentText(t.latestComment, nameOf),
@@ -1580,7 +1581,8 @@ const TicketRow = memo(function TicketRow({ t, nameOf, hrDeptName, companyName, 
   // contract the task rich-list rows use, so the two grids read identically.
   const cell = { minWidth: 0, minHeight: TICKET_ROW_H, display: 'flex', alignItems: 'center', padding: '0 12px', borderRight: `1px solid ${NX.border2}`, boxSizing: 'border-box' };
   const sla = slaState(t);
-  const slaM = (sla === 'breached' || sla === 'at_risk') ? SLA_META[sla] : null;
+  // Paused (waiting on the requester) reads as its own quiet state, never late.
+  const slaM = (sla === 'breached' || sla === 'at_risk' || sla === 'paused') ? SLA_META[sla] : null;
   const approvalM = t.approvalStatus === 'pending' ? APPROVAL_META.pending : null;
   const staleM = commentStale(t) ? COMMENT_STALE_META : null;
   // The HR department is what routed this ticket, so it belongs on the row.
@@ -1637,13 +1639,13 @@ const TicketRow = memo(function TicketRow({ t, nameOf, hrDeptName, companyName, 
           {/* Words, not icon-only chips with a hover title - a phone has no
               hover. The SLA due date reads as a date (red once breached, amber
               when due soon) and a quiet ticket says it needs a comment. */}
-          {t.slaDueOn && !CLOSED_STATES.includes(t.status) && (
-            <span data-testid="ticket-row-due" title={slaM ? `${slaM.label} - SLA due ${fmtDate(t.slaDueOn)}` : `SLA due ${fmtDate(t.slaDueOn)}`}
+          {(t.slaDueAt || t.slaDueOn) && !CLOSED_STATES.includes(t.status) && (
+            <span data-testid="ticket-row-due" title={slaM ? `${slaM.label} - SLA due ${fmtDueAt(t)}` : `SLA due ${fmtDueAt(t)}`}
               style={slaM
                 ? { ...chip(slaM.color, slaM.tint), display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, padding: '1px 7px', fontWeight: 700 }
                 : { display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11.5, color: NX.dim }}>
               {slaM ? <slaM.Icon size={11} /> : <Clock size={11} style={{ color: NX.faint }} />}
-              Due {fmtDate(t.slaDueOn)}
+              {sla === 'paused' ? 'Paused' : `Due ${fmtDueAt(t)}`}
             </span>
           )}
           {staleM && (
@@ -1754,9 +1756,9 @@ const TicketRow = memo(function TicketRow({ t, nameOf, hrDeptName, companyName, 
     // within a day, plain otherwise.
     due: (
       <div style={{ ...cell, justifyContent: 'flex-start', gap: 5, overflow: 'hidden' }}
-        title={slaM ? `${slaM.label} - SLA due ${fmtDate(t.slaDueOn)}` : undefined}>
+        title={slaM ? `${slaM.label} - SLA due ${fmtDueAt(t)}` : undefined}>
         {slaM ? <slaM.Icon size={12} style={{ color: slaM.color, flexShrink: 0 }} /> : <Clock size={12} style={{ color: NX.faint, flexShrink: 0 }} />}
-        <span style={{ fontSize: 12, color: slaM ? slaM.color : NX.dim, fontWeight: slaM ? 600 : 400, textAlign: 'left' }}>{t.slaDueOn ? fmtDate(t.slaDueOn) : '-'}</span>
+        <span style={{ fontSize: 12, color: slaM ? slaM.color : NX.dim, fontWeight: sla === 'breached' || sla === 'at_risk' ? 600 : 400, textAlign: 'left' }}>{fmtDueAt(t)}</span>
       </div>
     ),
     requester: (
@@ -2297,7 +2299,8 @@ export function CreateTicketModal({ onClose, fromTask = null, onCreated = null, 
         application: form.application.trim(),
         // Collaborators - the server adds you too when it is for someone else.
         watcherIds: (form.watcherIds || []).filter((e) => e && e !== requester),
-        slaDueOn: slaDueFromPriority(form.priority),
+        // A preview only - the server sets the deadline (sla_due_at) itself.
+        slaDueOn: slaDueFromPriority(form.priority).slice(0, 10),
         typeFields,
         ...(fromTask ? { fromTaskId: fromTask.id, closeSourceTask: closeSource } : {}),
         ...(form.propertyAssetId && deptTakesProperty ? { propertyAssetId: form.propertyAssetId } : {}),
@@ -3112,7 +3115,7 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
   // you feel like it," which is not what the button is for - so it stays
   // hidden for them until the SLA is actually missed (Pranshu, Sep 10 2026).
   // Mirrors the server check in escalate_ticket (backend/routers/tickets.py).
-  const slaBreached = !!(t.slaDueOn && t.slaDueOn < today());
+  const slaBreached = slaState(t) === 'breached';
   const canEscalate = !CLOSED_STATES.includes(t.status)
     && ((isRequester && slaBreached) || isAssignee || privileged);
   // Saves at once - kept for the links and tasks below, which are their own
@@ -3595,12 +3598,16 @@ export function TicketDrawer({ ticketId, onClose, startEditing = false, initialT
         <div style={field}>
           <label style={label}>SLA Due Date</label>
           {/* Read-only always (Pranshu, Sep 17 2026) - it follows Priority
-              automatically (_sla_due_from_priority in update_ticket), and a
+              automatically (ticket_sla.recompute in update_ticket), and a
               manual DateField editor here let it drift out of step with the
-              priority it's supposed to track. Change Priority to move it. */}
-          <div style={{ fontSize: 13, color: overdue ? NX.red : NX.ink, fontWeight: overdue ? 700 : 400, minHeight: 34, display: 'flex', alignItems: 'center' }}>
-            {t.slaDueOn ? fmtDate(t.slaDueOn) : '-'}
+              priority it's supposed to track. Change Priority to move it.
+              A moment, not a day (Honest SLA, Oct 2026): date and time, and
+              Paused while the ticket waits on the requester. */}
+          <div data-testid="ticket-sla-due" style={{ fontSize: 13, color: overdue ? NX.red : NX.ink, fontWeight: overdue ? 700 : 400, minHeight: 34, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            {fmtDueAt(t)}
+            {slaState(t) === 'paused' && <SlaBadge t={t} />}
           </div>
+          <FirstResponseIndicator t={t} />
           {/* "Needs a comment" - a signal separate from the due date above:
               nobody has said anything in longer than this priority's
               check-in cadence, whether or not the due date has passed. */}
@@ -4032,8 +4039,8 @@ function TicketReports({ tickets, nameOf, hrDeptName }) {
       ? (resolved.reduce((s, t) => s + Math.max(0, (new Date(t.resolvedAt) - new Date(t.createdAt))), 0) / resolved.length) / 86400000
       : null;
     // SLA compliance among closed tickets that had a due date: resolved on/before due
-    const closedWithSla = tickets.filter((t) => CLOSED_STATES.includes(t.status) && t.slaDueOn && t.resolvedAt);
-    const met = closedWithSla.filter((t) => t.resolvedAt.slice(0, 10) <= t.slaDueOn).length;
+    const closedWithSla = tickets.filter((t) => CLOSED_STATES.includes(t.status) && (t.slaDueAt || t.slaDueOn) && t.resolvedAt);
+    const met = closedWithSla.filter(slaMet).length;
     const compliance = closedWithSla.length ? Math.round((met / closedWithSla.length) * 100) : null;
     const breaching = tickets.filter((t) => slaState(t) === 'breached').length;
     const atRisk = tickets.filter((t) => slaState(t) === 'at_risk').length;

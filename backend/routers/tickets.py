@@ -34,6 +34,7 @@ from ticket_notify import (notify_ticket_event, get_settings as get_notify_setti
 import ticket_notify
 import ticket_taxonomy
 import ticket_roles
+import ticket_sla
 from ticket_roles import require_ticket_agent, require_ticket_supervisor
 import ticket_mail_templates as tmpl
 import property_links
@@ -82,9 +83,10 @@ require_ticket_desk = require_ticket_agent
 # column ever being populated. ──
 
 def _sla_due_from_priority(db: Session, created_at_iso: str, priority: str) -> str:
-    """created_at + the priority's target hours, as a YYYY-MM-DD date string -
-    sla_due_on is stored and compared as a plain date everywhere else (see
-    _sla_breached, ticket_to_dict), never a datetime."""
+    """created_at + the priority's target hours, as the YYYY-MM-DD UTC date
+    kept in sla_due_on for back-compat. The real deadline is the datetime
+    sla_due_at (Honest SLA, Oct 2026) - ticket_sla.start / recompute set both;
+    nothing compares sla_due_on as the deadline any more."""
     try:
         start = datetime.fromisoformat((created_at_iso or now_iso()).replace("Z", "+00:00"))
     except ValueError:
@@ -242,6 +244,13 @@ def ticket_to_dict(t: models.TaskTicket) -> dict:
             "approvalStatus": t.approval_status or "none", "approverId": _nz(t.approver_email),
             "approvalNote": _nz(t.approval_note), "approvalDecidedAt": _nz(t.approval_decided_at),
             "slaDueOn": _nz(t.sla_due_on), "resolvedAt": _nz(t.resolved_at),
+            # Honest SLA (Oct 2026, ticket_sla.py): datetimes, the pause and
+            # the first response. slaDueOn above is the old date, kept for
+            # rows (and readers) that predate these.
+            "slaDueAt": _nz(t.sla_due_at), "firstResponseDueAt": _nz(t.first_response_due_at),
+            "firstResponseAt": _nz(t.first_response_at),
+            "slaPaused": bool(t.sla_paused_at), "slaPausedAt": _nz(t.sla_paused_at),
+            "slaPausedMin": int(t.sla_paused_min or 0),
             "lastCommentAt": _nz(t.last_comment_at),
             "requesterUpdateAt": _nz(t.requester_update_at), "requesterSeenAt": _nz(t.requester_seen_at),
             "resolutionNote": _nz(t.resolution_note),
@@ -404,12 +413,11 @@ def _ticket_snapshot(t: "models.TaskTicket") -> dict:
 
 
 def _sla_breached(t: "models.TaskTicket") -> bool:
-    """Mirrors slaState() in ticketMeta.js: no due date, or the ticket is
-    already resolved/closed, is never "breached" - a due date is only a
-    promise while the clock is still running."""
-    if not t.sla_due_on or t.status in ("resolved", "closed"):
-        return False
-    return t.sla_due_on < now_iso()[:10]
+    """Mirrors slaState() in ticketMeta.js: the clock is running (not paused
+    waiting on the requester, not resolved/closed) and now is past
+    sla_due_at - to the minute (Honest SLA, Oct 2026). A row with no
+    datetime yet falls back to its old due DATE."""
+    return ticket_sla.breached(t)
 
 
 def _fmt_audit_value(v: Any) -> str:
@@ -1052,11 +1060,11 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
         application=(body.application or "").strip(),
         # Derived, never taken from the payload - see TicketBody.application.
         service_area=service_area_for(db, body.application or ""),
-        # Always derived from priority, never taken from the payload (see
-        # _sla_due_from_priority) - the frontend's own slaDueFromPriority call
-        # at submit time is just a same-request UI preview.
-        sla_due_on=_sla_due_from_priority(db, now, body.priority or "medium"), resolved_at="", created_at=now, modified_at=now,
+        # Always derived from priority, never taken from the payload - set
+        # by ticket_sla.start just below (sla_due_at + sla_due_on).
+        sla_due_on="", resolved_at="", created_at=now, modified_at=now,
     )
+    ticket_sla.start(t, ticket_sla.targets(db, t.priority))
     # The asset manager is TOLD (one bell below), not made a watcher: every
     # later status move / comment bells every watcher (property_links rule 6).
     if prop is not None:
@@ -1078,7 +1086,7 @@ def create_ticket(body: TicketBody, background_tasks: BackgroundTasks,
         # be born already assigned, or the gate is skippable by whoever files it.
         raise HTTPException(409, "This request needs approval - it can be assigned once approved.")
     if t.assignee_email and t.status == "open":
-        t.status = "in_progress"   # born assigned = already being worked (see update_ticket)
+        ticket_sla.set_status(t, "in_progress")   # born assigned = already being worked (see update_ticket)
     db.add(t)
     log_activity(db, type="created", actor_email=user["email"], entity_kind="ticket",
                  entity_id=t.id, entity_code=t.code, entity_title=t.subject,
@@ -1359,7 +1367,9 @@ def create_task_from_ticket(ticket_id: str, background_tasks: BackgroundTasks,
         priority=t.priority if t.priority in ("low", "medium", "high", "urgent") else "medium",
         assignee_emails=[assignee] if assignee else [],
         follower_emails=[w for w in (t.watcher_emails or []) if w and w != assignee],
-        due_on=(t.sla_due_on or "")[:10],
+        # The deadline's day in the actor's own clock (a task is due on a date).
+        due_on=(ticket_sla.local_day(t.sla_due_at, ticket_notify._zone_for(db, actor)) if t.sla_due_at
+                else (t.sla_due_on or "")[:10]),
     )
 
     def link(task: models.Task) -> None:
@@ -1550,7 +1560,7 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     prev_vendor, prev_cost = (t.maintenance_vendor or ""), (t.maintenance_cost or "")
     prev_status, prev_assignee, prev_priority = t.status, (t.assignee_email or "").strip().lower(), t.priority
     prev_type, prev_approval = (t.type or ""), (t.approval_status or "none")
-    prev_due = t.sla_due_on
+    prev_due = (t.sla_due_at or "", t.sla_due_on or "")
     # Captured for the audit trail below (_log_field_changes) - BEFORE the
     # mutation loop, and compared against the field's value after every
     # server-side re-derivation below has also run (service_area from a
@@ -1585,6 +1595,9 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
             # One spelling per person, in the order added, so "is X on it"
             # checks (participants, mentions) always match.
             v = list(dict.fromkeys(e for e in ((x or "").strip().lower() for x in (v or [])) if e))
+        if k == "status":
+            ticket_sla.set_status(t, v)   # pauses / resumes the SLA clock
+            continue
         setattr(t, k, v)
     # Re-picking the application re-derives the service area, so the two can
     # never disagree - unless the caller set an area explicitly in the same
@@ -1598,8 +1611,11 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     # date changes"). Mirrors create_ticket, which never trusts body.sla_due_on
     # either - any sla_due_on a caller sends is ignored; it is ALWAYS
     # recomputed from priority.
+    # Honest SLA (Oct 2026): both deadlines (resolution and first response),
+    # from created_at + the new targets + every completed pause - a paused
+    # ticket stays paused (ticket_sla.recompute).
     if "priority" in data and t.priority != prev_priority:
-        t.sla_due_on = _sla_due_from_priority(db, t.created_at, t.priority)
+        ticket_sla.recompute(t, ticket_sla.targets(db, t.priority))
     if data.get("status") in ("resolved", "closed") and not t.resolved_at:
         t.resolved_at = now_iso()
     if data.get("status") not in ("resolved", "closed") and "status" in data:
@@ -1611,7 +1627,7 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
     # in progress"). Only when the same request did not set a status itself.
     if ("assignee_email" in data and (t.assignee_email or "") and (t.assignee_email or "").lower() != prev_assignee
             and "status" not in data and t.status in ("open", "reopened")):
-        t.status = "in_progress"
+        ticket_sla.set_status(t, "in_progress")
 
     # ── Keep the approval gate in step with the ticket ────────────────────────
     # The gate is decided by the TYPE, so re-typing a ticket has to re-decide it.
@@ -1713,13 +1729,15 @@ def update_ticket(ticket_id: str, body: TicketUpdate, background_tasks: Backgrou
         _log("application_changed", f"changed application to {t.application or '-'}")
     if t.service_area != prev_service_area:
         _log("service_area_changed", f"changed service area to {t.service_area or '-'}")
-    if t.sla_due_on != prev_due:
-        # Not gated on "in data" like the fields above - sla_due_on is never
-        # in the payload now (see the pop() above), it only ever moves as a
-        # side effect of a priority change, and that's still worth a line in
-        # the audit trail (see this function's "gets logged if it actually
-        # happened" comment above the mutation loop).
-        _log("sla_changed", f"changed the SLA due date to {us_date(t.sla_due_on) if t.sla_due_on else '-'}")
+    if "priority" in data and (t.sla_due_at or "", t.sla_due_on or "") != prev_due:
+        # The deadline is never in the payload (see the pop() above); it
+        # moves as a side effect of a priority change, and that is worth a
+        # line in the audit trail. A pause ending also moves sla_due_at -
+        # the status line already says so, so it is not repeated here. Shown
+        # in the actor's own clock (date AND time - the deadline is a moment).
+        when = (ticket_notify._fmt(t.sla_due_at, ticket_notify._zone_for(db, user["email"])) if t.sla_due_at
+                else us_date(t.sla_due_on) if t.sla_due_on else "-")
+        _log("sla_changed", f"changed the SLA due date to {when}")
     if t.resolution != prev_resolution:
         _log("resolution_changed", f"set resolution to {_type_label(t.resolution) if t.resolution else '-'}")
     if (t.resolution_note or "") != prev_resolution_note and t.resolution_note:
@@ -2050,6 +2068,9 @@ def _record_ticket_comment(db: Session, t: models.TaskTicket, user: dict, text: 
     c = models.TaskComment(id=gen_id(), task_id=t.id, author_email=user["email"], body=text,
                            internal=internal, created_at=now_iso())
     db.add(c)
+    # Honest SLA: the first reply the requester can see, from someone other
+    # than them (or whoever filed it for them), stops the first-response clock.
+    ticket_sla.note_comment(t, user["email"], internal, c.created_at)
     # Resets the "needs a comment" staleness clock - internal notes count too,
     # any human touching the ticket is evidence someone's paying attention.
     t.last_comment_at = now_iso()
@@ -2761,7 +2782,7 @@ def decide_approval(ticket_id: str, body: ApprovalBody, background_tasks: Backgr
                         body=f"{ticket_no(t.code)} · {t.subject}", ticket_id=t.id, nexus_action=tk_action)
     else:
         # Rejected requests are closed - nothing downstream should act on them.
-        t.status = "closed"
+        ticket_sla.set_status(t, "closed")
         t.resolution = "wont_fix"
         t.resolved_at = now_iso()
         log_activity(db, type="rejected", actor_email=user["email"], entity_kind="ticket",

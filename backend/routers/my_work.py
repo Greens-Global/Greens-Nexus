@@ -64,6 +64,18 @@ def local_today(tz_offset_min: int, now: datetime | None = None) -> str:
     return (now - timedelta(minutes=off)).strftime("%Y-%m-%d")
 
 
+def _local_day(iso_at: str, tz_offset_min: int) -> str:
+    """The caller's calendar date of a stored UTC timestamp (local_today's
+    arithmetic)."""
+    try:
+        d = datetime.fromisoformat((iso_at or "").replace("Z", "+00:00"))
+    except ValueError:
+        return (iso_at or "")[:10]
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=timezone.utc)
+    return local_today(tz_offset_min, d.astimezone(timezone.utc))
+
+
 def bucket_of(due_on: str, today: str) -> str:
     """Which group a due date lands in for `today` (both YYYY-MM-DD; a blank
     or unreadable date is 'later')."""
@@ -147,7 +159,7 @@ def _my_open_tasks(db: Session, user: dict, me: str) -> list:
 
 
 # ── Tickets ──────────────────────────────────────────────────────────────────
-def _my_open_tickets(db: Session, user: dict, me: str) -> list:
+def _my_open_tickets(db: Session, user: dict, me: str, tz_offset_min: int = 0) -> list:
     """Open tickets the caller raised (or filed for someone - list_tickets'
     `mine` rule) or is assigned to. Resolved / closed are done; deleted ones
     never load (database._hide_soft_deleted)."""
@@ -185,7 +197,10 @@ def _my_open_tickets(db: Session, user: dict, me: str) -> list:
         out.append({
             "kind": "ticket", "id": t.id, "code": t.code or "", "title": t.subject or "Untitled ticket",
             "project": dept_cache[dept_id] or t.application or t.service_area or _title_case(t.type or "request"),
-            "dueOn": (t.sla_due_on or "")[:10],
+            # The SLA deadline's day on the caller's clock (Honest SLA - it
+            # is a moment, dueAt); a row with no datetime keeps its old date.
+            "dueOn": _local_day(t.sla_due_at, tz_offset_min) if t.sla_due_at else (t.sla_due_on or "")[:10],
+            "dueAt": t.sla_due_at or "",
             "status": status, "statusLabel": TICKET_STATUS_LABEL.get(status) or _title_case(status),
             "priority": t.priority or "medium", "unread": unread,
             # navigate(view) then nexus:open-ticket {ticketId} - lib/openTarget.js.
@@ -214,5 +229,5 @@ def my_work(tz_offset_min: int = 0, user: dict = Depends(get_current_user), db: 
     today = local_today(tz_offset_min)
     if not me:
         return group_items([], today)
-    items = _my_open_tasks(db, user, me) + _my_open_tickets(db, user, me)
+    items = _my_open_tasks(db, user, me) + _my_open_tickets(db, user, me, tz_offset_min)
     return group_items(items, today)

@@ -7,7 +7,8 @@ import { PersonSelect, PersonMultiSelect, DateField, SearchSelect, SelectMenu, A
 import { StatusLabel } from '../components/StatusLabel';
 import TeamPicks, { pickableTeams, firstTeamPick, toggleRoster } from '../tasks/teamPicks';
 import {
-  TICKET_TYPE_META, TICKET_STATUS_META, SLA_META, slaState, toEmailList, fmtDate,
+  TICKET_TYPE_META, TICKET_STATUS_META, SLA_META, slaState, toEmailList, fmtDueAt, fmtMoment,
+  firstResponseState,
 } from './ticketMeta';
 
 // The kit dropdown, shaped like the <select> it replaces (same value/onChange,
@@ -269,12 +270,34 @@ export function SlaBadge({ t, compact = false }) {
   const s = slaState(t);
   const m = SLA_META[s];
   if (!m) return null;
+  // Waiting on the requester: a soft label, not an alarm - the clock is stopped.
+  if (s === 'paused') {
+    return <StatusLabel label={m.label} color={m.color} size="sm" title="SLA paused - waiting on the requester" />;
+  }
   return (
     // A step down from the status/priority chip it sits beside - it qualifies
     // that chip rather than competing with it (Sagar, Sept 1 2026).
-    <span title={`SLA due ${fmtDate(t.slaDueOn)}`} style={{ ...chip(m.color, m.tint), display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, padding: '1px 7px' }}>
+    <span title={`SLA due ${fmtDueAt(t)}`} style={{ ...chip(m.color, m.tint), display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 11, padding: '1px 7px' }}>
       <m.Icon size={11} />{compact ? '' : m.label}
     </span>
+  );
+}
+
+// The first-response clock, for the drawer (Honest SLA, Oct 2026):
+// "Respond By ..." while it runs, "Responded ..." once someone other than the
+// requester replied where they can see it, "Response Overdue" past the target.
+export function FirstResponseIndicator({ t }) {
+  const s = firstResponseState(t);
+  if (s === 'none') return null;
+  const text = s === 'responded' ? `Responded ${fmtMoment(t.firstResponseAt)}`
+    : s === 'overdue' ? `Response Overdue - Due ${fmtMoment(t.firstResponseDueAt)}`
+    : s === 'paused' ? 'Response Clock Paused'
+    : `Respond By ${fmtMoment(t.firstResponseDueAt)}`;
+  const color = s === 'overdue' ? NX.red : s === 'responded' ? NX.green : s === 'paused' ? '#64748b' : NX.dim;
+  return (
+    <div data-testid="ticket-first-response" style={{ fontSize: 12, color, fontWeight: s === 'overdue' ? 700 : 500, marginTop: 4 }}>
+      {text}
+    </div>
   );
 }
 

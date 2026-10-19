@@ -297,19 +297,19 @@ def _overdue_tasks(db: Session, emails: set, today: str) -> dict:
 
 
 def _breached_tickets(db: Session, emails: list, today: str) -> dict:
-    """{email: [(sla_due_on, ticket)]} - open tickets assigned to a team member
-    whose SLA date has passed (tickets._sla_breached)."""
-    from routers.tickets import _sla_breached
+    """{email: [(due date, ticket)]} - open tickets assigned to a team member
+    whose SLA deadline has passed (tickets._sla_breached - to the minute,
+    and not while paused waiting on the requester). The date is the
+    deadline's UTC day, for sorting beside the tasks' due dates."""
+    import ticket_sla
     rows = (db.query(models.TaskTicket)
             .filter(func.lower(models.TaskTicket.assignee_email).in_(emails),
-                    models.TaskTicket.status.notin_(["resolved", "closed"]),
-                    models.TaskTicket.sla_due_on != "",
-                    models.TaskTicket.sla_due_on < today,
+                    ticket_sla.breached_filter(ticket_sla.iso(ticket_sla.utcnow())),
                     (models.TaskTicket.deleted_at == "") | (models.TaskTicket.deleted_at.is_(None))).all())
     out: dict = {}
     for t in rows:
-        if _sla_breached(t):
-            out.setdefault((t.assignee_email or "").lower(), []).append(((t.sla_due_on or "")[:10], t))
+        if ticket_sla.breached(t):
+            out.setdefault((t.assignee_email or "").lower(), []).append(((t.sla_due_at or t.sla_due_on or "")[:10], t))
     return out
 
 

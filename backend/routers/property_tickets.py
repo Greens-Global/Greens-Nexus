@@ -403,7 +403,8 @@ def add_maintenance_record(property_id: str, ticket_id: str, body: MaintenanceRe
     # The ticket carries what was paid, and logging it is the sign-off: closed.
     t.maintenance_vendor, t.maintenance_cost = vendor, cost
     if t.status != "closed":
-        t.status = "closed"
+        import ticket_sla
+        ticket_sla.set_status(t, "closed")   # stops the SLA clock
     t.modified_at = now
     if doc_url:
         db.add(models.TaskAttachment(id=gen_id(), task_id=t.id, name=rec.doc_name or "Invoice", size="",

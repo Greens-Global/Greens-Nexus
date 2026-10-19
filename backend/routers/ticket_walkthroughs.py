@@ -50,6 +50,7 @@ from sqlalchemy.orm import Session
 import code_sequence
 import models
 import property_links
+import ticket_sla
 import ticket_taxonomy
 from auth import get_current_user
 from database import get_db
@@ -313,7 +314,8 @@ def create_walkthrough(body: WalkthroughBody, background_tasks: BackgroundTasks,
     # told once (_bells) and NOT made a watcher - property_links rule 6.
     watchers = T._with_creator(body.watcher_emails, requester, me)
     service_areas = {c["application"]: T.service_area_for(db, c["application"]) for c in clean}
-    sla = {p: T._sla_due_from_priority(db, now, p) for p in {c["priority"] for c in clean}}
+    # Honest SLA: the targets per priority, read before the lock (ticket_sla.start below).
+    sla = {p: ticket_sla.targets(db, p) for p in {c["priority"] for c in clean}}
 
     # 3. Lock, re-check (a twin of this request may have committed while we
     #    validated - Postgres shows its row once the lock is granted), take a
@@ -339,12 +341,13 @@ def create_walkthrough(body: WalkthroughBody, background_tasks: BackgroundTasks,
             tags=[], images=[], watcher_emails=list(watchers), resolution="", custom_field_values={},
             type_fields={"svc_unit": c["location"]} if c["location"] else {}, links=[], task_ids=[],
             component="", csat_rating=0, csat_comment="", application=c["application"],
-            service_area=service_areas[c["application"]], sla_due_on=sla[c["priority"]], resolved_at="",
+            service_area=service_areas[c["application"]], sla_due_on="", resolved_at="",
             created_at=now, modified_at=now, property_asset_id=prop_id, property_name=prop_name,
             batch_id=batch_id, approver_email="", property_locked=1 if body.property_locked and prop is not None else 0,
             approval_status="pending" if c["type"] in gated else "none")
+        ticket_sla.start(t, sla[c["priority"]])
         if t.assignee_email:
-            t.status = "in_progress"   # born assigned = already being worked (create_ticket's rule)
+            ticket_sla.set_status(t, "in_progress")   # born assigned = already being worked (create_ticket's rule)
         db.add(t)
         for k, url in enumerate(c["images"]):
             db.add(models.TaskAttachment(id=gen_id(), task_id=t.id, name=f"Photo {k + 1}", size="",
