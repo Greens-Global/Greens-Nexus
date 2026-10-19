@@ -1106,6 +1106,8 @@ def _run_migrations():
             "ALTER TABLE task_tickets ADD COLUMN sla_res_alerted_at VARCHAR DEFAULT ''",
             # Ticket default assignee per department (Oct 2026, ticket_auto_assign.py). models.TicketDepartment.
             "ALTER TABLE ticket_departments ADD COLUMN default_assignee_email VARCHAR DEFAULT ''",
+            # A decided punch-fix request cleared from the employee's list (Oct 19). models.PunchRequest.
+            "ALTER TABLE punch_requests ADD COLUMN employee_dismissed_at VARCHAR DEFAULT ''",
         ]
         with engine.connect() as conn:
             for sql in sqlite_migrations:
@@ -2466,6 +2468,8 @@ def _run_migrations():
         # Ticket saved replies (Oct 2026) - a new table: explicit RLS on top of
         # the _enable_rls_everywhere sweep. models.TicketSavedReply.
         "ALTER TABLE ticket_saved_replies ENABLE ROW LEVEL SECURITY",
+        # A decided punch-fix request cleared from the employee's list (Oct 19). models.PunchRequest.
+        "ALTER TABLE punch_requests ADD COLUMN IF NOT EXISTS employee_dismissed_at VARCHAR DEFAULT ''",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't

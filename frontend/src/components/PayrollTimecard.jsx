@@ -2381,13 +2381,29 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
     if (inAt && outAt && new Date(outAt) <= new Date(inAt)) {
       fail('The clock-out has to be after the clock-in.'); return;
     }
+    // A pair of requests goes in whole or not at all: when the second half is
+    // refused, the first is taken back, so closing the popup after the error
+    // really leaves nothing behind (Miranda, Oct 18: the clock-in stayed
+    // pending and blocked her next try as "already asked").
+    const sendRequests = async (bodies) => {
+      const sent = [];
+      try {
+        for (const b of bodies) sent.push(await api.timePunchRequestCreate(b));
+      } catch (err) {
+        for (const r of sent) { if (r?.id) await api.timeCancelPunchRequest(r.id).catch(() => {}); }
+        if (sent.length) window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));
+        throw err;
+      }
+    };
     // A break: the two times are its start and end, inside a shift that day.
     if (isBreak && canAddBreak && self) {
       if (!reason.trim()) { fail('Add a reason so your approver can confirm it.'); return; }
       setBusy(true);
       try {
-        await api.timePunchRequestCreate({ action: 'add', punch_kind: 'break_start', at: inputToUtc(inAt), tz_offset_min: tzFor(inAt), reason: reason.trim() });
-        await api.timePunchRequestCreate({ action: 'add', punch_kind: 'break_end', at: inputToUtc(outAt), tz_offset_min: tzFor(outAt), reason: reason.trim() });
+        await sendRequests([
+          { action: 'add', punch_kind: 'break_start', at: inputToUtc(inAt), tz_offset_min: tzFor(inAt), reason: reason.trim() },
+          { action: 'add', punch_kind: 'break_end', at: inputToUtc(outAt), tz_offset_min: tzFor(outAt), reason: reason.trim() },
+        ]);
         toastOk?.('Request sent to your approver - it shows on your time sheet as Not Yet Approved until they decide.');
         window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));
         onDone();
@@ -2416,10 +2432,8 @@ function PunchEditModal({ day, email, categories = [], busy, setBusy, onDone, on
         const adds = [];
         if (needIn) adds.push(['in', inAt]);
         if (needOut) adds.push(['out', outAt]);
-        for (const [kind, at] of adds) {
-          await api.timePunchRequestCreate({ action: 'add', punch_kind: kind, at: inputToUtc(at), tz_offset_min: tzFor(at), reason: reason.trim(),
-            category: kind === 'in' && LEAVE_TYPES.includes(type) ? type : '' });
-        }
+        await sendRequests(adds.map(([kind, at]) => ({ action: 'add', punch_kind: kind, at: inputToUtc(at), tz_offset_min: tzFor(at), reason: reason.trim(),
+          category: kind === 'in' && LEAVE_TYPES.includes(type) ? type : '' })));
         toastOk?.('Request sent to your approver - it shows on your time sheet as Not Yet Approved until they decide.');
         window.dispatchEvent(new CustomEvent('nexus:timeclock-changed'));   // refresh the request stack
         onDone();

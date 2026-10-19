@@ -1521,6 +1521,9 @@ export const api = {
   timesheetReviewSendBack: (id, note)         => req(`/timesheet-review/${id}/send-back`, { method: 'POST', body: JSON.stringify({ note }) }),
   timesheetReviewAgree:    (id, note = '')    => req(`/timesheet-review/${id}/agree`, { method: 'POST', body: JSON.stringify({ note }) }),
   timeDecidePunchRequest: (id, data) => req(`/timeclock/punch-requests/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  timeCancelPunchRequest:  (id) => req(`/timeclock/punch-requests/${id}/cancel`, { method: 'POST' }),
+  timeDismissPunchRequest: (id) => req(`/timeclock/punch-requests/${id}/dismiss`, { method: 'POST' }),
+  timeDismissDecidedPunchRequests: () => req('/timeclock/punch-requests/dismiss-decided', { method: 'POST' }),
   // Employee's own bi-weekly pay-period timecard (payroll rows + composition)
   timeMyPayroll:          (start) => req(`/timeclock/my-payroll?start=${start || ''}`),
   timeOffCreate:     (data)      => req('/timeclock/timeoff', { method: 'POST', body: JSON.stringify(data) }),
