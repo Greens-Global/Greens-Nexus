@@ -22,7 +22,7 @@ import { replayPendingBods, bodDurable } from '../lib/bodQueue';
 import { formatTime, formatDate, formatWeekday, formatHHMM, formatMonthDay } from '../lib/datetime';
 import { dialog } from '../ui/dialog';
 import { getPosition, punchPosition } from '../lib/geoPosition';
-import { requiredPunchPosition, showLocationRequired, locationPermission, isLocationRequiredError, needsLocation } from '../lib/punchLocation';
+import { askPunchPosition } from '../lib/punchLocation';
 import { MyHROverview } from './MyHR';
 import { leaveRequestDays, openShiftMinutes } from '../lib/workdayStats';
 import { timeOffLabel } from '../components/shiftScheduleLib';
@@ -788,13 +788,6 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
         return;
       }
     }
-    // Require Location to Punch (Oct 19 2026): a browser that has already
-    // said no is told how to fix it BEFORE the day message, so nobody writes
-    // a message for a punch that cannot record.
-    if (needsLocation(status, kind) && await locationPermission() === 'denied') {
-      await showLocationRequired('denied');
-      return;
-    }
     // Role-flagged people (Neil, Aug 25: field workers who cannot type) skip
     // every message prompt - the punch goes straight through.
     if (status?.bodExempt) {
@@ -863,20 +856,15 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       kind === 'out' ? punchPosition('out') : getPosition(9000),   // out: a recent fix if a fresh one is slow
       kind === 'in' ? pairLocalAgent() : Promise.resolve(''),
     ]);
-    // Require Location to Punch (Oct 19 2026): no fix -> one more try with a
-    // longer timeout, then a blocking how-to instead of a location-less punch.
-    const pos = needsLocation(status, kind) ? await requiredPunchPosition(firstPos) : firstPos;
-    if (needsLocation(status, kind) && !pos) {
-      setBusy('');
-      await showLocationRequired();
-      return;
-    }
+    // No fix: the person is asked to share their location (Try Again) or
+    // punch without it - never blocked (Visesh, Oct 20).
+    const { pos, locationOff } = await askPunchPosition(firstPos);
     // punchDurable retries and, if the server still can't be reached, parks the
     // punch for replay. The Teams message has already gone out by this point, so
     // a punch quietly dropped here is the one failure this screen must not have.
     const clickedAt = gateClickRef.current;
     const res = await punchDurable({
-      kind, tzOffsetMin: new Date().getTimezoneOffset(), clickedAt, pos,
+      kind, tzOffsetMin: new Date().getTimezoneOffset(), clickedAt, pos, locationOff,
       extra: pairNonce ? { pair_nonce: pairNonce } : null,
     });
     if (res.ok) {
@@ -886,7 +874,7 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
         : p.geoStatus === 'out_of_fence' ? ' - Out of Location, flagged for review'
         : p.geoStatus === 'remote' ? ' - remote'
         : p.geoStatus === 'low_accuracy' ? ' - location too approximate to judge (no GPS on this device)'
-        : pos ? '' : ' - location unavailable, recorded without it';
+        : pos ? '' : locationOff ? ' - Location Off, recorded without a location' : ' - No Location, recorded without a location';
       toast(true, `${KIND_DONE[kind] || KIND_META[kind].label} at ${localTime(p.at)}${where}.`);
       window.dispatchEvent(new CustomEvent('nexus:timeclock-changed')); // sync the global mini-timer
       load();
@@ -906,12 +894,6 @@ export default function TimeClock({ initialTab = 'clock', activeSub, onSubChange
       if (res.unreachable) {
         setParked({ kind, at: clickedAt || utcStamp(), held: !!res.queued });
         setLostModal(true);
-      } else if (isLocationRequiredError(e)) {
-        // The switch went on after this page loaded: same how-to as above.
-        setBusy('');
-        load();
-        await showLocationRequired();
-        return;
       } else toast(false, e?.message || 'Punch failed.');
     }
     setBusy('');

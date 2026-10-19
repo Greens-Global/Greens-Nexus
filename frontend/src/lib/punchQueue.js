@@ -71,9 +71,10 @@ async function landedPunch(kind) {
  *      or { ok: false, error, unreachable?, queued? } - unreachable means the
  *      server never gave an answer, queued means it is parked for replay.
  */
-export async function punchDurable({ kind, tzOffsetMin, clickedAt = '', pos = null, extra = null }) {
+export async function punchDurable({ kind, tzOffsetMin, clickedAt = '', pos = null, extra = null, locationOff = false }) {
   const body = {
     kind, ...(pos || {}), tz_offset_min: tzOffsetMin,
+    ...(!pos && locationOff ? { location_off: true } : {}),   // shows Location Off, not No Location
     ...(clickedAt ? { clicked_at: clickedAt } : {}),
     ...(extra || {}),
   };

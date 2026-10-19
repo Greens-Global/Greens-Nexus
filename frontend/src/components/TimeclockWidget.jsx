@@ -8,7 +8,7 @@ import { useTimeStatus, applyPunch } from '../lib/useTimeStatus';
 import { useLocationTrail } from '../lib/useLocationTrail';
 import { punchDurable, replayPending, readPending } from '../lib/punchQueue';
 import { punchPosition, keepPositionWarm } from '../lib/geoPosition';
-import { requiredPunchPosition, showLocationRequired, locationPermission, isLocationRequiredError, LOCATION_SHORT } from '../lib/punchLocation';
+import { askPunchPosition } from '../lib/punchLocation';
 import { replayPendingBods, bodDurable } from '../lib/bodQueue';
 import { useRole } from '../contexts/RoleContext';
 import { rememberTimeExempt } from '../lib/timeTracking';
@@ -383,15 +383,6 @@ export default function TimeclockWidget() {
     if (busy || breakBusy || punchFlight.current) return false;   // a sheet must not close on a tap that did nothing
     punchFlight.current = true;
     setBreakBusy(true);
-    // Require Location to Punch (Oct 19 2026): a browser that already said
-    // no is told how to fix it before any prompt.
-    if (status?.locationRequired && await locationPermission() === 'denied') {
-      say(LOCATION_SHORT);
-      setBreakBusy(false);
-      punchFlight.current = false;
-      showLocationRequired('denied');
-      return false;
-    }
     // Coming back from a break needs the screen shared where the policy
     // requires it (same rule as the Workday page and the Punch tile): the
     // browser only grants a share on a user gesture, so it starts here,
@@ -425,17 +416,11 @@ export default function TimeclockWidget() {
     // from here read "Location off" on the timecard (Charmi, Sep 29).
     let res;
     try {
-      let pos = (await (breakPosRef.current || punchPosition(kind))) ?? await punchPosition(kind);   // a miss asks once more, as before
+      const first = (await (breakPosRef.current || punchPosition(kind))) ?? await punchPosition(kind);   // a miss asks once more, as before
       breakPosRef.current = null;
-      // Require Location to Punch (Oct 19 2026): one longer try, then the
-      // how-to - never a location-less punch.
-      if (status?.locationRequired && !pos) pos = await requiredPunchPosition(null);
-      if (status?.locationRequired && !pos) {
-        say(LOCATION_SHORT);
-        await showLocationRequired();
-        return false;
-      }
-      res = await punchDurable({ kind, tzOffsetMin: new Date().getTimezoneOffset(), pos, clickedAt: breakClickRef.current || undefined });
+      // Still no fix: ask them to share it, or punch without (Visesh, Oct 20).
+      const { pos, locationOff } = await askPunchPosition(first);
+      res = await punchDurable({ kind, tzOffsetMin: new Date().getTimezoneOffset(), pos, locationOff, clickedAt: breakClickRef.current || undefined });
       if (res.ok) {
         setLostOut(false);
         applyPunch(res.punch);   // the chip flips now; the re-read confirms
@@ -447,7 +432,6 @@ export default function TimeclockWidget() {
         // Refused by the server (already on a break, a stale shift): say why,
         // or the tap looks like it did nothing at all.
         say(res.error?.message || 'Punch failed.');
-        if (isLocationRequiredError(res.error)) { load(); showLocationRequired(); }
       }
     } finally {
       // One stamp per tap: a refused punch must not hand its moment to the next.
@@ -489,10 +473,9 @@ export default function TimeclockWidget() {
       return false;
     }
     eodAckRef.current = false;
-    // Clock-out never waits on Require Location to Punch (Visesh, Oct 19): it
-    // always lands, and reads "No Location" on the Time Sheet without one.
-    const pos = await punchPosition('out');   // short budget: the punch landing comes first
-    const res = await punchDurable({ kind: 'out', tzOffsetMin: new Date().getTimezoneOffset(), pos });
+    // No fix: ask them to share it, or clock out without (Visesh, Oct 20).
+    const { pos, locationOff } = await askPunchPosition(punchPosition('out'));   // short budget: the punch landing comes first
+    const res = await punchDurable({ kind: 'out', tzOffsetMin: new Date().getTimezoneOffset(), pos, locationOff });
     if (res.ok) {
       setLostOut(false);
       stopCapture();
@@ -506,7 +489,6 @@ export default function TimeclockWidget() {
       setEodGate(true);    // a stale status let it go out without its message
     } else {
       say(res.error?.message || 'Punch failed.');
-      if (isLocationRequiredError(res.error)) { load(); showLocationRequired(); }
     }
     setBusy(false);
     return !!res.ok;

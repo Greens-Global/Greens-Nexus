@@ -18,7 +18,7 @@ import BodModal from '../../components/BodModal';
 import { punchDurable, replayPending, readPending } from '../../lib/punchQueue';
 import { bodDurable } from '../../lib/bodQueue';
 import { punchPosition } from '../../lib/geoPosition';
-import { requiredPunchPosition, showLocationRequired, locationPermission, isLocationRequiredError, needsLocation, LOCATION_NEXT_STEP, LOCATION_SHORT } from '../../lib/punchLocation';
+import { askPunchPosition } from '../../lib/punchLocation';
 import { applyPunch, useTimeStatus, refetchTimeStatusFresh } from '../../lib/useTimeStatus';
 import { pairLocalAgent } from '../../lib/agentPair';
 import { formatTime } from '../../lib/datetime';
@@ -163,13 +163,6 @@ export function usePunchClock() {
       say(false, CONSENT_TEXT, CONSENT_SHORT);
       return false;
     }
-    // Require Location to Punch (Oct 19 2026): a browser that already said
-    // no is told how to fix it before the screen picker or any message.
-    if (needsLocation(status, kind) && await locationPermission() === 'denied') {
-      say(false, `Your company requires a location to punch. ${LOCATION_NEXT_STEP}`, LOCATION_SHORT);
-      await showLocationRequired('denied');
-      return false;
-    }
     posRef.current = punchPosition(kind);
     // Screen share for a clock-in / back-from-break, started from within this
     // click: the browser only grants sharing on a user gesture. start()
@@ -245,18 +238,10 @@ export function usePunchClock() {
       // No fix from the early start (its permission bubble can sit behind the
       // share picker on a first use): ask once more now, as before - a denied
       // or unsupported device answers instantly, so this never waits twice.
-      let pos = early ?? await punchPosition(kind);
-      // Require Location to Punch (Oct 19 2026): one longer try, then the
-      // how-to - never a location-less punch.
-      if (needsLocation(status, kind) && !pos) pos = await requiredPunchPosition(null);
-      if (needsLocation(status, kind) && !pos) {
-        if (kind === 'in') dropCapture();
-        say(false, `Your company requires a location to punch. ${LOCATION_NEXT_STEP}`, LOCATION_SHORT);
-        await showLocationRequired();
-        return;
-      }
+      // Still no fix: ask them to share it, or punch without (Visesh, Oct 20).
+      const { pos, locationOff } = await askPunchPosition(early ?? punchPosition(kind));
       const res = await punchDurable({
-        kind, tzOffsetMin: new Date().getTimezoneOffset(), pos,
+        kind, tzOffsetMin: new Date().getTimezoneOffset(), pos, locationOff,
         // The moment the button was pressed, when a prompt stood between it
         // and the punch (the server backdates, bounded to 15 minutes).
         clickedAt: clickedAt.current || undefined,
@@ -300,11 +285,6 @@ export function usePunchClock() {
         // without its message - open the prompt and the punch follows it.
         setGate(res.error.detail.code === 'bod_required' ? 'bod' : 'eod');
         return;
-      } else if (isLocationRequiredError(res.error)) {
-        // The switch went on after this status was read.
-        say(false, res.error.message, LOCATION_SHORT);
-        loadStatus();
-        showLocationRequired();
       } else {
         say(false, res.error?.message || 'Punch failed.');
       }
