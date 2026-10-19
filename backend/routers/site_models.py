@@ -124,6 +124,12 @@ def with_live(model: Dict[str, Any]) -> Dict[str, Any]:
     """The model with Cubby's current inventory merged on (see the module doc).
     Pure given the Cubby answer; the Cubby call itself is cached per facility."""
     fac = (model.get("property") or {}).get("cubbyFacilityId") or ""
+    if not fac and (model.get("property") or {}).get("unitSource"):
+        # Another operator's store (CubeSmart): the newest uploaded rent roll, else the built snapshot
+        import third_party
+        uploaded = third_party.rent_roll_live(model)
+        if uploaded:
+            return uploaded
     if not fac or not cubby_client.enabled():
         return {**model, "live": _snapshot_live(model, enabled=False, reason="CUBBY_API_KEY is not set" if fac else "No Cubby facility on this model")}
     live, as_of, err = cubby_client.units_for(fac)

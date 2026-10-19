@@ -2480,6 +2480,14 @@ def _run_migrations():
         # and the ledger - a new table, explicit RLS. models.LeaveLedgerEntry.
         "ALTER TABLE nexus_employees ADD COLUMN IF NOT EXISTS leave_policy VARCHAR DEFAULT ''",
         "ALTER TABLE leave_ledger ENABLE ROW LEVEL SECURITY",
+        # Third-party managed properties (Operations, Oct 20 2026): CubeSmart's
+        # SRE Summary, Daily Flash and rent roll. Five new tables - RLS per
+        # CLAUDE.md. third_party_models.py.
+        "ALTER TABLE third_party_properties ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE third_party_sre_months ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE third_party_flash_days ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE third_party_rent_rolls ENABLE ROW LEVEL SECURITY",
+        "ALTER TABLE third_party_imports ENABLE ROW LEVEL SECURITY",
     ]
     # Commit per statement, roll back per failure. With a single end-of-loop
     # commit, one failing statement (e.g. an ALTER on a table this DB doesn't
@@ -3351,6 +3359,16 @@ async def lifespan(app: FastAPI):
                 print("[startup] Cubby snapshot loop skipped (not the deployed worker)")
         except Exception as e:
             print(f"[startup] Cubby snapshot loop skipped: {e}")
+        # Third-party properties nightly fetch (Operations, Oct 20 2026): OFF
+        # unless NEXUS_THIRD_PARTY_FETCH=on and the source's credentials are
+        # app settings - the loop idles otherwise. Deployed worker only.
+        try:
+            from leader import is_deployed_worker
+            if is_deployed_worker():
+                from third_party_fetch import third_party_fetch_loop
+                _tasks.append(_a.create_task(third_party_fetch_loop()))
+        except Exception as e:
+            print(f"[startup] third-party fetch loop skipped: {e}")
         # Market watch (Operations, Oct 2026): once a day, reads each watched
         # competitor's public pricing page (robots.txt honored, identified
         # reader). Deployed worker only - a laptop must not send those requests.
@@ -3874,3 +3892,5 @@ from routers import leave_balances as leave_balances_router  # noqa: E402
 app.include_router(leave_balances_router.router)  # Paid leave balances: policies, opening import, accrual (Neil / Charmi, 10/19)
 from routers import location_trail as location_trail_router  # noqa: E402
 app.include_router(location_trail_router.router)  # Time Clock: Location Trail While Clocked In - web pings + manager map (Neil, 10/20)
+from routers import third_party as third_party_router  # noqa: E402 - also registers third_party_models before create_all
+app.include_router(third_party_router.router)     # Operations: CubeSmart-managed stores - SRE / Daily Flash / rent roll upload, nightly fetch OFF (Neil, 10/20)
