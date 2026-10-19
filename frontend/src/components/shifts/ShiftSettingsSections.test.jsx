@@ -363,6 +363,20 @@ describe('Companies', () => {
     await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ otAlertWeeklyLeadMin: 0 }, ''));
   });
 
+  // Stalled Time Sheet escalation (Oct 19-20 2026): default 2 days, 0 = off, clamped to 30.
+  it('saves the days before an unapproved time sheet escalates', async () => {
+    render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} />);
+    const days = await screen.findByLabelText('Escalate unapproved time sheets after');
+    expect(days.value).toBe('2');
+    expect(screen.getByText('Escalate Unapproved Time Sheets After (Days)')).toBeTruthy();
+    fireEvent.change(days, { target: { value: '45' } });
+    fireEvent.blur(days);
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ timesheetEscalateDays: 30 }, ''));
+    fireEvent.change(days, { target: { value: '0' } });
+    fireEvent.blur(days);
+    await waitFor(() => expect(shiftRequestSettingsSaveFor).toHaveBeenLastCalledWith({ timesheetEscalateDays: 0 }, ''));
+  });
+
   it('shows the defaults (10 and 15) when the API sends none, and an unchanged value saves nothing', async () => {
     render(<ShiftSettingsPanel toastOk={toastOk} toastErr={toastErr} />);
     const noShow = await screen.findByLabelText('No-show alert');

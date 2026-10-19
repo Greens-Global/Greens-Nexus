@@ -10383,6 +10383,8 @@ def set_payroll_rate(body: RateIn, user: dict = Depends(require_team_write),
     scope = _visible_emails(db, user)
     if scope is not None and em not in scope:
         raise HTTPException(403, "Outside your team")
+    from own_pay import refuse_own_pay   # nobody sets their own rate (Oct 20)
+    refuse_own_pay(db, user, em, min_level=4, module_id="hr", exclude_level=3)
     row = db.query(PayrollRate).filter(PayrollRate.employee_email == em).first()
     if not row:
         row = PayrollRate(employee_email=em)

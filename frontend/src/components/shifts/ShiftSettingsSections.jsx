@@ -258,6 +258,10 @@ export function ShiftSettingsPanel({ toastOk, toastErr }) {
                   hint="Tells the person's manager, their backup manager and the team's schedulers when a shared shift has started, the grace has passed, and this many minutes have gone by with no clock-in. The alert always lands inside the six hours after the start. 0 turns it off." />
                 <MinutesField label="Left Early" aria="Left early" value={cfg.leftEarlyMin} fallback={15} onSave={(n) => save({ ...cfg, leftEarlyMin: n })}
                   hint="Clocking out this many minutes before the shift's end counts as leaving early on the schedule." />
+                {/* Stalled Time Sheet escalation (Oct 19 2026, timesheet_alerts.py). */}
+                <MinutesField label="Escalate Unapproved Time Sheets After (Days)" aria="Escalate unapproved time sheets after" unit="days" max={30}
+                  value={cfg.timesheetEscalateDays} fallback={2} onSave={(n) => save({ timesheetEscalateDays: n })}
+                  hint="Days after a pay period ends before a time sheet still waiting on its approver is sent up to the approver's own manager, or else the company's HR contact. 0 turns it off." />
               </div>
               <label style={{ ...CHECK, marginTop: 8 }}><input type="checkbox" checked={cfg.noShowOnUsualHours === true} onChange={(e) => save({ noShowOnUsualHours: e.target.checked })} /> Alert for usual hours too</label>
               <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>Also alerts for office staff who have usual hours but no shift on the schedule that day. Time off and holidays excuse those.</div>
