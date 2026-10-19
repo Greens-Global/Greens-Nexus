@@ -1985,6 +1985,12 @@ def finalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrat
                        approved_by=user["email"], approved_at=_now_iso(), kind="final",
                        note=_snap)
     db.add(row)
+    # The last time sheet of the company's period: tell HR the QuickBooks
+    # export is ready (Neil, Oct 19). Never blocks the finalize.
+    try:
+        _notify_period_ready(db, email, body.start, body.end, _is_fixed)
+    except Exception as _ready_err:  # noqa: BLE001
+        print(f"[payroll-ready] {email} {body.start}: {_ready_err}")
     # Signed snapshot for the employee's record - the finalized hours plus all three
     # signatures (their own, the manager's approval, this HR finalization). The
     # just-added finalize row isn't flushed yet, so it's passed in explicitly.
@@ -2009,6 +2015,60 @@ def finalize_timecard(body: FinalizeIn, user: dict = Depends(require_administrat
                action={"view": "timeclock", "sub": "timesheet"})
     db.commit()
     return {"finalized": {"by": row.approved_by, "at": row.approved_at, "workedMin": worked}}
+
+
+def _notify_period_ready(db: Session, email: str, start: str, end: str, is_fixed: bool) -> None:
+    """When the time sheet just finalized is the last open one of its
+    company's pay period, one bell to that company's HR contact: the period
+    is ready for the QuickBooks export, with the sick / vacation hours in it
+    so QuickBooks knows what leave was used (Neil, Oct 19: "Charmi should get
+    some sort of a notification on her exported time card file"). "Everyone"
+    = the company's people with punches in the period on the same pay basis
+    (hourly by period, salaried by month). Once per company and period."""
+    import timesheet_review
+    from models import HrEntity
+    em = (email or "").strip().lower()
+    emp = db.query(NexusEmployee).filter(func.lower(NexusEmployee.work_email) == em).first()
+    company = (emp.company if emp else "") or ""
+    hr = timesheet_review.hr_of(db, em)
+    if not company or not hr:
+        return
+    ref = f"payroll-ready:{company}:{start}:{end}"
+    if db.query(NexusNotification).filter(NexusNotification.ref_id == ref,
+                                          NexusNotification.recipient == hr).first():
+        return
+    _end_nx = (date.fromisoformat(end) + timedelta(days=1)).isoformat()
+    punched = {(e or "").lower() for (e,) in db.query(TimePunch.employee_email)
+               .filter(TimePunch.voided == 0, TimePunch.at >= start, TimePunch.at < _end_nx).distinct().all()}
+    staff = {(e.work_email or "").lower() for e in db.query(NexusEmployee.work_email)
+             .filter(NexusEmployee.company == company, NexusEmployee.work_email != "").all()}
+    exempt = time_tracking_exempt_emails(db)
+    people = {p for p in (punched & staff) - set(exempt)
+              if (_pay_type(db, p) == "fixed") == bool(is_fixed)}
+    people.add(em)
+    done = {(e or "").lower() for (e,) in db.query(TimeApproval.employee_email)
+            .filter(TimeApproval.kind == "final", TimeApproval.revoked == 0,
+                    TimeApproval.period_start == start, TimeApproval.period_end == end).all()}
+    done.add(em)           # the row just added is not flushed yet
+    if people - done:
+        return
+    sick = vac = 0
+    for p in people:
+        try:
+            t = (_fixed_card(db, p, start) if is_fixed else _compute_timecard(db, p, start, end)).get("totals", {})
+        except Exception:  # noqa: BLE001 - a card that will not read just leaves its hours out
+            continue
+        sick += int(t.get("sickMin") or 0) + int(t.get("personalMin") or 0)
+        vac += int(t.get("vacationMin") or 0)
+    ent = db.query(HrEntity).filter(HrEntity.id == company).first()
+    name = (ent.name if ent else "") or "Your company"
+    leave = (f" Leave in it: {sick / 60:g} h sick, {vac / 60:g} h vacation - enter it against each person's "
+             f"balance in QuickBooks." if (sick or vac) else " No sick or vacation hours in it.")
+    _hr_notify(db, hr, "Payroll Ready to Export",
+               f"All {len(people)} time sheet{'s' if len(people) != 1 else ''} for {name}, {_us_span(start, end)}, "
+               f"are finalized. Download the QuickBooks IIF from People > Time > Payroll.{leave}",
+               ref_id=ref, priority=1,
+               action={"view": "hr", "sub": "hr-time", "start": start, "payType": "fixed" if is_fixed else "hourly"})
 
 
 @router.post("/unfinalize")
