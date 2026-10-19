@@ -7,6 +7,7 @@ import { pollWhileVisible } from '../lib/pollWhileVisible';
 import { useTimeStatus, applyPunch } from '../lib/useTimeStatus';
 import { punchDurable, replayPending, readPending } from '../lib/punchQueue';
 import { punchPosition, keepPositionWarm } from '../lib/geoPosition';
+import { requiredPunchPosition, showLocationRequired, locationPermission, isLocationRequiredError, LOCATION_SHORT } from '../lib/punchLocation';
 import { replayPendingBods, bodDurable } from '../lib/bodQueue';
 import { useRole } from '../contexts/RoleContext';
 import { rememberTimeExempt } from '../lib/timeTracking';
@@ -378,6 +379,15 @@ export default function TimeclockWidget() {
     if (busy || breakBusy || punchFlight.current) return false;   // a sheet must not close on a tap that did nothing
     punchFlight.current = true;
     setBreakBusy(true);
+    // Require Location to Punch (Oct 19 2026): a browser that already said
+    // no is told how to fix it before any prompt.
+    if (status?.locationRequired && await locationPermission() === 'denied') {
+      say(LOCATION_SHORT);
+      setBreakBusy(false);
+      punchFlight.current = false;
+      showLocationRequired('denied');
+      return false;
+    }
     // Coming back from a break needs the screen shared where the policy
     // requires it (same rule as the Workday page and the Punch tile): the
     // browser only grants a share on a user gesture, so it starts here,
@@ -411,8 +421,16 @@ export default function TimeclockWidget() {
     // from here read "Location off" on the timecard (Charmi, Sep 29).
     let res;
     try {
-      const pos = (await (breakPosRef.current || punchPosition(kind))) ?? await punchPosition(kind);   // a miss asks once more, as before
+      let pos = (await (breakPosRef.current || punchPosition(kind))) ?? await punchPosition(kind);   // a miss asks once more, as before
       breakPosRef.current = null;
+      // Require Location to Punch (Oct 19 2026): one longer try, then the
+      // how-to - never a location-less punch.
+      if (status?.locationRequired && !pos) pos = await requiredPunchPosition(null);
+      if (status?.locationRequired && !pos) {
+        say(LOCATION_SHORT);
+        await showLocationRequired();
+        return false;
+      }
       res = await punchDurable({ kind, tzOffsetMin: new Date().getTimezoneOffset(), pos, clickedAt: breakClickRef.current || undefined });
       if (res.ok) {
         setLostOut(false);
@@ -425,6 +443,7 @@ export default function TimeclockWidget() {
         // Refused by the server (already on a break, a stale shift): say why,
         // or the tap looks like it did nothing at all.
         say(res.error?.message || 'Punch failed.');
+        if (isLocationRequiredError(res.error)) { load(); showLocationRequired(); }
       }
     } finally {
       // One stamp per tap: a refused punch must not hand its moment to the next.
@@ -466,7 +485,15 @@ export default function TimeclockWidget() {
       return false;
     }
     eodAckRef.current = false;
-    const pos = await punchPosition('out');   // short budget: the punch landing comes first
+    let pos = await punchPosition('out');   // short budget: the punch landing comes first
+    // Require Location to Punch (Oct 19 2026): one longer try, then the how-to.
+    if (status?.locationRequired && !pos) pos = await requiredPunchPosition(null);
+    if (status?.locationRequired && !pos) {
+      say(LOCATION_SHORT);
+      setBusy(false);
+      await showLocationRequired();
+      return false;
+    }
     const res = await punchDurable({ kind: 'out', tzOffsetMin: new Date().getTimezoneOffset(), pos });
     if (res.ok) {
       setLostOut(false);
@@ -481,6 +508,7 @@ export default function TimeclockWidget() {
       setEodGate(true);    // a stale status let it go out without its message
     } else {
       say(res.error?.message || 'Punch failed.');
+      if (isLocationRequiredError(res.error)) { load(); showLocationRequired(); }
     }
     setBusy(false);
     return !!res.ok;
